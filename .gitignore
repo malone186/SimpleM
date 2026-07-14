@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.sqlite3
+.pytest_cache/
+.mypy_cache/
+
+# ML
+*.pkl
+*.joblib
+ml/models/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+frontend/.env*
+!frontend/.env.example
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
