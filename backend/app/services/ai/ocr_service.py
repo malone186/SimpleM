@@ -197,11 +197,78 @@ _TARGET_BY_DOC_TYPE: dict[str, RegisterTarget] = {
 }
 
 # ---------------------------------------------------------------------------
-# 초안 저장소
-# TODO(백엔드 B): 백엔드 A의 core/database.py 완성 후 models/ai.py OcrDocument로 전환.
-# 그때까지는 인메모리로 유지한다 (서버 재시작 시 초안 소실).
+# 초안 저장소 — PostgreSQL(ocr_documents 테이블) 우선, DB 연결 불가 시 인메모리 폴백.
+# 폴백 시 서버 재시작하면 초안이 사라지지만 OCR 기능 자체는 계속 동작한다 (PRD §7 가용성).
 # ---------------------------------------------------------------------------
-_DRAFTS: dict[str, dict[str, Any]] = {}
+_DRAFTS: dict[str, dict[str, Any]] = {}  # 인메모리 폴백
+_db_available: Optional[bool] = None
+
+
+def _check_db() -> bool:
+    """첫 사용 시 1회만 DB 연결을 확인하고 결과를 캐시한다."""
+    global _db_available
+    if _db_available is None:
+        try:
+            from sqlalchemy import text as _text
+
+            import app.models  # noqa: F401 — OcrDocument를 Base.metadata에 등록
+            from app.core.database import Base, SessionLocal, engine
+
+            Base.metadata.create_all(bind=engine)  # 테이블 없으면 생성 (있으면 no-op)
+            with SessionLocal() as session:
+                session.execute(_text("SELECT 1"))
+            _db_available = True
+            logger.info("OCR 저장소: PostgreSQL(ocr_documents) 사용")
+        except Exception as e:
+            _db_available = False
+            logger.warning("OCR 저장소: DB 연결 불가(%s) — 인메모리 폴백 (재시작 시 초안 소실)", e)
+    return _db_available
+
+
+def _row_to_draft(row) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "status": row.status,
+        "filename": row.filename,
+        "image_path": row.image_path,
+        "ocr_text": row.ocr_text,
+        "result": OcrResult.model_validate(row.result or {}),
+        "suggested_target": row.suggested_target,
+        "warnings": list(row.warnings or []),
+        "confirmed_target": row.confirmed_target,
+        "applied": row.applied,
+        "elapsed_sec": row.elapsed_sec,
+        "ocr_backend": row.ocr_backend,
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    }
+
+
+def _save_draft(draft: dict[str, Any]) -> None:
+    """초안을 저장(생성/갱신)한다."""
+    if not _check_db():
+        _DRAFTS[draft["id"]] = draft
+        return
+    from app.core.database import SessionLocal
+    from app.models.ai import OcrDocument
+
+    with SessionLocal() as session:
+        row = session.get(OcrDocument, draft["id"]) or OcrDocument(id=draft["id"])
+        row.status = draft["status"]
+        row.filename = draft["filename"]
+        row.image_path = draft["image_path"]
+        row.ocr_text = draft["ocr_text"]
+        row.result = draft["result"].model_dump()
+        row.warnings = draft["warnings"]
+        row.suggested_target = draft["suggested_target"]
+        row.confirmed_target = draft["confirmed_target"]
+        row.applied = draft["applied"]
+        row.elapsed_sec = draft["elapsed_sec"]
+        row.ocr_backend = draft["ocr_backend"]
+        row.created_at = draft["created_at"]
+        row.updated_at = draft["updated_at"]
+        session.add(row)
+        session.commit()
 
 
 class OcrError(Exception):
@@ -472,6 +539,11 @@ def _validate_result(result: OcrResult) -> list[str]:
 
     for item in result.items:
         item.warnings = []
+        # 부동소수점 잔재 정리 (6900.000000000001 → 6900.0)
+        for field in ("quantity", "unit_price", "amount"):
+            value = getattr(item, field)
+            if value is not None:
+                setattr(item, field, round(value, 2))
         q, u, a = item.quantity, item.unit_price, item.amount
         known = sum(v is not None for v in (q, u, a))
         if known == 3:
@@ -590,21 +662,39 @@ async def analyze_image(image_bytes: bytes, filename: Optional[str] = None) -> d
         "created_at": now,
         "updated_at": now,
     }
-    _DRAFTS[doc_id] = draft
+    _save_draft(draft)
     return draft
 
 
 def get_draft(doc_id: str) -> dict[str, Any]:
-    if doc_id not in _DRAFTS:
-        raise DraftNotFoundError(doc_id)
-    return _DRAFTS[doc_id]
+    if not _check_db():
+        if doc_id not in _DRAFTS:
+            raise DraftNotFoundError(doc_id)
+        return _DRAFTS[doc_id]
+    from app.core.database import SessionLocal
+    from app.models.ai import OcrDocument
+
+    with SessionLocal() as session:
+        row = session.get(OcrDocument, doc_id)
+        if row is None:
+            raise DraftNotFoundError(doc_id)
+        return _row_to_draft(row)
 
 
 def list_drafts(status: Optional[str] = None) -> list[dict[str, Any]]:
-    docs = sorted(_DRAFTS.values(), key=lambda d: d["created_at"], reverse=True)
-    if status:
-        docs = [d for d in docs if d["status"] == status]
-    return docs
+    if not _check_db():
+        docs = sorted(_DRAFTS.values(), key=lambda d: d["created_at"], reverse=True)
+        if status:
+            docs = [d for d in docs if d["status"] == status]
+        return docs
+    from app.core.database import SessionLocal
+    from app.models.ai import OcrDocument
+
+    with SessionLocal() as session:
+        query = session.query(OcrDocument).order_by(OcrDocument.created_at.desc())
+        if status:
+            query = query.filter(OcrDocument.status == status)
+        return [_row_to_draft(row) for row in query.all()]
 
 
 def update_draft(doc_id: str, patch: OcrDocumentUpdate) -> dict[str, Any]:
@@ -626,6 +716,7 @@ def update_draft(doc_id: str, patch: OcrDocumentUpdate) -> dict[str, Any]:
 
     draft["warnings"] = _validate_result(result)
     draft["updated_at"] = _now()
+    _save_draft(draft)
     return draft
 
 
@@ -646,6 +737,7 @@ def confirm_draft(doc_id: str, target: Optional[RegisterTarget] = None) -> tuple
     applied, message = _apply_to_target(draft, resolved)
     draft["applied"] = applied
     draft["updated_at"] = _now()
+    _save_draft(draft)
     return draft, message
 
 
@@ -655,6 +747,7 @@ def reject_draft(doc_id: str) -> dict[str, Any]:
         raise DraftStateError(f"이미 {draft['status']} 상태입니다")
     draft["status"] = "rejected"
     draft["updated_at"] = _now()
+    _save_draft(draft)
     return draft
 
 
