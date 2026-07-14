@@ -8,8 +8,13 @@
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy.orm import Session
+
+from app.core.auth import get_current_user
+from app.core.database import get_db
 
 from app.schemas.ai import (
     OcrConfirmRequest,
@@ -24,6 +29,21 @@ router = APIRouter(prefix="/chatbot", tags=["chatbot"])
 
 MAX_IMAGE_BYTES = 15 * 1024 * 1024
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+
+_oauth2_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
+
+
+def _optional_store_id(
+    token: Optional[str] = Depends(_oauth2_optional),
+    db: Session = Depends(get_db),
+) -> Optional[str]:
+    """로그인했으면 매장 식별자(이메일)를, 아니면 None을 돌려준다 — 확정 시 재고 반영에 사용."""
+    if not token:
+        return None
+    try:
+        return get_current_user(token=token, db=db).email
+    except HTTPException:
+        return None
 
 
 def _to_response(draft: dict) -> OcrDocumentResponse:
@@ -89,10 +109,17 @@ async def update_document(doc_id: str, patch: OcrDocumentUpdate) -> OcrDocumentR
 
 
 @router.post("/ocr/documents/{doc_id}/confirm", response_model=OcrConfirmResponse)
-async def confirm_document(doc_id: str, body: OcrConfirmRequest) -> OcrConfirmResponse:
-    """초안 확정 — 반드시 사람이 검토 후 호출한다 (챗봇에는 노출되지 않는 액션)."""
+async def confirm_document(
+    doc_id: str,
+    body: OcrConfirmRequest,
+    store_id: Optional[str] = Depends(_optional_store_id),
+) -> OcrConfirmResponse:
+    """초안 확정 — 반드시 사람이 검토 후 호출한다 (챗봇에는 노출되지 않는 액션).
+
+    로그인 토큰이 있으면 확정 즉시 해당 매장 재고에 입고 반영된다.
+    """
     try:
-        draft, message = ocr_service.confirm_draft(doc_id, target=body.target)
+        draft, message = ocr_service.confirm_draft(doc_id, target=body.target, store_id=store_id)
     except ocr_service.DraftNotFoundError:
         raise HTTPException(404, "문서를 찾을 수 없습니다")
     except ocr_service.DraftStateError as e:

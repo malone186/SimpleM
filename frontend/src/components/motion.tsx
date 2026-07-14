@@ -10,6 +10,9 @@ import {
 } from 'react-native';
 
 // ── 누르면 쑥 들어갔다 통통 튀어 돌아오는 프레스 (토스 버튼 특유의 쫀득함) ──
+// Pressable 자체를 애니메이션화 → 스타일(너비/flex 포함)이 실제 레이아웃 박스에 적용됨
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
 export function PressableScale({
   children,
   onPress,
@@ -42,9 +45,15 @@ export function PressableScale({
     }).start();
 
   return (
-    <Pressable onPress={onPress} onPressIn={pressIn} onPressOut={pressOut} disabled={disabled}>
-      <Animated.View style={[style, { transform: [{ scale }] }]}>{children}</Animated.View>
-    </Pressable>
+    <AnimatedPressable
+      onPress={onPress}
+      onPressIn={pressIn}
+      onPressOut={pressOut}
+      disabled={disabled}
+      style={[style, { transform: [{ scale }] }]}
+    >
+      {children}
+    </AnimatedPressable>
   );
 }
 

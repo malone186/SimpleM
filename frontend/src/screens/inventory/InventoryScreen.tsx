@@ -1,29 +1,15 @@
-// 재고 (프론트 A) — PRD ERP-4/7, AI-2: 재고 조회 + 안전재고 알림 + OCR 입고 확인
-import { useEffect, useState } from 'react';
+// 재고 (프론트 A) — PRD ERP-4/7, AI-2: 재고 조회 + 직접 등록 + 안전재고 알림 + OCR 입고 확인
+import { useCallback, useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { Alert, Platform, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { useAuth } from '../../auth/AuthContext';
 import { PressableScale } from '../../components/motion';
 import { Badge, Button, Card, ProgressBar, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
+import { adjustStock, createIngredient, listStocks, StockItem } from '../../lib/api/inventory';
 import { confirmOcrDocument, listOcrDocuments, rejectOcrDocument, uploadOcrImage, OcrDocument } from '../../lib/api/ocr';
 import { colors, typography } from '../../theme';
-
-type Stock = {
-  id: string;
-  name: string;
-  unit: string;
-  current: number;
-  safety: number;
-  max: number;
-};
-
-const STOCKS: Stock[] = [
-  { id: 'bean-yir', name: '에티오피아 예가체프', unit: 'kg', current: 1.2, safety: 3, max: 10 },
-  { id: 'milk', name: '서울우유 1L', unit: '팩', current: 3, safety: 6, max: 24 },
-  { id: 'syrup-va', name: '바닐라 시럽', unit: '병', current: 5, safety: 3, max: 12 },
-  { id: 'cup-13', name: '13oz 테이크아웃 컵', unit: '개', current: 420, safety: 200, max: 1000 },
-];
 
 const TARGET_LABEL: Record<string, string> = {
   inventory_inbound: '재고 입고',
@@ -37,17 +23,60 @@ function notify(title: string, message: string) {
 }
 
 export default function InventoryScreen() {
+  const { token } = useAuth();
+  const [stocks, setStocks] = useState<StockItem[]>([]);
   const [drafts, setDrafts] = useState<OcrDocument[]>([]);
   const [scanning, setScanning] = useState(false);
 
-  // 확정 전(draft) 문서를 서버에서 불러온다 — 새로고침해도 유지 (DB 저장)
-  const loadDrafts = () => listOcrDocuments('draft').then(setDrafts).catch(() => {});
-  useEffect(() => {
-    loadDrafts();
+  // 직접 등록 폼
+  const [formOpen, setFormOpen] = useState(false);
+  const [fName, setFName] = useState('');
+  const [fUnit, setFUnit] = useState('');
+  const [fPrice, setFPrice] = useState('');
+  const [fQty, setFQty] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const loadStocks = useCallback(() => {
+    if (!token) return;
+    listStocks(token).then(setStocks).catch(() => {});
+  }, [token]);
+
+  const loadDrafts = useCallback(() => {
+    listOcrDocuments('draft').then(setDrafts).catch(() => {});
   }, []);
 
+  useEffect(() => {
+    loadStocks();
+    loadDrafts();
+  }, [loadStocks, loadDrafts]);
+
+  // 재료 직접 등록 → 초기 수량이 있으면 바로 입고 처리
+  const registerIngredient = async () => {
+    if (!token) return notify('로그인 필요', '재료 등록은 로그인 후 가능합니다.');
+    if (!fName.trim() || !fUnit.trim()) return notify('입력 확인', '재료명과 단위는 필수입니다.');
+    setSaving(true);
+    try {
+      const ing = await createIngredient(token, {
+        name: fName.trim(),
+        unit: fUnit.trim(),
+        current_price: Number(fPrice) || 0,
+      });
+      const qty = Number(fQty) || 0;
+      if (qty > 0) {
+        await adjustStock(token, { ingredient_id: ing.id, quantity_change: qty, description: '직접 등록 초기 수량' });
+      }
+      setFName(''); setFUnit(''); setFPrice(''); setFQty('');
+      setFormOpen(false);
+      loadStocks();
+      notify('등록 완료', `${ing.name} 재료가 등록됐어요.`);
+    } catch (e) {
+      notify('등록 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const runOcr = async () => {
-    // 촬영(네이티브) 또는 이미지 선택(웹) → OCR API → 입고 초안 (자동 확정 금지)
     try {
       let picked: ImagePicker.ImagePickerResult;
       if (Platform.OS === 'web') {
@@ -72,10 +101,12 @@ export default function InventoryScreen() {
     }
   };
 
+  // OCR 확정 → 재고 입고 → 재고 현황 즉시 갱신 (실시간 연동)
   const confirm = async (doc: OcrDocument) => {
     try {
-      const res = await confirmOcrDocument(doc.id, doc.suggested_target ?? 'inventory_inbound');
+      const res = await confirmOcrDocument(doc.id, doc.suggested_target ?? 'inventory_inbound', token);
       setDrafts((prev) => prev.filter((d) => d.id !== doc.id));
+      loadStocks();
       notify('확정 완료', res.message);
     } catch (e) {
       notify('확정 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
@@ -119,7 +150,7 @@ export default function InventoryScreen() {
             <SectionTitle>입고 초안 확인 ({drafts.length})</SectionTitle>
             <Badge label="확정 전" tone="orange" />
           </View>
-          <Text style={styles.hint}>인식 결과를 확인하고 반영하세요 (자동 반영 안 됨)</Text>
+          <Text style={styles.hint}>인식 결과를 확인하고 반영하세요 — 반영하면 아래 재고 현황에 바로 더해집니다</Text>
           <View style={{ gap: 12, marginTop: 12 }}>
             {drafts.map((doc) => (
               <View key={doc.id} style={styles.docBox}>
@@ -162,7 +193,7 @@ export default function InventoryScreen() {
                   </PressableScale>
                   <PressableScale style={styles.confirmBtn} onPress={() => confirm(doc)} to={0.9}>
                     <Ionicons name="checkmark" size={16} color={colors.white} />
-                    <Text style={styles.confirmText}>확인했어요 · 반영</Text>
+                    <Text style={styles.confirmText}>확인했어요 · 재고 반영</Text>
                   </PressableScale>
                 </View>
               </View>
@@ -171,29 +202,67 @@ export default function InventoryScreen() {
         </Card>
       )}
 
-      {/* 재고 목록 */}
+      {/* 재고 현황 (실데이터) */}
       <View style={{ gap: 12 }}>
-        <SectionTitle>재고 현황</SectionTitle>
-        {STOCKS.map((s) => {
-          const ratio = s.current / s.max;
-          const low = s.current < s.safety;
-          return (
-            <Card key={s.id}>
-              <View style={styles.rowBetween}>
-                <Text style={styles.stockName}>{s.name}</Text>
-                {low ? <Badge label="안전재고 미달" tone="danger" /> : <Badge label="정상" tone="green" />}
-              </View>
-              <View style={styles.stockValueRow}>
-                <Text style={styles.stockValue}>
-                  {s.current}
-                  <Text style={styles.stockUnit}> {s.unit}</Text>
-                </Text>
-                <Text style={styles.safetyText}>안전재고 {s.safety}{s.unit}</Text>
-              </View>
-              <ProgressBar ratio={ratio} tone={low ? 'danger' : 'mocha'} />
-            </Card>
-          );
-        })}
+        <View style={styles.rowBetween}>
+          <SectionTitle>재고 현황 ({stocks.length})</SectionTitle>
+          <PressableScale style={styles.addBtn} onPress={() => setFormOpen((v) => !v)} to={0.92}>
+            <Ionicons name={formOpen ? 'remove' : 'add'} size={16} color={colors.white} />
+            <Text style={styles.confirmText}>{formOpen ? '닫기' : '재료 직접 등록'}</Text>
+          </PressableScale>
+        </View>
+
+        {/* 직접 등록 폼 */}
+        {formOpen && (
+          <Card tone="cream">
+            <SectionTitle>재료 직접 등록</SectionTitle>
+            <View style={styles.formRow}>
+              <TextInput style={[styles.input, { flex: 2 }]} placeholder="재료명 (예: 서울우유 1L)" value={fName} onChangeText={setFName} />
+              <TextInput style={[styles.input, { flex: 1 }]} placeholder="단위 (팩, kg)" value={fUnit} onChangeText={setFUnit} />
+            </View>
+            <View style={styles.formRow}>
+              <TextInput style={[styles.input, { flex: 1 }]} placeholder="단가 (원)" value={fPrice} onChangeText={setFPrice} keyboardType="numeric" />
+              <TextInput style={[styles.input, { flex: 1 }]} placeholder="초기 수량" value={fQty} onChangeText={setFQty} keyboardType="numeric" />
+            </View>
+            <Button label={saving ? '등록 중…' : '등록'} onPress={registerIngredient} disabled={saving} style={{ marginTop: 10 }} />
+          </Card>
+        )}
+
+        {!token ? (
+          <Card>
+            <Text style={styles.hint}>로그인하면 내 매장의 재고 현황이 표시됩니다.</Text>
+          </Card>
+        ) : stocks.length === 0 ? (
+          <Card>
+            <Text style={styles.hint}>
+              아직 등록된 재고가 없어요. 영수증을 촬영해 입고하거나 "재료 직접 등록"으로 시작해 보세요.
+            </Text>
+          </Card>
+        ) : (
+          stocks.map((s) => {
+            const low = s.safety_quantity > 0 && s.current_quantity < s.safety_quantity;
+            const denominator = Math.max(s.current_quantity, s.safety_quantity * 2, 1);
+            return (
+              <Card key={s.ingredient_id}>
+                <View style={styles.rowBetween}>
+                  <Text style={styles.stockName}>{s.name}</Text>
+                  {low ? <Badge label="안전재고 미달" tone="danger" /> : <Badge label="정상" tone="green" />}
+                </View>
+                <View style={styles.stockValueRow}>
+                  <Text style={styles.stockValue}>
+                    {s.current_quantity}
+                    <Text style={styles.stockUnit}> {s.unit}</Text>
+                  </Text>
+                  <Text style={styles.safetyText}>
+                    {s.current_price > 0 ? `단가 ₩${s.current_price.toLocaleString()} · ` : ''}
+                    안전재고 {s.safety_quantity}{s.unit}
+                  </Text>
+                </View>
+                <ProgressBar ratio={s.current_quantity / denominator} tone={low ? 'danger' : 'mocha'} />
+              </Card>
+            );
+          })
+        )}
       </View>
     </Screen>
   );
@@ -227,6 +296,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
   },
+  addBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: colors.pointOrange,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
   confirmText: { ...typography.L5, color: colors.white, fontWeight: '700' },
   rejectBtn: {
     flexDirection: 'row',
@@ -239,6 +317,17 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   rejectText: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700' },
+  formRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  input: {
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: colors.white,
+    ...typography.L4,
+    color: colors.espressoBrown,
+  },
   stockName: { ...typography.L3, color: colors.espressoBrown },
   stockValueRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 10, marginBottom: 8 },
   stockValue: { ...typography.L2, color: colors.espressoBrown },

@@ -755,9 +755,14 @@ def update_draft(doc_id: str, patch: OcrDocumentUpdate) -> dict[str, Any]:
     return draft
 
 
-def confirm_draft(doc_id: str, target: Optional[RegisterTarget] = None) -> tuple[dict[str, Any], str]:
+def confirm_draft(
+    doc_id: str,
+    target: Optional[RegisterTarget] = None,
+    store_id: Optional[str] = None,
+) -> tuple[dict[str, Any], str]:
     """사람이 검토를 마친 초안을 확정하고 대상 시스템 반영을 시도한다.
 
+    store_id는 로그인한 사장님의 매장 식별자(이메일) — 재고 반영 시 어느 매장인지에 필요.
     챗봇에는 이 함수를 노출하지 않는다 — 확정은 전용 화면에서 사람만 (PRD §5.3 안전장치).
     """
     draft = get_draft(doc_id)
@@ -769,7 +774,7 @@ def confirm_draft(doc_id: str, target: Optional[RegisterTarget] = None) -> tuple
 
     draft["status"] = "confirmed"
     draft["confirmed_target"] = resolved
-    applied, message = _apply_to_target(draft, resolved)
+    applied, message = _apply_to_target(draft, resolved, store_id)
     draft["applied"] = applied
     draft["updated_at"] = _now()
     _save_draft(draft)
@@ -786,40 +791,71 @@ def reject_draft(doc_id: str) -> dict[str, Any]:
     return draft
 
 
-def _apply_to_target(draft: dict[str, Any], target: RegisterTarget) -> tuple[bool, str]:
-    """확정된 문서를 대상 시스템에 반영.
+def _apply_to_target(draft: dict[str, Any], target: RegisterTarget, store_id: Optional[str]) -> tuple[bool, str]:
+    """확정된 문서를 대상 시스템에 반영."""
+    if target == "inventory_inbound":
+        if not store_id:
+            return False, "확정 완료. 재고 반영은 로그인 상태에서만 가능합니다 (매장 구분 필요)."
+        try:
+            return _apply_inventory_inbound(draft, store_id)
+        except Exception as e:  # 반영 실패해도 확정 상태는 유지, applied=False로 표시
+            logger.exception("OCR %s 재고 반영 실패", draft["id"])
+            return False, f"확정은 되었으나 재고 반영에 실패했습니다: {e}"
 
-    재고/매출 로직은 백엔드 A 소유이므로 직접 구현하지 않고, A가 합의된 함수를
-    inventory_service에 만들면 자동으로 연결된다. 그 전까지는 확정 상태로 보관만 한다.
+    # expense/sales는 담당 로직이 아직 없어 확정 상태로만 보관 (백엔드 A/C 구현 시 연동)
+    logger.info("OCR %s 확정 — %s 반영 로직 미구현, 확정 상태로 보관", draft["id"], target)
+    return False, f"확정 완료. {target} 반영 기능이 아직 없어 확정 상태로 보관합니다."
+
+
+def _apply_inventory_inbound(draft: dict[str, Any], store_id: str) -> tuple[bool, str]:
+    """OCR 품목을 백엔드 A의 재고 로직으로 입고 처리한다.
+
+    품목명이 등록된 재료와 일치하면 그 재료에 입고하고, 없으면 재료를 새로 등록 후 입고한다.
+    수량을 못 읽은 품목은 건너뛰고 사용자에게 알린다. 모든 변동은 StockTransaction 장부에 남는다.
     """
+    from app.core.database import SessionLocal
+    from app.models.inventory import Ingredient
+    from app.schemas.inventory import IngredientCreate, StockAdjust
+    from app.services import inventory_service
+
     result: OcrResult = draft["result"]
-    payload = {
-        "source": "ocr",
-        "ocr_document_id": draft["id"],
-        "vendor": result.vendor.model_dump(),
-        "issued_date": result.issued_date,
-        "items": [i.model_dump(exclude={"warnings"}) for i in result.items],
-        "total": result.total,
-    }
+    applied_names: list[str] = []
+    skipped_names: list[str] = []
 
-    # 연동 지점: 백엔드 A와 합의한 함수명 (target별)
-    hook_names = {
-        "inventory_inbound": "register_inbound_from_ocr",
-        "expense": "register_expense_from_ocr",
-        "sales": "register_sales_from_ocr",
-    }
-    try:
-        from app.services import inventory_service
-        hook = getattr(inventory_service, hook_names[target], None)
-    except ImportError:
-        hook = None
+    with SessionLocal() as db:
+        for item in result.items:
+            if not item.name or item.quantity is None or item.quantity <= 0:
+                skipped_names.append(item.name or "(이름 미인식)")
+                continue
 
-    if hook is None:
-        logger.info("OCR %s 확정 — %s 연동 함수 미구현, 확정 상태로 보관", draft["id"], target)
-        return False, f"확정 완료. {target} 반영 함수가 아직 없어 확정 상태로 보관합니다 (연동 시 자동 반영)."
-    try:
-        hook(payload)
-        return True, f"확정 완료 — {target}에 반영되었습니다."
-    except Exception as e:  # 반영 실패해도 확정 상태는 유지, applied=False로 표시
-        logger.exception("OCR %s의 %s 반영 실패", draft["id"], target)
-        return False, f"확정은 되었으나 {target} 반영에 실패했습니다: {e}"
+            ingredient = (
+                db.query(Ingredient)
+                .filter(Ingredient.store_id == store_id, Ingredient.name == item.name)
+                .first()
+            )
+            if ingredient is None:
+                ingredient = inventory_service.create_ingredient(
+                    db, store_id,
+                    IngredientCreate(
+                        name=item.name,
+                        unit=item.unit or "개",
+                        current_price=int(item.unit_price or 0),
+                    ),
+                )
+            elif item.unit_price:
+                ingredient.current_price = int(item.unit_price)  # 최신 매입 단가 반영
+
+            inventory_service.add_or_adjust_stock(
+                db, store_id,
+                StockAdjust(
+                    ingredient_id=ingredient.id,
+                    quantity_change=item.quantity,
+                    description=f"영수증 OCR 입고 (문서 {draft['id']})",
+                ),
+            )
+            applied_names.append(item.name)
+
+    message = f"재고 반영 완료 — {len(applied_names)}개 품목 입고"
+    if skipped_names:
+        message += f" (수량 미인식으로 제외: {', '.join(skipped_names[:3])})"
+    return True, message

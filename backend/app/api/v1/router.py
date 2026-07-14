@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from app.api.v1 import chatbot
 from app.api.v1.auth import router as auth_router
+from app.api.v1.inventory import router as inventory_router
 from app.api.v1.operation import router as operation_router
 
 api_router = APIRouter()
@@ -15,6 +16,10 @@ api_router.include_router(auth_router)
 # C (chatbot)
 api_router.include_router(chatbot.router)
 
+# I (inventory)
+api_router.include_router(inventory_router)
+
 # O (operation)
 api_router.include_router(operation_router)
+
 

@@ -68,11 +68,15 @@ export function listOcrDocuments(status?: OcrDocument['status']): Promise<OcrDoc
   return apiFetch(`/api/v1/chatbot/ocr/documents${query}`);
 }
 
-/** 사람이 확인을 마친 초안을 확정한다 (재고/지출/매출 반영). */
-export function confirmOcrDocument(id: string, target?: OcrDocument['suggested_target']) {
+/** 사람이 확인을 마친 초안을 확정한다. 토큰을 주면 확정 즉시 내 매장 재고에 입고 반영된다. */
+export function confirmOcrDocument(id: string, target?: OcrDocument['suggested_target'], token?: string | null) {
   return apiFetch<{ id: string; status: string; target: string; applied: boolean; message: string }>(
     `/api/v1/chatbot/ocr/documents/${id}/confirm`,
-    { method: 'POST', body: JSON.stringify({ target: target ?? null }) },
+    {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      body: JSON.stringify({ target: target ?? null }),
+    },
   );
 }
 
