@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from 'react';
 
-export type User = { email: string; name: string };
+export type User = { email: string; name: string; photo?: string };
 type StoredUser = User & { password: string };
 
 type AuthContextValue = {
@@ -20,6 +20,7 @@ type AuthContextValue = {
   login: (email: string, password: string, autoLogin: boolean) => Promise<void>;
   signup: (name: string, email: string, password: string, autoLogin: boolean) => Promise<void>;
   logout: () => Promise<void>;
+  updateProfile: (patch: { name?: string; password?: string; photo?: string }) => Promise<void>;
 };
 
 const USERS_KEY = 'simplem:users';
@@ -74,7 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const found = users.find((u) => u.email === email.trim().toLowerCase());
       if (!found) throw new Error('가입되지 않은 이메일이에요.');
       if (found.password !== password) throw new Error('비밀번호가 일치하지 않아요.');
-      const u: User = { email: found.email, name: found.name };
+      const u: User = { email: found.email, name: found.name, photo: found.photo };
       setUser(u);
       await persistSession(u, autoLogin);
     },
@@ -102,8 +103,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await AsyncStorage.removeItem(SESSION_KEY);
   }, []);
 
+  const updateProfile = useCallback(
+    async (patch: { name?: string; password?: string; photo?: string }) => {
+      if (!user) return;
+      const users = await readUsers();
+      const next = users.map((u) =>
+        u.email === user.email
+          ? {
+              ...u,
+              name: patch.name?.trim() ? patch.name.trim() : u.name,
+              password: patch.password ? patch.password : u.password,
+              photo: patch.photo !== undefined ? patch.photo : u.photo,
+            }
+          : u
+      );
+      await AsyncStorage.setItem(USERS_KEY, JSON.stringify(next));
+      const updated: User = {
+        email: user.email,
+        name: patch.name?.trim() || user.name,
+        photo: patch.photo !== undefined ? patch.photo : user.photo,
+      };
+      setUser(updated);
+      // 자동 로그인 세션이 있으면 갱신
+      const raw = await AsyncStorage.getItem(SESSION_KEY);
+      if (raw) await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(updated));
+    },
+    [user]
+  );
+
   return (
-    <AuthContext.Provider value={{ user, booting, login, signup, logout }}>
+    <AuthContext.Provider value={{ user, booting, login, signup, logout, updateProfile }}>
       {children}
     </AuthContext.Provider>
   );

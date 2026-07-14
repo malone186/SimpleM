@@ -1,7 +1,7 @@
 // 대시보드 (프론트 A) — Design Spec 기반
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, RefreshControl, StyleSheet, Text, View } from 'react-native';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 
 import { Ionicons } from '@expo/vector-icons';
 
@@ -42,15 +42,12 @@ export default function DashboardScreen() {
   const [runId, setRunId] = useState(0);
   const [showReport, setShowReport] = useState(false);
 
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
+  const navigation = useNavigation<any>();
   const isFocused = useIsFocused();
 
   // 오늘 상태 → 브루 표정 (매출 상승 = 활짝 웃는 브루)
-  const salesUp = true;
-  const brewMood = salesUp ? 'happy' : 'welcome';
-  const brewLine = salesUp
-    ? '오늘 매출이 어제보다 12% 올랐어요! 원두만 슬쩍 채워두면 완벽한 하루가 될 거예요 ☕'
-    : '천천히 가도 괜찮아요. 오늘 할 일부터 하나씩 같이 해봐요.';
+  const brewMood = 'happy';
   const scrollY = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -111,9 +108,9 @@ export default function DashboardScreen() {
         >
           <WelcomeHeader
             storeName={user?.name || '포자카페'}
+            photo={user?.photo}
             mood={brewMood}
-            brewLine={brewLine}
-            onLogout={logout}
+            onOpenProfile={() => navigation.navigate('Profile')}
           />
         </Animated.View>
 
