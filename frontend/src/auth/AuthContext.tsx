@@ -1,6 +1,5 @@
 // 인증 상태 관리 — 회원가입/로그인/로그아웃 + 자동 로그인 영구 저장
-// 백엔드 연동 전 데모: AsyncStorage에 가입자/세션을 저장하는 목업 구현.
-// 실제로는 core/auth.py(Firebase) 연동으로 교체.
+// 로그인/회원가입은 백엔드 API(core/auth.py) 연동. 프로필 수정은 로컬 세션 반영.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   createContext,
@@ -61,22 +60,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  const persistSession = useCallback(async (u: User, autoLogin: boolean) => {
+  const persistSession = useCallback(async (u: User & { token: string }, autoLogin: boolean) => {
     if (autoLogin) {
+      // 자동 로그인 시, 토큰과 프로필 정보를 로컬 디스크에 안전하게 객체로 저장합니다.
       await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(u));
     } else {
-      await AsyncStorage.removeItem(SESSION_KEY); // 체크 안 하면 이번 세션만 유지
+      await AsyncStorage.removeItem(SESSION_KEY); // 체크 안 하면 이번 세션만 임시 유지
     }
   }, []);
 
   const login = useCallback(
     async (email: string, password: string, autoLogin: boolean) => {
-      const users = await readUsers();
-      const found = users.find((u) => u.email === email.trim().toLowerCase());
-      if (!found) throw new Error('가입되지 않은 이메일이에요.');
-      if (found.password !== password) throw new Error('비밀번호가 일치하지 않아요.');
-      const u: User = { email: found.email, name: found.name, photo: found.photo };
-      setUser(u);
+      // 1. 백엔드 로그인 API로 이메일과 비밀번호를 전송합니다.
+      const response = await fetch('http://localhost:8000/api/v1/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password,
+        }),
+      });
+
+      // 2. 에러(비번 틀림, 없는 메일 등)면 메시지를 화면에 던집니다.
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || '로그인에 실패했어요.');
+      }
+
+      // 3. 성공하면 토큰과 닉네임을 받아옵니다.
+      const data = await response.json(); // { access_token, token_type, email, name }
+
+      const u = {
+        email: data.email,
+        name: data.name,
+        token: data.access_token,
+      };
+
+      // 4. 로그인 상태 업데이트 + 로컬 세션 보관.
+      setUser({ email: data.email, name: data.name });
       await persistSession(u, autoLogin);
     },
     [persistSession]
@@ -84,18 +107,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signup = useCallback(
     async (name: string, email: string, password: string, autoLogin: boolean) => {
-      const normalized = email.trim().toLowerCase();
-      const users = await readUsers();
-      if (users.some((u) => u.email === normalized)) {
-        throw new Error('이미 가입된 이메일이에요.');
+      // 1. 백엔드 회원가입 API로 정보를 송신합니다.
+      const response = await fetch('http://localhost:8000/api/v1/auth/signup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password,
+          name: name.trim(),
+          store_name: name.trim(), // 상호명을 점주명·매장명에 모두 채워넣습니다.
+        }),
+      });
+
+      // 2. 중복 이메일 등의 가입 에러 처리.
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || '회원가입에 실패했어요.');
       }
-      const newUser: StoredUser = { email: normalized, name: name.trim(), password };
-      await AsyncStorage.setItem(USERS_KEY, JSON.stringify([...users, newUser]));
-      const u: User = { email: newUser.email, name: newUser.name };
-      setUser(u);
-      await persistSession(u, autoLogin);
+
+      // 3. 가입 성공 시 즉시 로그인을 실행해 자동 로그인 상태가 되게 합니다.
+      await login(email, password, autoLogin);
     },
-    [persistSession]
+    [login]
   );
 
   const logout = useCallback(async () => {
@@ -124,9 +159,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         photo: patch.photo !== undefined ? patch.photo : user.photo,
       };
       setUser(updated);
-      // 자동 로그인 세션이 있으면 갱신
+      // 자동 로그인 세션이 있으면 토큰 등 기존 값은 유지하며 갱신
       const raw = await AsyncStorage.getItem(SESSION_KEY);
-      if (raw) await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(updated));
+      if (raw) {
+        const prev = JSON.parse(raw);
+        await AsyncStorage.setItem(SESSION_KEY, JSON.stringify({ ...prev, ...updated }));
+      }
     },
     [user]
   );

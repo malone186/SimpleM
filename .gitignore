@@ -8,6 +8,9 @@ venv/
 .pytest_cache/
 .mypy_cache/
 
+# OCR 업로드 원본 (백엔드 B)
+backend/uploads/
+
 # ML
 *.pkl
 *.joblib
