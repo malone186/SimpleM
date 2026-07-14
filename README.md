@@ -17,11 +17,14 @@ backend/app/
 │       └── tool_registry.py   공동 소유 (import 한 줄만 알파벳순 추가)
 └── ml/training/         백엔드 C
 
-frontend/src/
-├── app/dashboard, inventory, order        프론트 A
-├── app/chatbot, operation/*               프론트 B
-├── lib/api/client.ts                      공동 소유
-└── types/api.d.ts                         CI 자동 생성 (직접 수정 금지)
+frontend/ (React Native + Expo, TypeScript)
+├── App.tsx
+├── src/navigation/RootNavigator.tsx        공동 소유 (Screen 추가는 알파벳순)
+├── src/screens/dashboard, inventory, order         프론트 A
+├── src/screens/chatbot, operation/*                프론트 B
+├── src/components/dashboard, chatbot, operation
+├── src/lib/api/client.ts                   공동 소유
+└── src/types/api.d.ts                      CI 자동 생성 (직접 수정 금지)
 ```
 
 ## 새 기능 체크리스트
