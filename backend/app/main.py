@@ -24,13 +24,8 @@ except Exception:
 
 app = FastAPI(
     title="SimpleM 카페 통합 플랫폼 API",
-<<<<<<< HEAD
     description="재고·발주·운영·AI(챗봇/OCR/리포트) 기능을 제공하는 SimpleM 백엔드 API",
     version="1.0.0",
-=======
-    description="백엔드 C의 세무/예측/RAG 도구를 포함하고, 백엔드 A가 구현한 재고, 발주, 인증 기능이 포함된 서버 API 문서입니다.",
-    version="1.0.0"
->>>>>>> f90bc2613fc7e42a76314ac238a7a8b9f4321b51
 )
 
 # [CORS 설정] 프론트엔드 앱이 실행되는 브라우저 주소(8081번 포트)를 허용 목록으로 적어둡니다.
