@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SimpleM — OCR 입고 데모</title>
+<style>
+  :root { --line:#ddd; --muted:#777; --accent:#2563eb; --warn:#b45309; --ok:#15803d; --bad:#b91c1c; }
+  * { box-sizing:border-box; }
+  body { font-family:'Malgun Gothic',system-ui,sans-serif; margin:0; background:#f6f7f9; color:#222; }
+  header { background:#fff; border-bottom:1px solid var(--line); padding:14px 24px; }
+  header h1 { margin:0; font-size:18px; }
+  header small { color:var(--muted); }
+  main { display:grid; grid-template-columns:380px 1fr; gap:16px; padding:16px 24px; max-width:1280px; margin:0 auto; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .card h2 { margin:0 0 12px; font-size:15px; }
+  #preview { width:100%; min-height:160px; border:1px dashed var(--line); border-radius:8px; display:flex; align-items:center; justify-content:center; color:var(--muted); overflow:hidden; }
+  #preview img { max-width:100%; display:block; }
+  button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:8px 14px; cursor:pointer; font-size:13px; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.ok { background:var(--ok); border-color:var(--ok); color:#fff; }
+  button.bad { color:var(--bad); }
+  button:disabled { opacity:.5; cursor:default; }
+  input, select { border:1px solid var(--line); border-radius:6px; padding:6px 8px; font-size:13px; width:100%; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { border-bottom:1px solid var(--line); padding:6px 4px; text-align:left; }
+  th { color:var(--muted); font-weight:600; font-size:12px; }
+  td input { padding:5px 6px; }
+  .row { display:flex; gap:8px; margin:8px 0; align-items:center; }
+  .row label { width:90px; color:var(--muted); font-size:13px; flex:none; }
+  .warn { background:#fef3c7; color:var(--warn); border-radius:6px; padding:8px 10px; font-size:13px; margin:4px 0; }
+  .badge { font-size:11px; border-radius:20px; padding:2px 10px; }
+  .badge.draft { background:#dbeafe; color:#1d4ed8; }
+  .badge.confirmed { background:#dcfce7; color:var(--ok); }
+  .badge.rejected { background:#fee2e2; color:var(--bad); }
+  #doclist li { display:flex; gap:10px; align-items:center; padding:8px 4px; border-bottom:1px solid var(--line); cursor:pointer; list-style:none; font-size:13px; }
+  #doclist li:hover { background:#f1f5f9; }
+  #doclist { margin:0; padding:0; }
+  #status { font-size:13px; color:var(--muted); min-height:20px; margin-top:8px; }
+  .totals { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:8px; }
+  .actions { display:flex; gap:8px; margin-top:14px; }
+  .spinner { display:inline-block; width:14px; height:14px; border:2px solid #cbd5e1; border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; vertical-align:-2px; margin-right:6px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>OCR 입고 데모 <small>— 거래명세서/영수증 사진 → 초안 → 수정 → 확정 (백엔드 B 개발용, 정식 화면은 프론트 A의 재고 페이지)</small></h1>
+</header>
+<main>
+  <section>
+    <div class="card">
+      <h2>1. 사진 업로드</h2>
+      <input type="file" id="file" accept="image/jpeg,image/png,image/webp">
+      <div id="preview" style="margin-top:10px">이미지를 선택하세요</div>
+      <div class="actions">
+        <button class="primary" id="analyze">OCR 분석 시작</button>
+      </div>
+      <div id="status"></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h2>문서 목록</h2>
+      <ul id="doclist"></ul>
+    </div>
+  </section>
+
+  <section>
+    <div class="card" id="editor" hidden>
+      <h2>2. 인식 결과 확인·수정 <span class="badge draft" id="docstatus">draft</span></h2>
+      <div id="warnings"></div>
+      <div class="row"><label>문서 종류</label>
+        <select id="doc_type">
+          <option value="purchase_statement">거래명세서 (매입)</option>
+          <option value="tax_invoice">세금계산서</option>
+          <option value="receipt">영수증 (지출)</option>
+          <option value="sales_summary">매출 정산표</option>
+          <option value="unknown">알 수 없음</option>
+        </select>
+      </div>
+      <div class="row"><label>거래처</label><input id="vendor_name"><input id="vendor_biz_no" placeholder="사업자번호"></div>
+      <div class="row"><label>발행일</label><input id="issued_date" placeholder="YYYY-MM-DD"></div>
+
+      <table id="items">
+        <thead><tr><th style="width:26%">품목</th><th>규격</th><th>수량</th><th>단위</th><th>단가</th><th>금액</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <button id="addrow" style="margin-top:8px">+ 품목 추가</button>
+
+      <div class="totals">
+        <div><label style="font-size:12px;color:var(--muted)">할인</label><input id="discount"></div>
+        <div><label style="font-size:12px;color:var(--muted)">공급가액</label><input id="subtotal"></div>
+        <div><label style="font-size:12px;color:var(--muted)">세액</label><input id="tax"></div>
+        <div><label style="font-size:12px;color:var(--muted)">합계</label><input id="total"></div>
+      </div>
+
+      <div class="row" style="margin-top:12px"><label>등록 대상</label>
+        <select id="target">
+          <option value="inventory_inbound">재고 입고</option>
+          <option value="expense">지출 기록</option>
+          <option value="sales">매출 기록</option>
+        </select>
+      </div>
+
+      <div class="actions">
+        <button class="primary" id="save">저장 (재검증)</button>
+        <button class="ok" id="confirm">확정 — 시스템에 등록</button>
+        <button class="bad" id="reject">반려</button>
+      </div>
+      <div id="editstatus" style="font-size:13px;color:var(--muted);margin-top:8px"></div>
+    </div>
+    <div class="card" id="placeholder"><h2>2. 인식 결과</h2><p style="color:var(--muted);font-size:13px">왼쪽에서 이미지를 분석하거나 문서 목록에서 문서를 선택하세요.</p></div>
+  </section>
+</main>
+
+<script>
+const API = "/api/v1/chatbot/ocr/documents";
+let current = null;
+
+const $ = (id) => document.getElementById(id);
+const num = (v) => v === "" || v === null || isNaN(Number(v)) ? null : Number(v);
+
+$("file").addEventListener("change", () => {
+  const f = $("file").files[0];
+  if (!f) return;
+  $("preview").innerHTML = "";
+  const img = document.createElement("img");
+  img.src = URL.createObjectURL(f);
+  $("preview").appendChild(img);
+});
+
+$("analyze").addEventListener("click", async () => {
+  const f = $("file").files[0];
+  if (!f) { $("status").textContent = "이미지를 먼저 선택하세요."; return; }
+  $("analyze").disabled = true;
+  $("status").innerHTML = '<span class="spinner"></span>분석 중… (로컬 모델이라 수십 초 걸릴 수 있어요)';
+  try {
+    const fd = new FormData();
+    fd.append("file", f);
+    const t0 = performance.now();
+    const r = await fetch(API, { method: "POST", body: fd });
+    if (!r.ok) throw new Error((await r.json()).detail || r.status);
+    const doc = await r.json();
+    render(doc);
+    const total = ((performance.now() - t0) / 1000).toFixed(1);
+    const ocr = doc.elapsed_sec != null ? `분석 ${doc.elapsed_sec}초` : "";
+    const engine = doc.ocr_backend ? ` · 엔진 ${doc.ocr_backend}` : "";
+    $("status").textContent = `✅ 분석 완료 — ${ocr} (전체 ${total}초)${engine}. 내용을 확인하고 필요하면 수정하세요.`;
+    loadList();
+  } catch (e) {
+    $("status").textContent = "실패: " + e.message;
+  } finally {
+    $("analyze").disabled = false;
+  }
+});
+
+function itemRow(it = {}) {
+  const tr = document.createElement("tr");
+  const cells = ["name","spec","quantity","unit","unit_price","amount"].map(k => {
+    const td = document.createElement("td");
+    const inp = document.createElement("input");
+    inp.value = it[k] ?? "";
+    inp.dataset.k = k;
+    td.appendChild(inp);
+    return td;
+  });
+  cells.forEach(c => tr.appendChild(c));
+  const del = document.createElement("td");
+  const btn = document.createElement("button");
+  btn.textContent = "✕"; btn.className = "bad";
+  btn.onclick = () => tr.remove();
+  del.appendChild(btn); tr.appendChild(del);
+  if ((it.warnings || []).length) {
+    tr.title = it.warnings.join("\n");
+    tr.style.background = "#fffbeb";
+  }
+  return tr;
+}
+
+function render(doc) {
+  current = doc;
+  $("placeholder").hidden = true;
+  $("editor").hidden = false;
+  const st = $("docstatus");
+  st.textContent = doc.status; st.className = "badge " + doc.status;
+  const r = doc.result;
+  $("doc_type").value = r.doc_type;
+  $("vendor_name").value = r.vendor?.name ?? "";
+  $("vendor_biz_no").value = r.vendor?.biz_no ?? "";
+  $("issued_date").value = r.issued_date ?? "";
+  $("discount").value = r.discount ?? "";
+  $("subtotal").value = r.subtotal ?? "";
+  $("tax").value = r.tax ?? "";
+  $("total").value = r.total ?? "";
+  if (doc.suggested_target) $("target").value = doc.confirmed_target || doc.suggested_target;
+  const tb = $("items").querySelector("tbody");
+  tb.innerHTML = "";
+  r.items.forEach(it => tb.appendChild(itemRow(it)));
+  const w = $("warnings");
+  w.innerHTML = "";
+  const all = [...doc.warnings, ...r.items.flatMap(i => (i.warnings||[]).map(m => `[${i.name}] ${m}`))];
+  all.forEach(m => { const d = document.createElement("div"); d.className = "warn"; d.textContent = "⚠ " + m; w.appendChild(d); });
+  const editable = doc.status === "draft";
+  ["save","confirm","reject","addrow"].forEach(id => $(id).disabled = !editable);
+  $("editor").querySelectorAll("input,select").forEach(el => el.disabled = !editable);
+  $("editstatus").textContent = doc.status === "confirmed"
+    ? (doc.applied ? "확정·시스템 반영 완료" : "확정됨 — 대상 시스템 연동 대기 중") : "";
+}
+
+function collectPatch() {
+  const items = [...$("items").querySelectorAll("tbody tr")].map(tr => {
+    const o = {};
+    tr.querySelectorAll("input").forEach(inp => {
+      const k = inp.dataset.k;
+      o[k] = ["quantity","unit_price","amount"].includes(k) ? num(inp.value) : (inp.value || null);
+    });
+    return o;
+  }).filter(o => o.name);
+  return {
+    doc_type: $("doc_type").value,
+    vendor: { name: $("vendor_name").value || null, biz_no: $("vendor_biz_no").value || null },
+    issued_date: $("issued_date").value || null,
+    items,
+    discount: num($("discount").value),
+    subtotal: num($("subtotal").value), tax: num($("tax").value), total: num($("total").value),
+    suggested_target: $("target").value,
+  };
+}
+
+$("addrow").addEventListener("click", () => $("items").querySelector("tbody").appendChild(itemRow()));
+
+$("save").addEventListener("click", async () => {
+  const r = await fetch(`${API}/${current.id}`, { method: "PATCH",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify(collectPatch()) });
+  if (r.ok) { render(await r.json()); $("editstatus").textContent = "저장·재검증 완료"; }
+  else $("editstatus").textContent = "저장 실패: " + (await r.json()).detail;
+});
+
+$("confirm").addEventListener("click", async () => {
+  if (!window.confirm("확정하면 선택한 시스템에 등록됩니다. 내용을 확인했나요?")) return;
+  const r = await fetch(`${API}/${current.id}/confirm`, { method: "POST",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify({ target: $("target").value }) });
+  const data = await r.json();
+  if (r.ok) { $("editstatus").textContent = data.message; loadList(); loadDoc(current.id); }
+  else $("editstatus").textContent = "확정 실패: " + data.detail;
+});
+
+$("reject").addEventListener("click", async () => {
+  const r = await fetch(`${API}/${current.id}/reject`, { method: "POST" });
+  if (r.ok) { render(await r.json()); loadList(); }
+});
+
+async function loadDoc(id) {
+  const r = await fetch(`${API}/${id}`);
+  if (r.ok) render(await r.json());
+}
+
+async function loadList() {
+  const docs = await (await fetch(API)).json();
+  const ul = $("doclist");
+  ul.innerHTML = "";
+  docs.forEach(d => {
+    const li = document.createElement("li");
+    li.innerHTML = `<span class="badge ${d.status}">${d.status}</span>
+      <span>${d.result.vendor?.name ?? "(거래처 미상)"}</span>
+      <span style="color:var(--muted)">${d.result.issued_date ?? ""}</span>
+      <span style="margin-left:auto">${d.result.total != null ? d.result.total.toLocaleString() + "원" : ""}</span>`;
+    li.onclick = () => loadDoc(d.id);
+    ul.appendChild(li);
+  });
+  if (!docs.length) ul.innerHTML = '<li style="color:var(--muted);cursor:default">아직 문서가 없습니다</li>';
+}
+loadList();
+</script>
+</body>
+</html>
