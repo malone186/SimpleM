@@ -3,8 +3,10 @@
 from fastapi import APIRouter
 
 from app.api.v1 import chatbot
+from app.api.v1.auth import router as auth_router
 
 api_router = APIRouter()
+api_router.include_router(auth_router)     # 백엔드 A (auth)
 api_router.include_router(chatbot.router)  # 백엔드 B
 # api_router.include_router(inventory.router)  # 백엔드 A
 # api_router.include_router(operation.router)  # 백엔드 C

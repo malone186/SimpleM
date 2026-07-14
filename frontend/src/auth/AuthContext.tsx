@@ -60,22 +60,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  const persistSession = useCallback(async (u: User, autoLogin: boolean) => {
+  const persistSession = useCallback(async (u: User & { token: string }, autoLogin: boolean) => {
     if (autoLogin) {
+      // 자동 로그인 시, 토큰과 프로필 정보를 로컬 디스크에 안전하게 객체로 저장합니다.
       await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(u));
     } else {
-      await AsyncStorage.removeItem(SESSION_KEY); // 체크 안 하면 이번 세션만 유지
+      await AsyncStorage.removeItem(SESSION_KEY); // 체크 안 하면 이번 세션만 임시 유지
     }
   }, []);
 
   const login = useCallback(
     async (email: string, password: string, autoLogin: boolean) => {
-      const users = await readUsers();
-      const found = users.find((u) => u.email === email.trim().toLowerCase());
-      if (!found) throw new Error('가입되지 않은 이메일이에요.');
-      if (found.password !== password) throw new Error('비밀번호가 일치하지 않아요.');
-      const u: User = { email: found.email, name: found.name };
-      setUser(u);
+      // 1. 진짜 백엔드 서버의 로그인 API로 이메일과 비밀번호를 전송합니다.
+      const response = await fetch('http://localhost:8000/api/v1/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password,
+        }),
+      });
+
+      // 2. 만약 에러가 발생한 경우 (비번 틀림, 없는 메일 등) 에러 메시지를 가로채어 화면에 던집니다.
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || '로그인에 실패했어요.');
+      }
+
+      // 3. 로그인이 성공하면 토큰과 닉네임을 받아옵니다.
+      const data = await response.json(); // { access_token, token_type, email, name }
+      
+      const u = {
+        email: data.email,
+        name: data.name,
+        token: data.access_token,
+      };
+
+      // 4. 화면의 로그인 사용자 상태를 업데이트하고 로컬 세션 보관소에 저장합니다.
+      setUser({ email: data.email, name: data.name });
       await persistSession(u, autoLogin);
     },
     [persistSession]
@@ -83,24 +107,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signup = useCallback(
     async (name: string, email: string, password: string, autoLogin: boolean) => {
-      const normalized = email.trim().toLowerCase();
-      const users = await readUsers();
-      if (users.some((u) => u.email === normalized)) {
-        throw new Error('이미 가입된 이메일이에요.');
+      // 1. 진짜 백엔드 서버의 회원가입 API로 정보를 송신합니다.
+      const response = await fetch('http://localhost:8000/api/v1/auth/signup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password,
+          name: name.trim(),
+          store_name: name.trim(), // 화면의 상호명을 점주명과 매장명에 모두 채워넣습니다.
+        }),
+      });
+
+      // 2. 중복 이메일 등의 가입 에러가 날 시 예외 처리합니다.
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || '회원가입에 실패했어요.');
       }
-      const newUser: StoredUser = { email: normalized, name: name.trim(), password };
-      await AsyncStorage.setItem(USERS_KEY, JSON.stringify([...users, newUser]));
-      const u: User = { email: newUser.email, name: newUser.name };
-      setUser(u);
-      await persistSession(u, autoLogin);
+
+      // 3. 회원가입이 성공하면, 즉시 연달아 로그인을 실행하여 자동으로 로그인 상태가 되게 합니다.
+      await login(email, password, autoLogin);
     },
-    [persistSession]
+    [login]
   );
 
   const logout = useCallback(async () => {
     setUser(null);
     await AsyncStorage.removeItem(SESSION_KEY);
   }, []);
+
 
   return (
     <AuthContext.Provider value={{ user, booting, login, signup, logout }}>
