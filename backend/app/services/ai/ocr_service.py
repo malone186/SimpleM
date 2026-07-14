@@ -226,47 +226,82 @@ def _check_db() -> bool:
 
 
 def _row_to_draft(row) -> dict[str, Any]:
+    """DB 행(문서+품목)을 서비스 표준 draft dict로 복원한다. 검증 경고는 재계산."""
+    result = OcrResult(
+        doc_type=row.doc_type,
+        vendor={"name": row.vendor_name, "biz_no": None, "phone": None},
+        issued_date=row.issued_date,
+        items=[
+            OcrItem(
+                name=item.name,
+                spec=item.spec,
+                quantity=float(item.quantity) if item.quantity is not None else None,
+                unit=item.unit,
+                unit_price=float(item.unit_price) if item.unit_price is not None else None,
+                amount=float(item.amount) if item.amount is not None else None,
+            )
+            for item in row.items
+        ],
+        discount=float(row.discount) if row.discount is not None else None,
+        subtotal=float(row.subtotal) if row.subtotal is not None else None,
+        tax=float(row.tax) if row.tax is not None else None,
+        total=float(row.total) if row.total is not None else None,
+    )
+    warnings = _validate_result(result)  # 저장하지 않으므로 조회 시 재계산 (항상 최신 로직 기준)
     return {
         "id": row.id,
         "status": row.status,
-        "filename": row.filename,
-        "image_path": row.image_path,
-        "ocr_text": row.ocr_text,
-        "result": OcrResult.model_validate(row.result or {}),
-        "suggested_target": row.suggested_target,
-        "warnings": list(row.warnings or []),
-        "confirmed_target": row.confirmed_target,
+        "filename": None,
+        "image_path": None,  # 원본은 uploads/ocr/{id}.* 규칙으로 디스크에만 보관
+        "ocr_text": None,
+        "result": result,
+        "suggested_target": row.target,
+        "warnings": warnings,
+        "confirmed_target": row.target if row.status == "confirmed" else None,
         "applied": row.applied,
-        "elapsed_sec": row.elapsed_sec,
-        "ocr_backend": row.ocr_backend,
+        "elapsed_sec": None,
+        "ocr_backend": None,
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
 
 
 def _save_draft(draft: dict[str, Any]) -> None:
-    """초안을 저장(생성/갱신)한다."""
+    """초안을 저장(생성/갱신)한다. 품목은 ocr_items에 행 단위로 저장."""
     if not _check_db():
         _DRAFTS[draft["id"]] = draft
         return
     from app.core.database import SessionLocal
-    from app.models.ai import OcrDocument
+    from app.models import ai as ai_models
 
+    result: OcrResult = draft["result"]
     with SessionLocal() as session:
-        row = session.get(OcrDocument, draft["id"]) or OcrDocument(id=draft["id"])
+        row = session.get(ai_models.OcrDocument, draft["id"]) or ai_models.OcrDocument(id=draft["id"])
         row.status = draft["status"]
-        row.filename = draft["filename"]
-        row.image_path = draft["image_path"]
-        row.ocr_text = draft["ocr_text"]
-        row.result = draft["result"].model_dump()
-        row.warnings = draft["warnings"]
-        row.suggested_target = draft["suggested_target"]
-        row.confirmed_target = draft["confirmed_target"]
+        row.doc_type = result.doc_type
+        row.vendor_name = result.vendor.name
+        row.issued_date = result.issued_date
+        row.discount = result.discount
+        row.subtotal = result.subtotal
+        row.tax = result.tax
+        row.total = result.total
+        row.target = draft["confirmed_target"] or draft["suggested_target"]
         row.applied = draft["applied"]
-        row.elapsed_sec = draft["elapsed_sec"]
-        row.ocr_backend = draft["ocr_backend"]
         row.created_at = draft["created_at"]
         row.updated_at = draft["updated_at"]
+        # 품목은 통째로 교체 (수정 시 추가/삭제/변경을 한 번에 반영)
+        row.items = [
+            ai_models.OcrItem(
+                position=idx,
+                name=item.name,
+                spec=item.spec,
+                quantity=item.quantity,
+                unit=item.unit,
+                unit_price=item.unit_price,
+                amount=item.amount,
+            )
+            for idx, item in enumerate(result.items)
+        ]
         session.add(row)
         session.commit()
 

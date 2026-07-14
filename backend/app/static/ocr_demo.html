@@ -77,7 +77,7 @@
           <option value="unknown">알 수 없음</option>
         </select>
       </div>
-      <div class="row"><label>거래처</label><input id="vendor_name"><input id="vendor_biz_no" placeholder="사업자번호"></div>
+      <div class="row"><label>거래처</label><input id="vendor_name"></div>
       <div class="row"><label>발행일</label><input id="issued_date" placeholder="YYYY-MM-DD"></div>
 
       <table id="items">
@@ -185,7 +185,6 @@ function render(doc) {
   const r = doc.result;
   $("doc_type").value = r.doc_type;
   $("vendor_name").value = r.vendor?.name ?? "";
-  $("vendor_biz_no").value = r.vendor?.biz_no ?? "";
   $("issued_date").value = r.issued_date ?? "";
   $("discount").value = r.discount ?? "";
   $("subtotal").value = r.subtotal ?? "";
@@ -217,7 +216,7 @@ function collectPatch() {
   }).filter(o => o.name);
   return {
     doc_type: $("doc_type").value,
-    vendor: { name: $("vendor_name").value || null, biz_no: $("vendor_biz_no").value || null },
+    vendor: { name: $("vendor_name").value || null },
     issued_date: $("issued_date").value || null,
     items,
     discount: num($("discount").value),
