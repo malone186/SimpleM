@@ -1,0 +1,153 @@
+// 인증 상태 관리 — 회원가입/로그인/로그아웃 + 자동 로그인 영구 저장
+// 백엔드 연동 전 데모: AsyncStorage에 가입자/세션을 저장하는 목업 구현.
+// 실제로는 core/auth.py(Firebase) 연동으로 교체.
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from 'react';
+
+export type User = { email: string; name: string };
+type StoredUser = User & { password: string };
+
+type AuthContextValue = {
+  user: User | null;
+  booting: boolean;
+  login: (email: string, password: string, autoLogin: boolean) => Promise<void>;
+  signup: (name: string, email: string, password: string, autoLogin: boolean) => Promise<void>;
+  logout: () => Promise<void>;
+};
+
+const USERS_KEY = 'simplem:users';
+const SESSION_KEY = 'simplem:session'; // 자동 로그인 체크 시에만 저장
+
+// 데모 계정 — 회원가입 없이 바로 로그인해볼 수 있도록 기본 제공
+const DEMO_USER: StoredUser = { email: 'test@test.com', password: '1234', name: '포자카페' };
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+async function readUsers(): Promise<StoredUser[]> {
+  const raw = await AsyncStorage.getItem(USERS_KEY);
+  return raw ? (JSON.parse(raw) as StoredUser[]) : [];
+}
+
+// 데모 계정이 없으면 넣어준다
+async function seedDemoUser(): Promise<void> {
+  const users = await readUsers();
+  if (!users.some((u) => u.email === DEMO_USER.email)) {
+    await AsyncStorage.setItem(USERS_KEY, JSON.stringify([...users, DEMO_USER]));
+  }
+}
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [booting, setBooting] = useState(true);
+
+  // 앱 시작 시: 데모 계정 시드 + 자동 로그인 세션 복원
+  useEffect(() => {
+    (async () => {
+      try {
+        await seedDemoUser();
+        const raw = await AsyncStorage.getItem(SESSION_KEY);
+        if (raw) setUser(JSON.parse(raw) as User);
+      } finally {
+        setBooting(false);
+      }
+    })();
+  }, []);
+
+  const persistSession = useCallback(async (u: User & { token: string }, autoLogin: boolean) => {
+    if (autoLogin) {
+      // 자동 로그인 시, 토큰과 프로필 정보를 로컬 디스크에 안전하게 객체로 저장합니다.
+      await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(u));
+    } else {
+      await AsyncStorage.removeItem(SESSION_KEY); // 체크 안 하면 이번 세션만 임시 유지
+    }
+  }, []);
+
+  const login = useCallback(
+    async (email: string, password: string, autoLogin: boolean) => {
+      // 1. 진짜 백엔드 서버의 로그인 API로 이메일과 비밀번호를 전송합니다.
+      const response = await fetch('http://localhost:8000/api/v1/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password,
+        }),
+      });
+
+      // 2. 만약 에러가 발생한 경우 (비번 틀림, 없는 메일 등) 에러 메시지를 가로채어 화면에 던집니다.
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || '로그인에 실패했어요.');
+      }
+
+      // 3. 로그인이 성공하면 토큰과 닉네임을 받아옵니다.
+      const data = await response.json(); // { access_token, token_type, email, name }
+      
+      const u = {
+        email: data.email,
+        name: data.name,
+        token: data.access_token,
+      };
+
+      // 4. 화면의 로그인 사용자 상태를 업데이트하고 로컬 세션 보관소에 저장합니다.
+      setUser({ email: data.email, name: data.name });
+      await persistSession(u, autoLogin);
+    },
+    [persistSession]
+  );
+
+  const signup = useCallback(
+    async (name: string, email: string, password: string, autoLogin: boolean) => {
+      // 1. 진짜 백엔드 서버의 회원가입 API로 정보를 송신합니다.
+      const response = await fetch('http://localhost:8000/api/v1/auth/signup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password,
+          name: name.trim(),
+          store_name: name.trim(), // 화면의 상호명을 점주명과 매장명에 모두 채워넣습니다.
+        }),
+      });
+
+      // 2. 중복 이메일 등의 가입 에러가 날 시 예외 처리합니다.
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || '회원가입에 실패했어요.');
+      }
+
+      // 3. 회원가입이 성공하면, 즉시 연달아 로그인을 실행하여 자동으로 로그인 상태가 되게 합니다.
+      await login(email, password, autoLogin);
+    },
+    [login]
+  );
+
+  const logout = useCallback(async () => {
+    setUser(null);
+    await AsyncStorage.removeItem(SESSION_KEY);
+  }, []);
+
+
+  return (
+    <AuthContext.Provider value={{ user, booting, login, signup, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+  return ctx;
+}
