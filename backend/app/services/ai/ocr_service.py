@@ -608,6 +608,51 @@ def _validate_result(result: OcrResult) -> list[str]:
     return doc_warnings
 
 
+def _merge_duplicate_items(result: OcrResult) -> None:
+    """[OCR 결과 품목 중복 병합 알고리즘]
+    하나의 영수증 명세서 내에 동일한 이름을 지닌 품목이 여러 개 흩어져 판독될 경우,
+    이를 한 줄로 합치고 수량(quantity)과 총금액(amount)을 합산해 줍니다.
+    """
+    if not result.items:
+        return
+
+    merged: dict[tuple[str, str], OcrItem] = {}
+    
+    for item in result.items:
+        if not item.name:
+            continue
+            
+        # 이름과 단위를 기준으로 묶어줍니다.
+        name_clean = item.name.strip()
+        unit_clean = (item.unit or "").strip()
+        key = (name_clean, unit_clean)
+        
+        if key not in merged:
+            merged[key] = item
+        else:
+            existing = merged[key]
+            # 1. 수량 합산
+            if item.quantity is not None:
+                existing.quantity = (existing.quantity or 0.0) + item.quantity
+            # 2. 총액 합산
+            if item.amount is not None:
+                existing.amount = (existing.amount or 0.0) + item.amount
+            # 3. 규격(spec) 합산 (콤마로 이어서 유실되지 않게)
+            if item.spec and existing.spec and item.spec != existing.spec:
+                existing.spec = f"{existing.spec}, {item.spec}"
+            elif item.spec and not existing.spec:
+                existing.spec = item.spec
+                
+            # 4. 단가 재조정
+            # 총액과 수량이 존재하면 단가를 역산하고, 그렇지 않으면 기존 단가를 유지합니다.
+            if existing.amount is not None and existing.quantity and existing.quantity > 0:
+                existing.unit_price = round(existing.amount / existing.quantity, 2)
+            elif item.unit_price is not None and existing.unit_price is None:
+                existing.unit_price = item.unit_price
+
+    result.items = list(merged.values())
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -638,6 +683,7 @@ async def analyze_image(image_bytes: bytes, filename: Optional[str] = None) -> d
     logger.info("OCR %s 완료 — %.1fs (%s)", doc_id, elapsed, OCR_BACKEND)
 
     result = OcrResult.model_validate(raw)
+    _merge_duplicate_items(result)  # 동일 품목 수량/금액 자동 병합
     doc_warnings = _validate_result(result)
 
     now = _now()
