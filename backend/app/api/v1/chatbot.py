@@ -58,6 +58,7 @@ def _to_response(draft: dict) -> OcrDocumentResponse:
         applied=draft["applied"],
         elapsed_sec=draft.get("elapsed_sec"),
         ocr_backend=draft.get("ocr_backend"),
+        clova_usage=draft.get("clova_usage"),
         created_at=draft["created_at"],
         updated_at=draft["updated_at"],
     )
