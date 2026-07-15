@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.api.v1.router import api_router
-from app.core.database import Base, engine, get_db
+from app.core.database import Base, engine, get_db, SessionLocal
 
 # [설계도 수집] 데이터베이스 테이블을 만들기 전에, models 폴더 안의 설계도들을 수집하여 등록합니다.
 import app.models  # noqa: F401
@@ -19,6 +19,28 @@ logger = logging.getLogger(__name__)
 # DB가 꺼져 있어도 서버 자체는 뜨도록 한다 — DB와 무관한 기능(OCR 등)은 독립 동작해야 함 (PRD §7)
 try:
     Base.metadata.create_all(bind=engine)
+    
+    # [한글 주석] 로그인 데모를 즉시 하실 수 있게 테스트용 사장님 계정을 자동으로 생성(시딩)해 둡니다.
+    db_session = SessionLocal()
+    try:
+        from app.core.auth import get_password_hash
+        from app.models.user import User
+        owner_exists = db_session.query(User).filter(User.email == "owner@cafe.com").first()
+        if not owner_exists:
+            hashed_pwd = get_password_hash("owner123")
+            test_user = User(
+                email="owner@cafe.com",
+                hashed_password=hashed_pwd,
+                name="포슬이",
+                store_name="포슬카페"
+            )
+            db_session.add(test_user)
+            db_session.commit()
+            logger.info("🎉 테스트용 사장님 계정이 자동으로 생성되었습니다: owner@cafe.com / owner123")
+    except Exception as seed_err:
+        logger.error(f"테스트 계정 자동 생성 중 오류 발생: {seed_err}")
+    finally:
+        db_session.close()
 except Exception:
     logger.exception("DB 테이블 자동 생성 실패 — DB 연결을 확인하세요. DB 없이 서버를 계속 띄웁니다.")
 

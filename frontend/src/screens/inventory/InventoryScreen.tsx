@@ -216,13 +216,22 @@ export default function InventoryScreen() {
         {formOpen && (
           <Card tone="cream">
             <SectionTitle>재료 직접 등록</SectionTitle>
+            {/* [한글 주석] 인풋 박스가 폰 화면 밖으로 탈출하지 않도록 가로 비율(flex)을 지닌 감싸는 View를 적용했습니다. */}
             <View style={styles.formRow}>
-              <TextInput style={[styles.input, { flex: 2 }]} placeholder="재료명 (예: 서울우유 1L)" value={fName} onChangeText={setFName} />
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="단위 (팩, kg)" value={fUnit} onChangeText={setFUnit} />
+              <View style={{ flex: 2 }}>
+                <TextInput style={[styles.input, { width: '100%' }]} placeholder="재료명 (예: 서울우유 1L)" value={fName} onChangeText={setFName} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <TextInput style={[styles.input, { width: '100%' }]} placeholder="단위 (팩, kg)" value={fUnit} onChangeText={setFUnit} />
+              </View>
             </View>
             <View style={styles.formRow}>
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="단가 (원)" value={fPrice} onChangeText={setFPrice} keyboardType="numeric" />
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="초기 수량" value={fQty} onChangeText={setFQty} keyboardType="numeric" />
+              <View style={{ flex: 1 }}>
+                <TextInput style={[styles.input, { width: '100%' }]} placeholder="단가 (원)" value={fPrice} onChangeText={setFPrice} keyboardType="numeric" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <TextInput style={[styles.input, { width: '100%' }]} placeholder="초기 수량" value={fQty} onChangeText={setFQty} keyboardType="numeric" />
+              </View>
             </View>
             <Button label={saving ? '등록 중…' : '등록'} onPress={registerIngredient} disabled={saving} style={{ marginTop: 10 }} />
           </Card>

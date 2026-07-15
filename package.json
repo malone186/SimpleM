@@ -1,0 +1,10 @@
+{
+  "name": "simple-m",
+  "version": "1.0.0",
+  "description": "SimpleM 루트 단축 패키지 설정",
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "start": "npm --prefix frontend run start"
+  }
+}
