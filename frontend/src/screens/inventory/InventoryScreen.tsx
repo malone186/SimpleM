@@ -322,7 +322,7 @@ export default function InventoryScreen() {
                 {editingDocId === doc.id ? (
                   <View style={{ gap: 8, marginVertical: 8 }}>
                     {editingItems.map((item, idx) => (
-                      <View key={idx} style={[styles.draftRow, { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.lightSand, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
+                      <View key={idx} style={[styles.draftRow, { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.mutedSand, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
                         <View style={{ flex: 1 }}>
                           <Text style={styles.draftName}>{item.name}</Text>
                           <Text style={styles.draftMeta}>
@@ -339,7 +339,7 @@ export default function InventoryScreen() {
                     ))}
 
                     {/* [한글 주석] 품목 직접 추가를 위한 입력 폼 UI */}
-                    <View style={{ backgroundColor: colors.lightSand, padding: 12, borderRadius: 8, marginTop: 8, gap: 8 }}>
+                    <View style={{ backgroundColor: colors.coffeeCream, padding: 12, borderRadius: 8, marginTop: 8, gap: 8 }}>
                       <Text style={[styles.draftName, { fontSize: 13, color: colors.mochaBrown }]}>➕ 품목 직접 추가</Text>
                       <View style={styles.formRow}>
                         <View style={{ flex: 2 }}>
