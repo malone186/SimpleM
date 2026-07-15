@@ -18,8 +18,8 @@ export default function EmptyState({
   actionLabel?: string;
   onAction?: () => void;
 }) {
-  // 크림 배경 장면 포즈(resting/pouring/hero)는 둥근 카드로 감싸 잘린 느낌 제거
-  const framed = mood === 'resting' || mood === 'pouring' || mood === 'hero';
+  // 모든 포즈가 투명 배경이 되어 프레임 불필요.
+  const framed = false;
   return (
     <View style={styles.wrap}>
       <Brew mood={mood} size={150} framed={framed} />
