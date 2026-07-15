@@ -93,6 +93,9 @@ class RecipeDetail(BaseModel):
 # 9. 메뉴판 조회 시 레시피 재료 정보를 포함해서 보내주는 최종 상세 응답 규격
 class MenuDetailResponse(MenuResponse):
     recipes: list[RecipeDetail] = Field(..., description="이 메뉴의 상세 조립 레시피 목록")
+    cost_price: int = Field(0, description="메뉴를 제조하는 데 드는 총 원재료비 (KRW)")
+    cost_ratio: float = Field(0.0, description="메뉴의 최종 원가율 (%)")
+
 
 
 # --- [발주(Order) 관련 규격] ---
