@@ -18,8 +18,6 @@ type Item = {
 
 // 각 카드 색을 다르게 — 커피 톤에 어울리는 깊은 주얼톤 (크림 제목 잘 읽힘)
 const ITEMS: Item[] = [
-  { label: '재료 관리', desc: '재료 단가 · 변동 이력', icon: 'leaf-outline', color: '#4E3629', route: 'Ingredient' },
-  { label: '메뉴 관리', desc: '레시피 구성 · 원가율', icon: 'cafe-outline', color: '#8C4A32', route: 'Menu' },
   { label: '판매 입력', desc: 'POS 연동 · 수동 입력', icon: 'add-circle-outline', color: '#3F5E47', route: 'SalesInput' },
   { label: '원가 분석', desc: '메뉴별 원가율 진단', icon: 'calculator-outline', color: '#2F5A66', route: 'Cost' },
   { label: '법령 검색', desc: '노무 · 위생 법령', icon: 'library-outline', color: '#3A3F63', route: 'LawSearch' },

@@ -4,6 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { Alert, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { useNavigation } from '@react-navigation/native';
+
 import { useAuth } from '../../auth/AuthContext';
 import { PressableScale } from '../../components/motion';
 import { confirmDialog, toast } from '../../components/toast';
@@ -23,6 +25,7 @@ const notify = (title: string, message: string) => toast(title, message);
 
 export default function InventoryScreen() {
   const { token } = useAuth();
+  const navigation = useNavigation<any>();
   const [stocks, setStocks] = useState<StockItem[]>([]);
   const [drafts, setDrafts] = useState<OcrDocument[]>([]);
   const [scanning, setScanning] = useState(false);
@@ -189,6 +192,18 @@ export default function InventoryScreen() {
   return (
     <Screen>
       <ScreenTitle title="재고" subtitle="현재 재고와 안전재고 상태" />
+
+      {/* 메뉴·레시피 관리 진입 */}
+      <PressableScale style={styles.menuNav} onPress={() => navigation.navigate('Menu')} to={0.97}>
+        <View style={styles.menuNavIcon}>
+          <Ionicons name="cafe-outline" size={20} color={colors.espressoBrown} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.menuNavTitle}>메뉴 · 레시피 관리</Text>
+          <Text style={styles.menuNavSub}>메뉴 등록 · 레시피 구성 · 원가율</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown} />
+      </PressableScale>
 
       {/* OCR 입고 */}
       <Card>
@@ -383,6 +398,26 @@ const styles = StyleSheet.create({
   ocrHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   hint: { ...typography.L5, color: colors.mochaBrown, marginTop: 4 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  menuNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: colors.coffeeCream,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    padding: 14,
+  },
+  menuNavIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuNavTitle: { ...typography.L3, color: colors.espressoBrown },
+  menuNavSub: { ...typography.L5, color: colors.mochaBrown, marginTop: 3 },
   headRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   delBtn: { padding: 6, borderRadius: 9, backgroundColor: 'rgba(178,59,46,0.08)' },
   adjustOpen: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 12, alignSelf: 'flex-start' },
