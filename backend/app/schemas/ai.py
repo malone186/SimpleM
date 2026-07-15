@@ -51,6 +51,15 @@ class OcrResult(BaseModel):
     total: Optional[float] = Field(None, description="합계 금액")
 
 
+class ClovaUsage(BaseModel):
+    """CLOVA OCR 무료 한도 사용량 — 매 분석마다 갱신해 사용자에게 알린다 (월 단위 리셋)"""
+
+    month: str = Field(description="집계 월 (YYYY-MM)")
+    used: int = Field(description="이번 달 사용 횟수")
+    limit: int = Field(description="무료 한도 (기본 100회/월)")
+    remaining: int = Field(description="남은 무료 횟수")
+
+
 class OcrDocumentResponse(BaseModel):
     """OCR 초안 문서 — 사용자가 수정·확인 후 확정하는 단위"""
 
@@ -63,7 +72,8 @@ class OcrDocumentResponse(BaseModel):
     confirmed_target: Optional[RegisterTarget] = None
     applied: bool = Field(False, description="확정 후 대상 시스템 반영 여부")
     elapsed_sec: Optional[float] = Field(None, description="OCR 처리 소요 시간(초)")
-    ocr_backend: Optional[str] = Field(None, description="사용된 OCR 백엔드 (clova_gemini/paddle_gemini/ollama_vlm)")
+    ocr_backend: Optional[str] = Field(None, description="사용된 OCR 백엔드 (clova_gemini/ollama_vlm)")
+    clova_usage: Optional[ClovaUsage] = Field(None, description="분석 직후의 CLOVA 사용량 (clova_gemini일 때만)")
     created_at: datetime
     updated_at: datetime
 
@@ -103,3 +113,74 @@ class OcrConfirmResponse(BaseModel):
     target: RegisterTarget
     applied: bool
     message: str
+
+
+# ---------------------------------------------------------------------------
+# 문서 자동화 (ERP-12: 카페 운영 필요서류 체크리스트)
+# ---------------------------------------------------------------------------
+
+DocumentKind = Literal[
+    "purchase_order",       # 발주서 (매일·매주)
+    "stocktake_sheet",      # 재고실사표 (매일·매주)
+    "inspection_report",    # 검수확인서 (매일·매주)
+    "monthly_ledger",       # 매입·매출 장부 (매월)
+    "vat_reference",        # 부가세/종소세 참고자료 (분기·연)
+    "payslip",              # 임금명세서 (매월, 임금대장 겸용)
+    "employment_contract",  # 근로계약서 (발생 시)
+]
+
+
+class GeneratedDocumentResponse(BaseModel):
+    """자동 생성 문서 — content 스키마는 kind별로 다르다"""
+
+    id: str
+    kind: DocumentKind
+    title: str
+    period: Optional[str] = None
+    status: str
+    content: dict
+    created_at: datetime
+
+
+class PayslipRequest(BaseModel):
+    """임금명세서 초안 생성 입력 — 근무시간은 스케줄 테이블에서 자동 집계, 없으면 직접 입력"""
+
+    employee_name: str
+    year: int
+    month: int = Field(ge=1, le=12)
+    hourly_wage: Optional[int] = Field(None, description="미입력 시 직원 테이블의 시급 사용")
+    work_hours: Optional[float] = Field(None, description="미입력 시 근무 스케줄에서 자동 집계")
+    withholding_rate: float = Field(3.3, description="원천징수율 % (프리랜서 3.3, 0이면 공제 없음)")
+    include_weekly_holiday_pay: bool = Field(True, description="주휴수당 포함 여부 (주 15시간 이상 시)")
+
+
+class EmploymentContractRequest(BaseModel):
+    """근로계약서 초안 생성 입력 — 근로기준법 필수 기재사항"""
+
+    employee_name: str
+    start_date: str = Field(description="근로 개시일 YYYY-MM-DD")
+    end_date: Optional[str] = Field(None, description="계약 종료일 (없으면 기간의 정함 없음)")
+    hourly_wage: int
+    work_days_per_week: int = Field(5, ge=1, le=7)
+    work_hours_per_day: float = Field(8, gt=0, le=12)
+    duties: str = Field("음료 제조 및 매장 관리", description="업무 내용")
+    workplace: str = Field("", description="근무 장소 (미입력 시 매장)")
+
+
+class ComplianceItemCreate(BaseModel):
+    """정기 갱신 서류 등록 입력"""
+
+    name: str = Field(description="예: 보건증(홍길동), 위생교육 수료증, 임대차계약")
+    expiry_date: str = Field(description="만료일 YYYY-MM-DD")
+    remind_before_days: int = Field(30, ge=1, le=365)
+    memo: Optional[str] = None
+
+
+class ComplianceItemResponse(BaseModel):
+    id: int
+    name: str
+    expiry_date: str
+    remind_before_days: int
+    memo: Optional[str] = None
+    days_left: int = Field(description="만료까지 남은 일수 (음수면 만료됨)")
+    status: Literal["ok", "due_soon", "expired"]

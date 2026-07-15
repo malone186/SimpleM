@@ -88,7 +88,7 @@ export function LabeledInput({ label, ...props }: { label: string } & TextInputP
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, justifyContent: 'flex-end' },
+  root: { flex: 1, justifyContent: 'flex-end', width: '100%', maxWidth: 420, alignSelf: 'center' },
   backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: colors.black40 },
   sheetWrap: { width: '100%' },
   sheet: {

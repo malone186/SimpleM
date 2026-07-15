@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -57,3 +57,44 @@ class OcrItem(Base):
     amount: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)  # 금액
 
     document: Mapped[OcrDocument] = relationship(back_populates="items")
+
+
+class GeneratedDocument(Base):
+    """자동 생성 문서 (ERP-12 서류 자동화) — 발주서·임금명세서·장부 등 초안 보관
+
+    돈이 걸린 문서(발주서·임금명세서)는 draft로만 생성되고 확정·전송은 사람이 한다 (PRD §5.3).
+    임금명세서는 임금대장 겸용으로 3년 보관 의무가 있으므로 삭제하지 않는다.
+    """
+
+    __tablename__ = "generated_documents"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    store_id: Mapped[str] = mapped_column(String(100), index=True)
+    # purchase_order | stocktake_sheet | inspection_report | monthly_ledger |
+    # vat_reference | payslip | employment_contract
+    kind: Mapped[str] = mapped_column(String(32), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    period: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 대상 기간 (예: 2026-07, 2026-07-01~2026-10-01)
+    content: Mapped[str] = mapped_column(Text)  # 문서 본문 JSON (스키마는 kind별로 다름)
+    status: Mapped[str] = mapped_column(String(16), default="draft")  # draft | confirmed
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ComplianceItem(Base):
+    """정기 갱신 서류 만료 추적 — 위생교육 수료증·보건증·임대차/공급 계약 등
+
+    서류 자체는 기관에서 발급받아야 하므로 만료일을 추적해 미리 알리는 것까지가 자동화 범위.
+    """
+
+    __tablename__ = "compliance_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    store_id: Mapped[str] = mapped_column(String(100), index=True)
+    name: Mapped[str] = mapped_column(String(100))  # 예: 보건증(홍길동), 임대차계약
+    expiry_date: Mapped[str] = mapped_column(String(10))  # 만료일 YYYY-MM-DD
+    remind_before_days: Mapped[int] = mapped_column(Integer, default=30)  # 며칠 전부터 알릴지
+    memo: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

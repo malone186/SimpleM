@@ -1,0 +1,128 @@
+[
+  {
+    "id": 45,
+    "name": "타셋 커피 로스터스 ",
+    "thumbnailUrl": "https://shop-phinf.pstatic.net/20230509_7/1683585904843uC5Lg_JPEG/84721739646839751_1029358035.jpg?type=m120",
+    "roasteryinfo": "조직이 적게 벌어지는 로스팅",
+    "filePath": "84721739646839751_1029358035.webp"
+  },
+  {
+    "id": 71,
+    "name": "가델로 커피 로스터스 ",
+    "thumbnailUrl": "https://shop-phinf.pstatic.net/20231017_135/1697551528154l1zVY_JPEG/98687423849197851_1882737952.jpg?type=m120",
+    "roasteryinfo": "블렌딩 천재가 만드는 맛도리",
+    "filePath": "98687423849197851_1882737952.webp"
+  },
+  {
+    "id": 99,
+    "name": "딥 다이브 로스터스 ",
+    "thumbnailUrl": "https://shop-phinf.pstatic.net/20231008_266/1696691085964P4OoV_PNG/97826865683773091_1174587667.png?type=m120",
+    "roasteryinfo": "생두의 특성을 살려 로스팅",
+    "filePath": "97826865683773091_1174587667.webp"
+  },
+  {
+    "id": 121,
+    "name": "시에나 커피 로스터스 ",
+    "thumbnailUrl": "https://shop-phinf.pstatic.net/20230722_285/1690026447359FMOa3_JPEG/91162231064460253_978638140.jpg?type=m120",
+    "roasteryinfo": "생두의 향미 극대화",
+    "filePath": "91162231064460253_978638140.webp"
+  },
+  {
+    "id": 176,
+    "name": "커피 정경 ",
+    "thumbnailUrl": "https://shop-phinf.pstatic.net/20230328_89/1680006170036ViEVC_PNG/81141949760361343_377877133.png?type=m120",
+    "roasteryinfo": "맛과 향이 조화로운 커피",
+    "filePath": "81141949760361343_377877133.webp"
+  },
+  {
+    "id": 213,
+    "name": "58MM 커피 로스터스 ",
+    "thumbnailUrl": "https://shop-phinf.pstatic.net/20230131_194/1675144296307KplJW_PNG/76280124136695791_2068112707.png?type=m120",
+    "roasteryinfo": "신선한 스페셜티 커피",
+    "filePath": "76280124136695791_2068112707.webp"
+  },
+  {
+    "id": 232,
+    "name": "어떤커피 ",
+    "thumbnailUrl": "https://shop-phinf.pstatic.net/20220714_252/165779046786214bM2_JPEG/58926295678011903_1151097238.jpg?type=m120",
+    "roasteryinfo": "로스팅 챔프의 다양한 원두",
+    "filePath": "58926295678011903_1151097238.webp"
+  },
+  {
+    "id": 313,
+    "name": "로스터리 향초 ",
+    "thumbnailUrl": "https://shop-phinf.pstatic.net/20230301_85/1677635519278df6mM_JPEG/78771354109512453_783422857.jpg?type=m120",
+    "roasteryinfo": "상큼달콤 전문샵",
+    "filePath": "78771354109512453_783422857.webp"
+  },
+  {
+    "id": 359,
+    "name": "언더빈 ",
+    "thumbnailUrl": "https://shop-phinf.pstatic.net/20221212_47/1670819933235d1IjL_JPEG/71955778949417248_1826248046.jpg?type=m120",
+    "roasteryinfo": "맛있는 콩, 재밌는 콩, 궁금한 콩",
+    "filePath": "71955778949417248_1826248046.webp"
+  },
+  {
+    "id": 383,
+    "name": "리얼빈 ",
+    "thumbnailUrl": "https://shop-phinf.pstatic.net/20160907_3/realbean_1473237525195JXqgp_PNG/2882978656916529_-1895908123.png?type=m120",
+    "roasteryinfo": "합리적인 가격에 훌륭한 품질",
+    "filePath": "2882978656916529_-1895908123.webp"
+  },
+  {
+    "id": 403,
+    "name": "일프로 커피",
+    "thumbnailUrl": "https://shop-phinf.pstatic.net/20180812_188/note74a_1534049065400yc4uu_JPEG/16680245056991038_834618828.jpg?type=m120",
+    "roasteryinfo": "뉴크롭을 좋은 가격에",
+    "filePath": "16680245056991038_834618828.webp"
+  },
+  {
+    "id": 428,
+    "name": "로스터 릭 ",
+    "thumbnailUrl": "https://shop-phinf.pstatic.net/20220405_230/1649139134054saAsT_JPEG/50274967875041022_1693667945.jpg?type=m120",
+    "roasteryinfo": "다양한 커핑노트 제공",
+    "filePath": "50274967875041022_1693667945.webp"
+  },
+  {
+    "id": 441,
+    "name": "아이덴티티커피랩 ",
+    "thumbnailUrl": "https://shop-phinf.pstatic.net/20230712_53/1689155525226hlMDV_JPEG/90291367942230565_1077763807.jpg?type=m120",
+    "roasteryinfo": "오픈런 필수 로스터리",
+    "filePath": "90291367942230565_1077763807.webp"
+  },
+  {
+    "id": 474,
+    "name": "루비아 ",
+    "thumbnailUrl": "https://shop-phinf.pstatic.net/20230808_156/1691421379858BO6Mb_PNG/92557163567370426_2034312762.png?type=m120",
+    "roasteryinfo": "깊고 진한 강배전",
+    "filePath": "92557163567370426_2034312762.webp"
+  },
+  {
+    "id": 554,
+    "name": "도안 셀렉트 샵",
+    "thumbnailUrl": "https://shop-phinf.pstatic.net/20220214_270/1644834848306i1ERD_JPEG/45970744022540296_853662608.jpeg?type=m120",
+    "roasteryinfo": "쉬운 사대주의",
+    "filePath": "45970744022540296_853662608.webp"
+  },
+  {
+    "id": 574,
+    "name": "빈 브라더스",
+    "thumbnailUrl": "https://shop-phinf.pstatic.net/20200330_39/1585530636160zSOAW_PNG/22892178788706494_983102223.png?type=m120",
+    "roasteryinfo": "Your Personal Coffee Guide",
+    "filePath": "22892178788706494_983102223.webp"
+  },
+  {
+    "id": 591,
+    "name": "클로스 커피",
+    "thumbnailUrl": "https://shop-phinf.pstatic.net/20240130_199/1706610720256G1C8v_JPEG/107746608944033604_184549798.jpg?type=m120",
+    "roasteryinfo": "커피와 더 가까워질수 있도록",
+    "filePath": "107746608944033604_184549798.webp"
+  },
+  {
+    "id": 620,
+    "name": "향두헌",
+    "thumbnailUrl": "https://shopping-phinf.pstatic.net/main_9071262/90712628870.3.jpg",
+    "roasteryinfo": "일산의 스페셜티 로스터리",
+    "filePath": null
+  }
+]

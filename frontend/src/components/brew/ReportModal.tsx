@@ -38,7 +38,7 @@ export default function ReportModal({ visible, onClose }: { visible: boolean; on
 
             {phase === 'brewing' ? (
               <View style={styles.brewing}>
-                <Brew mood="pouring" size={160} />
+                <Brew mood="pouring" size={180} />
                 <Text style={styles.brewingText}>브루가 이번 주 리포트를 내리는 중…</Text>
               </View>
             ) : (
@@ -93,7 +93,7 @@ function Ev({ label, value, delta, up }: { label: string; value: string; delta: 
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, justifyContent: 'flex-end' },
+  root: { flex: 1, justifyContent: 'flex-end', width: '100%', maxWidth: 420, alignSelf: 'center' },
   backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: colors.black40 },
   sheetWrap: { width: '100%' },
   sheet: {

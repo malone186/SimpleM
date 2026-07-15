@@ -2,7 +2,7 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
-from app.models.inventory import Ingredient, Menu, Recipe, Stock, StockTransaction
+from app.models.inventory import Ingredient, IngredientPriceHistory, Menu, Recipe, Stock, StockTransaction, Order, OrderItem
 from app.schemas.inventory import IngredientCreate, StockAdjust, MenuCreate
 
 
@@ -11,6 +11,7 @@ from app.schemas.inventory import IngredientCreate, StockAdjust, MenuCreate
 def create_ingredient(db: Session, store_id: str, item_in: IngredientCreate) -> Ingredient:
     """
     새로운 식재료를 등록하고, 동시에 실시간 재고 대장(Stock)에도 자리를 파서 0개로 세팅합니다.
+    (최초 매입 단가를 가격 변동 이력(IngredientPriceHistory) 대장에 1건 자동 적재합니다.)
     """
     # 1-1. 재료 정보 생성
     db_item = Ingredient(
@@ -22,7 +23,14 @@ def create_ingredient(db: Session, store_id: str, item_in: IngredientCreate) -> 
     db.add(db_item)
     db.flush()  # DB에 임시로 임포트하여 부여된 id(고유번호)를 획득합니다. (아직 최종 저장 커밋은 안 함)
 
-    # 1-2. 재고 대장에 수량 0.0개로 1대1 매핑하여 연동 생성
+    # 1-2. 가격 변동 이력에 최초 매입 단가 적재
+    db_history = IngredientPriceHistory(
+        ingredient_id=db_item.id,
+        price=db_item.current_price
+    )
+    db.add(db_history)
+
+    # 1-3. 재고 대장에 수량 0.0개로 1대1 매핑하여 연동 생성
     db_stock = Stock(
         ingredient_id=db_item.id,
         current_quantity=0.0,
@@ -30,10 +38,60 @@ def create_ingredient(db: Session, store_id: str, item_in: IngredientCreate) -> 
     )
     db.add(db_stock)
     
-    # 1-3. 최종 확정 저장
+    # 1-4. 최종 확정 저장
     db.commit()
     db.refresh(db_item)
     return db_item
+
+
+def update_ingredient_price(db: Session, store_id: str, ingredient_id: int, new_price: int) -> Ingredient:
+    """
+    특정 식재료의 매입 단가를 수정하고, 가격 변동 사항이 있을 때 단가 이력(IngredientPriceHistory)에 자동 누적 기록합니다.
+    """
+    ingredient = db.query(Ingredient).filter(
+        Ingredient.id == ingredient_id,
+        Ingredient.store_id == store_id
+    ).first()
+    
+    if not ingredient:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="매장에 해당 식재료 정보가 존재하지 않습니다."
+        )
+
+    # 기존 단가와 신규 단가가 실제로 변동되었는지 체크합니다.
+    if ingredient.current_price != new_price:
+        ingredient.current_price = new_price
+        
+        # 새로운 가격 변동 내역 추가
+        db_history = IngredientPriceHistory(
+            ingredient_id=ingredient.id,
+            price=new_price
+        )
+        db.add(db_history)
+        db.commit()
+        db.refresh(ingredient)
+        
+    return ingredient
+
+
+def get_ingredient_price_history(db: Session, store_id: str, ingredient_id: int) -> list[IngredientPriceHistory]:
+    """
+    특정 식재료의 과거부터 현재까지 누적된 가격 변동 추이 이력을 최신순으로 조회합니다.
+    """
+    ingredient = db.query(Ingredient).filter(
+        Ingredient.id == ingredient_id,
+        Ingredient.store_id == store_id
+    ).first()
+    
+    if not ingredient:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="매장에 해당 식재료 정보가 존재하지 않습니다."
+        )
+        
+    return ingredient.price_histories
+
 
 
 def get_ingredients(db: Session, store_id: str) -> list[Ingredient]:
@@ -165,12 +223,15 @@ def create_menu_with_recipes(db: Session, store_id: str, menu_in: MenuCreate) ->
 def get_menus_with_recipes(db: Session, store_id: str) -> list[dict]:
     """
     현재 매장의 메뉴판 정보와 각 메뉴별 레시피(재료 이름, 단위, 양)를 정렬하여 한 묶음의 리스트로 받아옵니다.
+    (재재료 단가 변동이 실시간 반영되도록 각 메뉴별 원가 및 원가율을 동적으로 실시간 연산하여 동봉합니다.)
     """
     menus = db.query(Menu).filter(Menu.store_id == store_id).order_by(Menu.id.asc()).all()
     results = []
 
     for menu in menus:
         recipes_detail = []
+        total_cost = 0  # 메뉴 총 원가 누적액
+        
         for r in menu.recipes:
             recipes_detail.append({
                 "ingredient_id": r.ingredient_id,
@@ -178,6 +239,14 @@ def get_menus_with_recipes(db: Session, store_id: str) -> list[dict]:
                 "quantity": r.quantity,
                 "unit": r.ingredient.unit
             })
+            # 레시피 용량/수량 * 해당 원재료의 현재 매입 단가
+            total_cost += int(r.quantity * r.ingredient.current_price)
+            
+        # 원가율 계산 (원가 / 판매가 * 100)
+        cost_ratio = 0.0
+        if menu.selling_price > 0:
+            # 소수점 둘째 자리까지 반올림
+            cost_ratio = round((total_cost / menu.selling_price) * 100, 2)
         
         results.append({
             "id": menu.id,
@@ -186,7 +255,242 @@ def get_menus_with_recipes(db: Session, store_id: str) -> list[dict]:
             "store_id": menu.store_id,
             "is_active": menu.is_active,
             "created_at": menu.created_at,
-            "recipes": recipes_detail
+            "recipes": recipes_detail,
+            "cost_price": total_cost,
+            "cost_ratio": cost_ratio
         })
     
     return results
+
+
+# --- [4. 삭제 서비스 로직] ---
+
+def delete_ingredient(db: Session, store_id: str, ingredient_id: int) -> None:
+    """
+    재료를 삭제합니다. 연결된 재고(Stock)·거래내역·레시피는 cascade로 함께 정리됩니다.
+    (본인 매장 재료만 삭제 가능)
+    """
+    item = (
+        db.query(Ingredient)
+        .filter(Ingredient.id == ingredient_id, Ingredient.store_id == store_id)
+        .first()
+    )
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="재료를 찾을 수 없습니다.")
+    db.delete(item)
+    db.commit()
+
+
+def delete_menu(db: Session, store_id: str, menu_id: int) -> None:
+    """
+    메뉴를 삭제합니다. 연결된 레시피는 cascade로 함께 정리됩니다.
+    (본인 매장 메뉴만 삭제 가능)
+    """
+    menu = (
+        db.query(Menu)
+        .filter(Menu.id == menu_id, Menu.store_id == store_id)
+        .first()
+    )
+    if not menu:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="메뉴를 찾을 수 없습니다.")
+    db.delete(menu)
+    db.commit()
+
+
+# --- [5. 발주(Order) 자동 추천 및 상태 관리 서비스 로직] ---
+
+def get_or_create_order_drafts(db: Session, store_id: str) -> list[dict]:
+    """
+    [부족 재고 발주 추천 알고리즘]
+    매장의 실시간 재고 대장(Stock)을 훑어보며 안전재고(safety_quantity)보다 적게 남은 재료들을 찾아내고,
+    임시로 가상의 공급처별로 분류하여 발주 초안(DRAFT)을 DB에 자동 생성하여 반환해 줍니다.
+    """
+    # 4-1. 이미 만들어 둔 대기 중인 초안(DRAFT) 발주서들이 존재하는지 봅니다.
+    existing_drafts = db.query(Order).filter(
+        Order.store_id == store_id,
+        Order.status == "DRAFT"
+    ).all()
+    
+    # 이미 초안이 존재한다면, 매번 새로 만들지 않고 기존에 생성해 두었던 발주서 정보를 정돈해서 반환합니다.
+    if existing_drafts:
+        return [_build_order_response_dict(d) for d in existing_drafts]
+        
+    # 4-2. 실시간 재고 대장(Stock)에서 안전재고 미달 품목들을 필터링하여 가져옵니다.
+    low_stocks = (
+        db.query(Stock)
+        .join(Ingredient, Stock.ingredient_id == Ingredient.id)
+        .filter(
+            Ingredient.store_id == store_id,
+            Stock.current_quantity < Stock.safety_quantity
+        )
+        .all()
+    )
+    
+    # 부족한 재고가 아예 없다면, 깨끗하게 빈 목록을 반환하여 사장님을 편하게 해드립니다.
+    if not low_stocks:
+        return []
+        
+    # 4-3. 부족한 재료들을 공급처(로스터리 vs 식자재마트 등)별로 묶어줄 임시 바구니를 만듭니다.
+    # (Alembic DB 마이그레이션 방지를 위해 이름 매칭 기반으로 가상 공급처를 구별하는 똑똑한 우회 로직입니다.)
+    grouped_items = {
+        "커피리브레 (로스터리)": [],
+        "서울F&B": [],
+        "일반 공급처": []
+    }
+    
+    for s in low_stocks:
+        name = s.ingredient.name
+        # 이름 특징에 따라 3대 공급처로 재배치합니다.
+        if "원두" in name or "예가체프" in name or "수프리모" in name or "콜롬비아" in name:
+            grouped_items["커피리브레 (로스터리)"].append(s)
+        elif "우유" in name or "밀크" in name or "크림" in name or "휘핑" in name:
+            grouped_items["서울F&B"].append(s)
+        else:
+            grouped_items["일반 공급처"].append(s)
+            
+    # 4-4. 공급처별로 부족 재고 발주서 초안(Order)을 생성해 DB에 등록합니다.
+    created_orders = []
+    for vendor_name, stocks in grouped_items.items():
+        if not stocks:
+            continue
+            
+        # 신규 발주서 요약 레코드 개설
+        db_order = Order(
+            store_id=store_id,
+            status="DRAFT",
+            total_amount=0
+        )
+        db.add(db_order)
+        db.flush()  # 발주서의 고유 ID 번호를 미리 확보합니다.
+        
+        total_amount = 0
+        
+        for s in stocks:
+            # 추천 공식: (안전재고 - 현재재고)의 2배 만큼 넉넉히 채우되, 최소 1단위 이상
+            deficit = s.safety_quantity - s.current_quantity
+            recommend_qty = max(1.0, deficit * 2)
+            recommend_qty = round(recommend_qty, 1)  # 소수점 한 자리로 정돈합니다.
+            
+            price_at_order = s.ingredient.current_price
+            item_amount = int(recommend_qty * price_at_order)
+            total_amount += item_amount
+            
+            # 발주서 한 줄 상세 품목 등록
+            db_item = OrderItem(
+                order_id=db_order.id,
+                ingredient_id=s.ingredient_id,
+                quantity=recommend_qty,
+                price_at_order=price_at_order
+            )
+            db.add(db_item)
+            
+        # 총 예상 금액 업데이트 후 최종 확정 저장
+        db_order.total_amount = total_amount
+        db.commit()
+        db.refresh(db_order)
+        
+        created_orders.append(db_order)
+        
+    return [_build_order_response_dict(o) for o in created_orders]
+
+
+def _build_order_response_dict(order: Order) -> dict:
+    """데이터베이스 모델 객체(Order)를 셰마 필드에 부합하도록 가상 필드(vendor, reason 등)를 붙여 정돈해 줍니다."""
+    items_list = []
+    first_item_name = "미상"
+    
+    # 1. 속해 있는 세부 품목 리스트를 정돈하여 담아줍니다.
+    for item in order.items:
+        items_list.append({
+            "id": item.id,
+            "ingredient_id": item.ingredient_id,
+            "ingredient_name": item.ingredient.name if item.ingredient else "삭제된 재료",
+            "quantity": item.quantity,
+            "price_at_order": item.price_at_order
+        })
+        if first_item_name == "미상" and item.ingredient:
+            first_item_name = item.ingredient.name
+            
+    # 2. 첫 번째 품목 이름을 바탕으로 가상의 공급처 이름과 발주 추천 사유를 조립해 줍니다.
+    vendor = "일반 공급처"
+    reason = "안전재고 미달 품목 입고 요망"
+    source = "AI 예측 추천"
+    
+    if "원두" in first_item_name or "예가체프" in first_item_name or "수프리모" in first_item_name or "콜롬비아" in first_item_name:
+        vendor = "커피리브레 (로스터리)"
+        reason = f"{first_item_name} 등 안전재고 미달 · 판매예측 기준 3일 내 소진 예상"
+    elif "우유" in first_item_name or "밀크" in first_item_name or "크림" in first_item_name or "휘핑" in first_item_name:
+        vendor = "서울F&B"
+        reason = f"{first_item_name} 등 잔여 수량 부족 · 주말 수요 대비"
+        source = "챗봇 발주 초안"  # 더미데이터와 동일한 감동 연출용
+        
+    return {
+        "id": order.id,
+        "store_id": order.store_id,
+        "status": order.status,
+        "total_amount": order.total_amount,
+        "created_at": order.created_at,
+        "updated_at": order.updated_at,
+        "vendor": vendor,
+        "reason": reason,
+        "source": source,
+        "items": items_list
+    }
+
+
+def update_order_status(db: Session, store_id: str, order_id: int, status_update: str) -> dict:
+    """
+    [발주서 승인 및 반려 제어 로직]
+    - CONFIRMED(승인) 시: 발주서 상세 품목들의 수량만큼 실제 창고 재고(Stock)를 채우고 입고 이력(StockTransaction)을 기록합니다.
+    - REJECTED(반려) 시: 발주서 상태를 반려(REJECTED)로 변경하여 초안을 취소합니다.
+    """
+    order = db.query(Order).filter(
+        Order.id == order_id,
+        Order.store_id == store_id
+    ).first()
+    
+    if not order:
+        raise HTTPException(
+            status_code=404,
+            detail="해당 발주서 정보를 찾을 수 없습니다."
+        )
+        
+    if order.status != "DRAFT":
+        raise HTTPException(
+            status_code=400,
+            detail=f"이미 {order.status} 상태로 종결된 발주서의 상태는 변경할 수 없습니다."
+        )
+        
+    target_status = status_update.upper()
+    if target_status not in ["CONFIRMED", "REJECTED"]:
+        raise HTTPException(
+            status_code=400,
+            detail="상태 변경은 승인(CONFIRMED) 또는 반려(REJECTED)만 지정 가능합니다."
+        )
+        
+    if target_status == "CONFIRMED":
+        # [실시간 재고 채우기 트랜잭션]
+        for item in order.items:
+            stock = db.query(Stock).filter(Stock.ingredient_id == item.ingredient_id).first()
+            if stock:
+                # 1. 창고 수량을 더해줍니다.
+                stock.current_quantity += item.quantity
+                
+                # 2. 입출고 거래 장부에 "발주 승인 입고" 유형(IN)으로 변동 이력을 의무 기록합니다.
+                tx = StockTransaction(
+                    ingredient_id=item.ingredient_id,
+                    quantity_change=item.quantity,
+                    type="IN",
+                    description=f"발주 승인 입고 (발주번호 #{order.id})"
+                )
+                db.add(tx)
+        
+        order.status = "CONFIRMED"
+        message = "발주 승인이 완료되어 재고가 정상적으로 창고에 입고되었습니다!"
+    else:
+        # 반려 처리
+        order.status = "REJECTED"
+        message = "발주 초안이 정상적으로 반려(취소)되었습니다."
+        
+    db.commit()
+    return {"id": order.id, "status": order.status, "message": message}

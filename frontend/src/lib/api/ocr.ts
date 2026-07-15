@@ -83,3 +83,11 @@ export function confirmOcrDocument(id: string, target?: OcrDocument['suggested_t
 export function rejectOcrDocument(id: string): Promise<OcrDocument> {
   return apiFetch(`/api/v1/chatbot/ocr/documents/${id}/reject`, { method: 'POST' });
 }
+
+// [초안 수정 API] 사용자가 직접 수정한 품목 및 영수증 정보를 백엔드 DB에 업데이트합니다.
+export function updateOcrDocument(id: string, patch: { items?: OcrItem[] }): Promise<OcrDocument> {
+  return apiFetch(`/api/v1/chatbot/ocr/documents/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+}

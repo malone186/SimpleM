@@ -28,3 +28,4 @@ frontend/.env*
 .idea/
 .DS_Store
 Thumbs.db
+backend/simplem.db

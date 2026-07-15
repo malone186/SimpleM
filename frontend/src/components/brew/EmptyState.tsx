@@ -18,9 +18,11 @@ export default function EmptyState({
   actionLabel?: string;
   onAction?: () => void;
 }) {
+  // 모든 포즈가 투명/크림매트 배경이라 프레임 불필요.
+  const framed = false;
   return (
     <View style={styles.wrap}>
-      <Brew mood={mood} size={150} />
+      <Brew mood={mood} size={150} framed={framed} />
       <Text style={styles.title}>{title}</Text>
       {description ? <Text style={styles.desc}>{description}</Text> : null}
       {actionLabel && onAction ? (

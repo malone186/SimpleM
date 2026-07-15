@@ -10,6 +10,8 @@ import {
   type ReactNode,
 } from 'react';
 
+import { API_BASE_URL } from '../lib/api/client';
+
 export type User = { email: string; name: string; photo?: string };
 type StoredUser = User & { password: string };
 
@@ -78,7 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(
     async (email: string, password: string, autoLogin: boolean) => {
       // 1. 백엔드 로그인 API로 이메일과 비밀번호를 전송합니다.
-      const response = await fetch('http://localhost:8000/api/v1/auth/login', {
+      const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -115,7 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signup = useCallback(
     async (name: string, email: string, password: string, autoLogin: boolean) => {
       // 1. 백엔드 회원가입 API로 정보를 송신합니다.
-      const response = await fetch('http://localhost:8000/api/v1/auth/signup', {
+      const response = await fetch(`${API_BASE_URL}/api/v1/auth/signup`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

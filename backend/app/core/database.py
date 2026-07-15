@@ -12,7 +12,11 @@ load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:simplem@localhost:5432/simpleM")
 
 # 데이터베이스와 통신할 때 사용하는 '전용 엔진(덤프트럭)'을 만듭니다.
-engine = create_engine(DATABASE_URL)
+# [한글 주석] SQLite 환경에서는 멀티스레드 접속 충돌(check_same_thread)을 막는 보조 인자를 추가해 줍니다.
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+else:
+    engine = create_engine(DATABASE_URL)
 
 # 개별 손님 요청이 들어올 때마다 데이터베이스와 소통할 통신망(세션 세트)을 만들어내는 공장입니다.
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -1,7 +1,8 @@
 """챗봇 API (백엔드 B)
 
-현재는 OCR 초안 플로우(AI-2)만 제공한다:
-  업로드 → 초안 생성 → 사용자 수정 → 확정(사람) 또는 반려
+제공 기능:
+  OCR 초안 플로우(AI-2): 업로드 → 초안 생성 → 사용자 수정 → 확정(사람) 또는 반려
+  서류 자동화(ERP-12): 발주서·재고실사표·검수확인서·장부·임금명세서·근로계약서 초안 + 갱신 알림
 챗봇 대화 엔드포인트는 main_agent 구현 시 추가 예정.
 """
 
@@ -11,19 +12,28 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordBearer
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+
+from app.services.ai.agents import main_agent
 
 from app.core.auth import get_current_user
 from app.core.database import get_db
+from app.models.user import User
 
 from app.schemas.ai import (
+    ComplianceItemCreate,
+    ComplianceItemResponse,
+    EmploymentContractRequest,
+    GeneratedDocumentResponse,
     OcrConfirmRequest,
     OcrConfirmResponse,
     OcrDocumentResponse,
     OcrDocumentUpdate,
     OcrStatus,
+    PayslipRequest,
 )
-from app.services.ai import ocr_service
+from app.services.ai import document_service, ocr_service
 
 router = APIRouter(prefix="/chatbot", tags=["chatbot"])
 
@@ -58,6 +68,7 @@ def _to_response(draft: dict) -> OcrDocumentResponse:
         applied=draft["applied"],
         elapsed_sec=draft.get("elapsed_sec"),
         ocr_backend=draft.get("ocr_backend"),
+        clova_usage=draft.get("clova_usage"),
         created_at=draft["created_at"],
         updated_at=draft["updated_at"],
     )
@@ -141,3 +152,146 @@ async def reject_document(doc_id: str) -> OcrDocumentResponse:
         raise HTTPException(404, "문서를 찾을 수 없습니다")
     except ocr_service.DraftStateError as e:
         raise HTTPException(409, str(e))
+
+
+# ---------------------------------------------------------------------------
+# 서류 자동화 (ERP-12) — 모든 문서는 초안(draft)으로만 생성, 확정·전송은 사람이
+# 매장별 데이터이므로 로그인 필수 (store_id = 로그인 이메일)
+# ---------------------------------------------------------------------------
+
+@router.post("/documents/purchase-order", response_model=GeneratedDocumentResponse, status_code=201)
+def create_purchase_order_draft(current_user: User = Depends(get_current_user)):
+    """발주서 초안 — 안전재고 이하 재료를 자동 추출해 발주 수량을 제안한다."""
+    return document_service.draft_purchase_order(current_user.email)
+
+
+@router.post("/documents/stocktake", response_model=GeneratedDocumentResponse, status_code=201)
+def create_stocktake_sheet(current_user: User = Depends(get_current_user)):
+    """재고실사표 — 장부상 수량이 채워진 실사용 시트."""
+    return document_service.generate_stocktake_sheet(current_user.email)
+
+
+@router.post("/documents/inspection-report/{ocr_doc_id}", response_model=GeneratedDocumentResponse, status_code=201)
+def create_inspection_report(ocr_doc_id: str, current_user: User = Depends(get_current_user)):
+    """검수확인서 — OCR로 등록한 명세서/영수증 품목 기준 입고 검수 문서."""
+    try:
+        return document_service.generate_inspection_report(current_user.email, ocr_doc_id)
+    except document_service.DocumentError as e:
+        raise HTTPException(404, str(e))
+
+
+@router.post("/documents/ledger", response_model=GeneratedDocumentResponse, status_code=201)
+def create_monthly_ledger(year: int, month: int, current_user: User = Depends(get_current_user)):
+    """매입·매출 장부 — 확정 OCR 문서(매입)와 판매 기록(매출)의 월 집계."""
+    return document_service.generate_monthly_ledger(current_user.email, year, month)
+
+
+@router.post("/documents/vat-reference", response_model=GeneratedDocumentResponse, status_code=201)
+def create_vat_reference(start_date: str, end_date: str, current_user: User = Depends(get_current_user)):
+    """부가세 신고 참고자료 — 참고용 집계이며 최종 신고는 사람이 확인 후 진행."""
+    return document_service.generate_vat_reference(current_user.email, start_date, end_date)
+
+
+@router.post("/documents/payslip", response_model=GeneratedDocumentResponse, status_code=201)
+def create_payslip_draft(body: PayslipRequest, current_user: User = Depends(get_current_user)):
+    """임금명세서 초안 — 근무 스케줄 자동 집계로 기본급·주휴수당·공제를 계산한다."""
+    try:
+        return document_service.draft_payslip(current_user.email, body)
+    except document_service.DocumentError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/documents/contract", response_model=GeneratedDocumentResponse, status_code=201)
+def create_contract_draft(body: EmploymentContractRequest, current_user: User = Depends(get_current_user)):
+    """근로계약서 초안 — 근로기준법 필수 기재사항을 채운 표준 양식."""
+    return document_service.draft_employment_contract(current_user.email, body)
+
+
+@router.get("/documents/wage-ledger/{year}")
+def get_wage_ledger(year: int, current_user: User = Depends(get_current_user)):
+    """임금대장 — 그해 임금명세서의 직원·월별 집계 (3년 보관 의무 대응)."""
+    return document_service.get_wage_ledger(current_user.email, year)
+
+
+@router.get("/documents", response_model=list[GeneratedDocumentResponse])
+def list_generated_documents(kind: Optional[str] = None, current_user: User = Depends(get_current_user)):
+    """생성된 문서 목록 (kind로 필터 가능)."""
+    return document_service.list_documents(current_user.email, kind=kind)
+
+
+@router.get("/documents/{doc_id}", response_model=GeneratedDocumentResponse)
+def get_generated_document(doc_id: str, current_user: User = Depends(get_current_user)):
+    try:
+        return document_service.get_document(current_user.email, doc_id)
+    except document_service.DocumentError as e:
+        raise HTTPException(404, str(e))
+
+
+# ---------------------------------------------------------------------------
+# 정기 갱신 서류 만료 추적 (위생교육·보건증·임대차/공급 계약)
+# ---------------------------------------------------------------------------
+
+@router.post("/compliance", response_model=ComplianceItemResponse, status_code=201)
+def add_compliance_item(body: ComplianceItemCreate, current_user: User = Depends(get_current_user)):
+    """갱신 서류 등록 — 만료일이 다가오면 /compliance/upcoming에 나타난다."""
+    try:
+        return document_service.add_compliance_item(current_user.email, body)
+    except ValueError as e:
+        raise HTTPException(400, f"날짜 형식 오류: {e}")
+
+
+@router.get("/compliance", response_model=list[ComplianceItemResponse])
+def list_compliance_items(current_user: User = Depends(get_current_user)):
+    """등록된 갱신 서류 전체 + 만료까지 남은 일수."""
+    return document_service.list_compliance_items(current_user.email)
+
+
+@router.get("/compliance/upcoming", response_model=list[ComplianceItemResponse])
+def get_upcoming_renewals(current_user: User = Depends(get_current_user)):
+    """갱신 임박(설정일 이내)·만료된 서류만 — 대시보드 알림용."""
+    return document_service.get_upcoming_renewals(current_user.email)
+
+
+@router.delete("/compliance/{item_id}")
+def delete_compliance_item(item_id: int, current_user: User = Depends(get_current_user)) -> dict:
+    try:
+        document_service.delete_compliance_item(current_user.email, item_id)
+    except document_service.DocumentError as e:
+        raise HTTPException(404, str(e))
+    return {"deleted": item_id}  # 프론트 apiFetch가 JSON 응답을 기대하므로 204 대신 본문 반환
+
+
+# [한글 주석] 사용자가 챗봇에게 대화를 보낼 때의 입력 형식 명세
+class ChatRequest(BaseModel):
+    message: str = Field(..., description="사용자가 보낸 질문 메시지")
+    history: list[dict] = Field(default_factory=list, description="이전 대화 기록 목록 (Gemini 형식)")
+
+
+# [한글 주석] 챗봇이 대답을 돌려줄 때의 출력 형식 명세
+class ChatResponse(BaseModel):
+    response: str = Field(..., description="챗봇의 답변 텍스트")
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat_message(
+    body: ChatRequest,
+    store_id: Optional[str] = Depends(_optional_store_id),
+) -> ChatResponse:
+    """[한글 주석] 챗봇 대화 엔드포인트
+    
+    사용자의 질문을 챗봇 에이전트에게 전달해 적절한 도구 호출 및 답변 완성을 비동기로 수행합니다.
+    로그인하지 않은 상태로 호출되는 경우, 안전하게 데모 매장 계정(owner@cafe.com)으로 우회하여 가동합니다.
+    """
+    # [한글 주석] 매장 고유 식별자가 없을 경우를 위한 대비책 설정
+    store_key = store_id or "owner@cafe.com"
+    
+    try:
+        # [한글 주석] 챗봇 에이전트의 대화 처리 루프 실행
+        response_text = await main_agent.generate_response(
+            user_message=body.message,
+            store_id=store_key,
+            history=body.history
+        )
+        return ChatResponse(response=response_text)
+    except Exception as e:
+        raise HTTPException(500, f"챗봇 서비스 실행 중 장애 발생: {str(e)}")

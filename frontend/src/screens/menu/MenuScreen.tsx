@@ -2,12 +2,14 @@
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { useAuth } from '../../auth/AuthContext';
+import { PressableScale } from '../../components/motion';
 import FormSheet, { LabeledInput } from '../../components/FormSheet';
 import { Badge, Button, Card, Divider, Screen, ScreenTitle } from '../../components/ui';
 import { colors, typography } from '../../theme';
-import { apiFetch } from '../../lib/api/client';
+import { API_BASE_URL, apiFetch } from '../../lib/api/client';
+import { confirmDialog, toast } from '../../components/toast';
 
 
 // 1. 진짜 DB에서 불러올 재료 및 메뉴 레시피 규격 선언
@@ -32,6 +34,8 @@ type Menu = {
   store_id: string;
   is_active: boolean;
   recipes: RecipeDetail[];
+  cost_price?: number;                                               // 백엔드가 실시간 계산해 준 총 원재료비 (KRW)
+  cost_ratio?: number;                                               // 백엔드가 실시간 계산해 준 최종 원가율 (%)
 };
 
 // 2. 새로운 메뉴를 만들 때 한 줄 한 줄의 레시피 입력칸 규격
@@ -48,17 +52,10 @@ export default function MenuScreen() {
   const [price, setPrice] = useState('');
   const [rows, setRows] = useState<NewRow[]>([{ ingredient_id: '', quantity: '' }]);
 
-  // 3. [인증 정보 가져오기] 토큰을 수집합니다.
-  const getAuthHeaders = async () => {
-    const raw = await AsyncStorage.getItem('simplem:session');
-    if (raw) {
-      const session = JSON.parse(raw);
-      if (session?.token) {
-        return { 'Authorization': `Bearer ${session.token}` };
-      }
-    }
-    return {};
-  };
+  // 3. [인증 정보] 자동 로그인 여부와 무관하게 항상 유효한 in-memory 토큰 사용
+  const { token } = useAuth();
+  const getAuthHeaders = async (): Promise<Record<string, string>> =>
+    token ? { Authorization: `Bearer ${token}` } : {};
 
   // 4. [기초 데이터 로딩] 재료와 메뉴 목록을 동시에 들고 와 싱크를 맞춥니다.
   const fetchData = async () => {
@@ -91,6 +88,28 @@ export default function MenuScreen() {
 
   const canSubmit = name.trim() !== '' && price.trim() !== '';
 
+  // 메뉴 삭제 (확인 후) — 204 응답이라 raw fetch 사용
+  const remove = (m: Menu) => {
+    confirmDialog(`'${m.name}' 메뉴를 삭제할까요? 레시피 구성도 함께 제거됩니다.`, {
+      confirmLabel: '삭제',
+      destructive: true,
+      onConfirm: async () => {
+        if (!token) return toast('로그인이 필요해요', '다시 로그인해 주세요.');
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/v1/inventory/menus/${m.id}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) throw new Error(`삭제 실패 (${res.status})`);
+          await fetchData();
+          toast('삭제 완료', `${m.name} 메뉴를 삭제했어요.`);
+        } catch (e) {
+          toast('삭제 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+        }
+      },
+    });
+  };
+
   // 5. [메뉴 추가 API 발송] 메뉴 이름, 판매가, 조립식 레시피 리스트를 한 묶음으로 쏩니다.
   const submit = async () => {
     const p = parseInt(price.replace(/[^0-9]/g, ''), 10) || 0;
@@ -103,8 +122,12 @@ export default function MenuScreen() {
         quantity: parseFloat(r.quantity),
       }));
 
+    const headers = await getAuthHeaders();
+    if (!('Authorization' in headers)) {
+      toast('로그인이 필요해요', '로그아웃 후 다시 로그인해 주세요.');
+      return;
+    }
     try {
-      const headers = await getAuthHeaders();
       await apiFetch('/api/v1/inventory/menus', {
         method: 'POST',
         headers,
@@ -114,15 +137,15 @@ export default function MenuScreen() {
           recipes: recipeData,
         })
       });
-
-      // 입력창 청소 후 모달을 닫고 실시간 DB 데이터로 갱신합니다.
       setName('');
       setPrice('');
       setRows([{ ingredient_id: '', quantity: '' }]);
       setAdding(false);
       await fetchData();
+      toast('추가 완료', `${name.trim()} 메뉴를 등록했어요.`);
     } catch (e) {
       console.error('메뉴 등록 실패:', e);
+      toast('추가 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
     }
   };
 
@@ -162,31 +185,36 @@ export default function MenuScreen() {
           </View>
         ) : (
           menus.map((m) => {
-            // 이 메뉴에 소요되는 총 원가 합계를 산출합니다.
-            const cost = m.recipes.reduce((s, r) => s + getIngredientCost(r.ingredient_id, r.quantity), 0);
-            const rate = m.selling_price ? Math.round((cost / m.selling_price) * 100) : 0;
+            // 백엔드가 실시간 계산해 준 원가와 원가율을 최우선 매핑하고, 없으면 로컬 폴백 연산합니다.
+            const cost = m.cost_price !== undefined ? m.cost_price : m.recipes.reduce((s, r) => s + getIngredientCost(r.ingredient_id, r.quantity), 0);
+            const rate = m.cost_ratio !== undefined ? m.cost_ratio : (m.selling_price ? Math.round((cost / m.selling_price) * 100) : 0);
             const expanded = open === m.id;
             return (
               <Card key={m.id}>
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={() => setOpen(expanded ? null : m.id)}
-                  style={styles.row}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.name}>{m.name}</Text>
-                    <Text style={styles.sub}>
-                      판매가 ₩{m.selling_price.toLocaleString()} · 원가 ₩{cost.toLocaleString()}
-                    </Text>
-                  </View>
-                  <Badge label={`원가율 ${rate}%`} tone={rate > 35 ? 'danger' : 'green'} />
-                  <Ionicons
-                    name={expanded ? 'chevron-up' : 'chevron-down'}
-                    size={18}
-                    color={colors.mochaBrown}
-                    style={{ marginLeft: 6 }}
-                  />
-                </TouchableOpacity>
+                <View style={styles.row}>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => setOpen(expanded ? null : m.id)}
+                    style={styles.headerHit}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.name}>{m.name}</Text>
+                      <Text style={styles.sub}>
+                        판매가 ₩{m.selling_price.toLocaleString()} · 원가 ₩{cost.toLocaleString()}
+                      </Text>
+                    </View>
+                    <Badge label={`원가율 ${rate}%`} tone={rate > 35 ? 'danger' : 'green'} />
+                    <Ionicons
+                      name={expanded ? 'chevron-up' : 'chevron-down'}
+                      size={18}
+                      color={colors.mochaBrown}
+                      style={{ marginLeft: 6 }}
+                    />
+                  </TouchableOpacity>
+                  <PressableScale style={styles.delBtn} onPress={() => remove(m)} to={0.88}>
+                    <Ionicons name="trash-outline" size={18} color="#B23B2E" />
+                  </PressableScale>
+                </View>
 
                 {expanded && (
                   <View style={styles.recipe}>
@@ -285,7 +313,9 @@ const styles = StyleSheet.create({
     ...typography.L5,
     color: colors.espressoBrown,
   },
-  row: { flexDirection: 'row', alignItems: 'center' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerHit: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  delBtn: { padding: 8, borderRadius: 10, backgroundColor: 'rgba(178,59,46,0.08)' },
 
   name: { ...typography.L3, color: colors.espressoBrown },
   sub: { ...typography.L5, color: colors.mochaBrown, marginTop: 3 },

@@ -7,6 +7,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { useAuth } from '../auth/AuthContext';
+import AdminScreen from '../screens/admin/AdminScreen';
 import AuthScreen from '../screens/auth/AuthScreen';
 import ChatbotScreen from '../screens/chatbot/ChatbotScreen';
 import CostScreen from '../screens/cost/CostScreen';
@@ -28,9 +29,10 @@ export type RootTabParamList = {
   Inventory: undefined;
   Order: undefined;
   Chatbot: undefined;
-  Operation: undefined;
   Management: undefined;
 };
+
+const ADMIN_EMAILS = ['admin@simplem.com'];
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
@@ -43,6 +45,7 @@ export type RootStackParamList = {
   Cost: undefined;
   LawSearch: undefined;
   Document: undefined;
+  Operation: undefined;
 };
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -51,7 +54,6 @@ const ICONS: Record<keyof RootTabParamList, keyof typeof Ionicons.glyphMap> = {
   Inventory: 'file-tray-stacked',
   Order: 'cart',
   Chatbot: 'chatbubble-ellipses',
-  Operation: 'briefcase',
   Management: 'grid',
 };
 
@@ -60,7 +62,6 @@ const LABELS: Record<keyof RootTabParamList, string> = {
   Inventory: '재고',
   Order: '발주',
   Chatbot: '챗봇',
-  Operation: '운영',
   Management: '관리',
 };
 
@@ -73,6 +74,7 @@ const erpHeader = (title: string) =>
     headerStyle: { backgroundColor: colors.espressoBrown },
     headerTintColor: colors.creamSand,
     headerTitleStyle: { fontWeight: '900' as const },
+    headerStatusBarHeight: 35, // [한글 주석] 아이폰 노치(머리부분)와 타이틀 텍스트가 겹치지 않도록 여백을 확보합니다.
     animation: 'slide_from_right' as const,
   });
 
@@ -93,6 +95,11 @@ export default function RootNavigator() {
     return <AuthScreen />;
   }
 
+  // 관리자 → 하단 탭 없이 관리자 콘솔만 노출
+  if (ADMIN_EMAILS.includes(user.email)) {
+    return <AdminScreen />;
+  }
+
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -108,6 +115,7 @@ export default function RootNavigator() {
         <Stack.Screen name="Cost" component={CostScreen} options={erpHeader('원가 분석')} />
         <Stack.Screen name="LawSearch" component={LawSearchScreen} options={erpHeader('법령 검색')} />
         <Stack.Screen name="Document" component={DocumentScreen} options={erpHeader('서류 자동화')} />
+        <Stack.Screen name="Operation" component={OperationScreen} options={erpHeader('운영')} />
       </Stack.Navigator>
     </NavigationContainer>
   );
@@ -140,7 +148,6 @@ function TabsNavigator() {
       <Tab.Screen name="Inventory" component={InventoryScreen} />
       <Tab.Screen name="Order" component={OrderScreen} />
       <Tab.Screen name="Chatbot" component={ChatbotScreen} />
-      <Tab.Screen name="Operation" component={OperationScreen} />
       <Tab.Screen name="Management" component={ManagementScreen} />
     </Tab.Navigator>
   );

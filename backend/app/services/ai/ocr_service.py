@@ -2,11 +2,10 @@
 
 AI-2: 거래명세서/영수증 사진 → {상품, 단가, 수량} 구조화 → 등록 초안.
 
-세 가지 백엔드를 지원한다 (OCR_BACKEND 환경변수로 선택, 실패 시 OCR_FALLBACK_BACKEND로 자동 전환):
+두 가지 백엔드를 지원한다 (OCR_BACKEND 환경변수로 선택, 폴백 없음):
   - clova_gemini (기본): OCR+LLM 2단계 (PRD §5.2 ②) — CLOVA OCR로 텍스트 추출 후 Gemini가 구조화.
-    가장 빠르고(3~5초) 한국어 정확도가 높다. CLOVA 무료 한도(월 100건) 주의.
-  - paddle_gemini (기본 폴백): 로컬 PaddleOCR(PP-OCRv5 한국어) + Gemini. CLOVA 한도 초과/장애 시
-    자동 사용. 이 노트북 CPU 기준 약 12초, 품목명 정확.
+    가장 빠르고(3~5초) 한국어 정확도가 높다. CLOVA 무료 한도(월 100건)를 파일로 집계해
+    매 호출마다 사용 횟수를 응답에 담아 알려준다.
   - ollama_vlm: VLM 단독 (PRD §5.2 ①) — 로컬 gemma4가 이미지에서 바로 추출. 완전 오프라인용.
 
 흐름: analyze_image(초안 생성) → update_draft(사용자 수정) → confirm_draft(사람 승인, 자동 확정 금지)
@@ -57,16 +56,17 @@ _load_dotenv()
 
 # LLM 호출부는 이 모듈 상수/환경변수로만 제어한다 (모델 교체 시 한 곳 수정 — PRD §7)
 OCR_BACKEND = os.getenv("OCR_BACKEND", "clova_gemini")
-OCR_FALLBACK_BACKEND = os.getenv("OCR_FALLBACK_BACKEND", "paddle_gemini")  # 빈 값이면 폴백 없음
 
 CLOVA_OCR_INVOKE_URL = os.getenv("CLOVA_OCR_INVOKE_URL", "")
 CLOVA_OCR_SECRET = os.getenv("CLOVA_OCR_SECRET", "")
+# CLOVA 무료 한도(월 100건) — 성공 호출마다 파일에 집계해 사용자에게 n/100회를 알린다
+CLOVA_FREE_LIMIT = int(os.getenv("CLOVA_FREE_LIMIT", "100"))
+CLOVA_USAGE_FILE = Path(
+    os.getenv("CLOVA_USAGE_FILE", Path(__file__).resolve().parents[3] / "uploads" / "clova_usage.json")
+)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
-# PaddleOCR (로컬 폴백) — mobile 모델이 CPU에서 실용적, server 모델은 10배 느림
-PADDLE_DET_MODEL = os.getenv("PADDLE_DET_MODEL", "PP-OCRv5_mobile_det")
-PADDLE_REC_MODEL = os.getenv("PADDLE_REC_MODEL", "korean_PP-OCRv5_mobile_rec")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 # 기본값을 12b로 둔 이유: gemma4:latest(8B)는 Windows에서 이미지를 인식하지 못하는
 # Ollama 버그가 있다 (ollama/ollama#16532, 수정 PR #16879 미릴리스 — 2026-07 기준)
@@ -189,10 +189,12 @@ _GEMINI_SCHEMA: dict[str, Any] = {
 }
 
 # 문서 종류 → 등록 대상 추천 (사용자가 확정 전 변경 가능)
+# receipt는 원래 expense(지출)였으나 지출 기능이 미구현이라 확정해도 보관만 되므로,
+# 구매 영수증은 재고 입고로 추천한다 (백엔드 C가 expense 구현하면 되돌릴 것)
 _TARGET_BY_DOC_TYPE: dict[str, RegisterTarget] = {
     "purchase_statement": "inventory_inbound",
     "tax_invoice": "inventory_inbound",
-    "receipt": "expense",
+    "receipt": "inventory_inbound",
     "sales_summary": "sales",
 }
 
@@ -261,9 +263,22 @@ def _row_to_draft(row) -> dict[str, Any]:
         "applied": row.applied,
         "elapsed_sec": None,
         "ocr_backend": None,
+        "clova_usage": None,  # 호출 시점 스냅샷이므로 저장/복원하지 않는다
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
+
+
+def _save_draft_background(draft: dict[str, Any]) -> None:
+    """초안 저장을 백그라운드 스레드에서 — 원격 DB 왕복(~2초)이 OCR 응답을 막지 않게 한다.
+
+    사용자는 응답을 받고 품목을 검토한 뒤에야 수정/확정하므로 그사이 저장이 끝난다.
+    실패하면 로그만 남는다 (조회/확정 시 404로 드러나므로 재촬영으로 복구 가능).
+    """
+    try:
+        _save_draft(draft)
+    except Exception:
+        logger.exception("OCR %s 초안 백그라운드 저장 실패", draft["id"])
 
 
 def _save_draft(draft: dict[str, Any]) -> None:
@@ -304,6 +319,17 @@ def _save_draft(draft: dict[str, Any]) -> None:
         ]
         session.add(row)
         session.commit()
+
+
+# CLOVA·Gemini 호출에 연결을 재사용한다 — 매번 새 클라이언트를 만들면 TLS 수립에 수백 ms 낭비
+_http_client: Optional[httpx.AsyncClient] = None
+
+
+def _get_http() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(timeout=60)
+    return _http_client
 
 
 class OcrError(Exception):
@@ -390,13 +416,12 @@ async def _call_clova_ocr(image_bytes: bytes) -> str:
         "images": [{"format": "jpg", "name": "document", "data": base64.b64encode(image_bytes).decode()}],
     }
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(
-                CLOVA_OCR_INVOKE_URL,
-                json=payload,
-                headers={"X-OCR-SECRET": CLOVA_OCR_SECRET},
-            )
-            resp.raise_for_status()
+        resp = await _get_http().post(
+            CLOVA_OCR_INVOKE_URL,
+            json=payload,
+            headers={"X-OCR-SECRET": CLOVA_OCR_SECRET},
+        )
+        resp.raise_for_status()
     except httpx.HTTPStatusError as e:
         raise OcrError(f"CLOVA OCR 호출 실패 (HTTP {e.response.status_code}): {e.response.text[:300]}") from e
     except httpx.HTTPError as e:
@@ -417,84 +442,42 @@ async def _call_clova_ocr(image_bytes: bytes) -> str:
     text = "".join(parts).strip()
     if not text:
         raise OcrError("CLOVA OCR가 텍스트를 찾지 못했습니다 — 이미지 상태를 확인하세요")
+    # NCP는 인식 성공 건만 과금/한도에 집계하므로 성공한 뒤에만 센다
+    _record_clova_usage()
     return text
 
 
-# PaddleOCR 파이프라인은 로드에 ~15초·수 GB RAM이 들므로 첫 사용 시 1회만 만든다
-_paddle_ocr = None
-_paddle_lock = threading.Lock()
+# CLOVA 사용량 집계 — 파일 기반이라 서버를 재시작해도 이번 달 횟수가 유지된다
+_clova_usage_lock = threading.Lock()
 
 
-def _get_paddle_ocr():
-    global _paddle_ocr
-    if _paddle_ocr is None:
-        with _paddle_lock:
-            if _paddle_ocr is None:
-                from paddleocr import PaddleOCR
-
-                _paddle_ocr = PaddleOCR(
-                    text_detection_model_name=PADDLE_DET_MODEL,
-                    text_recognition_model_name=PADDLE_REC_MODEL,
-                    enable_mkldnn=False,  # Windows CPU oneDNN PIR 버그 우회 (paddle 3.3)
-                    use_doc_orientation_classify=False,
-                    use_doc_unwarping=False,
-                    use_textline_orientation=False,
-                )
-    return _paddle_ocr
-
-
-def _merge_ocr_lines(texts: list[str], boxes: list) -> str:
-    """인식된 텍스트 조각을 y좌표 기준으로 문서의 실제 줄로 복원한다."""
-    entries = []
-    for text, box in zip(texts, boxes):
-        if isinstance(box[0], (list, tuple)):
-            ys = [p[1] for p in box]
-            xs = [p[0] for p in box]
-        else:  # [x1, y1, x2, y2]
-            ys = [box[1], box[3]]
-            xs = [box[0], box[2]]
-        entries.append((sum(ys) / len(ys), min(xs), text))
-    entries.sort(key=lambda e: (e[0], e[1]))
-
-    lines: list[str] = []
-    current: list[tuple[float, str]] = []
-    current_y: Optional[float] = None
-    for y, x, text in entries:
-        if current_y is None or abs(y - current_y) < 14:
-            current.append((x, text))
-            current_y = y if current_y is None else (current_y + y) / 2
-        else:
-            lines.append(" ".join(t for _, t in sorted(current)))
-            current, current_y = [(x, text)], y
-    if current:
-        lines.append(" ".join(t for _, t in sorted(current)))
-    return "\n".join(lines)
-
-
-def _paddle_ocr_sync(image_bytes: bytes) -> str:
-    import numpy as np
-
-    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    output = _get_paddle_ocr().predict(np.array(img))
-    if not output:
-        raise OcrError("PaddleOCR가 결과를 반환하지 않았습니다")
-    data = output[0].json if isinstance(output[0].json, dict) else json.loads(output[0].json)
-    inner = data.get("res", data)
-    texts = inner.get("rec_texts", [])
-    boxes = inner.get("rec_boxes", []) or inner.get("dt_polys", [])
-    if not texts:
-        raise OcrError("PaddleOCR가 텍스트를 찾지 못했습니다 — 이미지 상태를 확인하세요")
-    return _merge_ocr_lines(texts, boxes)
-
-
-async def _call_paddle_ocr(image_bytes: bytes) -> str:
-    """로컬 PaddleOCR 호출 — 추론이 CPU 블로킹이므로 스레드에서 돌린다."""
+def get_clova_usage() -> dict[str, Any]:
+    """이번 달 CLOVA OCR 사용량. 파일이 없거나 달이 바뀌면 0부터 센다 (한도 월은 KST 기준)."""
+    month = datetime.now().strftime("%Y-%m")
     try:
-        return await asyncio.get_running_loop().run_in_executor(None, _paddle_ocr_sync, image_bytes)
-    except OcrError:
-        raise
-    except Exception as e:
-        raise OcrError(f"PaddleOCR 실패: {e}") from e
+        data = json.loads(CLOVA_USAGE_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        data = {}
+    used = int(data.get("count", 0)) if data.get("month") == month else 0
+    return {"month": month, "used": used, "limit": CLOVA_FREE_LIMIT, "remaining": max(CLOVA_FREE_LIMIT - used, 0)}
+
+
+def _record_clova_usage() -> dict[str, Any]:
+    """CLOVA 호출 1건을 기록하고 갱신된 사용량을 반환한다 (월이 바뀌면 자동 리셋)."""
+    with _clova_usage_lock:
+        usage = get_clova_usage()
+        used = usage["used"] + 1
+        CLOVA_USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        CLOVA_USAGE_FILE.write_text(
+            json.dumps({"month": usage["month"], "count": used}, ensure_ascii=False), encoding="utf-8"
+        )
+        usage["used"] = used
+        usage["remaining"] = max(CLOVA_FREE_LIMIT - used, 0)
+    if used >= CLOVA_FREE_LIMIT:
+        logger.warning("CLOVA OCR 무료 한도 도달 — 이번 달 %d/%d회", used, CLOVA_FREE_LIMIT)
+    else:
+        logger.info("CLOVA OCR 사용 — 이번 달 %d/%d회", used, CLOVA_FREE_LIMIT)
+    return usage
 
 
 async def _call_gemini_structurer(ocr_text: str) -> dict[str, Any]:
@@ -511,13 +494,12 @@ async def _call_gemini_structurer(ocr_text: str) -> dict[str, Any]:
         },
     }
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
-                json=body,
-                headers={"x-goog-api-key": GEMINI_API_KEY},
-            )
-            resp.raise_for_status()
+        resp = await _get_http().post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+            json=body,
+            headers={"x-goog-api-key": GEMINI_API_KEY},
+        )
+        resp.raise_for_status()
     except httpx.HTTPStatusError as e:
         raise OcrError(f"Gemini 호출 실패 (HTTP {e.response.status_code}): {e.response.text[:300]}") from e
     except httpx.HTTPError as e:
@@ -626,41 +608,64 @@ def _validate_result(result: OcrResult) -> list[str]:
     return doc_warnings
 
 
+def _merge_duplicate_items(result: OcrResult) -> None:
+    """[OCR 결과 품목 중복 병합 알고리즘]
+    하나의 영수증 명세서 내에 동일한 이름을 지닌 품목이 여러 개 흩어져 판독될 경우,
+    이를 한 줄로 합치고 수량(quantity)과 총금액(amount)을 합산해 줍니다.
+    """
+    if not result.items:
+        return
+
+    merged: dict[tuple[str, str], OcrItem] = {}
+    
+    for item in result.items:
+        if not item.name:
+            continue
+            
+        # 이름과 단위를 기준으로 묶어줍니다.
+        name_clean = item.name.strip()
+        unit_clean = (item.unit or "").strip()
+        key = (name_clean, unit_clean)
+        
+        if key not in merged:
+            merged[key] = item
+        else:
+            existing = merged[key]
+            # 1. 수량 합산
+            if item.quantity is not None:
+                existing.quantity = (existing.quantity or 0.0) + item.quantity
+            # 2. 총액 합산
+            if item.amount is not None:
+                existing.amount = (existing.amount or 0.0) + item.amount
+            # 3. 규격(spec) 합산 (콤마로 이어서 유실되지 않게)
+            if item.spec and existing.spec and item.spec != existing.spec:
+                existing.spec = f"{existing.spec}, {item.spec}"
+            elif item.spec and not existing.spec:
+                existing.spec = item.spec
+                
+            # 4. 단가 재조정
+            # 총액과 수량이 존재하면 단가를 역산하고, 그렇지 않으면 기존 단가를 유지합니다.
+            if existing.amount is not None and existing.quantity and existing.quantity > 0:
+                existing.unit_price = round(existing.amount / existing.quantity, 2)
+            elif item.unit_price is not None and existing.unit_price is None:
+                existing.unit_price = item.unit_price
+
+    result.items = list(merged.values())
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
 async def _run_backend(backend: str, image_bytes: bytes) -> tuple[dict[str, Any], Optional[str]]:
-    """지정한 백엔드로 (구조화 결과, OCR 원문)을 얻는다."""
+    """지정한 백엔드로 (구조화 결과, OCR 원문)을 얻는다. 폴백 없이 실패는 그대로 올린다."""
     if backend == "clova_gemini":
         # CLOVA는 고해상도일수록 정확 — VLM보다 크게 보낸다 (무료 한도는 건수 기준)
         text = await _call_clova_ocr(_preprocess_image(image_bytes, max_side=1920))
         return await _call_gemini_structurer(text), text
-    if backend == "paddle_gemini":
-        text = await _call_paddle_ocr(_preprocess_image(image_bytes))
-        return await _call_gemini_structurer(text), text
     if backend == "ollama_vlm":
         return await _call_vlm(_preprocess_image(image_bytes)), None
     raise OcrError(f"알 수 없는 OCR 백엔드: {backend}")
-
-
-async def _run_with_fallback(image_bytes: bytes) -> tuple[dict[str, Any], Optional[str], str]:
-    """기본 백엔드 실패(한도 초과·네트워크 장애 등) 시 폴백 백엔드로 자동 전환한다."""
-    backends = [OCR_BACKEND]
-    if OCR_FALLBACK_BACKEND and OCR_FALLBACK_BACKEND != OCR_BACKEND:
-        backends.append(OCR_FALLBACK_BACKEND)
-
-    last_error: Optional[OcrError] = None
-    for backend in backends:
-        try:
-            raw, ocr_text = await _run_backend(backend, image_bytes)
-            if last_error is not None:
-                logger.warning("OCR 폴백 성공: %s → %s", backends[0], backend)
-            return raw, ocr_text, backend
-        except OcrError as e:
-            logger.warning("OCR 백엔드 %s 실패: %s", backend, e)
-            last_error = e
-    raise last_error if last_error else OcrError("사용 가능한 OCR 백엔드가 없습니다")
 
 
 async def analyze_image(image_bytes: bytes, filename: Optional[str] = None) -> dict[str, Any]:
@@ -673,11 +678,12 @@ async def analyze_image(image_bytes: bytes, filename: Optional[str] = None) -> d
     image_path.write_bytes(image_bytes)
 
     started = time.perf_counter()
-    raw, ocr_text, used_backend = await _run_with_fallback(image_bytes)
+    raw, ocr_text = await _run_backend(OCR_BACKEND, image_bytes)
     elapsed = round(time.perf_counter() - started, 1)
-    logger.info("OCR %s 완료 — %.1fs (%s)", doc_id, elapsed, used_backend)
+    logger.info("OCR %s 완료 — %.1fs (%s)", doc_id, elapsed, OCR_BACKEND)
 
     result = OcrResult.model_validate(raw)
+    _merge_duplicate_items(result)  # 동일 품목 수량/금액 자동 병합
     doc_warnings = _validate_result(result)
 
     now = _now()
@@ -693,11 +699,14 @@ async def analyze_image(image_bytes: bytes, filename: Optional[str] = None) -> d
         "confirmed_target": None,
         "applied": False,
         "elapsed_sec": elapsed,
-        "ocr_backend": used_backend,
+        "ocr_backend": OCR_BACKEND,
+        # 방금 호출로 갱신된 사용량 — 프론트가 "이번 달 n/100회"를 표시한다
+        "clova_usage": get_clova_usage() if OCR_BACKEND == "clova_gemini" else None,
         "created_at": now,
         "updated_at": now,
     }
-    _save_draft(draft)
+    # 저장을 기다리지 않고 바로 응답한다 — 원격 DB 저장 ~2초가 인식 체감 속도에서 빠진다
+    asyncio.get_running_loop().run_in_executor(None, _save_draft_background, draft)
     return draft
 
 
@@ -843,7 +852,9 @@ def _apply_inventory_inbound(draft: dict[str, Any], store_id: str) -> tuple[bool
                     ),
                 )
             elif item.unit_price:
-                ingredient.current_price = int(item.unit_price)  # 최신 매입 단가 반영
+                # 최신 매입 단가 반영 및 단가 변동 이력 자동 적재
+                inventory_service.update_ingredient_price(db, store_id, ingredient.id, int(item.unit_price))
+
 
             inventory_service.add_or_adjust_stock(
                 db, store_id,

@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.api.v1.router import api_router
-from app.core.database import Base, engine, get_db
+from app.core.database import Base, engine, get_db, SessionLocal
 
 # [설계도 수집] 데이터베이스 테이블을 만들기 전에, models 폴더 안의 설계도들을 수집하여 등록합니다.
 import app.models  # noqa: F401
@@ -19,6 +19,28 @@ logger = logging.getLogger(__name__)
 # DB가 꺼져 있어도 서버 자체는 뜨도록 한다 — DB와 무관한 기능(OCR 등)은 독립 동작해야 함 (PRD §7)
 try:
     Base.metadata.create_all(bind=engine)
+    
+    # [한글 주석] 로그인 데모를 즉시 하실 수 있게 테스트용 사장님 계정을 자동으로 생성(시딩)해 둡니다.
+    db_session = SessionLocal()
+    try:
+        from app.core.auth import get_password_hash
+        from app.models.user import User
+        owner_exists = db_session.query(User).filter(User.email == "owner@cafe.com").first()
+        if not owner_exists:
+            hashed_pwd = get_password_hash("owner123")
+            test_user = User(
+                email="owner@cafe.com",
+                hashed_password=hashed_pwd,
+                name="포슬이",
+                store_name="포슬카페"
+            )
+            db_session.add(test_user)
+            db_session.commit()
+            logger.info("🎉 테스트용 사장님 계정이 자동으로 생성되었습니다: owner@cafe.com / owner123")
+    except Exception as seed_err:
+        logger.error(f"테스트 계정 자동 생성 중 오류 발생: {seed_err}")
+    finally:
+        db_session.close()
 except Exception:
     logger.exception("DB 테이블 자동 생성 실패 — DB 연결을 확인하세요. DB 없이 서버를 계속 띄웁니다.")
 
@@ -28,19 +50,17 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# [CORS 설정] 프론트엔드 앱이 실행되는 브라우저 주소(8081번 포트)를 허용 목록으로 적어둡니다.
-origins = [
-    "http://localhost:8081",
-    "http://127.0.0.1:8081",
-]
-
+# [CORS 설정] 
+# 로컬 개발 및 기기 간 IP 접속(Failed to fetch) 시의 브라우저 CORS 차단을 방지하기 위해 
+# 모든 http/https 오리진 주소 접속을 허용하되, 인증 토큰 전달(credentials)도 안전하게 성립시킵니다.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,      # 8081번 포트에서 오는 신호는 다 받아줍니다.
-    allow_credentials=True,     # 로그인 쿠키나 토큰 정보를 전달받는 것을 허용합니다.
-    allow_methods=["*"],        # GET, POST, PUT, DELETE 등 모든 행동(메소드)을 허용합니다.
-    allow_headers=["*"],        # 어떤 요청 헤더 정보가 와도 다 수용합니다.
+    allow_origin_regex="https?://.*",  # 192.168.x.x 또는 localhost 등 모든 오리진 주소를 정규식 허용
+    allow_credentials=True,             # 인증 정보(토큰/쿠키) 전송을 허용
+    allow_methods=["*"],                # 모든 HTTP 메소드 허용
+    allow_headers=["*"],                # 모든 커스텀 헤더 허용
 )
+
 
 app.include_router(api_router, prefix="/api/v1")
 

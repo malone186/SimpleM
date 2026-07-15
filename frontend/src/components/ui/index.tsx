@@ -166,14 +166,25 @@ export function ProgressBar({ ratio, tone = 'mocha' }: { ratio: number; tone?: '
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.creamSand },
-  screenContent: { padding: spacing.globalPadding, paddingBottom: 32, gap: spacing.verticalGap },
+  screenContent: {
+    padding: spacing.globalPadding,
+    paddingTop: 45, // [중요] 노치바 및 상태바 시스템 글자 겹침을 방지하기 위한 안전 높이 적용
+    paddingBottom: 32,
+    gap: spacing.verticalGap,
+  },
   screenTitleWrap: { marginBottom: 4 },
   screenTitle: { ...typography.L1, color: colors.espressoBrown },
   screenSubtitle: { ...typography.L5, color: colors.mochaBrown, marginTop: 4 },
   card: { borderRadius: 20, padding: spacing.globalPadding, borderWidth: 1 },
   cardWhite: { backgroundColor: colors.white, borderColor: 'rgba(140,111,86,0.18)' },
   cardCream: { backgroundColor: colors.coffeeCream, borderColor: colors.mutedSand },
-  sectionTitle: { ...typography.L4, color: colors.espressoBrown, marginBottom: 2 },
+  sectionTitle: {
+    ...typography.L3,
+    fontSize: 15, // 본문 텍스트보다 명확히 돋보이는 가독성 크기
+    fontWeight: '800', // 타이틀 강조를 위한 볼드 처리
+    color: colors.espressoBrown,
+    marginBottom: 6, // 하단 정보와의 여유로운 조형적 여백
+  },
   badge: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3, alignSelf: 'flex-start' },
   badgeText: { ...typography.L5, fontWeight: '700' },
   btn: { borderRadius: 14, paddingVertical: 13, paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center' },
@@ -186,3 +197,6 @@ const styles = StyleSheet.create({
   progressTrack: { height: 7, borderRadius: 4, backgroundColor: colors.mutedSand, overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: 4 },
 });
+
+export * from './DayOfWeekPicker';
+export * from './IosTimePicker';
