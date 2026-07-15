@@ -1,69 +1,92 @@
 """운영(스케줄·급여) 로직 (백엔드 C)"""
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, List, Optional
-from app.models.operation import Employee, Schedule
-
-# 가상 데이터베이스 구성
-_employees_db: Dict[int, Employee] = {
-    1: Employee(id=1, name="김민수", hourly_rate=10000, role="바리스타"),
-    2: Employee(id=2, name="이영희", hourly_rate=11000, role="바리스타"),
-    3: Employee(id=3, name="박철수", hourly_rate=12000, role="매니저")
-}
-_schedules_db: Dict[int, Schedule] = {}
-_schedule_id_counter = 1
-
-# 정산 계산을 위한 가상의 일별 매출 및 매입 지출 데이터셋
-_sales_db: List[Dict[str, Any]] = [
-    {"date": "2026-07-01", "amount": 500000},
-    {"date": "2026-07-02", "amount": 600000},
-    {"date": "2026-07-03", "amount": 550000},
-    {"date": "2026-07-04", "amount": 700000},
-    {"date": "2026-07-05", "amount": 800000}
-]
-_expenses_db: List[Dict[str, Any]] = [
-    {"date": "2026-07-01", "amount": 100000, "category": "원두매입"},
-    {"date": "2026-07-03", "amount": 50000, "category": "소모품비"}
-]
+from sqlalchemy.orm import Session
+from sqlalchemy import func, extract
+from app.models.operation import Employee, Schedule, Expense
+from app.models.inventory import Sale
+from app.schemas.operation import ScheduleUpdate
 
 class OperationService:
     """스케줄 관리 및 근무 시간, 급여 연산 비즈니스 로직을 담당하는 서비스 클래스"""
 
     @staticmethod
-    def get_employee(employee_id: int) -> Optional[Employee]:
-        """직원 정보 조회"""
-        return _employees_db.get(employee_id)
+    def get_employee(db: Session, employee_id: int) -> Optional[Employee]:
+        """데이터베이스에서 직원 정보 조회"""
+        return db.query(Employee).filter(Employee.id == employee_id).first()
 
     @staticmethod
-    def create_schedule(employee_id: int, start_time: datetime, end_time: datetime) -> Schedule:
-        """새 근무 스케줄 등록"""
-        global _schedule_id_counter
-        if employee_id not in _employees_db:
+    def create_schedule(db: Session, employee_id: int, start_time: datetime, end_time: datetime) -> Schedule:
+        """새 근무 스케줄을 데이터베이스에 등록합니다."""
+        # 1. 존재하는 직원인지 유효성 검사
+        employee = db.query(Employee).filter(Employee.id == employee_id).first()
+        if not employee:
             raise ValueError(f"존재하지 않는 직원 ID입니다: {employee_id}")
         
         if start_time >= end_time:
-            raise ValueError("시작 시간은 종료 시간보다 빨라야 합니다.")
+            raise ValueError("근무 시작 시간은 종료 시간보다 빨라야 합니다.")
             
         date_str = start_time.strftime("%Y-%m-%d")
         new_schedule = Schedule(
-            id=_schedule_id_counter,
             employee_id=employee_id,
             start_time=start_time,
             end_time=end_time,
             date=date_str
         )
-        _schedules_db[_schedule_id_counter] = new_schedule
-        _schedule_id_counter += 1
+        db.add(new_schedule)
+        db.commit()
+        db.refresh(new_schedule)
         return new_schedule
 
     @staticmethod
-    def get_schedule(schedule_id: int) -> Optional[Schedule]:
-        """스케줄 단건 조회"""
-        return _schedules_db.get(schedule_id)
+    def get_schedule(db: Session, schedule_id: int) -> Optional[Schedule]:
+        """스케줄 단건 상세 조회"""
+        return db.query(Schedule).filter(Schedule.id == schedule_id).first()
 
     @staticmethod
-    def get_all_schedules() -> List[Schedule]:
-        """전체 스케줄 조회"""
-        return list(_schedules_db.values())
+    def get_all_schedules(db: Session) -> List[Schedule]:
+        """등록된 모든 스케줄 일정 목록 조회"""
+        return db.query(Schedule).all()
+
+    @staticmethod
+    def update_schedule(db: Session, schedule_id: int, payload: ScheduleUpdate) -> Optional[Schedule]:
+        """스케줄 일정을 찾아 요청된 항목만 부분 수정(PATCH)합니다."""
+        db_schedule = db.query(Schedule).filter(Schedule.id == schedule_id).first()
+        if not db_schedule:
+            return None
+
+        # 전송된 데이터가 있는 경우에만 덮어쓰기 (PATCH 기본 동작)
+        if payload.start_time is not None:
+            db_schedule.start_time = payload.start_time
+            db_schedule.date = payload.start_time.strftime("%Y-%m-%d")  # 날짜 동기화
+        if payload.end_time is not None:
+            db_schedule.end_time = payload.end_time
+        if payload.actual_start_time is not None:
+            db_schedule.actual_start_time = payload.actual_start_time
+        if payload.actual_end_time is not None:
+            db_schedule.actual_end_time = payload.actual_end_time
+
+        # 입력 시간 전후 관계 논리 검증
+        if db_schedule.start_time >= db_schedule.end_time:
+            raise ValueError("근무 시작 시간은 종료 시간보다 빨라야 합니다.")
+        if db_schedule.actual_start_time and db_schedule.actual_end_time:
+            if db_schedule.actual_start_time >= db_schedule.actual_end_time:
+                raise ValueError("실제 출근 시각은 퇴근 시각보다 빨라야 합니다.")
+
+        db.commit()
+        db.refresh(db_schedule)
+        return db_schedule
+
+    @staticmethod
+    def delete_schedule(db: Session, schedule_id: int) -> bool:
+        """데이터베이스에서 특정 스케줄 영구 삭제 (Hard Delete)"""
+        db_schedule = db.query(Schedule).filter(Schedule.id == schedule_id).first()
+        if not db_schedule:
+            return False
+        
+        db.delete(db_schedule)
+        db.commit()
+        return True
 
     @staticmethod
     def calculate_work_hours(start_time: datetime, end_time: datetime) -> float:
@@ -80,25 +103,31 @@ class OperationService:
         return max(0.0, total_hours)
 
     @classmethod
-    def calculate_payroll(cls, employee_id: int, year_month: str) -> dict:
-        """특정 직원의 지정 연월에 대한 예상 급여(주휴수당 포함)를 계산합니다."""
-        employee = _employees_db.get(employee_id)
+    def calculate_payroll(cls, db: Session, employee_id: int, year_month: str) -> dict:
+        """특정 직원의 지정 연월에 대해 실제 기록된 출퇴근 시각 기준 예상 급여를 계산합니다."""
+        employee = db.query(Employee).filter(Employee.id == employee_id).first()
         if not employee:
             raise ValueError(f"존재하지 않는 직원 ID입니다: {employee_id}")
             
         total_hours = 0.0
-        # 해당 연월의 스케줄 기준 근무시간 산산
-        for schedule in _schedules_db.values():
-            if schedule.employee_id == employee_id and schedule.date.startswith(year_month):
-                hours = cls.calculate_work_hours(schedule.start_time, schedule.end_time)
-                total_hours += hours
+        # 해당 연월의 스케줄 중 실제 출근 및 퇴근 시간이 모두 기록된 데이터만 취합
+        schedules = db.query(Schedule).filter(
+            Schedule.employee_id == employee_id,
+            Schedule.date.like(f"{year_month}%"),
+            Schedule.actual_start_time.isnot(None),
+            Schedule.actual_end_time.isnot(None)
+        ).all()
+
+        for schedule in schedules:
+            hours = cls.calculate_work_hours(schedule.actual_start_time, schedule.actual_end_time)
+            total_hours += hours
                 
-        # 주휴수당 산정 (월 총 시간이 60시간 이상이면 평균 주 15시간 이상으로 보아 1일 평균 소정근로시간 추가 지급)
+        # 주휴수당 산정 (월 총 근로시간이 60시간 이상일 때 4주 기준 주휴수당 합산)
         weekly_holiday_allowance = 0
         if total_hours >= 60.0:
             weekly_avg_hours = total_hours / 4.0
             daily_avg_hours = min(8.0, weekly_avg_hours / 5.0)
-            weekly_holiday_allowance = int(daily_avg_hours * employee.hourly_rate * 4) # 4주치 주휴수당
+            weekly_holiday_allowance = int(daily_avg_hours * employee.hourly_rate * 4)
 
         base_salary = int(total_hours * employee.hourly_rate)
         total_salary = base_salary + weekly_holiday_allowance
@@ -115,23 +144,36 @@ class OperationService:
         }
 
     @classmethod
-    def calculate_settlement(cls, year_month: str) -> dict:
-        """매장의 월별 예상 총매출, 예상 총지출, 직원 인건비를 취합해 예상 정산 손익을 도출합니다."""
-        # 1. 가상 매출액 합산
-        total_sales = sum(record["amount"] for record in _sales_db if record["date"].startswith(year_month))
-        # 2. 가상 지출액 합산
-        total_expense = sum(record["amount"] for record in _expenses_db if record["date"].startswith(year_month))
+    def calculate_settlement(cls, db: Session, year_month: str) -> dict:
+        """매장의 월별 매출액, 지출 비용, 총 인건비를 취합해 예상 정산 손익을 도출합니다."""
+        try:
+            year, month = map(int, year_month.split("-"))
+        except ValueError:
+            raise ValueError("연월 포맷은 YYYY-MM 형식이어야 합니다.")
+
+        # 1. 데이터베이스에서 매출액(sales) 합산
+        total_sales = db.query(func.sum(Sale.total_price)).filter(
+            extract('year', Sale.sold_at) == year,
+            extract('month', Sale.sold_at) == month
+        ).scalar() or 0
+
+        # 2. 데이터베이스에서 지출액(expenses) 합산
+        total_expense = db.query(func.sum(Expense.amount)).filter(
+            extract('year', Expense.expense_date) == year,
+            extract('month', Expense.expense_date) == month
+        ).scalar() or 0
         
-        # 3. 전체 직원의 해당 월 예상 급여 합산
+        # 3. 등록된 모든 직원의 해당 월 예상 급여 합산 (인건비)
         total_payroll = 0
-        for emp_id in _employees_db.keys():
+        employees = db.query(Employee).all()
+        for emp in employees:
             try:
-                payroll = cls.calculate_payroll(emp_id, year_month)
+                payroll = cls.calculate_payroll(db, emp.id, year_month)
                 total_payroll += payroll["total_salary"]
             except ValueError:
                 continue
                 
-        # 4. 예상 순이익 = 예상 매출 - (예상 지출 + 예상 인건비)
+        # 4. 예상 순이익 = 매출 - (비용 + 인건비)
         net_profit = total_sales - (total_expense + total_payroll)
         
         return {
