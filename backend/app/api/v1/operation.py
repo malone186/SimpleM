@@ -1,13 +1,14 @@
 """운영 API (백엔드 C)"""
-from fastapi import APIRouter, Query, Depends
+from fastapi import APIRouter, Query, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.auth import get_current_user
 from app.models.user import User
 from app.schemas.operation import (
-    CommonResponse, ScheduleCreate, ScheduleResponse,
+    CommonResponse, ScheduleCreate, ScheduleUpdate, ScheduleResponse,
     SettlementResponse, TaxEstimateRequest, TaxEstimateResponse,
-    ForecastRequest, ForecastResponse, RAGDocumentResponse, ReportSourceResponse
+    ForecastRequest, ForecastResponse, RAGDocumentResponse, ReportSourceResponse,
+    PayrollCalculateRequest, SettlementCalculateRequest
 )
 from app.services.operation.operation_service import OperationService
 from app.services.operation.tax_service import TaxService
@@ -16,17 +17,18 @@ from app.services.operation.forecasting_service import ForecastingService
 router = APIRouter(prefix="/operation", tags=["Operation"])
 
 @router.post("/schedules", response_model=CommonResponse)
-def create_schedule_api(payload: ScheduleCreate):
-    """새로운 근무 스케줄을 등록합니다."""
+def create_schedule_api(payload: ScheduleCreate, db: Session = Depends(get_db)):
+    """새로운 근무 계획 스케줄을 등록합니다."""
     try:
         schedule = OperationService.create_schedule(
+            db=db,
             employee_id=payload.employee_id,
             start_time=payload.start_time,
             end_time=payload.end_time
         )
         return CommonResponse(
             success=True,
-            data=ScheduleResponse.from_orm(schedule),
+            data=ScheduleResponse.model_validate(schedule),
             message="스케줄 등록이 완료되었습니다."
         )
     except ValueError as e:
@@ -35,36 +37,89 @@ def create_schedule_api(payload: ScheduleCreate):
         return CommonResponse(success=False, data=None, message=f"서버 오류: {str(e)}")
 
 @router.get("/schedules", response_model=CommonResponse)
-def get_all_schedules_api():
-    """전체 스케줄 일정을 조회합니다."""
+def get_all_schedules_api(db: Session = Depends(get_db)):
+    """등록된 모든 스케줄 일정을 조회합니다."""
     try:
-        schedules = OperationService.get_all_schedules()
-        data = [ScheduleResponse.from_orm(s) for s in schedules]
+        schedules = OperationService.get_all_schedules(db)
+        data = [ScheduleResponse.model_validate(s) for s in schedules]
         return CommonResponse(success=True, data=data, message="스케줄 조회가 완료되었습니다.")
     except Exception as e:
         return CommonResponse(success=False, data=None, message=str(e))
 
-@router.get("/payroll/estimate", response_model=CommonResponse)
-def get_payroll_estimate_api(
-    employee_id: int = Query(..., description="직원 고유 번호"),
-    year_month: str = Query(..., description="정산 연월 (YYYY-MM)")
-):
-    """특정 직원의 해당 월 예상 급여(주휴수당 포함)를 시뮬레이션 계산합니다."""
+@router.get("/schedules/{schedule_id}", response_model=CommonResponse)
+def get_schedule_api(schedule_id: int, db: Session = Depends(get_db)):
+    """지정한 ID에 해당하는 특정 스케줄 일정을 단건 조회합니다."""
     try:
-        payroll_result = OperationService.calculate_payroll(employee_id, year_month)
+        schedule = OperationService.get_schedule(db, schedule_id)
+        if not schedule:
+            return CommonResponse(success=False, data=None, message="존재하지 않는 스케줄 번호입니다.")
+        return CommonResponse(
+            success=True,
+            data=ScheduleResponse.model_validate(schedule),
+            message="스케줄 조회가 완료되었습니다."
+        )
+    except Exception as e:
+        return CommonResponse(success=False, data=None, message=str(e))
+
+@router.patch("/schedules/{schedule_id}", response_model=CommonResponse)
+def update_schedule_api(schedule_id: int, payload: ScheduleUpdate, db: Session = Depends(get_db)):
+    """스케줄 근무 시각 및 실제 출퇴근 시각을 수정(PATCH)합니다."""
+    try:
+        schedule = OperationService.update_schedule(db, schedule_id, payload)
+        if not schedule:
+            return CommonResponse(success=False, data=None, message="수정할 스케줄 정보를 찾을 수 없습니다.")
+        return CommonResponse(
+            success=True,
+            data=ScheduleResponse.model_validate(schedule),
+            message="스케줄 정보 수정이 완료되었습니다."
+        )
+    except ValueError as e:
+        return CommonResponse(success=False, data=None, message=str(e))
+    except Exception as e:
+        return CommonResponse(success=False, data=None, message=f"서버 오류: {str(e)}")
+
+@router.delete("/schedules/{schedule_id}", response_model=CommonResponse)
+def delete_schedule_api(schedule_id: int, db: Session = Depends(get_db)):
+    """특정 근무 스케줄 일정을 영구 삭제(Hard Delete)합니다."""
+    try:
+        success = OperationService.delete_schedule(db, schedule_id)
+        if not success:
+            return CommonResponse(success=False, data=None, message="삭제할 스케줄 정보를 찾을 수 없습니다.")
+        return CommonResponse(success=True, data=None, message="스케줄 정보가 성공적으로 삭제되었습니다.")
+    except Exception as e:
+        return CommonResponse(success=False, data=None, message=str(e))
+
+@router.post("/payroll/calculate", response_model=CommonResponse)
+def calculate_payroll_api(payload: PayrollCalculateRequest, db: Session = Depends(get_db)):
+    """특정 직원의 지정 연월에 대한 예상 급여(주휴수당 포함)를 계산합니다."""
+    try:
+        payroll_result = OperationService.calculate_payroll(db, payload.employee_id, payload.year_month)
         return CommonResponse(success=True, data=payroll_result, message="예상 급여 계산이 완료되었습니다.")
     except ValueError as e:
         return CommonResponse(success=False, data=None, message=str(e))
     except Exception as e:
-        return CommonResponse(success=False, data=None, message=str(e))
+        return CommonResponse(success=False, data=None, message=f"서버 오류: {str(e)}")
 
-@router.get("/settlement/estimate", response_model=CommonResponse)
-def get_settlement_estimate_api(
-    year_month: str = Query(..., description="정산 연월 (YYYY-MM)")
+@router.get("/payroll", response_model=CommonResponse)
+def get_payroll_api(
+    employee_id: int = Query(..., description="직원 고유 번호"),
+    year_month: str = Query(..., description="정산 연월 (YYYY-MM)"),
+    db: Session = Depends(get_db)
 ):
-    """지정 연월에 대한 매장의 예상 손익 정산 분석안을 조회합니다."""
+    """지정 연월에 대한 특정 직원의 예상 급여 조회 결과를 불러옵니다."""
     try:
-        settlement_result = OperationService.calculate_settlement(year_month)
+        payroll_result = OperationService.calculate_payroll(db, employee_id, year_month)
+        return CommonResponse(success=True, data=payroll_result, message="예상 급여 조회가 완료되었습니다.")
+    except ValueError as e:
+        return CommonResponse(success=False, data=None, message=str(e))
+    except Exception as e:
+        return CommonResponse(success=False, data=None, message=f"서버 오류: {str(e)}")
+
+@router.post("/settlements/calculate", response_model=CommonResponse)
+def calculate_settlement_api(payload: SettlementCalculateRequest, db: Session = Depends(get_db)):
+    """지정 연월에 대한 매장의 예상 손익 정산을 계산합니다."""
+    try:
+        settlement_result = OperationService.calculate_settlement(db, payload.year_month)
         data = SettlementResponse(
             year_month=settlement_result["year_month"],
             total_sales=settlement_result["total_sales"],
@@ -74,34 +129,32 @@ def get_settlement_estimate_api(
             calculated_at=settlement_result["calculated_at"]
         )
         return CommonResponse(success=True, data=data, message="예상 정산 계산이 완료되었습니다.")
-    except Exception as e:
+    except ValueError as e:
         return CommonResponse(success=False, data=None, message=str(e))
+    except Exception as e:
+        return CommonResponse(success=False, data=None, message=f"서버 오류: {str(e)}")
 
-@router.post("/tax/estimate", response_model=CommonResponse)
-def get_tax_estimate_api(payload: TaxEstimateRequest):
-    """매출과 비용을 기반으로 한 참고용 예상 세금 계산을 수행합니다."""
+@router.get("/settlements", response_model=CommonResponse)
+def get_settlements_api(
+    year_month: str = Query(..., description="정산 연월 (YYYY-MM)"),
+    db: Session = Depends(get_db)
+):
+    """지정 연월에 대한 매장의 정산 내역 분석안을 조회합니다."""
     try:
-        result = TaxService.calculate_estimated_tax(
-            total_revenue=payload.total_revenue,
-            total_expense=payload.total_expense,
-            tax_rate=payload.tax_rate,
-            period=payload.period
+        settlement_result = OperationService.calculate_settlement(db, year_month)
+        data = SettlementResponse(
+            year_month=settlement_result["year_month"],
+            total_sales=settlement_result["total_sales"],
+            total_expense=settlement_result["total_expense"],
+            total_payroll=settlement_result["total_payroll"],
+            net_profit=settlement_result["net_profit"],
+            calculated_at=settlement_result["calculated_at"]
         )
-        data = TaxEstimateResponse(
-            period=result["period"],
-            total_revenue=result["total_revenue"],
-            total_expense=result["total_expense"],
-            taxable_amount=result["taxable_amount"],
-            tax_rate=result["tax_rate"],
-            estimated_tax=result["estimated_tax"],
-            summary=result["summary"],
-            disclaimer=result["disclaimer"]
-        )
-        return CommonResponse(
-            success=True,
-            data=data,
-            message="세무 예상 계산이 완료되었습니다."
-        )
+        return CommonResponse(success=True, data=data, message="정산 내역 조회가 완료되었습니다.")
+    except ValueError as e:
+        return CommonResponse(success=False, data=None, message=str(e))
+    except Exception as e:
+        return CommonResponse(success=False, data=None, message=f"서버 오류: {str(e)}")
     except ValueError:
         return CommonResponse(
             success=False,

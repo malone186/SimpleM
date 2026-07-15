@@ -15,6 +15,13 @@ class ScheduleCreate(BaseModel):
     start_time: datetime = Field(..., description="근무 시작 일시")
     end_time: datetime = Field(..., description="근무 종료 일시")
 
+class ScheduleUpdate(BaseModel):
+    """근무 스케줄 수정 요청 양식 (선택 사항)"""
+    start_time: Optional[datetime] = Field(None, description="근무 시작 일시 수정")
+    end_time: Optional[datetime] = Field(None, description="근무 종료 일시 수정")
+    actual_start_time: Optional[datetime] = Field(None, description="실제 출근 일시 등록/수정")
+    actual_end_time: Optional[datetime] = Field(None, description="실제 퇴근 일시 등록/수정")
+
 class ScheduleResponse(BaseModel):
     """근무 스케줄 반환 양식"""
     id: int = Field(..., description="스케줄 고유 번호")
@@ -22,9 +29,20 @@ class ScheduleResponse(BaseModel):
     start_time: datetime = Field(..., description="근무 시작 일시")
     end_time: datetime = Field(..., description="근무 종료 일시")
     date: str = Field(..., description="근무 일자 (YYYY-MM-DD)")
+    actual_start_time: Optional[datetime] = Field(None, description="실제 출근 일시")
+    actual_end_time: Optional[datetime] = Field(None, description="실제 퇴근 일시")
 
     class Config:
         from_attributes = True
+
+class PayrollCalculateRequest(BaseModel):
+    """급여 예상 계산 요청 양식"""
+    employee_id: int = Field(..., description="직원 고유 번호")
+    year_month: str = Field(..., description="계산 대상 연월 (예: YYYY-MM)")
+
+class SettlementCalculateRequest(BaseModel):
+    """정산 예상 계산 요청 양식"""
+    year_month: str = Field(..., description="정산 대상 연월 (예: YYYY-MM)")
 
 class PayrollResponse(BaseModel):
     """예상 급여 응답 스키마"""
