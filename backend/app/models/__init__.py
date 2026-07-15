@@ -4,7 +4,7 @@
 from app.models.ai import OcrDocument, OcrItem
 
 # I (inventory.py)
-from app.models.inventory import Ingredient, Menu, Recipe, Stock, StockTransaction, Sale, Order, OrderItem
+from app.models.inventory import Ingredient, IngredientPriceHistory, Menu, Recipe, Stock, StockTransaction, Sale, Order, OrderItem
 
 # O (operation.py)
 from app.models.operation import Employee, Schedule

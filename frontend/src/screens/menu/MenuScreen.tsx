@@ -34,6 +34,8 @@ type Menu = {
   store_id: string;
   is_active: boolean;
   recipes: RecipeDetail[];
+  cost_price?: number;                                               // 백엔드가 실시간 계산해 준 총 원재료비 (KRW)
+  cost_ratio?: number;                                               // 백엔드가 실시간 계산해 준 최종 원가율 (%)
 };
 
 // 2. 새로운 메뉴를 만들 때 한 줄 한 줄의 레시피 입력칸 규격
@@ -183,9 +185,9 @@ export default function MenuScreen() {
           </View>
         ) : (
           menus.map((m) => {
-            // 이 메뉴에 소요되는 총 원가 합계를 산출합니다.
-            const cost = m.recipes.reduce((s, r) => s + getIngredientCost(r.ingredient_id, r.quantity), 0);
-            const rate = m.selling_price ? Math.round((cost / m.selling_price) * 100) : 0;
+            // 백엔드가 실시간 계산해 준 원가와 원가율을 최우선 매핑하고, 없으면 로컬 폴백 연산합니다.
+            const cost = m.cost_price !== undefined ? m.cost_price : m.recipes.reduce((s, r) => s + getIngredientCost(r.ingredient_id, r.quantity), 0);
+            const rate = m.cost_ratio !== undefined ? m.cost_ratio : (m.selling_price ? Math.round((cost / m.selling_price) * 100) : 0);
             const expanded = open === m.id;
             return (
               <Card key={m.id}>

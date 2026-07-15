@@ -52,25 +52,42 @@ export default function InventoryScreen() {
     loadDrafts();
   }, [loadStocks, loadDrafts]);
 
-  // 재료 직접 등록 → 초기 수량이 있으면 바로 입고 처리
+  // 재료 직접 등록 → 같은 이름의 재료가 이미 있으면 새로 만들지 않고 기존 재고에 추가 입고
   const registerIngredient = async () => {
     if (!token) return notify('로그인 필요', '재료 등록은 로그인 후 가능합니다.');
     if (!fName.trim() || !fUnit.trim()) return notify('입력 확인', '재료명과 단위는 필수입니다.');
     setSaving(true);
     try {
-      const ing = await createIngredient(token, {
-        name: fName.trim(),
-        unit: fUnit.trim(),
-        current_price: Number(fPrice) || 0,
-      });
+      const name = fName.trim();
       const qty = Number(fQty) || 0;
-      if (qty > 0) {
-        await adjustStock(token, { ingredient_id: ing.id, quantity_change: qty, description: '직접 등록 초기 수량' });
+
+      // 화면의 stocks는 오래됐을 수 있으므로 최신 목록으로 중복을 확인한다
+      const latest = await listStocks(token).catch(() => stocks);
+      const existing = latest.find((s) => s.name === name);
+
+      if (existing && qty <= 0) {
+        notify('이미 등록된 재료', `${existing.name}은(는) 이미 등록돼 있어요. 초기 수량을 입력하면 기존 재고에 추가 입고돼요.`);
+        return;
       }
+
+      if (existing) {
+        await adjustStock(token, { ingredient_id: existing.ingredient_id, quantity_change: qty, description: '직접 등록 추가 입고' });
+        notify('입고 완료', `이미 등록된 재료라 ${existing.name} 재고에 ${qty}${existing.unit}을(를) 추가했어요.`);
+      } else {
+        const ing = await createIngredient(token, {
+          name,
+          unit: fUnit.trim(),
+          current_price: Number(fPrice) || 0,
+        });
+        if (qty > 0) {
+          await adjustStock(token, { ingredient_id: ing.id, quantity_change: qty, description: '직접 등록 초기 수량' });
+        }
+        notify('등록 완료', `${ing.name} 재료가 등록됐어요.`);
+      }
+
       setFName(''); setFUnit(''); setFPrice(''); setFQty('');
       setFormOpen(false);
       loadStocks();
-      notify('등록 완료', `${ing.name} 재료가 등록됐어요.`);
     } catch (e) {
       notify('등록 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
     } finally {
@@ -106,7 +123,9 @@ export default function InventoryScreen() {
   // OCR 확정 → 재고 입고 → 재고 현황 즉시 갱신 (실시간 연동)
   const confirm = async (doc: OcrDocument) => {
     try {
-      const res = await confirmOcrDocument(doc.id, doc.suggested_target ?? 'inventory_inbound', token);
+      // 이 버튼의 의미가 '재고 반영'이므로 서버 추천값과 무관하게 항상 재고 입고로 확정한다
+      // (expense/sales는 미구현이라 추천값을 따르면 보관만 되고 재고에 안 들어간다)
+      const res = await confirmOcrDocument(doc.id, 'inventory_inbound', token);
       setDrafts((prev) => prev.filter((d) => d.id !== doc.id));
       loadStocks();
       notify('확정 완료', res.message);

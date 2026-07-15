@@ -24,10 +24,28 @@ class IngredientResponse(BaseModel):
         from_attributes = True
 
 
+# 2-2. 재료 단가 변동 이력 응답 양식 (백엔드 -> 프론트엔드)
+class IngredientPriceHistoryResponse(BaseModel):
+    id: int
+    ingredient_id: int
+    price: int
+    changed_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+
+# 1-3. 재료 단가 수정 신청서
+class IngredientPriceUpdate(BaseModel):
+    price: int = Field(..., ge=0, description="새로운 단가 (KRW, 0원 이상)")
+
+
 # --- [재고(Stock) 및 변동 장부 관련 규격] ---
 
 # 3. 재고 입고 및 수동 조정 신청서
 class StockAdjust(BaseModel):
+
     ingredient_id: int = Field(..., description="변동시킬 재료의 고유 ID")
     quantity_change: float = Field(..., description="변동 수량 (입고는 양수 '+5.0', 차감/폐기는 음수 '-2.0')")
     description: str | None = Field(None, description="변동 사유 (예: '우유 5팩 입고', '우유 1팩 폐기')")
@@ -93,3 +111,45 @@ class RecipeDetail(BaseModel):
 # 9. 메뉴판 조회 시 레시피 재료 정보를 포함해서 보내주는 최종 상세 응답 규격
 class MenuDetailResponse(MenuResponse):
     recipes: list[RecipeDetail] = Field(..., description="이 메뉴의 상세 조립 레시피 목록")
+    cost_price: int = Field(0, description="메뉴를 제조하는 데 드는 총 원재료비 (KRW)")
+    cost_ratio: float = Field(0.0, description="메뉴의 최종 원가율 (%)")
+
+
+
+# --- [발주(Order) 관련 규격] ---
+
+# 10. 발주 상세 품목 응답 규격 (가게 사장님 화면에 보여줄 세부 정보)
+class OrderItemResponse(BaseModel):
+    id: int
+    ingredient_id: int
+    ingredient_name: str                                               # 재료명 (예: 에티오피아 예가체프)
+    quantity: float                                                    # 발주 신청 수량
+    price_at_order: int                                                # 발주 신청 당시의 단가
+
+    class Config:
+        from_attributes = True
+
+
+# 11. 발주서 전체 정보 응답 규격 (공급처 카드 UI 대응을 위한 가상 필드 포함)
+class OrderResponse(BaseModel):
+    id: int
+    store_id: str
+    status: str                                                        # 발주 상태 (DRAFT, CONFIRMED, REJECTED)
+    total_amount: int                                                  # 총 주문 예상 금액
+    created_at: datetime
+    updated_at: datetime | None = None
+    
+    # [가상 필드] 데이터베이스 구조를 바꾸지 않고도 프론트엔드 UI를 풍성하게 채워주는 꿀정보들입니다.
+    vendor: str = Field(..., description="공급처명 (예: 커피리브레 (로스터리), 서울F&B)")
+    reason: str = Field(..., description="추천/발주 사유 (예: 예가체프 안전재고 미달)")
+    source: str = Field("AI 예측 추천", description="발주 생성 출처")
+    items: list[OrderItemResponse] = Field(..., description="발주서에 묶여 있는 상세 품목 리스트")
+
+    class Config:
+        from_attributes = True
+
+
+# 12. 발주 상태 업데이트 신청서 (프론트엔드 -> 백엔드, 승인/반려용)
+class OrderStatusUpdate(BaseModel):
+    status: str = Field(..., description="변경할 상태값 (CONFIRMED: 승인완료, REJECTED: 반려)")
+
