@@ -6,8 +6,9 @@ import { Alert, Platform, StyleSheet, Text, TextInput, View } from 'react-native
 
 import { useAuth } from '../../auth/AuthContext';
 import { PressableScale } from '../../components/motion';
-import { toast } from '../../components/toast';
+import { confirmDialog, toast } from '../../components/toast';
 import { Badge, Button, Card, ProgressBar, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
+import { API_BASE_URL } from '../../lib/api/client';
 import { adjustStock, createIngredient, listStocks, StockItem } from '../../lib/api/inventory';
 import { confirmOcrDocument, listOcrDocuments, rejectOcrDocument, uploadOcrImage, OcrDocument } from '../../lib/api/ocr';
 import { colors, typography } from '../../theme';
@@ -163,6 +164,28 @@ export default function InventoryScreen() {
     }
   };
 
+  // 재고(재료) 삭제 — 확인 후 DELETE. 재고·레시피 cascade 정리
+  const removeStock = (s: StockItem) => {
+    confirmDialog(`'${s.name}'을(를) 삭제할까요? 재고·레시피에서도 함께 제거됩니다.`, {
+      confirmLabel: '삭제',
+      destructive: true,
+      onConfirm: async () => {
+        if (!token) return notify('로그인 필요', '다시 로그인해 주세요.');
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/v1/inventory/ingredients/${s.ingredient_id}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) throw new Error(`삭제 실패 (${res.status})`);
+          loadStocks();
+          notify('삭제 완료', `${s.name}을(를) 삭제했어요.`);
+        } catch (e) {
+          notify('삭제 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+        }
+      },
+    });
+  };
+
   return (
     <Screen>
       <ScreenTitle title="재고" subtitle="현재 재고와 안전재고 상태" />
@@ -296,7 +319,12 @@ export default function InventoryScreen() {
               <Card key={s.ingredient_id}>
                 <View style={styles.rowBetween}>
                   <Text style={styles.stockName}>{s.name}</Text>
-                  {low ? <Badge label="안전재고 미달" tone="danger" /> : <Badge label="정상" tone="green" />}
+                  <View style={styles.headRight}>
+                    {low ? <Badge label="안전재고 미달" tone="danger" /> : <Badge label="정상" tone="green" />}
+                    <PressableScale style={styles.delBtn} onPress={() => removeStock(s)} to={0.88}>
+                      <Ionicons name="trash-outline" size={16} color="#B23B2E" />
+                    </PressableScale>
+                  </View>
                 </View>
                 <View style={styles.stockValueRow}>
                   <Text style={styles.stockValue}>
@@ -355,6 +383,8 @@ const styles = StyleSheet.create({
   ocrHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   hint: { ...typography.L5, color: colors.mochaBrown, marginTop: 4 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  headRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  delBtn: { padding: 6, borderRadius: 9, backgroundColor: 'rgba(178,59,46,0.08)' },
   adjustOpen: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 12, alignSelf: 'flex-start' },
   adjustOpenText: { ...typography.L5, color: colors.pointOrange, fontWeight: '700' },
   adjustRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12 },

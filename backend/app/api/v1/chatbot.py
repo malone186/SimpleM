@@ -12,7 +12,10 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordBearer
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+
+from app.services.ai.agents import main_agent
 
 from app.core.auth import get_current_user
 from app.core.database import get_db
@@ -256,3 +259,39 @@ def delete_compliance_item(item_id: int, current_user: User = Depends(get_curren
     except document_service.DocumentError as e:
         raise HTTPException(404, str(e))
     return {"deleted": item_id}  # 프론트 apiFetch가 JSON 응답을 기대하므로 204 대신 본문 반환
+
+
+# [한글 주석] 사용자가 챗봇에게 대화를 보낼 때의 입력 형식 명세
+class ChatRequest(BaseModel):
+    message: str = Field(..., description="사용자가 보낸 질문 메시지")
+    history: list[dict] = Field(default_factory=list, description="이전 대화 기록 목록 (Gemini 형식)")
+
+
+# [한글 주석] 챗봇이 대답을 돌려줄 때의 출력 형식 명세
+class ChatResponse(BaseModel):
+    response: str = Field(..., description="챗봇의 답변 텍스트")
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat_message(
+    body: ChatRequest,
+    store_id: Optional[str] = Depends(_optional_store_id),
+) -> ChatResponse:
+    """[한글 주석] 챗봇 대화 엔드포인트
+    
+    사용자의 질문을 챗봇 에이전트에게 전달해 적절한 도구 호출 및 답변 완성을 비동기로 수행합니다.
+    로그인하지 않은 상태로 호출되는 경우, 안전하게 데모 매장 계정(owner@cafe.com)으로 우회하여 가동합니다.
+    """
+    # [한글 주석] 매장 고유 식별자가 없을 경우를 위한 대비책 설정
+    store_key = store_id or "owner@cafe.com"
+    
+    try:
+        # [한글 주석] 챗봇 에이전트의 대화 처리 루프 실행
+        response_text = await main_agent.generate_response(
+            user_message=body.message,
+            store_id=store_key,
+            history=body.history
+        )
+        return ChatResponse(response=response_text)
+    except Exception as e:
+        raise HTTPException(500, f"챗봇 서비스 실행 중 장애 발생: {str(e)}")

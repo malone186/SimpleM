@@ -26,7 +26,6 @@ export default function IngredientScreen() {
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
-  const [unit, setUnit] = useState('');
   const [price, setPrice] = useState('');
 
   // 2. [인증 정보] 자동 로그인 여부와 무관하게 항상 유효한 in-memory 토큰 사용
@@ -93,12 +92,11 @@ export default function IngredientScreen() {
         headers,
         body: JSON.stringify({
           name: name.trim(),
-          unit: unit.trim() || '개',
+          unit: '개', // 단위 입력 제거 — 기본값으로 저장 (영수증에 단위가 안 나오는 경우 대비)
           current_price: p,
         })
       });
       setName('');
-      setUnit('');
       setPrice('');
       setAdding(false);
       await fetchIngredients();
@@ -159,7 +157,6 @@ export default function IngredientScreen() {
         submitDisabled={!canSubmit}
       >
         <LabeledInput label="재료명" value={name} onChangeText={setName} placeholder="예: 에티오피아 예가체프" />
-        <LabeledInput label="단위" value={unit} onChangeText={setUnit} placeholder="예: kg / 개 / 팩" />
         <LabeledInput
           label="단가 (원)"
           value={price}
