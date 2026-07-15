@@ -79,7 +79,7 @@ export default function QuickOrderModal({
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, justifyContent: 'flex-end' },
+  root: { flex: 1, justifyContent: 'flex-end', width: '100%', maxWidth: 420, alignSelf: 'center' },
   backdrop: {
     position: 'absolute',
     top: 0,

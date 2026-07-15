@@ -7,6 +7,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { useAuth } from '../auth/AuthContext';
+import AdminScreen from '../screens/admin/AdminScreen';
 import AuthScreen from '../screens/auth/AuthScreen';
 import ChatbotScreen from '../screens/chatbot/ChatbotScreen';
 import CostScreen from '../screens/cost/CostScreen';
@@ -31,6 +32,8 @@ export type RootTabParamList = {
   Operation: undefined;
   Management: undefined;
 };
+
+const ADMIN_EMAILS = ['admin@simplem.com'];
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
@@ -91,6 +94,11 @@ export default function RootNavigator() {
   // 미로그인 → 로그인/회원가입 화면만 노출 (탭 앱 숨김)
   if (!user) {
     return <AuthScreen />;
+  }
+
+  // 관리자 → 하단 탭 없이 관리자 콘솔만 노출
+  if (ADMIN_EMAILS.includes(user.email)) {
+    return <AdminScreen />;
   }
 
   return (

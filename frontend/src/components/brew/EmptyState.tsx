@@ -18,9 +18,11 @@ export default function EmptyState({
   actionLabel?: string;
   onAction?: () => void;
 }) {
+  // 크림 배경 장면 포즈(resting/pouring/hero)는 둥근 카드로 감싸 잘린 느낌 제거
+  const framed = mood === 'resting' || mood === 'pouring' || mood === 'hero';
   return (
     <View style={styles.wrap}>
-      <Brew mood={mood} size={150} />
+      <Brew mood={mood} size={150} framed={framed} />
       <Text style={styles.title}>{title}</Text>
       {description ? <Text style={styles.desc}>{description}</Text> : null}
       {actionLabel && onAction ? (

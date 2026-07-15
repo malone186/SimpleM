@@ -33,11 +33,13 @@ export default function Brew({
   mood = 'welcome',
   size = 84,
   round = false,
+  framed = false,
   style,
 }: {
   mood?: BrewMood;
   size?: number;
   round?: boolean; // 크림 원형 프레임 안에 넣기 (흰 카드 위 등)
+  framed?: boolean; // 둥근 크림 카드로 감싸기 (드립/턱괸 등 장면 포즈용)
   style?: StyleProp<ViewStyle>;
 }) {
   const a = useRef(new Animated.Value(0)).current;
@@ -78,6 +80,15 @@ export default function Brew({
     />
   );
 
+  // 둥근 크림 카드 (배경색이 이미지와 동일 → 잘린 느낌 없이 하나의 일러스트 카드로)
+  if (framed) {
+    return (
+      <View style={[styles.framed, { width: size, height: size }, style]}>
+        <Image source={POSES[mood]} resizeMode="cover" style={{ width: size, height: size }} />
+      </View>
+    );
+  }
+
   if (round) {
     return (
       <View style={[styles.round, { width: size, height: size, borderRadius: size / 2 }, style]}>
@@ -91,6 +102,13 @@ export default function Brew({
 const styles = StyleSheet.create({
   round: {
     backgroundColor: '#FBEFDD',
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  framed: {
+    backgroundColor: '#FBEFDD',
+    borderRadius: 22,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',

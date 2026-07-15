@@ -5,9 +5,12 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { Badge, Button, Card, Divider, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
+import { toast } from '../../components/toast';
 import { colors, typography } from '../../theme';
 
 type Tab = 'schedule' | 'tax';
+
+const notify = (title: string, message: string) => toast(title, message);
 
 const STAFF = [
   { name: '김바리', role: '바리스타', hours: 32, wage: 11000 },
@@ -57,8 +60,17 @@ function ScheduleTab() {
           금·토 14–15시가 피크예요. 주말 오후에 1명 추가 배치를 추천해요.
         </Text>
         <View style={styles.actions}>
-          <Button label="추천 반영" style={{ flex: 1 }} />
-          <Button label="나중에" variant="secondary" style={{ flex: 1 }} />
+          <Button
+            label="추천 반영"
+            style={{ flex: 1 }}
+            onPress={() => notify('스케줄 반영', '주말 오후 1명 추가 배치를 이번 주 스케줄 초안에 반영했어요.')}
+          />
+          <Button
+            label="나중에"
+            variant="secondary"
+            style={{ flex: 1 }}
+            onPress={() => notify('보류', '이 추천은 다음에 다시 알려드릴게요.')}
+          />
         </View>
       </Card>
 
@@ -139,8 +151,22 @@ function TaxTab() {
           자동 생성된 신고 초안이에요. 검토 후 세무사 확인·확정하세요. (자동 신고 안 됨)
         </Text>
         <View style={styles.actions}>
-          <Button label="초안 상세 보기" variant="secondary" style={{ flex: 1 }} />
-          <Button label="세무사 공유" style={{ flex: 1 }} />
+          <Button
+            label="초안 상세 보기"
+            variant="secondary"
+            style={{ flex: 1 }}
+            onPress={() =>
+              notify(
+                '부가세 신고 초안',
+                '과세표준 31,200,000원\n매출세액 3,120,000원\n매입세액 1,836,000원\n납부예상 1,284,000원\n\n검토 후 세무사에게 공유하세요.'
+              )
+            }
+          />
+          <Button
+            label="세무사 공유"
+            style={{ flex: 1 }}
+            onPress={() => notify('공유 완료', '신고 초안을 담당 세무사에게 전달했어요. 확정은 세무사 확인 후 진행됩니다.')}
+          />
         </View>
       </Card>
 

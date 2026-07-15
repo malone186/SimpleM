@@ -3,12 +3,14 @@ import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View, ActivityIndicator } from 'react-native';
 
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { useAuth } from '../../auth/AuthContext';
 import FormSheet, { LabeledInput } from '../../components/FormSheet';
+import { PressableScale } from '../../components/motion';
 import { Badge, Button, Card, Screen, ScreenTitle } from '../../components/ui';
 import { colors, typography } from '../../theme';
-import { apiFetch } from '../../lib/api/client';
+import { API_BASE_URL, apiFetch } from '../../lib/api/client';
+import { confirmDialog, toast } from '../../components/toast';
 
 // 1. 진짜 DB에서 가져올 재재료 규격 정의
 type Ingredient = {
@@ -27,17 +29,10 @@ export default function IngredientScreen() {
   const [unit, setUnit] = useState('');
   const [price, setPrice] = useState('');
 
-  // 2. [인증 정보 가져오기] 로컬 세션 보관소에서 암호화 출입증(Token)을 획득합니다.
-  const getAuthHeaders = async () => {
-    const raw = await AsyncStorage.getItem('simplem:session');
-    if (raw) {
-      const session = JSON.parse(raw);
-      if (session?.token) {
-        return { 'Authorization': `Bearer ${session.token}` };
-      }
-    }
-    return {};
-  };
+  // 2. [인증 정보] 자동 로그인 여부와 무관하게 항상 유효한 in-memory 토큰 사용
+  const { token } = useAuth();
+  const getAuthHeaders = async (): Promise<Record<string, string>> =>
+    token ? { Authorization: `Bearer ${token}` } : {};
 
   // 3. [재료 가져오기 함수] 백엔드 공장에서 진짜 재료 데이터를 들고 옵니다.
   const fetchIngredients = async () => {
@@ -62,11 +57,37 @@ export default function IngredientScreen() {
 
   const canSubmit = name.trim() !== '' && price.trim() !== '';
 
+  // 재료 삭제 (확인 후) — 204 응답이라 raw fetch 사용
+  const remove = (it: Ingredient) => {
+    confirmDialog(`'${it.name}' 재료를 삭제할까요? 재고·레시피에서도 함께 제거됩니다.`, {
+      confirmLabel: '삭제',
+      destructive: true,
+      onConfirm: async () => {
+        if (!token) return toast('로그인이 필요해요', '다시 로그인해 주세요.');
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/v1/inventory/ingredients/${it.id}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) throw new Error(`삭제 실패 (${res.status})`);
+          await fetchIngredients();
+          toast('삭제 완료', `${it.name} 재료를 삭제했어요.`);
+        } catch (e) {
+          toast('삭제 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+        }
+      },
+    });
+  };
+
   // 4. [재료 추가 요청 발송] 입력한 내용을 백엔드 창구에 던집니다.
   const submit = async () => {
     const p = parseInt(price.replace(/[^0-9]/g, ''), 10) || 0;
+    const headers = await getAuthHeaders();
+    if (!('Authorization' in headers)) {
+      toast('로그인이 필요해요', '로그아웃 후 다시 로그인해 주세요.');
+      return;
+    }
     try {
-      const headers = await getAuthHeaders();
       await apiFetch('/api/v1/inventory/ingredients', {
         method: 'POST',
         headers,
@@ -76,15 +97,15 @@ export default function IngredientScreen() {
           current_price: p,
         })
       });
-      
-      // 입력란을 초기화하고 창을 닫은 뒤, 실시간 DB 리스트로 목록을 다시 갱신합니다.
       setName('');
       setUnit('');
       setPrice('');
       setAdding(false);
       await fetchIngredients();
+      toast('추가 완료', `${name.trim()} 재료를 등록했어요.`);
     } catch (e) {
       console.error('재료 등록 실패:', e);
+      toast('추가 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
     }
   };
 
@@ -121,6 +142,9 @@ export default function IngredientScreen() {
                   <Text style={styles.price}>₩{it.current_price.toLocaleString()}</Text>
                   <Badge label="정상 연동" tone="green" />
                 </View>
+                <PressableScale style={styles.delBtn} onPress={() => remove(it)} to={0.88}>
+                  <Ionicons name="trash-outline" size={18} color="#B23B2E" />
+                </PressableScale>
               </View>
             </Card>
           ))
@@ -149,7 +173,8 @@ export default function IngredientScreen() {
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'flex-start' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  delBtn: { padding: 8, borderRadius: 10, backgroundColor: 'rgba(178,59,46,0.08)' },
   name: { ...typography.L3, color: colors.espressoBrown },
   unit: { ...typography.L5, color: colors.mochaBrown, marginTop: 3 },
   priceCol: { alignItems: 'flex-end', gap: 6 },

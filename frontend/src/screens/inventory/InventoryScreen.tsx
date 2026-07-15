@@ -6,6 +6,7 @@ import { Alert, Platform, StyleSheet, Text, TextInput, View } from 'react-native
 
 import { useAuth } from '../../auth/AuthContext';
 import { PressableScale } from '../../components/motion';
+import { toast } from '../../components/toast';
 import { Badge, Button, Card, ProgressBar, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
 import { adjustStock, createIngredient, listStocks, StockItem } from '../../lib/api/inventory';
 import { confirmOcrDocument, listOcrDocuments, rejectOcrDocument, uploadOcrImage, OcrDocument } from '../../lib/api/ocr';
@@ -17,10 +18,7 @@ const TARGET_LABEL: Record<string, string> = {
   sales: '매출',
 };
 
-function notify(title: string, message: string) {
-  if (Platform.OS === 'web') window.alert(`${title}\n${message}`);
-  else Alert.alert(title, message);
-}
+const notify = (title: string, message: string) => toast(title, message);
 
 export default function InventoryScreen() {
   const { token } = useAuth();
@@ -35,6 +33,10 @@ export default function InventoryScreen() {
   const [fPrice, setFPrice] = useState('');
   const [fQty, setFQty] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // 기존 재고 직접 입고/차감
+  const [adjustId, setAdjustId] = useState<number | null>(null);
+  const [adjustQty, setAdjustQty] = useState('');
 
   const loadStocks = useCallback(() => {
     if (!token) return;
@@ -119,6 +121,26 @@ export default function InventoryScreen() {
       setDrafts((prev) => prev.filter((d) => d.id !== doc.id));
     } catch (e) {
       notify('반려 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+    }
+  };
+
+  // 기존 재고 수량 직접 조정 (입고=+, 차감=-)
+  const applyAdjust = async (s: StockItem, sign: 1 | -1) => {
+    if (!token) return notify('로그인 필요', '재고 조정은 로그인 후 가능합니다.');
+    const qty = Number(adjustQty);
+    if (!qty || qty <= 0) return notify('입력 확인', '0보다 큰 수량을 입력하세요.');
+    try {
+      await adjustStock(token, {
+        ingredient_id: s.ingredient_id,
+        quantity_change: sign * qty,
+        description: sign > 0 ? '직접 입고' : '직접 차감',
+      });
+      setAdjustId(null);
+      setAdjustQty('');
+      loadStocks();
+      notify('반영 완료', `${s.name} ${sign > 0 ? '+' : '−'}${qty}${s.unit} 반영했어요.`);
+    } catch (e) {
+      notify('조정 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
     }
   };
 
@@ -216,15 +238,23 @@ export default function InventoryScreen() {
         {formOpen && (
           <Card tone="cream">
             <SectionTitle>재료 직접 등록</SectionTitle>
+            {/* 재료명은 한 줄 전체 (긴 이름도 다 들어오게) */}
             <View style={styles.formRow}>
-              <TextInput style={[styles.input, { flex: 2 }]} placeholder="재료명 (예: 서울우유 1L)" value={fName} onChangeText={setFName} />
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="단위 (팩, kg)" value={fUnit} onChangeText={setFUnit} />
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                placeholder="재료명 (예: 서울우유 1L)"
+                placeholderTextColor={colors.mochaBrown}
+                value={fName}
+                onChangeText={setFName}
+              />
             </View>
+            {/* 단위 · 단가 · 수량 3칸 */}
             <View style={styles.formRow}>
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="단가 (원)" value={fPrice} onChangeText={setFPrice} keyboardType="numeric" />
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="초기 수량" value={fQty} onChangeText={setFQty} keyboardType="numeric" />
+              <TextInput style={[styles.input, { flex: 1 }]} placeholder="단위" placeholderTextColor={colors.mochaBrown} value={fUnit} onChangeText={setFUnit} />
+              <TextInput style={[styles.input, { flex: 1 }]} placeholder="단가(원)" placeholderTextColor={colors.mochaBrown} value={fPrice} onChangeText={setFPrice} keyboardType="numeric" />
+              <TextInput style={[styles.input, { flex: 1 }]} placeholder="수량" placeholderTextColor={colors.mochaBrown} value={fQty} onChangeText={setFQty} keyboardType="numeric" />
             </View>
-            <Button label={saving ? '등록 중…' : '등록'} onPress={registerIngredient} disabled={saving} style={{ marginTop: 10 }} />
+            <Button label={saving ? '등록 중…' : '등록'} onPress={registerIngredient} disabled={saving} style={{ marginTop: 12 }} />
           </Card>
         )}
 
@@ -259,6 +289,39 @@ export default function InventoryScreen() {
                   </Text>
                 </View>
                 <ProgressBar ratio={s.current_quantity / denominator} tone={low ? 'danger' : 'mocha'} />
+
+                {/* 재고 직접 조정 */}
+                {adjustId === s.ingredient_id ? (
+                  <View style={styles.adjustRow}>
+                    <TextInput
+                      style={styles.adjustInput}
+                      placeholder={`수량 (${s.unit})`}
+                      placeholderTextColor={colors.mochaBrown}
+                      value={adjustQty}
+                      onChangeText={setAdjustQty}
+                      keyboardType="numeric"
+                      autoFocus
+                    />
+                    <PressableScale style={styles.inBtn} onPress={() => applyAdjust(s, 1)} to={0.92}>
+                      <Text style={styles.inText}>입고 +</Text>
+                    </PressableScale>
+                    <PressableScale style={styles.outBtn} onPress={() => applyAdjust(s, -1)} to={0.92}>
+                      <Text style={styles.outText}>차감 −</Text>
+                    </PressableScale>
+                    <PressableScale style={styles.cancelBtn} onPress={() => { setAdjustId(null); setAdjustQty(''); }} to={0.92}>
+                      <Ionicons name="close" size={16} color={colors.mochaBrown} />
+                    </PressableScale>
+                  </View>
+                ) : (
+                  <PressableScale
+                    style={styles.adjustOpen}
+                    onPress={() => { setAdjustId(s.ingredient_id); setAdjustQty(''); }}
+                    to={0.96}
+                  >
+                    <Ionicons name="swap-vertical" size={15} color={colors.pointOrange} />
+                    <Text style={styles.adjustOpenText}>재고 직접 입력 (입고/차감)</Text>
+                  </PressableScale>
+                )}
               </Card>
             );
           })
@@ -272,6 +335,26 @@ const styles = StyleSheet.create({
   ocrHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   hint: { ...typography.L5, color: colors.mochaBrown, marginTop: 4 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  adjustOpen: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 12, alignSelf: 'flex-start' },
+  adjustOpenText: { ...typography.L5, color: colors.pointOrange, fontWeight: '700' },
+  adjustRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12 },
+  adjustInput: {
+    flex: 1,
+    minWidth: 0,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: colors.white,
+    ...typography.L5,
+    color: colors.espressoBrown,
+  },
+  inBtn: { backgroundColor: colors.trendGreenText, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
+  inText: { ...typography.L5, color: colors.white, fontWeight: '700' },
+  outBtn: { backgroundColor: '#B23B2E', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
+  outText: { ...typography.L5, color: colors.white, fontWeight: '700' },
+  cancelBtn: { padding: 8 },
   docBox: {
     backgroundColor: colors.white,
     borderRadius: 12,
@@ -319,13 +402,14 @@ const styles = StyleSheet.create({
   rejectText: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700' },
   formRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
   input: {
+    minWidth: 0, // 웹 flex 자식이 콘텐츠보다 작게 줄어들 수 있게 (넘침 방지)
     borderWidth: 1,
     borderColor: colors.mutedSand,
     borderRadius: 10,
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: 9,
     backgroundColor: colors.white,
-    ...typography.L4,
+    ...typography.L5,
     color: colors.espressoBrown,
   },
   stockName: { ...typography.L3, color: colors.espressoBrown },

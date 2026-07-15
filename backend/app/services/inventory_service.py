@@ -190,3 +190,37 @@ def get_menus_with_recipes(db: Session, store_id: str) -> list[dict]:
         })
     
     return results
+
+
+# --- [4. 삭제 서비스 로직] ---
+
+def delete_ingredient(db: Session, store_id: str, ingredient_id: int) -> None:
+    """
+    재료를 삭제합니다. 연결된 재고(Stock)·거래내역·레시피는 cascade로 함께 정리됩니다.
+    (본인 매장 재료만 삭제 가능)
+    """
+    item = (
+        db.query(Ingredient)
+        .filter(Ingredient.id == ingredient_id, Ingredient.store_id == store_id)
+        .first()
+    )
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="재료를 찾을 수 없습니다.")
+    db.delete(item)
+    db.commit()
+
+
+def delete_menu(db: Session, store_id: str, menu_id: int) -> None:
+    """
+    메뉴를 삭제합니다. 연결된 레시피는 cascade로 함께 정리됩니다.
+    (본인 매장 메뉴만 삭제 가능)
+    """
+    menu = (
+        db.query(Menu)
+        .filter(Menu.id == menu_id, Menu.store_id == store_id)
+        .first()
+    )
+    if not menu:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="메뉴를 찾을 수 없습니다.")
+    db.delete(menu)
+    db.commit()

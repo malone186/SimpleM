@@ -12,9 +12,9 @@ from app.schemas.inventory import (
     MenuCreate, MenuResponse, MenuDetailResponse
 )
 from app.services.inventory_service import (
-    create_ingredient, get_ingredients,
+    create_ingredient, get_ingredients, delete_ingredient,
     add_or_adjust_stock, get_stocks,
-    create_menu_with_recipes, get_menus_with_recipes
+    create_menu_with_recipes, get_menus_with_recipes, delete_menu
 )
 
 # APIRouter를 통해 "/inventory"로 시작하는 신호를 전담 접수하는 창구를 개설합니다.
@@ -99,3 +99,25 @@ def list_menus_with_recipes(
     [메뉴 및 레시피 조회] 내 매장의 메뉴판 목록과 각 메뉴별 세부 레시피 구성을 정돈하여 불러옵니다.
     """
     return get_menus_with_recipes(db=db, store_id=current_user.email)
+
+
+# --- [4. 삭제 API 창구] ---
+
+@router.delete("/ingredients/{ingredient_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_ingredient(
+    ingredient_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """[재료 삭제] 본인 매장의 재료를 삭제합니다. (재고·레시피 함께 정리)"""
+    delete_ingredient(db=db, store_id=current_user.email, ingredient_id=ingredient_id)
+
+
+@router.delete("/menus/{menu_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_menu(
+    menu_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """[메뉴 삭제] 본인 매장의 메뉴를 삭제합니다. (레시피 함께 정리)"""
+    delete_menu(db=db, store_id=current_user.email, menu_id=menu_id)
