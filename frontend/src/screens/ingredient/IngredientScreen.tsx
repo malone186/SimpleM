@@ -28,7 +28,7 @@ export default function IngredientScreen() {
   const [price, setPrice] = useState('');
 
   // 2. [인증 정보 가져오기] 로컬 세션 보관소에서 암호화 출입증(Token)을 획득합니다.
-  const getAuthHeaders = async () => {
+  const getAuthHeaders = async (): Promise<Record<string, string>> => {
     const raw = await AsyncStorage.getItem('simplem:session');
     if (raw) {
       const session = JSON.parse(raw);
