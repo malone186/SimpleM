@@ -122,6 +122,23 @@ def list_generated_documents(store_id: str, kind: str = "") -> str:
     return _dump(brief)
 
 
+@tool
+def update_generated_document(store_id: str, doc_id: str, content_json: str) -> str:
+    """생성된 문서의 내용을 수정한다. content_json은 수정된 전체 본문 JSON 문자열 —
+    먼저 list_generated_documents/get으로 현재 content를 확인한 뒤, 바꿀 값을 반영한
+    전체 JSON을 보내야 한다 (부분 수정 아님)."""
+    try:
+        content = json.loads(content_json)
+        if not isinstance(content, dict):
+            return "content_json은 JSON 객체여야 합니다"
+    except json.JSONDecodeError as e:
+        return f"content_json 형식 오류: {e}"
+    try:
+        return _dump(document_service.update_document(store_id, doc_id, content))
+    except document_service.DocumentError as e:
+        return str(e)
+
+
 TOOLS = [
     add_renewal_reminder,
     create_inspection_report,
@@ -135,4 +152,5 @@ TOOLS = [
     get_wage_ledger,
     list_generated_documents,
     list_renewal_reminders,
+    update_generated_document,
 ]

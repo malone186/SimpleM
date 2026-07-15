@@ -142,6 +142,13 @@ class GeneratedDocumentResponse(BaseModel):
     created_at: datetime
 
 
+class GeneratedDocumentUpdate(BaseModel):
+    """문서 수정 입력 — content는 수정된 전체 본문 (부분 수정 아님)"""
+
+    content: dict
+    title: Optional[str] = Field(None, description="문서 제목 변경 (선택)")
+
+
 class PayslipRequest(BaseModel):
     """임금명세서 초안 생성 입력 — 근무시간은 스케줄 테이블에서 자동 집계, 없으면 직접 입력"""
 

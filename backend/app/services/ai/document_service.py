@@ -42,6 +42,10 @@ class DocumentError(ValueError):
     """문서 생성 실패 (입력 오류·데이터 없음)"""
 
 
+class DocumentLockedError(DocumentError):
+    """보관 의무 등으로 삭제할 수 없는 문서"""
+
+
 # ---------------------------------------------------------------------------
 # 공통: 문서 저장/조회
 # ---------------------------------------------------------------------------
@@ -83,6 +87,41 @@ def get_document(store_id: str, doc_id: str) -> dict[str, Any]:
         row = db.get(GeneratedDocument, doc_id)
         if row is None or row.store_id != store_id:
             raise DocumentError(f"문서 {doc_id}를 찾을 수 없습니다")
+        return _row_to_dict(row)
+
+
+def delete_document(store_id: str, doc_id: str) -> None:
+    """생성된 문서를 삭제한다. 임금명세서는 임금대장(3년 보관 의무) 기록이라 삭제 불가 — 수정만 가능."""
+    from app.models.ai import GeneratedDocument
+
+    with _session() as db:
+        row = db.get(GeneratedDocument, doc_id)
+        if row is None or row.store_id != store_id:
+            raise DocumentError(f"문서 {doc_id}를 찾을 수 없습니다")
+        if row.kind == "payslip":
+            raise DocumentLockedError(
+                "임금명세서는 임금대장(3년 보관 의무) 기록으로 쓰여 삭제할 수 없습니다 — 내용이 틀리면 수정하세요")
+        db.delete(row)
+        db.commit()
+
+
+def update_document(store_id: str, doc_id: str, content: dict[str, Any],
+                    title: Optional[str] = None) -> dict[str, Any]:
+    """생성된 문서의 내용을 수정한다 — 자동 생성값이 실제와 다를 때 사람이 바로잡는 용도.
+
+    content는 통째로 교체된다 (부분 수정이 아니라 수정된 전체 본문을 보낸다).
+    """
+    from app.models.ai import GeneratedDocument
+
+    with _session() as db:
+        row = db.get(GeneratedDocument, doc_id)
+        if row is None or row.store_id != store_id:
+            raise DocumentError(f"문서 {doc_id}를 찾을 수 없습니다")
+        row.content = json.dumps(content, ensure_ascii=False)
+        if title:
+            row.title = title
+        db.commit()
+        db.refresh(row)
         return _row_to_dict(row)
 
 
@@ -143,16 +182,15 @@ def generate_stocktake_sheet(store_id: str) -> dict[str, Any]:
             .all()
         )
         items = [{
-            "name": ing.name, "unit": ing.unit,
+            "name": f"{ing.name} ({ing.unit})",  # 단위는 이름에 병기 — 별도 칸으로 두면 표가 번잡
             "book_quantity": stock.current_quantity if stock else 0,
             "counted_quantity": None,  # 현장에서 기입
             "difference": None,
-            "note": "",
         } for ing, stock in rows]
 
     today = date.today().isoformat()
     content = {"date": today, "items": items,
-               "note": "counted_quantity에 실사 수량을 기입하면 장부와의 차이를 확인할 수 있습니다."}
+               "note": "창고에서 실제 수량을 센 뒤 '실사 수량' 칸에 적으면 장부와의 차이를 확인할 수 있습니다."}
     return _save_document(store_id, "stocktake_sheet", f"재고실사표 ({today})", content, period=today)
 
 
@@ -178,10 +216,9 @@ def generate_inspection_report(store_id: str, ocr_doc_id: str) -> dict[str, Any]
         "inspection_date": today,
         "vendor": vendor,
         "delivery_date": issued,
-        "source_document": ocr_doc_id,
         "items": items,
         "inspector_sign": "",  # 검수자 서명란
-        "note": "품목별 상태(condition)를 확인 후 서명하세요.",
+        "note": "받은 물건의 상태(양호/파손 등)를 품목별로 확인해 적고 서명하세요.",
     }
     return _save_document(store_id, "inspection_report", f"검수확인서 ({vendor or '거래처 미상'}, {today})",
                           content, period=today)
@@ -197,6 +234,16 @@ def _month_range(year: int, month: int) -> tuple[str, str]:
     return start.isoformat(), end.isoformat()
 
 
+# OCR 문서 종류 → 장부에 표시할 한글 이름
+_DOC_TYPE_KO = {
+    "purchase_statement": "거래명세서",
+    "tax_invoice": "세금계산서",
+    "receipt": "영수증",
+    "sales_summary": "매출 정산표",
+    "unknown": "기타",
+}
+
+
 def generate_monthly_ledger(store_id: str, year: int, month: int) -> dict[str, Any]:
     """매입·매출 장부 — 확정된 OCR 문서(매입)와 판매 기록(매출)을 월 단위로 집계."""
     from app.models.ai import OcrDocument
@@ -209,11 +256,10 @@ def generate_monthly_ledger(store_id: str, year: int, month: int) -> dict[str, A
         purchases = [{
             "date": d.issued_date or d.created_at.date().isoformat(),
             "vendor": d.vendor_name,
-            "doc_type": d.doc_type,
+            "doc_type": _DOC_TYPE_KO.get(d.doc_type, d.doc_type),
             "subtotal": float(d.subtotal) if d.subtotal is not None else None,
             "tax": float(d.tax) if d.tax is not None else None,
             "total": float(d.total) if d.total is not None else None,
-            "source_document": d.id,
         } for d in (
             db.query(OcrDocument)
             .filter(OcrDocument.status == "confirmed")
@@ -265,14 +311,14 @@ def draft_payslip(store_id: str, req: PayslipRequest) -> dict[str, Any]:
         hourly_wage = req.hourly_wage or (employee.hourly_rate if employee else None)
         if not hourly_wage:
             raise DocumentError(
-                f"'{req.employee_name}' 직원의 시급을 알 수 없습니다 — hourly_wage를 직접 입력하세요")
+                f"'{req.employee_name}' 직원의 시급 정보가 없습니다 — 폼의 '시급' 칸에 직접 입력하거나 운영 탭에서 직원을 등록하세요")
 
         work_hours = req.work_hours
         hours_source = "직접 입력"
         if work_hours is None:
             if employee is None:
                 raise DocumentError(
-                    f"'{req.employee_name}' 직원이 등록돼 있지 않습니다 — work_hours를 직접 입력하세요")
+                    f"'{req.employee_name}' 직원이 등록돼 있지 않습니다 — 운영 탭에서 직원을 등록하거나 폼의 '근무시간' 칸에 직접 입력하세요")
             schedules = (
                 db.query(Schedule)
                 .filter(Schedule.employee_id == employee.id)
@@ -283,7 +329,8 @@ def draft_payslip(store_id: str, req: PayslipRequest) -> dict[str, Any]:
                 (s.end_time - s.start_time).total_seconds() / 3600 for s in schedules), 2)
             hours_source = f"근무 스케줄 자동 집계 ({len(schedules)}건)"
             if work_hours == 0:
-                raise DocumentError(f"{period}에 '{req.employee_name}'의 근무 스케줄이 없습니다 — work_hours를 직접 입력하세요")
+                raise DocumentError(
+                    f"{period}에 '{req.employee_name}'의 근무 스케줄이 없습니다 — 스케줄을 등록하거나 폼의 '근무시간' 칸에 직접 입력하세요")
 
     base_pay = round(work_hours * hourly_wage)
 
@@ -410,12 +457,26 @@ def generate_vat_reference(store_id: str, start_date: str, end_date: str) -> dic
 # 발생 시 — 근로계약서
 # ---------------------------------------------------------------------------
 
+def _store_display_name(store_id: str) -> str:
+    """사업주 표시명 — 이메일 대신 '매장이름 (대표: 점주이름)'. 조회 실패 시 식별자 그대로."""
+    try:
+        from app.models.user import User
+
+        with _session() as db:
+            user = db.query(User).filter(User.email == store_id).first()
+            if user:
+                return f"{user.store_name} (대표: {user.name})"
+    except Exception:
+        logger.warning("사업주 표시명 조회 실패 — 식별자 사용", exc_info=True)
+    return store_id
+
+
 def draft_employment_contract(store_id: str, req: EmploymentContractRequest) -> dict[str, Any]:
     """근로계약서 초안 — 근로기준법 제17조 필수 기재사항을 채운 표준 양식."""
     weekly_hours = round(req.work_days_per_week * req.work_hours_per_day, 1)
     content = {
         "employee_name": req.employee_name,
-        "employer": store_id,
+        "employer": _store_display_name(store_id),
         "contract_period": {
             "start": req.start_date,
             "end": req.end_date or "기간의 정함 없음",

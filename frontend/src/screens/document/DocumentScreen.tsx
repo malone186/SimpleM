@@ -1,12 +1,14 @@
 // 서류 자동화 (ERP-12) — 백엔드 /chatbot/documents·compliance 실연동
 // 문서 초안 생성(발주서·실사표·장부·부가세·임금명세서·근로계약서) + 생성 문서 열람 + 갱신 만료 알림
 import { useCallback, useEffect, useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 
 import { useAuth } from '../../auth/AuthContext';
 import { PressableScale } from '../../components/motion';
-import { toast } from '../../components/toast';
+import { confirmDialog, toast } from '../../components/toast';
 import { Badge, Button, Card, Divider, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
 import {
@@ -21,8 +23,10 @@ import {
   createStocktakeSheet,
   createVatReference,
   deleteCompliance,
+  deleteDocument,
   listCompliance,
   listDocuments,
+  updateDocument,
 } from '../../lib/api/documents';
 import { colors, typography } from '../../theme';
 
@@ -48,7 +52,7 @@ const KEY_LABELS: Record<string, string> = {
   total_gross: '지급 총계', total_net: '실지급 총계', employer: '사업주',
   doc_type: '문서 종류', subtotal: '공급가액', tax: '세액', total: '합계', menu: '메뉴',
   total_price: '금액', source_document: '원본 문서', spec: '규격', signatures: '서명',
-  inspector_sign: '검수자 서명',
+  inspector_sign: '검수자 서명', employee: '직원',
 };
 const label = (k: string) => KEY_LABELS[k] ?? k;
 const fmt = (v: unknown): string => {
@@ -57,24 +61,152 @@ const fmt = (v: unknown): string => {
   return String(v);
 };
 
-function ContentRows({ content, depth = 0 }: { content: Record<string, unknown>; depth?: number }) {
+// 날짜 입력 관용 처리: "2026.8.1", "2026/08/01", "20260801" 전부 → "2026-08-01"
+// 알아볼 수 없거나 존재하지 않는 날짜(2월 30일 등)면 null
+const normalizeDate = (raw: string): string | null => {
+  const parts = raw.split(/\D+/).filter(Boolean);
+  let y: number, m: number, d: number;
+  if (parts.length === 3 && parts[0].length === 4) {
+    [y, m, d] = parts.map(Number);
+  } else {
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length !== 8) return null;
+    [y, m, d] = [Number(digits.slice(0, 4)), Number(digits.slice(4, 6)), Number(digits.slice(6, 8))];
+  }
+  const dt = new Date(y, m - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return null;
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+};
+
+// 숫자 입력 관용 처리: "10,500원" → 10500
+const toNumber = (raw: string): number => Number(raw.replace(/[^\d.]/g, '')) || 0;
+
+function ContentRows({ content }: { content: Record<string, unknown> }) {
   return (
-    <View style={{ marginLeft: depth * 10 }}>
+    <View>
       {Object.entries(content).map(([key, value]) => {
+        // 안내 문구는 표가 아니라 하단 안내 박스로
+        if (key === 'note') {
+          return (
+            <View key={key} style={styles.noteBox}>
+              <Ionicons name="information-circle-outline" size={15} color={colors.mochaBrown} />
+              <Text style={styles.noteBoxText}>{fmt(value)}</Text>
+            </View>
+          );
+        }
+        if (Array.isArray(value)) {
+          return (
+            <View key={key} style={styles.section}>
+              <Text style={styles.sectionHead}>{label(key)} ({value.length}건)</Text>
+              <View style={styles.sectionBody}>
+                {value.map((row, i) => (
+                  <Text key={i} style={styles.itemLine}>
+                    · {typeof row === 'object' && row !== null
+                      ? Object.entries(row as Record<string, unknown>)
+                          .filter(([, v2]) => v2 !== null && v2 !== '' && v2 !== undefined)
+                          .map(([k2, v2]) => `${label(k2)} ${fmt(v2)}`)
+                          .join(' / ')
+                      : fmt(row)}
+                  </Text>
+                ))}
+              </View>
+            </View>
+          );
+        }
+        // 하위 그룹(계약 기간·근로 조건·임금 등)은 제목 + 왼쪽 라인으로 묶어서 구분
+        if (typeof value === 'object' && value !== null) {
+          return (
+            <View key={key} style={styles.section}>
+              <Text style={styles.sectionHead}>{label(key)}</Text>
+              <View style={styles.sectionBody}>
+                <ContentRows content={value as Record<string, unknown>} />
+              </View>
+            </View>
+          );
+        }
+        // 빈 값(서명란 등)은 대시 대신 기입용 밑줄로
+        if (value === '') {
+          return (
+            <View key={key} style={styles.kvRow}>
+              <Text style={styles.rowKey}>{label(key)}</Text>
+              <View style={styles.signLine} />
+            </View>
+          );
+        }
+        // 긴 문장 값은 오른쪽 정렬로 구기지 않고 라벨 아래 전체 폭으로
+        const text = fmt(value);
+        if (text.length > 18) {
+          return (
+            <View key={key} style={styles.kvStack}>
+              <Text style={styles.rowKey}>{label(key)}</Text>
+              <Text style={styles.stackValue}>{text}</Text>
+            </View>
+          );
+        }
+        return (
+          <View key={key} style={styles.kvRow}>
+            <Text style={styles.rowKey}>{label(key)}</Text>
+            <Text style={styles.rowValue}>{text}</Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+// ---- 문서 편집 지원 ----------------------------------------------------
+// 편집값은 "items.0.quantity" 같은 경로 → 입력 문자열 맵으로 들고 있다가,
+// 저장 시 원본 content 복제본에 타입을 살려서(숫자였으면 숫자로) 되붙인다.
+
+function getAtPath(obj: unknown, path: string[]): unknown {
+  let cur: any = obj;
+  for (const key of path) cur = cur?.[key];
+  return cur;
+}
+
+function setAtPath(obj: unknown, path: string[], value: unknown) {
+  let cur: any = obj;
+  for (const key of path.slice(0, -1)) cur = cur?.[key];
+  if (cur != null) cur[path[path.length - 1]] = value;
+}
+
+// 원래 타입에 맞춰 입력 문자열을 변환: 빈칸→null, 숫자였던 칸→숫자, 그 외→문자열
+function coerce(orig: unknown, raw: string): unknown {
+  const t = raw.trim();
+  if (t === '') return null;
+  const num = Number(t.replace(/,/g, ''));
+  const numeric = Number.isFinite(num) && /^-?[\d.,]+$/.test(t);
+  if (numeric && (typeof orig === 'number' || orig === null || orig === undefined)) return num;
+  return t;
+}
+
+function EditableRows({ content, path = [], edits, onEdit }: {
+  content: Record<string, unknown>;
+  path?: string[];
+  edits: Record<string, string>;
+  onEdit: (pathKey: string, text: string) => void;
+}) {
+  return (
+    <View style={{ marginLeft: path.length * 10 }}>
+      {Object.entries(content).map(([key, value]) => {
+        const childPath = [...path, key];
+        const pathKey = childPath.join('.');
         if (Array.isArray(value)) {
           return (
             <View key={key} style={styles.block}>
               <Text style={styles.rowKey}>{label(key)} ({value.length}건)</Text>
-              {value.map((row, i) => (
-                <Text key={i} style={styles.itemLine}>
-                  · {typeof row === 'object' && row !== null
-                    ? Object.entries(row as Record<string, unknown>)
-                        .filter(([, v2]) => v2 !== null && v2 !== '' && v2 !== undefined)
-                        .map(([k2, v2]) => `${label(k2)} ${fmt(v2)}`)
-                        .join(' / ')
-                    : fmt(row)}
-                </Text>
-              ))}
+              {value.map((row, i) =>
+                typeof row === 'object' && row !== null ? (
+                  <View key={i} style={styles.editItemBox}>
+                    <EditableRows content={row as Record<string, unknown>}
+                      path={[...childPath, String(i)]} edits={edits} onEdit={onEdit} />
+                  </View>
+                ) : (
+                  <TextInput key={i} style={styles.editInput}
+                    value={edits[`${pathKey}.${i}`] ?? fmtRaw(row)}
+                    onChangeText={(t) => onEdit(`${pathKey}.${i}`, t)} />
+                ),
+              )}
             </View>
           );
         }
@@ -82,19 +214,117 @@ function ContentRows({ content, depth = 0 }: { content: Record<string, unknown>;
           return (
             <View key={key} style={styles.block}>
               <Text style={styles.rowKey}>{label(key)}</Text>
-              <ContentRows content={value as Record<string, unknown>} depth={depth + 1} />
+              <EditableRows content={value as Record<string, unknown>}
+                path={childPath} edits={edits} onEdit={onEdit} />
             </View>
           );
         }
         return (
-          <View key={key} style={styles.kvRow}>
+          <View key={key} style={styles.editRow}>
             <Text style={styles.rowKey}>{label(key)}</Text>
-            <Text style={styles.rowValue}>{fmt(value)}</Text>
+            <TextInput style={styles.editInput}
+              value={edits[pathKey] ?? fmtRaw(value)}
+              onChangeText={(t) => onEdit(pathKey, t)} />
           </View>
         );
       })}
     </View>
   );
+}
+
+// 편집용 원본 표시 (fmt와 달리 천단위 쉼표·— 없이 그대로)
+const fmtRaw = (v: unknown): string => (v === null || v === undefined ? '' : String(v));
+
+// ---- 인쇄 (후작업) ------------------------------------------------------
+// 문서를 인쇄 전용 HTML로 변환해 새 창에서 브라우저 인쇄 대화상자를 연다.
+// 인쇄 대화상자에서 'PDF로 저장'을 고르면 PDF 파일로도 남길 수 있다.
+
+const esc = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+function contentToHtml(content: Record<string, unknown>): string {
+  return Object.entries(content)
+    .map(([key, value]) => {
+      // 안내 문구(note)는 사장님용 내부 참고 — 직원·거래처에 건네는 인쇄물에는 찍지 않는다
+      if (key === 'note') return '';
+      if (Array.isArray(value)) {
+        // 품목 같은 객체 배열은 진짜 표로 (열 = 전체 행의 필드 합집합)
+        if (value.length > 0 && typeof value[0] === 'object' && value[0] !== null) {
+          const cols = Array.from(new Set(value.flatMap((r) => Object.keys((r as object) ?? {}))));
+          const head = cols.map((c) => `<th>${esc(label(c))}</th>`).join('');
+          const rows = value
+            .map((r) => `<tr>${cols.map((c) => `<td>${esc(fmt((r as Record<string, unknown>)?.[c]))}</td>`).join('')}</tr>`)
+            .join('');
+          return `<h2>${esc(label(key))}</h2><table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`;
+        }
+        return `<h2>${esc(label(key))}</h2><ul>${value.map((v) => `<li>${esc(fmt(v))}</li>`).join('')}</ul>`;
+      }
+      if (typeof value === 'object' && value !== null) {
+        return `<h2>${esc(label(key))}</h2><div class="sec">${contentToHtml(value as Record<string, unknown>)}</div>`;
+      }
+      if (value === '') {
+        return `<div class="kv"><span class="k">${esc(label(key))}</span><span class="signline"></span></div>`;
+      }
+      return `<div class="kv"><span class="k">${esc(label(key))}</span><span class="v">${esc(fmt(value))}</span></div>`;
+    })
+    .join('');
+}
+
+function buildPrintHtml(d: GeneratedDocument, autoPrint = true): string {
+  const created = new Date(d.created_at).toLocaleDateString('ko-KR');
+  return `<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><title>${esc(d.title)}</title>
+<style>
+  @page { size: A4; margin: 20mm; }
+  body { font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; color: #2d2118; max-width: 720px; margin: 0 auto; padding: 24px; font-size: 13px; line-height: 1.6; }
+  header { border-bottom: 3px solid #2d2118; padding-bottom: 10px; margin-bottom: 18px; }
+  h1 { font-size: 21px; margin: 0 0 4px; }
+  .meta { color: #7a6a58; font-size: 12px; }
+  h2 { font-size: 14px; margin: 18px 0 6px; padding-bottom: 4px; border-bottom: 1px solid #d9cbb8; }
+  .sec { padding-left: 12px; }
+  .kv { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; }
+  .kv .k { color: #7a6a58; flex-shrink: 0; }
+  .kv .v { font-weight: 600; text-align: right; }
+  .signline { display: inline-block; width: 180px; border-bottom: 1px solid #2d2118; }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 10px; }
+  th, td { border: 1px solid #d9cbb8; padding: 6px 8px; font-size: 12px; text-align: left; }
+  th { background: #f5eee3; }
+  .note { background: #f5eee3; border-radius: 8px; padding: 10px 12px; margin-top: 18px; color: #5d4c3a; font-size: 12px; }
+  .print-hint { text-align: center; margin-top: 24px; color: #aaa; font-size: 11px; }
+  @media print { .print-hint { display: none; } }
+</style></head><body>
+<header><h1>${esc(d.title)}</h1><div class="meta">${d.period ? `대상 기간: ${esc(d.period)} · ` : ''}작성일: ${created} · SimpleM 자동 생성 초안</div></header>
+${contentToHtml(d.content)}
+${autoPrint ? `<div class="print-hint">인쇄 창이 닫혔으면 Ctrl+P로 다시 열 수 있어요 · 'PDF로 저장'을 선택하면 파일로 보관됩니다</div>
+<script>window.onload = () => setTimeout(() => window.print(), 300);</script>` : ''}
+</body></html>`;
+}
+
+// 웹: 인쇄 전용 새 탭 + 브라우저 인쇄 대화상자 (PDF 저장 포함)
+function printOnWeb(d: GeneratedDocument): boolean {
+  const win = window.open('', '_blank');
+  if (!win) return false;
+  win.document.write(buildPrintHtml(d));
+  win.document.close();
+  return true;
+}
+
+// 폰(iOS/Android): OS 인쇄 다이얼로그(AirPrint/프린트 서비스) 시도 →
+// 인쇄 환경이 없으면 PDF를 만들어 공유 시트(카톡·이메일·드라이브·프린트 앱)로 넘긴다
+async function printOnPhone(d: GeneratedDocument): Promise<void> {
+  const html = buildPrintHtml(d, false); // 자동 인쇄 스크립트 없이
+  try {
+    await Print.printAsync({ html });
+  } catch (e) {
+    // 사용자가 인쇄 다이얼로그를 그냥 닫은 경우는 조용히 넘어간다
+    if (e instanceof Error && /did not complete|cancell?ed/i.test(e.message)) return;
+    // 프린터를 못 쓰는 환경 → PDF 생성 후 공유로 폴백
+    const { uri } = await Print.printToFileAsync({ html });
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: d.title });
+    } else {
+      toast('공유 불가', 'PDF는 만들었지만 이 기기에서 공유 기능을 쓸 수 없어요.');
+    }
+  }
 }
 
 export default function DocumentScreen() {
@@ -106,11 +336,18 @@ export default function DocumentScreen() {
   const [busy, setBusy] = useState<string | null>(null); // 생성 중인 템플릿 id
   const [openForm, setOpenForm] = useState<string | null>(null);
 
+  // 문서 편집 상태
+  const [editDocId, setEditDocId] = useState<string | null>(null);
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  const [savingDoc, setSavingDoc] = useState(false);
+
   // 임금명세서·근로계약서·갱신 등록 폼 입력
   const now = new Date();
   const [empName, setEmpName] = useState('');
   const [payYear, setPayYear] = useState(String(now.getFullYear()));
   const [payMonth, setPayMonth] = useState(String(now.getMonth() + 1));
+  const [payWage, setPayWage] = useState('');   // 선택 — 비우면 직원 테이블의 시급 사용
+  const [payHours, setPayHours] = useState(''); // 선택 — 비우면 근무 스케줄에서 자동 집계
   const [ctName, setCtName] = useState('');
   const [ctWage, setCtWage] = useState('');
   const [ctStart, setCtStart] = useState('');
@@ -143,10 +380,11 @@ export default function DocumentScreen() {
 
   const addRenewal = async () => {
     if (!token) return;
-    if (!cpName.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(cpExpiry))
-      return toast('입력 확인', '서류 이름과 만료일(YYYY-MM-DD)을 입력하세요.');
+    if (!cpName.trim()) return toast('입력 확인', '서류 이름을 입력하세요. (예: 보건증-홍길동)');
+    const expiry = normalizeDate(cpExpiry);
+    if (!expiry) return toast('입력 확인', `만료일을 알아볼 수 없어요: "${cpExpiry}" — 예: 2026-12-31`);
     try {
-      await addCompliance(token, { name: cpName.trim(), expiry_date: cpExpiry });
+      await addCompliance(token, { name: cpName.trim(), expiry_date: expiry });
       setCpName(''); setCpExpiry(''); setOpenForm(null);
       reload();
     } catch (e) {
@@ -175,6 +413,57 @@ export default function DocumentScreen() {
   };
 
   const dueTone = (s: ComplianceItem['status']) => (s === 'expired' ? 'danger' : s === 'due_soon' ? 'orange' : 'green');
+
+  const removeDocument = (d: GeneratedDocument) => {
+    confirmDialog(`'${d.title}' 문서를 삭제할까요? 되돌릴 수 없습니다.`, {
+      confirmLabel: '삭제',
+      destructive: true,
+      onConfirm: async () => {
+        if (!token) return;
+        try {
+          await deleteDocument(token, d.id);
+          if (openDocId === d.id) setOpenDocId(null);
+          reload();
+          toast('삭제 완료', `${d.title} 문서를 삭제했어요.`);
+        } catch (e) {
+          toast('삭제 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+        }
+      },
+    });
+  };
+
+  const startEdit = (d: GeneratedDocument) => {
+    setEditDocId(d.id);
+    setEdits({});
+    setOpenDocId(d.id);
+  };
+
+  const cancelEdit = () => {
+    setEditDocId(null);
+    setEdits({});
+  };
+
+  const saveEdit = async (d: GeneratedDocument) => {
+    if (!token) return;
+    if (Object.keys(edits).length === 0) return cancelEdit();
+    setSavingDoc(true);
+    try {
+      // 원본을 복제한 뒤 편집된 경로마다 원래 타입에 맞춰 값을 되붙인다
+      const next = JSON.parse(JSON.stringify(d.content)) as Record<string, unknown>;
+      for (const [pathKey, raw] of Object.entries(edits)) {
+        const path = pathKey.split('.');
+        setAtPath(next, path, coerce(getAtPath(d.content, path), raw));
+      }
+      await updateDocument(token, d.id, next);
+      cancelEdit();
+      reload();
+      toast('수정 완료', `${d.title} 내용을 저장했어요.`);
+    } catch (e) {
+      toast('수정 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+    } finally {
+      setSavingDoc(false);
+    }
+  };
 
   return (
     <Screen>
@@ -264,9 +553,21 @@ export default function DocumentScreen() {
               <TextInput style={[styles.input, { flex: 1 }]} placeholder="연도" keyboardType="numeric" value={payYear} onChangeText={setPayYear} />
               <TextInput style={[styles.input, { flex: 1 }]} placeholder="월" keyboardType="numeric" value={payMonth} onChangeText={setPayMonth} />
             </View>
+            <View style={styles.formRow}>
+              <TextInput style={[styles.input, { flex: 1 }]} placeholder="시급 (비우면 직원 정보 사용)" keyboardType="numeric" value={payWage} onChangeText={setPayWage} />
+              <TextInput style={[styles.input, { flex: 1 }]} placeholder="근무시간 (비우면 자동 집계)" keyboardType="numeric" value={payHours} onChangeText={setPayHours} />
+            </View>
             <PressableScale style={styles.smallBtn} onPress={() => {
               if (!empName.trim()) return toast('입력 확인', '직원 이름을 입력하세요.');
-              run('pay', () => createPayslip(token!, { employee_name: empName.trim(), year: Number(payYear), month: Number(payMonth) }));
+              const y = toNumber(payYear);
+              const m = toNumber(payMonth);
+              if (y < 2000 || y > 2100) return toast('입력 확인', `연도를 확인하세요: "${payYear}" — 예: 2026`);
+              if (m < 1 || m > 12) return toast('입력 확인', `월을 확인하세요: "${payMonth}" — 1~12 사이 숫자`);
+              run('pay', () => createPayslip(token!, {
+                employee_name: empName.trim(), year: y, month: m,
+                ...(payWage.trim() ? { hourly_wage: toNumber(payWage) } : {}),
+                ...(payHours.trim() ? { work_hours: toNumber(payHours) } : {}),
+              }));
             }}>
               <Text style={styles.btnText}>초안 생성</Text>
             </PressableScale>
@@ -287,9 +588,12 @@ export default function DocumentScreen() {
               <TextInput style={[styles.input, { flex: 1.4 }]} placeholder="시작일 YYYY-MM-DD" value={ctStart} onChangeText={setCtStart} />
             </View>
             <PressableScale style={styles.smallBtn} onPress={() => {
-              if (!ctName.trim() || !Number(ctWage) || !/^\d{4}-\d{2}-\d{2}$/.test(ctStart))
-                return toast('입력 확인', '이름·시급·시작일(YYYY-MM-DD)을 입력하세요.');
-              run('ct', () => createContract(token!, { employee_name: ctName.trim(), hourly_wage: Number(ctWage), start_date: ctStart }));
+              if (!ctName.trim()) return toast('입력 확인', '직원 이름을 입력하세요.');
+              const wage = toNumber(ctWage);
+              if (!wage) return toast('입력 확인', `시급을 숫자로 입력하세요: "${ctWage}" — 예: 10500`);
+              const start = normalizeDate(ctStart);
+              if (!start) return toast('입력 확인', `시작일을 알아볼 수 없어요: "${ctStart}" — 예: 2026-08-01`);
+              run('ct', () => createContract(token!, { employee_name: ctName.trim(), hourly_wage: wage, start_date: start }));
             }}>
               <Text style={styles.btnText}>초안 생성</Text>
             </PressableScale>
@@ -302,22 +606,69 @@ export default function DocumentScreen() {
       {docs.length === 0 ? (
         <Card><Text style={styles.emptyText}>아직 생성된 문서가 없어요. 위에서 초안을 만들어 보세요.</Text></Card>
       ) : (
-        docs.map((d) => (
-          <Card key={d.id}>
-            <PressableScale onPress={() => setOpenDocId(openDocId === d.id ? null : d.id)}>
-              <View style={styles.docRow}>
-                <Badge label={KIND_LABELS[d.kind] ?? d.kind} tone="neutral" />
-                <Text style={styles.docTitle} numberOfLines={1}>{d.title}</Text>
-                <Ionicons name={openDocId === d.id ? 'chevron-up' : 'chevron-down'} size={16} color={colors.mochaBrown} />
-              </View>
-            </PressableScale>
-            {openDocId === d.id && (
-              <View style={styles.docBody}>
-                <ContentRows content={d.content} />
-              </View>
-            )}
-          </Card>
-        ))
+        docs.map((d) => {
+          const isEditing = editDocId === d.id;
+          return (
+            <Card key={d.id}>
+              <PressableScale onPress={() => { if (!isEditing) setOpenDocId(openDocId === d.id ? null : d.id); }}>
+                <View style={styles.docRow}>
+                  <Badge label={KIND_LABELS[d.kind] ?? d.kind} tone="neutral" />
+                  <Text style={styles.docTitle} numberOfLines={1}>{d.title}</Text>
+                  <Ionicons name={openDocId === d.id ? 'chevron-up' : 'chevron-down'} size={16} color={colors.mochaBrown} />
+                </View>
+              </PressableScale>
+              {openDocId === d.id && (
+                <View style={styles.docBody}>
+                  {isEditing ? (
+                    <EditableRows content={d.content} edits={edits}
+                      onEdit={(pathKey, text) => setEdits((prev) => ({ ...prev, [pathKey]: text }))} />
+                  ) : (
+                    <ContentRows content={d.content} />
+                  )}
+                  <View style={styles.docActions}>
+                    {isEditing ? (
+                      <>
+                        <PressableScale style={[styles.smallBtn, { flex: 1 }]} onPress={() => saveEdit(d)}>
+                          <Text style={styles.btnText}>{savingDoc ? '저장 중…' : '저장'}</Text>
+                        </PressableScale>
+                        <PressableScale style={[styles.smallBtn, styles.cancelBtn, { flex: 1 }]} onPress={cancelEdit}>
+                          <Text style={[styles.btnText, { color: colors.mochaBrown }]}>취소</Text>
+                        </PressableScale>
+                      </>
+                    ) : (
+                      <>
+                        <PressableScale style={[styles.smallBtn, { flex: 1 }]} onPress={() => startEdit(d)}>
+                          <Text style={styles.btnText}>수정</Text>
+                        </PressableScale>
+                        <PressableScale
+                          style={[styles.smallBtn, styles.printBtn, { flex: 1 }]}
+                          onPress={() => {
+                            if (Platform.OS === 'web') {
+                              if (!printOnWeb(d)) toast('팝업 차단됨', '브라우저에서 팝업을 허용한 뒤 다시 시도하세요.');
+                            } else {
+                              printOnPhone(d).catch(() =>
+                                toast('인쇄 실패', '잠시 후 다시 시도해 주세요.'));
+                            }
+                          }}
+                        >
+                          <View style={styles.printBtnInner}>
+                            <Ionicons name="print-outline" size={14} color={colors.white} />
+                            <Text style={styles.btnText}>인쇄 · PDF</Text>
+                          </View>
+                        </PressableScale>
+                        {d.kind !== 'payslip' && (
+                          <PressableScale style={[styles.smallBtn, styles.deleteBtn]} onPress={() => removeDocument(d)}>
+                            <Ionicons name="trash-outline" size={15} color="#B23B2E" />
+                          </PressableScale>
+                        )}
+                      </>
+                    )}
+                  </View>
+                </View>
+              )}
+            </Card>
+          );
+        })
       )}
         </View>
       ) : (
@@ -352,6 +703,7 @@ function TemplateRow({ icon, name, desc, busy, onPress, actionLabel }: {
 const styles = StyleSheet.create({
   noticeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   noticeText: { ...typography.L5, color: colors.mochaBrown, flex: 1, lineHeight: 15 },
+  hint: { ...typography.L5, color: colors.mochaBrown, marginTop: 4 },  // 세금 탭 설명 텍스트
   headRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   linkText: { ...typography.L4, color: colors.pointOrange, fontWeight: '700' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
@@ -379,10 +731,49 @@ const styles = StyleSheet.create({
   docRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   docTitle: { ...typography.L4, color: colors.espressoBrown, flex: 1, fontWeight: '600' },
   docBody: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.mutedSand },
+  docActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  cancelBtn: { backgroundColor: colors.coffeeCream },
+  printBtn: { backgroundColor: colors.espressoBrown },
+  printBtnInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
+  deleteBtn: { backgroundColor: '#F6DED8', paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center' },
+  editRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 2 },
+  editInput: {
+    flex: 1, borderWidth: 1, borderColor: colors.mutedSand, borderRadius: 8,
+    paddingHorizontal: 8, paddingVertical: 5, ...typography.L5, color: colors.espressoBrown,
+    backgroundColor: colors.white, minWidth: 80,
+  },
+  editItemBox: {
+    borderWidth: 1, borderColor: colors.mutedSand, borderRadius: 10,
+    padding: 8, marginTop: 6,
+  },
   block: { marginTop: 6 },
-  kvRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2, gap: 12 },
+  kvRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5, gap: 12 },
   rowKey: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700' },
-  rowValue: { ...typography.L5, color: colors.espressoBrown, flexShrink: 1, textAlign: 'right' },
+  rowValue: { ...typography.L5, color: colors.espressoBrown, flexShrink: 1, textAlign: 'right', fontWeight: '600' },
+  kvStack: { paddingVertical: 5 },
+  stackValue: {
+    ...typography.L5, color: colors.espressoBrown, lineHeight: 18,
+    backgroundColor: colors.creamSand, borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 7, marginTop: 5,
+  },
+  signLine: {
+    width: 140, height: 20,
+    borderBottomWidth: 1, borderBottomColor: colors.mochaBrown,
+  },
+  section: {
+    marginTop: 10, paddingTop: 8,
+    borderTopWidth: 1, borderTopColor: colors.mutedSand,
+  },
+  sectionHead: { ...typography.L5, color: colors.espressoBrown, fontWeight: '800', marginBottom: 4 },
+  sectionBody: {
+    paddingLeft: 10, marginLeft: 2,
+    borderLeftWidth: 2, borderLeftColor: colors.coffeeCream,
+  },
+  noteBox: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 6,
+    backgroundColor: colors.coffeeCream, borderRadius: 10, padding: 10, marginTop: 12,
+  },
+  noteBoxText: { ...typography.L5, color: colors.mochaBrown, flex: 1, lineHeight: 17 },
   itemLine: { ...typography.L5, color: colors.espressoBrown, marginTop: 3, lineHeight: 16 },
   // [한글 주석] 세금 탭 전용으로 추가되는 레이아웃 스타일셋
   taxAmount: { ...typography.L2, color: colors.espressoBrown, marginTop: 8, marginBottom: 2 },

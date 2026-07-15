@@ -90,6 +90,21 @@ export const listDocuments = (token: string, kind?: DocumentKind) =>
     { headers: auth(token) },
   );
 
+/** 문서 삭제 — 임금명세서는 임금대장 보관 의무 때문에 서버가 거부한다(409) */
+export const deleteDocument = (token: string, id: string) =>
+  apiFetch<{ deleted: string }>(`/api/v1/chatbot/documents/${id}`, {
+    method: 'DELETE',
+    headers: auth(token),
+  });
+
+/** 문서 수정 — content는 수정된 전체 본문 (부분 수정 아님) */
+export const updateDocument = (token: string, id: string, content: Record<string, unknown>) =>
+  apiFetch<GeneratedDocument>(`/api/v1/chatbot/documents/${id}`, {
+    method: 'PATCH',
+    headers: auth(token),
+    body: JSON.stringify({ content }),
+  });
+
 /** 갱신 서류(보건증·위생교육·계약) 등록 */
 export const addCompliance = (
   token: string,

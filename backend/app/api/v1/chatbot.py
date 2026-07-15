@@ -26,6 +26,7 @@ from app.schemas.ai import (
     ComplianceItemResponse,
     EmploymentContractRequest,
     GeneratedDocumentResponse,
+    GeneratedDocumentUpdate,
     OcrConfirmRequest,
     OcrConfirmResponse,
     OcrDocumentResponse,
@@ -223,6 +224,31 @@ def list_generated_documents(kind: Optional[str] = None, current_user: User = De
 def get_generated_document(doc_id: str, current_user: User = Depends(get_current_user)):
     try:
         return document_service.get_document(current_user.email, doc_id)
+    except document_service.DocumentError as e:
+        raise HTTPException(404, str(e))
+
+
+@router.delete("/documents/{doc_id}")
+def delete_generated_document(doc_id: str, current_user: User = Depends(get_current_user)) -> dict:
+    """문서 삭제 — 임금명세서는 임금대장 보관 의무 때문에 삭제 불가(409)."""
+    try:
+        document_service.delete_document(current_user.email, doc_id)
+    except document_service.DocumentLockedError as e:
+        raise HTTPException(409, str(e))
+    except document_service.DocumentError as e:
+        raise HTTPException(404, str(e))
+    return {"deleted": doc_id}  # 프론트 apiFetch가 JSON 응답을 기대하므로 204 대신 본문 반환
+
+
+@router.patch("/documents/{doc_id}", response_model=GeneratedDocumentResponse)
+def update_generated_document(
+    doc_id: str,
+    body: GeneratedDocumentUpdate,
+    current_user: User = Depends(get_current_user),
+):
+    """문서 수정 — 자동 생성된 값을 사람이 바로잡는다 (content는 수정된 전체 본문)."""
+    try:
+        return document_service.update_document(current_user.email, doc_id, body.content, title=body.title)
     except document_service.DocumentError as e:
         raise HTTPException(404, str(e))
 
