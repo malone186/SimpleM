@@ -9,7 +9,8 @@ from app.models.user import User
 from app.schemas.inventory import (
     IngredientCreate, IngredientResponse,
     StockAdjust, StockResponse, StockDetailResponse,
-    MenuCreate, MenuResponse, MenuDetailResponse
+    MenuCreate, MenuResponse, MenuDetailResponse,
+    OrderResponse, OrderStatusUpdate
 )
 from app.services.inventory_service import (
     create_ingredient, get_ingredients,
@@ -99,3 +100,34 @@ def list_menus_with_recipes(
     [메뉴 및 레시피 조회] 내 매장의 메뉴판 목록과 각 메뉴별 세부 레시피 구성을 정돈하여 불러옵니다.
     """
     return get_menus_with_recipes(db=db, store_id=current_user.email)
+
+
+# --- [4. 발주 추천 및 승인/반려 관련 API 창구] ---
+
+@router.get("/orders/drafts", response_model=list[OrderResponse])
+def get_order_drafts(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    [발주 추천 초안 목록 조회]
+    매장의 실시간 재고 대장을 탐색하여 안전재고 미달 품목이 있으면 자동으로 발주 제안서 초안들을 돌려줍니다.
+    """
+    from app.services.inventory_service import get_or_create_order_drafts
+    return get_or_create_order_drafts(db=db, store_id=current_user.email)
+
+
+@router.patch("/orders/{order_id}")
+def update_order_status_api(
+    order_id: int,
+    payload: OrderStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    [발주서 상태 업데이트 (승인 및 반려)]
+    사장님이 검토 후 발주를 승인(CONFIRMED)하면 실제 재고에 반영하고 입고 기록을 생성하며, 반려(REJECTED)하면 반려 상태로 처리합니다.
+    """
+    from app.services.inventory_service import update_order_status
+    return update_order_status(db=db, store_id=current_user.email, order_id=order_id, status_update=payload.status)
+
