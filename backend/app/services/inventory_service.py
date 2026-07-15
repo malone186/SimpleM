@@ -165,12 +165,15 @@ def create_menu_with_recipes(db: Session, store_id: str, menu_in: MenuCreate) ->
 def get_menus_with_recipes(db: Session, store_id: str) -> list[dict]:
     """
     현재 매장의 메뉴판 정보와 각 메뉴별 레시피(재료 이름, 단위, 양)를 정렬하여 한 묶음의 리스트로 받아옵니다.
+    (재재료 단가 변동이 실시간 반영되도록 각 메뉴별 원가 및 원가율을 동적으로 실시간 연산하여 동봉합니다.)
     """
     menus = db.query(Menu).filter(Menu.store_id == store_id).order_by(Menu.id.asc()).all()
     results = []
 
     for menu in menus:
         recipes_detail = []
+        total_cost = 0  # 메뉴 총 원가 누적액
+        
         for r in menu.recipes:
             recipes_detail.append({
                 "ingredient_id": r.ingredient_id,
@@ -178,6 +181,14 @@ def get_menus_with_recipes(db: Session, store_id: str) -> list[dict]:
                 "quantity": r.quantity,
                 "unit": r.ingredient.unit
             })
+            # 레시피 용량/수량 * 해당 원재료의 현재 매입 단가
+            total_cost += int(r.quantity * r.ingredient.current_price)
+            
+        # 원가율 계산 (원가 / 판매가 * 100)
+        cost_ratio = 0.0
+        if menu.selling_price > 0:
+            # 소수점 둘째 자리까지 반올림
+            cost_ratio = round((total_cost / menu.selling_price) * 100, 2)
         
         results.append({
             "id": menu.id,
@@ -186,10 +197,13 @@ def get_menus_with_recipes(db: Session, store_id: str) -> list[dict]:
             "store_id": menu.store_id,
             "is_active": menu.is_active,
             "created_at": menu.created_at,
-            "recipes": recipes_detail
+            "recipes": recipes_detail,
+            "cost_price": total_cost,
+            "cost_ratio": cost_ratio
         })
     
     return results
+
 
 
 # --- [4. 발주(Order) 자동 추천 및 상태 관리 서비스 로직] ---
