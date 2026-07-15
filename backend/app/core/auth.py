@@ -1,10 +1,11 @@
 # c:\STUDY\SimpleM\backend\app\core\auth.py
 import os
-from datetime import datetime, timedelta, timezone
-import os
+import json
+import time
+import urllib.request
 from datetime import datetime, timedelta, timezone
 import jwt
-import bcrypt  # passlib 대신 직접 이 암호화 패키지를 가져옵니다.
+import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -13,88 +14,160 @@ from app.core.database import get_db
 from app.models.user import User
 from app.schemas.user import TokenData
 
-# 2. JWT 토큰 발급에 필요한 비밀 설정값들입니다.
-# SECRET_KEY는 출입증에 도장을 찍을 때 쓰는 '국가 기밀 도장' 같은 것입니다. 절대로 유출되면 안 됩니다!
+# 1. 환경변수 및 인증 설정
 SECRET_KEY = os.getenv("SECRET_KEY", "simplem-secret-key-super-secure-key-1234567890")
-ALGORITHM = "HS256"  # 토큰을 서명할 때 쓸 수학 알고리즘 (기본 대칭키 암호화 방식)
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 하루(1440분) 동안 유효한 출입증을 발급합니다.
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 하루 유효한 로컬 토큰
+FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "simplem-app")
 
-# 3. FastAPI에 내장된 토큰 자동 검사기입니다. 
-# 프론트엔드가 보낸 요청 헤더(Authorization: Bearer <토큰>)에서 토큰 문자열만 쏙 뽑아옵니다.
+# 구글 공개 키 캐싱을 위한 전역 변수들
+_GOOGLE_PUBLIC_KEYS = {}
+_KEYS_EXPIRE_AT = 0.0
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
 
 
-# --- [비밀번호 암호화 관련 함수] ---
+# --- [비밀번호 암호화 관련 함수 (로컬 DB 레거시 유지용)] ---
 
 def get_password_hash(password: str) -> str:
-    """
-    비밀번호를 안전하게 암호화(해싱)합니다.
-    텍스트 형식의 패스워드를 컴퓨터 바이트 데이터로 바꾼 뒤 bcrypt로 암호화합니다.
-    """
+    """비밀번호를 안전하게 해싱합니다."""
     pwd_bytes = password.encode('utf-8')
-    salt = bcrypt.gensalt()  # 무작위 소금 조각(임의 문자열)을 뿌려 암호의 임의성을 높입니다.
+    salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(pwd_bytes, salt)
-    return hashed.decode('utf-8')  # 다시 문자열로 바꿔 저장합니다.
+    return hashed.decode('utf-8')
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """
-    사용자가 로그인 시 입력한 비밀번호(평문)가 DB에 저장된 암호문(해시)과 일치하는지 대조합니다.
-    """
+    """로그인 비밀번호가 대조문과 맞는지 검사합니다."""
     plain_bytes = plain_password.encode('utf-8')
     hashed_bytes = hashed_password.encode('utf-8')
     return bcrypt.checkpw(plain_bytes, hashed_bytes)
 
 
-
-# --- [JWT 토큰 발급 및 검증 관련 함수] ---
-
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
-    """
-    로그인에 성공한 사용자에게 줄 암호화된 '출입증(JWT)'을 발급합니다.
-    """
+    """로컬 로그인용 토큰을 만듭니다."""
     to_encode = data.copy()
-    
-    # 출입증이 언제 만료되는지 시간을 설정합니다. (기본 1일)
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    
-    # 토큰 만료 시간 정보를 담습니다.
     to_encode.update({"exp": expire})
-    
-    # 도장(SECRET_KEY)을 쾅 찍어서 위조가 불가능한 출입증(JWT 문자열)을 만들어 냅니다.
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
+
+# --- [Firebase 공개 키 수집 및 검증 관련 유틸리티] ---
+
+def _get_google_public_keys() -> dict:
+    """구글의 Firebase ID Token 서명용 공개키들을 조회하고 1시간 동안 메모리에 캐싱합니다."""
+    global _GOOGLE_PUBLIC_KEYS, _KEYS_EXPIRE_AT
+    now = time.time()
+    
+    # 캐시가 만료되지 않았다면 그대로 캐시된 공개키를 반환합니다.
+    if _GOOGLE_PUBLIC_KEYS and now < _KEYS_EXPIRE_AT:
+        return _GOOGLE_PUBLIC_KEYS
+
+    try:
+        url = "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com"
+        with urllib.request.urlopen(url, timeout=5) as response:
+            headers = response.info()
+            # HTTP Response의 Cache-Control 헤더에서 max-age를 파싱해 만료 시간을 정밀 계산합니다.
+            cache_control = headers.get("Cache-Control", "")
+            max_age = 3600
+            for part in cache_control.split(","):
+                if "max-age" in part:
+                    try:
+                        max_age = int(part.split("=")[1].strip())
+                    except Exception:
+                        pass
+            
+            _GOOGLE_PUBLIC_KEYS = json.loads(response.read().decode("utf-8"))
+            _KEYS_EXPIRE_AT = now + max_age
+            return _GOOGLE_PUBLIC_KEYS
+    except Exception:
+        # 구글 키 서버 통신 실패 시, 캐시가 있다면 죽지 않고 기존 캐시를 반환합니다.
+        if _GOOGLE_PUBLIC_KEYS:
+            return _GOOGLE_PUBLIC_KEYS
+        return {}
+
+
+# --- [FastAPI 의존성 주입: 현재 사용자 권한 인증 필터] ---
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
     """
-    자물쇠 역할: 다른 기능(재고 조회 등)에서 이 토큰을 들이밀었을 때, 
-    올바른 출입증인지 검사해서 "아, 이메일이 owner@cafe.com인 사장님이 맞구나!" 하고
-    데이터베이스에서 회원 정보를 찾아 넘겨주는 핵심 보초 함수입니다.
+    [FastAPI 보안 통문 검사기]
+    1. 프론트엔드가 건넨 Firebase ID Token을 RS256 비대칭 공개키 방식으로 온전히 검증합니다.
+    2. 검증에 통과했으나 DB에 없는 이메일이라면, 회원 정보를 자동 가입(Lazy Signup)시켜 줍니다.
+    3. 로컬 테스트 및 API 통신 검증 편의를 위해, 이전 로컬 JWT 토큰도 감지하여 자동 디버그 통과(Fallback)시켜 줍니다.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="올바르지 않거나 만료된 로그인 토큰(출입증)입니다.",
+        detail="올바르지 않거나 만료된 로그인 토큰(인증 실패)입니다.",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+    email = None
+    name = None
+
+    # [1단계] Firebase ID Token 검증 시도 (비대칭키 RS256)
     try:
-        # 출입증(토큰)을 기밀 도장(SECRET_KEY)으로 해독해서 열어봅니다.
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None:
-            raise credentials_exception
-        token_data = TokenData(email=email)
+        # 토큰 헤더에서 kid(구글 서명 키 고유번호)를 추출합니다.
+        header = jwt.get_unverified_header(token)
+        kid = header.get("kid")
+        
+        if not kid:
+            raise jwt.PyJWTError("Token header is missing 'kid'")
+
+        public_keys = _get_google_public_keys()
+        cert_str = public_keys.get(kid)
+        
+        if not cert_str:
+            raise jwt.PyJWTError("Corresponding Google public key not found")
+
+        # 인증서 PEM 파일 규격으로 공개키 오브젝트 생성
+        from jwt.algorithms import RSAAlgorithm
+        public_key = RSAAlgorithm.from_jwk(
+            jwt.algorithms.RSAAlgorithm.to_jwk(cert_str) if hasattr(RSAAlgorithm, "to_jwk") else cert_str
+        )
+        if not hasattr(RSAAlgorithm, "from_jwk"):
+            # 구버전 PyJWT 호환 처리 (PEM String 직접 decode 허용)
+            public_key = cert_str
+
+        # 비대칭 서명, 만료일, 수신자(Project ID) 및 발급처 검증을 일괄 처리합니다.
+        payload = jwt.decode(
+            token,
+            public_key,
+            algorithms=["RS256"],
+            audience=FIREBASE_PROJECT_ID,
+            issuer=f"https://securetoken.google.com/{FIREBASE_PROJECT_ID}"
+        )
+        email = payload.get("email")
+        name = payload.get("name", email.split("@")[0] if email else "사장님")
+
     except jwt.PyJWTError:
-        # 위조되었거나 시간이 지난 토큰이면 예외를 던집니다.
+        # [2단계: 디버그 폴백 모드] Firebase 검증 실패 시, 로컬 HS256 토큰 해독을 자동 시도합니다.
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            email = payload.get("sub")
+            name = payload.get("name", email.split("@")[0] if email else "사장님")
+        except jwt.PyJWTError:
+            # 로컬 토큰 검사마저 실패하면 최종 401 에러를 던집니다.
+            raise credentials_exception
+
+    if not email:
         raise credentials_exception
 
-    # 출입증에 적혀있던 이메일 주소로 DB에서 실제 가입자를 찾아냅니다.
-    user = db.query(User).filter(User.email == token_data.email).first()
+    # [3단계: Lazy Signup - 자동 회원 가입]
+    # Firebase 인증을 통과한 이메일인데 DB 사용자 테이블에 없다면 즉시 매장 계정을 생성해 줍니다.
+    user = db.query(User).filter(User.email == email).first()
     if user is None:
-        raise credentials_exception
-    
-    # 현재 로그인한 사람의 DB 모델 객체를 반환합니다.
+        user = User(
+            email=email,
+            name=name,
+            hashed_password=get_password_hash("firebase_auto_signup_random_pwd_1234"),
+            store_name=f"{name} 매장"
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
     return user
