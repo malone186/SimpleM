@@ -121,7 +121,9 @@ export default function InventoryScreen() {
   // OCR 확정 → 재고 입고 → 재고 현황 즉시 갱신 (실시간 연동)
   const confirm = async (doc: OcrDocument) => {
     try {
-      const res = await confirmOcrDocument(doc.id, doc.suggested_target ?? 'inventory_inbound', token);
+      // 이 버튼의 의미가 '재고 반영'이므로 서버 추천값과 무관하게 항상 재고 입고로 확정한다
+      // (expense/sales는 미구현이라 추천값을 따르면 보관만 되고 재고에 안 들어간다)
+      const res = await confirmOcrDocument(doc.id, 'inventory_inbound', token);
       setDrafts((prev) => prev.filter((d) => d.id !== doc.id));
       loadStocks();
       notify('확정 완료', res.message);
