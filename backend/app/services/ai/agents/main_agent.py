@@ -1,25 +1,35 @@
-# c:\STUDY\SimpleM\backend\app\services\ai\agents\main_agent.py
-"""챗봇 두뇌 (백엔드 B)
+"""챗봇 두뇌 (백엔드 B) — 멀티에이전트 오케스트레이션
 
-사용자(사장님)의 자연어 질의를 분석하여, 필요한 경우 tool_registry에 등록된 도구들을 
-동적으로 호출(Agent Loop)하고 최종적으로 친절한 한국어 답변을 생성하는 메인 에이전트 모듈입니다.
+구조 (supervisor 패턴, langchain v1 create_agent = langgraph 기반):
+
+    사용자 질문
+        ↓
+    메인 에이전트 '포슬이' (오케스트레이터)
+        ├─ inventory_expert  : 재고·재료·메뉴·발주  (백엔드 A 도구 — 구현되면 자동 활성화)
+        ├─ document_expert   : 서류 자동화·갱신 알림 (document_tools 13종)
+        ├─ ocr_expert        : 영수증/명세서 OCR 문서 조회·수정 (ocr_tools)
+        ├─ operation_expert  : 매출 예측·운영 요약·원두 시세·세금 추정 (백엔드 C 도구)
+        └─ report_expert     : 주간 리포트 (report_tools — 구현되면 자동 활성화)
+
+메인 에이전트는 실제 도구를 직접 만지지 않고 "어느 전문가에게 무엇을 맡길지"만 결정한다.
+각 서브에이전트는 자기 도메인 도구만 들고 독립적으로 ReAct 루프를 돈다 — 도구 22종을
+한 에이전트에 다 넣을 때보다 선택 정확도가 높고, 도메인별 지침을 따로 줄 수 있다.
+
+안전 원칙 (PRD §5.3): 돈이 걸린 액션은 draft_/propose_ 초안 도구만 존재하며,
+store_id는 모델이 뭐라 넣든 서버가 로그인 사용자 값으로 강제 덮어쓴다.
 """
 
-import json
+import importlib
 import logging
 import os
-import re
 from pathlib import Path
 from typing import Any, Optional
 
-import httpx
-
-from app.services.ai import tool_registry
-
 logger = logging.getLogger(__name__)
 
-# [한글 주석] backend/.env 환경변수를 안전하게 수동 로드합니다.
+
 def _load_dotenv() -> None:
+    """backend/.env를 읽어 아직 없는 환경변수만 채운다 (외부 의존성 없이)."""
     env_file = Path(__file__).resolve().parents[4] / ".env"
     if not env_file.exists():
         return
@@ -31,216 +41,257 @@ def _load_dotenv() -> None:
         if value.strip():
             os.environ.setdefault(key.strip(), value.strip())
 
+
 _load_dotenv()
 
-# [한글 주석] Gemini API 호출을 위한 기본 설정을 가져옵니다.
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
-# [한글 주석] 에이전트가 무한 루프에 빠지는 것을 막기 위해 최대 도구 호출 횟수를 제한합니다.
-MAX_ITERATIONS = 5
+# 무한 위임/루프 방지 — langgraph 그래프 스텝 상한
+SUB_RECURSION_LIMIT = 12   # 서브에이전트: 도구 몇 번 쓰고 답하기에 충분
+MAIN_RECURSION_LIMIT = 16  # 메인: 전문가 여러 명에게 순차 위임 가능
 
-# [한글 주석] 챗봇의 기본 정체성과 행동 강령을 정의하는 시스템 프롬프트입니다.
-SYSTEM_PROMPT = """당신은 카페 사장님들을 위한 똑똑하고 친절한 AI 비서 '포슬이'입니다.
-컴퓨터 공학이나 어려운 데이터 모델 용어를 쓰지 않고, 대학교 1학년 학생도 바로 이해할 수 있을 만큼 쉽고 친절하게 대답해야 합니다.
+# ---------------------------------------------------------------------------
+# 도메인(서브에이전트) 정의 — 모듈에 도구가 생기면 자동으로 전문가가 활성화된다
+# ---------------------------------------------------------------------------
 
-사용자의 질문을 해결하기 위해 필요한 경우, 아래 제공된 [사용 가능한 도구 목록]을 활용할 수 있습니다.
+_SUB_PROMPT_BASE = """당신은 카페 운영 시스템 SimpleM의 '{title}'입니다.
+주어진 도구만 사용해 요청을 처리하고, 결과를 한국어로 간결하게 정리해 보고하세요.
+
+규칙:
+- 도구가 store_id를 요구하면 반드시 '{store_id}'를 넣으세요.
+- 도구 실행 결과에 있는 숫자·데이터를 지어내지 말고 그대로 사용하세요.
+- 요청을 처리할 도구가 없으면 "이 요청은 제 담당 도구로는 처리할 수 없습니다"라고 보고하세요.
+- 돈이 걸린 액션(발주·지급·신고)은 초안(draft_) 생성까지만 가능합니다. 초안을 만들었다면
+  "전용 화면에서 확인 후 확정해야 한다"는 점을 보고에 포함하세요.
+{extra}"""
+
+_DOMAINS: list[dict[str, Any]] = [
+    {
+        "name": "inventory_expert",
+        "title": "재고 전문가",
+        "description": "재고 현황 조회, 재료 관리, 메뉴·레시피, 발주 관련 요청을 처리한다.",
+        "modules": ["app.services.inventory_tools"],  # 백엔드 A — 도구 생기면 자동 활성화
+        "extra": "",
+    },
+    {
+        "name": "document_expert",
+        "title": "서류 자동화 전문가",
+        "description": (
+            "카페 운영 서류를 만들고 관리한다: 발주서 초안, 재고실사표, 검수확인서, "
+            "매입·매출 장부, 부가세 신고 참고자료, 임금명세서 초안·임금대장, 근로계약서 초안, "
+            "생성된 문서 조회·수정, 보건증·위생교육·계약 갱신 만료 알림."
+        ),
+        "modules": ["app.services.ai.document_tools"],
+        "extra": "- 문서를 수정할 때는 먼저 목록/조회 도구로 현재 내용을 확인한 뒤 전체 본문을 보내세요.",
+    },
+    {
+        "name": "ocr_expert",
+        "title": "OCR 문서 전문가",
+        "description": (
+            "영수증·거래명세서를 촬영해 만든 OCR 문서를 조회하고 품목·금액을 수정한다. "
+            "(촬영 자체와 재고 반영 확정은 전용 화면에서만 가능)"
+        ),
+        "modules": ["app.services.ai.ocr_tools"],
+        "extra": "- 문서 확정(재고 반영)은 도구로 불가능합니다 — 재고 화면에서 하도록 안내하세요.",
+    },
+    {
+        "name": "operation_expert",
+        "title": "운영·세무 전문가",
+        "description": (
+            "매출 예측, 운영 리포트 요약, 로스터리 원두 시세 비교, 세금 간이 추정과 "
+            "관련 법령·자료 검색을 처리한다."
+        ),
+        "modules": [
+            "app.services.operation.forecasting_tools",
+            "app.services.operation.operation_tools",
+            "app.services.operation.roastery_tools",
+            "app.services.operation.tax_tools",
+        ],
+        "extra": "- 세금 추정치는 참고용이며 최종 신고는 세무사 확인이 필요하다고 항상 덧붙이세요.",
+    },
+    {
+        "name": "report_expert",
+        "title": "주간 리포트 전문가",
+        "description": "주간 매출·재고 리포트를 생성하고 조회한다.",
+        "modules": ["app.services.ai.report_tools"],  # 백엔드 B — 구현되면 자동 활성화
+        "extra": "",
+    },
+]
+
+_MAIN_PROMPT = """당신은 카페 사장님들을 위한 똑똑하고 친절한 AI 비서 '포슬이'입니다.
+어려운 전문 용어 없이, 누구나 바로 이해할 수 있게 한국어 구어체로 대답합니다.
+
+당신은 직접 데이터를 조회하지 않습니다. 대신 아래 전문가 팀을 부하 직원처럼 부릴 수 있습니다:
+{experts}
 
 [행동 규칙]
-1. 사용자의 질문에 대답하기 위해 특정 도구의 정보가 필요하다면, **오직 아래의 JSON 형식 하나만** 응답으로 출력해야 합니다. 다른 텍스트, 설명, 혹은 마크다운 코드 블록(```json 등)을 절대 붙이지 마세요.
-   예시:
-   {{"tool": "도구_이름", "args": {{"인자명": "값"}}}}
+1. 매장 데이터가 필요한 요청은 반드시 알맞은 전문가에게 위임하세요. 위임할 때는 task에
+   사장님의 요청을 구체적인 한국어 지시문으로 바꿔서 전달하세요.
+   (예: "이번 달 김철수 월급 계산해줘" → document_expert에게 "2026년 7월 김철수 임금명세서 초안을 만들어줘")
+2. 여러 영역에 걸친 질문이면 전문가를 차례로 호출해 결과를 종합하세요.
+3. 전문가의 보고를 그대로 복사하지 말고, 사장님이 듣기 편한 말로 요약·정리해 전하세요.
+   숫자는 지어내지 말고 전문가가 보고한 값만 쓰세요.
+4. 인사말이나 일상 대화는 전문가 호출 없이 바로 답하세요.
+5. 돈이 걸린 액션(발주·급여 지급·세금 신고)은 시스템 전체가 '초안 생성'까지만 지원합니다.
+   초안이 만들어지면 "관리 > 서류 자동화 화면에서 확인 후 확정하세요"라고 안내하세요.
+6. 오늘 날짜: {today} / 현재 매장: {store_id}
 
-2. 도구의 실행 결과(Tool Output)가 주어지면, 그 데이터를 기반으로 분석하여 사장님께 자연스러운 한국어 구어체로 최종 답변을 작성해 주세요.
+전문가가 처리하지 못한 요청은 솔직하게 "아직 지원하지 않는 기능"이라고 안내하세요."""
 
-3. 도구를 사용할 필요가 없는 일상적인 대화(인사 등)나 단순 질문은 즉시 친절한 한국어 답변으로 출력하세요.
 
-4. 돈이 걸린 액션(예: 발주 확정, 세금 신고 확정 등)을 직접 수행하는 도구는 존재하지 않습니다. 반드시 추천이나 초안(propose_, draft_ 접두어가 붙은 도구)만 작성해서 보여준 뒤, "전용 화면에서 확인하고 승인해 주세요"라고 안내하세요.
+# ---------------------------------------------------------------------------
+# 구성 요소 빌더
+# ---------------------------------------------------------------------------
 
-[사용 가능한 도구 목록]
-{tools_specification}
+_model = None  # 모델 클라이언트는 프로세스당 1회만 생성
 
-현재 매장 식별자(store_id): {store_id}
-※ 만약 어떤 도구가 store_id를 요구한다면, 반드시 위 store_id 값을 그대로 전달해야 합니다.
-"""
 
-def _build_tools_specification() -> str:
-    """[한글 주석] 등록된 모든 도구의 이름, 설명 및 인자 정보를 텍스트 명세로 변환합니다."""
-    tools = tool_registry.get_all_tools()
-    specs = []
-    for t in tools:
-        args_info = []
-        # t.args는 파라미터 구조 정보를 담은 딕셔너리입니다.
-        if hasattr(t, "args") and t.args:
-            for name, info in t.args.items():
-                arg_type = info.get("type", "unknown")
-                arg_desc = info.get("description", "")
-                required = "필수" if hasattr(t, "args_schema") and t.args_schema and name in t.args_schema.model_json_schema().get("required", []) else "선택"
-                args_info.append(f"  - {name} ({arg_type}, {required}): {arg_desc}")
-        
-        args_str = "\n".join(args_info) if args_info else "  (매개변수 없음)"
-        specs.append(
-            f"■ 도구 이름: {t.name}\n"
-            f"  설명: {t.description}\n"
-            f"  매개변수:\n{args_str}"
+def _get_model():
+    global _model
+    if _model is None:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
+        _model = ChatGoogleGenerativeAI(
+            model=GEMINI_MODEL,
+            google_api_key=GEMINI_API_KEY,
+            temperature=0.2,  # 도구 호출 일관성 우선
         )
-    return "\n\n".join(specs) if specs else "(사용 가능한 도구 없음)"
+    return _model
 
-def _parse_json_tool_call(text: str) -> Optional[dict[str, Any]]:
-    """[한글 주석] 모델의 응답 텍스트에 JSON 형식의 도구 호출이 포함되어 있는지 확인하고 파싱합니다."""
-    text_clean = text.strip()
-    # 마크다운 코드 블록(```json ... ```)을 쓰고 나오는 경우가 있으므로 이를 제거해 줍니다.
-    if text_clean.startswith("```"):
-        # ```json 이나 ``` 를 제거하고 내부 텍스트만 추출
-        lines = text_clean.splitlines()
-        if len(lines) >= 2:
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines[-1].startswith("```"):
-                lines = lines[:-1]
-            text_clean = "\n".join(lines).strip()
+
+def _module_tools(module_path: str) -> list:
+    """모듈에서 도구를 수집한다 (tool_registry와 같은 규칙: TOOLS 우선, 없으면 @tool 자동 수집)."""
+    from langchain_core.tools import BaseTool
 
     try:
-        # JSON 형식만 깨끗하게 남겨 파싱합니다.
-        data = json.loads(text_clean)
-        if isinstance(data, dict) and "tool" in data:
-            return data
+        module = importlib.import_module(module_path)
+        tools = getattr(module, "TOOLS", None)
+        if tools is None:
+            tools = [v for v in vars(module).values() if isinstance(v, BaseTool)]
+        return list(tools)
     except Exception:
-        # 만약 전체 문장이 JSON이 아니더라도, 본문 내에서 {...} 패턴을 찾아 파싱을 재시도합니다.
-        match = re.search(r"\{.*\}", text_clean, re.DOTALL)
-        if match:
-            try:
-                data = json.loads(match.group(0))
-                if isinstance(data, dict) and "tool" in data:
-                    return data
-            except Exception:
-                pass
-    return None
+        logger.exception("도구 모듈 로드 실패: %s — 해당 도구 없이 계속", module_path)
+        return []
+
+
+def _bind_store(t, store_id: str):
+    """store_id 인자를 받는 도구는 모델이 뭐라 넣든 로그인 사용자 값으로 강제 덮어쓴다 (보안)."""
+    from langchain_core.tools import StructuredTool
+
+    if not (getattr(t, "args", None) and "store_id" in t.args):
+        return t
+
+    def _run(**kwargs):
+        kwargs["store_id"] = store_id
+        return t.invoke(kwargs)
+
+    return StructuredTool(
+        name=t.name,
+        description=t.description,
+        args_schema=t.args_schema,
+        func=_run,
+    )
+
+
+def _build_subagent(domain: dict[str, Any], store_id: str):
+    """도메인 하나의 서브에이전트를 만든다. 도구가 하나도 없으면 None (비활성 도메인)."""
+    from langchain.agents import create_agent
+
+    tools = [_bind_store(t, store_id) for m in domain["modules"] for t in _module_tools(m)]
+    if not tools:
+        return None
+    prompt = _SUB_PROMPT_BASE.format(title=domain["title"], store_id=store_id, extra=domain["extra"])
+    return create_agent(_get_model(), tools, system_prompt=prompt)
+
+
+def _last_text(result: dict[str, Any]) -> str:
+    """langgraph 결과에서 마지막 AI 메시지의 텍스트를 꺼낸다 (Gemini는 파트 리스트일 수 있음)."""
+    content = result["messages"][-1].content
+    if isinstance(content, list):
+        return "".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in content)
+    return str(content)
+
+
+def _make_delegate_tool(domain: dict[str, Any], subagent):
+    """서브에이전트를 메인 에이전트의 도구 하나로 감싼다 (agent-as-tool)."""
+    from langchain_core.tools import StructuredTool
+
+    async def _delegate(task: str) -> str:
+        logger.info("메인 → %s 위임: %s", domain["name"], task[:80])
+        result = await subagent.ainvoke(
+            {"messages": [{"role": "user", "content": task}]},
+            config={"recursion_limit": SUB_RECURSION_LIMIT},
+        )
+        return _last_text(result)
+
+    return StructuredTool.from_function(
+        coroutine=_delegate,
+        name=domain["name"],
+        description=(
+            f"{domain['title']}에게 작업을 맡긴다. {domain['description']} "
+            "task에는 처리할 일을 구체적인 한국어 지시문으로 적는다."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# 공개 인터페이스 — /chatbot/chat 엔드포인트가 호출한다
+# ---------------------------------------------------------------------------
 
 async def generate_response(
     user_message: str,
     store_id: str,
-    history: list[dict[str, Any]] = None
+    history: Optional[list[dict[str, Any]]] = None,
 ) -> str:
-    """[한글 주석] 챗봇 에이전트의 메인 실행 루프입니다.
-    
-    사용자 입력을 받으면 Gemini API를 호출하며, 모델이 도구 호출(JSON)을 요구할 때마다 
-    해당 도구를 로컬에서 직접 실행하고 결과를 돌려주는 루프를 반복(최대 5회)합니다.
-    """
-    if history is None:
-        history = []
+    """멀티에이전트 실행: 서브에이전트 구성 → 메인 오케스트레이터가 위임 판단 → 최종 답변."""
+    from datetime import date
+
+    from langchain.agents import create_agent
 
     if not GEMINI_API_KEY:
         return "죄송합니다. 챗봇의 핵심 API 키(GEMINI_API_KEY)가 설정되어 있지 않아 대화가 불가능합니다. 시스템 관리자에게 문의해 주세요."
 
-    # [한글 주석] 등록된 도구들의 명세서를 동적으로 만듭니다.
-    tools_spec = _build_tools_specification()
-    system_instruction = SYSTEM_PROMPT.format(
-        tools_specification=tools_spec,
-        store_id=store_id
+    # 1) 도메인별 서브에이전트 구성 (도구가 없는 도메인은 자동 제외)
+    delegate_tools = []
+    expert_lines = []
+    for domain in _DOMAINS:
+        subagent = _build_subagent(domain, store_id)
+        if subagent is None:
+            continue
+        delegate_tools.append(_make_delegate_tool(domain, subagent))
+        expert_lines.append(f"- {domain['name']} ({domain['title']}): {domain['description']}")
+
+    if not delegate_tools:
+        return "지금은 연결된 기능이 없어 일반 대화만 가능해요. 무엇이 궁금하신가요?"
+
+    # 2) 메인 오케스트레이터 구성
+    main = create_agent(
+        _get_model(),
+        delegate_tools,
+        system_prompt=_MAIN_PROMPT.format(
+            experts="\n".join(expert_lines),
+            today=date.today().isoformat(),
+            store_id=store_id,
+        ),
     )
 
-    # [한글 주석] Gemini API 호출을 위한 대화 히스토리 및 컨텍스트를 구성합니다.
-    # system 지침을 첫 번째 메시지 혹은 컨텍스트로 결합합니다.
-    messages = []
-    # 이전 대화 내역 추가 (Gemini v1beta API 양식: role 은 user / model 만 허용됨)
-    for h in history:
-        messages.append({
-            "role": h.get("role", "user"),
-            "parts": [{"text": h.get("text", "")}]
-        })
-    
-    # 현재 사용자의 마지막 메시지 추가
-    messages.append({
-        "role": "user",
-        "parts": [{"text": user_message}]
-    })
+    # 3) 이전 대화 이력 + 현재 질문으로 실행
+    messages: list[dict[str, str]] = []
+    for h in history or []:
+        role = "assistant" if h.get("role") in ("model", "assistant") else "user"
+        text = h.get("text") or h.get("content") or ""
+        if text:
+            messages.append({"role": role, "content": text})
+    messages.append({"role": "user", "content": user_message})
 
-    # HTTP 통신을 위한 비동기 클라이언트 생성
-    async with httpx.AsyncClient() as client:
-        iteration = 0
-        
-        while iteration < MAX_ITERATIONS:
-            iteration += 1
-            
-            # [한글 주석] 시스템 프롬프트를 대화의 첫 시작점에 항상 주입해 줍니다.
-            # system instruction은 v1beta generateContent API의 systemInstruction 매개변수로 직접 전달 가능합니다.
-            payload = {
-                "contents": messages,
-                "systemInstruction": {
-                    "parts": [{"text": system_instruction}]
-                },
-                "generationConfig": {
-                    "temperature": 0.2  # 도구 호출의 일관성을 높이기 위해 낮게 설정
-                }
-            }
-
-            try:
-                response = await client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
-                    headers={"x-goog-api-key": GEMINI_API_KEY},
-                    json=payload,
-                    timeout=30.0
-                )
-                response.raise_for_status()
-                res_data = response.json()
-                
-                # 모델의 텍스트 응답 추출
-                model_text = res_data["candidates"][0]["content"]["parts"][0]["text"]
-            except Exception as e:
-                logger.exception("Gemini API 호출 중 오류 발생")
-                return f"앗! AI 비서와 연결하는 중에 문제가 생겼어요. 잠시 후에 다시 말해 주세요. (오류: {e})"
-
-            # [한글 주석] 모델의 응답에 도구 호출 지시(JSON)가 있는지 확인합니다.
-            tool_call = _parse_json_tool_call(model_text)
-            
-            if not tool_call:
-                # [한글 주석] 도구 호출 지시가 없고 일반 텍스트 대답이라면 루프를 종료하고 결과를 반환합니다.
-                return model_text
-
-            # [한글 주석] 도구 호출이 감지된 경우, 도구를 실행합니다.
-            tool_name = tool_call["tool"]
-            tool_args = tool_call.get("args", {})
-
-            # [한글 주석] 보안 조치 - 도구가 store_id를 사용한다면 현재 접속한 사장님의 store_id로 강제 고정합니다.
-            # 툴 리스트에서 해당 툴을 찾아 아규먼트 검사를 수행합니다.
-            all_tools = tool_registry.get_all_tools()
-            target_tool = next((t for t in all_tools if t.name == tool_name), None)
-            
-            if target_tool is None:
-                # 존재하지 않는 도구일 경우 에러 메시지를 모델에게 피드백으로 던져주고 다시 생각하게 합니다.
-                tool_output = f"오류: 존재하지 않는 도구 이름 '{tool_name}'을 호출했습니다. 사용 가능한 도구 목록을 다시 확인하세요."
-            else:
-                # 도구의 파라미터 규격(args)에 store_id가 정의되어 있다면 안전하게 강제 덮어쓰기합니다.
-                if hasattr(target_tool, "args") and "store_id" in target_tool.args:
-                    tool_args["store_id"] = store_id
-                
-                try:
-                    # [한글 주석] LangChain Tool의 invoke 함수를 사용해 동기식으로 호출합니다.
-                    logger.info(f"에이전트 도구 호출 수행: {tool_name} with args {tool_args}")
-                    tool_result = target_tool.invoke(tool_args)
-                    
-                    # 결과를 보기 좋은 문자열 형태로 변환
-                    if isinstance(tool_result, (dict, list)):
-                        tool_output = json.dumps(tool_result, ensure_ascii=False)
-                    else:
-                        tool_output = str(tool_result)
-                except Exception as e:
-                    logger.exception(f"도구 {tool_name} 실행 중 예외 발생")
-                    tool_output = f"오류: 도구 실행 중 예외 발생: {e}"
-
-            # [한글 주석] 모델이 도구를 호출한 흐름을 대화 히스토리에 누적시켜 줍니다.
-            # 1. 모델이 도구를 호출하겠다고 한 지시사항(JSON)을 모델의 응답 역할로 저장
-            messages.append({
-                "role": "model",
-                "parts": [{"text": model_text}]
-            })
-            
-            # 2. 도구의 실행 결과값을 사용자의 입력 역할로 저장하여 피드백합니다.
-            messages.append({
-                "role": "user",
-                "parts": [{"text": f"도구 [{tool_name}] 실행 결과:\n{tool_output}\n위 데이터를 바탕으로 분석하여 답변을 완성하거나, 추가 정보가 필요하면 다른 도구를 호출해 주세요."}]
-            })
-
-        # 최대 루프 횟수를 초과한 경우 안전 예외 답변을 반환합니다.
-        return "죄송합니다. 질문에 답하기 위해 너무 많은 단계를 거치고 있어서 답변을 마무리하지 못했어요. 질문을 조금 더 구체적으로 해주실 수 있을까요?"
+    try:
+        result = await main.ainvoke(
+            {"messages": messages},
+            config={"recursion_limit": MAIN_RECURSION_LIMIT},
+        )
+        answer = _last_text(result).strip()
+        return answer or "죄송해요, 답변을 만들지 못했어요. 조금 다르게 질문해 주시겠어요?"
+    except Exception:
+        logger.exception("멀티에이전트 실행 실패")
+        return "앗! 답변을 준비하다가 문제가 생겼어요. 잠시 후 다시 물어봐 주세요."
