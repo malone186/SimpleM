@@ -18,8 +18,8 @@ export default function EmptyState({
   actionLabel?: string;
   onAction?: () => void;
 }) {
-  // 크림 배경 장면 포즈(resting/pouring/hero)는 둥근 카드로 감싸 잘린 느낌 제거
-  const framed = mood === 'resting' || mood === 'pouring' || mood === 'hero';
+  // [한글 주석] 턱 괸 브루(resting)는 윗머리가 복원되고 배경이 투명화되었으므로 프레임을 제거하여 캐릭터만 노출합니다.
+  const framed = mood === 'pouring' || mood === 'hero';
   return (
     <View style={styles.wrap}>
       <Brew mood={mood} size={150} framed={framed} />

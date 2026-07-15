@@ -172,16 +172,16 @@ export default function InventoryScreen() {
         <View style={styles.ocrHead}>
           <View style={{ flex: 1 }}>
             <SectionTitle>명세서 촬영 입고</SectionTitle>
-            <Text style={styles.hint}>사진을 찍으면 상품·단가·수량을 인식해 입고 초안을 만들어요</Text>
+            {/* [한글 주석] 인식 중일 때는 텍스트를 변경하여 사용자에게 상태를 피드백합니다 */}
+            <Text style={styles.hint}>
+              {scanning ? '인식 중… (수 초 걸려요)' : '사진을 찍으면 상품·단가·수량을 인식해 입고 초안을 만들어요'}
+            </Text>
           </View>
-          <Ionicons name="camera" size={22} color={colors.pointOrange} />
+          {/* [한글 주석] 우측 상단의 카메라 아이콘에 터치 인터랙션과 촬영 기능(runOcr)을 부여합니다 */}
+          <PressableScale onPress={runOcr} disabled={scanning} to={0.9}>
+            <Ionicons name="camera" size={24} color={scanning ? colors.mutedSand : colors.pointOrange} />
+          </PressableScale>
         </View>
-        <Button
-          label={scanning ? '인식 중… (수 초 걸려요)' : '명세서 / 영수증 촬영'}
-          onPress={runOcr}
-          disabled={scanning}
-          style={{ marginTop: 14 }}
-        />
       </Card>
 
       {/* OCR 인식 초안 확인 */}

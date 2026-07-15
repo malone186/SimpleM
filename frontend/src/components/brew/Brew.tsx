@@ -7,7 +7,8 @@ import { Animated, Easing, Image, StyleSheet, View, type StyleProp, type ViewSty
 const POSES = {
   welcome: require('../../../assets/mascot/brew_wave.png'), // 하트·발 흔드는 브루 — 환영·칭찬 (투명 배경)
   happy: require('../../../assets/mascot/brew_happy.png'), // 활짝 웃는 브루 — 스트릭·좋은 소식
-  resting: require('../../../assets/mascot/brew_resting.png'), // 턱 괸 브루 — 빈 화면·대기
+  // [한글 주석] 번들러 캐시 우회를 위해 물리적인 파일명을 brew_resting_v2.png로 갱신하여 참조합니다
+  resting: require('../../../assets/mascot/brew_resting_v2.png'), // 턱 괸 브루 — 빈 화면·대기
   pouring: require('../../../assets/mascot/brew_pouring.png'), // 드립 내리는 브루 — 로딩·처리 중
   clipboard: require('../../../assets/mascot/brew_clipboard.png'), // 클립보드 든 브루 — 리포트·발주
   serving: require('../../../assets/mascot/brew_serving.png'), // 케이크 든 브루 — 서비스·추천
@@ -84,7 +85,8 @@ export default function Brew({
   if (framed) {
     return (
       <View style={[styles.framed, { width: size, height: size }, style]}>
-        <Image source={POSES[mood]} resizeMode="cover" style={{ width: size, height: size }} />
+        {/* [한글 주석] 둥근 모서리에 윗머리가 잘리지 않도록 크기를 90%로 미세 조율하고 contain 모드로 그립니다 */}
+        <Image source={POSES[mood]} resizeMode="contain" style={{ width: size * 0.9, height: size * 0.9 }} />
       </View>
     );
   }
