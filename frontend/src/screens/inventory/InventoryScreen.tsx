@@ -257,21 +257,22 @@ export default function InventoryScreen() {
         {formOpen && (
           <Card tone="cream">
             <SectionTitle>재료 직접 등록</SectionTitle>
-            {/* 재료명은 한 줄 전체 (긴 이름도 다 들어오게) */}
+            {/* 인풋 박스가 화면 밖으로 넘치지 않도록 감싸는 View + flex 적용 */}
             <View style={styles.formRow}>
-              <TextInput
-                style={[styles.input, { flex: 1 }]}
-                placeholder="재료명 (예: 서울우유 1L)"
-                placeholderTextColor={colors.mochaBrown}
-                value={fName}
-                onChangeText={setFName}
-              />
+              <View style={{ flex: 2 }}>
+                <TextInput style={[styles.input, { width: '100%' }]} placeholder="재료명 (예: 서울우유 1L)" value={fName} onChangeText={setFName} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <TextInput style={[styles.input, { width: '100%' }]} placeholder="단위 (팩, kg)" value={fUnit} onChangeText={setFUnit} />
+              </View>
             </View>
-            {/* 단위 · 단가 · 수량 3칸 */}
             <View style={styles.formRow}>
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="단위" placeholderTextColor={colors.mochaBrown} value={fUnit} onChangeText={setFUnit} />
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="단가(원)" placeholderTextColor={colors.mochaBrown} value={fPrice} onChangeText={setFPrice} keyboardType="numeric" />
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="수량" placeholderTextColor={colors.mochaBrown} value={fQty} onChangeText={setFQty} keyboardType="numeric" />
+              <View style={{ flex: 1 }}>
+                <TextInput style={[styles.input, { width: '100%' }]} placeholder="단가 (원)" value={fPrice} onChangeText={setFPrice} keyboardType="numeric" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <TextInput style={[styles.input, { width: '100%' }]} placeholder="초기 수량" value={fQty} onChangeText={setFQty} keyboardType="numeric" />
+              </View>
             </View>
             <Button label={saving ? '등록 중…' : '등록'} onPress={registerIngredient} disabled={saving} style={{ marginTop: 12 }} />
           </Card>

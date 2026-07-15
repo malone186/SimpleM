@@ -76,6 +76,7 @@ const erpHeader = (title: string) =>
     headerStyle: { backgroundColor: colors.espressoBrown },
     headerTintColor: colors.creamSand,
     headerTitleStyle: { fontWeight: '900' as const },
+    headerStatusBarHeight: 35, // [한글 주석] 아이폰 노치(머리부분)와 타이틀 텍스트가 겹치지 않도록 여백을 확보합니다.
     animation: 'slide_from_right' as const,
   });
 
