@@ -2,7 +2,7 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
-from app.models.inventory import Ingredient, Menu, Recipe, Stock, StockTransaction, Order, OrderItem
+from app.models.inventory import Ingredient, IngredientPriceHistory, Menu, Recipe, Stock, StockTransaction, Order, OrderItem
 from app.schemas.inventory import IngredientCreate, StockAdjust, MenuCreate
 
 
@@ -11,6 +11,7 @@ from app.schemas.inventory import IngredientCreate, StockAdjust, MenuCreate
 def create_ingredient(db: Session, store_id: str, item_in: IngredientCreate) -> Ingredient:
     """
     새로운 식재료를 등록하고, 동시에 실시간 재고 대장(Stock)에도 자리를 파서 0개로 세팅합니다.
+    (최초 매입 단가를 가격 변동 이력(IngredientPriceHistory) 대장에 1건 자동 적재합니다.)
     """
     # 1-1. 재료 정보 생성
     db_item = Ingredient(
@@ -22,7 +23,14 @@ def create_ingredient(db: Session, store_id: str, item_in: IngredientCreate) -> 
     db.add(db_item)
     db.flush()  # DB에 임시로 임포트하여 부여된 id(고유번호)를 획득합니다. (아직 최종 저장 커밋은 안 함)
 
-    # 1-2. 재고 대장에 수량 0.0개로 1대1 매핑하여 연동 생성
+    # 1-2. 가격 변동 이력에 최초 매입 단가 적재
+    db_history = IngredientPriceHistory(
+        ingredient_id=db_item.id,
+        price=db_item.current_price
+    )
+    db.add(db_history)
+
+    # 1-3. 재고 대장에 수량 0.0개로 1대1 매핑하여 연동 생성
     db_stock = Stock(
         ingredient_id=db_item.id,
         current_quantity=0.0,
@@ -30,10 +38,60 @@ def create_ingredient(db: Session, store_id: str, item_in: IngredientCreate) -> 
     )
     db.add(db_stock)
     
-    # 1-3. 최종 확정 저장
+    # 1-4. 최종 확정 저장
     db.commit()
     db.refresh(db_item)
     return db_item
+
+
+def update_ingredient_price(db: Session, store_id: str, ingredient_id: int, new_price: int) -> Ingredient:
+    """
+    특정 식재료의 매입 단가를 수정하고, 가격 변동 사항이 있을 때 단가 이력(IngredientPriceHistory)에 자동 누적 기록합니다.
+    """
+    ingredient = db.query(Ingredient).filter(
+        Ingredient.id == ingredient_id,
+        Ingredient.store_id == store_id
+    ).first()
+    
+    if not ingredient:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="매장에 해당 식재료 정보가 존재하지 않습니다."
+        )
+
+    # 기존 단가와 신규 단가가 실제로 변동되었는지 체크합니다.
+    if ingredient.current_price != new_price:
+        ingredient.current_price = new_price
+        
+        # 새로운 가격 변동 내역 추가
+        db_history = IngredientPriceHistory(
+            ingredient_id=ingredient.id,
+            price=new_price
+        )
+        db.add(db_history)
+        db.commit()
+        db.refresh(ingredient)
+        
+    return ingredient
+
+
+def get_ingredient_price_history(db: Session, store_id: str, ingredient_id: int) -> list[IngredientPriceHistory]:
+    """
+    특정 식재료의 과거부터 현재까지 누적된 가격 변동 추이 이력을 최신순으로 조회합니다.
+    """
+    ingredient = db.query(Ingredient).filter(
+        Ingredient.id == ingredient_id,
+        Ingredient.store_id == store_id
+    ).first()
+    
+    if not ingredient:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="매장에 해당 식재료 정보가 존재하지 않습니다."
+        )
+        
+    return ingredient.price_histories
+
 
 
 def get_ingredients(db: Session, store_id: str) -> list[Ingredient]:

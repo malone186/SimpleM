@@ -21,6 +21,27 @@ class Ingredient(Base):
     stock = relationship("Stock", back_populates="ingredient", uselist=False, cascade="all, delete-orphan")
     transactions = relationship("StockTransaction", back_populates="ingredient", cascade="all, delete-orphan")
     recipes = relationship("Recipe", back_populates="ingredient", cascade="all, delete-orphan")
+    price_histories = relationship(
+        "IngredientPriceHistory",
+        back_populates="ingredient",
+        cascade="all, delete-orphan",
+        order_by="IngredientPriceHistory.changed_at.desc()"
+    )
+
+
+
+
+# 1-2. IngredientPriceHistory (식재료 단가 이력 수납함)
+class IngredientPriceHistory(Base):
+    """식재료의 단가 변동 이력을 추적 보관하는 테이블 모델"""
+    __tablename__ = "ingredient_price_histories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ingredient_id = Column(Integer, ForeignKey("ingredients.id", ondelete="CASCADE"), nullable=False)
+    price = Column(Integer, nullable=False)                            # 당시 변경된 매입 단가 (KRW)
+    changed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False) # 가격 변동 일시
+
+    ingredient = relationship("Ingredient", back_populates="price_histories")
 
 
 # 2. Menu (메뉴판)

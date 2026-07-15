@@ -24,10 +24,28 @@ class IngredientResponse(BaseModel):
         from_attributes = True
 
 
+# 2-2. 재료 단가 변동 이력 응답 양식 (백엔드 -> 프론트엔드)
+class IngredientPriceHistoryResponse(BaseModel):
+    id: int
+    ingredient_id: int
+    price: int
+    changed_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+
+# 1-3. 재료 단가 수정 신청서
+class IngredientPriceUpdate(BaseModel):
+    price: int = Field(..., ge=0, description="새로운 단가 (KRW, 0원 이상)")
+
+
 # --- [재고(Stock) 및 변동 장부 관련 규격] ---
 
 # 3. 재고 입고 및 수동 조정 신청서
 class StockAdjust(BaseModel):
+
     ingredient_id: int = Field(..., description="변동시킬 재료의 고유 ID")
     quantity_change: float = Field(..., description="변동 수량 (입고는 양수 '+5.0', 차감/폐기는 음수 '-2.0')")
     description: str | None = Field(None, description="변동 사유 (예: '우유 5팩 입고', '우유 1팩 폐기')")

@@ -7,13 +7,13 @@ from app.core.auth import get_current_user
 from app.models.user import User
 
 from app.schemas.inventory import (
-    IngredientCreate, IngredientResponse,
+    IngredientCreate, IngredientResponse, IngredientPriceUpdate, IngredientPriceHistoryResponse,
     StockAdjust, StockResponse, StockDetailResponse,
     MenuCreate, MenuResponse, MenuDetailResponse,
     OrderResponse, OrderStatusUpdate
 )
 from app.services.inventory_service import (
-    create_ingredient, get_ingredients,
+    create_ingredient, get_ingredients, update_ingredient_price, get_ingredient_price_history,
     add_or_adjust_stock, get_stocks,
     create_menu_with_recipes, get_menus_with_recipes
 )
@@ -49,7 +49,42 @@ def list_ingredients(
     return get_ingredients(db=db, store_id=current_user.email)
 
 
+@router.patch("/ingredients/{ingredient_id}/price", response_model=IngredientResponse)
+def update_price_api(
+    ingredient_id: int,
+    payload: IngredientPriceUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    [재료 단가 수정] 특정 식재료의 매입 단가를 업데이트하고 단가 변동 히스토리를 자동으로 저장합니다.
+    """
+    return update_ingredient_price(
+        db=db,
+        store_id=current_user.email,
+        ingredient_id=ingredient_id,
+        new_price=payload.price
+    )
+
+
+@router.get("/ingredients/{ingredient_id}/price-history", response_model=list[IngredientPriceHistoryResponse])
+def get_price_history_api(
+    ingredient_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    [단가 변동 이력 조회] 특정 식재료의 과거 가격 변동 내역 목록을 최신순으로 가져옵니다.
+    """
+    return get_ingredient_price_history(
+        db=db,
+        store_id=current_user.email,
+        ingredient_id=ingredient_id
+    )
+
+
 # --- [2. 재고 조정 API 창구] ---
+
 
 @router.get("/stocks", response_model=list[StockDetailResponse])
 def list_stocks(

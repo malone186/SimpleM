@@ -852,7 +852,9 @@ def _apply_inventory_inbound(draft: dict[str, Any], store_id: str) -> tuple[bool
                     ),
                 )
             elif item.unit_price:
-                ingredient.current_price = int(item.unit_price)  # 최신 매입 단가 반영
+                # 최신 매입 단가 반영 및 단가 변동 이력 자동 적재
+                inventory_service.update_ingredient_price(db, store_id, ingredient.id, int(item.unit_price))
+
 
             inventory_service.add_or_adjust_stock(
                 db, store_id,
