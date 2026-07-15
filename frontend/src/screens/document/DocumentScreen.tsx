@@ -7,7 +7,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../auth/AuthContext';
 import { PressableScale } from '../../components/motion';
 import { toast } from '../../components/toast';
-import { Badge, Card, Divider, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
+import { Badge, Button, Card, Divider, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
+import { Segmented } from '../../components/ui/Segmented';
 import {
   ComplianceItem,
   GeneratedDocument,
@@ -98,6 +99,7 @@ function ContentRows({ content, depth = 0 }: { content: Record<string, unknown>;
 
 export default function DocumentScreen() {
   const { token } = useAuth();
+  const [tab, setTab] = useState<'document' | 'tax'>('document');
   const [docs, setDocs] = useState<GeneratedDocument[]>([]);
   const [renewals, setRenewals] = useState<ComplianceItem[]>([]);
   const [openDocId, setOpenDocId] = useState<string | null>(null);
@@ -176,9 +178,21 @@ export default function DocumentScreen() {
 
   return (
     <Screen>
-      <ScreenTitle title="서류 자동화" subtitle="시스템 데이터로 서류 초안을 만들어드려요" />
+      {/* [한글 주석] 세금 관리 기능이 이관되어 서류와 세금을 아우르는 화면으로 변경되었습니다 */}
+      <ScreenTitle title="서류·세금 자동화" subtitle="서류 초안 생성과 세금 관리를 한 곳에서" />
 
-      <Card tone="cream">
+      <Segmented<'document' | 'tax'>
+        value={tab}
+        onChange={setTab}
+        options={[
+          { value: 'document', label: '서류 자동화' },
+          { value: 'tax', label: '세금 관리' },
+        ]}
+      />
+
+      {tab === 'document' ? (
+        <View style={{ gap: 20, marginTop: 14 }}>
+          <Card tone="cream">
         <View style={styles.noticeRow}>
           <Ionicons name="shield-checkmark-outline" size={18} color={colors.mochaBrown} />
           <Text style={styles.noticeText}>
@@ -305,6 +319,12 @@ export default function DocumentScreen() {
           </Card>
         ))
       )}
+        </View>
+      ) : (
+        <View style={{ gap: 20, marginTop: 14 }}>
+          <TaxTab />
+        </View>
+      )}
     </Screen>
   );
 }
@@ -364,4 +384,83 @@ const styles = StyleSheet.create({
   rowKey: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700' },
   rowValue: { ...typography.L5, color: colors.espressoBrown, flexShrink: 1, textAlign: 'right' },
   itemLine: { ...typography.L5, color: colors.espressoBrown, marginTop: 3, lineHeight: 16 },
+  // [한글 주석] 세금 탭 전용으로 추가되는 레이아웃 스타일셋
+  taxAmount: { ...typography.L2, color: colors.espressoBrown, marginTop: 8, marginBottom: 2 },
+  taxLine: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
+  taxLabel: { ...typography.L4, color: colors.mochaBrown },
+  taxVal: { ...typography.L4, color: colors.espressoBrown },
+  dueRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  dueText: { ...typography.L4, color: colors.espressoBrown, flex: 1 },
+  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  actions: { flexDirection: 'row', gap: 10, marginTop: 14 },
 });
+
+// [한글 주석] OperationScreen에서 완벽하게 이관된 세금 관리 탭 컴포넌트
+function TaxTab() {
+  return (
+    <View style={{ gap: 20 }}>
+      <Card>
+        <View style={styles.rowBetween}>
+          <SectionTitle>부가세 예상</SectionTitle>
+          <Badge label="2분기" tone="neutral" />
+        </View>
+        <Text style={styles.taxAmount}>₩1,284,000</Text>
+        <Text style={styles.hint}>매출 세액 − 매입 세액 기준 예상치</Text>
+        <Divider />
+        <View style={styles.taxLine}>
+          <Text style={styles.taxLabel}>매출 세액</Text>
+          <Text style={styles.taxVal}>₩3,120,000</Text>
+        </View>
+        <View style={styles.taxLine}>
+          <Text style={styles.taxLabel}>매입 세액</Text>
+          <Text style={styles.taxVal}>− ₩1,836,000</Text>
+        </View>
+      </Card>
+
+      {/* 신고 초안 (draft_) */}
+      <Card tone="cream">
+        <View style={styles.rowBetween}>
+          <SectionTitle>부가세 신고 초안</SectionTitle>
+          <Badge label="확정 전" tone="orange" />
+        </View>
+        <Text style={styles.hint}>
+          자동 생성된 신고 초안이에요. 검토 후 세무사 확인·확정하세요. (자동 신고 안 됨)
+        </Text>
+        <View style={styles.actions}>
+          <Button
+            label="초안 상세 보기"
+            variant="secondary"
+            style={{ flex: 1 }}
+            onPress={() =>
+              toast(
+                '부가세 신고 초안',
+                '과세표준 31,200,000원\n매출세액 3,120,000원\n매입세액 1,836,000원\n납부예상 1,284,000원\n\n검토 후 세무사에게 공유하세요.'
+              )
+            }
+          />
+          <Button
+            label="세무사 공유"
+            style={{ flex: 1 }}
+            onPress={() => toast('공유 완료', '신고 초안을 담당 세무사에게 전달했어요. 확정은 세무사 확인 후 진행됩니다.')}
+          />
+        </View>
+      </Card>
+
+      <Card>
+        <SectionTitle>다가오는 신고 일정</SectionTitle>
+        <View style={{ marginTop: 10, gap: 10 }}>
+          <View style={styles.dueRow}>
+            <Ionicons name="calendar-outline" size={18} color={colors.pointOrange} />
+            <Text style={styles.dueText}>부가세 확정신고</Text>
+            <Badge label="D-12" tone="danger" />
+          </View>
+          <View style={styles.dueRow}>
+            <Ionicons name="calendar-outline" size={18} color={colors.mochaBrown} />
+            <Text style={styles.dueText}>원천세 납부</Text>
+            <Badge label="D-25" tone="neutral" />
+          </View>
+        </View>
+      </Card>
+    </View>
+  );
+}

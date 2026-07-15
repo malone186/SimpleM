@@ -9,8 +9,6 @@ import { PressableScale } from '../../components/motion';
 import { toast } from '../../components/toast';
 import { colors, typography } from '../../theme';
 
-type Tab = 'schedule' | 'tax';
-
 const notify = (title: string, message: string) => toast(title, message);
 
 const STAFF = [
@@ -27,23 +25,11 @@ const INITIAL_SHIFTS = [
 ];
 
 export default function OperationScreen() {
-  const [tab, setTab] = useState<Tab>('schedule');
-
   return (
     <Screen>
-      <ScreenTitle title="운영" subtitle="스케줄·급여와 세금을 한 곳에서" />
-
-      {/* 슬라이딩 세그먼트 탭 */}
-      <Segmented<Tab>
-        value={tab}
-        onChange={setTab}
-        options={[
-          { value: 'schedule', label: '스케줄 · 급여' },
-          { value: 'tax', label: '세금' },
-        ]}
-      />
-
-      {tab === 'schedule' ? <ScheduleTab /> : <TaxTab />}
+      {/* [한글 주석] 세금 기능이 서류 자동화 탭으로 통합됨에 따라, 본 화면은 스케줄·급여 전용 화면으로 간소화합니다. */}
+      <ScreenTitle title="스케줄·급여" subtitle="알바 스케줄과 급여 정산을 한 곳에서" />
+      <ScheduleTab />
     </Screen>
   );
 }
@@ -317,74 +303,7 @@ function ScheduleTab() {
   );
 }
 
-function TaxTab() {
-  return (
-    <View style={{ gap: 20 }}>
-      <Card>
-        <View style={styles.rowBetween}>
-          <SectionTitle>부가세 예상</SectionTitle>
-          <Badge label="2분기" tone="neutral" />
-        </View>
-        <Text style={styles.taxAmount}>₩1,284,000</Text>
-        <Text style={styles.hint}>매출 세액 − 매입 세액 기준 예상치</Text>
-        <Divider />
-        <View style={styles.taxLine}>
-          <Text style={styles.taxLabel}>매출 세액</Text>
-          <Text style={styles.taxVal}>₩3,120,000</Text>
-        </View>
-        <View style={styles.taxLine}>
-          <Text style={styles.taxLabel}>매입 세액</Text>
-          <Text style={styles.taxVal}>− ₩1,836,000</Text>
-        </View>
-      </Card>
 
-      {/* 신고 초안 (draft_) */}
-      <Card tone="cream">
-        <View style={styles.rowBetween}>
-          <SectionTitle>부가세 신고 초안</SectionTitle>
-          <Badge label="확정 전" tone="orange" />
-        </View>
-        <Text style={styles.hint}>
-          자동 생성된 신고 초안이에요. 검토 후 세무사 확인·확정하세요. (자동 신고 안 됨)
-        </Text>
-        <View style={styles.actions}>
-          <Button
-            label="초안 상세 보기"
-            variant="secondary"
-            style={{ flex: 1 }}
-            onPress={() =>
-              notify(
-                '부가세 신고 초안',
-                '과세표준 31,200,000원\n매출세액 3,120,000원\n매입세액 1,836,000원\n납부예상 1,284,000원\n\n검토 후 세무사에게 공유하세요.'
-              )
-            }
-          />
-          <Button
-            label="세무사 공유"
-            style={{ flex: 1 }}
-            onPress={() => notify('공유 완료', '신고 초안을 담당 세무사에게 전달했어요. 확정은 세무사 확인 후 진행됩니다.')}
-          />
-        </View>
-      </Card>
-
-      <Card>
-        <SectionTitle>다가오는 신고 일정</SectionTitle>
-        <View style={{ marginTop: 10, gap: 10 }}>
-          <View style={styles.dueRow}>
-            <Ionicons name="calendar-outline" size={18} color={colors.pointOrange} />
-            <Text style={styles.dueText}>부가세 확정신고</Text>
-            <Badge label="D-12" tone="danger" />
-          </View>
-          <View style={styles.dueRow}>
-            <Ionicons name="calendar-outline" size={18} color={colors.mochaBrown} />
-            <Text style={styles.dueText}>원천세 납부</Text>
-            <Badge label="D-25" tone="neutral" />
-          </View>
-        </View>
-      </Card>
-    </View>
-  );
-}
 
 const styles = StyleSheet.create({
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -467,12 +386,7 @@ const styles = StyleSheet.create({
   payAmount: { ...typography.L3, color: colors.espressoBrown },
   payTotalLabel: { ...typography.L4, color: colors.mochaBrown, flex: 1 },
   payTotal: { ...typography.L3, color: colors.pointOrange },
-  taxAmount: { ...typography.L2, color: colors.espressoBrown, marginTop: 8, marginBottom: 2 },
-  taxLine: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
-  taxLabel: { ...typography.L4, color: colors.mochaBrown },
-  taxVal: { ...typography.L4, color: colors.espressoBrown },
-  dueRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  dueText: { ...typography.L4, color: colors.espressoBrown, flex: 1 },
+
 
   sectionHeaderRow: {
     flexDirection: 'row',

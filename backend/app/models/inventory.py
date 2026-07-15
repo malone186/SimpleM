@@ -154,3 +154,5 @@ class OrderItem(Base):
     price_at_order = Column(Integer, nullable=False)                   # 발주 신청 시점의 단가 (단가 이력 저장용)
 
     order = relationship("Order", back_populates="items")
+    # [한글 주석] 이 발주 항목에 기재된 식자재(Ingredient) 정보를 즉시 매핑해서 가져올 수 있게 릴레이션십 관계선을 구축합니다.
+    ingredient = relationship("Ingredient")

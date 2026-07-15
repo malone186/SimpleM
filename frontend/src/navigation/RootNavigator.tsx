@@ -29,7 +29,6 @@ export type RootTabParamList = {
   Inventory: undefined;
   Order: undefined;
   Chatbot: undefined;
-  Operation: undefined;
   Management: undefined;
 };
 
@@ -46,6 +45,7 @@ export type RootStackParamList = {
   Cost: undefined;
   LawSearch: undefined;
   Document: undefined;
+  Operation: undefined;
 };
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -54,7 +54,6 @@ const ICONS: Record<keyof RootTabParamList, keyof typeof Ionicons.glyphMap> = {
   Inventory: 'file-tray-stacked',
   Order: 'cart',
   Chatbot: 'chatbubble-ellipses',
-  Operation: 'briefcase',
   Management: 'grid',
 };
 
@@ -63,7 +62,6 @@ const LABELS: Record<keyof RootTabParamList, string> = {
   Inventory: '재고',
   Order: '발주',
   Chatbot: '챗봇',
-  Operation: '운영',
   Management: '관리',
 };
 
@@ -117,6 +115,7 @@ export default function RootNavigator() {
         <Stack.Screen name="Cost" component={CostScreen} options={erpHeader('원가 분석')} />
         <Stack.Screen name="LawSearch" component={LawSearchScreen} options={erpHeader('법령 검색')} />
         <Stack.Screen name="Document" component={DocumentScreen} options={erpHeader('서류 자동화')} />
+        <Stack.Screen name="Operation" component={OperationScreen} options={erpHeader('운영')} />
       </Stack.Navigator>
     </NavigationContainer>
   );
@@ -149,7 +148,6 @@ function TabsNavigator() {
       <Tab.Screen name="Inventory" component={InventoryScreen} />
       <Tab.Screen name="Order" component={OrderScreen} />
       <Tab.Screen name="Chatbot" component={ChatbotScreen} />
-      <Tab.Screen name="Operation" component={OperationScreen} />
       <Tab.Screen name="Management" component={ManagementScreen} />
     </Tab.Navigator>
   );
