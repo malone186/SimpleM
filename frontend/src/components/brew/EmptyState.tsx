@@ -18,8 +18,8 @@ export default function EmptyState({
   actionLabel?: string;
   onAction?: () => void;
 }) {
-  // [한글 주석] 턱 괸 브루(resting)는 윗머리가 복원되고 배경이 투명화되었으므로 프레임을 제거하여 캐릭터만 노출합니다.
-  const framed = mood === 'pouring' || mood === 'hero';
+  // 모든 포즈가 투명/크림매트 배경이라 프레임 불필요.
+  const framed = false;
   return (
     <View style={styles.wrap}>
       <Brew mood={mood} size={150} framed={framed} />

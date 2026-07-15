@@ -84,8 +84,9 @@ export default function SalesCard() {
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0, duration: 900, useNativeDriver: true }),
+        // [한글 주석] Svg r(반지름) 속성 애니메이션을 위해 useNativeDriver를 false로 세팅합니다.
+        Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: false }),
+        Animated.timing(pulse, { toValue: 0, duration: 900, useNativeDriver: false }),
       ])
     );
     loop.start();
