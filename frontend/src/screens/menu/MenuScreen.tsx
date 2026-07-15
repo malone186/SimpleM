@@ -49,7 +49,7 @@ export default function MenuScreen() {
   const [rows, setRows] = useState<NewRow[]>([{ ingredient_id: '', quantity: '' }]);
 
   // 3. [인증 정보 가져오기] 토큰을 수집합니다.
-  const getAuthHeaders = async () => {
+  const getAuthHeaders = async (): Promise<Record<string, string>> => {
     const raw = await AsyncStorage.getItem('simplem:session');
     if (raw) {
       const session = JSON.parse(raw);
