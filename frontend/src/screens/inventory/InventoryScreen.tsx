@@ -23,6 +23,9 @@ const TARGET_LABEL: Record<string, string> = {
 
 const notify = (title: string, message: string) => toast(title, message);
 
+// 초안 편집용 행 — 타이핑 중간 상태("1." 등)를 허용하려고 문자열로 들고 저장 시 숫자로 변환
+type EditRow = { name: string; qty: string; unit: string; price: string };
+
 export default function InventoryScreen() {
   const { token } = useAuth();
   const navigation = useNavigation<any>();
@@ -32,7 +35,7 @@ export default function InventoryScreen() {
 
   // [한글 주석] 영수증(명세서) 초안 수정 상태 관리 변수들
   const [editingDocId, setEditingDocId] = useState<string | null>(null); // 현재 수정 중인 영수증 초안의 ID
-  const [editingItems, setEditingItems] = useState<OcrItem[]>([]); // 현재 수정 중인 영수증의 품목 리스트 임시 복사본
+  const [editingRows, setEditingRows] = useState<EditRow[]>([]); // 편집 중인 품목들 (기존 품목도 값 수정 가능)
   const [isSavingDraft, setIsSavingDraft] = useState(false); // 수정 사항 저장 중 로딩 여부
 
   // [한글 주석] 새 품목 수동 추가를 위한 인풋 상태 관리 변수들
@@ -159,9 +162,15 @@ export default function InventoryScreen() {
   };
 
   // [한글 주석] 영수증 초안의 품목을 수정하기 위해 편집 모드를 활성화하고 데이터를 복사합니다.
+  // 기존 품목도 값을 고칠 수 있도록 각 품목을 편집 가능한 행(문자열 입력값)으로 변환합니다.
   const startEditing = (doc: OcrDocument) => {
     setEditingDocId(doc.id);
-    setEditingItems([...doc.result.items]);
+    setEditingRows(doc.result.items.map((i) => ({
+      name: i.name,
+      qty: i.quantity != null ? String(i.quantity) : '',
+      unit: i.unit ?? '개',
+      price: i.unit_price != null ? String(i.unit_price) : '',
+    })));
     setNewItemName('');
     setNewItemQty('');
     setNewItemUnit('개');
@@ -171,7 +180,12 @@ export default function InventoryScreen() {
   // [한글 주석] 영수증 수정을 취소하고 입력 중이던 임시 폼 값을 비웁니다.
   const cancelEditing = () => {
     setEditingDocId(null);
-    setEditingItems([]);
+    setEditingRows([]);
+  };
+
+  // [한글 주석] 편집 중인 품목 한 줄의 특정 칸(이름/수량/단위/단가)을 갱신합니다.
+  const updateRow = (index: number, patch: Partial<EditRow>) => {
+    setEditingRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
   };
 
   // [한글 주석] 수정 화면에서 새 품목을 직접 적어 목록에 추가합니다.
@@ -183,21 +197,14 @@ export default function InventoryScreen() {
     if (isNaN(qty) || qty <= 0) {
       return notify('입력 확인', '올바른 수량을 입력해 주세요.');
     }
-    const price = Number(newItemPrice) || 0;
-    const amount = qty * price;
 
-    const newItem: OcrItem = {
+    setEditingRows((prev) => [...prev, {
       name: newItemName.trim(),
-      spec: null,
-      quantity: qty,
+      qty: newItemQty,
       unit: newItemUnit.trim() || '개',
-      unit_price: price,
-      amount: amount,
-      warnings: [],
-    };
+      price: newItemPrice,
+    }]);
 
-    setEditingItems((prev) => [...prev, newItem]);
-    
     // 입력창 초기화
     setNewItemName('');
     setNewItemQty('');
@@ -206,14 +213,34 @@ export default function InventoryScreen() {
 
   // [한글 주석] 영수증 품목 중 잘못 입력되었거나 인식 오류가 난 한 줄을 목록에서 제거합니다.
   const handleDeleteItem = (index: number) => {
-    setEditingItems((prev) => prev.filter((_, i) => i !== index));
+    setEditingRows((prev) => prev.filter((_, i) => i !== index));
   };
 
   // [한글 주석] 수정한 영수증 품목들을 서버(DB)에 저장하여 영구 보존하고 연동 상태를 새로고침합니다.
   const saveEditing = async (docId: string) => {
+    if (editingRows.some((r) => !r.name.trim())) {
+      return notify('입력 확인', '품목명이 비어 있는 항목이 있어요. 채우거나 삭제해 주세요.');
+    }
+    // 문자열 입력값을 숫자로 변환 (빈칸은 '미인식'으로 저장, 합계는 수량×단가 자동 계산)
+    const items: OcrItem[] = editingRows.map((r) => {
+      const qty = r.qty.trim() === '' ? null : Number(r.qty);
+      const price = r.price.trim() === '' ? null : Number(r.price);
+      const validQty = qty != null && Number.isFinite(qty) ? qty : null;
+      const validPrice = price != null && Number.isFinite(price) ? price : null;
+      return {
+        name: r.name.trim(),
+        spec: null,
+        quantity: validQty,
+        unit: r.unit.trim() || '개',
+        unit_price: validPrice,
+        amount: validQty != null && validPrice != null ? validQty * validPrice : null,
+        warnings: [],
+      };
+    });
+
     setIsSavingDraft(true);
     try {
-      await updateOcrDocument(docId, { items: editingItems });
+      await updateOcrDocument(docId, { items });
       notify('저장 완료', '영수증 인식 내역이 정상적으로 업데이트되었습니다.');
       loadDrafts();
       setEditingDocId(null);
@@ -321,20 +348,51 @@ export default function InventoryScreen() {
                 {/* [한글 주석] 현재 편집 중인 영수증 초안인 경우 임시 편집 배열(editingItems)을 보여주고, 그 외에는 기존 읽기전용 리스트를 보여줍니다 */}
                 {editingDocId === doc.id ? (
                   <View style={{ gap: 8, marginVertical: 8 }}>
-                    {editingItems.map((item, idx) => (
-                      <View key={idx} style={[styles.draftRow, { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.mutedSand, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.draftName}>{item.name}</Text>
-                          <Text style={styles.draftMeta}>
-                            {item.quantity != null ? `${item.quantity}${item.unit ?? '개'}` : '수량 없음'}
-                            {item.unit_price != null ? ` · 단가 ₩${item.unit_price.toLocaleString()}` : ''}
-                            {item.amount != null ? ` · 합계 ₩${item.amount.toLocaleString()}` : ''}
-                          </Text>
+                    {/* [한글 주석] 기존 품목도 값(품목명·수량·단위·단가)을 그 자리에서 바로 고칠 수 있는 입력칸 */}
+                    {editingRows.map((row, idx) => (
+                      <View key={idx} style={{ gap: 6, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.mutedSand }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <View style={{ flex: 1 }}>
+                            <TextInput
+                              style={[styles.input, { height: 36, fontSize: 13 }]}
+                              placeholder="품목명"
+                              value={row.name}
+                              onChangeText={(t) => updateRow(idx, { name: t })}
+                            />
+                          </View>
+                          {/* [한글 주석] 품목 삭제 버튼 */}
+                          <PressableScale onPress={() => handleDeleteItem(idx)} to={0.9}>
+                            <Ionicons name="trash-outline" size={18} color={colors.pointOrange} />
+                          </PressableScale>
                         </View>
-                        {/* [한글 주석] 품목 삭제 버튼 */}
-                        <PressableScale onPress={() => handleDeleteItem(idx)} to={0.9}>
-                          <Ionicons name="trash-outline" size={18} color={colors.pointOrange} />
-                        </PressableScale>
+                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                          <View style={{ flex: 1 }}>
+                            <TextInput
+                              style={[styles.input, { height: 36, fontSize: 13 }]}
+                              placeholder="수량"
+                              value={row.qty}
+                              onChangeText={(t) => updateRow(idx, { qty: t })}
+                              keyboardType="numeric"
+                            />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <TextInput
+                              style={[styles.input, { height: 36, fontSize: 13 }]}
+                              placeholder="단위"
+                              value={row.unit}
+                              onChangeText={(t) => updateRow(idx, { unit: t })}
+                            />
+                          </View>
+                          <View style={{ flex: 1.2 }}>
+                            <TextInput
+                              style={[styles.input, { height: 36, fontSize: 13 }]}
+                              placeholder="단가 (원)"
+                              value={row.price}
+                              onChangeText={(t) => updateRow(idx, { price: t })}
+                              keyboardType="numeric"
+                            />
+                          </View>
+                        </View>
                       </View>
                     ))}
 
