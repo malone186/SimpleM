@@ -4,13 +4,15 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { Alert, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { useNavigation } from '@react-navigation/native';
+
 import { useAuth } from '../../auth/AuthContext';
 import { PressableScale } from '../../components/motion';
 import { confirmDialog, toast } from '../../components/toast';
 import { Badge, Button, Card, ProgressBar, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
 import { API_BASE_URL } from '../../lib/api/client';
 import { adjustStock, createIngredient, listStocks, StockItem } from '../../lib/api/inventory';
-import { confirmOcrDocument, listOcrDocuments, rejectOcrDocument, uploadOcrImage, OcrDocument } from '../../lib/api/ocr';
+import { confirmOcrDocument, listOcrDocuments, rejectOcrDocument, uploadOcrImage, OcrDocument, updateOcrDocument, OcrItem } from '../../lib/api/ocr';
 import { colors, typography } from '../../theme';
 
 const TARGET_LABEL: Record<string, string> = {
@@ -23,9 +25,21 @@ const notify = (title: string, message: string) => toast(title, message);
 
 export default function InventoryScreen() {
   const { token } = useAuth();
+  const navigation = useNavigation<any>();
   const [stocks, setStocks] = useState<StockItem[]>([]);
   const [drafts, setDrafts] = useState<OcrDocument[]>([]);
   const [scanning, setScanning] = useState(false);
+
+  // [한글 주석] 영수증(명세서) 초안 수정 상태 관리 변수들
+  const [editingDocId, setEditingDocId] = useState<string | null>(null); // 현재 수정 중인 영수증 초안의 ID
+  const [editingItems, setEditingItems] = useState<OcrItem[]>([]); // 현재 수정 중인 영수증의 품목 리스트 임시 복사본
+  const [isSavingDraft, setIsSavingDraft] = useState(false); // 수정 사항 저장 중 로딩 여부
+
+  // [한글 주석] 새 품목 수동 추가를 위한 인풋 상태 관리 변수들
+  const [newItemName, setNewItemName] = useState(''); // 추가할 품목명
+  const [newItemQty, setNewItemQty] = useState(''); // 추가할 수량
+  const [newItemUnit, setNewItemUnit] = useState('개'); // 추가할 단위
+  const [newItemPrice, setNewItemPrice] = useState(''); // 추가할 단가
 
   // 직접 등록 폼
   const [formOpen, setFormOpen] = useState(false);
@@ -144,6 +158,72 @@ export default function InventoryScreen() {
     }
   };
 
+  // [한글 주석] 영수증 초안의 품목을 수정하기 위해 편집 모드를 활성화하고 데이터를 복사합니다.
+  const startEditing = (doc: OcrDocument) => {
+    setEditingDocId(doc.id);
+    setEditingItems([...doc.result.items]);
+    setNewItemName('');
+    setNewItemQty('');
+    setNewItemUnit('개');
+    setNewItemPrice('');
+  };
+
+  // [한글 주석] 영수증 수정을 취소하고 입력 중이던 임시 폼 값을 비웁니다.
+  const cancelEditing = () => {
+    setEditingDocId(null);
+    setEditingItems([]);
+  };
+
+  // [한글 주석] 수정 화면에서 새 품목을 직접 적어 목록에 추가합니다.
+  const handleAddItem = () => {
+    if (!newItemName.trim()) {
+      return notify('입력 확인', '추가할 재료명을 입력해 주세요.');
+    }
+    const qty = Number(newItemQty);
+    if (isNaN(qty) || qty <= 0) {
+      return notify('입력 확인', '올바른 수량을 입력해 주세요.');
+    }
+    const price = Number(newItemPrice) || 0;
+    const amount = qty * price;
+
+    const newItem: OcrItem = {
+      name: newItemName.trim(),
+      spec: null,
+      quantity: qty,
+      unit: newItemUnit.trim() || '개',
+      unit_price: price,
+      amount: amount,
+      warnings: [],
+    };
+
+    setEditingItems((prev) => [...prev, newItem]);
+    
+    // 입력창 초기화
+    setNewItemName('');
+    setNewItemQty('');
+    setNewItemPrice('');
+  };
+
+  // [한글 주석] 영수증 품목 중 잘못 입력되었거나 인식 오류가 난 한 줄을 목록에서 제거합니다.
+  const handleDeleteItem = (index: number) => {
+    setEditingItems((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  // [한글 주석] 수정한 영수증 품목들을 서버(DB)에 저장하여 영구 보존하고 연동 상태를 새로고침합니다.
+  const saveEditing = async (docId: string) => {
+    setIsSavingDraft(true);
+    try {
+      await updateOcrDocument(docId, { items: editingItems });
+      notify('저장 완료', '영수증 인식 내역이 정상적으로 업데이트되었습니다.');
+      loadDrafts();
+      setEditingDocId(null);
+    } catch (e) {
+      notify('저장 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+    } finally {
+      setIsSavingDraft(false);
+    }
+  };
+
   // 기존 재고 수량 직접 조정 (입고=+, 차감=-)
   const applyAdjust = async (s: StockItem, sign: 1 | -1) => {
     if (!token) return notify('로그인 필요', '재고 조정은 로그인 후 가능합니다.');
@@ -190,6 +270,18 @@ export default function InventoryScreen() {
     <Screen>
       <ScreenTitle title="재고" subtitle="현재 재고와 안전재고 상태" />
 
+      {/* 메뉴·레시피 관리 진입 */}
+      <PressableScale style={styles.menuNav} onPress={() => navigation.navigate('Menu')} to={0.97}>
+        <View style={styles.menuNavIcon}>
+          <Ionicons name="cafe-outline" size={20} color={colors.espressoBrown} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.menuNavTitle}>메뉴 · 레시피 관리</Text>
+          <Text style={styles.menuNavSub}>메뉴 등록 · 레시피 구성 · 원가율</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown} />
+      </PressableScale>
+
       {/* OCR 입고 */}
       <Card>
         <View style={styles.ocrHead}>
@@ -226,19 +318,85 @@ export default function InventoryScreen() {
                   <Badge label={TARGET_LABEL[doc.suggested_target ?? ''] ?? '대상 미정'} tone="orange" />
                 </View>
 
-                {doc.result.items.map((item, idx) => (
-                  <View key={idx} style={styles.draftRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.draftName}>{item.name}</Text>
-                      <Text style={styles.draftMeta}>
-                        {item.quantity != null ? `${item.quantity}${item.unit ?? '개'}` : '수량 미인식'}
-                        {item.unit_price != null ? ` · 단가 ₩${item.unit_price.toLocaleString()}` : ''}
-                        {item.amount != null ? ` · ₩${item.amount.toLocaleString()}` : ''}
-                      </Text>
-                      {item.warnings.length > 0 && <Text style={styles.warnText}>⚠ {item.warnings[0]}</Text>}
+                {/* [한글 주석] 현재 편집 중인 영수증 초안인 경우 임시 편집 배열(editingItems)을 보여주고, 그 외에는 기존 읽기전용 리스트를 보여줍니다 */}
+                {editingDocId === doc.id ? (
+                  <View style={{ gap: 8, marginVertical: 8 }}>
+                    {editingItems.map((item, idx) => (
+                      <View key={idx} style={[styles.draftRow, { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.lightSand, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.draftName}>{item.name}</Text>
+                          <Text style={styles.draftMeta}>
+                            {item.quantity != null ? `${item.quantity}${item.unit ?? '개'}` : '수량 없음'}
+                            {item.unit_price != null ? ` · 단가 ₩${item.unit_price.toLocaleString()}` : ''}
+                            {item.amount != null ? ` · 합계 ₩${item.amount.toLocaleString()}` : ''}
+                          </Text>
+                        </View>
+                        {/* [한글 주석] 품목 삭제 버튼 */}
+                        <PressableScale onPress={() => handleDeleteItem(idx)} to={0.9}>
+                          <Ionicons name="trash-outline" size={18} color={colors.pointOrange} />
+                        </PressableScale>
+                      </View>
+                    ))}
+
+                    {/* [한글 주석] 품목 직접 추가를 위한 입력 폼 UI */}
+                    <View style={{ backgroundColor: colors.lightSand, padding: 12, borderRadius: 8, marginTop: 8, gap: 8 }}>
+                      <Text style={[styles.draftName, { fontSize: 13, color: colors.mochaBrown }]}>➕ 품목 직접 추가</Text>
+                      <View style={styles.formRow}>
+                        <View style={{ flex: 2 }}>
+                          <TextInput 
+                            style={[styles.input, { height: 36, fontSize: 13 }]} 
+                            placeholder="재료명 (예: 우유)" 
+                            value={newItemName} 
+                            onChangeText={setNewItemName} 
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <TextInput 
+                            style={[styles.input, { height: 36, fontSize: 13 }]} 
+                            placeholder="단위 (개/kg)" 
+                            value={newItemUnit} 
+                            onChangeText={setNewItemUnit} 
+                          />
+                        </View>
+                      </View>
+                      <View style={styles.formRow}>
+                        <View style={{ flex: 1 }}>
+                          <TextInput 
+                            style={[styles.input, { height: 36, fontSize: 13 }]} 
+                            placeholder="수량" 
+                            value={newItemQty} 
+                            onChangeText={setNewItemQty} 
+                            keyboardType="numeric" 
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <TextInput 
+                            style={[styles.input, { height: 36, fontSize: 13 }]} 
+                            placeholder="단가 (원)" 
+                            value={newItemPrice} 
+                            onChangeText={setNewItemPrice} 
+                            keyboardType="numeric" 
+                          />
+                        </View>
+                      </View>
+                      <Button label="목록에 품목 추가" onPress={handleAddItem} style={{ height: 36, marginTop: 4 }} />
                     </View>
                   </View>
-                ))}
+                ) : (
+                  doc.result.items.map((item, idx) => (
+                    <View key={idx} style={styles.draftRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.draftName}>{item.name}</Text>
+                        <Text style={styles.draftMeta}>
+                          {item.quantity != null ? `${item.quantity}${item.unit ?? '개'}` : '수량 미인식'}
+                          {item.unit_price != null ? ` · 단가 ₩${item.unit_price.toLocaleString()}` : ''}
+                          {item.amount != null ? ` · ₩${item.amount.toLocaleString()}` : ''}
+                        </Text>
+                        {item.warnings.length > 0 && <Text style={styles.warnText}>⚠ {item.warnings[0]}</Text>}
+                      </View>
+                    </View>
+                  ))
+                )}
 
                 <View style={styles.totalRow}>
                   <Text style={styles.draftMeta}>
@@ -250,16 +408,52 @@ export default function InventoryScreen() {
                   <Text key={idx} style={styles.warnText}>⚠ {w}</Text>
                 ))}
 
-                <View style={styles.actionRow}>
-                  <PressableScale style={styles.rejectBtn} onPress={() => reject(doc)} to={0.9}>
-                    <Ionicons name="close" size={16} color={colors.mochaBrown} />
-                    <Text style={styles.rejectText}>반려</Text>
-                  </PressableScale>
-                  <PressableScale style={styles.confirmBtn} onPress={() => confirm(doc)} to={0.9}>
-                    <Ionicons name="checkmark" size={16} color={colors.white} />
-                    <Text style={styles.confirmText}>확인했어요 · 재고 반영</Text>
-                  </PressableScale>
-                </View>
+                {/* [한글 주석] 현재 편집 모드인지 여부에 따라 하단 제어 버튼들을 다르게 구성합니다 */}
+                {editingDocId === doc.id ? (
+                  <View style={styles.actionRow}>
+                    <PressableScale 
+                      style={[styles.rejectBtn, { borderColor: colors.mutedSand }]} 
+                      onPress={cancelEditing} 
+                      disabled={isSavingDraft}
+                      to={0.9}
+                    >
+                      <Ionicons name="close-circle-outline" size={16} color={colors.mochaBrown} />
+                      <Text style={styles.rejectText}>취소</Text>
+                    </PressableScale>
+                    <PressableScale 
+                      style={[styles.confirmBtn, { backgroundColor: colors.pointOrange }]} 
+                      onPress={() => saveEditing(doc.id)} 
+                      disabled={isSavingDraft}
+                      to={0.9}
+                    >
+                      <Ionicons name="save-outline" size={16} color={colors.white} />
+                      <Text style={styles.confirmText}>{isSavingDraft ? '저장 중…' : '저장 완료'}</Text>
+                    </PressableScale>
+                  </View>
+                ) : (
+                  <View style={{ gap: 8, marginTop: 12 }}>
+                    {/* [한글 주석] 반려 / 확인 버튼 상단에 수정 진입용 버튼을 추가 배치합니다 */}
+                    <PressableScale 
+                      style={[styles.rejectBtn, { width: '100%', justifyContent: 'center', backgroundColor: colors.white }]} 
+                      onPress={() => startEditing(doc)} 
+                      to={0.92}
+                    >
+                      <Ionicons name="create-outline" size={16} color={colors.pointOrange} />
+                      <Text style={[styles.rejectText, { color: colors.pointOrange }]}>인식 결과 직접 수정 / 품목 추가</Text>
+                    </PressableScale>
+                    
+                    <View style={styles.actionRow}>
+                      <PressableScale style={styles.rejectBtn} onPress={() => reject(doc)} to={0.9}>
+                        <Ionicons name="close" size={16} color={colors.mochaBrown} />
+                        <Text style={styles.rejectText}>반려</Text>
+                      </PressableScale>
+                      <PressableScale style={styles.confirmBtn} onPress={() => confirm(doc)} to={0.9}>
+                        <Ionicons name="checkmark" size={16} color={colors.white} />
+                        <Text style={styles.confirmText}>확인했어요 · 재고 반영</Text>
+                      </PressableScale>
+                    </View>
+                  </View>
+                )}
               </View>
             ))}
           </View>
@@ -383,6 +577,26 @@ const styles = StyleSheet.create({
   ocrHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   hint: { ...typography.L5, color: colors.mochaBrown, marginTop: 4 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  menuNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: colors.coffeeCream,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    padding: 14,
+  },
+  menuNavIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuNavTitle: { ...typography.L3, color: colors.espressoBrown },
+  menuNavSub: { ...typography.L5, color: colors.mochaBrown, marginTop: 3 },
   headRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   delBtn: { padding: 6, borderRadius: 9, backgroundColor: 'rgba(178,59,46,0.08)' },
   adjustOpen: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 12, alignSelf: 'flex-start' },

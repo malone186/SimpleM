@@ -38,7 +38,7 @@ export default function ReportModal({ visible, onClose }: { visible: boolean; on
 
             {phase === 'brewing' ? (
               <View style={styles.brewing}>
-                <Brew mood="pouring" size={180} framed />
+                <Brew mood="pouring" size={180} />
                 <Text style={styles.brewingText}>브루가 이번 주 리포트를 내리는 중…</Text>
               </View>
             ) : (
