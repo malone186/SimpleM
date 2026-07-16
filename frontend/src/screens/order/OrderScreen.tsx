@@ -11,6 +11,7 @@ import { PressableScale } from '../../components/motion';
 import { Badge, Card, Divider, Screen, ScreenTitle } from '../../components/ui';
 import { colors, typography } from '../../theme';
 import { listOrderDrafts, OrderDraft } from '../../lib/api/inventory';
+import { comparePrices, PriceCompare } from '../../lib/api/prices';
 
 // 쇼핑몰 최저가순 검색 링크 — 실시간 크롤링 대신 항상 최신 가격을 보는 정직한 방식
 const SHOP_LINKS = [
@@ -32,6 +33,8 @@ const searchTerm = (name: string) => name.replace(/\s*\(.*\)\s*$/, '').trim();
 export default function OrderScreen() {
   const [drafts, setDrafts] = useState<OrderDraft[]>([]);
   const [loading, setLoading] = useState(true);
+  // 품목명 → 인터넷 가격 비교 결과 (null = 조회 실패 → 검색 링크로 폴백)
+  const [prices, setPrices] = useState<Record<string, PriceCompare | null>>({});
 
   // 로컬 세션 보관소에서 암호화 로그인 출입증(Token)을 획득합니다.
   const getAuthToken = async () => {
@@ -52,12 +55,30 @@ export default function OrderScreen() {
 
       const data = await listOrderDrafts(token);
       // 추천 화면이므로 검토 대기(DRAFT) 추천만 보여준다
-      setDrafts(data.filter((d) => d.status === 'DRAFT'));
+      const pending = data.filter((d) => d.status === 'DRAFT');
+      setDrafts(pending);
+      loadPrices(pending);
     } catch (e) {
       console.error('발주 추천 목록 조회 실패:', e);
     } finally {
       setLoading(false);
     }
+  };
+
+  // 품목별 인터넷 가격 비교를 병렬로 가져온다 — 하나 실패해도 나머지는 표시
+  const loadPrices = (pending: OrderDraft[]) => {
+    const names = [...new Set(pending.flatMap((d) => d.items.map((it) => it.ingredient_name)))];
+    names.forEach(async (name) => {
+      const unitPrice = pending
+        .flatMap((d) => d.items)
+        .find((it) => it.ingredient_name === name)?.price_at_order ?? 0;
+      try {
+        const cmp = await comparePrices(name, unitPrice);
+        setPrices((prev) => ({ ...prev, [name]: cmp }));
+      } catch {
+        setPrices((prev) => ({ ...prev, [name]: null })); // 실패 → 검색 링크 폴백
+      }
+    });
   };
 
   // 화면이 활성화될 때 자동으로 발주 추천을 갱신합니다.
@@ -110,31 +131,66 @@ export default function OrderScreen() {
           </View>
 
           <View style={styles.itemBox}>
-            {d.items.map((it, i) => (
-              <View key={i} style={styles.itemBlock}>
-                <View style={styles.itemRow}>
-                  <Text style={styles.itemName}>{it.ingredient_name}</Text>
-                  <Text style={styles.itemQty}>{it.quantity}개</Text>
-                  <Text style={styles.itemPrice}>₩{(it.quantity * it.price_at_order).toLocaleString()}</Text>
+            {d.items.map((it, i) => {
+              const cmp = prices[it.ingredient_name]; // undefined=조회 중, null=실패
+              const saving = cmp?.saving_pct ?? null;
+              return (
+                <View key={i} style={styles.itemBlock}>
+                  <View style={styles.itemRow}>
+                    <Text style={styles.itemName}>{it.ingredient_name}</Text>
+                    <Text style={styles.itemQty}>{it.quantity}개</Text>
+                    <Text style={styles.itemPrice}>₩{(it.quantity * it.price_at_order).toLocaleString()}</Text>
+                  </View>
+
+                  {cmp === undefined && (
+                    <Text style={styles.unitPrice}>인터넷 최저가 확인 중… 🔍</Text>
+                  )}
+
+                  {cmp && (
+                    // 인터넷 가격 비교 성공 — 최저가·절감률·상품 페이지(몰별 비교표) 링크
+                    <View style={styles.linkRow}>
+                      <Text style={styles.unitPrice}>
+                        단가 ₩{it.price_at_order.toLocaleString()} · 인터넷 최저{' '}
+                        ₩{cmp.best.price.toLocaleString()} ({cmp.best.source})
+                      </Text>
+                      {saving !== null && (
+                        <View style={[styles.savingBadge, saving > 0 && styles.savingBadgeGood]}>
+                          <Text style={[styles.savingText, saving > 0 && styles.savingTextGood]}>
+                            {saving > 0 ? `${saving}% 저렴` : '현재가가 유리'}
+                          </Text>
+                        </View>
+                      )}
+                      <PressableScale
+                        style={styles.linkChip}
+                        onPress={() => Linking.openURL(cmp.best.link)}
+                      >
+                        <Ionicons name="open-outline" size={10} color={colors.pointOrange} />
+                        <Text style={styles.linkChipText}>상품 보기</Text>
+                      </PressableScale>
+                    </View>
+                  )}
+
+                  {cmp === null && (
+                    // 가격 조회 실패 — 최저가순 검색 링크로 폴백
+                    <View style={styles.linkRow}>
+                      <Text style={styles.unitPrice}>
+                        단가 ₩{it.price_at_order.toLocaleString()} — 최저가 검색:
+                      </Text>
+                      {SHOP_LINKS.map((s) => (
+                        <PressableScale
+                          key={s.name}
+                          style={styles.linkChip}
+                          onPress={() => Linking.openURL(s.url(searchTerm(it.ingredient_name)))}
+                        >
+                          <Ionicons name="open-outline" size={10} color={colors.pointOrange} />
+                          <Text style={styles.linkChipText}>{s.name}</Text>
+                        </PressableScale>
+                      ))}
+                    </View>
+                  )}
                 </View>
-                {/* 현재 매입 단가를 기준점으로, 쇼핑몰 최저가순 결과로 바로 이동 */}
-                <View style={styles.linkRow}>
-                  <Text style={styles.unitPrice}>
-                    현재 단가 ₩{it.price_at_order.toLocaleString()} — 더 싸게:
-                  </Text>
-                  {SHOP_LINKS.map((s) => (
-                    <PressableScale
-                      key={s.name}
-                      style={styles.linkChip}
-                      onPress={() => Linking.openURL(s.url(searchTerm(it.ingredient_name)))}
-                    >
-                      <Ionicons name="open-outline" size={10} color={colors.pointOrange} />
-                      <Text style={styles.linkChipText}>{s.name}</Text>
-                    </PressableScale>
-                  ))}
-                </View>
-              </View>
-            ))}
+              );
+            })}
             <Divider />
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>예상 금액</Text>
@@ -145,8 +201,8 @@ export default function OrderScreen() {
       ))}
 
       <Text style={styles.footNote}>
-        추천 수량은 안전재고와 최근 판매량 기준이에요. 링크는 최저가순 검색 결과로 연결되니,
-        현재 단가와 비교해 더 저렴한 곳에서 직접 발주해 주세요.
+        추천 수량은 안전재고와 최근 판매량 기준이에요. 인터넷 최저가는 소매가 기준 참고
+        정보이니, 상품 보기에서 몰별 가격을 확인하고 더 저렴한 곳에서 직접 발주해 주세요.
       </Text>
     </Screen>
   );
@@ -180,6 +236,15 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   linkChipText: { ...typography.L5, fontSize: 9, fontWeight: '700', color: colors.pointOrange },
+  savingBadge: {
+    backgroundColor: colors.coffeeCream,
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  savingBadgeGood: { backgroundColor: colors.trendGreenBg },
+  savingText: { ...typography.L5, fontSize: 9, fontWeight: '700', color: colors.mochaBrown },
+  savingTextGood: { color: colors.trendGreenText },
   itemName: { ...typography.L5, color: colors.espressoBrown, flex: 1 },
   itemQty: { ...typography.L5, color: colors.mochaBrown, width: 52, textAlign: 'right' },
   itemPrice: { ...typography.L5, color: colors.espressoBrown, fontWeight: '700', width: 76, textAlign: 'right' },

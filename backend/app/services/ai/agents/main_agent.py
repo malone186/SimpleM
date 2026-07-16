@@ -77,10 +77,14 @@ _DOMAINS: list[dict[str, Any]] = [
         "title": "재고 전문가",
         "description": (
             "재고 현황 조회, 재료 등록, 재고 수량 조정(입고·차감), 재료 삭제, "
-            "메뉴·레시피 조회를 처리한다."
+            "메뉴·레시피 조회, 재료의 인터넷 최저가 비교를 처리한다."
         ),
-        "modules": ["app.services.inventory_tools"],
-        "extra": "- 재료 삭제는 재고·입출고 이력·레시피가 함께 지워진다는 점을 보고에 포함하세요.",
+        "modules": ["app.services.ai.price_tools", "app.services.inventory_tools"],
+        "extra": (
+            "- 재료 삭제는 재고·입출고 이력·레시피가 함께 지워진다는 점을 보고에 포함하세요.\n"
+            "- 가격 비교 결과를 보고할 때는 최저가·판매처·현재 단가 대비 절감률을 요약하고,"
+            " 소매가 기준 참고 정보라는 점을 덧붙이세요."
+        ),
     },
     {
         "name": "document_expert",

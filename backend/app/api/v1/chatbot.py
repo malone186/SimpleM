@@ -34,7 +34,7 @@ from app.schemas.ai import (
     OcrStatus,
     PayslipRequest,
 )
-from app.services.ai import document_service, ocr_service, report_service
+from app.services.ai import document_service, ocr_service, price_service, report_service
 
 router = APIRouter(prefix="/chatbot", tags=["chatbot"])
 
@@ -251,6 +251,23 @@ def update_generated_document(
         return document_service.update_document(current_user.email, doc_id, body.content, title=body.title)
     except document_service.DocumentError as e:
         raise HTTPException(404, str(e))
+
+
+# ---------------------------------------------------------------------------
+# 인터넷 가격 비교 — 발주 추천 화면에서 품목별 최저가 표시용
+# ---------------------------------------------------------------------------
+
+@router.get("/prices/compare")
+def compare_prices_api(q: str, current_price: int = 0):
+    """상품명(q)의 인터넷 최저가 후보를 돌려준다 — 다나와(+네이버쇼핑 키 있으면 병용).
+
+    current_price(현재 매입 단가)를 주면 절감률(saving_pct)도 계산된다.
+    결과는 검색어당 1시간 캐시된다.
+    """
+    try:
+        return price_service.compare_prices(q, current_price=current_price)
+    except price_service.PriceError as e:
+        raise HTTPException(502, str(e))
 
 
 # ---------------------------------------------------------------------------
