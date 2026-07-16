@@ -7,7 +7,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 
 import { useAuth } from '../../auth/AuthContext';
-import { PressableScale } from '../../components/motion';
+import { FadeInUp, PressableScale } from '../../components/motion';
 import { confirmDialog, toast } from '../../components/toast';
 import { Badge, Button, Card, Divider, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
@@ -500,13 +500,15 @@ export default function DocumentScreen() {
           </PressableScale>
         </View>
         {openForm === 'renewal' && (
-          <View style={styles.form}>
-            <TextInput style={styles.input} placeholder="서류 이름 (예: 보건증-홍길동)" value={cpName} onChangeText={setCpName} />
-            <TextInput style={styles.input} placeholder="만료일 (YYYY-MM-DD)" value={cpExpiry} onChangeText={setCpExpiry} />
-            <PressableScale style={styles.smallBtn} onPress={addRenewal}>
-              <Text style={styles.btnText}>등록</Text>
-            </PressableScale>
-          </View>
+          <FadeInUp distance={12}>
+            <View style={styles.form}>
+              <TextInput style={styles.input} placeholder="서류 이름 (예: 보건증-홍길동)" value={cpName} onChangeText={setCpName} />
+              <TextInput style={styles.input} placeholder="만료일 (YYYY-MM-DD)" value={cpExpiry} onChangeText={setCpExpiry} />
+              <PressableScale style={styles.smallBtn} onPress={addRenewal}>
+                <Text style={styles.btnText}>등록</Text>
+              </PressableScale>
+            </View>
+          </FadeInUp>
         )}
         {renewals.length === 0 ? (
           <Text style={styles.emptyText}>등록된 갱신 서류가 없어요. 보건증·위생교육 수료증·임대차계약 만료일을 등록해 두면 미리 알려드려요.</Text>
@@ -547,31 +549,33 @@ export default function DocumentScreen() {
           busy={busy === 'pay'} actionLabel={openForm === 'pay' ? '닫기' : '입력'}
           onPress={() => setOpenForm(openForm === 'pay' ? null : 'pay')} />
         {openForm === 'pay' && (
-          <View style={styles.form}>
-            <TextInput style={styles.input} placeholder="직원 이름" value={empName} onChangeText={setEmpName} />
-            <View style={styles.formRow}>
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="연도" keyboardType="numeric" value={payYear} onChangeText={setPayYear} />
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="월" keyboardType="numeric" value={payMonth} onChangeText={setPayMonth} />
+          <FadeInUp distance={12}>
+            <View style={styles.form}>
+              <TextInput style={styles.input} placeholder="직원 이름" value={empName} onChangeText={setEmpName} />
+              <View style={styles.formRow}>
+                <TextInput style={[styles.input, { flex: 1, width: 0, flexShrink: 1 }]} placeholder="연도" keyboardType="numeric" value={payYear} onChangeText={setPayYear} />
+                <TextInput style={[styles.input, { flex: 1, width: 0, flexShrink: 1 }]} placeholder="월" keyboardType="numeric" value={payMonth} onChangeText={setPayMonth} />
+              </View>
+              <View style={styles.formRow}>
+                <TextInput style={[styles.input, { flex: 1, width: 0, flexShrink: 1 }]} placeholder="시급 (비우면 직원 정보 사용)" keyboardType="numeric" value={payWage} onChangeText={setPayWage} />
+                <TextInput style={[styles.input, { flex: 1, width: 0, flexShrink: 1 }]} placeholder="근무시간 (비우면 자동 집계)" keyboardType="numeric" value={payHours} onChangeText={setPayHours} />
+              </View>
+              <PressableScale style={styles.smallBtn} onPress={() => {
+                if (!empName.trim()) return toast('입력 확인', '직원 이름을 입력하세요.');
+                const y = toNumber(payYear);
+                const m = toNumber(payMonth);
+                if (y < 2000 || y > 2100) return toast('입력 확인', `연도를 확인하세요: "${payYear}" — 예: 2026`);
+                if (m < 1 || m > 12) return toast('입력 확인', `월을 확인하세요: "${payMonth}" — 1~12 사이 숫자`);
+                run('pay', () => createPayslip(token!, {
+                  employee_name: empName.trim(), year: y, month: m,
+                  ...(payWage.trim() ? { hourly_wage: toNumber(payWage) } : {}),
+                  ...(payHours.trim() ? { work_hours: toNumber(payHours) } : {}),
+                }));
+              }}>
+                <Text style={styles.btnText}>초안 생성</Text>
+              </PressableScale>
             </View>
-            <View style={styles.formRow}>
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="시급 (비우면 직원 정보 사용)" keyboardType="numeric" value={payWage} onChangeText={setPayWage} />
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="근무시간 (비우면 자동 집계)" keyboardType="numeric" value={payHours} onChangeText={setPayHours} />
-            </View>
-            <PressableScale style={styles.smallBtn} onPress={() => {
-              if (!empName.trim()) return toast('입력 확인', '직원 이름을 입력하세요.');
-              const y = toNumber(payYear);
-              const m = toNumber(payMonth);
-              if (y < 2000 || y > 2100) return toast('입력 확인', `연도를 확인하세요: "${payYear}" — 예: 2026`);
-              if (m < 1 || m > 12) return toast('입력 확인', `월을 확인하세요: "${payMonth}" — 1~12 사이 숫자`);
-              run('pay', () => createPayslip(token!, {
-                employee_name: empName.trim(), year: y, month: m,
-                ...(payWage.trim() ? { hourly_wage: toNumber(payWage) } : {}),
-                ...(payHours.trim() ? { work_hours: toNumber(payHours) } : {}),
-              }));
-            }}>
-              <Text style={styles.btnText}>초안 생성</Text>
-            </PressableScale>
-          </View>
+          </FadeInUp>
         )}
       </Card>
 
@@ -581,23 +585,25 @@ export default function DocumentScreen() {
           busy={busy === 'ct'} actionLabel={openForm === 'ct' ? '닫기' : '입력'}
           onPress={() => setOpenForm(openForm === 'ct' ? null : 'ct')} />
         {openForm === 'ct' && (
-          <View style={styles.form}>
-            <TextInput style={styles.input} placeholder="직원 이름" value={ctName} onChangeText={setCtName} />
-            <View style={styles.formRow}>
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="시급 (원)" keyboardType="numeric" value={ctWage} onChangeText={setCtWage} />
-              <TextInput style={[styles.input, { flex: 1.4 }]} placeholder="시작일 YYYY-MM-DD" value={ctStart} onChangeText={setCtStart} />
+          <FadeInUp distance={12}>
+            <View style={styles.form}>
+              <TextInput style={styles.input} placeholder="직원 이름" value={ctName} onChangeText={setCtName} />
+              <View style={styles.formRow}>
+                <TextInput style={[styles.input, { flex: 1, width: 0, flexShrink: 1 }]} placeholder="시급 (원)" keyboardType="numeric" value={ctWage} onChangeText={setCtWage} />
+                <TextInput style={[styles.input, { flex: 1.4, width: 0, flexShrink: 1 }]} placeholder="시작일 YYYY-MM-DD" value={ctStart} onChangeText={setCtStart} />
+              </View>
+              <PressableScale style={styles.smallBtn} onPress={() => {
+                if (!ctName.trim()) return toast('입력 확인', '직원 이름을 입력하세요.');
+                const wage = toNumber(ctWage);
+                if (!wage) return toast('입력 확인', `시급을 숫자로 입력하세요: "${ctWage}" — 예: 10500`);
+                const start = normalizeDate(ctStart);
+                if (!start) return toast('입력 확인', `시작일을 알아볼 수 없어요: "${ctStart}" — 예: 2026-08-01`);
+                run('ct', () => createContract(token!, { employee_name: ctName.trim(), hourly_wage: wage, start_date: start }));
+              }}>
+                <Text style={styles.btnText}>초안 생성</Text>
+              </PressableScale>
             </View>
-            <PressableScale style={styles.smallBtn} onPress={() => {
-              if (!ctName.trim()) return toast('입력 확인', '직원 이름을 입력하세요.');
-              const wage = toNumber(ctWage);
-              if (!wage) return toast('입력 확인', `시급을 숫자로 입력하세요: "${ctWage}" — 예: 10500`);
-              const start = normalizeDate(ctStart);
-              if (!start) return toast('입력 확인', `시작일을 알아볼 수 없어요: "${ctStart}" — 예: 2026-08-01`);
-              run('ct', () => createContract(token!, { employee_name: ctName.trim(), hourly_wage: wage, start_date: start }));
-            }}>
-              <Text style={styles.btnText}>초안 생성</Text>
-            </PressableScale>
-          </View>
+          </FadeInUp>
         )}
       </Card>
 
@@ -718,11 +724,14 @@ const styles = StyleSheet.create({
   smallBtn: { backgroundColor: colors.pointOrange, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
   btnText: { ...typography.L5, color: colors.white, fontWeight: '700' },
   form: { gap: 8, marginTop: 10 },
-  formRow: { flexDirection: 'row', gap: 8 },
+  formRow: { flexDirection: 'row', gap: 8, width: '100%', maxWidth: '100%' },
   input: {
     borderWidth: 1, borderColor: colors.mutedSand, borderRadius: 10,
     paddingHorizontal: 12, paddingVertical: 9, ...typography.L4, color: colors.espressoBrown,
     backgroundColor: colors.white,
+    minWidth: 0, // [한글 주석: 웹 플렉스박스 버그 방지] placeholder가 길어 너비가 늘어나는 현상 해결
+    width: '100%',
+    flexShrink: 1,
   },
   emptyText: { ...typography.L5, color: colors.mochaBrown, lineHeight: 18 },
   renewalRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
