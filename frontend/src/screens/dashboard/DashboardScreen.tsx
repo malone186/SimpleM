@@ -1,10 +1,12 @@
 // 대시보드 (프론트 A) — Design Spec 기반
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, RefreshControl, StyleSheet, View } from 'react-native';
+import { Animated, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import Svg, { Defs, LinearGradient, Stop, Path, Circle, Filter, FeGaussianBlur } from 'react-native-svg';
 
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../auth/AuthContext';
+import ReportModal from '../../components/brew/ReportModal';
 import ManagementReportCard from '../../components/dashboard/ManagementReportCard';
 import QuickOrderModal from '../../components/dashboard/QuickOrderModal';
 import SalesCard from '../../components/dashboard/SalesCard';
@@ -39,6 +41,7 @@ export default function DashboardScreen() {
   const [selected, setSelected] = useState<Todo | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [runId, setRunId] = useState(0);
+  const [showReport, setShowReport] = useState(false); // [한글 주석: 주간 리포트 모달 토글용 상태값 복원]
 
   const { user } = useAuth();
   const navigation = useNavigation<any>();
@@ -154,7 +157,18 @@ export default function DashboardScreen() {
             <ManagementReportCard key={`reportcard-${runId}`} />
           </FadeInUp>
 
-          <FadeInUp key={`todo-${runId}`} delay={200}>
+          <FadeInUp key={`weekly-report-${runId}`} delay={200}>
+            <PressableScale style={styles.reportEntry} onPress={() => setShowReport(true)}>
+              <View style={styles.reportDot} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.reportTitle}>브루가 이번 주 리포트를 준비했어요</Text>
+                <Text style={styles.reportSub}>매출 +8.2% · 원가율 주의 — 눌러서 편지 받기</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown} />
+            </PressableScale>
+          </FadeInUp>
+
+          <FadeInUp key={`todo-${runId}`} delay={260}>
             <TodoList todos={todos} onPressAction={openOrder} />
           </FadeInUp>
         </View>
@@ -166,7 +180,7 @@ export default function DashboardScreen() {
         onClose={() => setSelected(null)}
         onConfirm={confirmOrder}
       />
-
+      <ReportModal visible={showReport} onClose={() => setShowReport(false)} />
     </View>
   );
 }
@@ -174,15 +188,29 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#1E1612' }, // Svg 로딩 지연 중 어두운 광원을 채우기 위한 딥 브라운 지정
   scroll: { flex: 1 },
-  content: { paddingBottom: 0 },
+  content: { paddingBottom: 0 }, // [한글 주석: 여백 컬러 단절 버그 패치] content 패딩을 없애고 body 패딩으로 통합하여 갈색 띠 노출 차단
   body: {
     backgroundColor: colors.creamSand, // 원래 100% 불투명 오프화이트로 원복
     borderTopLeftRadius: 36, // [iOS 스타일] 부드럽게 얹어지는 시트
     borderTopRightRadius: 36,
     paddingHorizontal: spacing.globalPadding,
     paddingTop: spacing.verticalGap, // 원래 패딩값으로 복원
-    paddingBottom: 48,
+    paddingBottom: 110, // [한글 주석: 하단 탭 바 가림 방지 여백 확보] 원래 48에서 110으로 확장하여 탭 바 위로 부드럽게 스크롤되도록 조율
     gap: spacing.verticalGap,
   },
+  // [한글 주석: 복원된 주간 리포트 진입 배너 스타일]
+  reportEntry: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: colors.coffeeCream,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    padding: 16,
+  },
+  reportDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.pointOrange },
+  reportTitle: { ...typography.L4, color: colors.espressoBrown },
+  reportSub: { ...typography.L5, color: colors.mochaBrown, marginTop: 3 },
 });
 

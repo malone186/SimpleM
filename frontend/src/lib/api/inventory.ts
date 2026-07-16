@@ -94,3 +94,44 @@ export function updateOrderStatus(
   });
 }
 
+
+// --- [로스터리 원두 탐색 마켓 관련 타입 정의] ---
+
+// 로스터리 업체 정보
+export type Roastery = {
+  id: number;
+  name: string;
+  thumbnail_url: string | null;
+  roastery_info: string | null;
+  file_path: string | null;
+};
+
+// 원두 상품 상세 정보
+export type RoasteryBean = {
+  id: number;
+  name: string;
+  price: number;
+  roastery_id: number;
+  thumbnail_url: string | null;
+  product_url: string | null;
+  date_added: string | null;
+  best: boolean;
+  new: boolean;
+  sold_out: boolean;
+  description: string | null;
+  country: string | null;
+  process: string | null;
+  blend: boolean;
+  decaf: boolean;
+  gesha: boolean;
+  price_per_gram: number | null;
+  naver_product_id: string | null;
+  roastery: Roastery | null;
+};
+
+/** [로스터리 원두 목록 조회] DB에 등록된 원두 상품 목록을 가져옵니다. */
+export function listRoasteryBeans(token: string, limit = 10): Promise<RoasteryBean[]> {
+  return apiFetch(`/api/v1/inventory/roastery-beans?limit=${limit}`, { headers: auth(token) });
+}
+
+
