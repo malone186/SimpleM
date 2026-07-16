@@ -13,6 +13,7 @@ const POSES = {
   clipboard: require('../../../assets/mascot/brew_clipboard.png'), // 클립보드 든 브루 — 리포트·발주
   serving: require('../../../assets/mascot/brew_serving.png'), // 케이크 든 브루 — 서비스·추천
   hero: require('../../../assets/mascot/brew_hero.png'), // 스탠딩 바리스타 — 브랜드/온보딩
+  top: require('../../../assets/mascot/brew_top.png'), // 모자 쓰고 커피 든 바리스타 — 홈 헤더용
 } as const;
 
 export type BrewMood = keyof typeof POSES;
@@ -28,6 +29,7 @@ const MOTION_BY_MOOD: Record<BrewMood, Motion> = {
   clipboard: 'bounce',
   serving: 'bounce',
   hero: 'bounce',
+  top: 'bounce',
 };
 
 export default function Brew({

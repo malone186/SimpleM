@@ -47,8 +47,8 @@ export default function DashboardScreen() {
   const navigation = useNavigation<any>();
   const isFocused = useIsFocused();
 
-  // 오늘 상태 → 브루 표정 (매출 상승 = 활짝 웃는 브루)
-  const brewMood = 'happy';
+  // 홈 헤더 마스코트 — 모자 쓰고 커피 든 바리스타 브루(brew_top)
+  const brewMood = 'top';
   const scrollY = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
