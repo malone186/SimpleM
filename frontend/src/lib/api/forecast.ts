@@ -29,6 +29,15 @@ export type OrderRecommendation = {
   reason: string;
 };
 
+export type NearbyEvent = {
+  name: string;
+  date: string;
+  boost_pct: number;
+  distance_km: number;
+  place: string;
+  source: string;
+};
+
 export type SalesForecast = {
   location: { lat: number; lon: number; region: string };
   model: string;
@@ -37,6 +46,7 @@ export type SalesForecast = {
   week: ForecastDay[];
   week_total: { cups: number; revenue: number };
   order_recommendations: OrderRecommendation[];
+  nearby_events: NearbyEvent[]; // 서울 문화행사 API 자동 수집 (매장 반경 3km)
   note: string;
 };
 

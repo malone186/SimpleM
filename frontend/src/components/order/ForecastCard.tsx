@@ -151,6 +151,21 @@ export default function ForecastCard() {
         {won(forecast.week_total.revenue)}
       </Text>
 
+      {/* 주변 행사 (서울 문화행사 API 자동 수집, 반경 3km) — 예측에 이미 부스팅 반영됨 */}
+      {forecast.nearby_events.length > 0 && (
+        <View style={styles.eventBox}>
+          {forecast.nearby_events.slice(0, 3).map((ev) => (
+            <Text key={`${ev.name}-${ev.date}`} style={styles.eventText} numberOfLines={1}>
+              <Ionicons name="musical-notes-outline" size={11} color={colors.trendGreenText} />{' '}
+              {ev.date.slice(5)} {ev.name} ({ev.distance_km}km)
+            </Text>
+          ))}
+          {forecast.nearby_events.length > 3 && (
+            <Text style={styles.eventText}>외 {forecast.nearby_events.length - 3}건 — 예측에 반영됨</Text>
+          )}
+        </View>
+      )}
+
       {/* 재고 소진 경고 — 예측 소요량 기반 */}
       {stockAlerts.length > 0 && (
         <View style={styles.alertBox}>
@@ -203,6 +218,13 @@ const styles = StyleSheet.create({
   dayName: { ...typography.L5, fontSize: 9, color: colors.mochaBrown },
   dayCups: { ...typography.L5, fontSize: 11, fontWeight: '700', color: colors.espressoBrown },
   weekTotal: { ...typography.L5, fontWeight: '700', color: colors.espressoBrown, textAlign: 'center' },
+  eventBox: {
+    backgroundColor: colors.trendGreenBg,
+    borderRadius: 10,
+    padding: 10,
+    gap: 5,
+  },
+  eventText: { ...typography.L5, fontSize: 10, color: colors.trendGreenText, lineHeight: 14 },
   alertBox: {
     backgroundColor: colors.creamSand,
     borderRadius: 10,
