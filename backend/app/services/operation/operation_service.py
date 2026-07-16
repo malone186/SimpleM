@@ -23,6 +23,10 @@ class OperationService:
         if not employee:
             raise ValueError(f"존재하지 않는 직원 ID입니다: {employee_id}")
         
+        # 2. 직원의 시급 유효성 검사 (0 이하인 경우 에러 처리)
+        if employee.hourly_rate <= 0:
+            raise ValueError(f"해당 직원의 시급 설정이 올바르지 않습니다 (시급: {employee.hourly_rate}원). 시급은 0보다 커야 합니다.")
+        
         if start_time >= end_time:
             raise ValueError("근무 시작 시간은 종료 시간보다 빨라야 합니다.")
             
@@ -39,12 +43,12 @@ class OperationService:
         return new_schedule
 
     @staticmethod
-    def get_schedule(db: Session, schedule_id: int) -> Optional[Schedule]:
+    def get_schedule_by_id(db: Session, schedule_id: int) -> Optional[Schedule]:
         """스케줄 단건 상세 조회"""
         return db.query(Schedule).filter(Schedule.id == schedule_id).first()
 
     @staticmethod
-    def get_all_schedules(db: Session) -> List[Schedule]:
+    def get_schedules(db: Session) -> List[Schedule]:
         """등록된 모든 스케줄 일정 목록 조회"""
         return db.query(Schedule).all()
 
@@ -90,16 +94,9 @@ class OperationService:
 
     @staticmethod
     def calculate_work_hours(start_time: datetime, end_time: datetime) -> float:
-        """출퇴근 시간을 받아 실 근무시간 계산 (휴게시간 자동 공제)"""
+        """출퇴근 시간을 받아 실 근무시간 계산 (단순 시간 차이 계산)"""
         duration = end_time - start_time
         total_hours = duration.total_seconds() / 3600.0
-        
-        # 4시간 근무 시 30분, 8시간 근무 시 1시간 의무 휴게 공제
-        if total_hours >= 8.0:
-            total_hours -= 1.0
-        elif total_hours >= 4.0:
-            total_hours -= 0.5
-            
         return max(0.0, total_hours)
 
     @classmethod
@@ -109,6 +106,10 @@ class OperationService:
         if not employee:
             raise ValueError(f"존재하지 않는 직원 ID입니다: {employee_id}")
             
+        # 직원의 시급 유효성 검사 (0 이하인 경우 에러 처리)
+        if employee.hourly_rate <= 0:
+            raise ValueError(f"해당 직원의 시급 설정이 올바르지 않습니다 (시급: {employee.hourly_rate}원). 시급은 0보다 커야 합니다.")
+
         total_hours = 0.0
         # 해당 연월의 스케줄 중 실제 출근 및 퇴근 시간이 모두 기록된 데이터만 취합
         schedules = db.query(Schedule).filter(
@@ -122,13 +123,8 @@ class OperationService:
             hours = cls.calculate_work_hours(schedule.actual_start_time, schedule.actual_end_time)
             total_hours += hours
                 
-        # 주휴수당 산정 (월 총 근로시간이 60시간 이상일 때 4주 기준 주휴수당 합산)
+        # 이번 버전에서는 복잡한 주휴수당 산정은 제외합니다.
         weekly_holiday_allowance = 0
-        if total_hours >= 60.0:
-            weekly_avg_hours = total_hours / 4.0
-            daily_avg_hours = min(8.0, weekly_avg_hours / 5.0)
-            weekly_holiday_allowance = int(daily_avg_hours * employee.hourly_rate * 4)
-
         base_salary = int(total_hours * employee.hourly_rate)
         total_salary = base_salary + weekly_holiday_allowance
 
@@ -144,8 +140,8 @@ class OperationService:
         }
 
     @classmethod
-    def calculate_settlement(cls, db: Session, year_month: str) -> dict:
-        """매장의 월별 매출액, 지출 비용, 총 인건비를 취합해 예상 정산 손익을 도출합니다."""
+    def calculate_settlement(cls, db: Session, year_month: str, other_expense: int = 0) -> dict:
+        """매장의 월별 매출액, 지출 비용, 총 인건비, 기타비용을 취합해 예상 정산 손익을 도출합니다."""
         try:
             year, month = map(int, year_month.split("-"))
         except ValueError:
@@ -173,14 +169,15 @@ class OperationService:
             except ValueError:
                 continue
                 
-        # 4. 예상 순이익 = 매출 - (비용 + 인건비)
-        net_profit = total_sales - (total_expense + total_payroll)
+        # 4. 예상 순이익 = 매출 - (비용 + 인건비 + 기타 비용)
+        net_profit = total_sales - (total_expense + total_payroll + other_expense)
         
         return {
             "year_month": year_month,
             "total_sales": total_sales,
             "total_expense": total_expense,
             "total_payroll": total_payroll,
+            "other_expense": other_expense,
             "net_profit": net_profit,
             "calculated_at": datetime.now()
         }
@@ -310,6 +307,189 @@ class OperationService:
             "payroll_summary": payroll_summary,
             "tax_summary": tax_summary,
             "forecast_summary": forecast_summary
+        }
+
+    @classmethod
+    def recommend_schedule(cls, db: Session, target_date: str, store_id: str) -> dict:
+        """과거 동일 요일의 시간대별 평균 매출/이익을 분석하여 최적의 알바 근무 인원 스케줄을 추천합니다."""
+        try:
+            dt = datetime.strptime(target_date, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError("날짜 포맷은 YYYY-MM-DD 형식이어야 합니다.")
+
+        # 1. 파이썬 요일 번호 (0=월 ... 6=일) -> PostgreSQL dow 번호 (0=일, 1=월 ... 6=토)
+        pg_dow = (dt.weekday() + 1) % 7
+
+        # 2. DB에서 해당 매장의 동일 요일 과거 매출 데이터 조회 (Eager Loading 적용으로 N+1 쿼리 방지)
+        from sqlalchemy.orm import joinedload, selectinload
+        from app.models.inventory import Menu, Recipe, Ingredient
+        
+        sales = db.query(Sale).filter(
+            Sale.store_id == store_id,
+            extract('dow', Sale.sold_at) == pg_dow
+        ).options(
+            joinedload(Sale.menu).selectinload(Menu.recipes).joinedload(Recipe.ingredient)
+        ).all()
+
+        hourly_recommendations = []
+        total_recommended_hours = 0.0
+
+        # 영업시간은 일반적인 카페 기준 07시 ~ 22시로 규정 (나머지 시간은 0명 추천)
+        business_hours = range(7, 23)
+
+        # 3. 데이터가 존재할 경우 시간대별 평균 매출 및 이익 분석
+        if len(sales) >= 5: # 통계적 신뢰성을 위해 최소 5건 이상 데이터가 있을 때 실데이터 분석
+            hourly_sales = {h: [] for h in range(24)}
+            hourly_profits = {h: [] for h in range(24)}
+            
+            for s in sales:
+                h = s.sold_at.hour
+                hourly_sales[h].append(s.total_price)
+                
+                # 메뉴별 원자재 원가 합산 계산 (메뉴 -> 레시피 -> 재료 단가)
+                menu_cost = 0
+                if s.menu and s.menu.recipes:
+                    for recipe in s.menu.recipes:
+                        if recipe.ingredient:
+                            menu_cost += recipe.quantity * recipe.ingredient.current_price
+                
+                # 한 건당 마진 이익 = 총 판매가 - (개당 원가 * 판매 수량)
+                profit = s.total_price - int(menu_cost * s.quantity)
+                hourly_profits[h].append(profit)
+
+            for h in range(24):
+                if h not in business_hours:
+                    hourly_recommendations.append({
+                        "hour": h,
+                        "predicted_sales": 0,
+                        "predicted_profit": 0,
+                        "recommended_employee_count": 0,
+                        "busy_level": "LOW"
+                    })
+                    continue
+
+                prices = hourly_sales[h]
+                avg_sales = int(sum(prices) / len(prices)) if prices else 0
+                
+                profits = hourly_profits[h]
+                avg_profit = int(sum(profits) / len(profits)) if profits else 0
+                
+                # 매출 대비 인원 추천 규칙 (기본 카페 로직 적용)
+                if avg_sales >= 150000:
+                    emp_count = 3
+                    busy = "PEAK"
+                elif avg_sales >= 70000:
+                    emp_count = 2
+                    busy = "HIGH"
+                elif avg_sales >= 30000:
+                    emp_count = 1
+                    busy = "NORMAL"
+                else:
+                    emp_count = 1
+                    busy = "LOW"
+
+                hourly_recommendations.append({
+                    "hour": h,
+                    "predicted_sales": avg_sales,
+                    "predicted_profit": avg_profit,
+                    "recommended_employee_count": emp_count,
+                    "busy_level": busy
+                })
+                total_recommended_hours += emp_count
+
+        else:
+            # 4. [Fallback] 과거 매출 데이터가 없거나 부족할 때 요일별 카페 표준 룰베이스 적용
+            # 주말(토, 일)과 주중(월~금) 피크 패턴 분기
+            is_weekend = dt.weekday() in (5, 6)
+
+            for h in range(24):
+                if h not in business_hours:
+                    hourly_recommendations.append({
+                        "hour": h,
+                        "predicted_sales": 0,
+                        "predicted_profit": 0,
+                        "recommended_employee_count": 0,
+                        "busy_level": "LOW"
+                    })
+                    continue
+
+                avg_sales = 0
+                emp_count = 1
+                busy = "NORMAL"
+
+                if is_weekend:
+                    # 주말 패턴: 오후 시간대(13시~17시) 집중 피크
+                    if 13 <= h <= 16:
+                        avg_sales = 160000
+                        emp_count = 3
+                        busy = "PEAK"
+                    elif 11 <= h <= 12 or 17 <= h <= 18:
+                        avg_sales = 80000
+                        emp_count = 2
+                        busy = "HIGH"
+                    else:
+                        avg_sales = 25000
+                        emp_count = 1
+                        busy = "LOW"
+                else:
+                    # 주중 패턴: 출근 피크(08시~09시) 및 점심 피크(12시~14시)
+                    if 12 <= h <= 13:
+                        avg_sales = 180000
+                        emp_count = 3
+                        busy = "PEAK"
+                    elif h == 8 or h == 11 or h == 14:
+                        avg_sales = 90000
+                        emp_count = 2
+                        busy = "HIGH"
+                    else:
+                        avg_sales = 20000
+                        emp_count = 1
+                        busy = "LOW"
+
+                # 가상의 카페 평균 마진율 70% 대입 계산
+                avg_profit = int(avg_sales * 0.7)
+
+                hourly_recommendations.append({
+                    "hour": h,
+                    "predicted_sales": avg_sales,
+                    "predicted_profit": avg_profit,
+                    "recommended_employee_count": emp_count,
+                    "busy_level": busy
+                })
+                total_recommended_hours += emp_count
+
+        # 5. 예상 인건비 연산 (소속 직원들의 평균 시급 계산, 없으면 10,000원 기준)
+        from app.models.operation import Employee
+        employees = db.query(Employee).all()
+        hourly_rates = [emp.hourly_rate for emp in employees if emp.hourly_rate > 0]
+        avg_hourly_rate = int(sum(hourly_rates) / len(hourly_rates)) if hourly_rates else 10000
+        estimated_payroll_cost = int(total_recommended_hours * avg_hourly_rate)
+
+        # 6. 피크타임을 파악하여 자연어 요약 조언 메시지 생성
+        total_predicted_sales = sum(item["predicted_sales"] for item in hourly_recommendations)
+        total_predicted_profit = sum(item["predicted_profit"] for item in hourly_recommendations)
+        
+        peak_hours = [item["hour"] for item in hourly_recommendations if item["busy_level"] == "PEAK"]
+        if peak_hours:
+            peak_str = ", ".join([f"{ph}시" for ph in peak_hours])
+            summary = (
+                f"분석 결과, {target_date}에는 {peak_str}에 강한 매출 피크가 예상되어 최대로 알바생(3명)을 집중 배치할 것을 권장합니다. "
+                f"하루 총 예상 매출은 {total_predicted_sales:,}원, 예상 마진 이익은 {total_predicted_profit:,}원입니다. "
+                f"피크 외 시간대에는 1명으로 인력을 통제하여 예상 인건비 지출({estimated_payroll_cost:,}원) 대비 수익 효율을 극대화하세요."
+            )
+        else:
+            summary = (
+                f"{target_date}에는 뚜렷한 피크타임 없이 전반적으로 평이하거나 한산할 것으로 분석됩니다. "
+                f"하루 총 예상 매출은 {total_predicted_sales:,}원, 예상 마진 이익은 {total_predicted_profit:,}원입니다. "
+                f"영업 시간 내내 최소 인원(1명)으로 유연하게 조율하여 고정 인건비 지출({estimated_payroll_cost:,}원)을 방지하시는 것을 추천합니다."
+            )
+
+        return {
+            "target_date": target_date,
+            "hourly_recommendations": hourly_recommendations,
+            "total_recommended_hours": total_recommended_hours,
+            "estimated_payroll_cost": estimated_payroll_cost,
+            "summary": summary
         }
 
 
