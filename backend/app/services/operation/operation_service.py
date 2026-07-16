@@ -239,13 +239,19 @@ class OperationService:
     @staticmethod
     def build_operation_rag_documents(schedules: List[Any]) -> List[dict]:
         """스케줄 일정 데이터를 RAG 문서 리스트 형태로 변환합니다."""
+        # 실제 데이터베이스 연결을 직접 열어 직원 정보를 안전하게 조회합니다.
+        from app.core.database import SessionLocal
+
         rag_docs = []
-        for idx, schedule in enumerate(schedules, 1):
-            emp_id = getattr(schedule, "employee_id", 0)
-            emp_name = f"직원(ID:{emp_id})"
-            # 가상 DB에서 직원 이름 매핑 시도
-            if emp_id in _employees_db:
-                emp_name = _employees_db[emp_id].name
+        with SessionLocal() as db:
+            for idx, schedule in enumerate(schedules, 1):
+                emp_id = getattr(schedule, "employee_id", 0)
+                emp_name = f"직원(ID:{emp_id})"
+                
+                # 데이터베이스에서 실제 해당 직원의 정보를 쿼리합니다.
+                employee = db.query(Employee).filter(Employee.id == emp_id).first()
+                if employee:
+                    emp_name = employee.name
 
             start_str = schedule.start_time.strftime("%H:%M") if hasattr(schedule.start_time, "strftime") else str(schedule.start_time)
             end_str = schedule.end_time.strftime("%H:%M") if hasattr(schedule.end_time, "strftime") else str(schedule.end_time)

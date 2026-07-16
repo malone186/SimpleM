@@ -150,33 +150,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const updateProfile = useCallback(
     async (patch: { name?: string; password?: string; photo?: string }) => {
-      if (!user) return;
+      if (!user || !token) return;
+
+      // 1. 서버의 프로필 수정 API를 호출하여 데이터베이스에 변경 내역을 영속화합니다.
+      const response = await fetch(`${API_BASE_URL}/api/v1/auth/profile`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: patch.name?.trim() ? patch.name.trim() : undefined,
+          password: patch.password ? patch.password : undefined,
+          store_name: patch.name?.trim() ? patch.name.trim() : undefined, // 기획안에 맞춰 매장명을 닉네임과 연동합니다.
+        }),
+      });
+
+      // 2. 서버 에러 발생 시 예외 처리를 거칩니다.
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || '프로필 수정 요청에 실패했습니다.');
+      }
+
+      // 3. 서버 정상 갱신 완료 후 로컬 샌드박스 스토리지 캐시 및 사용자 상태를 동기화합니다.
+      const data = await response.json();
+      const updated: User = {
+        email: data.email,
+        name: data.name,
+        photo: patch.photo !== undefined ? patch.photo : user.photo,
+      };
+
       const users = await readUsers();
       const next = users.map((u) =>
         u.email === user.email
           ? {
               ...u,
-              name: patch.name?.trim() ? patch.name.trim() : u.name,
+              name: data.name,
               password: patch.password ? patch.password : u.password,
               photo: patch.photo !== undefined ? patch.photo : u.photo,
             }
           : u
       );
       await AsyncStorage.setItem(USERS_KEY, JSON.stringify(next));
-      const updated: User = {
-        email: user.email,
-        name: patch.name?.trim() || user.name,
-        photo: patch.photo !== undefined ? patch.photo : user.photo,
-      };
       setUser(updated);
-      // 자동 로그인 세션이 있으면 토큰 등 기존 값은 유지하며 갱신
+
+      // 자동 로그인 세션이 있으면 토큰 등 기존 값은 유지하며 갱신합니다.
       const raw = await AsyncStorage.getItem(SESSION_KEY);
       if (raw) {
         const prev = JSON.parse(raw);
         await AsyncStorage.setItem(SESSION_KEY, JSON.stringify({ ...prev, ...updated }));
       }
     },
-    [user]
+    [user, token]
   );
 
   return (
