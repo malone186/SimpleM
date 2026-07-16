@@ -1,7 +1,7 @@
 // 공동 소유 — 탭 추가 시 알파벳순 정렬, 팀 공지
 // PRD §6 화면 5개: 대시보드 / 재고 / 발주 / 챗봇 / 운영
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Platform, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -128,18 +128,37 @@ function TabsNavigator() {
       screenOptions={({ route }) => ({
         headerShown: false,
         animation: 'shift', // 탭 전환 시 콘텐츠가 스르륵 밀려 들어옴
-        tabBarActiveTintColor: colors.pointOrange,
+        tabBarActiveTintColor: colors.pointOrange, // [아이폰 스타일] 웰컴 테마와 매칭되는 활기찬 포인트 오렌지 적용
         tabBarInactiveTintColor: colors.mochaBrown,
         tabBarStyle: {
-          backgroundColor: colors.white,
-          borderTopColor: colors.mutedSand,
-          height: 64,
-          paddingBottom: 8,
-          paddingTop: 6,
+          backgroundColor: 'rgba(250, 249, 246, 0.96)', // [아이폰 스타일] 맑고 투명도가 살짝 도는 오프화이트 틴트
+          borderTopWidth: 0.8,
+          borderTopColor: 'rgba(140, 111, 86, 0.08)', // 은은하고 세련된 초슬림 엣지
+          height: Platform.OS === 'ios' ? 92 : 84, // [한글 주석: 글씨 잘림 해결] 전체 높이를 시원하게 키워 렌더링 공간 확보
+          paddingBottom: Platform.OS === 'ios' ? 24 : 10, // [한글 주석: 가독성 보정] 패딩 소모량을 줄여 내부 콘텐츠가 위로 오를 수 있는 가용 높이를 극대화함
+          paddingTop: 8,
+          shadowColor: '#4E3629',
+          shadowOffset: { width: 0, height: -3 },
+          shadowOpacity: 0.04,
+          shadowRadius: 10,
+          elevation: 8,
+          // 웹 브라우저 등에서 하단 스크롤이 비치도록 블러 추가
+          ...Platform.select({
+            web: {
+              backdropFilter: 'blur(20px)',
+              WebkitBackdropFilter: 'blur(20px)',
+            }
+          })
         },
-        tabBarLabelStyle: { ...typography.L5, fontWeight: '700' },
+        tabBarLabelStyle: { 
+          fontSize: 10.5, // [가독성 보강] 너무 뚱뚱하지 않고 콤팩트한 폰트 사이즈
+          fontWeight: '700',
+          marginTop: 2,
+          letterSpacing: -0.2, // 세련된 자간 튜닝
+        },
         tabBarIcon: ({ color, size }) => (
-          <Ionicons name={ICONS[route.name]} size={size ?? 22} color={color} />
+          <Ionicons name={ICONS[route.name]} size={size ?? 20} color={color} // 아이콘 비례 조절
+          />
         ),
         tabBarLabel: LABELS[route.name],
       })}

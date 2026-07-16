@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, RefreshControl, StyleSheet, View } from 'react-native';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
+import Svg, { Defs, LinearGradient, Stop, Path, Circle, Filter, FeGaussianBlur } from 'react-native-svg';
 
 import { useAuth } from '../../auth/AuthContext';
 import ManagementReportCard from '../../components/dashboard/ManagementReportCard';
@@ -9,8 +10,8 @@ import QuickOrderModal from '../../components/dashboard/QuickOrderModal';
 import SalesCard from '../../components/dashboard/SalesCard';
 import TodoList, { type Todo } from '../../components/dashboard/TodoList';
 import WelcomeHeader from '../../components/dashboard/WelcomeHeader';
-import { FadeInUp } from '../../components/motion';
-import { colors, spacing } from '../../theme';
+import { FadeInUp, PressableScale } from '../../components/motion';
+import { colors, spacing, typography, shadows } from '../../theme';
 
 const INITIAL_TODOS: Todo[] = [
   {
@@ -83,6 +84,33 @@ export default function DashboardScreen() {
 
   return (
     <View style={styles.root}>
+      {/* 
+        [한글 주석: 전역 오로라 배경]
+        헤더 내에 갇혀 끊겨 보이던 오로라 가우시안 블러 배경을 스크린 전역 백그라운드로 배치했습니다.
+      */}
+      <View style={StyleSheet.absoluteFill}>
+        <Svg width="100%" height="100%" preserveAspectRatio="none">
+          <Defs>
+            {/* [한글 주석: 수직 오로라 그라데이션] 상단은 딥 브라운이나 아래로 갈수록 바디 시트 색상(creamSand)으로 자연스럽게 녹아듭니다 */}
+            <LinearGradient id="auroraGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+              <Stop offset="0%" stopColor="#1E1612" />
+              <Stop offset="35%" stopColor="#251C17" />
+              <Stop offset="70%" stopColor="#6E5544" stopOpacity="0.35" />
+              <Stop offset="100%" stopColor={colors.creamSand} />
+            </LinearGradient>
+            
+            <Filter id="auroraGlow" x="-50%" y="-50%" width="200%" height="200%">
+              <FeGaussianBlur stdDeviation="70" />
+            </Filter>
+          </Defs>
+          <Path d="M0 0 H2000 V2000 H0 Z" fill="url(#auroraGrad)" />
+          {/* 글로우 원들을 상부 웰컴 영역에만 배치하여 하부 화이트 카드 부근엔 맑게 스며들도록 함 */}
+          <Circle cx="85%" cy="12%" r="140" fill="#E28257" filter="url(#auroraGlow)" opacity="0.25" />
+          <Circle cx="15%" cy="22%" r="130" fill="#C29D7A" filter="url(#auroraGlow)" opacity="0.2" />
+          <Circle cx="60%" cy="4%" r="120" fill="#88BCB5" filter="url(#auroraGlow)" opacity="0.16" />
+        </Svg>
+      </View>
+
       <Animated.ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
@@ -111,6 +139,10 @@ export default function DashboardScreen() {
           />
         </Animated.View>
 
+        {/* 
+          [한글 주석: 대형 모서리 라운딩 바디 카드시트]
+          배경 오로라와 툭 끊김 없이 자연스럽게 감싸안는 화이트-그레이 베이지 시트를 얹었습니다.
+        */}
         <View style={styles.body}>
           <FadeInUp key={`sales-${runId}`} delay={80}>
             <SalesCard key={`salescard-${runId}`} />
@@ -140,12 +172,16 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.creamSand },
+  root: { flex: 1, backgroundColor: '#1E1612' }, // Svg 로딩 지연 중 어두운 광원을 채우기 위한 딥 브라운 지정
   scroll: { flex: 1 },
-  content: { paddingBottom: 40 },
+  content: { paddingBottom: 0 },
   body: {
+    backgroundColor: colors.creamSand, // 원래 100% 불투명 오프화이트로 원복
+    borderTopLeftRadius: 36, // [iOS 스타일] 부드럽게 얹어지는 시트
+    borderTopRightRadius: 36,
     paddingHorizontal: spacing.globalPadding,
-    paddingTop: spacing.verticalGap,
+    paddingTop: spacing.verticalGap, // 원래 패딩값으로 복원
+    paddingBottom: 48,
     gap: spacing.verticalGap,
   },
 });

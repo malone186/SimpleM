@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Animated, LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { colors, typography } from '../../theme';
+import { colors, typography, shadows } from '../../theme';
 
 export function Segmented<T extends string>({
   options,
@@ -23,8 +23,8 @@ export function Segmented<T extends string>({
     Animated.spring(pos, {
       toValue: index * pillWidth,
       useNativeDriver: true,
-      speed: 16,
-      bounciness: 8,
+      speed: 26, // [스프링 튜닝] 더 기민하고 신속한 이동
+      bounciness: 4, // 쫀득한 안착을 위해 오버슛을 감소시킴
     }).start();
   }, [index, pillWidth, pos]);
 
@@ -52,11 +52,11 @@ export function Segmented<T extends string>({
 const styles = StyleSheet.create({
   track: {
     flexDirection: 'row',
-    backgroundColor: colors.coffeeCream,
+    backgroundColor: 'rgba(140, 111, 86, 0.08)', // [글라스모피즘 트랙] 부드러운 반투명 베이지
     borderRadius: 12,
     padding: 4,
-    borderWidth: 1,
-    borderColor: colors.mutedSand,
+    borderWidth: 0.8,
+    borderColor: 'rgba(140, 111, 86, 0.05)',
     position: 'relative',
   },
   pill: {
@@ -64,15 +64,16 @@ const styles = StyleSheet.create({
     top: 4,
     left: 4,
     bottom: 4,
-    backgroundColor: colors.white,
+    backgroundColor: colors.pointOrange, // [iOS 스타일] 사장님이 선택하신 딥 토프 브라운 (#6B5E55) 탑재
     borderRadius: 9,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    // [한글 주석: 안심 그림자 기입] 웹 런타임 스타일 붕괴를 예방하기 위한 직접 기입그림자
+    shadowColor: '#4E3629',
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
-    shadowRadius: 4,
+    shadowRadius: 6,
     elevation: 2,
   },
   item: { flex: 1, paddingVertical: 9, borderRadius: 9, alignItems: 'center' },
-  text: { ...typography.L4, color: colors.mochaBrown },
-  textActive: { color: colors.espressoBrown },
+  text: { fontSize: 12, fontWeight: '700', color: '#9C8875', letterSpacing: -0.2 }, // 비선택 텍스트
+  textActive: { color: colors.white, fontWeight: '800' }, // 선택 텍스트 (딥 브라운 캡슐 위에 하얗게 선명히 안착)
 });

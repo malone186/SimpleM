@@ -16,7 +16,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
 
 import { useAuth } from '../../auth/AuthContext';
-import { PressableScale } from '../../components/motion';
+import { FadeInUp, PressableScale } from '../../components/motion';
 import { colors, spacing, typography } from '../../theme';
 
 export default function ProfileScreen() {
@@ -69,64 +69,80 @@ export default function ProfileScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        {/* 프로필 사진 */}
-        <View style={styles.avatarWrap}>
-          <TouchableOpacity activeOpacity={0.85} onPress={pickPhoto}>
-            {photo ? (
-              <Image source={{ uri: photo }} style={styles.avatarImg} />
-            ) : (
-              <View style={styles.avatarFallback}>
-                <Text style={styles.avatarText}>{initial}</Text>
+        {/* [한글 주석] 프로필 사진 순차 등장 */}
+        <FadeInUp delay={50}>
+          <View style={styles.avatarWrap}>
+            <TouchableOpacity activeOpacity={0.85} onPress={pickPhoto}>
+              {photo ? (
+                <Image source={{ uri: photo }} style={styles.avatarImg} />
+              ) : (
+                <View style={styles.avatarFallback}>
+                  <Text style={styles.avatarText}>{initial}</Text>
+                </View>
+              )}
+              <View style={styles.camBadge}>
+                <Ionicons name="camera" size={16} color={colors.white} />
               </View>
-            )}
-            <View style={styles.camBadge}>
-              <Ionicons name="camera" size={16} color={colors.white} />
-            </View>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={pickPhoto}>
-            <Text style={styles.changePhoto}>사진 변경</Text>
-          </TouchableOpacity>
-          {photo ? (
-            <TouchableOpacity onPress={removePhoto}>
-              <Text style={styles.removePhoto}>기본 이미지로</Text>
             </TouchableOpacity>
-          ) : null}
-        </View>
+            <TouchableOpacity onPress={pickPhoto}>
+              <Text style={styles.changePhoto}>사진 변경</Text>
+            </TouchableOpacity>
+            {photo ? (
+              <TouchableOpacity onPress={removePhoto}>
+                <Text style={styles.removePhoto}>기본 이미지로</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </FadeInUp>
 
-        {/* 필드 */}
-        <Text style={styles.label}>상호 / 이름</Text>
-        <View style={styles.field}>
-          <Ionicons name="storefront-outline" size={18} color={colors.mochaBrown} />
-          <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="상호" placeholderTextColor={colors.mochaBrown} />
-        </View>
+        {/* [한글 주석] 상호/이름 필드 순차 등장 */}
+        <FadeInUp delay={120}>
+          <Text style={styles.label}>상호 / 이름</Text>
+          <View style={styles.field}>
+            <Ionicons name="storefront-outline" size={18} color={colors.mochaBrown} />
+            <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="상호" placeholderTextColor={colors.mochaBrown} />
+          </View>
+        </FadeInUp>
 
-        <Text style={styles.label}>이메일</Text>
-        <View style={[styles.field, styles.fieldDisabled]}>
-          <Ionicons name="mail-outline" size={18} color={colors.mochaBrown} />
-          <Text style={styles.readonly}>{user?.email}</Text>
-        </View>
+        {/* [한글 주석] 이메일 필드 순차 등장 */}
+        <FadeInUp delay={190}>
+          <Text style={styles.label}>이메일</Text>
+          <View style={[styles.field, styles.fieldDisabled]}>
+            <Ionicons name="mail-outline" size={18} color={colors.mochaBrown} />
+            <Text style={styles.readonly}>{user?.email}</Text>
+          </View>
+        </FadeInUp>
 
-        <Text style={styles.label}>새 비밀번호 (변경 시에만)</Text>
-        <View style={styles.field}>
-          <Ionicons name="lock-closed-outline" size={18} color={colors.mochaBrown} />
-          <TextInput
-            style={styles.input}
-            value={password}
-            onChangeText={setPassword}
-            placeholder="비워두면 그대로 유지"
-            placeholderTextColor={colors.mochaBrown}
-            secureTextEntry
-          />
-        </View>
+        {/* [한글 주석] 새 비밀번호 필드 순차 등장 */}
+        <FadeInUp delay={260}>
+          <Text style={styles.label}>새 비밀번호 (변경 시에만)</Text>
+          <View style={styles.field}>
+            <Ionicons name="lock-closed-outline" size={18} color={colors.mochaBrown} />
+            <TextInput
+              style={styles.input}
+              value={password}
+              onChangeText={setPassword}
+              placeholder="비워두면 그대로 유지"
+              placeholderTextColor={colors.mochaBrown}
+              secureTextEntry
+            />
+          </View>
+        </FadeInUp>
 
-        <PressableScale style={styles.saveBtn} onPress={save}>
-          <Text style={styles.saveText}>{saved ? '저장됐어요 ✓' : '저장하기'}</Text>
-        </PressableScale>
+        {/* [한글 주석] 저장 버튼 순차 등장 */}
+        <FadeInUp delay={330}>
+          <PressableScale style={styles.saveBtn} onPress={save}>
+            <Text style={styles.saveText}>{saved ? '저장됐어요 ✓' : '저장하기'}</Text>
+          </PressableScale>
+        </FadeInUp>
 
-        <PressableScale style={styles.logoutBtn} onPress={logout} to={0.98}>
-          <Ionicons name="log-out-outline" size={18} color="#B23B2E" />
-          <Text style={styles.logoutText}>로그아웃</Text>
-        </PressableScale>
+        {/* [한글 주석] 로그아웃 버튼 순차 등장 */}
+        <FadeInUp delay={400}>
+          <PressableScale style={styles.logoutBtn} onPress={logout} to={0.98}>
+            <Ionicons name="log-out-outline" size={18} color="#B23B2E" />
+            <Text style={styles.logoutText}>로그아웃</Text>
+          </PressableScale>
+        </FadeInUp>
       </ScrollView>
     </KeyboardAvoidingView>
   );
