@@ -8,7 +8,6 @@ import { Ionicons } from '@expo/vector-icons';
 
 import EmptyState from '../../components/brew/EmptyState';
 import { PressableScale } from '../../components/motion';
-import ForecastCard from '../../components/order/ForecastCard';
 import { Badge, Card, Divider, Screen, ScreenTitle } from '../../components/ui';
 import { colors, typography } from '../../theme';
 import { listOrderDrafts, OrderDraft } from '../../lib/api/inventory';
@@ -105,7 +104,6 @@ export default function OrderScreen() {
     return (
       <Screen>
         <ScreenTitle title="발주 추천" />
-        <ForecastCard />
         <EmptyState
           mood="resting"
           title="지금은 추천할 발주가 없어요"
@@ -121,9 +119,6 @@ export default function OrderScreen() {
         title="발주 추천"
         subtitle={`부족 재고 기반 추천 ${drafts.length}건 · 실제 발주는 거래처에 직접 진행하세요`}
       />
-
-      {/* GPS·날씨·요일·행사 + POS 시계열 예측 — 발주 판단의 근거 */}
-      <ForecastCard />
 
       {drafts.map((d) => (
         <Card key={d.id}>

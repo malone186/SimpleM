@@ -349,6 +349,59 @@ def _order_recommendations(db, store_id: str, week_cups: float) -> list[dict[str
     return recs
 
 
+def _load_hourly_shares(db, store_id: str, target_weekday: int) -> dict[str, float]:
+    """
+    최근 60일간 동일 요일(target_weekday)의 판매 시간대(09시, 12시, 15시, 18시) 비중을 구한다.
+    자료가 없으면 균등 분배(각 25%) 또는 디폴트 비중을 사용한다.
+    """
+    import pandas as pd
+    from datetime import date, timedelta
+    from app.models.inventory import Sale
+
+    since = (date.today() - timedelta(days=60)).isoformat()
+    rows = (
+        db.query(Sale.sold_at, Sale.quantity)
+        .filter(Sale.store_id == store_id, Sale.sold_at >= since)
+        .all()
+    )
+    if not rows:
+        return {"09시": 0.1, "12시": 0.4, "15시": 0.3, "18시": 0.2}
+
+    df = pd.DataFrame(rows, columns=["sold_at", "quantity"])
+    df["sold_at"] = pd.to_datetime(df["sold_at"])
+    df["weekday"] = df["sold_at"].dt.weekday
+    df["hour"] = df["sold_at"].dt.hour
+
+    # 해당 요일 데이터만 추출
+    df_day = df[df["weekday"] == target_weekday]
+    if df_day.empty:
+        df_day = df  # 해당 요일 데이터가 없으면 전체 평균 사용
+
+    # 시간대별 카테고리화
+    # 09시: 00시 ~ 11시 미만
+    # 12시: 11시 ~ 14시 미만
+    # 15시: 14시 ~ 17시 미만
+    # 18시: 17시 ~ 24시 이하
+    def categorize_hour(h):
+        if h < 11: return "09시"
+        elif h < 14: return "12시"
+        elif h < 17: return "15시"
+        else: return "18시"
+
+    df_day["hour_bin"] = df_day["hour"].apply(categorize_hour)
+    grouped = df_day.groupby("hour_bin")["quantity"].sum()
+    total_qty = grouped.sum()
+
+    if total_qty == 0:
+        return {"09시": 0.25, "12시": 0.25, "15시": 0.25, "18시": 0.25}
+
+    shares = {}
+    for h_bin in ["09시", "12시", "15시", "18시"]:
+        shares[h_bin] = float(grouped.get(h_bin, 0) / total_qty)
+
+    return shares
+
+
 # ---------------------------------------------------------------------------
 # 공개 인터페이스
 # ---------------------------------------------------------------------------
@@ -416,12 +469,29 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
         week_cups = sum(d["cups"] for d in week)
         recommendations = _order_recommendations(db, store_id, week_cups)
 
+        # 내일의 시간대별 예측 (Top-down 분배)
+        tomorrow_date = start
+        tomorrow_weekday = tomorrow_date.weekday()
+        shares = _load_hourly_shares(db, store_id, tomorrow_weekday)
+
+        tomorrow_cups = week[0]["cups"]
+        tomorrow_revenue = week[0]["revenue"]
+
+        tomorrow_hourly = []
+        for h_bin in ["09시", "12시", "15시", "18시"]:
+            tomorrow_hourly.append({
+                "hour": h_bin,
+                "cups": round(tomorrow_cups * shares[h_bin]),
+                "revenue": round(tomorrow_revenue * shares[h_bin])
+            })
+
     return {
         "store_id": store_id,
         "location": {"lat": lat, "lon": lon, "region": region},
         "model": model_name,
         "history_days": len(series),
         "tomorrow": week[0],
+        "tomorrow_hourly": tomorrow_hourly,
         "week": week,
         "week_total": {"cups": week_cups, "revenue": sum(d["revenue"] for d in week)},
         "order_recommendations": recommendations,

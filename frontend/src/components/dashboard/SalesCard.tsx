@@ -1,20 +1,33 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import Svg, { Defs, LinearGradient, Stop, Path, Circle, Line } from 'react-native-svg';
+import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View, ActivityIndicator } from 'react-native';
+import Svg, { Defs, LinearGradient, Stop, Path, Circle, Line, Text as SvgText, Rect, G } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 
 import { colors, spacing, typography, shadows } from '../../theme';
 import { useCountUp } from '../motion';
 import { PressableScale } from '../motion';
+import { useAuth } from '../../auth/AuthContext';
+import { getSalesForecast, getDevicePosition, type SalesForecast, type ForecastDay } from '../../lib/api/forecast';
 
 // (삭제함 - Web 호환성을 위해 addListener + 일반 Circle을 사용하도록 개선)
 
-// 차트 트렌드 라인 패스 정의 (원래의 부드럽고 정돈된 패스로 원상복구)
-const LINE = 'M 10 90 C 60 85, 90 88, 130 80 C 170 72, 210 75, 250 62 L 290 50';
-const FILL = `${LINE} L 290 100 L 10 100 Z`;
+// 차트 트렌드 라인 패스 정의 (시간별 포인트와 정확히 정합되는 꺾은선)
+const REALTIME_LINE = 'M 24 100 L 108 78 L 198 63 L 290 55';
+const REALTIME_FILL = 'M 24 100 L 108 78 L 198 63 L 290 55 L 290 120 L 24 120 Z';
 
 // 캘린더 요일 및 데이터 셋 (영어 대문자로 세련되게 전환)
 const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+
+const WEATHER_ICON: Record<string, keyof typeof Ionicons.glyphMap> = {
+  맑음: 'sunny-outline',
+  구름: 'partly-sunny-outline',
+  흐림: 'cloud-outline',
+  비: 'rainy-outline',
+  소나기: 'rainy-outline',
+  뇌우: 'thunderstorm-outline',
+  눈: 'snow-outline',
+  안개: 'cloud-outline',
+};
 
 type DailyDetail = {
   income: number;
@@ -207,10 +220,93 @@ function SlidingTabToggle({
 
 // [한글 주석] onPressReport 콜백을 받아와 리포트 배너의 이벤트를 바인딩합니다.
 export default function SalesCard({ onPressReport }: { onPressReport?: () => void }) {
+  const { token } = useAuth();
+  const [forecast, setForecast] = useState<SalesForecast | null>(null);
+  const [loadingForecast, setLoadingForecast] = useState(false);
+
   const [isMonthly, setIsMonthly] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null); // [한글 주석: 선택한 날짜의 상세 매출 분석 모달 노출 상태 변수]
+  const [selectedFutureDate, setSelectedFutureDate] = useState<string | null>(null);
+  const [activeTooltip, setActiveTooltip] = useState<{
+    x: number;
+    y: number;
+    title: string;
+    value: string;
+  } | null>(null);
+
+  const futureForecasts = forecast ? forecast.week.reduce<Record<string, ForecastDay>>((acc, d) => {
+    const day = String(Number(d.date.slice(-2))); 
+    acc[day] = d;
+    return acc;
+  }, {}) : {};
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      setLoadingForecast(true);
+      try {
+        const pos = await getDevicePosition();
+        const data = await getSalesForecast(token, pos?.lat, pos?.lon);
+        if (!cancelled) {
+          setForecast(data);
+        }
+      } catch (e) {
+        console.error('대시보드 판매 예측 조회 실패:', e);
+      } finally {
+        if (!cancelled) setLoadingForecast(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
   const targetValue = isMonthly ? 12480000 : 428500;
   const amount = useCountUp(targetValue, 1100, [isMonthly]);
+
+  const todayRevenue = 428500;
+  const tomorrowRevenue = forecast?.tomorrow.revenue ?? 480000;
+  const tomorrowCups = forecast?.tomorrow.cups ?? 165;
+
+  let predY = 55;
+  if (tomorrowRevenue && todayRevenue) {
+    const ratio = tomorrowRevenue / todayRevenue;
+    predY = 50 - (ratio - 1) * 50;
+    predY = Math.max(15, Math.min(85, predY));
+  }
+
+  // 내일 시간대별 매출 예측 연산 및 Svg 드로잉 패스 연산 (누적 기준)
+  const hourlyForecast = forecast?.tomorrow_hourly ?? [
+    { hour: '09시', cups: 15, revenue: 45000 },
+    { hour: '12시', cups: 65, revenue: 195000 },
+    { hour: '15시', cups: 50, revenue: 150000 },
+    { hour: '18시', cups: 35, revenue: 105000 }
+  ];
+
+  // 누적 잔수 및 매출액 계산
+  const tomorrowCupsCum = [
+    hourlyForecast[0].cups,
+    hourlyForecast[0].cups + hourlyForecast[1].cups,
+    hourlyForecast[0].cups + hourlyForecast[1].cups + hourlyForecast[2].cups,
+    hourlyForecast[0].cups + hourlyForecast[1].cups + hourlyForecast[2].cups + hourlyForecast[3].cups,
+  ];
+
+  const tomorrowRevCum = [
+    hourlyForecast[0].revenue,
+    hourlyForecast[0].revenue + hourlyForecast[1].revenue,
+    hourlyForecast[0].revenue + hourlyForecast[1].revenue + hourlyForecast[2].revenue,
+    hourlyForecast[0].revenue + hourlyForecast[1].revenue + hourlyForecast[2].revenue + hourlyForecast[3].revenue,
+  ];
+
+  const maxForecastRev = tomorrowRevCum[3] || 1;
+  // Y좌표 범위: 25(상단) ~ 105(하단)
+  const yForecast09 = 105 - (tomorrowRevCum[0] / maxForecastRev) * 80;
+  const yForecast12 = 105 - (tomorrowRevCum[1] / maxForecastRev) * 80;
+  const yForecast15 = 105 - (tomorrowRevCum[2] / maxForecastRev) * 80;
+  const yForecast18 = 105 - (tomorrowRevCum[3] / maxForecastRev) * 80; // 최대 매출은 Y=25 부근
+
+  const forecastLinePath = `M 24 ${yForecast09} L 108 ${yForecast12} L 198 ${yForecast15} L 290 ${yForecast18}`;
+  const forecastFillPath = `M 24 ${yForecast09} L 108 ${yForecast12} L 198 ${yForecast15} L 290 ${yForecast18} L 290 120 L 24 120 Z`;
 
   // [한글 주석] 펄스 애니메이션 구동 제어
   const pulse = useRef(new Animated.Value(0)).current;
@@ -256,6 +352,14 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
         <View style={{ flex: 1, alignItems: 'flex-start' }}>
           <SlidingTabToggle value={isMonthly} onChange={setIsMonthly} />
           <Text style={[styles.amount, { marginTop: 6 }]}>₩ {amount.toLocaleString()}</Text>
+          {!isMonthly && (
+            <View style={[styles.forecastBadge, { marginTop: 6, alignSelf: 'flex-start' }]}>
+              <Ionicons name="sparkles" size={10} color={colors.white} />
+              <Text style={styles.forecastBadgeText}>
+                내일 {tomorrowCups}잔 예측 (₩{Math.round(tomorrowRevenue / 10000)}만)
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* 성장폭 뱃지 */}
@@ -277,26 +381,37 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
           <View style={styles.calendarGrid}>
             {CALENDAR_ITEMS.map((item, idx) => {
               const hasData = item.date && SALES_DETAILS[item.date];
+              const isFuture = item.date && (Number(item.date) >= 16 && Number(item.date) <= 22);
               return (
                 <PressableScale 
                   key={idx} 
-                  disabled={!hasData}
-                  onPress={() => hasData && setSelectedDate(item.date)}
+                  disabled={!hasData && !isFuture}
+                  onPress={() => {
+                    if (hasData) setSelectedDate(item.date);
+                    else if (isFuture) setSelectedFutureDate(item.date);
+                  }}
                   style={[
                     styles.calendarCell,
                     item.date === '15' && styles.calendarTodayCell,
-                    !hasData && { opacity: 0.35 } // 매출 데이터가 없는 비활성 날짜는 옅게 처리
+                    isFuture && { backgroundColor: 'rgba(140, 111, 86, 0.04)' }, // 미래 예측일은 연한 브라운 틴트
+                    !hasData && !isFuture && { opacity: 0.35 } // 매출 데이터도 없고 미래 예측도 불가능하면 옅게
                   ]}
                   to={0.9}
                 >
                   <Text style={[
                     styles.calendarDateText,
-                    item.date === '15' && styles.calendarTodayText
+                    item.date === '15' && styles.calendarTodayText,
+                    isFuture && { color: colors.mochaBrown }
                   ]}>{item.date}</Text>
                   {item.income > 0 && (
                     <Text style={styles.calendarIncomeText}>
                       {/* [한글 주석: 사용자의 직관적인 '만' 단위 원복 요구 반영 (소수 첫째자리 내림 포맷)] */}
                       {`+${(item.income / 10000) % 1 === 0 ? item.income / 10000 : (Math.floor((item.income / 10000) * 10) / 10)}만`}
+                    </Text>
+                  )}
+                  {isFuture && (
+                    <Text style={[styles.calendarIncomeText, { color: colors.mochaBrown, fontSize: 7 }]}>
+                      {futureForecasts[item.date] ? `+${futureForecasts[item.date].cups}잔` : '예측'}
                     </Text>
                   )}
                 </PressableScale>
@@ -305,51 +420,144 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
           </View>
         </View>
       ) : (
-        <View style={styles.chartWrap}>
-          <Svg width="100%" height="100" viewBox="0 0 300 100" preserveAspectRatio="none">
-            <Defs>
-              <LinearGradient id="salesFill" x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0" stopColor={colors.mochaBrown} stopOpacity="0.12" />
-                <Stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
-              </LinearGradient>
-            </Defs>
+        <View>
+          {/* 오늘 / 내일 예측 범례 (Legend) */}
+          <View style={styles.legendContainer}>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendColorDot, { backgroundColor: colors.mochaBrown }]} />
+              <Text style={styles.legendText}>오늘 실시간</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendColorDot, { backgroundColor: colors.pointOrange }]} />
+              <Text style={styles.legendText}>내일 AI 예측</Text>
+            </View>
+          </View>
 
-            {/* 그리드 가로선 */}
-            <Line x1="10" y1="20" x2="290" y2="20" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
-            <Line x1="10" y1="50" x2="290" y2="50" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
-            <Line x1="10" y1="80" x2="290" y2="80" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
+          <View style={styles.chartWrap}>
+            <Svg width="100%" height="120" viewBox="0 0 300 130" preserveAspectRatio="none">
+              <Defs>
+                <LinearGradient id="todayFill" x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset="0" stopColor={colors.mochaBrown} stopOpacity="0.08" />
+                  <Stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
+                </LinearGradient>
+                <LinearGradient id="tomorrowFill" x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset="0" stopColor={colors.pointOrange} stopOpacity="0.08" />
+                  <Stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
+                </LinearGradient>
+              </Defs>
 
-            {/* [한글 주석: 세로 보조 점선 눈금] 스크린샷 시안과 동일하게 시간대 텍스트 축에 맞춤 */}
-            <Line x1="24" y1="90" x2="24" y2="82" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
-            <Line x1="108" y1="90" x2="108" y2="76" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
-            <Line x1="198" y1="90" x2="198" y2="60" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
+              {/* 툴팁 닫기용 투명 배경 클릭 타겟 (세로 확장 130 대응) */}
+              <Rect width="300" height="130" fill="transparent" onPress={() => setActiveTooltip(null)} />
 
-            <Path d={FILL} fill="url(#salesFill)" />
-            <Path d={LINE} stroke={colors.mochaBrown} strokeWidth={2} fill="none" strokeLinecap="round" />
-            
-            {/* 고정 피크 점 */}
-            <Circle cx={290} cy={50} r={3} fill={colors.trendGreenText} />
-            
-            {/* 
-              [한글 주석: Svg 내부 펄스 링] 
-              cx={290}, cy={50} 좌표를 고정 피크 점과 완벽히 일치시켜
-              화면 가로 폭 리사이징 시에도 단 0.1px의 엇갈림도 발생하지 않게 보장합니다.
-            */}
-            <Circle
-              cx={290}
-              cy={50}
-              r={pulseRadius}
-              fill={colors.trendGreenText}
-              opacity={pulseOpacity}
-            />
-          </Svg>
+              {/* 그리드 가로선 (세로 확장 정렬) */}
+              <Line x1="10" y1="25" x2="290" y2="25" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
+              <Line x1="10" y1="65" x2="290" y2="65" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
+              <Line x1="10" y1="105" x2="290" y2="105" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
 
-          {/* X축 */}
-          <View style={styles.xAxis}>
-            <Text style={styles.xAxisText}>09시</Text>
-            <Text style={styles.xAxisText}>12시</Text>
-            <Text style={styles.xAxisText}>15시</Text>
-            <Text style={[styles.xAxisText, { color: colors.trendGreenText, fontWeight: '700', opacity: 0.95 }]}>실시간</Text>
+              {/* 세로 보조 점선 눈금 */}
+              <Line x1="24" y1="115" x2="24" y2="108" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
+              <Line x1="108" y1="115" x2="108" y2="85" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
+              <Line x1="198" y1="115" x2="198" y2="70" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
+              <Line x1="290" y1="115" x2="290" y2="62" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
+
+              {/* 1. 오늘 그래프 드로잉 */}
+              <Path d={REALTIME_FILL} fill="url(#todayFill)" />
+              <Path d={REALTIME_LINE} stroke={colors.mochaBrown} strokeWidth={2.3} fill="none" strokeLinecap="round" />
+              
+              {/* 오늘 실시간 펄스 링 & 고정 피크 점 (Y=55 밀착) */}
+              <Circle cx={290} cy={55} r={3.5} fill={colors.trendGreenText} />
+              <Circle
+                cx={290}
+                cy={55}
+                r={pulseRadius}
+                fill={colors.trendGreenText}
+                opacity={pulseOpacity}
+              />
+
+              {/* 2. 내일 그래프 드로잉 */}
+              <Path d={forecastFillPath} fill="url(#tomorrowFill)" />
+              <Path d={forecastLinePath} stroke={colors.pointOrange} strokeWidth={2.3} strokeDasharray="4,4" fill="none" strokeLinecap="round" />
+              
+              {/* 내일 펄스 링 & 최종 예측 피크 점 */}
+              <Circle cx={290} cy={yForecast18} r={3.5} fill={colors.pointOrange} />
+              <Circle
+                cx={290}
+                cy={yForecast18}
+                r={pulseRadius}
+                fill={colors.pointOrange}
+                opacity={pulseOpacity}
+              />
+
+              {/* 3. 오늘 데이터 포인트 (터치용 보이지 않는 큰 Circle 영역 포함, Y좌표 꺾은선 일치) */}
+              <Circle cx={24} cy={100} r={3.5} fill={colors.mochaBrown} />
+              <Circle cx={24} cy={100} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 24, y: 100, title: '오늘 09시', value: '실제 25잔' })} />
+              
+              <Circle cx={108} cy={78} r={3.5} fill={colors.mochaBrown} />
+              <Circle cx={108} cy={78} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 108, y: 78, title: '오늘 12시', value: '실제 87잔' })} />
+
+              <Circle cx={198} cy={63} r={3.5} fill={colors.mochaBrown} />
+              <Circle cx={198} cy={63} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 198, y: 63, title: '오늘 15시', value: '실제 127잔' })} />
+
+              <Circle cx={290} cy={55} r={4} fill={colors.trendGreenText} />
+              <Circle cx={290} cy={55} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 290, y: 55, title: '오늘 실시간', value: '실제 142잔' })} />
+
+              {/* 4. 내일 데이터 포인트 (터치 영역 포함) */}
+              <Circle cx={24} cy={yForecast09} r={3.5} fill={colors.pointOrange} />
+              <Circle cx={24} cy={yForecast09} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 24, y: yForecast09, title: '내일 09시', value: `예측 ${tomorrowCupsCum[0]}잔` })} />
+              
+              <Circle cx={108} cy={yForecast12} r={3.5} fill={colors.pointOrange} />
+              <Circle cx={108} cy={yForecast12} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 108, y: yForecast12, title: '내일 12시', value: `예측 ${tomorrowCupsCum[1]}잔` })} />
+
+              <Circle cx={198} cy={yForecast15} r={3.5} fill={colors.pointOrange} />
+              <Circle cx={198} cy={yForecast15} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 198, y: yForecast15, title: '내일 15시', value: `예측 ${tomorrowCupsCum[2]}잔` })} />
+
+              <Circle cx={290} cy={yForecast18} r={4} fill={colors.pointOrange} />
+              <Circle cx={290} cy={yForecast18} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 290, y: yForecast18, title: '내일 18시', value: `예측 ${tomorrowCupsCum[3]}잔` })} />
+
+              {/* 5. activeTooltip 플로팅 말풍선 렌더링 (양 끝 잘림 방지용 X 클램핑 공식 탑재) */}
+              {activeTooltip && (() => {
+                const rectX = Math.max(10, Math.min(200, activeTooltip.x - 45));
+                const textX = rectX + 45;
+                return (
+                  <G>
+                    {/* 말풍선 배경 사각형 */}
+                    <Rect
+                      x={rectX}
+                      y={activeTooltip.y - 30}
+                      width={90}
+                      height={18}
+                      rx={5}
+                      fill={colors.espressoBrown}
+                    />
+                    {/* 말풍선 꼬리 (항상 터치한 좌표 x를 조준) */}
+                    <Path
+                      d={`M ${activeTooltip.x - 4} ${activeTooltip.y - 12} L ${activeTooltip.x} ${activeTooltip.y - 7} L ${activeTooltip.x + 4} ${activeTooltip.y - 12} Z`}
+                      fill={colors.espressoBrown}
+                    />
+                    <SvgText
+                      x={textX}
+                      y={activeTooltip.y - 18}
+                      fontSize="8"
+                      fontWeight="bold"
+                      fill={colors.white}
+                      textAnchor="middle"
+                    >
+                      {`${activeTooltip.title}: ${activeTooltip.value}`}
+                    </SvgText>
+                  </G>
+                );
+              })()}
+            </Svg>
+
+            {/* X축 */}
+            <View style={styles.xAxis}>
+              <Text style={styles.xAxisText}>09시</Text>
+              <Text style={styles.xAxisText}>12시</Text>
+              <Text style={styles.xAxisText}>15시</Text>
+              <Text style={[styles.xAxisText, { color: colors.mochaBrown, fontWeight: '700', opacity: 0.95 }]}>
+                18시
+              </Text>
+            </View>
           </View>
         </View>
       )}
@@ -357,8 +565,15 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
       {/* 하단 요약 정보 그리드 */}
       <View style={styles.footRow}>
         <View style={styles.footItem}>
-          <Text style={styles.footLabel}>판매 잔</Text>
-          <Text style={styles.footValue}>{salesCount}</Text>
+          <Text style={styles.footLabel}>{isMonthly ? '판매 잔' : '판매 잔 (오늘 / 내일예상)'}</Text>
+          <Text style={styles.footValue}>
+            {salesCount}
+            {!isMonthly && (
+              <Text style={{ fontSize: 11, color: colors.mochaBrown, fontWeight: 'normal' }}>
+                {` / ${tomorrowCups}잔`}
+              </Text>
+            )}
+          </Text>
         </View>
         <View style={styles.footItem}>
           <Text style={styles.footLabel}>객단가</Text>
@@ -471,6 +686,114 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
           </View>
         </View>
       </Modal>
+
+      {/* [한글 주석: 미래 날짜용 AI 판매량 예측 상세 모달] */}
+      <Modal
+        visible={selectedFutureDate !== null}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setSelectedFutureDate(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setSelectedFutureDate(null)} />
+          <View style={styles.modalContent}>
+            {selectedFutureDate && (
+              <View style={{ gap: 16 }}>
+                {/* 헤더 */}
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalDateTitle}>7월 {selectedFutureDate}일 AI 판매량 예측</Text>
+                  <Pressable onPress={() => setSelectedFutureDate(null)} style={{ padding: 4 }}>
+                    <Ionicons name="close" size={22} color={colors.espressoBrown} />
+                  </Pressable>
+                </View>
+
+                {/* 데이터가 없거나 로딩 중일 때 */}
+                {!futureForecasts[selectedFutureDate] ? (
+                  <View style={{ paddingVertical: 32, alignItems: 'center', justifyContent: 'center' }}>
+                    <ActivityIndicator size="small" color={colors.mochaBrown} style={{ marginBottom: 12 }} />
+                    <Text style={{ ...typography.L5, color: colors.mochaBrown }}>예측 정보를 불러오는 중입니다...</Text>
+                  </View>
+                ) : (
+                  (() => {
+                    const fDay = futureForecasts[selectedFutureDate] as ForecastDay;
+                    return (
+                      <View style={{ gap: 14 }}>
+                        {/* 예상 매출액 및 잔수 */}
+                        <View style={styles.modalIncomeBox}>
+                          <Text style={styles.modalIncomeLabel}>예상 판매량 및 매출</Text>
+                          <Text style={styles.modalIncomeValue}>
+                            {fDay.cups}잔{' '}
+                            <Text style={{ fontSize: 13, color: colors.mochaBrown, fontWeight: 'normal' }}>
+                              (₩{fDay.revenue.toLocaleString()})
+                            </Text>
+                          </Text>
+                        </View>
+
+                        {/* 세부 날씨 정보 */}
+                        {fDay.weather && (
+                          <View style={styles.detailRow}>
+                            <View style={styles.detailIconBg}>
+                              <Ionicons
+                                name={WEATHER_ICON[fDay.weather] ?? 'cloud-outline'}
+                                size={16}
+                                color={colors.pointOrange}
+                              />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.detailLabel}>예상 날씨</Text>
+                              <Text style={styles.detailValue}>
+                                {fDay.weather} {fDay.temp_max != null ? `· 최고 ${Math.round(fDay.temp_max)}°C` : ''}
+                                {fDay.precip_prob != null && fDay.precip_prob > 0 ? ` (강수확률 ${fDay.precip_prob}%)` : ''}
+                              </Text>
+                            </View>
+                          </View>
+                        )}
+
+                        {/* 공휴일 표기 */}
+                        {fDay.holiday && (
+                          <View style={[styles.detailRow, { backgroundColor: 'rgba(178,59,46,0.05)', borderRadius: 12, padding: 8 }]}>
+                            <View style={[styles.detailIconBg, { backgroundColor: 'rgba(178,59,46,0.1)' }]}>
+                              <Ionicons name="flag-outline" size={16} color="#B23B2E" />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.detailLabel, { color: '#B23B2E' }]}>공휴일 지정</Text>
+                              <Text style={[styles.detailValue, { color: '#B23B2E' }]}>{fDay.holiday}</Text>
+                            </View>
+                          </View>
+                        )}
+
+                        {/* 보정 근거 / 주변 행사 리스트 */}
+                        <View style={styles.brewCommentBox}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                            <Text style={{ fontSize: 16 }}>📊</Text>
+                            <Text style={styles.brewCommentTitle}>예측 근거 상세</Text>
+                          </View>
+                          {fDay.adjustments.length === 0 ? (
+                            <Text style={[styles.brewCommentText, { fontStyle: 'normal' }]}>
+                              특별한 날씨 변화나 인근 행사가 없어 기본적인 시계열 추세를 기준으로 예측되었습니다.
+                            </Text>
+                          ) : (
+                            fDay.adjustments.map((a, i) => (
+                              <Text key={i} style={[styles.brewCommentText, { fontSize: 10, lineHeight: 14, marginBottom: 2 }]}>
+                                ✦ {a}
+                              </Text>
+                            ))
+                          )}
+                        </View>
+                      </View>
+                    );
+                  })()
+                )}
+
+                {/* 닫기 버튼 */}
+                <PressableScale onPress={() => setSelectedFutureDate(null)} style={styles.modalCloseBtn}>
+                  <Text style={styles.modalCloseText}>확인</Text>
+                </PressableScale>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -487,6 +810,29 @@ const styles = StyleSheet.create({
   headRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   label: { ...typography.L5, color: colors.mochaBrown, marginBottom: 4 },
   amount: { fontSize: 26, fontWeight: '900', color: colors.espressoBrown, letterSpacing: -0.5 },
+
+  legendContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+    marginBottom: 16,
+    marginTop: 14,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  legendColorDot: {
+    width: 8,
+    height: 4,
+    borderRadius: 1.5,
+  },
+  legendText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: colors.mochaBrown,
+  },
 
   toggleTrack: {
     width: 76,
@@ -531,6 +877,36 @@ const styles = StyleSheet.create({
   },
   toggleLabelTextActive: {
     color: colors.espressoBrown, // 캡슐 위의 어두운 활성 텍스트
+    fontWeight: '800',
+  },
+  chartToggleContainer: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(140, 111, 86, 0.06)',
+    borderRadius: 10,
+    padding: 2,
+    alignSelf: 'flex-start',
+    marginBottom: 10,
+  },
+  chartToggleBtn: {
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  chartToggleBtnActive: {
+    backgroundColor: colors.white,
+    shadowColor: '#4E3629',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1.5,
+    elevation: 1.5,
+  },
+  chartToggleText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#9C8875',
+  },
+  chartToggleTextActive: {
+    color: colors.espressoBrown,
     fontWeight: '800',
   },
 
@@ -596,10 +972,10 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   badgeText: { ...typography.L5, color: colors.trendGreenText, fontWeight: '700' },
-  chartWrap: { marginTop: 16, height: 112, position: 'relative' },
+  chartWrap: { marginTop: 16, height: 140, position: 'relative' },
   xAxis: {
     position: 'absolute',
-    bottom: -6,
+    bottom: -10,
     left: 8,
     right: 8,
     flexDirection: 'row',
@@ -607,10 +983,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   xAxisText: {
-    fontSize: 9,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
     color: colors.mochaBrown,
-    opacity: 0.65,
+    opacity: 0.9,
   },
   footRow: {
     flexDirection: 'row',
@@ -753,6 +1129,21 @@ const styles = StyleSheet.create({
   },
   modalCloseText: {
     fontSize: 14,
+    fontWeight: '800',
+    color: colors.white,
+  },
+  forecastBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.espressoBrown,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    alignSelf: 'center',
+  },
+  forecastBadgeText: {
+    fontSize: 9,
     fontWeight: '800',
     color: colors.white,
   },
