@@ -7,8 +7,7 @@ import { colors, spacing, typography, shadows } from '../../theme';
 import { useCountUp } from '../motion';
 import { PressableScale } from '../motion';
 
-// 애니메이션 적용을 위해 Circle 컴포넌트를 Animated 객체로 승격
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+// (삭제함 - Web 호환성을 위해 addListener + 일반 Circle을 사용하도록 개선)
 
 // 차트 트렌드 라인 패스 정의 (원래의 부드럽고 정돈된 패스로 원상복구)
 const LINE = 'M 10 90 C 60 85, 90 88, 130 80 C 170 72, 210 75, 250 62 L 290 50';
@@ -213,24 +212,34 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
   const targetValue = isMonthly ? 12480000 : 428500;
   const amount = useCountUp(targetValue, 1100, [isMonthly]);
 
-  // 펄스 애니메이션 구동 제어
+  // [한글 주석] 펄스 애니메이션 구동 제어
   const pulse = useRef(new Animated.Value(0)).current;
+  const [pulseVal, setPulseVal] = useState(0);
 
   useEffect(() => {
+    // [한글 주석] Web 환경의 Svg 렌더링 호환성 결함을 피하기 위해, Animated.Value의 변화량을
+    // addListener로 직접 감지하여 React 상태(pulseVal)로 반영합니다.
+    const listenerId = pulse.addListener(({ value }) => {
+      setPulseVal(value);
+    });
+
     const loop = Animated.loop(
       Animated.sequence([
-        // [한글 주석] Svg r(반지름) 속성 애니메이션을 위해 useNativeDriver를 false로 세팅합니다.
+        // [한글 주석] 수동 리스너 기반으로 동작하므로 useNativeDriver는 false로 세팅합니다.
         Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: false }),
         Animated.timing(pulse, { toValue: 0, duration: 900, useNativeDriver: false }),
       ])
     );
     loop.start();
-    return () => loop.stop();
+    return () => {
+      loop.stop();
+      pulse.removeListener(listenerId);
+    };
   }, [pulse]);
 
-  // [한글 주석: Svg 내부 펄스 링의 크기 및 투명도 인터폴레이션]
-  const pulseRadius = pulse.interpolate({ inputRange: [0, 1], outputRange: [4, 12] });
-  const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.6, 0] });
+  // [한글 주석] Svg 내부 펄스 링의 크기 및 투명도를 일반 숫자 값으로 실시간 계산합니다.
+  const pulseRadius = 4 + pulseVal * 8; // [0, 1] -> [4, 12]
+  const pulseOpacity = 0.6 - pulseVal * 0.6; // [0, 1] -> [0.6, 0]
 
   // 일/월별 상승 뱃지 텍스트
   const badgeText = isMonthly ? '▲ 8.7%' : '▲ 12.4%';
@@ -326,7 +335,7 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
               cx={290}, cy={50} 좌표를 고정 피크 점과 완벽히 일치시켜
               화면 가로 폭 리사이징 시에도 단 0.1px의 엇갈림도 발생하지 않게 보장합니다.
             */}
-            <AnimatedCircle
+            <Circle
               cx={290}
               cy={50}
               r={pulseRadius}

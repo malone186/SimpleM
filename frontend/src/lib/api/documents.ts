@@ -8,7 +8,8 @@ export type DocumentKind =
   | 'monthly_ledger'
   | 'vat_reference'
   | 'payslip'
-  | 'employment_contract';
+  | 'employment_contract'
+  | 'management_report';
 
 export const KIND_LABELS: Record<DocumentKind, string> = {
   purchase_order: '발주서',
@@ -18,6 +19,7 @@ export const KIND_LABELS: Record<DocumentKind, string> = {
   vat_reference: '부가세 참고자료',
   payslip: '임금명세서',
   employment_contract: '근로계약서',
+  management_report: 'AI 경영 리포트',
 };
 
 export type GeneratedDocument = {
@@ -82,6 +84,20 @@ export const createContract = (
     duties?: string;
   },
 ) => post<GeneratedDocument>(token, '/api/v1/chatbot/documents/contract', body);
+
+export type ReportPeriodType = 'daily' | 'weekly' | 'monthly';
+
+/** AI 경영 리포트 — 현재 기간(오늘/이번 주/이번 달) 리포트.
+ *  없으면 생성하고, 있으면 최신 수치로 갱신해 돌려준다 (기간당 문서 1개 유지). */
+export const getManagementReport = (
+  token: string,
+  periodType: ReportPeriodType,
+  refresh = true,
+) =>
+  apiFetch<GeneratedDocument>(
+    `/api/v1/chatbot/reports/management?period_type=${periodType}&refresh=${refresh}`,
+    { headers: auth(token) },
+  );
 
 /** 생성된 문서 목록 */
 export const listDocuments = (token: string, kind?: DocumentKind) =>

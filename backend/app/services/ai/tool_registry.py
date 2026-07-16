@@ -11,10 +11,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 _TOOL_MODULES = [
-    # "app.services.inventory_tools",            # 백엔드 A (구현 시 주석 해제)
+    "app.services.inventory_tools",              # 백엔드 A (재고/메뉴/레시피 도구 세트 활성화)
     "app.services.ai.document_tools",            # 백엔드 B (문서 자동화 — 구현 예정)
     "app.services.ai.ocr_tools",                 # 백엔드 B
-    "app.services.ai.report_tools",              # 백엔드 B (주간 리포트 — 구현 예정)
+    "app.services.ai.price_tools",               # 백엔드 B (인터넷 가격 비교)
+    "app.services.ai.report_tools",              # 백엔드 B (경영 리포트 — 일간·주간·월간)
     "app.services.operation.forecasting_tools",  # 백엔드 C
     "app.services.operation.operation_tools",    # 백엔드 C
     "app.services.operation.roastery_tools",     # 백엔드 C

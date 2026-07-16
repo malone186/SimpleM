@@ -12,51 +12,67 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
+import { useAuth } from '../../auth/AuthContext';
 import Brew from '../../components/brew/Brew';
+import DocumentCard from '../../components/chatbot/DocumentCard';
 import { FadeInUp, PressableScale } from '../../components/motion';
+import { sendChatMessage, type ChatDocument } from '../../lib/api/chatbot';
 import { colors, spacing, typography } from '../../theme';
 
-type Msg = { id: string; role: 'bot' | 'user'; text: string };
+// docs: 이번 답변에서 챗봇이 만든 문서 초안 — 말풍선 아래 카드로 바로 보여준다
+type Msg = { id: string; role: 'bot' | 'user'; text: string; docs?: ChatDocument[] };
 
 const SUGGESTIONS = [
-  '이번 주 경영 리포트 보여줘',
-  '에티오피아 미디엄 원두 가격 비교해줘',
-  '주휴수당 계산 기준 알려줘',
-  '거래명세서 양식 만들어줘',
+  '이번 주 경영 리포트 만들어줘',
+  '이번 달 매입·매출 장부 만들어줘',
+  '갱신 만료 임박한 서류 있어?',
+  '에티오피아 원두 가격 비교해줘',
 ];
 
 const GREETING: Msg = {
   id: 'g0',
   role: 'bot',
-  text: '안녕하세요 사장님! 저는 브루예요 ☕\n리포트·원두 비교·법령·문서·발주까지 뭐든 물어보세요.',
+  text: '안녕하세요 사장님! 저는 브루예요 ☕\n경영 리포트·서류 생성·영수증 문서·매출 예측·원두 비교·세금까지 뭐든 물어보세요.',
 };
 
-// 데모용 간단 응답 (실제로는 백엔드 main_agent 호출)
-function fakeReply(q: string): string {
-  if (q.includes('리포트'))
-    return '이번 주 매출은 지난주 대비 +8.2%예요. 다만 원가율이 3%p 올랐는데, 우유 단가 인상이 주 원인이에요. 라떼 계열 마진이 눌리고 있으니 가격 조정을 검토해 보세요. (근거: 우유 2,200→2,400원)';
-  if (q.includes('원두') || q.includes('비교'))
-    return '에티오피아 미디엄 로스팅 kg당 비교예요.\n· 커피리브레 28,000원 (플로럴)\n· 프릳츠 31,000원 (베리)\n· 앤트러사이트 29,500원 (시트러스)\n발주 초안을 만들어 드릴까요?';
-  if (q.includes('주휴') || q.includes('수당') || q.includes('법령'))
-    return '주휴수당은 주 15시간 이상 근무 시 1주 개근하면 발생해요. 1일 소정근로시간 × 시급으로 계산합니다. 알바님 스케줄 기준으로 자동 계산해 드릴까요?';
-  if (q.includes('명세서') || q.includes('문서') || q.includes('양식'))
-    return '거래명세서 초안을 만들었어요. 공급자/품목/수량/단가 칸이 포함됩니다. 운영 탭에서 확인·수정 후 확정하세요. (draft_)';
-  return '무엇을 도와드릴까요? 아래 추천 질문을 눌러보셔도 좋아요.';
-}
-
 export default function ChatbotScreen() {
+  const { token } = useAuth();
   const [messages, setMessages] = useState<Msg[]>([GREETING]);
   const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
-  const send = (text: string) => {
+  const scrollDown = () => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
+
+  // 백엔드 멀티에이전트 두뇌(/chatbot/chat) 호출 — 이전 대화도 함께 보내 맥락을 유지한다
+  const send = async (text: string) => {
     const q = text.trim();
-    if (!q) return;
+    if (!q || sending) return;
     const userMsg: Msg = { id: `u${Date.now()}`, role: 'user', text: q };
-    const botMsg: Msg = { id: `b${Date.now()}`, role: 'bot', text: fakeReply(q) };
-    setMessages((prev) => [...prev, userMsg, botMsg]);
+    setMessages((prev) => [...prev, userMsg]);
     setInput('');
-    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
+    setSending(true);
+    scrollDown();
+    try {
+      // 인사말(g0)을 제외한 지금까지의 대화를 두뇌가 이해하는 형식으로 변환
+      const history = messages
+        .filter((m) => m.id !== 'g0')
+        .map((m) => ({ role: m.role === 'user' ? ('user' as const) : ('model' as const), text: m.text }));
+      const res = await sendChatMessage(q, history, token);
+      setMessages((prev) => [
+        ...prev,
+        { id: `b${Date.now()}`, role: 'bot', text: res.response, docs: res.documents },
+      ]);
+    } catch {
+      setMessages((prev) => [...prev, {
+        id: `e${Date.now()}`,
+        role: 'bot',
+        text: '앗, 답변을 가져오지 못했어요. 서버가 켜져 있는지 확인하고 잠시 후 다시 시도해 주세요.',
+      }]);
+    } finally {
+      setSending(false);
+      scrollDown();
+    }
   };
 
   return (
@@ -76,18 +92,34 @@ export default function ChatbotScreen() {
         showsVerticalScrollIndicator={false}
       >
         {messages.map((m) => (
-          <FadeInUp
-            key={m.id}
-            distance={10}
-            style={[styles.bubbleRow, m.role === 'user' ? styles.rowRight : styles.rowLeft]}
-          >
-            <View style={[styles.bubble, m.role === 'user' ? styles.userBubble : styles.botBubble]}>
-              <Text style={[styles.bubbleText, m.role === 'user' && { color: colors.white }]}>
-                {m.text}
-              </Text>
-            </View>
-          </FadeInUp>
+          <View key={m.id} style={styles.msgBlock}>
+            <FadeInUp
+              distance={10}
+              style={[styles.bubbleRow, m.role === 'user' ? styles.rowRight : styles.rowLeft]}
+            >
+              <View style={[styles.bubble, m.role === 'user' ? styles.userBubble : styles.botBubble]}>
+                <Text style={[styles.bubbleText, m.role === 'user' && { color: colors.white }]}>
+                  {m.text}
+                </Text>
+              </View>
+            </FadeInUp>
+            {/* 챗봇이 만든 문서 초안은 화면 이동 없이 여기서 바로 확인 */}
+            {m.docs?.map((d) => (
+              <FadeInUp key={d.id} distance={10}>
+                <DocumentCard doc={d} />
+              </FadeInUp>
+            ))}
+          </View>
         ))}
+
+        {/* 두뇌가 도구를 호출하며 답을 준비하는 동안 표시 */}
+        {sending && (
+          <View style={[styles.bubbleRow, styles.rowLeft]}>
+            <View style={[styles.bubble, styles.botBubble]}>
+              <Text style={styles.bubbleText}>생각 중이에요… ☕</Text>
+            </View>
+          </View>
+        )}
 
         {messages.length <= 1 && (
           <View style={styles.suggestWrap}>
@@ -105,14 +137,15 @@ export default function ChatbotScreen() {
       <View style={styles.inputBar}>
         <TextInput
           style={styles.input}
-          placeholder="브루에게 물어보세요"
+          placeholder={sending ? '답변을 기다리는 중…' : '브루에게 물어보세요'}
           placeholderTextColor={colors.mochaBrown}
           value={input}
           onChangeText={setInput}
           onSubmitEditing={() => send(input)}
           returnKeyType="send"
+          editable={!sending}
         />
-        <PressableScale style={styles.sendBtn} onPress={() => send(input)} to={0.88}>
+        <PressableScale style={styles.sendBtn} onPress={() => send(input)} disabled={sending} to={0.88}>
           <Ionicons name="arrow-up" size={20} color={colors.white} />
         </PressableScale>
       </View>
@@ -136,6 +169,7 @@ const styles = StyleSheet.create({
   headerTitle: { ...typography.L3, color: colors.espressoBrown },
   list: { flex: 1 },
   listContent: { padding: spacing.globalPadding, gap: 12 },
+  msgBlock: { gap: 10 },
   bubbleRow: { flexDirection: 'row' },
   rowLeft: { justifyContent: 'flex-start' },
   rowRight: { justifyContent: 'flex-end' },

@@ -1,13 +1,11 @@
 // 대시보드 (프론트 A) — Design Spec 기반
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Animated, RefreshControl, StyleSheet, View } from 'react-native';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import Svg, { Defs, LinearGradient, Stop, Path, Circle, Filter, FeGaussianBlur } from 'react-native-svg';
 
-import { Ionicons } from '@expo/vector-icons';
-
 import { useAuth } from '../../auth/AuthContext';
-import ReportModal from '../../components/brew/ReportModal';
+import ManagementReportCard from '../../components/dashboard/ManagementReportCard';
 import QuickOrderModal from '../../components/dashboard/QuickOrderModal';
 import SalesCard from '../../components/dashboard/SalesCard';
 import TodoList, { type Todo } from '../../components/dashboard/TodoList';
@@ -41,7 +39,6 @@ export default function DashboardScreen() {
   const [selected, setSelected] = useState<Todo | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [runId, setRunId] = useState(0);
-  const [showReport, setShowReport] = useState(false);
 
   const { user } = useAuth();
   const navigation = useNavigation<any>();
@@ -148,7 +145,13 @@ export default function DashboardScreen() {
         */}
         <View style={styles.body}>
           <FadeInUp key={`sales-${runId}`} delay={80}>
-            <SalesCard key={`salescard-${runId}`} onPressReport={() => setShowReport(true)} />
+            <SalesCard key={`salescard-${runId}`} />
+          </FadeInUp>
+
+          {/* AI 경영 리포트 — 일간/주간/월간 탭을 누르면 홈에서 바로 보인다
+              (runId 키로 당겨서 새로고침 시 리마운트 → 최신 수치 재조회) */}
+          <FadeInUp key={`report-${runId}`} delay={140}>
+            <ManagementReportCard key={`reportcard-${runId}`} />
           </FadeInUp>
 
           <FadeInUp key={`todo-${runId}`} delay={200}>
@@ -164,7 +167,6 @@ export default function DashboardScreen() {
         onConfirm={confirmOrder}
       />
 
-      <ReportModal visible={showReport} onClose={() => setShowReport(false)} />
     </View>
   );
 }
