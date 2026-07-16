@@ -746,23 +746,5 @@ class OperationService:
                 pass
         return query.order_by(Expense.expense_date.desc()).all()
 
-    @classmethod
-    def list_employees_payroll(cls, db: Session, year_month: str) -> List[dict]:
-        """[한글 주석] 등록된 모든 직원의 지정 연월에 대한 예상 급여 데이터를 일괄 산출하여 리스트로 취합합니다."""
-        employees = db.query(Employee).all()
-        results = []
-        for emp in employees:
-            try:
-                payroll = cls.calculate_payroll(db, emp.id, year_month)
-                if payroll["total_work_hours"] > 0:
-                    results.append({
-                        "employee_id": emp.id,
-                        "employee_name": emp.name,
-                        "year_month": year_month,
-                        "total_work_hours": payroll["total_work_hours"],
-                        "estimated_payroll": payroll["total_salary"]
-                    })
-            except ValueError:
-                # [한글 주석] 시급이 유효하지 않거나 근무 스케줄 기록이 없는 직원은 조용히 목록에서 제외합니다.
-                continue
-        return results
+    # [중복 정의 제거] list_employees_payroll은 상단(기간 매핑 버전)에 이미 정의되어 있어 여기서는 삭제함
+    # (이 버전은 calculate_payroll을 year_month로 잘못 호출하고 total_salary 키를 참조해 런타임 오류를 유발했음)

@@ -226,11 +226,10 @@ def get_all_payroll_api(
 def calculate_settlement_api(payload: SettlementCalculateRequest, db: Session = Depends(get_db)):
     """[한글 주석] 지정 기간 동안의 매장 매출, 지출, 총 인건비를 연동해 예상 손익 정산을 계산하고 DB(EstimatedSettlement)에 저장합니다."""
     try:
-        # [한글 주석] period_start (예: "2026-07-01")로부터 서비스 레이어가 필요로 하는 연월(YYYY-MM)을 슬라이싱 추출합니다.
-        year_month = payload.period_start[:7]
         settlement_result = OperationService.calculate_settlement(
             db=db,
-            year_month=year_month,
+            period_start=payload.period_start,
+            period_end=payload.period_end,
             other_expense=payload.other_expense or 0
         )
 
