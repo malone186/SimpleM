@@ -7,6 +7,7 @@ import {
   Text,
   View,
   type StyleProp,
+  type TextStyle,
   type ViewStyle,
 } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
@@ -109,18 +110,21 @@ export function Badge({ label, tone = 'neutral' }: { label: string; tone?: Badge
 }
 
 // 기본 버튼 (primary=오렌지 액션 / secondary=외곽선)
+// [한글 주석] textStyle 프로퍼티를 추가하여 버튼 내부 텍스트 폰트 크기 등을 호출부에서 커스텀할 수 있게 합니다.
 export function Button({
   label,
   onPress,
   variant = 'primary',
   disabled,
   style,
+  textStyle,
 }: {
   label: string;
   onPress?: () => void;
   variant?: 'primary' | 'secondary' | 'ghost';
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
+  textStyle?: StyleProp<TextStyle>;
 }) {
   return (
     <PressableScale
@@ -141,6 +145,7 @@ export function Button({
           variant === 'primary' && { color: colors.white },
           variant === 'secondary' && { color: colors.espressoBrown },
           variant === 'ghost' && { color: colors.mochaBrown },
+          textStyle, // [한글 주석] 외부에서 넘겨받은 커스텀 폰트 스타일을 덮어씌웁니다.
         ]}
       >
         {label}

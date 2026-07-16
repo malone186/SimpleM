@@ -437,7 +437,8 @@ export default function InventoryScreen() {
                           />
                         </View>
                       </View>
-                      <Button label="목록에 품목 추가" onPress={handleAddItem} style={{ height: 36, marginTop: 4 }} />
+                      {/* [한글 주석] 버튼 내부 글씨가 버튼 상하 폭에 비해 비대해 보이는 현상을 막기 위해 폰트 크기를 13px로 조절 */}
+                      <Button label="목록에 품목 추가" onPress={handleAddItem} style={{ height: 36, marginTop: 4 }} textStyle={{ fontSize: 13, fontWeight: '700' }} />
                     </View>
                   </View>
                 ) : (

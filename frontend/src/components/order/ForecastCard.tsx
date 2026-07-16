@@ -152,7 +152,7 @@ export default function ForecastCard() {
       </Text>
 
       {/* 주변 행사 (서울 문화행사 API 자동 수집, 반경 3km) — 예측에 이미 부스팅 반영됨 */}
-      {forecast.nearby_events.length > 0 && (
+      {forecast.nearby_events && forecast.nearby_events.length > 0 && (
         <View style={styles.eventBox}>
           {forecast.nearby_events.slice(0, 3).map((ev) => (
             <Text key={`${ev.name}-${ev.date}`} style={styles.eventText} numberOfLines={1}>

@@ -1,4 +1,4 @@
-"""운영 API (백엔드 C)"""
+"""운영 API (백엔드 C 최초 작성 → 백엔드 B 인수)"""
 from typing import List, Optional
 from fastapi import APIRouter, Query, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -10,7 +10,8 @@ from app.schemas.operation import (
     PayrollResponse, PayrollListItem, SettlementResponse, SettlementListItem,
     TaxEstimateRequest, TaxEstimateResponse, ForecastRequest, ForecastResponse,
     RAGDocumentResponse, ReportSourceResponse, PayrollCalculateRequest, SettlementCalculateRequest,
-    ScheduleRecommendationRequest, ScheduleRecommendationResponse
+    ScheduleRecommendationRequest, ScheduleRecommendationResponse,
+    ExpenseCreate, ExpenseResponse
 )
 from app.services.operation.operation_service import OperationService
 from app.services.operation.tax_service import TaxService
@@ -167,6 +168,20 @@ def get_payroll_api(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
 
+@router.get("/payroll/all", response_model=CommonResponse)
+def get_all_payroll_api(
+    year_month: str = Query(..., description="정산 연월 (YYYY-MM)"),
+    db: Session = Depends(get_db)
+):
+    """등록된 모든 직원의 해당 월 예상 급여 목록을 조회합니다."""
+    try:
+        results = OperationService.list_employees_payroll(db, year_month)
+        return CommonResponse(success=True, data=results, message="직원별 예상 급여 조회가 완료되었습니다.")
+    except ValueError as e:
+        return CommonResponse(success=False, data=None, message=str(e))
+    except Exception as e:
+        return CommonResponse(success=False, data=None, message=f"서버 오류: {str(e)}")
+
 @router.post("/settlements/calculate", response_model=CommonResponse)
 def calculate_settlement_api(payload: SettlementCalculateRequest, db: Session = Depends(get_db)):
     """지정 연월에 대한 매장의 예상 손익 정산을 계산합니다."""
@@ -206,39 +221,116 @@ def get_settlements_api(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
 
+# --- [지출(Expense) 관리] ---
+
+@router.post("/expenses", response_model=CommonResponse)
+def create_expense_api(
+    payload: ExpenseCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """새 지출(비용) 내역을 등록합니다. (정산·세무의 비용 데이터 소스)"""
+    try:
+        expense = OperationService.create_expense(
+            db=db,
+            store_id=current_user.email,
+            amount=payload.amount,
+            category=payload.category,
+            expense_date=payload.expense_date,
+            description=payload.description,
+        )
+        return CommonResponse(
+            success=True,
+            data=ExpenseResponse.model_validate(expense),
+            message="지출 내역 등록이 완료되었습니다."
+        )
+    except ValueError as e:
+        return CommonResponse(success=False, data=None, message=str(e))
+    except Exception as e:
+        return CommonResponse(success=False, data=None, message=f"서버 오류: {str(e)}")
+
+@router.get("/expenses", response_model=CommonResponse)
+def get_expenses_api(
+    year_month: Optional[str] = Query(None, description="조회 대상 연월 (YYYY-MM). 생략 시 전체"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """등록된 지출(비용) 내역을 조회합니다. (해당 매장 기준)"""
+    try:
+        expenses = OperationService.get_expenses(db, year_month=year_month, store_id=current_user.email)
+        data = [ExpenseResponse.model_validate(e) for e in expenses]
+        return CommonResponse(success=True, data=data, message="지출 내역 조회가 완료되었습니다.")
+    except Exception as e:
+        return CommonResponse(success=False, data=None, message=f"서버 오류: {str(e)}")
+
+# --- [세무 계산] ---
+
+@router.get("/tax/estimate", response_model=CommonResponse)
+def estimate_tax_api(
+    year_month: str = Query(..., description="대상 연월 (YYYY-MM)"),
+    tax_type: str = Query("general", description="과세유형 (general 일반 | simplified 간이)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """DB의 매출·비용·인건비를 자동집계해 부가세+종소세+원천징수 예상 세금을 계산합니다."""
+    try:
+        # store_id=None → 정산(settlement)과 동일하게 전체 매장 기준 집계
+        # (매장별 스코프가 필요하면 store_id=current_user.email 로 교체)
+        result = TaxService.estimate_taxes(db, year_month, tax_type=tax_type, store_id=None)
+        return CommonResponse(
+            success=True,
+            data=TaxEstimateResponse(**result),
+            message="세무 예상 계산이 완료되었습니다."
+        )
+    except ValueError as e:
+        return CommonResponse(success=False, data=None, message=str(e))
+    except Exception as e:
+        return CommonResponse(success=False, data=None, message=f"서버 오류: {str(e)}")
+
+@router.post("/tax/estimate", response_model=CommonResponse)
+def estimate_tax_manual_api(payload: TaxEstimateRequest):
+    """매출·비용을 직접 입력받아 부가세+종소세를 계산합니다. (수동/일회성)"""
+    try:
+        result = TaxService.estimate_from_amounts(
+            total_revenue=payload.total_revenue,
+            total_expense=payload.total_expense,
+            period=payload.period,
+            tax_type=payload.tax_type,
+        )
+        return CommonResponse(
+            success=True,
+            data=TaxEstimateResponse(**result),
+            message="세무 예상 계산이 완료되었습니다."
+        )
+    except ValueError as e:
+        return CommonResponse(success=False, data=None, message=str(e))
+    except Exception as e:
+        return CommonResponse(success=False, data=None, message=f"서버 오류: {str(e)}")
+
+# --- [판매 예측] ---
+
 @router.post("/forecast/sales", response_model=CommonResponse)
-def get_sales_forecast_api(payload: ForecastRequest):
-    """최근 N일의 판매 기록을 토대로 미래 일자의 판매량 및 매출액을 예측합니다."""
+def get_sales_forecast_api(payload: ForecastRequest, db: Session = Depends(get_db)):
+    """미래 일자의 판매량·매출액을 예측합니다. (sales_data 생략 시 DB 자동집계, ARIMA 기본)"""
     try:
         result = ForecastingService.forecast_sales(
-            sales_data=payload.sales_data,
             target_date=payload.target_date,
-            has_event=payload.has_event
+            sales_data=payload.sales_data,
+            db=db,
+            store_id=payload.store_id,
+            has_event=payload.has_event,
+            engine=payload.engine or "arima",
         )
-        data = ForecastResponse(
-            target_date=result["target_date"],
-            predicted_sales=result["predicted_sales"],
-            predicted_quantity=result["predicted_quantity"],
-            evidence_summary=result["evidence_summary"]
-        )
+        data = ForecastResponse(**result)
         return CommonResponse(
             success=True,
             data=data,
             message="판매 예측 계산이 완료되었습니다."
         )
-
     except ValueError as e:
-        return CommonResponse(
-            success=False,
-            data=None,
-            message=str(e)
-        )
+        return CommonResponse(success=False, data=None, message=str(e))
     except Exception as e:
-        return CommonResponse(
-            success=False,
-            data=None,
-            message=f"서버 오류: {str(e)}"
-        )
+        return CommonResponse(success=False, data=None, message=f"서버 오류: {str(e)}")
 
 @router.post("/rag/documents", response_model=CommonResponse)
 def get_rag_documents_api(payload: dict):
