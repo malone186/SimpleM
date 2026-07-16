@@ -7,7 +7,7 @@ from app.models.ai import ComplianceItem, GeneratedDocument, OcrDocument, OcrIte
 from app.models.inventory import Ingredient, IngredientPriceHistory, Menu, Recipe, Stock, StockTransaction, Sale, Order, OrderItem
 
 # O (operation.py)
-from app.models.operation import Employee, Schedule, Expense  # 지출 비용 관리를 위한 Expense 모델을 추가로 불러옵니다.
+from app.models.operation import Employee, Schedule, Expense, EstimatedPayroll, EstimatedSettlement  # 신규 정산/급여 모델 추가 불러오기
 
 # R (roastery.py)
 from app.models.roastery import Roastery, RoasteryBean

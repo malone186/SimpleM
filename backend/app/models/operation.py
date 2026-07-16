@@ -1,6 +1,6 @@
 # c:\STUDY\SimpleM\backend\app\models\operation.py
 """운영/예측 모델 (백엔드 C) - 백엔드 A가 SQLAlchemy 표준 ORM 규격으로 수정"""
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Date
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Date, Float
 from sqlalchemy.sql import func
 from app.core.database import Base
 
@@ -44,3 +44,35 @@ class Expense(Base):
     description = Column(String(255), nullable=True)                 # 상세 설명
     expense_date = Column(Date, nullable=False)                      # 지출 일자
     created_at = Column(DateTime, nullable=False, server_default=func.now())
+
+
+# 4. 특정 기간 동안 계산된 직원의 예상 급여 정보를 저장하는 테이블입니다.
+class EstimatedPayroll(Base):
+    """예상 급여 결과 저장 모델"""
+    __tablename__ = "estimated_payrolls"
+
+    id = Column(Integer, primary_key=True, index=True)
+    # 어떤 직원의 급여인지 설정 (외래키 연결)
+    employee_id = Column(Integer, ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
+    period_start = Column(String(20), nullable=False)   # 정산 시작일 (YYYY-MM-DD)
+    period_end = Column(String(20), nullable=False)     # 정산 종료일 (YYYY-MM-DD)
+    total_work_hours = Column(Float, nullable=False)    # 총 근무 시간
+    estimated_salary = Column(Integer, nullable=False)  # 계산된 예상 급여액 (원)
+    calculated_at = Column(DateTime, nullable=False, server_default=func.now())  # 계산이 실행된 시각
+
+
+# 5. 특정 기간 동안의 매출, 지출, 인건비를 종합한 예상 정산 정보를 저장하는 테이블입니다.
+class EstimatedSettlement(Base):
+    """예상 정산 결과 저장 모델"""
+    __tablename__ = "estimated_settlements"
+
+    id = Column(Integer, primary_key=True, index=True)
+    period_start = Column(String(20), nullable=False)   # 정산 시작일 (YYYY-MM-DD)
+    period_end = Column(String(20), nullable=False)     # 정산 종료일 (YYYY-MM-DD)
+    total_sales = Column(Integer, nullable=False)       # 해당 기간의 예상 매출액 (원)
+    total_expense = Column(Integer, nullable=False)     # 해당 기간의 예상 매입/운영 비용 (원)
+    total_payroll = Column(Integer, nullable=False)     # 해당 기간의 예상 총 인건비 (원)
+    other_expense = Column(Integer, nullable=False, default=0) # 해당 기간의 기타 추가 지출 비용 (원)
+    net_profit = Column(Integer, nullable=False)        # 예상 매출 - (비용 + 인건비 + 기타비용) 순수익 (원)
+    calculated_at = Column(DateTime, nullable=False, server_default=func.now())  # 계산이 실행된 시각
+

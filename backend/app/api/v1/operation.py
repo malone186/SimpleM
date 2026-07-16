@@ -4,7 +4,7 @@ from fastapi import APIRouter, Query, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.auth import get_current_user
-from app.models.user import User
+from app.models.operation import Employee, Schedule, EstimatedPayroll, EstimatedSettlement
 from app.schemas.operation import (
     CommonResponse, ScheduleCreate, ScheduleUpdate, ScheduleResponse,
     PayrollResponse, PayrollListItem, SettlementResponse, SettlementListItem,
@@ -97,11 +97,12 @@ def delete_schedule_api(schedule_id: int, db: Session = Depends(get_db)):
 
 @router.post("/schedules/recommend", response_model=CommonResponse)
 def recommend_schedule_api(payload: ScheduleRecommendationRequest, db: Session = Depends(get_db)):
-    """과거 매출 데이터를 분석하여 지정 날짜의 시간대별 알바 근무 인원 스케줄을 추천받습니다."""
+    """실제 과거 매출 데이터를 기간별로 집계하고 분석하여 시간대별 알바 근무 인원 스케줄 추천안을 도출합니다."""
     try:
         recommendation_result = OperationService.recommend_schedule(
             db=db,
-            target_date=payload.target_date,
+            period_start=payload.period_start,
+            period_end=payload.period_end,
             store_id=payload.store_id
         )
         return CommonResponse(
@@ -116,11 +117,17 @@ def recommend_schedule_api(payload: ScheduleRecommendationRequest, db: Session =
 
 @router.post("/payroll/calculate", response_model=CommonResponse)
 def calculate_payroll_api(payload: PayrollCalculateRequest, db: Session = Depends(get_db)):
-    """특정 직원의 지정 연월에 대한 예상 급여를 계산합니다."""
+    """특정 직원의 지정 기간 내 스케줄을 조회하여 실근무시간(휴게시간 공제 적용 가능) 기반의 예상 급여를 자동 계산하고 저장합니다."""
     try:
-        payroll_result = OperationService.calculate_payroll(db, payload.employee_id, payload.year_month)
+        payroll_result = OperationService.calculate_payroll(
+            db=db,
+            employee_id=payload.employee_id,
+            period_start=payload.period_start,
+            period_end=payload.period_end,
+            deduct_break_time=payload.deduct_break_time
+        )
         data = PayrollResponse.model_validate(payroll_result)
-        return CommonResponse(success=True, data=data, message="예상 급여 계산이 완료되었습니다.")
+        return CommonResponse(success=True, data=data, message="예상 급여 계산 및 저장이 완료되었습니다.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -169,15 +176,16 @@ def get_payroll_api(
 
 @router.post("/settlements/calculate", response_model=CommonResponse)
 def calculate_settlement_api(payload: SettlementCalculateRequest, db: Session = Depends(get_db)):
-    """지정 연월에 대한 매장의 예상 손익 정산을 계산합니다."""
+    """지정 기간에 대한 매장의 실제 매출, 지출 비용 및 총 인건비를 연동하여 예상 손익 정산을 계산하고 저장합니다."""
     try:
         settlement_result = OperationService.calculate_settlement(
             db=db,
-            year_month=payload.year_month,
+            period_start=payload.period_start,
+            period_end=payload.period_end,
             other_expense=payload.other_expense or 0
         )
         data = SettlementResponse.model_validate(settlement_result)
-        return CommonResponse(success=True, data=data, message="예상 정산 계산이 완료되었습니다.")
+        return CommonResponse(success=True, data=data, message="예상 정산 계산 및 저장이 완료되었습니다.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -203,6 +211,82 @@ def get_settlements_api(
         return CommonResponse(success=True, data=data, message="정산 내역 조회가 완료되었습니다.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
+
+
+# --- [신규 GET API: 저장된 예상 결과 조회] ---
+
+@router.get("/payroll/estimated", response_model=CommonResponse)
+def get_estimated_payrolls_api(
+    employee_id: Optional[int] = Query(None, description="직원 고유 ID 필터"),
+    period_start: Optional[str] = Query(None, description="조회 시작일 (YYYY-MM-DD)"),
+    period_end: Optional[str] = Query(None, description="조회 종료일 (YYYY-MM-DD)"),
+    db: Session = Depends(get_db)
+):
+    """데이터베이스에 저장되어 있는 직원들의 기간별 예상 급여 결과를 조회합니다."""
+    try:
+        query = db.query(EstimatedPayroll)
+        if employee_id is not None:
+            query = query.filter(EstimatedPayroll.employee_id == employee_id)
+        if period_start:
+            query = query.filter(EstimatedPayroll.period_start >= period_start)
+        if period_end:
+            query = query.filter(EstimatedPayroll.period_end <= period_end)
+            
+        results = query.all()
+        
+        # [한글 주석] 직원 이름을 매핑하여 응답 스펙을 채워줍니다.
+        data_list = []
+        for r in results:
+            emp = db.query(Employee).filter(Employee.id == r.employee_id).first()
+            emp_name = emp.name if emp else "알 수 없음"
+            
+            data_list.append(
+                PayrollListItem(
+                    id=r.id,
+                    employee_id=r.employee_id,
+                    employee_name=emp_name,
+                    period_start=r.period_start,
+                    period_end=r.period_end,
+                    total_work_hours=r.total_work_hours,
+                    estimated_salary=r.estimated_salary
+                )
+            )
+        return CommonResponse(success=True, data=data_list, message="저장된 예상 급여 목록 조회가 완료되었습니다.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
+
+
+@router.get("/settlements/estimated", response_model=CommonResponse)
+def get_estimated_settlements_api(
+    period_start: Optional[str] = Query(None, description="조회 시작일 (YYYY-MM-DD)"),
+    period_end: Optional[str] = Query(None, description="조회 종료일 (YYYY-MM-DD)"),
+    db: Session = Depends(get_db)
+):
+    """데이터베이스에 저장되어 있는 매장의 기간별 예상 정산 결과들을 조회합니다."""
+    try:
+        query = db.query(EstimatedSettlement)
+        if period_start:
+            query = query.filter(EstimatedSettlement.period_start >= period_start)
+        if period_end:
+            query = query.filter(EstimatedSettlement.period_end <= period_end)
+            
+        results = query.all()
+        data_list = []
+        for r in results:
+            data_list.append(
+                SettlementListItem(
+                    id=r.id,
+                    period_start=r.period_start,
+                    period_end=r.period_end,
+                    total_sales=r.total_sales,
+                    total_expense=r.total_expense,
+                    total_payroll=r.total_payroll,
+                    net_profit=r.net_profit
+                )
+            )
+        return CommonResponse(success=True, data=data_list, message="저장된 예상 정산 목록 조회가 완료되었습니다.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
 

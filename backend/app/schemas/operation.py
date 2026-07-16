@@ -38,22 +38,25 @@ class ScheduleResponse(BaseModel):
 class PayrollCalculateRequest(BaseModel):
     """급여 예상 계산 요청 양식"""
     employee_id: int = Field(..., description="직원 고유 번호", examples=[1])
-    year_month: str = Field(..., description="계산 대상 연월 (예: YYYY-MM)", examples=["2026-07"])
+    period_start: str = Field(..., description="조회 시작일 (YYYY-MM-DD)", examples=["2026-07-01"])
+    period_end: str = Field(..., description="조회 종료일 (YYYY-MM-DD)", examples=["2026-07-31"])
+    deduct_break_time: bool = Field(False, description="법정 휴게시간 공제 적용 여부 (4시간당 30분, 8시간당 1시간)")
 
 class SettlementCalculateRequest(BaseModel):
     """정산 예상 계산 요청 양식"""
-    year_month: str = Field(..., description="정산 대상 연월 (예: YYYY-MM)", examples=["2026-07"])
+    period_start: str = Field(..., description="조회 시작일 (YYYY-MM-DD)", examples=["2026-07-01"])
+    period_end: str = Field(..., description="조회 종료일 (YYYY-MM-DD)", examples=["2026-07-31"])
     other_expense: Optional[int] = Field(0, description="기타 추가 비용", examples=[50000])
 
 class PayrollResponse(BaseModel):
     """예상 급여 응답 스키마"""
+    id: Optional[int] = Field(None, description="저장 기록 고유 번호", examples=[1])
     employee_id: int = Field(..., description="직원 고유 번호", examples=[1])
-    employee_name: str = Field(..., description="직원 이름", examples=["홍길동"])
-    year_month: str = Field(..., description="정산 년월 (YYYY-MM)", examples=["2026-07"])
+    employee_name: Optional[str] = Field(None, description="직원 이름", examples=["홍길동"])
+    period_start: str = Field(..., description="정산 시작일 (YYYY-MM-DD)", examples=["2026-07-01"])
+    period_end: str = Field(..., description="정산 종료일 (YYYY-MM-DD)", examples=["2026-07-31"])
     total_work_hours: float = Field(..., description="총 실근무시간", examples=[120.5])
-    base_salary: int = Field(..., description="기본 급여액 (근무시간 x 시급)", examples=[1205000])
-    weekly_holiday_allowance: int = Field(0, description="예상 주휴수당 (이번 버전은 제외되므로 0)", examples=[0])
-    total_salary: int = Field(..., description="예상 총 급여액 (기본급 + 주휴수당)", examples=[1205000])
+    estimated_salary: int = Field(..., description="예상 총 급여액", examples=[1205000])
     calculated_at: datetime = Field(..., description="계산 수행 일시")
     disclaimer: str = Field(
         "이 계산은 참고용 예상값이며 실제 신고 및 지급 금액과 다를 수 있습니다.",
@@ -65,15 +68,19 @@ class PayrollResponse(BaseModel):
 
 class PayrollListItem(BaseModel):
     """급여 목록 조회 항목 스키마"""
+    id: int = Field(..., description="기록 고유 번호", examples=[1])
     employee_id: int = Field(..., description="직원 고유 번호", examples=[1])
     employee_name: str = Field(..., description="직원 이름", examples=["홍길동"])
-    year_month: str = Field(..., description="대상 연월", examples=["2026-07"])
+    period_start: str = Field(..., description="정산 시작일", examples=["2026-07-01"])
+    period_end: str = Field(..., description="정산 종료일", examples=["2026-07-31"])
     total_work_hours: float = Field(..., description="총 실근무시간", examples=[120.5])
-    estimated_payroll: int = Field(..., description="예상 총 급여액", examples=[1205000])
+    estimated_salary: int = Field(..., description="예상 총 급여액", examples=[1205000])
 
 class SettlementResponse(BaseModel):
     """예상 손익 정산 응답 스키마"""
-    year_month: str = Field(..., description="정산 년월 (YYYY-MM)", examples=["2026-07"])
+    id: Optional[int] = Field(None, description="저장 기록 고유 번호", examples=[1])
+    period_start: str = Field(..., description="정산 시작일 (YYYY-MM-DD)", examples=["2026-07-01"])
+    period_end: str = Field(..., description="정산 종료일 (YYYY-MM-DD)", examples=["2026-07-31"])
     total_sales: int = Field(..., description="예상 총 매출액", examples=[5000000])
     total_expense: int = Field(..., description="예상 총 지출액 (원부자재 및 관리비)", examples=[1500000])
     total_payroll: int = Field(..., description="예상 총 직원 급여액", examples=[1205000])
@@ -90,7 +97,9 @@ class SettlementResponse(BaseModel):
 
 class SettlementListItem(BaseModel):
     """정산 내역 목록 조회 항목 스키마"""
-    year_month: str = Field(..., description="정산 년월", examples=["2026-07"])
+    id: int = Field(..., description="기록 고유 번호", examples=[1])
+    period_start: str = Field(..., description="정산 시작일", examples=["2026-07-01"])
+    period_end: str = Field(..., description="정산 종료일", examples=["2026-07-31"])
     total_sales: int = Field(..., description="예상 총 매출액", examples=[5000000])
     total_expense: int = Field(..., description="예상 총 지출액", examples=[1500000])
     total_payroll: int = Field(..., description="예상 총 직원 급여액", examples=[1205000])
@@ -156,7 +165,8 @@ class ReportSourceResponse(BaseModel):
 
 class ScheduleRecommendationRequest(BaseModel):
     """알바 스케줄 추천 요청 스키마"""
-    target_date: str = Field(..., description="추천 대상 날짜 (YYYY-MM-DD)", examples=["2026-07-16"])
+    period_start: str = Field(..., description="분석 시작일 (YYYY-MM-DD)", examples=["2026-07-01"])
+    period_end: str = Field(..., description="분석 종료일 (YYYY-MM-DD)", examples=["2026-07-31"])
     store_id: str = Field(..., description="매장 식별 아이디", examples=["store_gildong"])
 
 class HourlyRecommendation(BaseModel):
@@ -169,7 +179,8 @@ class HourlyRecommendation(BaseModel):
 
 class ScheduleRecommendationResponse(BaseModel):
     """알바 스케줄 추천 응답 스키마"""
-    target_date: str = Field(..., description="추천 대상 날짜", examples=["2026-07-16"])
+    period_start: str = Field(..., description="분석 시작일", examples=["2026-07-01"])
+    period_end: str = Field(..., description="분석 종료일", examples=["2026-07-31"])
     hourly_recommendations: List[HourlyRecommendation] = Field(..., description="시간대별 분석 및 추천 내역")
     total_recommended_hours: float = Field(..., description="추천 스케줄에 따른 총 합산 근무 시간 (시간)", examples=[18.5])
     estimated_payroll_cost: int = Field(..., description="추천 스케줄 실행 시 예상 인건비 지출액 (원)", examples=[185000])

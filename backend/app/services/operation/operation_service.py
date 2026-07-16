@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
-from app.models.operation import Employee, Schedule, Expense
+from app.models.operation import Employee, Schedule, Expense, EstimatedPayroll, EstimatedSettlement
 from app.models.inventory import Sale
 from app.schemas.operation import ScheduleUpdate
 
@@ -93,93 +93,175 @@ class OperationService:
         return True
 
     @staticmethod
-    def calculate_work_hours(start_time: datetime, end_time: datetime) -> float:
-        """출퇴근 시간을 받아 실 근무시간 계산 (단순 시간 차이 계산)"""
-        duration = end_time - start_time
+    def calculate_work_hours(start_time: datetime, end_time: datetime, deduct_break_time: bool = False) -> float:
+        """출퇴근 시간을 받아 실 근무시간 계산 (Timezone 일치 작업 및 법정 휴게시간 공제 기능 내장)"""
+        # [한글 주석] Naive와 Aware Datetime 혼용에 따른 연산 오류 방지를 위해 타임존 정보를 제거합니다.
+        s_naive = start_time.replace(tzinfo=None) if start_time.tzinfo is not None else start_time
+        e_naive = end_time.replace(tzinfo=None) if end_time.tzinfo is not None else end_time
+        
+        duration = e_naive - s_naive
         total_hours = duration.total_seconds() / 3600.0
+        
+        # [한글 주석] 휴게시간 공제 옵션이 True일 때, 근로기준법상 기준(4시간 근무 시 30분, 8시간 근무 시 1시간)을 공제합니다.
+        if deduct_break_time:
+            if total_hours >= 8.0:
+                total_hours -= 1.0
+            elif total_hours >= 4.0:
+                total_hours -= 0.5
+                
         return max(0.0, total_hours)
 
     @classmethod
-    def calculate_payroll(cls, db: Session, employee_id: int, year_month: str) -> dict:
-        """특정 직원의 지정 연월에 대해 실제 기록된 출퇴근 시각 기준 예상 급여를 계산합니다."""
+    def calculate_payroll(cls, db: Session, employee_id: int, period_start: str, period_end: str, deduct_break_time: bool = False) -> dict:
+        """특정 직원의 지정 기간(시작일~종료일) 내 실제 기록된 출퇴근 시각을 기준으로 예상 급여를 계산하고 DB에 저장합니다."""
+        # [한글 주석] 데이터베이스에서 해당 직원이 존재하는지 검증합니다.
         employee = db.query(Employee).filter(Employee.id == employee_id).first()
         if not employee:
             raise ValueError(f"존재하지 않는 직원 ID입니다: {employee_id}")
             
-        # 직원의 시급 유효성 검사 (0 이하인 경우 에러 처리)
+        # [한글 주석] 직원의 시급 유효성을 검사합니다.
         if employee.hourly_rate <= 0:
             raise ValueError(f"해당 직원의 시급 설정이 올바르지 않습니다 (시급: {employee.hourly_rate}원). 시급은 0보다 커야 합니다.")
 
-        total_hours = 0.0
-        # 해당 연월의 스케줄 중 실제 출근 및 퇴근 시간이 모두 기록된 데이터만 취합
+        # [한글 주석] 지정 기간 내에 속하는 근무 스케줄들을 조회합니다.
         schedules = db.query(Schedule).filter(
             Schedule.employee_id == employee_id,
-            Schedule.date.like(f"{year_month}%"),
-            Schedule.actual_start_time.isnot(None),
-            Schedule.actual_end_time.isnot(None)
+            Schedule.date >= period_start,
+            Schedule.date <= period_end
         ).all()
 
+        if not schedules:
+            raise ValueError(f"해당 기간({period_start} ~ {period_end})에 등록된 스케줄이 없습니다.")
+
+        total_hours = 0.0
         for schedule in schedules:
-            hours = cls.calculate_work_hours(schedule.actual_start_time, schedule.actual_end_time)
+            # [한글 주석] 실제 출퇴근 시각(actual_*)이 존재하면 우선 적용(실제화)하고, 없으면 계획 근무시간(start/end)으로 폴백합니다.
+            if schedule.actual_start_time and schedule.actual_end_time:
+                hours = cls.calculate_work_hours(schedule.actual_start_time, schedule.actual_end_time, deduct_break_time)
+            else:
+                hours = cls.calculate_work_hours(schedule.start_time, schedule.end_time, deduct_break_time)
             total_hours += hours
                 
-        # 이번 버전에서는 복잡한 주휴수당 산정은 제외합니다.
-        weekly_holiday_allowance = 0
-        base_salary = int(total_hours * employee.hourly_rate)
-        total_salary = base_salary + weekly_holiday_allowance
+        estimated_salary = int(total_hours * employee.hourly_rate)
+
+        # [한글 주석] 계산된 결과를 데이터베이스(estimated_payrolls)에 저장 혹은 업데이트(Upsert) 합니다.
+        est_payroll = db.query(EstimatedPayroll).filter(
+            EstimatedPayroll.employee_id == employee_id,
+            EstimatedPayroll.period_start == period_start,
+            EstimatedPayroll.period_end == period_end
+        ).first()
+
+        if est_payroll:
+            est_payroll.total_work_hours = total_hours
+            est_payroll.estimated_salary = estimated_salary
+            est_payroll.calculated_at = datetime.now()
+        else:
+            est_payroll = EstimatedPayroll(
+                employee_id=employee_id,
+                period_start=period_start,
+                period_end=period_end,
+                total_work_hours=total_hours,
+                estimated_salary=estimated_salary,
+                calculated_at=datetime.now()
+            )
+            db.add(est_payroll)
+
+        db.commit()
+        db.refresh(est_payroll)
 
         return {
+            "id": est_payroll.id,
             "employee_id": employee_id,
             "employee_name": employee.name,
-            "year_month": year_month,
+            "period_start": period_start,
+            "period_end": period_end,
             "total_work_hours": total_hours,
-            "base_salary": base_salary,
-            "weekly_holiday_allowance": weekly_holiday_allowance,
-            "total_salary": total_salary,
-            "calculated_at": datetime.now()
+            "estimated_salary": estimated_salary,
+            "calculated_at": est_payroll.calculated_at
         }
 
     @classmethod
-    def calculate_settlement(cls, db: Session, year_month: str, other_expense: int = 0) -> dict:
-        """매장의 월별 매출액, 지출 비용, 총 인건비, 기타비용을 취합해 예상 정산 손익을 도출합니다."""
-        try:
-            year, month = map(int, year_month.split("-"))
-        except ValueError:
-            raise ValueError("연월 포맷은 YYYY-MM 형식이어야 합니다.")
+    def calculate_settlement(cls, db: Session, period_start: str, period_end: str, other_expense: int = 0) -> dict:
+        """매장의 기간별 매출액, 지출 비용, 총 인건비, 기타비용을 취합해 예상 정산 손익을 도출하고 DB에 저장합니다."""
+        from datetime import time, timezone, timedelta
+        # [한글 주석] 외부 라이브러리(pytz) 없이 파이썬 내장 기능을 사용하여 KST(한국 표준시)를 정의합니다.
+        kst = timezone(timedelta(hours=9))
 
-        # 1. 데이터베이스에서 매출액(sales) 합산
+        try:
+            start_date = datetime.strptime(period_start, "%Y-%m-%d").date()
+            end_date = datetime.strptime(period_end, "%Y-%m-%d").date()
+        except ValueError:
+            raise ValueError("기간 포맷은 YYYY-MM-DD 형식이어야 합니다.")
+
+        # [한글 주석] 타임존 인식형 DateTime 필터 조건 생성을 위해 현지화(KST) 작업을 진행합니다.
+        start_dt = datetime.combine(start_date, time.min).replace(tzinfo=kst)
+        end_dt = datetime.combine(end_date, time.max).replace(tzinfo=kst)
+
+        # 1. 데이터베이스에서 매출액(sales) 합산 (실제 매출 테이블)
         total_sales = db.query(func.sum(Sale.total_price)).filter(
-            extract('year', Sale.sold_at) == year,
-            extract('month', Sale.sold_at) == month
+            Sale.sold_at >= start_dt,
+            Sale.sold_at <= end_dt
         ).scalar() or 0
 
-        # 2. 데이터베이스에서 지출액(expenses) 합산
+        # 2. 데이터베이스에서 지출액(expenses) 합산 (실제 비용 테이블)
         total_expense = db.query(func.sum(Expense.amount)).filter(
-            extract('year', Expense.expense_date) == year,
-            extract('month', Expense.expense_date) == month
+            Expense.expense_date >= start_date,
+            Expense.expense_date <= end_date
         ).scalar() or 0
         
-        # 3. 등록된 모든 직원의 해당 월 예상 급여 합산 (인건비)
+        # 3. 등록된 모든 직원의 해당 기간 예상 급여 합산 (인건비 자동 계산 연동)
         total_payroll = 0
         employees = db.query(Employee).all()
         for emp in employees:
             try:
-                payroll = cls.calculate_payroll(db, emp.id, year_month)
-                total_payroll += payroll["total_salary"]
+                # [한글 주석] 각 직원에 대해 스케줄이 존재하면 급여를 계산하여 총인건비에 반영합니다. (스케줄이 없으면 예외 처리로 스킵)
+                payroll = cls.calculate_payroll(db, emp.id, period_start, period_end)
+                total_payroll += payroll["estimated_salary"]
             except ValueError:
                 continue
                 
         # 4. 예상 순이익 = 매출 - (비용 + 인건비 + 기타 비용)
         net_profit = total_sales - (total_expense + total_payroll + other_expense)
         
+        # 5. 계산 결과를 데이터베이스(estimated_settlements)에 저장/업데이트(Upsert) 합니다.
+        est_settlement = db.query(EstimatedSettlement).filter(
+            EstimatedSettlement.period_start == period_start,
+            EstimatedSettlement.period_end == period_end
+        ).first()
+
+        if est_settlement:
+            est_settlement.total_sales = total_sales
+            est_settlement.total_expense = total_expense
+            est_settlement.total_payroll = total_payroll
+            est_settlement.other_expense = other_expense
+            est_settlement.net_profit = net_profit
+            est_settlement.calculated_at = datetime.now()
+        else:
+            est_settlement = EstimatedSettlement(
+                period_start=period_start,
+                period_end=period_end,
+                total_sales=total_sales,
+                total_expense=total_expense,
+                total_payroll=total_payroll,
+                other_expense=other_expense,
+                net_profit=net_profit,
+                calculated_at=datetime.now()
+            )
+            db.add(est_settlement)
+
+        db.commit()
+        db.refresh(est_settlement)
+        
         return {
-            "year_month": year_month,
+            "id": est_settlement.id,
+            "period_start": period_start,
+            "period_end": period_end,
             "total_sales": total_sales,
             "total_expense": total_expense,
             "total_payroll": total_payroll,
             "other_expense": other_expense,
             "net_profit": net_profit,
-            "calculated_at": datetime.now()
+            "calculated_at": est_settlement.calculated_at
         }
 
     # ==========================================
@@ -310,40 +392,50 @@ class OperationService:
         }
 
     @classmethod
-    def recommend_schedule(cls, db: Session, target_date: str, store_id: str) -> dict:
-        """과거 동일 요일의 시간대별 평균 매출/이익을 분석하여 최적의 알바 근무 인원 스케줄을 추천합니다."""
+    def recommend_schedule(cls, db: Session, period_start: str, period_end: str, store_id: str) -> dict:
+        """실제 과거 매출 데이터를 시간대별로 분석하여 최적의 알바 예상 근무 스케줄을 추천합니다."""
+        from datetime import time, timezone, timedelta
+        # [한글 주석] 외부 라이브러리(pytz) 없이 파이썬 내장 기능을 사용하여 KST(한국 표준시)를 정의합니다.
+        kst = timezone(timedelta(hours=9))
+
         try:
-            dt = datetime.strptime(target_date, "%Y-%m-%d")
+            start_date = datetime.strptime(period_start, "%Y-%m-%d").date()
+            end_date = datetime.strptime(period_end, "%Y-%m-%d").date()
         except ValueError:
-            raise ValueError("날짜 포맷은 YYYY-MM-DD 형식이어야 합니다.")
+            raise ValueError("기간 포맷은 YYYY-MM-DD 형식이어야 합니다.")
 
-        # 1. 파이썬 요일 번호 (0=월 ... 6=일) -> PostgreSQL dow 번호 (0=일, 1=월 ... 6=토)
-        pg_dow = (dt.weekday() + 1) % 7
+        # [한글 주석] Timezone 인식형 sold_at 비교를 위해 KST 기준으로 타임존을 맞춥니다.
+        start_dt = datetime.combine(start_date, time.min).replace(tzinfo=kst)
+        end_dt = datetime.combine(end_date, time.max).replace(tzinfo=kst)
+        days_count = max((end_date - start_date).days + 1, 1)
 
-        # 2. DB에서 해당 매장의 동일 요일 과거 매출 데이터 조회 (Eager Loading 적용으로 N+1 쿼리 방지)
-        from sqlalchemy.orm import joinedload, selectinload
-        from app.models.inventory import Menu, Recipe, Ingredient
+        # DB에서 해당 매장의 기간 내 매출 데이터 조회 (N+1 쿼리 방지 로딩)
+        from sqlalchemy.orm import joinedload
+        from app.models.inventory import Menu, Recipe
         
         sales = db.query(Sale).filter(
             Sale.store_id == store_id,
-            extract('dow', Sale.sold_at) == pg_dow
+            Sale.sold_at >= start_dt,
+            Sale.sold_at <= end_dt
         ).options(
-            joinedload(Sale.menu).selectinload(Menu.recipes).joinedload(Recipe.ingredient)
+            joinedload(Sale.menu).selectinload(Menu.recipes)
         ).all()
 
         hourly_recommendations = []
         total_recommended_hours = 0.0
 
-        # 영업시간은 일반적인 카페 기준 07시 ~ 22시로 규정 (나머지 시간은 0명 추천)
-        business_hours = range(7, 23)
+        # 영업시간은 일반적인 카페 기준 08시 ~ 22시로 규정 (나머지 시간은 0명 추천)
+        business_hours = range(8, 23)
 
-        # 3. 데이터가 존재할 경우 시간대별 평균 매출 및 이익 분석
-        if len(sales) >= 5: # 통계적 신뢰성을 위해 최소 5건 이상 데이터가 있을 때 실데이터 분석
+        # 3. 데이터가 존재할 경우 시간대별 평균 매출 및 이익 분석 (최소 5건 이상 실데이터 확보 시)
+        if len(sales) >= 5:
             hourly_sales = {h: [] for h in range(24)}
             hourly_profits = {h: [] for h in range(24)}
             
             for s in sales:
-                h = s.sold_at.hour
+                # [한글 주석] 매출 시간대를 KST 타임존 기준으로 보정한 후 시간(hour)을 추출합니다.
+                s_kst = s.sold_at.astimezone(kst)
+                h = s_kst.hour
                 hourly_sales[h].append(s.total_price)
                 
                 # 메뉴별 원자재 원가 합산 계산 (메뉴 -> 레시피 -> 재료 단가)
@@ -365,25 +457,23 @@ class OperationService:
                         "predicted_profit": 0,
                         "recommended_employee_count": 0,
                         "busy_level": "LOW"
-                    })
+                      })
                     continue
 
                 prices = hourly_sales[h]
-                avg_sales = int(sum(prices) / len(prices)) if prices else 0
+                # [한글 주석] 해당 시간대의 일평균 매출액(총 매출 / 전체 일수)을 구합니다.
+                avg_sales = int(sum(prices) / days_count) if prices else 0
                 
                 profits = hourly_profits[h]
-                avg_profit = int(sum(profits) / len(profits)) if profits else 0
+                avg_profit = int(sum(profits) / days_count) if profits else 0
                 
-                # 매출 대비 인원 추천 규칙 (기본 카페 로직 적용)
-                if avg_sales >= 150000:
+                # [한글 주석] 매출 대비 인원 추천 규칙 (5만원 이하: 1명, 12만원 이하: 2명, 초과: 3명)
+                if avg_sales >= 120000:
                     emp_count = 3
                     busy = "PEAK"
-                elif avg_sales >= 70000:
+                elif avg_sales >= 50000:
                     emp_count = 2
                     busy = "HIGH"
-                elif avg_sales >= 30000:
-                    emp_count = 1
-                    busy = "NORMAL"
                 else:
                     emp_count = 1
                     busy = "LOW"
@@ -399,8 +489,8 @@ class OperationService:
 
         else:
             # 4. [Fallback] 과거 매출 데이터가 없거나 부족할 때 요일별 카페 표준 룰베이스 적용
-            # 주말(토, 일)과 주중(월~금) 피크 패턴 분기
-            is_weekend = dt.weekday() in (5, 6)
+            # 주말(토, 일)과 주중(월~금) 피크 패턴 분기 (시작일 요일 기준)
+            is_weekend = start_date.weekday() in (5, 6)
 
             for h in range(24):
                 if h not in business_hours:
@@ -473,19 +563,20 @@ class OperationService:
         if peak_hours:
             peak_str = ", ".join([f"{ph}시" for ph in peak_hours])
             summary = (
-                f"분석 결과, {target_date}에는 {peak_str}에 강한 매출 피크가 예상되어 최대로 알바생(3명)을 집중 배치할 것을 권장합니다. "
-                f"하루 총 예상 매출은 {total_predicted_sales:,}원, 예상 마진 이익은 {total_predicted_profit:,}원입니다. "
+                f"분석 결과, {period_start} ~ {period_end} 기간에는 {peak_str}에 강한 매출 피크가 예상되어 최대로 알바생(3명)을 집중 배치할 것을 권장합니다. "
+                f"시간대별 평균 예상 매출 총합은 {total_predicted_sales:,}원, 예상 마진 이익은 {total_predicted_profit:,}원입니다. "
                 f"피크 외 시간대에는 1명으로 인력을 통제하여 예상 인건비 지출({estimated_payroll_cost:,}원) 대비 수익 효율을 극대화하세요."
             )
         else:
             summary = (
-                f"{target_date}에는 뚜렷한 피크타임 없이 전반적으로 평이하거나 한산할 것으로 분석됩니다. "
-                f"하루 총 예상 매출은 {total_predicted_sales:,}원, 예상 마진 이익은 {total_predicted_profit:,}원입니다. "
+                f"{period_start} ~ {period_end} 기간에는 뚜렷한 피크타임 없이 전반적으로 평이하거나 한산할 것으로 분석됩니다. "
+                f"시간대별 평균 예상 매출 총합은 {total_predicted_sales:,}원, 예상 마진 이익은 {total_predicted_profit:,}원입니다. "
                 f"영업 시간 내내 최소 인원(1명)으로 유연하게 조율하여 고정 인건비 지출({estimated_payroll_cost:,}원)을 방지하시는 것을 추천합니다."
             )
 
         return {
-            "target_date": target_date,
+            "period_start": period_start,
+            "period_end": period_end,
             "hourly_recommendations": hourly_recommendations,
             "total_recommended_hours": total_recommended_hours,
             "estimated_payroll_cost": estimated_payroll_cost,
