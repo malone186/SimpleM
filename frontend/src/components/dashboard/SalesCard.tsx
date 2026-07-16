@@ -11,9 +11,9 @@ import { getSalesForecast, getDevicePosition, type SalesForecast, type ForecastD
 
 // (삭제함 - Web 호환성을 위해 addListener + 일반 Circle을 사용하도록 개선)
 
-// 차트 트렌드 라인 패스 정의 (시간별 포인트와 정확히 정합되는 꺾은선)
-const REALTIME_LINE = 'M 24 100 L 108 78 L 198 63 L 290 55';
-const REALTIME_FILL = 'M 24 100 L 108 78 L 198 63 L 290 55 L 290 120 L 24 120 Z';
+// 차트 트렌드 라인 패스 정의 (양 끝 마진 25px로 대칭 및 한가운데 정렬)
+const REALTIME_LINE = 'M 25 100 L 108 78 L 192 63 L 275 55';
+const REALTIME_FILL = 'M 25 100 L 108 78 L 192 63 L 275 55 L 275 120 L 25 120 Z';
 
 // 캘린더 요일 및 데이터 셋 (영어 대문자로 세련되게 전환)
 const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
@@ -305,8 +305,8 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
   const yForecast15 = 105 - (tomorrowRevCum[2] / maxForecastRev) * 80;
   const yForecast18 = 105 - (tomorrowRevCum[3] / maxForecastRev) * 80; // 최대 매출은 Y=25 부근
 
-  const forecastLinePath = `M 24 ${yForecast09} L 108 ${yForecast12} L 198 ${yForecast15} L 290 ${yForecast18}`;
-  const forecastFillPath = `M 24 ${yForecast09} L 108 ${yForecast12} L 198 ${yForecast15} L 290 ${yForecast18} L 290 120 L 24 120 Z`;
+  const forecastLinePath = `M 25 ${yForecast09} L 108 ${yForecast12} L 192 ${yForecast15} L 275 ${yForecast18}`;
+  const forecastFillPath = `M 25 ${yForecast09} L 108 ${yForecast12} L 192 ${yForecast15} L 275 ${yForecast18} L 275 120 L 25 120 Z`;
 
   // [한글 주석] 펄스 애니메이션 구동 제어
   const pulse = useRef(new Animated.Value(0)).current;
@@ -424,11 +424,11 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
           {/* 오늘 / 내일 예측 범례 (Legend) */}
           <View style={styles.legendContainer}>
             <View style={styles.legendItem}>
-              <View style={[styles.legendColorDot, { backgroundColor: colors.mochaBrown }]} />
+              <View style={[styles.legendColorDot, { backgroundColor: colors.espressoBrown }]} />
               <Text style={styles.legendText}>오늘 실시간</Text>
             </View>
             <View style={styles.legendItem}>
-              <View style={[styles.legendColorDot, { backgroundColor: colors.pointOrange }]} />
+              <View style={[styles.legendColorDot, { backgroundColor: colors.mochaBrown, opacity: 0.5 }]} />
               <Text style={styles.legendText}>내일 AI 예측</Text>
             </View>
           </View>
@@ -437,11 +437,11 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
             <Svg width="100%" height="120" viewBox="0 0 300 130" preserveAspectRatio="none">
               <Defs>
                 <LinearGradient id="todayFill" x1="0" y1="0" x2="0" y2="1">
-                  <Stop offset="0" stopColor={colors.mochaBrown} stopOpacity="0.08" />
+                  <Stop offset="0" stopColor={colors.espressoBrown} stopOpacity="0.14" />
                   <Stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
                 </LinearGradient>
                 <LinearGradient id="tomorrowFill" x1="0" y1="0" x2="0" y2="1">
-                  <Stop offset="0" stopColor={colors.pointOrange} stopOpacity="0.08" />
+                  <Stop offset="0" stopColor={colors.mochaBrown} stopOpacity="0.08" />
                   <Stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
                 </LinearGradient>
               </Defs>
@@ -450,71 +450,72 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
               <Rect width="300" height="130" fill="transparent" onPress={() => setActiveTooltip(null)} />
 
               {/* 그리드 가로선 (세로 확장 정렬) */}
-              <Line x1="10" y1="25" x2="290" y2="25" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
-              <Line x1="10" y1="65" x2="290" y2="65" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
-              <Line x1="10" y1="105" x2="290" y2="105" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
+              <Line x1="15" y1="25" x2="285" y2="25" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
+              <Line x1="15" y1="65" x2="285" y2="65" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
+              <Line x1="15" y1="105" x2="285" y2="105" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
 
               {/* 세로 보조 점선 눈금 */}
-              <Line x1="24" y1="115" x2="24" y2="108" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
+              <Line x1="25" y1="115" x2="25" y2="108" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
               <Line x1="108" y1="115" x2="108" y2="85" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
-              <Line x1="198" y1="115" x2="198" y2="70" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
-              <Line x1="290" y1="115" x2="290" y2="62" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
+              <Line x1="192" y1="115" x2="192" y2="70" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
+              <Line x1="275" y1="115" x2="275" y2="62" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
 
-              {/* 1. 오늘 그래프 드로잉 */}
+              {/* 1. 오늘 그래프 드로잉 (부드럽고 자연스러운 에스프레소 브라운 실선) */}
               <Path d={REALTIME_FILL} fill="url(#todayFill)" />
-              <Path d={REALTIME_LINE} stroke={colors.mochaBrown} strokeWidth={2.3} fill="none" strokeLinecap="round" />
+              <Path d={REALTIME_LINE} stroke={colors.espressoBrown} strokeWidth={2.0} fill="none" strokeLinecap="round" />
               
               {/* 오늘 실시간 펄스 링 & 고정 피크 점 (Y=55 밀착) */}
-              <Circle cx={290} cy={55} r={3.5} fill={colors.trendGreenText} />
+              <Circle cx={275} cy={55} r={2.0} fill={colors.espressoBrown} />
               <Circle
-                cx={290}
+                cx={275}
                 cy={55}
-                r={pulseRadius}
-                fill={colors.trendGreenText}
-                opacity={pulseOpacity}
+                r={pulseRadius * 0.7}
+                fill={colors.espressoBrown}
+                opacity={pulseOpacity * 0.5}
               />
 
-              {/* 2. 내일 그래프 드로잉 */}
+              {/* 2. 내일 그래프 드로잉 (부드럽고 고급스러운 모카 브라운 미세 대시선) */}
               <Path d={forecastFillPath} fill="url(#tomorrowFill)" />
-              <Path d={forecastLinePath} stroke={colors.pointOrange} strokeWidth={2.3} strokeDasharray="4,4" fill="none" strokeLinecap="round" />
+              <Path d={forecastLinePath} stroke={colors.mochaBrown} strokeWidth={1.2} strokeOpacity={0.38} strokeDasharray="1.2,2.0" fill="none" strokeLinecap="round" />
               
               {/* 내일 펄스 링 & 최종 예측 피크 점 */}
-              <Circle cx={290} cy={yForecast18} r={3.5} fill={colors.pointOrange} />
+              <Circle cx={275} cy={yForecast18} r={2.0} fill={colors.mochaBrown} opacity={0.4} />
               <Circle
-                cx={290}
+                cx={275}
                 cy={yForecast18}
-                r={pulseRadius}
-                fill={colors.pointOrange}
-                opacity={pulseOpacity}
+                r={pulseRadius * 0.6}
+                fill={colors.mochaBrown}
+                opacity={pulseOpacity * 0.3}
               />
 
               {/* 3. 오늘 데이터 포인트 (터치용 보이지 않는 큰 Circle 영역 포함, Y좌표 꺾은선 일치) */}
-              <Circle cx={24} cy={100} r={3.5} fill={colors.mochaBrown} />
-              <Circle cx={24} cy={100} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 24, y: 100, title: '오늘 09시', value: '실제 25잔' })} />
+              <Circle cx={25} cy={100} r={2.2} fill={colors.espressoBrown} />
+              <Circle cx={25} cy={100} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 25, y: 100, title: '오늘 09시', value: '실제 25잔' })} />
               
-              <Circle cx={108} cy={78} r={3.5} fill={colors.mochaBrown} />
+              <Circle cx={108} cy={78} r={2.2} fill={colors.espressoBrown} />
               <Circle cx={108} cy={78} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 108, y: 78, title: '오늘 12시', value: '실제 87잔' })} />
 
-              <Circle cx={198} cy={63} r={3.5} fill={colors.mochaBrown} />
-              <Circle cx={198} cy={63} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 198, y: 63, title: '오늘 15시', value: '실제 127잔' })} />
+              <Circle cx={192} cy={63} r={2.2} fill={colors.espressoBrown} />
+              <Circle cx={192} cy={63} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 192, y: 63, title: '오늘 15시', value: '실제 127잔' })} />
 
-              <Circle cx={290} cy={55} r={4} fill={colors.trendGreenText} />
-              <Circle cx={290} cy={55} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 290, y: 55, title: '오늘 실시간', value: '실제 142잔' })} />
+              <Circle cx={275} cy={55} r={2.5} fill={colors.espressoBrown} />
+              <Circle cx={275} cy={55} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 275, y: 55, title: '오늘 실시간', value: '실제 142잔' })} />
 
-              {/* 4. 내일 데이터 포인트 (터치 영역 포함) */}
-              <Circle cx={24} cy={yForecast09} r={3.5} fill={colors.pointOrange} />
-              <Circle cx={24} cy={yForecast09} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 24, y: yForecast09, title: '내일 09시', value: `예측 ${tomorrowCupsCum[0]}잔` })} />
+              {/* 4. 내일 데이터 포인트 (뒤로 부드럽게 감도는 모카 브라운 톤 적용) */}
+              <Circle cx={25} cy={yForecast09} r={2.2} fill={colors.mochaBrown} opacity={0.4} />
+              <Circle cx={25} cy={yForecast09} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 25, y: yForecast09, title: '내일 09시', value: `예측 ${tomorrowCupsCum[0]}잔` })} />
               
-              <Circle cx={108} cy={yForecast12} r={3.5} fill={colors.pointOrange} />
+              <Circle cx={108} cy={yForecast12} r={2.2} fill={colors.mochaBrown} opacity={0.4} />
               <Circle cx={108} cy={yForecast12} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 108, y: yForecast12, title: '내일 12시', value: `예측 ${tomorrowCupsCum[1]}잔` })} />
 
-              <Circle cx={198} cy={yForecast15} r={3.5} fill={colors.pointOrange} />
-              <Circle cx={198} cy={yForecast15} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 198, y: yForecast15, title: '내일 15시', value: `예측 ${tomorrowCupsCum[2]}잔` })} />
+              <Circle cx={192} cy={yForecast15} r={2.2} fill={colors.mochaBrown} opacity={0.4} />
+              <Circle cx={192} cy={yForecast15} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 192, y: yForecast15, title: '내일 15시', value: `예측 ${tomorrowCupsCum[2]}잔` })} />
 
-              <Circle cx={290} cy={yForecast18} r={4} fill={colors.pointOrange} />
-              <Circle cx={290} cy={yForecast18} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 290, y: yForecast18, title: '내일 18시', value: `예측 ${tomorrowCupsCum[3]}잔` })} />
+              <Circle cx={275} cy={yForecast18} r={2.5} fill={colors.mochaBrown} opacity={0.4} />
+              <Circle cx={275} cy={yForecast18} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 275, y: yForecast18, title: '내일 18시', value: `예측 ${tomorrowCupsCum[3]}잔` })} />
 
-              {/* 5. activeTooltip 플로팅 말풍선 렌더링 (양 끝 잘림 방지용 X 클램핑 공식 탑재) */}
+
+              {/* 5. activeTooltip 플로팅 말풍선 렌더링 */}
               {activeTooltip && (() => {
                 const rectX = Math.max(10, Math.min(200, activeTooltip.x - 45));
                 const textX = rectX + 45;
@@ -529,7 +530,7 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
                       rx={5}
                       fill={colors.espressoBrown}
                     />
-                    {/* 말풍선 꼬리 (항상 터치한 좌표 x를 조준) */}
+                    {/* 말풍선 꼬리 */}
                     <Path
                       d={`M ${activeTooltip.x - 4} ${activeTooltip.y - 12} L ${activeTooltip.x} ${activeTooltip.y - 7} L ${activeTooltip.x + 4} ${activeTooltip.y - 12} Z`}
                       fill={colors.espressoBrown}
@@ -549,6 +550,7 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
               })()}
             </Svg>
 
+
             {/* X축 */}
             <View style={styles.xAxis}>
               <Text style={styles.xAxisText}>09시</Text>
@@ -561,6 +563,8 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
           </View>
         </View>
       )}
+
+
 
       {/* 하단 요약 정보 그리드 */}
       <View style={styles.footRow}>
@@ -976,8 +980,8 @@ const styles = StyleSheet.create({
   xAxis: {
     position: 'absolute',
     bottom: -10,
-    left: 8,
-    right: 8,
+    left: 12,
+    right: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -988,6 +992,7 @@ const styles = StyleSheet.create({
     color: colors.mochaBrown,
     opacity: 0.9,
   },
+
   footRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
