@@ -487,7 +487,8 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
 
         infoWindow.open(map, shopMarker);
 
-        // 인근 축제 마커들 생성
+        // 인근 축제 마커들 생성 (열린 정보창을 모아두었다가 지도 빈 곳 클릭 시 일괄 닫기)
+        const eventWindows: any[] = [];
         nearbyEvents.forEach((e: any) => {
           if (e.lat && e.lon) {
             const eventMarker = new naverObj.maps.Marker({
@@ -506,6 +507,7 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
               borderRadius: 8,
               backgroundColor: '#FFFFFF'
             });
+            eventWindows.push(eWindow);
 
             naverObj.maps.Event.addListener(eventMarker, "click", () => {
               if (eWindow.getMap()) {
@@ -515,6 +517,13 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
               }
             });
           }
+        });
+
+        // 지도 빈 곳을 클릭하면 열려 있는 행사 정보창을 모두 닫는다
+        naverObj.maps.Event.addListener(map, "click", () => {
+          eventWindows.forEach((w) => {
+            if (w.getMap()) w.close();
+          });
         });
       } catch (err) {
         console.error("네이버 지도 직접 초기화 중 에러, 폴백 가동:", err);
@@ -1188,7 +1197,7 @@ function BrewForecastOverlay({
           {/* 말풍선 카드 */}
           <View style={styles.brewBubble}>
             <Text style={styles.brewTitle}>내일은 {cups}잔 예상이에요! ☕</Text>
-            <Text style={styles.brewSub}>예상 매출 약 ₩{Math.round(revenue / 10000)}만 원</Text>
+            <Text style={styles.brewSub}>예상 매출 약 {Math.round(revenue / 10000)}만 원</Text>
 
             <View style={styles.brewDivider} />
 
