@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import EmptyState from '../../components/brew/EmptyState';
 import { PressableScale } from '../../components/motion';
+import ForecastCard from '../../components/order/ForecastCard';
 import { Badge, Card, Divider, Screen, ScreenTitle } from '../../components/ui';
 import { colors, typography } from '../../theme';
 import { listOrderDrafts, OrderDraft } from '../../lib/api/inventory';
@@ -99,11 +100,12 @@ export default function OrderScreen() {
     );
   }
 
-  // 2. 추천할 발주가 아예 없는 안전한 상태 — 턱 괸 브루 빈 화면 (#2)
+  // 2. 추천할 발주가 아예 없는 안전한 상태 — 예측 카드는 그대로 보여준다
   if (drafts.length === 0) {
     return (
       <Screen>
         <ScreenTitle title="발주 추천" />
+        <ForecastCard />
         <EmptyState
           mood="resting"
           title="지금은 추천할 발주가 없어요"
@@ -119,6 +121,9 @@ export default function OrderScreen() {
         title="발주 추천"
         subtitle={`부족 재고 기반 추천 ${drafts.length}건 · 실제 발주는 거래처에 직접 진행하세요`}
       />
+
+      {/* GPS·날씨·요일·행사 + POS 시계열 예측 — 발주 판단의 근거 */}
+      <ForecastCard />
 
       {drafts.map((d) => (
         <Card key={d.id}>

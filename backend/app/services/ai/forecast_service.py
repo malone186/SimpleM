@@ -1,0 +1,342 @@
+"""AI 판매량 예측 (백엔드 B) — AI-3
+
+워크플로우:
+  GPS(매장 위치) → 지역 날씨(Open-Meteo, 키 불필요) + 요일·공휴일 + 주변 행사(수동 입력/부스팅)
+  + POS 판매 데이터(Sale) → 시계열 모델로 기본 예측 → 날씨·행사 보정
+  → 익일·금주 예상 판매량 → 레시피 기반 재료 소요량 → 발주 추천
+
+모델: SARIMAX(1,0,1)×(1,0,1,7) — 주 7일 계절성 시계열. statsmodels가 없거나 수렴 실패 시
+      요일별 평균(최근 가중) × 추세 폴백. 둘 다 '단순 예측 + 이벤트 부스팅' 원칙을 따른다.
+
+전제: 최소 MIN_HISTORY_DAYS일치 판매 데이터가 있어야 예측을 제공한다 (미달 시 안내).
+행사 데이터: 지역 행사 공공 API(문화포털 등)는 키 등록이 필요해 아직 미연결 —
+  사장님이 아는 행사를 events 파라미터로 넣으면 해당 일자에 부스팅(기본 +20%)한다.
+"""
+
+import logging
+from datetime import date, datetime, timedelta
+from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
+
+MIN_HISTORY_DAYS = 14        # 이 일수 미만의 판매 기록이면 예측을 제공하지 않는다
+MENU_MIX_WINDOW_DAYS = 14    # 메뉴별 판매 비중(발주 소요량 계산)에 쓰는 최근 기간
+DEFAULT_EVENT_BOOST = 20     # 행사 부스팅 기본값 (%)
+DEFAULT_LAT, DEFAULT_LON = 37.5665, 126.9780  # 위치 미제공 시 서울시청 기준
+
+# 2026년 대한민국 공휴일 (하드코딩 — 매년 갱신 필요, 대체공휴일 포함)
+KR_HOLIDAYS_2026 = {
+    "2026-01-01": "신정", "2026-02-16": "설 연휴", "2026-02-17": "설날",
+    "2026-02-18": "설 연휴", "2026-03-01": "삼일절", "2026-03-02": "삼일절 대체",
+    "2026-05-05": "어린이날", "2026-05-24": "부처님오신날", "2026-05-25": "부처님오신날 대체",
+    "2026-06-06": "현충일", "2026-08-15": "광복절", "2026-08-17": "광복절 대체",
+    "2026-09-24": "추석 연휴", "2026-09-25": "추석", "2026-09-26": "추석 연휴",
+    "2026-10-03": "개천절", "2026-10-05": "개천절 대체", "2026-10-09": "한글날",
+    "2026-12-25": "성탄절",
+}
+
+WEEKDAY_KO = ["월", "화", "수", "목", "금", "토", "일"]
+
+# Open-Meteo weather_code → 한글 날씨
+_WEATHER_KO = [
+    ((0,), "맑음"), ((1, 2, 3), "구름"), ((45, 48), "안개"),
+    (tuple(range(51, 68)), "비"), (tuple(range(71, 78)), "눈"),
+    ((80, 81, 82), "소나기"), ((85, 86), "눈"), ((95, 96, 99), "뇌우"),
+]
+
+
+class ForecastError(ValueError):
+    """예측 불가 (데이터 부족·입력 오류)"""
+
+
+def _weather_label(code: int) -> str:
+    for codes, label in _WEATHER_KO:
+        if code in codes:
+            return label
+    return "흐림"
+
+
+# ---------------------------------------------------------------------------
+# 1) POS 판매 시계열 로드
+# ---------------------------------------------------------------------------
+
+def _load_daily_series(db, store_id: str):
+    """일별 (판매 잔 수, 매출) 시계열을 만든다. 기록 없는 날은 0으로 채운다 (휴무 가정)."""
+    import pandas as pd
+
+    from app.models.inventory import Sale
+
+    rows = (
+        db.query(Sale.sold_at, Sale.quantity, Sale.total_price)
+        .filter(Sale.store_id == store_id)
+        .order_by(Sale.sold_at)
+        .all()
+    )
+    if not rows:
+        return None
+    df = pd.DataFrame(rows, columns=["sold_at", "quantity", "total_price"])
+    df["day"] = pd.to_datetime(df["sold_at"]).dt.date
+    daily = df.groupby("day").agg(cups=("quantity", "sum"), revenue=("total_price", "sum"))
+    daily.index = pd.to_datetime(daily.index)
+    # 첫 판매일~마지막 판매일 사이 비는 날을 0으로 — 시계열 연속성 확보
+    full = pd.date_range(daily.index.min(), daily.index.max(), freq="D")
+    return daily.reindex(full, fill_value=0)
+
+
+# ---------------------------------------------------------------------------
+# 2) 시계열 예측 — SARIMAX 우선, 요일 계절성 폴백
+# ---------------------------------------------------------------------------
+
+def _forecast_sarimax(series, horizon: int):
+    """SARIMAX(1,0,1)×(1,0,1,7) — 주간 계절성 시계열 예측. 실패하면 None."""
+    try:
+        from statsmodels.tsa.statespace.sarimax import SARIMAX
+
+        model = SARIMAX(series.astype(float), order=(1, 0, 1), seasonal_order=(1, 0, 1, 7),
+                        enforce_stationarity=False, enforce_invertibility=False)
+        fitted = model.fit(disp=False, maxiter=200)
+        pred = fitted.forecast(steps=horizon)
+        return [max(0.0, float(v)) for v in pred]
+    except Exception:
+        logger.warning("SARIMAX 적합 실패 — 요일 계절성 폴백 사용", exc_info=True)
+        return None
+
+
+def _forecast_seasonal(series, horizon: int):
+    """폴백: 요일별 평균(최근 2주는 2배 가중) × 최근 추세(직전 2주 / 그 전 2주, 0.7~1.3 클립)."""
+    import numpy as np
+
+    values = series.to_numpy(dtype=float)
+    weekdays = series.index.dayofweek.to_numpy()
+    n = len(values)
+    weights = np.ones(n)
+    weights[-14:] = 2.0  # 최근 2주 가중
+
+    wd_mean = {}
+    for wd in range(7):
+        mask = weekdays == wd
+        wd_mean[wd] = (np.average(values[mask], weights=weights[mask])
+                       if mask.any() else float(values.mean()))
+
+    trend = 1.0
+    if n >= 28:
+        recent, prev = values[-14:].mean(), values[-28:-14].mean()
+        if prev > 0:
+            trend = float(np.clip(recent / prev, 0.7, 1.3))
+
+    last_day = series.index[-1]
+    return [max(0.0, wd_mean[(last_day + timedelta(days=i + 1)).dayofweek] * trend)
+            for i in range(horizon)]
+
+
+# ---------------------------------------------------------------------------
+# 3) 날씨·위치 (Open-Meteo / Nominatim — 둘 다 키 불필요)
+# ---------------------------------------------------------------------------
+
+def _fetch_weather(lat: float, lon: float, days: int) -> dict[str, dict[str, Any]]:
+    """일자별 날씨 예보. 실패해도 예측은 계속한다 (보정만 생략)."""
+    import requests
+
+    try:
+        r = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={"latitude": lat, "longitude": lon, "timezone": "Asia/Seoul",
+                    "forecast_days": min(days + 1, 16),
+                    "daily": "weather_code,temperature_2m_max,precipitation_probability_max"},
+            timeout=8,
+        )
+        r.raise_for_status()
+        d = r.json()["daily"]
+        return {
+            d["time"][i]: {
+                "condition": _weather_label(int(d["weather_code"][i])),
+                "temp_max": d["temperature_2m_max"][i],
+                "precip_prob": d["precipitation_probability_max"][i],
+            }
+            for i in range(len(d["time"]))
+        }
+    except Exception:
+        logger.warning("날씨 조회 실패 — 날씨 보정 없이 예측", exc_info=True)
+        return {}
+
+
+def _reverse_geocode(lat: float, lon: float) -> str:
+    """좌표 → 지역 이름 (표시용). 실패하면 좌표 문자열."""
+    import requests
+
+    try:
+        r = requests.get(
+            "https://nominatim.openstreetmap.org/reverse",
+            params={"lat": lat, "lon": lon, "format": "json", "accept-language": "ko", "zoom": 14},
+            headers={"User-Agent": "SimpleM-cafe-app/1.0"},
+            timeout=5,
+        )
+        addr = r.json().get("address", {})
+        parts = [addr.get(k) for k in ("city", "borough", "suburb", "quarter") if addr.get(k)]
+        return " ".join(parts[:3]) or r.json().get("display_name", "")[:40]
+    except Exception:
+        return f"위도 {lat:.4f}, 경도 {lon:.4f}"
+
+
+# ---------------------------------------------------------------------------
+# 4) 일자별 보정 — 날씨·공휴일·행사
+# ---------------------------------------------------------------------------
+
+def _day_adjustment(day_iso: str, weather: dict, events: list[dict]) -> tuple[float, list[str]]:
+    """해당 일자의 보정 배율과 근거 목록을 돌려준다."""
+    factor, reasons = 1.0, []
+
+    w = weather.get(day_iso)
+    if w:
+        if (w["precip_prob"] or 0) >= 60:
+            factor *= 0.90
+            reasons.append(f"{w['condition']} 예보(강수확률 {w['precip_prob']}%) → -10%")
+        if (w["temp_max"] or 0) >= 30:
+            factor *= 1.05
+            reasons.append(f"최고기온 {w['temp_max']}°C 폭염 → 아이스 음료 수요 +5%")
+
+    holiday = KR_HOLIDAYS_2026.get(day_iso)
+    if holiday:
+        reasons.append(f"공휴일({holiday}) — 상권 특성에 따라 변동 가능")
+
+    for ev in events:
+        if not ev.get("date") or ev["date"] == day_iso:
+            boost = float(ev.get("boost_pct", DEFAULT_EVENT_BOOST))
+            factor *= 1 + boost / 100
+            reasons.append(f"행사 '{ev.get('name', '주변 행사')}' → +{boost:.0f}%")
+
+    return factor, reasons
+
+
+# ---------------------------------------------------------------------------
+# 5) 발주 추천 — 예측 판매량 → 레시피 소요량 → 재고 대비 부족분
+# ---------------------------------------------------------------------------
+
+def _order_recommendations(db, store_id: str, week_cups: float) -> list[dict[str, Any]]:
+    """금주 예상 잔 수를 메뉴 비중으로 나누고 레시피로 재료 소요량을 계산해 발주를 추천한다."""
+    from app.models.inventory import Ingredient, Menu, Recipe, Sale, Stock
+
+    since = (date.today() - timedelta(days=MENU_MIX_WINDOW_DAYS)).isoformat()
+    mix_rows = (
+        db.query(Sale.menu_id, Menu.name)
+        .join(Menu, Sale.menu_id == Menu.id)
+        .filter(Sale.store_id == store_id, Sale.sold_at >= since)
+        .all()
+    )
+    if not mix_rows:
+        return []
+    total = len(mix_rows)
+    menu_share: dict[int, float] = {}
+    for menu_id, _ in mix_rows:
+        menu_share[menu_id] = menu_share.get(menu_id, 0) + 1 / total
+
+    # 메뉴별 예상 잔 수 × 레시피 소요량 → 재료별 7일 예상 소요량
+    usage: dict[int, float] = {}
+    for menu_id, share in menu_share.items():
+        cups = week_cups * share
+        for recipe in db.query(Recipe).filter(Recipe.menu_id == menu_id).all():
+            usage[recipe.ingredient_id] = usage.get(recipe.ingredient_id, 0) + cups * recipe.quantity
+
+    recs = []
+    for ing_id, needed in usage.items():
+        ing = db.get(Ingredient, ing_id)
+        stock = db.query(Stock).filter(Stock.ingredient_id == ing_id).first()
+        if ing is None or stock is None:
+            continue
+        current, safety = stock.current_quantity, stock.safety_quantity
+        daily_use = needed / 7
+        shortage = needed + safety - current
+        if shortage <= 0:
+            continue  # 금주 소요 + 안전재고를 지금 재고로 감당 가능
+        suggested = round(shortage, 1)
+        recs.append({
+            "ingredient": ing.name,
+            "unit": ing.unit,
+            "current_quantity": current,
+            "safety_quantity": safety,
+            "forecast_usage_7d": round(needed, 1),
+            "days_until_stockout": round(current / daily_use, 1) if daily_use > 0 else None,
+            "suggested_quantity": suggested,
+            "estimated_amount": round(suggested * ing.current_price),
+            "reason": f"금주 예상 소요 {round(needed, 1)}{ing.unit} 대비 재고 {current}{ing.unit}",
+        })
+    recs.sort(key=lambda r: (r["days_until_stockout"] is None, r["days_until_stockout"]))
+    return recs
+
+
+# ---------------------------------------------------------------------------
+# 공개 인터페이스
+# ---------------------------------------------------------------------------
+
+def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = None,
+             days: int = 7, events: Optional[list[dict]] = None) -> dict[str, Any]:
+    """익일·금주 판매량 예측 + 발주 추천.
+
+    lat/lon: 매장 GPS 좌표 (프론트가 기기 위치를 전달; 없으면 서울 기준).
+    events: [{"name": "벚꽃 축제", "date": "2026-07-19"(생략 시 전체), "boost_pct": 20}]
+    """
+    from app.services.ai.document_service import _session
+
+    days = max(1, min(int(days), 14))
+    lat = lat if lat is not None else DEFAULT_LAT
+    lon = lon if lon is not None else DEFAULT_LON
+    events = events or []
+
+    with _session() as db:
+        series = _load_daily_series(db, store_id)
+        if series is None or len(series) < MIN_HISTORY_DAYS:
+            have = 0 if series is None else len(series)
+            raise ForecastError(
+                f"판매 데이터가 {have}일치뿐이라 아직 예측을 제공할 수 없어요. "
+                f"최소 {MIN_HISTORY_DAYS}일의 판매 기록이 쌓이면 예측이 열립니다. "
+                "(POS 동기화 또는 판매 입력을 계속해 주세요)")
+
+        # 시계열 기본 예측 (잔 수·매출 각각)
+        model_name = f"SARIMAX(1,0,1)×(1,0,1,7) 주간 계절성 (학습 {len(series)}일)"
+        cups_pred = _forecast_sarimax(series["cups"], days)
+        rev_pred = _forecast_sarimax(series["revenue"], days) if cups_pred else None
+        if cups_pred is None or rev_pred is None:
+            model_name = f"요일별 평균×추세 (학습 {len(series)}일, 폴백)"
+            cups_pred = _forecast_seasonal(series["cups"], days)
+            rev_pred = _forecast_seasonal(series["revenue"], days)
+
+        weather = _fetch_weather(lat, lon, days)
+        region = _reverse_geocode(lat, lon)
+
+        # 일자별 날씨·공휴일·행사 보정
+        start = series.index[-1].date() + timedelta(days=1)
+        week = []
+        for i in range(days):
+            d = start + timedelta(days=i)
+            iso = d.isoformat()
+            factor, reasons = _day_adjustment(iso, weather, events)
+            w = weather.get(iso, {})
+            week.append({
+                "date": iso,
+                "weekday": WEEKDAY_KO[d.weekday()],
+                "base_cups": round(cups_pred[i]),
+                "cups": round(cups_pred[i] * factor),
+                "revenue": round(rev_pred[i] * factor),
+                "weather": w.get("condition"),
+                "temp_max": w.get("temp_max"),
+                "precip_prob": w.get("precip_prob"),
+                "adjustments": reasons,
+                "holiday": KR_HOLIDAYS_2026.get(iso),
+            })
+
+        week_cups = sum(d["cups"] for d in week)
+        recommendations = _order_recommendations(db, store_id, week_cups)
+
+    return {
+        "store_id": store_id,
+        "location": {"lat": lat, "lon": lon, "region": region},
+        "model": model_name,
+        "history_days": len(series),
+        "tomorrow": week[0],
+        "week": week,
+        "week_total": {"cups": week_cups, "revenue": sum(d["revenue"] for d in week)},
+        "order_recommendations": recommendations,
+        "events_applied": events,
+        "note": "시계열 예측에 날씨(강수 -10%, 폭염 +5%)·행사(기본 +20%) 보정을 적용한 참고치입니다. "
+                "지역 행사 자동 연동은 공공 API 키 등록 후 가능하며, 지금은 직접 입력한 행사만 반영됩니다.",
+    }

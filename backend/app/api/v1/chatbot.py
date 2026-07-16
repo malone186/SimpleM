@@ -34,7 +34,13 @@ from app.schemas.ai import (
     OcrStatus,
     PayslipRequest,
 )
-from app.services.ai import document_service, ocr_service, price_service, report_service
+from app.services.ai import (
+    document_service,
+    forecast_service,
+    ocr_service,
+    price_service,
+    report_service,
+)
 
 router = APIRouter(prefix="/chatbot", tags=["chatbot"])
 
@@ -251,6 +257,28 @@ def update_generated_document(
         return document_service.update_document(current_user.email, doc_id, body.content, title=body.title)
     except document_service.DocumentError as e:
         raise HTTPException(404, str(e))
+
+
+# ---------------------------------------------------------------------------
+# AI 판매량 예측 (AI-3) — GPS·날씨·요일·공휴일·행사 + POS 시계열
+# ---------------------------------------------------------------------------
+
+@router.get("/forecast")
+def get_sales_forecast_api(
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
+    days: int = 7,
+    current_user: User = Depends(get_current_user),
+):
+    """익일·금주 예상 판매량과 발주 추천을 돌려준다.
+
+    lat/lon: 매장 GPS 좌표 (프론트가 기기 위치 전달, 없으면 서울 기준 날씨).
+    판매 기록이 14일 미만이면 409와 함께 안내 메시지를 준다.
+    """
+    try:
+        return forecast_service.forecast(current_user.email, lat=lat, lon=lon, days=days)
+    except forecast_service.ForecastError as e:
+        raise HTTPException(409, str(e))
 
 
 # ---------------------------------------------------------------------------
