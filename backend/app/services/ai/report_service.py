@@ -49,6 +49,13 @@ def _period_range(period_type: str, ref: date) -> tuple[date, date, date, date, 
         display = f"{start.year:04d}-{start.month:02d}"
     else:
         raise ReportError(f"period_type은 daily/weekly/monthly 중 하나여야 합니다 (받은 값: {period_type})")
+
+    # 진행 중인 기간은 이전 기간도 같은 경과일까지만 잘라 공정하게 비교한다
+    # (예: 7/1~16 매출 vs 6월 전체가 아니라 6/1~16 매출 — 아니면 항상 '감소'로 보인다)
+    today = date.today()
+    if end > today:
+        elapsed = today + timedelta(days=1) - start  # 오늘까지 포함한 경과일
+        prev_end = min(prev_end, prev_start + elapsed)
     return start, end, prev_start, prev_end, display
 
 
