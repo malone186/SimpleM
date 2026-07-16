@@ -8,6 +8,7 @@ import { useCountUp } from '../motion';
 import { PressableScale } from '../motion';
 import { useAuth } from '../../auth/AuthContext';
 import { getSalesForecast, getDevicePosition, type SalesForecast, type ForecastDay } from '../../lib/api/forecast';
+import Brew from '../brew/Brew';
 
 // (삭제함 - Web 호환성을 위해 addListener + 일반 Circle을 사용하도록 개선)
 
@@ -227,6 +228,7 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
   const [isMonthly, setIsMonthly] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null); // [한글 주석: 선택한 날짜의 상세 매출 분석 모달 노출 상태 변수]
   const [selectedFutureDate, setSelectedFutureDate] = useState<string | null>(null);
+  const [showBrew, setShowBrew] = useState(false); // [브루 예측 설명 오버레이]
   const [activeTooltip, setActiveTooltip] = useState<{
     x: number;
     y: number;
@@ -431,6 +433,12 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
               <View style={[styles.legendColorDot, { backgroundColor: colors.mochaBrown, opacity: 0.5 }]} />
               <Text style={styles.legendText}>내일 AI 예측</Text>
             </View>
+
+            {/* [브루] 예측 원인 설명 트리거 버튼 */}
+            <PressableScale style={styles.brewCta} onPress={() => setShowBrew(true)} to={0.95}>
+              <Ionicons name="cafe" size={12} color={colors.pointOrange} />
+              <Text style={styles.brewCtaText}>예측 이유</Text>
+            </PressableScale>
           </View>
 
           <View style={styles.chartWrap}>
@@ -798,11 +806,151 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
           </View>
         </View>
       </Modal>
+
+      {/* [브루 예측 설명 오버레이] 내일 예측 배지 탭 시 브루가 등장해 원인 설명 */}
+      <BrewForecastOverlay
+        visible={showBrew}
+        onClose={() => setShowBrew(false)}
+        cups={tomorrowCups}
+        revenue={tomorrowRevenue}
+        peak={peakTime}
+        growth={badgeText}
+      />
     </View>
   );
 }
 
+// [브루 등장 오버레이] 스프링으로 튀어올라오며 말풍선으로 예측 원인을 설명한다.
+function BrewForecastOverlay({
+  visible,
+  onClose,
+  cups,
+  revenue,
+  peak,
+  growth,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  cups: number;
+  revenue: number;
+  peak: string;
+  growth: string;
+}) {
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      anim.setValue(0);
+      Animated.spring(anim, {
+        toValue: 1,
+        useNativeDriver: true,
+        friction: 7,
+        tension: 80,
+      }).start();
+    }
+  }, [visible, anim]);
+
+  const growthClean = growth.replace(/[▲▼]/g, '').trim();
+  const reasons = [
+    { icon: '🕑', text: `${peak} 피크 시간대에 주문이 몰릴 거예요.` },
+    { icon: '📈', text: `최근 판매 추세가 오늘 대비 ${growthClean} 오름세예요.` },
+    { icon: '🌤️', text: '요일·날씨 패턴도 판매에 유리한 편이에요.' },
+  ];
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.brewBackdrop} onPress={onClose}>
+        <Animated.View
+          style={[
+            styles.brewSheet,
+            {
+              opacity: anim,
+              transform: [
+                { translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [60, 0] }) },
+                { scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
+              ],
+            },
+          ]}
+        >
+          {/* 브루 등장 */}
+          <View style={styles.brewMascotWrap} pointerEvents="none">
+            <Brew mood="serving" size={132} />
+          </View>
+
+          {/* 말풍선 카드 */}
+          <View style={styles.brewBubble}>
+            <Text style={styles.brewTitle}>내일은 {cups}잔 예상이에요! ☕</Text>
+            <Text style={styles.brewSub}>예상 매출 약 ₩{Math.round(revenue / 10000)}만 원</Text>
+
+            <View style={styles.brewDivider} />
+
+            {reasons.map((r) => (
+              <View key={r.text} style={styles.brewReasonRow}>
+                <Text style={styles.brewReasonIcon}>{r.icon}</Text>
+                <Text style={styles.brewReasonText}>{r.text}</Text>
+              </View>
+            ))}
+
+            <Text style={styles.brewFoot}>최근 판매 데이터 기반 AI 예측 · — 브루 드림</Text>
+
+            <PressableScale style={styles.brewBtn} onPress={onClose} to={0.97}>
+              <Text style={styles.brewBtnText}>알겠어요</Text>
+            </PressableScale>
+          </View>
+        </Animated.View>
+      </Pressable>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
+  // [브루] 예측 이유 CTA 버튼 (범례 우측)
+  brewCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginLeft: 'auto',
+    backgroundColor: '#FBF0E4',
+    borderWidth: 1,
+    borderColor: 'rgba(194,94,53,0.35)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  brewCtaText: { fontSize: 11, fontWeight: '700', color: colors.pointOrange },
+  // [브루 예측 설명 오버레이]
+  brewBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(30,22,16,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  brewSheet: { width: '100%', maxWidth: 340, alignItems: 'center' },
+  brewMascotWrap: { marginBottom: -34, zIndex: 2 },
+  brewBubble: {
+    width: '100%',
+    backgroundColor: colors.white,
+    borderRadius: 24,
+    paddingTop: 40,
+    paddingHorizontal: 20,
+    paddingBottom: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.22,
+    shadowRadius: 22,
+    elevation: 10,
+  },
+  brewTitle: { fontSize: 18, fontWeight: '800', color: colors.espressoBrown, textAlign: 'center' },
+  brewSub: { ...typography.L5, color: colors.mochaBrown, textAlign: 'center', marginTop: 3, fontWeight: '600' },
+  brewDivider: { height: 1, backgroundColor: colors.mutedSand, marginVertical: 14 },
+  brewReasonRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, marginBottom: 9 },
+  brewReasonIcon: { fontSize: 15, marginTop: 1 },
+  brewReasonText: { flex: 1, fontSize: 13, color: colors.espressoBrown, lineHeight: 19, fontWeight: '500' },
+  brewFoot: { ...typography.L5, color: colors.mochaBrown, fontStyle: 'italic', textAlign: 'center', marginTop: 6, opacity: 0.85 },
+  brewBtn: { backgroundColor: colors.pointOrange, borderRadius: 14, paddingVertical: 13, alignItems: 'center', marginTop: 14 },
+  brewBtnText: { ...typography.L3, color: colors.white, fontWeight: '700' },
+
   card: {
     backgroundColor: 'rgba(242, 236, 224, 0.55)', // 원래 0.55 크림 베이지 톤으로 복구
     borderRadius: 24,
