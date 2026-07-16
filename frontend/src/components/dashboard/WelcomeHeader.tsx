@@ -75,7 +75,7 @@ export default function WelcomeHeader({
             {quote}
           </Text>
         </View>
-        <Brew mood={mood} size={124} style={styles.mascot} />
+        <Brew mood={mood} size={168} style={styles.mascot} />
       </View>
     </View>
   );

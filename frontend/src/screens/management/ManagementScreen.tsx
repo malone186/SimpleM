@@ -6,6 +6,7 @@ import { useNavigation } from '@react-navigation/native';
 import { PressableScale } from '../../components/motion';
 import { Screen } from '../../components/ui';
 import { colors } from '../../theme';
+import Brew from '../../components/brew/Brew';
 
 const IVORY = '#F4F1EF';
 const DARKTX = '#463C34'; // 밝은 카드용 진한 텍스트
@@ -73,11 +74,13 @@ export default function ManagementScreen() {
 
   return (
     <Screen>
-      {/* 헤더 — 에디토리얼 타이포 (사장님 요청으로 타이틀 크기를 타 화면 헤더 L1 규격과 통일 및 모든 영문 제거) */}
+      {/* 헤더 — 타이틀 + 관리 담당 브루(클립보드) */}
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={styles.bigTitle}>관리</Text>
+          <Text style={styles.sub}>가게 운영에 필요한 모든 기능</Text>
         </View>
+        <Brew mood="clipboard" size={104} />
       </View>
 
         {/* 기울여 겹쳐 흩뿌린 카드 덱 */}
@@ -121,11 +124,12 @@ export default function ManagementScreen() {
 const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 18,
+    alignItems: 'center',
+    marginBottom: 14,
     marginTop: 4,
   },
-  bigTitle: { fontSize: 20, fontWeight: '900', color: colors.espressoBrown, letterSpacing: -0.2, marginTop: 4, lineHeight: 24 }, // [한글 주석: 타이틀 폰트 크기를 다른 탭의 타이틀(재고, 발주 등) 규격인 L1(fontSize: 20)에 맞춰 통일]
+  bigTitle: { fontSize: 20, fontWeight: '900', color: colors.espressoBrown, letterSpacing: -0.2, lineHeight: 24 },
+  sub: { fontSize: 12, color: colors.mochaBrown, marginTop: 4, fontWeight: '600' },
 
   deck: { paddingHorizontal: 6, paddingTop: 6, paddingBottom: 20 },
   card: {
