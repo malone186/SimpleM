@@ -1,10 +1,11 @@
-// [한글 주석: 원두 메모장 컴포넌트]
-// 사장님이 현재 사용 중인 원두와 이전에 써본/발주해본 원두를 기록하는 UI입니다.
+// [한글 주석: 원두 메모장 컴포넌트 - 아코디언 토글 & 이모지 완전 제거 버전]
+// 사장님이 현재 사용 중인 원두와 이전에 주문/발주해본 원두를 기록하는 깔끔한 대장 UI입니다.
 // AsyncStorage에 로컬 저장되므로 백엔드 없이도 동작합니다.
 import { useEffect, useState } from 'react';
 import {
   Alert,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -17,15 +18,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, shadows, typography } from '../../theme';
 
 // ─── 타입 정의 ───────────────────────────────────────────────────────────
-type NoteStatus = 'trying' | 'ordered' | 'tried';
-
 interface BeanNote {
   id: string;
   name: string;         // 원두 이름
-  rating: number;       // 별점 (1~5)
   memo: string;         // 간단 메모
   date: string;         // 날짜 (YYYY-MM-DD)
-  status: NoteStatus;   // trying: 현재 사용 중 | ordered: 발주해봄 | tried: 써봄
+  usageCount: number;   // 주문(사용) 횟수
+  status?: string;      // 하위 호환성용
 }
 
 interface NotepadData {
@@ -35,40 +34,8 @@ interface NotepadData {
 }
 
 const STORAGE_KEY = 'simplem:bean_notepad';
-
-const STATUS_LABEL: Record<NoteStatus, { label: string; color: string; bg: string }> = {
-  trying:  { label: '현재 사용 중', color: '#4E7D3A', bg: 'rgba(78,125,58,0.12)' },
-  ordered: { label: '발주해봄',     color: '#3C64B4', bg: 'rgba(60,100,180,0.12)' },
-  tried:   { label: '써봄',         color: '#8C6F56', bg: 'rgba(140,111,86,0.12)' },
-};
-
 const today = () => new Date().toISOString().split('T')[0];
 
-// ─── 별점 렌더링 ────────────────────────────────────────────────────────
-function Stars({
-  rating, size = 14, onPress,
-}: { rating: number; size?: number; onPress?: (n: number) => void }) {
-  return (
-    <View style={{ flexDirection: 'row', gap: 2 }}>
-      {[1, 2, 3, 4, 5].map((n) => (
-        <TouchableOpacity
-          key={n}
-          onPress={() => onPress?.(n)}
-          disabled={!onPress}
-          hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-        >
-          <Ionicons
-            name={n <= rating ? 'star' : 'star-outline'}
-            size={size}
-            color={n <= rating ? '#E07050' : colors.stone300}
-          />
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
-}
-
-// ─── 메인 컴포넌트 ───────────────────────────────────────────────────────
 export default function BeanNotepad() {
   const [data, setData] = useState<NotepadData>({
     currentCaffeine: '',
@@ -76,20 +43,22 @@ export default function BeanNotepad() {
     notes: [],
   });
 
+  // 아코디언 상태: 현재 메모가 열린 원두의 ID를 저장합니다. (기본적으로 모두 접힌 상태)
+  const [expandedNoteId, setExpandedNoteId] = useState<string | null>(null);
+
   // 모달 상태
   const [showCurrentEdit, setShowCurrentEdit] = useState(false);
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [editingNote, setEditingNote] = useState<BeanNote | null>(null);
 
-  // 현재 사용 원두 편집 임시값
+  // 현재 사용 원두 편집 임시값 (이모지 없이 텍스트만)
   const [tempCaffeine, setTempCaffeine] = useState('');
   const [tempDecaf, setTempDecaf] = useState('');
 
-  // 노트 편집 임시값
+  // 노트 편집 임시값 (구분 status 제거, 이모지 없음)
   const [tempName, setTempName] = useState('');
-  const [tempRating, setTempRating] = useState(3);
   const [tempMemo, setTempMemo] = useState('');
-  const [tempStatus, setTempStatus] = useState<NoteStatus>('tried');
+  const [tempUsageCount, setTempUsageCount] = useState(1);
 
   // AsyncStorage에서 불러오기
   useEffect(() => {
@@ -121,14 +90,16 @@ export default function BeanNotepad() {
   // ── 노트 추가/수정 ──
   const openAddNote = () => {
     setEditingNote(null);
-    setTempName(''); setTempRating(3); setTempMemo(''); setTempStatus('tried');
+    setTempName(''); setTempMemo('');
+    setTempUsageCount(1);
     setShowNoteModal(true);
   };
 
   const openEditNote = (note: BeanNote) => {
     setEditingNote(note);
-    setTempName(note.name); setTempRating(note.rating);
-    setTempMemo(note.memo); setTempStatus(note.status);
+    setTempName(note.name);
+    setTempMemo(note.memo);
+    setTempUsageCount(note.usageCount || 1);
     setShowNoteModal(true);
   };
 
@@ -138,7 +109,12 @@ export default function BeanNotepad() {
       // 수정
       const updated = data.notes.map((n) =>
         n.id === editingNote.id
-          ? { ...n, name: tempName.trim(), rating: tempRating, memo: tempMemo.trim(), status: tempStatus }
+          ? {
+              ...n,
+              name: tempName.trim(),
+              memo: tempMemo.trim(),
+              usageCount: tempUsageCount,
+            }
           : n
       );
       save({ ...data, notes: updated });
@@ -147,10 +123,9 @@ export default function BeanNotepad() {
       const newNote: BeanNote = {
         id: Date.now().toString(),
         name: tempName.trim(),
-        rating: tempRating,
         memo: tempMemo.trim(),
         date: today(),
-        status: tempStatus,
+        usageCount: tempUsageCount,
       };
       save({ ...data, notes: [newNote, ...data.notes] });
     }
@@ -158,13 +133,21 @@ export default function BeanNotepad() {
   };
 
   const deleteNote = (id: string) => {
-    Alert.alert('삭제', '이 노트를 삭제할까요?', [
-      { text: '취소', style: 'cancel' },
-      {
-        text: '삭제', style: 'destructive',
-        onPress: () => save({ ...data, notes: data.notes.filter((n) => n.id !== id) }),
-      },
-    ]);
+    const doDelete = () => {
+      if (expandedNoteId === id) setExpandedNoteId(null);
+      save({ ...data, notes: data.notes.filter((n) => n.id !== id) });
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm('이 노트를 삭제하시겠습니까?')) {
+        doDelete();
+      }
+    } else {
+      Alert.alert('삭제', '이 노트를 삭제할까요?', [
+        { text: '취소', style: 'cancel' },
+        { text: '삭제', style: 'destructive', onPress: doDelete },
+      ]);
+    }
   };
 
   // ─── 렌더링 ────────────────────────────────────────────────────────────
@@ -175,7 +158,6 @@ export default function BeanNotepad() {
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <View style={styles.cardTitleRow}>
-            <Text style={styles.cardEmoji}>☕</Text>
             <Text style={styles.cardTitle}>현재 사용 중인 원두</Text>
           </View>
           <TouchableOpacity style={styles.editBtn} onPress={openCurrentEdit}>
@@ -211,7 +193,6 @@ export default function BeanNotepad() {
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <View style={styles.cardTitleRow}>
-            <Text style={styles.cardEmoji}>📝</Text>
             <Text style={styles.cardTitle}>원두 체험 노트</Text>
           </View>
           <TouchableOpacity style={styles.addBtn} onPress={openAddNote}>
@@ -229,55 +210,81 @@ export default function BeanNotepad() {
           </View>
         ) : (
           <View style={styles.noteList}>
-            {data.notes.map((note) => {
-              const st = STATUS_LABEL[note.status];
-              return (
-                <View key={note.id} style={styles.noteItem}>
-                  {/* 왼쪽 상태 바 */}
-                  <View style={[styles.noteBar, { backgroundColor: st.color }]} />
+            {[...data.notes]
+              .sort((a, b) => {
+                const cntA = a.usageCount || 0;
+                const cntB = b.usageCount || 0;
+                if (cntB !== cntA) return cntB - cntA; // 사용 횟수 많은 순 정렬
+                return b.id.localeCompare(a.id); // 2차: 등록 최신 순
+              })
+              .map((note) => {
+                const isExpanded = expandedNoteId === note.id;
+                return (
+                  <View key={note.id} style={styles.noteItem}>
+                    {/* 왼쪽 구분 바 */}
+                    <View style={[styles.noteBar, { backgroundColor: colors.mochaBrown }]} />
 
-                  <View style={styles.noteContent}>
-                    {/* 상단 줄: 원두명 + 상태 배지 + 버튼 */}
-                    <View style={styles.noteTopRow}>
-                      <Text style={styles.noteName} numberOfLines={1}>{note.name}</Text>
-                      <View style={[styles.statusBadge, { backgroundColor: st.bg }]}>
-                        <Text style={[styles.statusText, { color: st.color }]}>{st.label}</Text>
+                    <View style={styles.noteContent}>
+                      {/* 상단 줄: 원두명 클릭 가능 영역 + 횟수 + 아이콘 */}
+                      <View style={styles.noteTopRow}>
+                        <TouchableOpacity
+                          style={styles.noteNamePressable}
+                          onPress={() => setExpandedNoteId(isExpanded ? null : note.id)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.noteName} numberOfLines={1}>{note.name}</Text>
+                          
+                          {/* 사용 횟수 태그 (이모지 없음) */}
+                          <View style={styles.countBadge}>
+                            <Text style={styles.countBadgeText}>{note.usageCount || 1}회 주문</Text>
+                          </View>
+
+                          <Ionicons
+                            name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                            size={12}
+                            color={colors.stone300}
+                          />
+                        </TouchableOpacity>
+
+                        {/* 조작 버튼그룹 */}
+                        <View style={styles.actionGroup}>
+                          <TouchableOpacity
+                            onPress={() => openEditNote(note)}
+                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          >
+                            <Ionicons name="create-outline" size={14} color={colors.mochaBrown} />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => deleteNote(note.id)}
+                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          >
+                            <Ionicons name="trash-outline" size={14} color="#C07070" />
+                          </TouchableOpacity>
+                        </View>
                       </View>
-                      <TouchableOpacity
-                        onPress={() => openEditNote(note)}
-                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                      >
-                        <Ionicons name="create-outline" size={14} color={colors.mochaBrown} />
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => deleteNote(note.id)}
-                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                      >
-                        <Ionicons name="trash-outline" size={14} color="#C07070" />
-                      </TouchableOpacity>
-                    </View>
 
-                    {/* 별점 + 날짜 */}
-                    <View style={styles.noteMetaRow}>
-                      <Stars rating={note.rating} size={12} />
-                      <Text style={styles.noteDate}>{note.date}</Text>
+                      {/* 메모 영역 (클릭 시 아코디언 토글 노출) */}
+                      {isExpanded && (
+                        <View style={styles.memoBox}>
+                          {note.memo ? (
+                            <Text style={styles.noteMemo}>{note.memo}</Text>
+                          ) : (
+                            <Text style={styles.noteMemoEmpty}>작성된 내용이 없습니다.</Text>
+                          )}
+                          <View style={styles.memoFooter}>
+                            <Text style={styles.noteDate}>{note.date.replace(/-/g, '.')}</Text>
+                          </View>
+                        </View>
+                      )}
                     </View>
-
-                    {/* 메모 */}
-                    {note.memo ? (
-                      <Text style={styles.noteMemo}>"{note.memo}"</Text>
-                    ) : (
-                      <Text style={styles.noteMemoEmpty}>메모 없음</Text>
-                    )}
                   </View>
-                </View>
-              );
-            })}
+                );
+              })}
           </View>
         )}
       </View>
 
-      {/* ━━━ 현재 사용 원두 편집 모달 ━━━ */}
+      {/* ━━━ 현재 사용 원두 편집 모달 (이모지 없음) ━━━ */}
       <Modal visible={showCurrentEdit} transparent animationType="slide" onRequestClose={() => setShowCurrentEdit(false)}>
         <View style={modalStyles.root}>
           <TouchableOpacity style={modalStyles.backdrop} onPress={() => setShowCurrentEdit(false)} />
@@ -285,7 +292,7 @@ export default function BeanNotepad() {
             <View style={modalStyles.handle} />
             <Text style={modalStyles.title}>현재 사용 중인 원두 수정</Text>
 
-            <Text style={modalStyles.label}>☕ 카페인 원두</Text>
+            <Text style={modalStyles.label}>카페인 원두</Text>
             <TextInput
               style={modalStyles.input}
               value={tempCaffeine}
@@ -294,7 +301,7 @@ export default function BeanNotepad() {
               placeholderTextColor={colors.stone300}
             />
 
-            <Text style={[modalStyles.label, { marginTop: 14 }]}>🍃 디카페인 원두</Text>
+            <Text style={[modalStyles.label, { marginTop: 14 }]}>디카페인 원두</Text>
             <TextInput
               style={modalStyles.input}
               value={tempDecaf}
@@ -313,7 +320,7 @@ export default function BeanNotepad() {
         </View>
       </Modal>
 
-      {/* ━━━ 원두 노트 추가/수정 모달 ━━━ */}
+      {/* ━━━ 원두 노트 추가/수정 모달 (이모지 및 status 배지 완전 배제) ━━━ */}
       <Modal visible={showNoteModal} transparent animationType="slide" onRequestClose={() => setShowNoteModal(false)}>
         <View style={modalStyles.root}>
           <TouchableOpacity style={modalStyles.backdrop} onPress={() => setShowNoteModal(false)} />
@@ -330,40 +337,31 @@ export default function BeanNotepad() {
               placeholderTextColor={colors.stone300}
             />
 
-            {/* 구분 상태 */}
-            <Text style={[modalStyles.label, { marginTop: 14 }]}>구분</Text>
-            <View style={modalStyles.statusRow}>
-              {(Object.keys(STATUS_LABEL) as NoteStatus[]).map((key) => {
-                const st = STATUS_LABEL[key];
-                const active = tempStatus === key;
-                return (
-                  <TouchableOpacity
-                    key={key}
-                    style={[
-                      modalStyles.statusChip,
-                      active && { backgroundColor: st.bg, borderColor: st.color },
-                    ]}
-                    onPress={() => setTempStatus(key)}
-                  >
-                    <Text style={[modalStyles.statusChipText, active && { color: st.color, fontWeight: '800' }]}>
-                      {st.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+            {/* 사용 횟수 카운터 */}
+            <Text style={[modalStyles.label, { marginTop: 14 }]}>주문 횟수</Text>
+            <View style={modalStyles.counterRow}>
+              <TouchableOpacity
+                style={modalStyles.counterBtn}
+                onPress={() => setTempUsageCount(Math.max(1, tempUsageCount - 1))}
+              >
+                <Ionicons name="remove" size={16} color={colors.espressoBrown} />
+              </TouchableOpacity>
+              <Text style={modalStyles.counterVal}>{tempUsageCount}회</Text>
+              <TouchableOpacity
+                style={modalStyles.counterBtn}
+                onPress={() => setTempUsageCount(tempUsageCount + 1)}
+              >
+                <Ionicons name="add" size={16} color={colors.espressoBrown} />
+              </TouchableOpacity>
             </View>
 
-            {/* 별점 */}
-            <Text style={[modalStyles.label, { marginTop: 14 }]}>별점</Text>
-            <Stars rating={tempRating} size={22} onPress={setTempRating} />
-
-            {/* 메모 */}
+            {/* 간단 메모 */}
             <Text style={[modalStyles.label, { marginTop: 14 }]}>간단 메모</Text>
             <TextInput
               style={[modalStyles.input, modalStyles.inputMulti]}
               value={tempMemo}
               onChangeText={setTempMemo}
-              placeholder="산미가 강하고 꽃향이 남. 재발주 예정 등..."
+              placeholder="특이사항이나 만족도를 자유롭게 메모하세요"
               placeholderTextColor={colors.stone300}
               multiline
               numberOfLines={3}
@@ -403,7 +401,6 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  cardEmoji: { fontSize: 16 },
   cardTitle: { ...typography.L3, color: colors.espressoBrown },
 
   editBtn: {
@@ -442,17 +439,49 @@ const styles = StyleSheet.create({
   noteBar: { width: 4, flexShrink: 0 },
   noteContent: { flex: 1, padding: 12, gap: 5 },
 
-  noteTopRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  noteName: { ...typography.L4, color: colors.espressoBrown, flex: 1 },
+  noteTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
+  noteNamePressable: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+  noteName: { ...typography.L4, color: colors.espressoBrown, maxWidth: '60%', fontWeight: '700' },
 
-  statusBadge: { borderRadius: 999, paddingHorizontal: 7, paddingVertical: 2 },
-  statusText: { fontSize: 9, fontWeight: '800' },
+  countBadge: {
+    backgroundColor: 'rgba(140, 111, 86, 0.08)',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  countBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.mochaBrown,
+  },
 
-  noteMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  actionGroup: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+
   noteDate: { ...typography.L5, fontSize: 9, color: colors.stone300 },
 
-  noteMemo: { ...typography.L5, color: colors.mochaBrown, lineHeight: 17, fontStyle: 'italic' },
-  noteMemoEmpty: { ...typography.L5, color: colors.stone300, fontStyle: 'italic' },
+  memoBox: {
+    backgroundColor: 'rgba(140, 111, 86, 0.05)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginTop: 6,
+    borderWidth: 0.5,
+    borderColor: 'rgba(140, 111, 86, 0.08)',
+  },
+  memoFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 4,
+  },
+  noteMemo: {
+    ...typography.L5,
+    color: colors.espressoBrown,
+    lineHeight: 16,
+  },
+  noteMemoEmpty: {
+    ...typography.L5,
+    color: colors.stone300,
+  },
 });
 
 // 모달 스타일 (FormSheet 패턴)
@@ -496,16 +525,33 @@ const modalStyles = StyleSheet.create({
     color: colors.espressoBrown,
   },
   inputMulti: { height: 80, textAlignVertical: 'top' },
-  statusRow: { flexDirection: 'row', gap: 8 },
-  statusChip: {
-    flex: 1, alignItems: 'center', justifyContent: 'center',
-    paddingVertical: 8,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: colors.mutedSand,
+  counterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
     backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignSelf: 'flex-start',
   },
-  statusChipText: { ...typography.L5, color: colors.mochaBrown, fontWeight: '600' },
+  counterBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: colors.coffeeCream,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  counterVal: {
+    ...typography.L4,
+    color: colors.espressoBrown,
+    fontWeight: '800',
+    minWidth: 32,
+    textAlign: 'center',
+  },
   saveBtn: {
     marginTop: 20,
     backgroundColor: colors.espressoBrown,
