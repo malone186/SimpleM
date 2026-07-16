@@ -41,12 +41,14 @@ export type TaxEstimate = {
 };
 
 export type Settlement = {
-  year_month: string;
   total_sales: number;
   total_expense: number;
   total_payroll: number;
   net_profit: number;
   other_expense?: number;
+  year_month?: string;
+  period_start?: string;
+  period_end?: string;
   calculated_at?: string;
   disclaimer?: string;
 };
@@ -74,12 +76,13 @@ export type Payroll = {
   employee_name: string;
   role: string;
   hourly_rate: number;
-  year_month: string;
+  period_start?: string;
+  period_end?: string;
   total_work_hours: number;
   base_salary: number;
   weekly_holiday_allowance: number;
-  total_salary: number;
-  based_on_actual: boolean;
+  estimated_salary: number;
+  based_on_actual?: boolean;
 };
 
 // ---------- 세무 ----------
@@ -113,11 +116,20 @@ export async function estimateTaxManual(body: {
 }
 
 // ---------- 정산 ----------
-/** 월별 손익 정산 (매출−비용−인건비). 백엔드가 목록으로 반환하면 첫 항목을 사용 */
+/** 월별 손익 정산 (매출−비용−인건비). 연월을 기간으로 변환해 계산 API 호출 */
 export async function getSettlement(yearMonth: string): Promise<Settlement> {
+  const [y, m] = yearMonth.split('-').map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
   const data = unwrap(
     await apiFetch<CommonResponse<Settlement | Settlement[]>>(
-      `/api/v1/operation/settlements?year_month=${yearMonth}`,
+      '/api/v1/operation/settlements/calculate',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          period_start: `${yearMonth}-01`,
+          period_end: `${yearMonth}-${String(lastDay).padStart(2, '0')}`,
+        }),
+      },
     ),
   );
   const item = Array.isArray(data) ? data[0] : data;

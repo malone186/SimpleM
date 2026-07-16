@@ -107,7 +107,7 @@ function LiveOperationCard() {
     }
   };
 
-  const payrollTotal = payroll.reduce((s, p) => s + p.total_salary, 0);
+  const payrollTotal = payroll.reduce((s, p) => s + p.estimated_salary, 0);
 
   return (
     <Card tone="cream" style={{ marginBottom: 24 }}>
@@ -132,19 +132,21 @@ function LiveOperationCard() {
           <View style={liveStyles.kpiGrid}>
             <View style={liveStyles.kpi}>
               <Text style={liveStyles.kpiLabel}>총매출</Text>
-              <Text style={liveStyles.kpiValue}>{won(settlement?.total_sales ?? 0)}</Text>
+              <Text style={liveStyles.kpiValue} numberOfLines={1}>{won(settlement?.total_sales ?? 0)}</Text>
             </View>
             <View style={liveStyles.kpi}>
               <Text style={liveStyles.kpiLabel}>총비용</Text>
-              <Text style={liveStyles.kpiValue}>{won(settlement?.total_expense ?? 0)}</Text>
+              <Text style={liveStyles.kpiValue} numberOfLines={1}>{won(settlement?.total_expense ?? 0)}</Text>
             </View>
             <View style={liveStyles.kpi}>
               <Text style={liveStyles.kpiLabel}>인건비</Text>
-              <Text style={liveStyles.kpiValue}>{won(settlement?.total_payroll ?? 0)}</Text>
+              <Text style={liveStyles.kpiValue} numberOfLines={1}>{won(settlement?.total_payroll ?? 0)}</Text>
             </View>
-            <View style={liveStyles.kpi}>
+            <View style={[liveStyles.kpi, liveStyles.kpiProfit]}>
               <Text style={liveStyles.kpiLabel}>순이익</Text>
-              <Text style={[liveStyles.kpiValue, { color: (settlement?.net_profit ?? 0) >= 0 ? '#3E8E5A' : colors.pointOrange }]}>
+              <Text
+                style={[liveStyles.kpiValue, { color: (settlement?.net_profit ?? 0) >= 0 ? '#3E8E5A' : colors.pointOrange }]}
+                numberOfLines={1}              >
                 {won(settlement?.net_profit ?? 0)}
               </Text>
             </View>
@@ -154,7 +156,7 @@ function LiveOperationCard() {
           {forecast && (
             <View style={liveStyles.forecastRow}>
               <Ionicons name="trending-up-outline" size={16} color={colors.pointOrange} />
-              <Text style={liveStyles.forecastText}>내일 예측 매출 {won(forecast.predicted_sales)}</Text>
+              <Text style={liveStyles.forecastText} numberOfLines={1}>내일 예측 매출 {won(forecast.predicted_sales)}</Text>
               <Badge label={forecast.engine.toUpperCase()} tone="orange" />
             </View>
           )}
@@ -173,7 +175,7 @@ function LiveOperationCard() {
                     {p.weekly_holiday_allowance > 0 ? ` · 주휴 ${won(p.weekly_holiday_allowance)}` : ''}
                   </Text>
                 </View>
-                <Text style={liveStyles.payAmount}>{won(p.total_salary)}</Text>
+                <Text style={liveStyles.payAmount}>{won(p.estimated_salary)}</Text>
               </View>
             ))
           )}
@@ -187,16 +189,16 @@ function LiveOperationCard() {
             </>
           )}
 
-          {/* 지출 추가 — 내용·금액 직접 입력 */}
+          {/* 지출 추가 — 내용·금액 직접 입력 (카드 폭 안에 정렬) */}
           <Text style={liveStyles.subHead}>지출 추가</Text>
+          <TextInput
+            style={liveStyles.input}
+            placeholder="내용 (예: 원두매입, 임대료)"
+            placeholderTextColor={colors.mochaBrown + '80'}
+            value={expCategory}
+            onChangeText={setExpCategory}
+          />
           <View style={liveStyles.expenseRow}>
-            <TextInput
-              style={[liveStyles.input, { flex: 1.4 }]}
-              placeholder="내용 (예: 원두매입)"
-              placeholderTextColor={colors.mochaBrown + '80'}
-              value={expCategory}
-              onChangeText={setExpCategory}
-            />
             <TextInput
               style={[liveStyles.input, { flex: 1 }]}
               placeholder="금액"
@@ -205,10 +207,10 @@ function LiveOperationCard() {
               value={expAmount}
               onChangeText={setExpAmount}
             />
-            <Button label={adding ? '…' : '등록'} onPress={handleAddExpense} />
+            <Button label={adding ? '등록 중…' : '등록'} onPress={handleAddExpense} style={liveStyles.addBtn} />
           </View>
 
-          <View style={[styles.actions, { marginTop: 12 }]}>
+          <View style={[styles.actions, { marginTop: 10 }]}>
             <Button label="새로고침" variant="secondary" style={{ flex: 1 }} onPress={load} />
           </View>
           <Text style={liveStyles.disc}>실 출퇴근 기록이 없으면 계획된 근무시간 기준의 참고용 예상 급여입니다.</Text>
@@ -223,14 +225,17 @@ const liveStyles = StyleSheet.create({
   kpi: {
     flexGrow: 1,
     flexBasis: '46%',
+    minWidth: 0,
     backgroundColor: colors.white,
     borderRadius: 12,
-    padding: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     borderWidth: 1,
     borderColor: 'rgba(140,111,86,0.10)',
   },
+  kpiProfit: { backgroundColor: '#F1F6EE', borderColor: 'rgba(62,142,90,0.22)' },
   kpiLabel: { ...typography.L5, color: colors.mochaBrown },
-  kpiValue: { ...typography.L2, color: colors.espressoBrown, fontWeight: '800', marginTop: 4 },
+  kpiValue: { fontSize: 21, fontWeight: '800', color: colors.espressoBrown, marginTop: 5 },
   forecastRow: {
     flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12,
     backgroundColor: colors.white, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12,
@@ -247,13 +252,14 @@ const liveStyles = StyleSheet.create({
   payTotal: { ...typography.L2, color: colors.pointOrange, fontWeight: '800' },
   errText: { ...typography.L4, color: '#B23B2E', fontWeight: '600' },
   disc: { ...typography.L5, color: colors.mochaBrown, fontStyle: 'italic', marginTop: 10, opacity: 0.8 },
-  expenseRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  expenseRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
+  addBtn: { minWidth: 76 },
   input: {
     borderWidth: 1,
     borderColor: colors.mutedSand,
     borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingVertical: 10,
     backgroundColor: colors.white,
     ...typography.L4,
     color: colors.espressoBrown,

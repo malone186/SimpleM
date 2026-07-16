@@ -17,7 +17,7 @@ import { FadeInUp, PressableScale } from '../../components/motion';
 import { Segmented } from '../../components/ui/Segmented';
 import { colors, spacing, typography } from '../../theme';
 
-const LOGO = require('../../../assets/logo.png');
+const LOGO = require('../../../assets/logo_transparent.png');
 
 type Mode = 'login' | 'signup';
 
@@ -169,8 +169,8 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.creamSand },
   content: { padding: spacing.globalPadding, paddingTop: 80, gap: spacing.verticalGap },
   brand: { alignItems: 'center', marginBottom: 8 },
-  logo: { width: 120, height: 120 },
-  brandSub: { ...typography.L4, color: colors.mochaBrown, marginTop: 4 },
+  logo: { width: 216, height: 175 },
+  brandSub: { ...typography.L4, color: colors.mochaBrown, marginTop: 10 },
   form: { gap: 12 },
   field: {
     flexDirection: 'row',
