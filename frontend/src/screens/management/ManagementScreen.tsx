@@ -1,86 +1,168 @@
-// 관리 허브 (⑥ 탭) — 풀폭 카드가 세로로 겹쳐 쌓이는 덱 레이아웃
+// 관리 허브 (⑥ 탭) — 에디토리얼: 기울여 겹쳐 흩뿌린 카드 덱 (그레이지 팔레트)
 import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 
 import { PressableScale } from '../../components/motion';
-import { Screen, ScreenTitle } from '../../components/ui';
-import { colors, typography } from '../../theme';
+import { Screen } from '../../components/ui';
+import { colors } from '../../theme';
+
+const IVORY = '#F4F1EF';
+const DARKTX = '#463C34'; // 밝은 카드용 진한 텍스트
 
 type Item = {
   label: string;
+  en: string;
   desc: string;
-  icon: keyof typeof Ionicons.glyphMap;
   color: string;
   route: string;
   params?: object;
 };
 
-// 각 카드 색을 다르게 — 커피 톤에 어울리는 깊은 주얼톤 (크림 제목 잘 읽힘)
+// 지정 팔레트 — 에스프레소 → 모카 → 토프 → 스톤 베이지 → 페일 아이보리
 const ITEMS: Item[] = [
-  { label: '판매 입력', desc: 'POS 연동 · 수동 입력', icon: 'add-circle-outline', color: '#3F5E47', route: 'SalesInput' },
-  { label: '원가 분석', desc: '메뉴별 원가율 진단', icon: 'calculator-outline', color: '#2F5A66', route: 'Cost' },
-  { label: '법령 검색', desc: '노무 · 위생 법령', icon: 'library-outline', color: '#3A3F63', route: 'LawSearch' },
-  { label: '서류·세금 자동화', desc: '문서 초안 생성 · 세금 관리', icon: 'documents-outline', color: '#5E3A52', route: 'Document' },
-  { label: '스케줄·급여', desc: '알바 스케줄 · 정산', icon: 'people-outline', color: '#5C4032', route: 'Operation' },
+  { label: '스케줄·급여', en: 'PAYROLL', desc: '알바 스케줄 · 손익 정산', color: '#5B514C', route: 'Operation' },
+  { label: '서류·세금', en: 'DOCUMENTS', desc: '문서 초안 · 세금 관리', color: '#9A8E82', route: 'Document' },
+  { label: '판매 입력', en: 'SALES', desc: 'POS 연동 · 수동 입력', color: '#D1C6B9', route: 'SalesInput' },
+  { label: '원가 분석', en: 'COST', desc: '메뉴별 원가율 진단', color: '#E1DCD7', route: 'Cost' },
+  { label: '법령 검색', en: 'LAW', desc: '노무 · 위생 법령', color: '#F4F1EF', route: 'LawSearch' },
 ];
+
+// 사진처럼 기울여 겹쳐 흩뿌리는 배치값 (회전 · 좌우 이동 · 겹침)
+const LAYOUT = [
+  { rotate: '-5deg', tx: -8, mt: 0 },
+  { rotate: '4deg', tx: 14, mt: -18 },
+  { rotate: '-3deg', tx: -14, mt: -20 },
+  { rotate: '5deg', tx: 10, mt: -18 },
+  { rotate: '-4deg', tx: -6, mt: -20 },
+];
+
+// 배경색 밝기로 텍스트 명암 결정
+const isDark = (hex: string) => {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.55;
+};
+
+function scheme(color: string) {
+  if (isDark(color)) {
+    return {
+      border: 'transparent',
+      ghost: 'rgba(244,241,239,0.12)',
+      en: 'rgba(244,241,239,0.62)',
+      label: IVORY,
+      desc: 'rgba(244,241,239,0.74)',
+      arrowBg: 'rgba(244,241,239,0.16)',
+      arrowFg: IVORY,
+    };
+  }
+  return {
+    border: 'rgba(70,60,52,0.16)',
+    ghost: 'rgba(70,60,52,0.10)',
+    en: 'rgba(70,60,52,0.55)',
+    label: DARKTX,
+    desc: 'rgba(70,60,52,0.66)',
+    arrowBg: '#5B514C',
+    arrowFg: IVORY,
+  };
+}
 
 export default function ManagementScreen() {
   const navigation = useNavigation<any>();
 
   return (
     <Screen>
-      <ScreenTitle title="관리" subtitle="가게 운영에 필요한 모든 기능" />
+      {/* 헤더 — 에디토리얼 타이포 */}
+      <View style={styles.header}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.eyebrow}>MANAGEMENT</Text>
+            <Text style={styles.bigTitle}>관리</Text>
+          </View>
+          <Text style={styles.ghostNum}>{ITEMS.length.toString().padStart(2, '0')}</Text>
+        </View>
 
-      <View style={styles.stack}>
-        {ITEMS.map((it, i) => (
-          <PressableScale
-            key={it.label}
-            style={[styles.card, { backgroundColor: it.color }, i > 0 && styles.overlap]}
-            onPress={() => navigation.navigate(it.route, it.params)}
-            to={0.97}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={styles.label}>{it.label}</Text>
-              <Text style={styles.desc}>{it.desc}</Text>
-            </View>
-            <View style={styles.iconBox}>
-              <Ionicons name={it.icon} size={26} color={colors.creamSand} />
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="rgba(255, 255, 255, 0.55)" />
-          </PressableScale>
-        ))}
+        {/* 기울여 겹쳐 흩뿌린 카드 덱 */}
+        <View style={styles.deck}>
+          {ITEMS.map((it, i) => {
+            const lay = LAYOUT[i % LAYOUT.length];
+            const s = scheme(it.color);
+            return (
+              <PressableScale
+                key={it.route}
+                style={[
+                  styles.card,
+                  {
+                    backgroundColor: it.color,
+                    borderColor: s.border,
+                    borderWidth: s.border === 'transparent' ? 0 : 1.5,
+                    marginTop: lay.mt,
+                    zIndex: i + 1,
+                    transform: [{ rotate: lay.rotate }, { translateX: lay.tx }],
+                  },
+                ]}
+                onPress={() => navigation.navigate(it.route, it.params)}
+                to={0.97}
+              >
+                <Text style={[styles.cardGhost, { color: s.ghost }]}>{String(i + 1).padStart(2, '0')}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.cardEn, { color: s.en }]}>{it.en}</Text>
+                  <Text style={[styles.cardLabel, { color: s.label }]}>{it.label}</Text>
+                  <Text style={[styles.cardDesc, { color: s.desc }]}>{it.desc}</Text>
+                </View>
+                <View style={[styles.cardArrow, { backgroundColor: s.arrowBg }]}>
+                  <Ionicons name="arrow-forward" size={18} color={s.arrowFg} />
+                </View>
+              </PressableScale>
+            );
+          })}
       </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  stack: { paddingBottom: 8 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 18,
+    marginTop: 4,
+  },
+  eyebrow: { fontSize: 11, fontWeight: '800', letterSpacing: 3, color: colors.pointOrange },
+  bigTitle: { fontSize: 52, fontWeight: '900', color: colors.espressoBrown, letterSpacing: -1, marginTop: 2, lineHeight: 56 },
+  ghostNum: { fontSize: 84, fontWeight: '900', color: colors.mutedSand, lineHeight: 84, letterSpacing: -4, opacity: 0.85 },
+
+  deck: { paddingHorizontal: 6, paddingTop: 6, paddingBottom: 20 },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    minHeight: 104,
-    borderRadius: 26,
+    minHeight: 122,
+    borderRadius: 22,
     paddingHorizontal: 22,
     paddingVertical: 20,
-    // 덱처럼 겹쳐 보이도록 위쪽 그림자
+    overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -6 },
-    shadowOpacity: 0.28,
-    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
     elevation: 8,
   },
-  // 이전 카드 위로 살짝 겹치기
-  overlap: { marginTop: -18 },
-  label: { fontSize: 22, fontWeight: '900', color: colors.creamSand },
-  desc: { ...typography.L5, color: 'rgba(255, 255, 255, 0.72)', marginTop: 6 },
-  iconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+  cardGhost: {
+    position: 'absolute',
+    right: 16,
+    top: -8,
+    fontSize: 82,
+    fontWeight: '900',
+    letterSpacing: -4,
+  },
+  cardEn: { fontSize: 10, fontWeight: '800', letterSpacing: 2 },
+  cardLabel: { fontSize: 25, fontWeight: '900', letterSpacing: -0.5, marginTop: 4 },
+  cardDesc: { fontSize: 12, fontWeight: '500', marginTop: 5 },
+  cardArrow: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },

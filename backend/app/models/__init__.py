@@ -7,7 +7,7 @@ from app.models.ai import ComplianceItem, GeneratedDocument, OcrDocument, OcrIte
 from app.models.inventory import Ingredient, IngredientPriceHistory, Menu, Recipe, Stock, StockTransaction, Sale, Order, OrderItem
 
 # O (operation.py)
-from app.models.operation import Employee, Schedule
+from app.models.operation import Employee, Expense, Schedule
 
 # U (user.py)
 from app.models.user import User

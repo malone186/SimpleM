@@ -1,6 +1,6 @@
-"""운영 API 스키마 (백엔드 C)"""
-from datetime import datetime
-from typing import Any, List, Optional
+"""운영 API 스키마 (백엔드 C 최초 작성 → 백엔드 B 인수)"""
+from datetime import datetime, date
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 class CommonResponse(BaseModel):
@@ -44,13 +44,35 @@ class SettlementCalculateRequest(BaseModel):
     """정산 예상 계산 요청 양식"""
     year_month: str = Field(..., description="정산 대상 연월 (예: YYYY-MM)")
 
+class ExpenseCreate(BaseModel):
+    """지출(비용) 등록 요청 양식"""
+    amount: int = Field(..., ge=0, description="지출 금액 (원, 0 이상)")
+    category: str = Field(..., description="지출 카테고리 (예: 원두매입, 소모품비, 임대료 등)")
+    description: Optional[str] = Field(None, description="지출 상세 설명")
+    expense_date: date = Field(..., description="지출 일자 (YYYY-MM-DD)")
+
+class ExpenseResponse(BaseModel):
+    """지출(비용) 반환 양식"""
+    id: int = Field(..., description="지출 고유 번호")
+    store_id: str = Field(..., description="매장 식별 아이디")
+    amount: int = Field(..., description="지출 금액 (원)")
+    category: str = Field(..., description="지출 카테고리")
+    description: Optional[str] = Field(None, description="지출 상세 설명")
+    expense_date: date = Field(..., description="지출 일자")
+    created_at: datetime = Field(..., description="등록 일시")
+
+    class Config:
+        from_attributes = True
+
 class PayrollResponse(BaseModel):
-    """예상 급여 응답 스키마"""
+    """예상 급여 응답 스키마 (calculate_payroll 반환과 정합)"""
     employee_id: int = Field(..., description="직원 고유 번호")
+    employee_name: str = Field(..., description="직원 이름")
     year_month: str = Field(..., description="정산 년월 (YYYY-MM)")
     total_work_hours: float = Field(..., description="총 실근무시간")
-    estimated_payroll: int = Field(..., description="예상 총 급여액")
+    base_salary: int = Field(..., description="기본급 (실근무시간 × 시급)")
     weekly_holiday_allowance: int = Field(..., description="예상 주휴수당")
+    total_salary: int = Field(..., description="예상 총 급여액 (기본급 + 주휴수당)")
     calculated_at: datetime = Field(..., description="계산 수행 일시")
     disclaimer: str = Field(
         "이 계산은 참고용 예상값이며 실제 신고 및 지급 금액과 다를 수 있습니다.",
@@ -71,23 +93,44 @@ class SettlementResponse(BaseModel):
     )
 
 class TaxEstimateRequest(BaseModel):
-    """세무 예상 계산 요청 스키마"""
+    """세무 예상 계산 요청 스키마 (매출·비용 수동 입력용 — 챗봇/일회성)"""
     period: Optional[str] = Field("2026-07", description="대상 기간 (YYYY-MM)")
-    total_revenue: int = Field(..., description="총 매출액 (0 이상)")
-    total_expense: int = Field(..., description="총 비용액 (0 이상)")
-    tax_rate: Optional[float] = Field(0.1, description="세율 (0.0 ~ 1.0, 기본값 0.1)")
+    total_revenue: int = Field(..., ge=0, description="총 매출액 (0 이상)")
+    total_expense: int = Field(..., ge=0, description="총 비용액 (0 이상)")
+    tax_type: Optional[str] = Field("general", description="과세유형 (general 일반과세 | simplified 간이과세)")
+
+class TaxLineItem(BaseModel):
+    """세목별 계산 상세 한 줄"""
+    name: str = Field(..., description="세목명 (부가가치세 / 종합소득세 / 원천징수세)")
+    amount: int = Field(..., description="예상 세액 (원)")
+    basis: str = Field(..., description="계산 근거 설명")
+
+class TaxFilingItem(BaseModel):
+    """세목별 신고 기한 및 D-day"""
+    name: str = Field(..., description="세목명")
+    due_date: str = Field(..., description="신고 기한 (YYYY-MM-DD)")
+    dday: int = Field(..., description="오늘 기준 남은 일수 (음수면 기한 경과)")
+    status: str = Field(..., description="상태 (예정 | 임박 | 기한 경과)")
+    note: str = Field(..., description="신고 안내 설명")
 
 class TaxEstimateResponse(BaseModel):
-    """세무 예상 계산 응답 스키마"""
-    period: str = Field(..., description="대상 기간")
+    """세무 예상 계산 응답 스키마 (부가세·종소세·원천징수 통합)"""
+    period: str = Field(..., description="대상 기간 (YYYY-MM)")
+    tax_type: str = Field(..., description="과세유형 (general | simplified)")
     total_revenue: int = Field(..., description="총 매출액")
     total_expense: int = Field(..., description="총 비용액")
-    taxable_amount: int = Field(..., description="과세 표준 금액 (매출 - 비용, 최소 0)")
-    tax_rate: float = Field(..., description="적용 세율")
-    estimated_tax: int = Field(..., description="예상 세액")
+    taxable_base: int = Field(..., description="종합소득세 과세표준 (매출 - 경비 - 공제, 최소 0)")
+    vat: int = Field(..., description="예상 부가가치세")
+    income_tax: int = Field(..., description="예상 종합소득세 (누진 산출)")
+    withholding_tax: int = Field(..., description="예상 원천징수세액 합계 (해당 월 인건비 기준)")
+    total_tax: int = Field(..., description="예상 세액 총합")
+    lines: List[TaxLineItem] = Field(default_factory=list, description="세목별 계산 상세")
+    filing_schedule: List[TaxFilingItem] = Field(default_factory=list, description="세목별 신고 기한·D-day (임박순)")
+    next_filing: Optional[TaxFilingItem] = Field(None, description="가장 임박한 신고 기한")
     summary: str = Field(..., description="계산 결과 요약 문장")
     disclaimer: str = Field(
-        "이 계산은 참고용 예상값이며 실제 신고 금액과 다를 수 있습니다. 정확한 신고는 세무 전문가 또는 관련 기관 확인이 필요합니다.",
+        "이 계산은 참고용 예상 근사값이며 실제 신고 금액과 다를 수 있습니다. "
+        "공제·과세유형·업종별 세부 규정을 단순화했으므로 정확한 신고는 세무 전문가 또는 관련 기관 확인이 필요합니다.",
         description="법적 면책 고지 문구"
     )
 
@@ -98,16 +141,21 @@ class DailySalesInput(BaseModel):
     quantity: int = Field(..., description="판매량 (0 이상)")
 
 class ForecastRequest(BaseModel):
-    """판매 예측 요청 스키마"""
-    sales_data: List[DailySalesInput] = Field(..., description="최근 N일 판매 데이터 리스트 (최소 7일치)")
+    """판매 예측 요청 스키마 (sales_data 생략 시 DB에서 자동집계)"""
     target_date: str = Field(..., description="예측 대상 날짜 (YYYY-MM-DD)")
-    has_event: Optional[bool] = Field(False, description="이벤트 발생 여부")
+    sales_data: Optional[List[DailySalesInput]] = Field(
+        None, description="최근 N일 판매 데이터 (직접 지정용). 생략 시 DB Sale 테이블에서 자동집계"
+    )
+    store_id: Optional[str] = Field(None, description="매장 식별자 (DB 자동집계 시 필터). 생략 시 전체")
+    has_event: Optional[bool] = Field(False, description="이벤트 발생 여부 (예측 상향 보정)")
+    engine: Optional[str] = Field("arima", description="예측 엔진 (arima | average)")
 
 class ForecastResponse(BaseModel):
     """판매 예측 응답 스키마"""
     target_date: str = Field(..., description="예측 대상 날짜")
     predicted_sales: int = Field(..., description="예측 매출액")
     predicted_quantity: int = Field(..., description="예측 판매량")
+    engine: str = Field("arima", description="사용된 예측 엔진 (arima | average)")
     evidence_summary: str = Field(..., description="예측 연산 근거 요약 설명")
 
 class RAGDocumentResponse(BaseModel):

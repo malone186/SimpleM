@@ -1,7 +1,7 @@
 // 서류 자동화 (ERP-12) — 백엔드 /chatbot/documents·compliance 실연동
 // 문서 초안 생성(발주서·실사표·장부·부가세·임금명세서·근로계약서) + 생성 문서 열람 + 갱신 만료 알림
 import { useCallback, useEffect, useState } from 'react';
-import { Platform, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -28,6 +28,7 @@ import {
   listDocuments,
   updateDocument,
 } from '../../lib/api/documents';
+import { getTaxEstimate, estimateTaxManual, type TaxEstimate } from '../../lib/api/operation';
 import { colors, typography } from '../../theme';
 
 // content JSON을 읽기 좋은 줄로 펼친다 (kind별 스키마가 달라 범용 렌더러 사용)
@@ -786,32 +787,92 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', gap: 10, marginTop: 14 },
 });
 
-// [한글 주석] OperationScreen에서 완벽하게 이관된 세금 관리 탭 컴포넌트
+// [백엔드 연동] 세금 관리 탭 — 부가세+종합소득세+원천징수 예상 및 신고 일정
+const nowYearMonth = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+const wonFmt = (n: number) => '₩' + Math.round(n || 0).toLocaleString('ko-KR');
+const ddayText = (d: number) => (d > 0 ? `D-${d}` : d === 0 ? 'D-DAY' : `D+${Math.abs(d)}`);
+const ddayTone = (status: string): 'danger' | 'orange' | 'neutral' =>
+  status === '임박' ? 'danger' : status === '기한 경과' ? 'neutral' : 'orange';
+
 function TaxTab() {
+  const { token } = useAuth();
+  const period = nowYearMonth();
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [tax, setTax] = useState<TaxEstimate | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      // DB 매출·비용·인건비 자동집계 → 부가세·종소세·원천징수 통합 계산
+      const t = token
+        ? await getTaxEstimate(token, period, 'general')
+        : await estimateTaxManual({ period, total_revenue: 0, total_expense: 0, tax_type: 'general' });
+      setTax(t);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [token, period]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  if (loading) {
+    return (
+      <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+        <ActivityIndicator color={colors.pointOrange} />
+        <Text style={[styles.hint, { marginTop: 8 }]}>세금을 계산하는 중…</Text>
+      </View>
+    );
+  }
+  if (err || !tax) {
+    return (
+      <Card>
+        <Text style={{ ...typography.L4, color: '#B23B2E', fontWeight: '600' }}>⚠ {err ?? '데이터를 불러오지 못했어요.'}</Text>
+        <Button label="다시 시도" variant="secondary" style={{ marginTop: 12 }} onPress={load} />
+      </Card>
+    );
+  }
+
+  const findLine = (name: string) => tax.lines.find((l) => l.name === name);
+
   return (
     <View style={{ gap: 20 }}>
+      {/* 예상 세금 총합 + 세목별 (부가세·종소세·원천징수) */}
       <Card>
         <View style={styles.rowBetween}>
-          <SectionTitle>부가세 예상</SectionTitle>
-          <Badge label="2분기" tone="neutral" />
+          <SectionTitle>예상 세금 합계</SectionTitle>
+          <Badge label={`${tax.period} 기준`} tone="neutral" />
         </View>
-        <Text style={styles.taxAmount}>₩1,284,000</Text>
-        <Text style={styles.hint}>매출 세액 − 매입 세액 기준 예상치</Text>
+        <Text style={styles.taxAmount}>{wonFmt(tax.total_tax)}</Text>
+        <Text style={styles.hint}>부가가치세 + 종합소득세 + 원천징수세 (참고용 예상)</Text>
         <Divider />
         <View style={styles.taxLine}>
-          <Text style={styles.taxLabel}>매출 세액</Text>
-          <Text style={styles.taxVal}>₩3,120,000</Text>
+          <Text style={styles.taxLabel}>부가가치세</Text>
+          <Text style={styles.taxVal}>{wonFmt(tax.vat)}</Text>
         </View>
         <View style={styles.taxLine}>
-          <Text style={styles.taxLabel}>매입 세액</Text>
-          <Text style={styles.taxVal}>− ₩1,836,000</Text>
+          <Text style={styles.taxLabel}>종합소득세</Text>
+          <Text style={styles.taxVal}>{wonFmt(tax.income_tax)}</Text>
         </View>
+        <View style={styles.taxLine}>
+          <Text style={styles.taxLabel}>원천징수세</Text>
+          <Text style={styles.taxVal}>{wonFmt(tax.withholding_tax)}</Text>
+        </View>
+        <Text style={[styles.hint, { marginTop: 8 }]}>과세표준 {wonFmt(tax.taxable_base)} · 매출 {wonFmt(tax.total_revenue)} · 비용 {wonFmt(tax.total_expense)}</Text>
       </Card>
 
       {/* 신고 초안 (draft_) */}
       <Card tone="cream">
         <View style={styles.rowBetween}>
-          <SectionTitle>부가세 신고 초안</SectionTitle>
+          <SectionTitle>세금 신고 초안</SectionTitle>
           <Badge label="확정 전" tone="orange" />
         </View>
         <Text style={styles.hint}>
@@ -824,8 +885,10 @@ function TaxTab() {
             style={{ flex: 1 }}
             onPress={() =>
               toast(
-                '부가세 신고 초안',
-                '과세표준 31,200,000원\n매출세액 3,120,000원\n매입세액 1,836,000원\n납부예상 1,284,000원\n\n검토 후 세무사에게 공유하세요.'
+                '세금 신고 초안',
+                `[부가가치세] ${wonFmt(tax.vat)}\n${findLine('부가가치세')?.basis ?? ''}\n\n` +
+                `[종합소득세] ${wonFmt(tax.income_tax)}\n${findLine('종합소득세')?.basis ?? ''}\n\n` +
+                `[원천징수세] ${wonFmt(tax.withholding_tax)}\n${findLine('원천징수세')?.basis ?? ''}\n\n검토 후 세무사에게 공유하세요.`
               )
             }
           />
@@ -837,19 +900,20 @@ function TaxTab() {
         </View>
       </Card>
 
+      {/* 다가오는 신고 일정 (부가세·종소세·원천징수 D-day) */}
       <Card>
         <SectionTitle>다가오는 신고 일정</SectionTitle>
         <View style={{ marginTop: 10, gap: 10 }}>
-          <View style={styles.dueRow}>
-            <Ionicons name="calendar-outline" size={18} color={colors.pointOrange} />
-            <Text style={styles.dueText}>부가세 확정신고</Text>
-            <Badge label="D-12" tone="danger" />
-          </View>
-          <View style={styles.dueRow}>
-            <Ionicons name="calendar-outline" size={18} color={colors.mochaBrown} />
-            <Text style={styles.dueText}>원천세 납부</Text>
-            <Badge label="D-25" tone="neutral" />
-          </View>
+          {tax.filing_schedule.map((f) => (
+            <View key={f.name} style={styles.dueRow}>
+              <Ionicons name="calendar-outline" size={18} color={f.status === '임박' ? colors.pointOrange : colors.mochaBrown} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.dueText}>{f.name}</Text>
+                <Text style={[styles.hint, { marginTop: 1 }]}>{f.due_date} · {f.note}</Text>
+              </View>
+              <Badge label={ddayText(f.dday)} tone={ddayTone(f.status)} />
+            </View>
+          ))}
         </View>
       </Card>
     </View>
