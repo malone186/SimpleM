@@ -253,23 +253,23 @@ class OperationService:
                 if employee:
                     emp_name = employee.name
 
-            start_str = schedule.start_time.strftime("%H:%M") if hasattr(schedule.start_time, "strftime") else str(schedule.start_time)
-            end_str = schedule.end_time.strftime("%H:%M") if hasattr(schedule.end_time, "strftime") else str(schedule.end_time)
+                start_str = schedule.start_time.strftime("%H:%M") if hasattr(schedule.start_time, "strftime") else str(schedule.start_time)
+                end_str = schedule.end_time.strftime("%H:%M") if hasattr(schedule.end_time, "strftime") else str(schedule.end_time)
 
-            content = (
-                f"{schedule.date} 일자에 {emp_name} 근무자의 근무 일정이 계획되어 있습니다. "
-                f"근무 시간은 {start_str}부터 {end_str}까지입니다."
-            )
-            
-            rag_docs.append({
-                "title": f"{schedule.date} {emp_name} 근무 스케줄 정보",
-                "content": content,
-                "summary": f"{schedule.date} 근무 일정 요약",
-                "category": "schedule",
-                "tags": ["schedule", "work", schedule.date],
-                "source_type": "schedule",
-                "source_id": schedule.id if hasattr(schedule, "id") else idx
-            })
+                content = (
+                    f"{schedule.date} 일자에 {emp_name} 근무자의 근무 일정이 계획되어 있습니다. "
+                    f"근무 시간은 {start_str}부터 {end_str}까지입니다."
+                )
+                
+                rag_docs.append({
+                    "title": f"{schedule.date} {emp_name} 근무 스케줄 정보",
+                    "content": content,
+                    "summary": f"{schedule.date} 근무 일정 요약",
+                    "category": "schedule",
+                    "tags": ["schedule", "work", schedule.date],
+                    "source_type": "schedule",
+                    "source_id": schedule.id if hasattr(schedule, "id") else idx
+                })
         return rag_docs
 
     @staticmethod
