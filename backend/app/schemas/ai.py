@@ -127,6 +127,7 @@ DocumentKind = Literal[
     "vat_reference",        # 부가세/종소세 참고자료 (분기·연)
     "payslip",              # 임금명세서 (매월, 임금대장 겸용)
     "employment_contract",  # 근로계약서 (발생 시)
+    "management_report",    # AI 경영 리포트 (일간·주간·월간 — 전체 데이터 통합)
 ]
 
 

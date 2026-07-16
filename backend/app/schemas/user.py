@@ -41,3 +41,11 @@ class Token(BaseModel):
 # 5. 토큰 내부를 열었을 때 들어있는 가입자의 이메일 정보를 담는 검증용 규격입니다.
 class TokenData(BaseModel):
     email: EmailStr | None = None
+
+
+# 6. 회원 정보 수정(프로필 수정) 요청 시 사용하는 규격입니다. (선택적으로 수정 가능)
+class UserUpdate(BaseModel):
+    name: str | None = Field(None, description="수정할 점주(사용자) 실명")
+    password: str | None = Field(None, min_length=4, description="새로 변경할 비밀번호 (선택사항)")
+    store_name: str | None = Field(None, description="수정할 매장/카페 이름")
+

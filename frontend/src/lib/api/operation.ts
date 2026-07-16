@@ -46,8 +46,9 @@ export type Settlement = {
   total_expense: number;
   total_payroll: number;
   net_profit: number;
-  calculated_at: string;
-  disclaimer: string;
+  other_expense?: number;
+  calculated_at?: string;
+  disclaimer?: string;
 };
 
 export type Forecast = {
@@ -112,13 +113,16 @@ export async function estimateTaxManual(body: {
 }
 
 // ---------- 정산 ----------
-/** 월별 손익 정산 (매출−비용−인건비) */
+/** 월별 손익 정산 (매출−비용−인건비). 백엔드가 목록으로 반환하면 첫 항목을 사용 */
 export async function getSettlement(yearMonth: string): Promise<Settlement> {
-  return unwrap(
-    await apiFetch<CommonResponse<Settlement>>(
+  const data = unwrap(
+    await apiFetch<CommonResponse<Settlement | Settlement[]>>(
       `/api/v1/operation/settlements?year_month=${yearMonth}`,
     ),
   );
+  const item = Array.isArray(data) ? data[0] : data;
+  if (!item) throw new Error('정산 데이터가 없습니다.');
+  return item;
 }
 
 // ---------- 판매예측 ----------

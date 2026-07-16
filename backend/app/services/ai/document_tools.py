@@ -113,13 +113,36 @@ def get_upcoming_renewals(store_id: str) -> str:
 def list_generated_documents(store_id: str, kind: str = "") -> str:
     """생성된 문서 목록을 조회한다. kind로 필터 가능: purchase_order(발주서), stocktake_sheet(재고실사표),
     inspection_report(검수확인서), monthly_ledger(장부), vat_reference(부가세), payslip(임금명세서),
-    employment_contract(근로계약서). 빈 값이면 전체."""
+    employment_contract(근로계약서), management_report(경영 리포트). 빈 값이면 전체."""
     docs = document_service.list_documents(store_id, kind=kind or None)
     if not docs:
         return "생성된 문서가 없습니다."
     brief = [{"id": d["id"], "kind": d["kind"], "title": d["title"], "period": d["period"],
               "created_at": d["created_at"]} for d in docs]
     return _dump(brief)
+
+
+@tool
+def delete_generated_document(store_id: str, doc_id: str) -> str:
+    """생성된 문서를 삭제한다. 되돌릴 수 없으므로 사용자가 명확히 삭제를 요청한 경우에만 호출할 것.
+    어떤 문서인지 불명확하면 먼저 list_generated_documents로 확인한다.
+    임금명세서는 임금대장(3년 보관 의무) 기록이라 삭제가 거부된다."""
+    try:
+        document_service.delete_document(store_id, doc_id)
+        return f"문서 {doc_id}를 삭제했습니다."
+    except document_service.DocumentError as e:
+        return str(e)
+
+
+@tool
+def delete_renewal_reminder(store_id: str, item_id: int) -> str:
+    """등록된 갱신 만료 알림을 삭제한다. 사용자가 명확히 요청한 경우에만 호출할 것.
+    item_id는 list_renewal_reminders로 확인한다."""
+    try:
+        document_service.delete_compliance_item(store_id, item_id)
+        return f"갱신 알림 {item_id}번을 삭제했습니다."
+    except document_service.DocumentError as e:
+        return str(e)
 
 
 @tool
@@ -145,6 +168,8 @@ TOOLS = [
     create_monthly_ledger,
     create_stocktake_sheet,
     create_vat_reference,
+    delete_generated_document,
+    delete_renewal_reminder,
     draft_employment_contract_document,
     draft_payslip_document,
     draft_purchase_order_document,
