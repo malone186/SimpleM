@@ -28,38 +28,13 @@ import {
   listDocuments,
   updateDocument,
 } from '../../lib/api/documents';
+import { formatValue, labelFor } from '../../lib/documentLabels';
 import { colors, typography } from '../../theme';
 
 // content JSON을 읽기 좋은 줄로 펼친다 (kind별 스키마가 달라 범용 렌더러 사용)
-const KEY_LABELS: Record<string, string> = {
-  date: '날짜', items: '품목', note: '안내', total_estimated: '예상 총액',
-  name: '이름', unit: '단위', current_quantity: '현재고', safety_quantity: '안전재고',
-  suggested_quantity: '제안 수량', unit_price: '단가', estimated_amount: '예상 금액',
-  book_quantity: '장부 수량', counted_quantity: '실사 수량', difference: '차이',
-  vendor: '거래처', delivery_date: '납품일', inspection_date: '검수일', condition: '상태',
-  quantity: '수량', period: '기간', purchases: '매입', sales: '매출',
-  purchase_total: '매입 합계', sales_total: '매출 합계', balance: '잔액',
-  employee_name: '직원', hourly_wage: '시급', work_hours: '근무시간', hours_source: '집계 방식',
-  earnings: '지급 내역', base_pay: '기본급', weekly_holiday_pay: '주휴수당',
-  weekly_avg_hours: '주평균 시간', gross: '지급 총액', deductions: '공제 내역',
-  withholding_rate: '공제율(%)', withholding: '공제액', net_pay: '실지급액', calculation: '계산식',
-  estimated_sales_vat: '매출세액(추정)', purchase_subtotal: '매입 공급가', purchase_tax: '매입세액',
-  purchase_document_count: '매입 문서 수', estimated_payable_vat: '예상 납부세액',
-  contract_period: '계약 기간', start: '시작', end: '종료', workplace: '근무 장소', duties: '업무',
-  working_conditions: '근로 조건', work_days_per_week: '주 근무일', work_hours_per_day: '일 근무시간',
-  weekly_hours: '주 근무시간', rest: '휴게', weekly_holiday: '주휴일', annual_leave: '연차',
-  wage: '임금', payment_day: '지급일', payment_method: '지급 방법', social_insurance: '4대보험',
-  total_gross: '지급 총계', total_net: '실지급 총계', employer: '사업주',
-  doc_type: '문서 종류', subtotal: '공급가액', tax: '세액', total: '합계', menu: '메뉴',
-  total_price: '금액', source_document: '원본 문서', spec: '규격', signatures: '서명',
-  inspector_sign: '검수자 서명', employee: '직원',
-};
-const label = (k: string) => KEY_LABELS[k] ?? k;
-const fmt = (v: unknown): string => {
-  if (v === null || v === undefined || v === '') return '—';
-  if (typeof v === 'number') return v.toLocaleString();
-  return String(v);
-};
+// 키·값 한글 표기는 공용 모듈(documentLabels)을 쓴다 — 챗봇 카드와 항상 동일하게 보이도록.
+const label = labelFor;
+const fmt = formatValue;
 
 // 날짜 입력 관용 처리: "2026.8.1", "2026/08/01", "20260801" 전부 → "2026-08-01"
 // 알아볼 수 없거나 존재하지 않는 날짜(2월 30일 등)면 null
@@ -90,7 +65,7 @@ function ContentRows({ content }: { content: Record<string, unknown> }) {
           return (
             <View key={key} style={styles.noteBox}>
               <Ionicons name="information-circle-outline" size={15} color={colors.mochaBrown} />
-              <Text style={styles.noteBoxText}>{fmt(value)}</Text>
+              <Text style={styles.noteBoxText}>{fmt(key, value)}</Text>
             </View>
           );
         }
@@ -104,9 +79,9 @@ function ContentRows({ content }: { content: Record<string, unknown> }) {
                     · {typeof row === 'object' && row !== null
                       ? Object.entries(row as Record<string, unknown>)
                           .filter(([, v2]) => v2 !== null && v2 !== '' && v2 !== undefined)
-                          .map(([k2, v2]) => `${label(k2)} ${fmt(v2)}`)
+                          .map(([k2, v2]) => `${label(k2)} ${fmt(k2, v2)}`)
                           .join(' / ')
-                      : fmt(row)}
+                      : fmt(key, row)}
                   </Text>
                 ))}
               </View>
@@ -134,7 +109,7 @@ function ContentRows({ content }: { content: Record<string, unknown> }) {
           );
         }
         // 긴 문장 값은 오른쪽 정렬로 구기지 않고 라벨 아래 전체 폭으로
-        const text = fmt(value);
+        const text = fmt(key, value);
         if (text.length > 18) {
           return (
             <View key={key} style={styles.kvStack}>
@@ -253,11 +228,11 @@ function contentToHtml(content: Record<string, unknown>): string {
           const cols = Array.from(new Set(value.flatMap((r) => Object.keys((r as object) ?? {}))));
           const head = cols.map((c) => `<th>${esc(label(c))}</th>`).join('');
           const rows = value
-            .map((r) => `<tr>${cols.map((c) => `<td>${esc(fmt((r as Record<string, unknown>)?.[c]))}</td>`).join('')}</tr>`)
+            .map((r) => `<tr>${cols.map((c) => `<td>${esc(fmt(c, (r as Record<string, unknown>)?.[c]))}</td>`).join('')}</tr>`)
             .join('');
           return `<h2>${esc(label(key))}</h2><table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`;
         }
-        return `<h2>${esc(label(key))}</h2><ul>${value.map((v) => `<li>${esc(fmt(v))}</li>`).join('')}</ul>`;
+        return `<h2>${esc(label(key))}</h2><ul>${value.map((v) => `<li>${esc(fmt(key, v))}</li>`).join('')}</ul>`;
       }
       if (typeof value === 'object' && value !== null) {
         return `<h2>${esc(label(key))}</h2><div class="sec">${contentToHtml(value as Record<string, unknown>)}</div>`;
@@ -265,7 +240,7 @@ function contentToHtml(content: Record<string, unknown>): string {
       if (value === '') {
         return `<div class="kv"><span class="k">${esc(label(key))}</span><span class="signline"></span></div>`;
       }
-      return `<div class="kv"><span class="k">${esc(label(key))}</span><span class="v">${esc(fmt(value))}</span></div>`;
+      return `<div class="kv"><span class="k">${esc(label(key))}</span><span class="v">${esc(fmt(key, value))}</span></div>`;
     })
     .join('');
 }

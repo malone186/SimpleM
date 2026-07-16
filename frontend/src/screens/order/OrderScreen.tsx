@@ -147,26 +147,32 @@ export default function OrderScreen() {
                   )}
 
                   {cmp && (
-                    // 인터넷 가격 비교 성공 — 최저가·절감률·상품 페이지(몰별 비교표) 링크
-                    <View style={styles.linkRow}>
-                      <Text style={styles.unitPrice}>
-                        단가 ₩{it.price_at_order.toLocaleString()} · 인터넷 최저{' '}
-                        ₩{cmp.best.price.toLocaleString()} ({cmp.best.source})
+                    // 인터넷 가격 비교 성공 — 어떤 상품과 비교했는지까지 보여줘야 정확하다
+                    <View style={styles.compareBox}>
+                      <Text style={styles.compareName} numberOfLines={1}>
+                        {cmp.matched_all_terms ? '' : '[유사 상품] '}
+                        {cmp.best.name}
                       </Text>
-                      {saving !== null && (
-                        <View style={[styles.savingBadge, saving > 0 && styles.savingBadgeGood]}>
-                          <Text style={[styles.savingText, saving > 0 && styles.savingTextGood]}>
-                            {saving > 0 ? `${saving}% 저렴` : '현재가가 유리'}
-                          </Text>
-                        </View>
-                      )}
-                      <PressableScale
-                        style={styles.linkChip}
-                        onPress={() => Linking.openURL(cmp.best.link)}
-                      >
-                        <Ionicons name="open-outline" size={10} color={colors.pointOrange} />
-                        <Text style={styles.linkChipText}>상품 보기</Text>
-                      </PressableScale>
+                      <View style={styles.linkRow}>
+                        <Text style={styles.unitPrice}>
+                          단가 ₩{it.price_at_order.toLocaleString()} · 인터넷 최저{' '}
+                          ₩{cmp.best.price.toLocaleString()} ({cmp.best.source})
+                        </Text>
+                        {saving !== null && cmp.matched_all_terms && (
+                          <View style={[styles.savingBadge, saving > 0 && styles.savingBadgeGood]}>
+                            <Text style={[styles.savingText, saving > 0 && styles.savingTextGood]}>
+                              {saving > 0 ? `${saving}% 저렴` : '현재가가 유리'}
+                            </Text>
+                          </View>
+                        )}
+                        <PressableScale
+                          style={styles.linkChip}
+                          onPress={() => Linking.openURL(cmp.best.link)}
+                        >
+                          <Ionicons name="open-outline" size={10} color={colors.pointOrange} />
+                          <Text style={styles.linkChipText}>상품 보기</Text>
+                        </PressableScale>
+                      </View>
                     </View>
                   )}
 
@@ -222,6 +228,8 @@ const styles = StyleSheet.create({
   },
   itemBlock: { gap: 5 },
   itemRow: { flexDirection: 'row', alignItems: 'center' },
+  compareBox: { gap: 3 },
+  compareName: { ...typography.L5, fontSize: 9, color: colors.mochaBrown, fontStyle: 'italic' },
   linkRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
   unitPrice: { ...typography.L5, fontSize: 9, color: colors.mochaBrown },
   linkChip: {
