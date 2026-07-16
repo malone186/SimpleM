@@ -34,7 +34,7 @@ from app.schemas.ai import (
     OcrStatus,
     PayslipRequest,
 )
-from app.services.ai import document_service, ocr_service
+from app.services.ai import document_service, ocr_service, report_service
 
 router = APIRouter(prefix="/chatbot", tags=["chatbot"])
 
@@ -254,6 +254,29 @@ def update_generated_document(
 
 
 # ---------------------------------------------------------------------------
+# AI 경영 리포트 — 홈 화면 일간/주간/월간 표시용 (챗봇에서는 report_expert가 담당)
+# ---------------------------------------------------------------------------
+
+@router.get("/reports/management", response_model=GeneratedDocumentResponse)
+def get_management_report_api(
+    period_type: str = "weekly",
+    refresh: bool = True,
+    current_user: User = Depends(get_current_user),
+):
+    """현재 기간(오늘 기준)의 경영 리포트를 돌려준다 — 없으면 생성, 있으면 최신 수치로 갱신.
+
+    period_type: daily(오늘) / weekly(이번 주) / monthly(이번 달).
+    refresh=false면 이미 있는 리포트를 다시 계산하지 않고 그대로 돌려준다.
+    같은 기간 리포트는 문서 하나로 유지된다(중복 생성 없음).
+    """
+    try:
+        return report_service.generate_management_report(
+            current_user.email, period_type=period_type, force_refresh=refresh)
+    except report_service.ReportError as e:
+        raise HTTPException(400, str(e))
+
+
+# ---------------------------------------------------------------------------
 # 정기 갱신 서류 만료 추적 (위생교육·보건증·임대차/공급 계약)
 # ---------------------------------------------------------------------------
 
@@ -296,6 +319,10 @@ class ChatRequest(BaseModel):
 # [한글 주석] 챗봇이 대답을 돌려줄 때의 출력 형식 명세
 class ChatResponse(BaseModel):
     response: str = Field(..., description="챗봇의 답변 텍스트")
+    documents: list[dict] = Field(
+        default_factory=list,
+        description="이번 턴에 생성/수정된 문서 전문 — 챗봇 화면이 말풍선 아래 카드로 렌더링",
+    )
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -312,12 +339,12 @@ async def chat_message(
     store_key = store_id or "owner@cafe.com"
     
     try:
-        # [한글 주석] 챗봇 에이전트의 대화 처리 루프 실행
-        response_text = await main_agent.generate_response(
+        # [한글 주석] 챗봇 에이전트의 대화 처리 루프 실행 — 답변 텍스트 + 이번 턴에 만든 문서 전문
+        result = await main_agent.generate_response(
             user_message=body.message,
             store_id=store_key,
             history=body.history
         )
-        return ChatResponse(response=response_text)
+        return ChatResponse(response=result["text"], documents=result["documents"])
     except Exception as e:
         raise HTTPException(500, f"챗봇 서비스 실행 중 장애 발생: {str(e)}")

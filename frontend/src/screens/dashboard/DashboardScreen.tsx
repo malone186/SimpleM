@@ -1,18 +1,16 @@
 // 대시보드 (프론트 A) — Design Spec 기반
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Animated, RefreshControl, StyleSheet, View } from 'react-native';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 
-import { Ionicons } from '@expo/vector-icons';
-
 import { useAuth } from '../../auth/AuthContext';
-import ReportModal from '../../components/brew/ReportModal';
+import ManagementReportCard from '../../components/dashboard/ManagementReportCard';
 import QuickOrderModal from '../../components/dashboard/QuickOrderModal';
 import SalesCard from '../../components/dashboard/SalesCard';
 import TodoList, { type Todo } from '../../components/dashboard/TodoList';
 import WelcomeHeader from '../../components/dashboard/WelcomeHeader';
-import { FadeInUp, PressableScale } from '../../components/motion';
-import { colors, spacing, typography } from '../../theme';
+import { FadeInUp } from '../../components/motion';
+import { colors, spacing } from '../../theme';
 
 const INITIAL_TODOS: Todo[] = [
   {
@@ -40,7 +38,6 @@ export default function DashboardScreen() {
   const [selected, setSelected] = useState<Todo | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [runId, setRunId] = useState(0);
-  const [showReport, setShowReport] = useState(false);
 
   const { user } = useAuth();
   const navigation = useNavigation<any>();
@@ -119,16 +116,10 @@ export default function DashboardScreen() {
             <SalesCard key={`salescard-${runId}`} />
           </FadeInUp>
 
-          {/* 브루의 주간 리포트 진입 (브루는 리포트 모달 안에서 등장 — 홈엔 헤더 하나만) */}
+          {/* AI 경영 리포트 — 일간/주간/월간 탭을 누르면 홈에서 바로 보인다
+              (runId 키로 당겨서 새로고침 시 리마운트 → 최신 수치 재조회) */}
           <FadeInUp key={`report-${runId}`} delay={140}>
-            <PressableScale style={styles.reportEntry} onPress={() => setShowReport(true)}>
-              <View style={styles.reportDot} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.reportTitle}>브루가 이번 주 리포트를 준비했어요</Text>
-                <Text style={styles.reportSub}>매출 +8.2% · 원가율 주의 — 눌러서 편지 받기</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown} />
-            </PressableScale>
+            <ManagementReportCard key={`reportcard-${runId}`} />
           </FadeInUp>
 
           <FadeInUp key={`todo-${runId}`} delay={200}>
@@ -144,7 +135,6 @@ export default function DashboardScreen() {
         onConfirm={confirmOrder}
       />
 
-      <ReportModal visible={showReport} onClose={() => setShowReport(false)} />
     </View>
   );
 }
@@ -158,18 +148,5 @@ const styles = StyleSheet.create({
     paddingTop: spacing.verticalGap,
     gap: spacing.verticalGap,
   },
-  reportEntry: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: colors.coffeeCream,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.mutedSand,
-    padding: 16,
-  },
-  reportDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.pointOrange },
-  reportTitle: { ...typography.L4, color: colors.espressoBrown },
-  reportSub: { ...typography.L5, color: colors.mochaBrown, marginTop: 3 },
 });
 
