@@ -64,14 +64,42 @@ def login(user_in: UserLogin, db: Session = Depends(get_db)):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # [토큰 생성] 로그인에 성공했으므로 이메일 정보를 박아 넣은 일일 출입증을 만들어 줍니다.
+    # [한글 주석] 로그인에 성공했으므로 이메일 정보를 박아 넣은 일일 출입증을 만들어 줍니다.
     access_token = create_access_token(data={"sub": user.email})
 
-    # 프론트엔드로 이름, 이메일을 동봉하여 출입증을 넘겨줍니다.
+    # 비밀번호가 가려진 채로 안전하게 가입 정보를 프론트엔드로 돌려줍니다.
     return {
         "access_token": access_token, 
         "token_type": "bearer",
         "email": user.email,
         "name": user.name
     }
+
+
+# [관리자 전용] 3. [전체 회원 목록 조회 API 창구]
+@router.get("/users", response_model=list[UserResponse])
+def get_all_users(db: Session = Depends(get_db)):
+    """
+    [관리자용] 현재 DB에 가입된 모든 사장님(회원)의 정보를 조회합니다.
+    """
+    return db.query(User).order_by(User.id.desc()).all()
+
+
+# [관리자 전용] 4. [특정 회원 강제 탈퇴 처리 API 창구]
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(user_id: int, db: Session = Depends(get_db)):
+    """
+    [관리자용] 특정 ID의 회원을 강제 탈퇴 처리하고 관련 정보를 데이터베이스에서 삭제합니다.
+    """
+    # [검사 1] 지우고자 하는 회원 정보가 진짜 DB에 있는지 확인합니다.
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="존재하지 않는 회원 정보입니다."
+        )
+    # [DB 삭제 및 저장]
+    db.delete(user)
+    db.commit()
+
 

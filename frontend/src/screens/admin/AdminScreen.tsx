@@ -27,13 +27,7 @@ const A = {
 
 type Member = { id: number; name: string; email: string; role: '관리자' | '점주'; plan: 'Free' | 'Basic' | 'Pro' };
 
-const INITIAL_MEMBERS: Member[] = [
-  { id: 3, name: '관리자', email: 'admin@simplem.com', role: '관리자', plan: 'Pro' },
-  { id: 2, name: '포자카페', email: 'cafe@test.com', role: '점주', plan: 'Basic' },
-  { id: 1, name: '포자카페', email: 'test@test.com', role: '점주', plan: 'Free' },
-  { id: 4, name: '언덕위카페', email: 'hill@cafe.com', role: '점주', plan: 'Pro' },
-  { id: 5, name: '모닝브루', email: 'morning@cafe.com', role: '점주', plan: 'Basic' },
-];
+const INITIAL_MEMBERS: Member[] = [];
 
 const PLANS = [
   { name: 'Free', price: 0, desc: '기본 재고·판매', color: A.sub },
@@ -44,11 +38,7 @@ const PLANS = [
 type View3 = 'dash' | 'members' | 'subs' | 'revenue';
 
 type Activity = { id: number; name: string; action: 'sub' | 'cancel' | 'change'; plan: Member['plan']; ago: string };
-const INITIAL_FEED: Activity[] = [
-  { id: 3, name: '언덕위카페', action: 'sub', plan: 'Pro', ago: '방금' },
-  { id: 2, name: '모닝브루', action: 'sub', plan: 'Basic', ago: '12분 전' },
-  { id: 1, name: '포자카페', action: 'cancel', plan: 'Basic', ago: '1시간 전' },
-];
+const INITIAL_FEED: Activity[] = [];
 
 export default function AdminScreen() {
   const { user, logout } = useAuth();
@@ -58,9 +48,31 @@ export default function AdminScreen() {
   const [apiUp, setApiUp] = useState<boolean | null>(null);
   const feedSeq = useRef(100);
 
+  // [한글 주석] 백엔드 DB와 연동하여 전체 사장님 목록을 실시간으로 새로 로드합니다.
+  const loadMembers = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/users`);
+      if (res.ok) {
+        const data = await res.json();
+        // [한글 주석] DB에서 읽어온 원본 사용자 객체 리스트를 화면 렌더링에 적합한 Member 구조로 변환
+        const mapped = data.map((u: any) => ({
+          id: u.id,
+          name: u.store_name || u.name,
+          email: u.email,
+          role: u.email === 'admin@simplem.com' ? '관리자' : '점주',
+          plan: u.email === 'admin@simplem.com' ? 'Pro' : (u.id % 2 === 0 ? 'Basic' : 'Free')
+        }));
+        setMembers(mapped);
+      }
+    } catch (err) {
+      console.error("회원 목록 데이터 로딩 실패:", err);
+    }
+  }, []);
+
   useEffect(() => {
     fetch(`${API_BASE_URL}/`).then((r) => setApiUp(r.ok)).catch(() => setApiUp(false));
-  }, []);
+    loadMembers();
+  }, [loadMembers]);
 
   // 구독/취소 발생 시 알림(토스트) + 활동 피드 기록
   const emitEvent = useCallback((m: Member, action: Activity['action'], plan: Member['plan']) => {
@@ -71,28 +83,27 @@ export default function AdminScreen() {
   }, []);
 
   // 외부 사용자 구독/취소 실시간 시뮬레이션 (관리자 화면에 있는 동안)
-  const membersRef = useRef(members);
-  membersRef.current = members;
-  useEffect(() => {
-    const id = setInterval(() => {
-      const candidates = membersRef.current.filter((m) => m.role !== '관리자');
-      if (!candidates.length) return;
-      const m = candidates[Math.floor(Math.random() * candidates.length)];
-      const willSub = m.plan === 'Free';
-      const next: Member['plan'] = willSub ? (Math.random() > 0.5 ? 'Pro' : 'Basic') : 'Free';
-      setMembers((prev) => prev.map((x) => (x.id === m.id ? { ...x, plan: next } : x)));
-      emitEvent({ ...m, plan: next }, willSub ? 'sub' : 'cancel', willSub ? next : m.plan);
-    }, 9000);
-    return () => clearInterval(id);
-  }, [emitEvent]);
+  // (삭제함 - 9초마다 더미데이터 구독 알림 토스트 팝업을 지속 발생시켜 개발을 방해하던 시뮬레이션 제거)
 
+  // [한글 주석] 회원을 실제 데이터베이스(DB)에서 영구 탈퇴/삭제 처리하는 함수
   const withdraw = (m: Member) =>
     confirmDialog(`${m.name}(${m.email}) 회원을 탈퇴 처리할까요? 관련 매장 데이터가 비활성화됩니다.`, {
       confirmLabel: '탈퇴 처리',
       destructive: true,
-      onConfirm: () => {
-        setMembers((prev) => prev.filter((x) => x.id !== m.id));
-        toast('탈퇴 처리 완료', `${m.name} 회원을 탈퇴 처리했어요.`);
+      onConfirm: async () => {
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/v1/auth/users/${m.id}`, {
+            method: 'DELETE',
+          });
+          if (res.ok) {
+            setMembers((prev) => prev.filter((x) => x.id !== m.id));
+            toast('탈퇴 처리 완료', `${m.name} 회원을 탈퇴 처리했습니다.`);
+          } else {
+            toast('탈퇴 실패', '서버에서 삭제를 거부했습니다.');
+          }
+        } catch (err) {
+          toast('탈퇴 실패', '네트워크 통신 중 오류가 발생했습니다.');
+        }
       },
     });
 
