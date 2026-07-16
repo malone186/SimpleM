@@ -153,3 +153,44 @@ class OrderResponse(BaseModel):
 class OrderStatusUpdate(BaseModel):
     status: str = Field(..., description="변경할 상태값 (CONFIRMED: 승인완료, REJECTED: 반려)")
 
+
+# --- [외부 로스터리 및 원두 탐색 관련 규격 B] ---
+
+# 13. 로스터리 브랜드 정보 응답 규격
+class RoasteryResponse(BaseModel):
+    id: int
+    name: str
+    thumbnail_url: str | None = None
+    roastery_info: str | None = None
+    file_path: str | None = None
+
+    class Config:
+        from_attributes = True
+
+
+# 14. 로스터리 원두 상품 정보 응답 규격 (로스터리 정보 조인 포함)
+class RoasteryBeanResponse(BaseModel):
+    id: int
+    name: str
+    price: int
+    roastery_id: int
+    thumbnail_url: str | None = None
+    product_url: str | None = None
+    date_added: str | None = None
+    best: bool
+    new: bool
+    sold_out: bool
+    description: str | None = None
+    country: str | None = None
+    process: str | None = None
+    blend: bool
+    decaf: bool
+    gesha: bool
+    price_per_gram: float | None = None
+    naver_product_id: str | None = None
+    roastery: RoasteryResponse | None = None
+
+    class Config:
+        from_attributes = True
+
+

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View, ActivityIndicator } from 'react-native';
 import Svg, { Defs, LinearGradient, Stop, Path, Circle, Line, Text as SvgText, Rect, G } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,6 +10,11 @@ import { useAuth } from '../../auth/AuthContext';
 import { getSalesForecast, getDevicePosition, type SalesForecast, type ForecastDay } from '../../lib/api/forecast';
 
 // (삭제함 - Web 호환성을 위해 addListener + 일반 Circle을 사용하도록 개선)
+
+// [웹 호환 SVG 터치 핸들러] 웹에서 SVG 요소에 onPress를 주면 구형 Touchable 믹스인이 가동되어
+// 콘솔 에러가 발생하므로, 웹은 브라우저 표준 onClick으로 우회한다 (네이티브는 onPress 유지)
+const svgPress = (handler: () => void) =>
+  Platform.OS === 'web' ? ({ onClick: handler } as any) : { onPress: handler };
 
 // 차트 트렌드 라인 패스 정의 (시간별 포인트와 정확히 정합되는 꺾은선)
 const REALTIME_LINE = 'M 24 100 L 108 78 L 198 63 L 290 55';
@@ -220,7 +225,7 @@ function SlidingTabToggle({
 
 // [한글 주석] onPressReport 콜백을 받아와 리포트 배너의 이벤트를 바인딩합니다.
 export default function SalesCard({ onPressReport }: { onPressReport?: () => void }) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [forecast, setForecast] = useState<SalesForecast | null>(null);
   const [loadingForecast, setLoadingForecast] = useState(false);
 
@@ -396,180 +401,198 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
   const lat = forecast?.location.lat ?? 37.5562;
   const lon = forecast?.location.lon ?? 126.9223;
   const regionName = forecast?.location.region ?? "서울특별시 마포구 서교동";
+  // [한글 주석] 지도 마커에 표기할 매장명 — 회원가입 시 지정한 상호명(user.name)과 연동
+  const shopLabel = user?.name ? `내 매장 (${user.name})` : '내 매장';
   const nearbyEvents = forecast?.nearby_events ?? [];
+  const serializedEvents = JSON.stringify(nearbyEvents);
 
   // [네이버 지도 연동 설정 가이드]
-  // 1. 네이버 클라우드 플랫폼(NCP)에서 Web Dynamic Map 서비스를 신청하고 발급받은 Client ID를 아래에 기입해 줍니다.
+  // 1. 네이버 클라우드 플랫폼(NCP)에서 Maps > Web Dynamic Map 서비스를 신청하고 발급받은 Client ID를 아래에 기입해 줍니다.
+  //    ※ NCP 콘솔의 해당 애플리케이션에 Web 서비스 URL(예: http://localhost:8081)이 등록되어 있어야 인증됩니다.
   // 2. 아래 ID가 비어있거나 'YOUR_NAVER_CLIENT_ID' 상태일 때는 자동으로 Leaflet.js 오픈맵이 폴백 구동되어 공백 없이 정상 동작합니다.
-  const NAVER_CLIENT_ID = "YOUR_NAVER_CLIENT_ID";
+  const NAVER_CLIENT_ID = process.env.EXPO_PUBLIC_NAVER_CLIENT_ID || "6amak4awt7";
 
-  const iframeHtml = `
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-        
-        <!-- 네이버 지도 JS API 로드 -->
-        <script type="text/javascript" src="https://openapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${NAVER_CLIENT_ID}"></script>
-        
-        <!-- 폴백용 Leaflet 로드 -->
-        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-        
-        <style>
-          body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
-          #map { width: 100%; height: 100vh; background-color: #F8F6F2; }
-          
-          /* 네이버풍 말풍선(Popup) 커스텀 스타일링 */
-          .custom-popup {
-            padding: 4px;
-            font-size: 11px;
-            line-height: 1.4;
+
+  // [네이버 지도 다이렉트 DOM 렌더링 훅]
+  // iframe 격리 시 브라우저가 Referer 오리진을 null/about:srcdoc으로 훼손하여 네이버가 차단하는 문제를 원천 해결합니다.
+  // 부모 창의 실제 도메인 주소(http://localhost:8081)가 100% 온전하게 네이버에 송신되어 에러 없이 가동됩니다.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !locationModalVisible) return;
+
+    // 1. 네이버 지도 API 스크립트 로드
+    const loadNaverScript = () => {
+      const existing = document.getElementById('naver-map-script-direct');
+      if (existing) {
+        // 스크립트 태그는 있지만 아직 로딩 중일 수 있음(모달 빠른 재오픈 등) — 로드 완료를 기다린 뒤 초기화
+        if ((window as any).naver?.maps) {
+          initNaverMapDirectly();
+        } else {
+          existing.addEventListener('load', initNaverMapDirectly, { once: true });
+        }
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.id = 'naver-map-script-direct';
+      script.type = 'text/javascript';
+      // 신규 NCP Maps API는 oapi 도메인 + ncpKeyId 파라미터로만 인증됨 (구 openapi/ncpClientId는 인증 실패 처리)
+      script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${NAVER_CLIENT_ID}`;
+      script.onload = initNaverMapDirectly;
+      script.onerror = () => {
+        console.error("네이버 지도 로딩 실패: Leaflet으로 전환");
+        initLeafletFallback();
+      };
+      document.head.appendChild(script);
+    };
+
+    // 2. 실제 DOM에 네이버 지도 생성 및 마킹
+    const initNaverMapDirectly = () => {
+      try {
+        const container = document.getElementById('naver-map-container');
+        if (!container) return;
+        container.innerHTML = "";
+
+        const naverObj = (window as any).naver;
+        if (!naverObj || !naverObj.maps) {
+          initLeafletFallback();
+          return;
+        }
+
+        const map = new naverObj.maps.Map(container, {
+          center: new naverObj.maps.LatLng(lat, lon),
+          zoom: 14,
+          zoomControl: false
+        });
+
+        // 내 매장 마커 마킹
+        const shopMarker = new naverObj.maps.Marker({
+          position: new naverObj.maps.LatLng(lat, lon),
+          map: map,
+          icon: {
+            content: '<div style="width:16px;height:16px;background:#4E3629;border:3px solid #FFFFFF;border-radius:50%;box-shadow:0 2px 5px rgba(0,0,0,0.3)"></div>',
+            anchor: new naverObj.maps.Point(8, 8)
           }
-          .custom-popup b {
-            color: #4E3629;
-            font-size: 12px;
-            display: inline-block;
-            margin-bottom: 2px;
-          }
-          .leaflet-popup-content-wrapper {
-            background: #FFFFFF;
-            color: #333333;
-            border-radius: 8px;
-            border: 1px solid rgba(140, 111, 86, 0.2);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.12);
-          }
-          .leaflet-popup-tip {
-            background: #FFFFFF;
-            border: 1px solid rgba(140, 111, 86, 0.2);
-          }
-        </style>
-      </head>
-      <body>
-        <div id="map"></div>
-        <script>
-          var lat = ${lat};
-          var lon = ${lon};
-          var regionName = "${regionName}";
-          var events = ${JSON.stringify(nearbyEvents)};
-          var clientId = "${NAVER_CLIENT_ID}";
+        });
 
-          // 네이버 지도 SDK 정상 로딩 여부 판별
-          var isNaverActive = typeof naver !== 'undefined' && naver.maps && clientId !== "YOUR_NAVER_CLIENT_ID" && clientId !== "";
+        const infoWindow = new naverObj.maps.InfoWindow({
+          content: '<div style="padding:10px;min-width:140px;line-height:140%;font-size:11px;font-family:-apple-system,sans-serif"><b>📍 ' + shopLabel + '</b><br/>' + regionName + '</div>',
+          borderWidth: 1,
+          borderColor: '#8C6F56',
+          borderRadius: 8,
+          backgroundColor: '#FFFFFF',
+          anchorSize: new naverObj.maps.Size(10, 10)
+        });
 
-          if (isNaverActive) {
-            // ==========================================
-            // [방법 A] 네이버 지도 객체 활성화 및 마킹
-            // ==========================================
-            try {
-              var map = new naver.maps.Map('map', {
-                center: new naver.maps.LatLng(lat, lon),
-                zoom: 14,
-                zoomControl: true,
-                zoomControlOptions: {
-                  position: naver.maps.Position.BOTTOM_RIGHT
-                }
-              });
+        infoWindow.open(map, shopMarker);
 
-              // 1. 내 매장 핀 생성 (원형 마커 마킹)
-              var shopMarker = new naver.maps.Marker({
-                position: new naver.maps.LatLng(lat, lon),
-                map: map,
-                icon: {
-                  content: '<div style="width:16px;height:16px;background:#4E3629;border:3px solid #FFFFFF;border-radius:50%;box-shadow:0 2px 5px rgba(0,0,0,0.3)"></div>',
-                  anchor: new naver.maps.Point(8, 8)
-                }
-              });
+        // 인근 축제 마커들 생성
+        nearbyEvents.forEach((e: any) => {
+          if (e.lat && e.lon) {
+            const eventMarker = new naverObj.maps.Marker({
+              position: new naverObj.maps.LatLng(e.lat, e.lon),
+              map: map,
+              icon: {
+                content: '<div style="width:12px;height:12px;background:#E28257;border:2.5px solid #FFFFFF;border-radius:50%;box-shadow:0 2px 4px rgba(0,0,0,0.3)"></div>',
+                anchor: new naverObj.maps.Point(6, 6)
+              }
+            });
 
-              var infoWindow = new naver.maps.InfoWindow({
-                content: '<div style="padding:10px;min-width:140px;line-height:140%;font-size:11px"><b>📍 내 매장 (포슬카페)</b><br/>' + regionName + '</div>',
-                borderWidth: 1,
-                borderColor: '#8C6F56',
-                borderRadius: 8,
-                backgroundColor: '#FFFFFF',
-                anchorSize: new naver.maps.Size(10, 10)
-              });
+            const eWindow = new naverObj.maps.InfoWindow({
+              content: '<div style="padding:10px;min-width:160px;line-height:140%;font-size:11px;font-family:-apple-system,sans-serif"><b>🎉 ' + e.name + '</b><br/>장소: ' + e.place + '<br/>거리: ' + e.distance_km + 'km<br/>날짜: ' + e.date + '</div>',
+              borderWidth: 1,
+              borderColor: '#E28257',
+              borderRadius: 8,
+              backgroundColor: '#FFFFFF'
+            });
 
-              infoWindow.open(map, shopMarker);
-
-              // 2. 인근 축제 마커 핀 생성 (오렌지색 마킹)
-              events.forEach(function(e) {
-                if (e.lat && e.lon) {
-                  var eventMarker = new naver.maps.Marker({
-                    position: new naver.maps.LatLng(e.lat, e.lon),
-                    map: map,
-                    icon: {
-                      content: '<div style="width:12px;height:12px;background:#E28257;border:2.5px solid #FFFFFF;border-radius:50%;box-shadow:0 2px 4px rgba(0,0,0,0.3)"></div>',
-                      anchor: new naver.maps.Point(6, 6)
-                    }
-                  });
-
-                  var eWindow = new naver.maps.InfoWindow({
-                    content: '<div style="padding:10px;min-width:160px;line-height:140%;font-size:11px"><b>🎉 ' + e.name + '</b><br/>장소: ' + e.place + '<br/>거리: ' + e.distance_km + 'km<br/>날짜: ' + e.date + '</div>',
-                    borderWidth: 1,
-                    borderColor: '#E28257',
-                    borderRadius: 8,
-                    backgroundColor: '#FFFFFF'
-                  });
-
-                  naver.maps.Event.addListener(eventMarker, "click", function() {
-                    if (eWindow.getMap()) {
-                      eWindow.close();
-                    } else {
-                      eWindow.open(map, eventMarker);
-                    }
-                  });
-                }
-              });
-            } catch (err) {
-              console.error("네이버 지도 렌더링 실패, Leaflet으로 강제 전환합니다:", err);
-              initLeafletFallback();
-            }
-          } else {
-            // ==========================================
-            // [방법 B] 키 발급 전 또는 인증 오류 시 Leaflet.js 폴백 구동
-            // ==========================================
-            initLeafletFallback();
-          }
-
-          function initLeafletFallback() {
-            var map = L.map('map', { zoomControl: false }).setView([lat, lon], 14);
-            L.control.zoom({ position: 'bottomright' }).addTo(map);
-            
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-              maxZoom: 19
-            }).addTo(map);
-
-            // 내 카페 마커
-            var shopMarker = L.circleMarker([lat, lon], {
-              color: '#4E3629',
-              fillColor: '#8C6F56',
-              fillOpacity: 1,
-              radius: 8,
-              weight: 3
-            }).addTo(map);
-            
-            shopMarker.bindPopup("<div class='custom-popup'><b>📍 내 매장 (포슬카페)</b><br/>" + regionName + "</div>").openPopup();
-
-            // 인근 축제 마커들
-            events.forEach(function(e) {
-              if (e.lat && e.lon) {
-                L.circleMarker([e.lat, e.lon], {
-                  color: '#E28257',
-                  fillColor: '#FFFFFF',
-                  fillOpacity: 0.9,
-                  radius: 6,
-                  weight: 3.5
-                }).addTo(map)
-                  .bindPopup("<div class='custom-popup'><b>🎉 " + e.name + "</b><br/>장소: " + e.place + "<br/>거리: " + e.distance_km + "km<br/>날짜: " + e.date + "</div>");
+            naverObj.maps.Event.addListener(eventMarker, "click", () => {
+              if (eWindow.getMap()) {
+                eWindow.close();
+              } else {
+                eWindow.open(map, eventMarker);
               }
             });
           }
-        </script>
-      </body>
-    </html>
-  `;
+        });
+      } catch (err) {
+        console.error("네이버 지도 직접 초기화 중 에러, 폴백 가동:", err);
+        initLeafletFallback();
+      }
+    };
+
+    // 3. Leaflet.js 폴백 복원 함수
+    const initLeafletFallback = () => {
+      try {
+        const container = document.getElementById('naver-map-container');
+        if (!container) return;
+        container.innerHTML = "";
+
+        let existingCss = document.getElementById('leaflet-css-direct');
+        if (!existingCss) {
+          const link = document.createElement('link');
+          link.id = 'leaflet-css-direct';
+          link.rel = 'stylesheet';
+          link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+          document.head.appendChild(link);
+        }
+
+        const startLeaflet = () => {
+          const L = (window as any).L;
+          if (!L) return;
+          const map = L.map(container, { zoomControl: false }).setView([lat, lon], 14);
+          
+          L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 19
+          }).addTo(map);
+
+          const shopMarker = L.circleMarker([lat, lon], {
+            color: '#4E3629',
+            fillColor: '#8C6F56',
+            fillOpacity: 1,
+            radius: 8,
+            weight: 3
+          }).addTo(map);
+          
+          shopMarker.bindPopup("<div style='font-size:11px'><b>📍 " + shopLabel + "</b><br/>" + regionName + "</div>").openPopup();
+
+          nearbyEvents.forEach((e: any) => {
+            if (e.lat && e.lon) {
+              L.circleMarker([e.lat, e.lon], {
+                color: '#E28257',
+                fillColor: '#FFFFFF',
+                fillOpacity: 0.9,
+                radius: 6,
+                weight: 3.5
+              }).addTo(map)
+                .bindPopup("<div style='font-size:11px'><b>🎉 " + e.name + "</b><br/>장소: " + e.place + "<br/>거리: " + e.distance_km + "km<br/>날짜: " + e.date + "</div>");
+            }
+          });
+        };
+
+        const existingScript = document.getElementById('leaflet-js-direct');
+        if (existingScript) {
+          startLeaflet();
+        } else {
+          const script = document.createElement('script');
+          script.id = 'leaflet-js-direct';
+          script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+          script.onload = startLeaflet;
+          document.head.appendChild(script);
+        }
+      } catch (err) {
+        console.error("Leaflet 로딩 실패:", err);
+      }
+    };
+
+    // 네이버 지도 인증 실패 전역 콜백 연결
+    (window as any).navermap_authFailure = () => {
+      console.warn("네이버 지도 인증 실패: 즉시 Leaflet 오픈 지도로 안전 전환합니다.");
+      initLeafletFallback();
+    };
+
+    const timer = setTimeout(loadNaverScript, 50);
+    return () => clearTimeout(timer);
+  }, [locationModalVisible, lat, lon, regionName, shopLabel, serializedEvents, NAVER_CLIENT_ID]);
 
   return (
     <View style={styles.card}>
@@ -682,7 +705,7 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
               </Defs>
 
               {/* 툴팁 닫기용 투명 배경 클릭 타겟 (세로 확장 130 대응) */}
-              <Rect width="300" height="130" fill="transparent" onPress={() => setActiveTooltip(null)} />
+              <Rect width="300" height="130" fill="transparent" {...svgPress(() => setActiveTooltip(null))} />
 
               {/* 그리드 가로선 (세로 확장 정렬) */}
               <Line x1="10" y1="25" x2="290" y2="25" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
@@ -729,31 +752,31 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
 
               {/* 3. 오늘 데이터 포인트 (터치용 보이지 않는 큰 Circle 영역 포함, Y좌표 꺾은선 일치) */}
               <Circle cx={24} cy={100} r={3.5} fill={colors.mochaBrown} />
-              <Circle cx={24} cy={100} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 24, y: 100, title: '오늘 09시', value: '25잔' })} />
+              <Circle cx={24} cy={100} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 24, y: 100, title: '오늘 09시', value: '25잔' }))} />
               
               <Circle cx={108} cy={78} r={3.5} fill={colors.mochaBrown} />
-              <Circle cx={108} cy={78} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 108, y: 78, title: '오늘 12시', value: '87잔' })} />
+              <Circle cx={108} cy={78} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 108, y: 78, title: '오늘 12시', value: '87잔' }))} />
 
               <Circle cx={198} cy={63} r={3.5} fill={colors.mochaBrown} />
-              <Circle cx={198} cy={63} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 198, y: 63, title: '오늘 15시', value: '127잔' })} />
+              <Circle cx={198} cy={63} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 198, y: 63, title: '오늘 15시', value: '127잔' }))} />
 
               <Circle cx={290} cy={55} r={4} fill={colors.trendGreenText} />
-              <Circle cx={290} cy={55} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 290, y: 55, title: '오늘 실시간', value: '142잔' })} />
+              <Circle cx={290} cy={55} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 290, y: 55, title: '오늘 실시간', value: '142잔' }))} />
 
               {/* 4. 내일 데이터 포인트 (forecast 로드 시점에만 터치 영역 포함 렌더링) */}
               {forecast && (
                 <>
                   <Circle cx={24} cy={yForecast09} r={3.5} fill={colors.pointOrange} opacity={0.65} />
-                  <Circle cx={24} cy={yForecast09} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 24, y: yForecast09, title: '내일 09시', value: `${tomorrowCupsCum[0]}잔` })} />
+                  <Circle cx={24} cy={yForecast09} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 24, y: yForecast09, title: '내일 09시', value: `${tomorrowCupsCum[0]}잔` }))} />
                   
                   <Circle cx={108} cy={yForecast12} r={3.5} fill={colors.pointOrange} opacity={0.65} />
-                  <Circle cx={108} cy={yForecast12} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 108, y: yForecast12, title: '내일 12시', value: `${tomorrowCupsCum[1]}잔` })} />
+                  <Circle cx={108} cy={yForecast12} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 108, y: yForecast12, title: '내일 12시', value: `${tomorrowCupsCum[1]}잔` }))} />
 
                   <Circle cx={198} cy={yForecast15} r={3.5} fill={colors.pointOrange} opacity={0.65} />
-                  <Circle cx={198} cy={yForecast15} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 198, y: yForecast15, title: '내일 15시', value: `${tomorrowCupsCum[2]}잔` })} />
+                  <Circle cx={198} cy={yForecast15} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 198, y: yForecast15, title: '내일 15시', value: `${tomorrowCupsCum[2]}잔` }))} />
 
                   <Circle cx={290} cy={yForecast18} r={4} fill={colors.pointOrange} opacity={0.65} />
-                  <Circle cx={290} cy={yForecast18} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 290, y: yForecast18, title: '내일 18시', value: `${tomorrowCupsCum[3]}잔` })} />
+                  <Circle cx={290} cy={yForecast18} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 290, y: yForecast18, title: '내일 18시', value: `${tomorrowCupsCum[3]}잔` }))} />
                 </>
               )}
             </Svg>
@@ -1055,10 +1078,9 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
             {/* 지도 본문 (웹 환경 대응 브라우저 표준 iframe) */}
             <View style={{ flex: 1, backgroundColor: '#F8F6F2', position: 'relative' }}>
               {Platform.OS === 'web' ? (
-                <iframe
-                  srcDoc={iframeHtml}
-                  style={{ width: '100%', height: '100%', border: 'none' }}
-                  title="매장 및 주변 행사 분석 지도"
+                <View
+                  id="naver-map-container"
+                  style={{ width: '100%', height: '100%' }}
                 />
               ) : (
                 <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>

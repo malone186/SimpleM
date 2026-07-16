@@ -10,13 +10,14 @@ from app.schemas.inventory import (
     IngredientCreate, IngredientResponse, IngredientPriceUpdate, IngredientPriceHistoryResponse,
     StockAdjust, StockResponse, StockDetailResponse,
     MenuCreate, MenuResponse, MenuDetailResponse,
-    OrderResponse, OrderStatusUpdate
+    OrderResponse, OrderStatusUpdate, RoasteryBeanResponse
 )
 from app.services.inventory_service import (
     create_ingredient, get_ingredients, delete_ingredient,
     update_ingredient_price, get_ingredient_price_history,
     add_or_adjust_stock, get_stocks,
-    create_menu_with_recipes, get_menus_with_recipes, delete_menu
+    create_menu_with_recipes, get_menus_with_recipes, delete_menu,
+    get_roastery_beans
 )
 
 # APIRouter를 통해 "/inventory"로 시작하는 신호를 전담 접수하는 창구를 개설합니다.
@@ -173,6 +174,22 @@ def get_order_drafts(
     """
     from app.services.inventory_service import get_or_create_order_drafts
     return get_or_create_order_drafts(db=db, store_id=current_user.email)
+
+
+# --- [6. 로스터리 원두 탐색 마켓 API 창구] ---
+
+@router.get("/roastery-beans", response_model=list[RoasteryBeanResponse])
+def list_roastery_beans(
+    limit: int = 10,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    [한글 주석: 로스터리 원두 탐색 마켓 목록 조회]
+    DB에 등록된 외부 전문 로스터리의 원두 상품 목록을 가져옵니다.
+    로스터리 업체 정보, 가격, 이미지, 원산지, 가공방식 등을 포함합니다.
+    """
+    return get_roastery_beans(db=db, limit=limit)
 
 
 @router.patch("/orders/{order_id}")

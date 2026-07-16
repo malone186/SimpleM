@@ -54,7 +54,6 @@ export default function WelcomeHeader({
 
   return (
     <View style={styles.header}>
-      {/* 상단바 — 왼쪽 프로필 */}
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.profileBtn} onPress={onOpenProfile} hitSlop={8} activeOpacity={0.85}>
           {photo ? (
@@ -64,11 +63,10 @@ export default function WelcomeHeader({
               <Text style={styles.avatarText}>{initial}</Text>
             </View>
           )}
-          <Ionicons name="chevron-down" size={10} color="#D2C8C2" /> {/* [가독성 보정] 화살표 크기 축소 */}
+          <Ionicons name="chevron-down" size={10} color="#D2C8C2" />
         </TouchableOpacity>
       </View>
 
-      {/* 웰컴 문구 및 브루 마스코트 배치 */}
       <View style={styles.row}>
         <View style={styles.textCol}>
           <Text style={styles.greeting}>안녕하세요 사장님 ☀️</Text>

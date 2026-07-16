@@ -494,3 +494,13 @@ def update_order_status(db: Session, store_id: str, order_id: int, status_update
         
     db.commit()
     return {"id": order.id, "status": order.status, "message": message}
+
+
+def get_roastery_beans(db: Session, limit: int = 10):
+    """
+    [한글 주석: 로스터리 원두 목록 조회 서비스]
+    데이터베이스에 저장된 외부 로스터리 원두 상품 목록을 로스터리 정보와 함께 가져옵니다.
+    """
+    from app.models.roastery import RoasteryBean
+    return db.query(RoasteryBean).order_by(RoasteryBean.id.asc()).limit(limit).all()
+

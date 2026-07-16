@@ -73,14 +73,12 @@ export default function ManagementScreen() {
 
   return (
     <Screen>
-      {/* 헤더 — 에디토리얼 타이포 */}
+      {/* 헤더 — 에디토리얼 타이포 (사장님 요청으로 타이틀 크기를 타 화면 헤더 L1 규격과 통일 및 모든 영문 제거) */}
       <View style={styles.header}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.eyebrow}>MANAGEMENT</Text>
-            <Text style={styles.bigTitle}>관리</Text>
-          </View>
-          <Text style={styles.ghostNum}>{ITEMS.length.toString().padStart(2, '0')}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.bigTitle}>관리</Text>
         </View>
+      </View>
 
         {/* 기울여 겹쳐 흩뿌린 카드 덱 */}
         <View style={styles.deck}>
@@ -106,7 +104,6 @@ export default function ManagementScreen() {
               >
                 <Text style={[styles.cardGhost, { color: s.ghost }]}>{String(i + 1).padStart(2, '0')}</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.cardEn, { color: s.en }]}>{it.en}</Text>
                   <Text style={[styles.cardLabel, { color: s.label }]}>{it.label}</Text>
                   <Text style={[styles.cardDesc, { color: s.desc }]}>{it.desc}</Text>
                 </View>
@@ -128,9 +125,7 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     marginTop: 4,
   },
-  eyebrow: { fontSize: 11, fontWeight: '800', letterSpacing: 3, color: colors.pointOrange },
-  bigTitle: { fontSize: 52, fontWeight: '900', color: colors.espressoBrown, letterSpacing: -1, marginTop: 2, lineHeight: 56 },
-  ghostNum: { fontSize: 84, fontWeight: '900', color: colors.mutedSand, lineHeight: 84, letterSpacing: -4, opacity: 0.85 },
+  bigTitle: { fontSize: 20, fontWeight: '900', color: colors.espressoBrown, letterSpacing: -0.2, marginTop: 4, lineHeight: 24 }, // [한글 주석: 타이틀 폰트 크기를 다른 탭의 타이틀(재고, 발주 등) 규격인 L1(fontSize: 20)에 맞춰 통일]
 
   deck: { paddingHorizontal: 6, paddingTop: 6, paddingBottom: 20 },
   card: {
@@ -156,7 +151,6 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: -4,
   },
-  cardEn: { fontSize: 10, fontWeight: '800', letterSpacing: 2 },
   cardLabel: { fontSize: 25, fontWeight: '900', letterSpacing: -0.5, marginTop: 4 },
   cardDesc: { fontSize: 12, fontWeight: '500', marginTop: 5 },
   cardArrow: {
