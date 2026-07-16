@@ -9,5 +9,8 @@ from app.models.inventory import Ingredient, IngredientPriceHistory, Menu, Recip
 # O (operation.py)
 from app.models.operation import Employee, Schedule
 
+# R (roastery.py)
+from app.models.roastery import Roastery, RoasteryBean
+
 # U (user.py)
 from app.models.user import User
