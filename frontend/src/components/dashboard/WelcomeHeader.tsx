@@ -54,41 +54,9 @@ export default function WelcomeHeader({
 
   return (
     <View style={styles.header}>
-      {/* 
-        [한글 주석: 초고화질 가우시안 블러 필터 레이어]
-        원의 경계를 완전히 파괴하여 사방으로 흐릿하게 번지는 몽환적인 글로우를 묘사합니다.
-        레퍼런스의 플레시 핑크/모카 샌드 색상 비율을 매칭하여 고급화했습니다.
-      */}
-      <View style={StyleSheet.absoluteFill}>
-        <Svg width="100%" height="100%" preserveAspectRatio="none">
-          <Defs>
-            <LinearGradient id="auroraGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <Stop offset="0%" stopColor="#2B170F" />
-              <Stop offset="50%" stopColor="#452A1E" />
-              <Stop offset="100%" stopColor="#1E0F0A" />
-            </LinearGradient>
-            
-            <Filter id="auroraGlow" x="-50%" y="-50%" width="200%" height="200%">
-              <FeGaussianBlur stdDeviation="60" />
-            </Filter>
-          </Defs>
-          {/* 백그라운드 밀키 모카 샌드 그라데이션 */}
-          <Path d="M0 0 H2000 V2000 H0 Z" fill="url(#auroraGrad)" />
-          
-          {/* [우측 상단 몽환적인 주황 오렌지 글로우] 표준편차 60px의 가우시안 블러 통과 */}
-          <Circle cx="85%" cy="30%" r="160" fill="#E67E4F" filter="url(#auroraGlow)" opacity="0.3" />
-          
-          {/* [좌측 하단 은은한 샌드 브라운 글로우] */}
-          <Circle cx="15%" cy="80%" r="140" fill="#B58E6F" filter="url(#auroraGlow)" opacity="0.25" />
-
-          {/* [중앙 상단 화사한 샌드 베이지 글로우] */}
-          <Circle cx="50%" cy="10%" r="120" fill="#F2CEB6" filter="url(#auroraGlow)" opacity="0.2" />
-        </Svg>
-      </View>
-
       {/* 상단바 — 왼쪽 프로필 */}
       <View style={styles.topBar}>
-        <TouchableOpacity style={styles.profileBtn} onPress={onOpenProfile} hitSlop={8} activeOpacity={0.8}>
+        <TouchableOpacity style={styles.profileBtn} onPress={onOpenProfile} hitSlop={8} activeOpacity={0.85}>
           {photo ? (
             <Image source={{ uri: photo }} style={styles.avatar} />
           ) : (
@@ -96,7 +64,7 @@ export default function WelcomeHeader({
               <Text style={styles.avatarText}>{initial}</Text>
             </View>
           )}
-          <Ionicons name="chevron-down" size={14} color={colors.mutedSand} />
+          <Ionicons name="chevron-down" size={10} color="#D2C8C2" /> {/* [가독성 보정] 화살표 크기 축소 */}
         </TouchableOpacity>
       </View>
 
@@ -109,7 +77,7 @@ export default function WelcomeHeader({
             {quote}
           </Text>
         </View>
-        <Brew mood={mood} size={132} style={styles.mascot} />
+        <Brew mood={mood} size={124} style={styles.mascot} />
       </View>
     </View>
   );
@@ -118,39 +86,36 @@ export default function WelcomeHeader({
 const styles = StyleSheet.create({
   header: {
     backgroundColor: 'transparent', 
-    paddingTop: 48,
-    paddingBottom: 22,
+    paddingTop: 44, // [한글 주석: 레이아웃 리프팅] 위쪽 여백 축소
+    paddingBottom: 14, // [한글 주석: 레이아웃 리프팅] 아래쪽 여백 축소
     paddingHorizontal: spacing.globalPadding,
-    borderBottomLeftRadius: 40,
-    borderBottomRightRadius: 40,
-    overflow: 'hidden',
   },
-  topBar: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  topBar: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 }, // 본문과의 간격 밀착
   profileBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
     borderRadius: 999,
-    paddingLeft: 4,
-    paddingRight: 8,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    paddingLeft: 3,
+    paddingRight: 7,
+    paddingVertical: 3,
+    borderWidth: 0.8,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   avatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 20, // [한글 주석: 계정 탭 축소] 너비를 20px로 미니멀화
+    height: 20, // [한글 주석: 계정 탭 축소] 높이를 20px로 미니멀화
+    borderRadius: 10,
     backgroundColor: colors.pointOrange,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarText: { ...typography.L4, color: colors.white, fontWeight: '900' },
+  avatarText: { fontSize: 9.5, color: colors.white, fontWeight: '900' }, // 아바타 축소에 따른 텍스트 비례 축소
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  textCol: { flex: 1, paddingRight: 4 },
-  greeting: { ...typography.L4, color: colors.mutedSand, marginBottom: 4 },
-  title: { fontSize: 26, fontWeight: '900', color: colors.creamSand },
-  quote: { ...typography.L5, color: colors.mutedSand, lineHeight: 16, marginTop: 12, paddingRight: 6, fontStyle: 'italic' },
-  mascot: { marginRight: 8 },
+  textCol: { flex: 1, paddingRight: 8 },
+  greeting: { fontSize: 13, fontWeight: '600', color: '#BCAFA5', marginBottom: 4, letterSpacing: -0.2 },
+  title: { fontSize: 28, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
+  quote: { fontSize: 11, fontWeight: '400', color: '#D4C9C1', lineHeight: 17, marginTop: 6, paddingRight: 8, letterSpacing: -0.2 }, // 상호와의 간격 좁힘
+  mascot: { marginRight: 4 },
 });

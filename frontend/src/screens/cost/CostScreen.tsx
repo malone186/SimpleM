@@ -3,7 +3,9 @@ import { useState } from 'react';
 import { StyleSheet, Text, View, Pressable } from 'react-native';
 
 import { Card, Divider, ProgressBar, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
-import { colors, typography } from '../../theme';
+import { colors, typography, shadows } from '../../theme';
+import { FadeInUp, PressableScale } from '../../components/motion';
+import { Ionicons } from '@expo/vector-icons';
 
 type Row = { name: string; price: number; cost: number; category: '커피' | '티' | '논커피' };
 
@@ -19,6 +21,7 @@ const ROWS: Row[] = [
 
 export default function CostScreen() {
   const [activeCategory, setActiveCategory] = useState<'전체' | '커피' | '티' | '논커피'>('전체');
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   // [한글 주석] 선택된 카테고리에 맞는 메뉴 리스트만 필터링합니다.
   const filteredRows = activeCategory === '전체'
@@ -29,6 +32,11 @@ export default function CostScreen() {
   const avg = Math.round(
     (ROWS.reduce((s, r) => s + r.cost / r.price, 0) / ROWS.length) * 100
   );
+
+  const selectCategory = (cat: '전체' | '커피' | '티' | '논커피') => {
+    setActiveCategory(cat);
+    setIsDropdownOpen(false);
+  };
 
   return (
     <Screen>
@@ -41,50 +49,82 @@ export default function CostScreen() {
         <Text style={styles.summaryHint}>일반적으로 30~35% 이하를 권장해요</Text>
       </Card>
 
-      <View style={styles.sectionHeader}>
-        <SectionTitle>메뉴별 원가율</SectionTitle>
+      {/* 
+        [한글 주석: Z-index 캡슐화 버그 완전 차단]
+        Screen 컴포넌트가 각각의 자식을 독립된 FadeInUp 애니메이션 래퍼로 감싸서 생겼던 z-index 격리 문제를 해결하기 위해,
+        드롭다운 헤더와 카드 목록을 하나의 동일한 View 레이어로 묶어 위로 안전하게 플로팅되도록 했습니다.
+      */}
+      <View style={{ zIndex: 10, position: 'relative', gap: 10 }}>
+        <View style={styles.sectionHeader}>
+          <SectionTitle>메뉴별 원가율</SectionTitle>
 
-        {/* [그리드 정렬] 커피, 티, 논커피 카테고리 선택 탭 세그먼트 */}
-        <View style={styles.tabContainer}>
-          {(['전체', '커피', '티', '논커피'] as const).map((cat) => {
-            const isActive = activeCategory === cat;
-            return (
-              <Pressable
-                key={cat}
-                onPress={() => setActiveCategory(cat)}
-                style={[styles.tabButton, isActive && styles.activeTabButton]}
-              >
-                <Text style={[styles.tabText, isActive && styles.activeTabText]}>
-                  {cat}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-
-      {filteredRows.map((r) => {
-        const rate = Math.round((r.cost / r.price) * 100);
-        const margin = r.price - r.cost;
-        const high = rate > 35;
-        return (
-          <Card key={r.name}>
-            <View style={styles.head}>
-              <Text style={styles.name}>{r.name}</Text>
-              <Text style={[styles.rate, { color: high ? '#B23B2E' : colors.trendGreenText }]}>
-                {rate}%
+          {/* [한글 주석: 드롭다운 카테고리 필터] 카테고리 개수가 많아져도 무너지지 않도록 iOS 스타일 드롭다운 이식 */}
+          <View style={styles.dropdownWrap}>
+            <PressableScale
+              style={styles.dropdownTrigger}
+              onPress={() => setIsDropdownOpen(!isDropdownOpen)}
+            >
+              <Text style={styles.dropdownTriggerText}>
+                카테고리: <Text style={{ fontWeight: '800', color: colors.espressoBrown }}>{activeCategory}</Text>
               </Text>
-            </View>
-            <ProgressBar ratio={rate / 100} tone={high ? 'danger' : 'green'} />
-            <Divider />
-            <View style={styles.detailRow}>
-              <Detail label="판매가" value={`₩${r.price.toLocaleString()}`} />
-              <Detail label="원가" value={`₩${r.cost.toLocaleString()}`} />
-              <Detail label="마진" value={`₩${margin.toLocaleString()}`} accent />
-            </View>
-          </Card>
-        );
-      })}
+              <Ionicons
+                name={isDropdownOpen ? 'chevron-up-outline' : 'chevron-down-outline'}
+                size={15}
+                color={colors.mochaBrown}
+              />
+            </PressableScale>
+
+            {isDropdownOpen && (
+              <FadeInUp distance={8} style={styles.dropdownMenu}>
+                {(['전체', '커피', '티', '논커피'] as const).map((cat, idx, arr) => {
+                  const isSelected = activeCategory === cat;
+                  return (
+                    <Pressable
+                      key={cat}
+                      style={[
+                        styles.dropdownItem,
+                        idx === arr.length - 1 && { borderBottomWidth: 0 },
+                        isSelected && { backgroundColor: 'rgba(107, 94, 85, 0.04)' },
+                      ]}
+                      onPress={() => selectCategory(cat)}
+                    >
+                      <Text style={[styles.dropdownItemText, isSelected && styles.dropdownItemTextActive]}>
+                        {cat}
+                      </Text>
+                      {isSelected && (
+                        <Ionicons name="checkmark-sharp" size={15} color={colors.pointOrange} />
+                      )}
+                    </Pressable>
+                  );
+                })}
+              </FadeInUp>
+            )}
+          </View>
+        </View>
+
+        {filteredRows.map((r) => {
+          const rate = Math.round((r.cost / r.price) * 100);
+          const margin = r.price - r.cost;
+          const high = rate > 35;
+          return (
+            <Card key={r.name} style={{ zIndex: 1 }}>
+              <View style={styles.head}>
+                <Text style={styles.name}>{r.name}</Text>
+                <Text style={[styles.rate, { color: high ? '#B23B2E' : colors.trendGreenText }]}>
+                  {rate}%
+                </Text>
+              </View>
+              <ProgressBar ratio={rate / 100} tone={high ? 'danger' : 'green'} />
+              <Divider />
+              <View style={styles.detailRow}>
+                <Detail label="판매가" value={`₩${r.price.toLocaleString()}`} />
+                <Detail label="원가" value={`₩${r.cost.toLocaleString()}`} />
+                <Detail label="마진" value={`₩${margin.toLocaleString()}`} accent />
+              </View>
+            </Card>
+          );
+        })}
+      </View>
     </Screen>
   );
 }
@@ -102,46 +142,56 @@ const styles = StyleSheet.create({
   summaryLabel: { ...typography.L5, color: colors.mochaBrown },
   summaryValue: { fontSize: 34, fontWeight: '900', color: colors.espressoBrown, marginTop: 4 },
   summaryHint: { ...typography.L5, color: colors.mochaBrown, marginTop: 4 },
-  sectionHeader: { gap: 10, marginTop: 8 },
-  tabContainer: {
+  // [한글 주석: 레이어 위계 설정] position: 'relative'를 추가하여 브라우저가 zIndex를 인식하게 하고, 드롭다운이 아래 카드들을 덮도록 조치
+  sectionHeader: { gap: 10, marginTop: 8, zIndex: 100, position: 'relative' },
+  dropdownWrap: { position: 'relative', width: '100%', marginBottom: 4, zIndex: 110 },
+  dropdownTrigger: {
     flexDirection: 'row',
-    backgroundColor: colors.coffeeCream,
-    borderRadius: 12,
-    padding: 3,
-    borderWidth: 1,
-    borderColor: colors.mutedSand,
-    marginBottom: 4,
-  },
-  tabButton: {
-    flex: 1,
-    paddingVertical: 7,
     alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 9,
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(140, 111, 86, 0.06)', // [iOS 위젯 스타일] 은은한 웜 그레이-베이지
+    borderRadius: 12,
+    borderWidth: 0.8,
+    borderColor: 'rgba(140, 111, 86, 0.12)',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
   },
-  activeTabButton: {
-    backgroundColor: colors.pointOrange,
+  dropdownTriggerText: { fontSize: 13, color: colors.mochaBrown, fontWeight: '600', letterSpacing: -0.2 },
+  dropdownMenu: {
+    position: 'absolute',
+    top: 48,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    borderWidth: 0.8,
+    borderColor: 'rgba(140, 111, 86, 0.15)',
+    zIndex: 999,
+    ...shadows.medium, // [iOS 플로팅 섀도우 적용]
+    overflow: 'hidden',
   },
-  tabText: {
-    ...typography.L5,
-    color: colors.mochaBrown,
-    fontWeight: '700',
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    borderBottomWidth: 0.8,
+    borderBottomColor: 'rgba(140, 111, 86, 0.06)',
   },
-  activeTabText: {
-    color: colors.white,
-    fontWeight: '800',
-  },
-  head: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
+  dropdownItemText: { fontSize: 13, fontWeight: '600', color: colors.mochaBrown, letterSpacing: -0.2 },
+  dropdownItemTextActive: { color: colors.espressoBrown, fontWeight: '800' },
+  head: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'baseline', // [한글 주석] center 대신 baseline 정렬을 주어 이름과 퍼센트 텍스트 수직 밸런스를 잡습니다.
-    marginBottom: 12, 
-    paddingHorizontal: 2 
+    marginBottom: 12,
+    paddingHorizontal: 2
   },
-  name: { 
-    ...typography.L3, 
-    color: colors.espressoBrown, 
-    fontSize: 17, 
+  name: {
+    ...typography.L3,
+    color: colors.espressoBrown,
+    fontSize: 17,
     fontWeight: '800', // [한글 주석] 기존 L3 굵기보다 더 진하고 선명하게 조절하여 가독성을 극대화합니다.
   },
   rate: { ...typography.L2, fontSize: 22 },

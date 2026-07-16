@@ -44,6 +44,36 @@ def _parse_price(text: str) -> Optional[int]:
     return int(digits) if digits else None
 
 
+def _tokens(text: str) -> list[str]:
+    return [t for t in re.split(r"[\s/·,()\[\]]+", text) if len(t) >= 2]
+
+
+# 검색어에 없는데 상품에 들어 있으면 '형태가 다른 상품'으로 보는 키워드 —
+# 원두를 찾는데 드립백·캡슐이 최저가로 잡히는 것을 막는다 (카페 재료 도메인 휴리스틱)
+_FORM_KEYWORDS = ["드립백", "핸드드립", "티백", "캡슐", "커피믹스", "믹스커피",
+                  "스틱", "파우치", "액상", "콜드브루", "더치"]
+
+
+def _match_level(query: str, item: dict) -> int:
+    """검색어 단어가 얼마나 정확히 매칭되는지 — 2: 상품명에 전부, 1: 상품명+스펙에 전부, 0: 불일치.
+
+    '에티오피아 원두' 검색에서 드립백(스펙에만 '원두')보다 진짜 원두 상품(이름에 '원두')을
+    우선하기 위한 2단계 판정이다.
+    """
+    q = query.replace(" ", "").lower()
+    name = item["name"].replace(" ", "").lower()
+    haystack = f"{name}{item.get('spec', '').replace(' ', '').lower()}"
+    # 검색어에 없는 형태 키워드(드립백 등)가 상품에 있으면 다른 형태의 상품 → 제외
+    if any(kw in haystack and kw not in q for kw in _FORM_KEYWORDS):
+        return 0
+    toks = [t.replace(" ", "").lower() for t in _tokens(query)]
+    if all(t in name for t in toks):
+        return 2
+    if all(t in haystack for t in toks):
+        return 1
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # 소스별 검색
 # ---------------------------------------------------------------------------
@@ -146,8 +176,14 @@ def compare_prices(product_name: str, current_price: int = 0, limit: int = 5) ->
                 logger.warning("가격 소스 실패: %s (%s) — 다른 소스로 계속", source_name, query, exc_info=True)
         if not results:
             raise PriceError(f"'{query}'의 가격 정보를 가져오지 못했습니다 — 잠시 후 다시 시도하세요")
-        results.sort(key=lambda x: x["price"])
-        data = {"results": results, "sources": sources}
+        # 가장 정확한 매칭 그룹만 후보로: 상품명 완전 일치 > 상품명+스펙 일치 > 전체(유사 상품)
+        by_level = {2: [], 1: [], 0: []}
+        for r in results:
+            by_level[_match_level(query, r)].append(r)
+        pool = by_level[2] or by_level[1] or results
+        matched = bool(by_level[2] or by_level[1])
+        pool.sort(key=lambda x: x["price"])
+        data = {"results": pool, "sources": sources, "matched_all_terms": matched}
         _cache[query] = (time.time(), data)
 
     top = data["results"][:limit]
@@ -161,6 +197,7 @@ def compare_prices(product_name: str, current_price: int = 0, limit: int = 5) ->
         "results": top,
         "best": best,
         "saving_pct": saving_pct,  # 양수 = 현재 단가보다 저렴
+        "matched_all_terms": data["matched_all_terms"],  # False = 유사 상품 기준 (참고만)
         "sources": data["sources"],
         "note": "소매가 기준 참고 정보입니다. 대량 구매(도매) 조건은 링크에서 직접 확인하세요.",
     }

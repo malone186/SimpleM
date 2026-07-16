@@ -1,6 +1,6 @@
-// 운영 (프론트 B) — PRD ERP-9(스케줄·급여·정산), ERP-10(세금), AI-4(스케줄 추천)
-import { useState } from 'react';
-import { Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+// 운영 (프론트 B) — PRD ERP-9(스케줄·급여·정산), AI-4(스케줄 추천)  ※ 세금은 서류 자동화 탭
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Badge, Button, Card, Divider, Screen, ScreenTitle, SectionTitle, DayOfWeekPicker, IosTimePicker } from '../../components/ui';
@@ -8,14 +8,25 @@ import { Segmented } from '../../components/ui/Segmented';
 import { PressableScale } from '../../components/motion';
 import { toast } from '../../components/toast';
 import { colors, typography } from '../../theme';
+import { useAuth } from '../../auth/AuthContext';
+import {
+  getSettlement, listPayroll, forecastSales, createExpense,
+  type Settlement, type Payroll, type Forecast,
+} from '../../lib/api/operation';
 
 const notify = (title: string, message: string) => toast(title, message);
 
-const STAFF = [
-  { name: '김바리', role: '바리스타', hours: 32, wage: 11000 },
-  { name: '이알바', role: '홀', hours: 20, wage: 10030 },
-  { name: '박주말', role: '주말', hours: 16, wage: 10500 },
-];
+// [백엔드 연동] 이번 달 기준 · 전체 매장 집계
+const nowYM = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+const tomorrowISO = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+};
+const won = (n: number) => '₩' + Math.round(n || 0).toLocaleString('ko-KR');
 
 const INITIAL_SHIFTS = [
   { day: '월, 수, 금', slot: '09–15', who: '김바리', peak: false },
@@ -27,12 +38,227 @@ const INITIAL_SHIFTS = [
 export default function OperationScreen() {
   return (
     <Screen>
-      {/* [한글 주석] 세금 기능이 서류 자동화 탭으로 통합됨에 따라, 본 화면은 스케줄·급여 전용 화면으로 간소화합니다. */}
+      {/* [한글 주석] 세금 기능이 서류 자동화 탭으로 통합됨에 따라, 본 화면은 스케줄·급여·정산 전용 화면입니다. */}
       <ScreenTitle title="스케줄·급여" subtitle="알바 스케줄과 급여 정산을 한 곳에서" />
+      <LiveOperationCard />
       <ScheduleTab />
     </Screen>
   );
 }
+
+// [백엔드 실시간 연동] 손익정산 · 직원별 급여 · 판매예측 (세금 제외)
+function LiveOperationCard() {
+  const { token } = useAuth();
+  const period = nowYM();
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [settlement, setSettlement] = useState<Settlement | null>(null);
+  const [payroll, setPayroll] = useState<Payroll[]>([]);
+  const [forecast, setForecast] = useState<Forecast | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [expAmount, setExpAmount] = useState('');
+  const [expCategory, setExpCategory] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const [s, p, f] = await Promise.all([
+        getSettlement(period),
+        listPayroll(period),
+        forecastSales({ target_date: tomorrowISO(), engine: 'arima' }),
+      ]);
+      setSettlement(s);
+      setPayroll(p);
+      setForecast(f);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [period]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const handleAddExpense = async () => {
+    if (!token) {
+      notify('로그인 필요', '지출 등록은 로그인 후 이용할 수 있어요.');
+      return;
+    }
+    const amt = parseInt(expAmount.replace(/[^0-9]/g, ''), 10);
+    if (!amt || amt <= 0) {
+      notify('입력 확인', '지출 금액을 숫자로 입력해 주세요.');
+      return;
+    }
+    const cat = expCategory.trim() || '기타 지출';
+    setAdding(true);
+    try {
+      await createExpense(token, { amount: amt, category: cat, expense_date: new Date().toISOString().slice(0, 10) });
+      notify('지출 등록', `${cat} ${won(amt)}을 등록했어요. 정산에 자동 반영됩니다.`);
+      setExpAmount('');
+      setExpCategory('');
+      await load();
+    } catch (e) {
+      notify('등록 실패', e instanceof Error ? e.message : String(e));
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const payrollTotal = payroll.reduce((s, p) => s + p.total_salary, 0);
+
+  return (
+    <Card tone="cream" style={{ marginBottom: 24 }}>
+      <View style={styles.rowBetween}>
+        <SectionTitle>이번 달 정산 · 급여</SectionTitle>
+        <Badge label={`${period} · 실시간`} tone="green" />
+      </View>
+
+      {loading ? (
+        <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+          <ActivityIndicator color={colors.pointOrange} />
+          <Text style={[styles.hint, { marginTop: 8 }]}>백엔드에서 불러오는 중…</Text>
+        </View>
+      ) : err ? (
+        <View style={{ paddingVertical: 12 }}>
+          <Text style={liveStyles.errText}>⚠ {err}</Text>
+          <Button label="다시 시도" variant="secondary" style={{ marginTop: 10 }} onPress={load} />
+        </View>
+      ) : (
+        <>
+          {/* 손익 정산 KPI */}
+          <View style={liveStyles.kpiGrid}>
+            <View style={liveStyles.kpi}>
+              <Text style={liveStyles.kpiLabel}>총매출</Text>
+              <Text style={liveStyles.kpiValue}>{won(settlement?.total_sales ?? 0)}</Text>
+            </View>
+            <View style={liveStyles.kpi}>
+              <Text style={liveStyles.kpiLabel}>총비용</Text>
+              <Text style={liveStyles.kpiValue}>{won(settlement?.total_expense ?? 0)}</Text>
+            </View>
+            <View style={liveStyles.kpi}>
+              <Text style={liveStyles.kpiLabel}>인건비</Text>
+              <Text style={liveStyles.kpiValue}>{won(settlement?.total_payroll ?? 0)}</Text>
+            </View>
+            <View style={liveStyles.kpi}>
+              <Text style={liveStyles.kpiLabel}>순이익</Text>
+              <Text style={[liveStyles.kpiValue, { color: (settlement?.net_profit ?? 0) >= 0 ? '#3E8E5A' : colors.pointOrange }]}>
+                {won(settlement?.net_profit ?? 0)}
+              </Text>
+            </View>
+          </View>
+
+          {/* 판매 예측 */}
+          {forecast && (
+            <View style={liveStyles.forecastRow}>
+              <Ionicons name="trending-up-outline" size={16} color={colors.pointOrange} />
+              <Text style={liveStyles.forecastText}>내일 예측 매출 {won(forecast.predicted_sales)}</Text>
+              <Badge label={forecast.engine.toUpperCase()} tone="orange" />
+            </View>
+          )}
+
+          {/* 직원별 급여 */}
+          <Text style={liveStyles.subHead}>직원별 예상 급여</Text>
+          {payroll.length === 0 ? (
+            <Text style={styles.hint}>등록된 직원이 없어요.</Text>
+          ) : (
+            payroll.map((p) => (
+              <View key={p.employee_id} style={liveStyles.payRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={liveStyles.payName}>{p.employee_name} <Text style={liveStyles.payRole}>{p.role}</Text></Text>
+                  <Text style={liveStyles.paySub}>
+                    {p.total_work_hours.toFixed(0)}h · ₩{p.hourly_rate.toLocaleString()}/h
+                    {p.weekly_holiday_allowance > 0 ? ` · 주휴 ${won(p.weekly_holiday_allowance)}` : ''}
+                  </Text>
+                </View>
+                <Text style={liveStyles.payAmount}>{won(p.total_salary)}</Text>
+              </View>
+            ))
+          )}
+          {payroll.length > 0 && (
+            <>
+              <Divider />
+              <View style={liveStyles.payRow}>
+                <Text style={liveStyles.payTotalLabel}>인건비 합계</Text>
+                <Text style={liveStyles.payTotal}>{won(payrollTotal)}</Text>
+              </View>
+            </>
+          )}
+
+          {/* 지출 추가 — 내용·금액 직접 입력 */}
+          <Text style={liveStyles.subHead}>지출 추가</Text>
+          <View style={liveStyles.expenseRow}>
+            <TextInput
+              style={[liveStyles.input, { flex: 1.4 }]}
+              placeholder="내용 (예: 원두매입)"
+              placeholderTextColor={colors.mochaBrown + '80'}
+              value={expCategory}
+              onChangeText={setExpCategory}
+            />
+            <TextInput
+              style={[liveStyles.input, { flex: 1 }]}
+              placeholder="금액"
+              placeholderTextColor={colors.mochaBrown + '80'}
+              keyboardType="numeric"
+              value={expAmount}
+              onChangeText={setExpAmount}
+            />
+            <Button label={adding ? '…' : '등록'} onPress={handleAddExpense} />
+          </View>
+
+          <View style={[styles.actions, { marginTop: 12 }]}>
+            <Button label="새로고침" variant="secondary" style={{ flex: 1 }} onPress={load} />
+          </View>
+          <Text style={liveStyles.disc}>실 출퇴근 기록이 없으면 계획된 근무시간 기준의 참고용 예상 급여입니다.</Text>
+        </>
+      )}
+    </Card>
+  );
+}
+
+const liveStyles = StyleSheet.create({
+  kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 },
+  kpi: {
+    flexGrow: 1,
+    flexBasis: '46%',
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(140,111,86,0.10)',
+  },
+  kpiLabel: { ...typography.L5, color: colors.mochaBrown },
+  kpiValue: { ...typography.L2, color: colors.espressoBrown, fontWeight: '800', marginTop: 4 },
+  forecastRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12,
+    backgroundColor: colors.white, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12,
+    borderWidth: 1, borderColor: 'rgba(140,111,86,0.10)',
+  },
+  forecastText: { ...typography.L4, color: colors.espressoBrown, fontWeight: '700', flex: 1 },
+  subHead: { ...typography.L4, color: colors.espressoBrown, fontWeight: '800', marginTop: 18, marginBottom: 6 },
+  payRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
+  payName: { ...typography.L4, color: colors.espressoBrown, fontWeight: '700' },
+  payRole: { ...typography.L5, color: colors.mochaBrown, fontWeight: '600' },
+  paySub: { ...typography.L5, color: colors.mochaBrown, marginTop: 2 },
+  payAmount: { ...typography.L3, color: colors.espressoBrown, fontWeight: '800' },
+  payTotalLabel: { ...typography.L4, color: colors.mochaBrown, flex: 1, fontWeight: '700' },
+  payTotal: { ...typography.L2, color: colors.pointOrange, fontWeight: '800' },
+  errText: { ...typography.L4, color: '#B23B2E', fontWeight: '600' },
+  disc: { ...typography.L5, color: colors.mochaBrown, fontStyle: 'italic', marginTop: 10, opacity: 0.8 },
+  expenseRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  input: {
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    backgroundColor: colors.white,
+    ...typography.L4,
+    color: colors.espressoBrown,
+  },
+});
 
 function ScheduleTab() {
   const [shifts, setShifts] = useState(INITIAL_SHIFTS);
@@ -161,38 +387,7 @@ function ScheduleTab() {
         })}
       </View>
 
-      {/* [한글 주석] 스케줄 목록과 급여 요약 박스가 서로 충돌하지 않도록 상단 마진(marginTop: 24) 반영 */}
-      <Card style={{ marginTop: 24 }}>
-        <SectionTitle>이번 달 급여</SectionTitle>
-        <View style={{ marginTop: 12, gap: 10 }}>
-          {STAFF.map((p) => {
-            // [한글 주석] 스케줄 상태에서 해당 직원이 근무하는 스케줄을 카운트해 근무 시간을 유동적으로 반영
-            const staffShifts = shifts.filter((s) => s.who === p.name);
-            const calculatedHours = staffShifts.length > 0 ? staffShifts.length * 6 : p.hours; // 1일 6시간 기준
-            
-            return (
-              <View key={p.name} style={styles.payRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.payName}>{p.name}</Text>
-                  <Text style={styles.paySub}>{p.role} · {calculatedHours}h · ₩{p.wage.toLocaleString()}/h</Text>
-                </View>
-                <Text style={styles.payAmount}>₩{(calculatedHours * p.wage * 4).toLocaleString()}</Text>
-              </View>
-            );
-          })}
-          <Divider />
-          <View style={styles.payRow}>
-            <Text style={styles.payTotalLabel}>합계 (예상)</Text>
-            <Text style={styles.payTotal}>
-              ₩{STAFF.reduce((s, p) => {
-                const staffShifts = shifts.filter((sh) => sh.who === p.name);
-                const calculatedHours = staffShifts.length > 0 ? staffShifts.length * 6 : p.hours;
-                return s + calculatedHours * p.wage * 4;
-              }, 0).toLocaleString()}
-            </Text>
-          </View>
-        </View>
-      </Card>
+      {/* [한글 주석] 이번 달 급여는 상단 "이번 달 정산·급여" 카드에서 백엔드 실데이터로 표시합니다. */}
 
       {/* [한글 주석] 요일, 근무자명, 시간을 입력받는 스케줄 수정/등록 모달 */}
       <Modal visible={editingShift !== null} transparent animationType="slide" onRequestClose={() => setEditingShift(null)}>

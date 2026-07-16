@@ -134,15 +134,20 @@ class OperationService:
             raise ValueError(f"해당 기간({period_start} ~ {period_end})에 등록된 스케줄이 없습니다.")
 
         total_hours = 0.0
+        based_on_actual = False
         for schedule in schedules:
             # [한글 주석] 실제 출퇴근 시각(actual_*)이 존재하면 우선 적용(실제화)하고, 없으면 계획 근무시간(start/end)으로 폴백합니다.
             if schedule.actual_start_time and schedule.actual_end_time:
                 hours = cls.calculate_work_hours(schedule.actual_start_time, schedule.actual_end_time, deduct_break_time)
+                based_on_actual = True
             else:
                 hours = cls.calculate_work_hours(schedule.start_time, schedule.end_time, deduct_break_time)
             total_hours += hours
                 
-        estimated_salary = int(total_hours * employee.hourly_rate)
+        # [한글 주석] 기본급 및 예상 주휴수당(원격지 필드 지원)을 연산합니다.
+        base_salary = int(total_hours * employee.hourly_rate)
+        weekly_holiday_allowance = 0  # 주휴수당은 일단 기본값 0으로 대입합니다.
+        estimated_salary = base_salary + weekly_holiday_allowance
 
         # [한글 주석] 계산된 결과를 데이터베이스(estimated_payrolls)에 저장 혹은 업데이트(Upsert) 합니다.
         est_payroll = db.query(EstimatedPayroll).filter(
@@ -173,12 +178,30 @@ class OperationService:
             "id": est_payroll.id,
             "employee_id": employee_id,
             "employee_name": employee.name,
+            "role": employee.role,
+            "hourly_rate": employee.hourly_rate,
             "period_start": period_start,
             "period_end": period_end,
             "total_work_hours": total_hours,
+            "base_salary": base_salary,
+            "weekly_holiday_allowance": weekly_holiday_allowance,
             "estimated_salary": estimated_salary,
+            "based_on_actual": based_on_actual,
             "calculated_at": est_payroll.calculated_at
         }
+
+    @classmethod
+    def list_employees_payroll(cls, db: Session, year_month: str) -> List[dict]:
+        """[하위 호환 헬퍼] 등록된 모든 직원의 해당 월 예상 급여 목록을 반환합니다. (기간 기반 호출로 매핑)"""
+        results = []
+        p_start = f"{year_month}-01"
+        p_end = f"{year_month}-31"
+        for emp in db.query(Employee).all():
+            try:
+                results.append(cls.calculate_payroll(db, emp.id, p_start, p_end))
+            except ValueError:
+                continue
+        return results
 
     @classmethod
     def calculate_settlement(cls, db: Session, period_start: str, period_end: str, other_expense: int = 0) -> dict:
@@ -265,6 +288,110 @@ class OperationService:
         }
 
     # ==========================================
+    # 집계 헬퍼 (세무·예측 공용) + 지출(Expense) 관리
+    # ==========================================
+
+    @staticmethod
+    def get_daily_sales_series(
+        db: Session,
+        year_month: Optional[str] = None,
+        store_id: Optional[str] = None,
+        days: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Sale 테이블을 일자별로 집계해 [{date, revenue, quantity}] 시계열을 반환합니다.
+        - year_month: 지정 시 해당 월만
+        - store_id: 지정 시 해당 매장만
+        - days: 지정 시 최근 N일치만 (오름차순 기준 뒤에서 N개)
+        """
+        day = func.date(Sale.sold_at)
+        query = db.query(
+            day.label("d"),
+            func.sum(Sale.total_price).label("revenue"),
+            func.sum(Sale.quantity).label("quantity"),
+        )
+        if store_id:
+            query = query.filter(Sale.store_id == store_id)
+        if year_month:
+            year, month = map(int, year_month.split("-"))
+            query = query.filter(
+                extract("year", Sale.sold_at) == year,
+                extract("month", Sale.sold_at) == month,
+            )
+        rows = query.group_by(day).order_by(day).all()
+        series = [
+            {"date": str(r.d), "revenue": int(r.revenue or 0), "quantity": int(r.quantity or 0)}
+            for r in rows
+        ]
+        if days is not None and days > 0:
+            series = series[-days:]
+        return series
+
+    @staticmethod
+    def get_period_totals(db: Session, year_month: str, store_id: Optional[str] = None) -> Dict[str, int]:
+        """지정 월의 총매출(Sale)과 총지출(Expense)을 집계해 반환합니다. (세무·정산 공용)"""
+        try:
+            year, month = map(int, year_month.split("-"))
+        except ValueError:
+            raise ValueError("연월 포맷은 YYYY-MM 형식이어야 합니다.")
+
+        sales_q = db.query(func.sum(Sale.total_price)).filter(
+            extract("year", Sale.sold_at) == year,
+            extract("month", Sale.sold_at) == month,
+        )
+        expense_q = db.query(func.sum(Expense.amount)).filter(
+            extract("year", Expense.expense_date) == year,
+            extract("month", Expense.expense_date) == month,
+        )
+        if store_id:
+            sales_q = sales_q.filter(Sale.store_id == store_id)
+            expense_q = expense_q.filter(Expense.store_id == store_id)
+
+        return {
+            "total_sales": int(sales_q.scalar() or 0),
+            "total_expense": int(expense_q.scalar() or 0),
+        }
+
+    @staticmethod
+    def create_expense(
+        db: Session,
+        store_id: str,
+        amount: int,
+        category: str,
+        expense_date,
+        description: Optional[str] = None,
+    ) -> Expense:
+        """새 지출(비용) 내역을 데이터베이스에 등록합니다."""
+        if amount < 0:
+            raise ValueError("지출 금액은 0 이상이어야 합니다.")
+        expense = Expense(
+            store_id=store_id,
+            amount=amount,
+            category=category,
+            description=description,
+            expense_date=expense_date,
+        )
+        db.add(expense)
+        db.commit()
+        db.refresh(expense)
+        return expense
+
+    @staticmethod
+    def get_expenses(
+        db: Session, year_month: Optional[str] = None, store_id: Optional[str] = None
+    ) -> List[Expense]:
+        """등록된 지출 내역을 조회합니다. (연월·매장 필터 선택)"""
+        query = db.query(Expense)
+        if store_id:
+            query = query.filter(Expense.store_id == store_id)
+        if year_month:
+            year, month = map(int, year_month.split("-"))
+            query = query.filter(
+                extract("year", Expense.expense_date) == year,
+                extract("month", Expense.expense_date) == month,
+            )
+        return query.order_by(Expense.expense_date.desc()).all()
+
+    # ==========================================
     # 3단계: RAG 및 리포트 변환 비즈니스 로직 추가
     # ==========================================
 
@@ -272,14 +399,15 @@ class OperationService:
     def build_tax_rag_documents(tax_result: dict, source_id: int = 1) -> dict:
         """세무 계산 결과를 AI 비서와 챗봇이 읽기 좋은 RAG 공통 포맷으로 포장합니다."""
         period = tax_result.get("period", "2026-07")
-        estimated_tax = tax_result.get("estimated_tax", 0)
         summary = tax_result.get("summary", "")
         disclaimer = tax_result.get("disclaimer", "")
 
         content = (
             f"대상 기간 {period}의 세무 계산 결과 분석 정보입니다. "
             f"{summary} "
-            f"세금 부과 표준액(과세표준)은 {tax_result.get('taxable_amount', 0):,}원이며, 적용 세율은 {int(tax_result.get('tax_rate', 0.1)*100)}%입니다. "
+            f"세부 내역 — 부가가치세 {tax_result.get('vat', 0):,}원, "
+            f"종합소득세 {tax_result.get('income_tax', 0):,}원(과세표준 {tax_result.get('taxable_base', 0):,}원), "
+            f"원천징수세 {tax_result.get('withholding_tax', 0):,}원, 합계 {tax_result.get('total_tax', 0):,}원. "
             f"{disclaimer}"
         )
 
@@ -319,33 +447,39 @@ class OperationService:
         }
 
     @staticmethod
-    def build_operation_rag_documents(schedules: List[Any]) -> List[dict]:
+    def build_operation_rag_documents(schedules: List[Any], db: Optional[Session] = None) -> List[dict]:
         """스케줄 일정 데이터를 RAG 문서 리스트 형태로 변환합니다."""
+        # 실제 데이터베이스 연결을 직접 열어 직원 정보를 안전하게 조회합니다.
+        from app.core.database import SessionLocal
+
         rag_docs = []
-        for idx, schedule in enumerate(schedules, 1):
-            emp_id = getattr(schedule, "employee_id", 0)
-            emp_name = f"직원(ID:{emp_id})"
-            # 가상 DB에서 직원 이름 매핑 시도
-            if emp_id in _employees_db:
-                emp_name = _employees_db[emp_id].name
+        with SessionLocal() as db:
+            for idx, schedule in enumerate(schedules, 1):
+                emp_id = getattr(schedule, "employee_id", 0)
+                emp_name = f"직원(ID:{emp_id})"
 
-            start_str = schedule.start_time.strftime("%H:%M") if hasattr(schedule.start_time, "strftime") else str(schedule.start_time)
-            end_str = schedule.end_time.strftime("%H:%M") if hasattr(schedule.end_time, "strftime") else str(schedule.end_time)
+                # 데이터베이스에서 실제 해당 직원의 정보를 쿼리합니다.
+                employee = db.query(Employee).filter(Employee.id == emp_id).first()
+                if employee:
+                    emp_name = employee.name
 
-            content = (
-                f"{schedule.date} 일자에 {emp_name} 근무자의 근무 일정이 계획되어 있습니다. "
-                f"근무 시간은 {start_str}부터 {end_str}까지입니다."
-            )
-            
-            rag_docs.append({
-                "title": f"{schedule.date} {emp_name} 근무 스케줄 정보",
-                "content": content,
-                "summary": f"{schedule.date} 근무 일정 요약",
-                "category": "schedule",
-                "tags": ["schedule", "work", schedule.date],
-                "source_type": "schedule",
-                "source_id": schedule.id if hasattr(schedule, "id") else idx
-            })
+                start_str = schedule.start_time.strftime("%H:%M") if hasattr(schedule.start_time, "strftime") else str(schedule.start_time)
+                end_str = schedule.end_time.strftime("%H:%M") if hasattr(schedule.end_time, "strftime") else str(schedule.end_time)
+
+                content = (
+                    f"{schedule.date} 일자에 {emp_name} 근무자의 근무 일정이 계획되어 있습니다. "
+                    f"근무 시간은 {start_str}부터 {end_str}까지입니다."
+                )
+                
+                rag_docs.append({
+                    "title": f"{schedule.date} {emp_name} 근무 스케줄 정보",
+                    "content": content,
+                    "summary": f"{schedule.date} 근무 일정 요약",
+                    "category": "schedule",
+                    "tags": ["schedule", "work", schedule.date],
+                    "source_type": "schedule",
+                    "source_id": schedule.id if hasattr(schedule, "id") else idx
+                })
         return rag_docs
 
     @staticmethod

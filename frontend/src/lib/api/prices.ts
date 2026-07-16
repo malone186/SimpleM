@@ -17,6 +17,7 @@ export type PriceCompare = {
   results: PriceResult[]; // 가격 오름차순 상위 5개
   best: PriceResult;
   saving_pct: number | null; // 양수 = 현재 단가보다 저렴
+  matched_all_terms: boolean; // false = 검색어 완전 일치 상품이 없어 유사 상품 기준 (참고만)
   sources: string[];
   note: string;
 };

@@ -3,9 +3,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.auth import get_password_hash, verify_password, create_access_token
+from app.core.auth import get_password_hash, verify_password, create_access_token, get_current_user
 from app.models.user import User
-from app.schemas.user import UserCreate, UserLogin, UserResponse, Token
+from app.schemas.user import UserCreate, UserLogin, UserResponse, Token, UserUpdate
 
 # APIRouter를 통해 "/auth" 주소 영역을 담당하는 세부 창구를 지정합니다.
 router = APIRouter(prefix="/auth", tags=["인증(Authentication)"])
@@ -101,5 +101,36 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
     # [DB 삭제 및 저장]
     db.delete(user)
     db.commit()
+
+
+# 5. [회원 정보(프로필) 수정 API 창구]
+# 로그인된 상태에서 자신의 이름, 비밀번호, 상호명을 선택적으로 수정합니다.
+@router.patch("/profile", response_model=UserResponse)
+def update_profile(
+    user_update: UserUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    현재 로그인한 점주님의 이름, 상호명 또는 비밀번호를 부분적으로 수정합니다.
+    """
+    # 1. 이름 변경 요청이 들어온 경우 반영합니다.
+    if user_update.name is not None:
+        current_user.name = user_update.name.strip()
+
+    # 2. 매장 상호명 변경 요청이 들어온 경우 반영합니다.
+    if user_update.store_name is not None:
+        current_user.store_name = user_update.store_name.strip()
+
+    # 3. 새로운 비밀번호 변경 요청이 들어온 경우 암호화해서 저장합니다.
+    if user_update.password is not None:
+        current_user.hashed_password = get_password_hash(user_update.password)
+
+    # 4. 변경사항을 데이터베이스에 확정(커밋)합니다.
+    db.commit()
+    db.refresh(current_user)
+
+    return current_user
+
 
 

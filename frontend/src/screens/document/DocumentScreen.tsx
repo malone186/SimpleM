@@ -1,13 +1,13 @@
 // 서류 자동화 (ERP-12) — 백엔드 /chatbot/documents·compliance 실연동
 // 문서 초안 생성(발주서·실사표·장부·부가세·임금명세서·근로계약서) + 생성 문서 열람 + 갱신 만료 알림
 import { useCallback, useEffect, useState } from 'react';
-import { Platform, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 
 import { useAuth } from '../../auth/AuthContext';
-import { PressableScale } from '../../components/motion';
+import { FadeInUp, PressableScale } from '../../components/motion';
 import { confirmDialog, toast } from '../../components/toast';
 import { Badge, Button, Card, Divider, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
@@ -28,38 +28,14 @@ import {
   listDocuments,
   updateDocument,
 } from '../../lib/api/documents';
+import { formatValue, labelFor } from '../../lib/documentLabels';
+import { getTaxEstimate, estimateTaxManual, type TaxEstimate } from '../../lib/api/operation';
 import { colors, typography } from '../../theme';
 
 // content JSON을 읽기 좋은 줄로 펼친다 (kind별 스키마가 달라 범용 렌더러 사용)
-const KEY_LABELS: Record<string, string> = {
-  date: '날짜', items: '품목', note: '안내', total_estimated: '예상 총액',
-  name: '이름', unit: '단위', current_quantity: '현재고', safety_quantity: '안전재고',
-  suggested_quantity: '제안 수량', unit_price: '단가', estimated_amount: '예상 금액',
-  book_quantity: '장부 수량', counted_quantity: '실사 수량', difference: '차이',
-  vendor: '거래처', delivery_date: '납품일', inspection_date: '검수일', condition: '상태',
-  quantity: '수량', period: '기간', purchases: '매입', sales: '매출',
-  purchase_total: '매입 합계', sales_total: '매출 합계', balance: '잔액',
-  employee_name: '직원', hourly_wage: '시급', work_hours: '근무시간', hours_source: '집계 방식',
-  earnings: '지급 내역', base_pay: '기본급', weekly_holiday_pay: '주휴수당',
-  weekly_avg_hours: '주평균 시간', gross: '지급 총액', deductions: '공제 내역',
-  withholding_rate: '공제율(%)', withholding: '공제액', net_pay: '실지급액', calculation: '계산식',
-  estimated_sales_vat: '매출세액(추정)', purchase_subtotal: '매입 공급가', purchase_tax: '매입세액',
-  purchase_document_count: '매입 문서 수', estimated_payable_vat: '예상 납부세액',
-  contract_period: '계약 기간', start: '시작', end: '종료', workplace: '근무 장소', duties: '업무',
-  working_conditions: '근로 조건', work_days_per_week: '주 근무일', work_hours_per_day: '일 근무시간',
-  weekly_hours: '주 근무시간', rest: '휴게', weekly_holiday: '주휴일', annual_leave: '연차',
-  wage: '임금', payment_day: '지급일', payment_method: '지급 방법', social_insurance: '4대보험',
-  total_gross: '지급 총계', total_net: '실지급 총계', employer: '사업주',
-  doc_type: '문서 종류', subtotal: '공급가액', tax: '세액', total: '합계', menu: '메뉴',
-  total_price: '금액', source_document: '원본 문서', spec: '규격', signatures: '서명',
-  inspector_sign: '검수자 서명', employee: '직원',
-};
-const label = (k: string) => KEY_LABELS[k] ?? k;
-const fmt = (v: unknown): string => {
-  if (v === null || v === undefined || v === '') return '—';
-  if (typeof v === 'number') return v.toLocaleString();
-  return String(v);
-};
+// 키·값 한글 표기는 공용 모듈(documentLabels)을 쓴다 — 챗봇 카드와 항상 동일하게 보이도록.
+const label = labelFor;
+const fmt = formatValue;
 
 // 날짜 입력 관용 처리: "2026.8.1", "2026/08/01", "20260801" 전부 → "2026-08-01"
 // 알아볼 수 없거나 존재하지 않는 날짜(2월 30일 등)면 null
@@ -90,7 +66,7 @@ function ContentRows({ content }: { content: Record<string, unknown> }) {
           return (
             <View key={key} style={styles.noteBox}>
               <Ionicons name="information-circle-outline" size={15} color={colors.mochaBrown} />
-              <Text style={styles.noteBoxText}>{fmt(value)}</Text>
+              <Text style={styles.noteBoxText}>{fmt(key, value)}</Text>
             </View>
           );
         }
@@ -104,9 +80,9 @@ function ContentRows({ content }: { content: Record<string, unknown> }) {
                     · {typeof row === 'object' && row !== null
                       ? Object.entries(row as Record<string, unknown>)
                           .filter(([, v2]) => v2 !== null && v2 !== '' && v2 !== undefined)
-                          .map(([k2, v2]) => `${label(k2)} ${fmt(v2)}`)
+                          .map(([k2, v2]) => `${label(k2)} ${fmt(k2, v2)}`)
                           .join(' / ')
-                      : fmt(row)}
+                      : fmt(key, row)}
                   </Text>
                 ))}
               </View>
@@ -134,7 +110,7 @@ function ContentRows({ content }: { content: Record<string, unknown> }) {
           );
         }
         // 긴 문장 값은 오른쪽 정렬로 구기지 않고 라벨 아래 전체 폭으로
-        const text = fmt(value);
+        const text = fmt(key, value);
         if (text.length > 18) {
           return (
             <View key={key} style={styles.kvStack}>
@@ -253,11 +229,11 @@ function contentToHtml(content: Record<string, unknown>): string {
           const cols = Array.from(new Set(value.flatMap((r) => Object.keys((r as object) ?? {}))));
           const head = cols.map((c) => `<th>${esc(label(c))}</th>`).join('');
           const rows = value
-            .map((r) => `<tr>${cols.map((c) => `<td>${esc(fmt((r as Record<string, unknown>)?.[c]))}</td>`).join('')}</tr>`)
+            .map((r) => `<tr>${cols.map((c) => `<td>${esc(fmt(c, (r as Record<string, unknown>)?.[c]))}</td>`).join('')}</tr>`)
             .join('');
           return `<h2>${esc(label(key))}</h2><table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`;
         }
-        return `<h2>${esc(label(key))}</h2><ul>${value.map((v) => `<li>${esc(fmt(v))}</li>`).join('')}</ul>`;
+        return `<h2>${esc(label(key))}</h2><ul>${value.map((v) => `<li>${esc(fmt(key, v))}</li>`).join('')}</ul>`;
       }
       if (typeof value === 'object' && value !== null) {
         return `<h2>${esc(label(key))}</h2><div class="sec">${contentToHtml(value as Record<string, unknown>)}</div>`;
@@ -265,7 +241,7 @@ function contentToHtml(content: Record<string, unknown>): string {
       if (value === '') {
         return `<div class="kv"><span class="k">${esc(label(key))}</span><span class="signline"></span></div>`;
       }
-      return `<div class="kv"><span class="k">${esc(label(key))}</span><span class="v">${esc(fmt(value))}</span></div>`;
+      return `<div class="kv"><span class="k">${esc(label(key))}</span><span class="v">${esc(fmt(key, value))}</span></div>`;
     })
     .join('');
 }
@@ -500,13 +476,15 @@ export default function DocumentScreen() {
           </PressableScale>
         </View>
         {openForm === 'renewal' && (
-          <View style={styles.form}>
-            <TextInput style={styles.input} placeholder="서류 이름 (예: 보건증-홍길동)" value={cpName} onChangeText={setCpName} />
-            <TextInput style={styles.input} placeholder="만료일 (YYYY-MM-DD)" value={cpExpiry} onChangeText={setCpExpiry} />
-            <PressableScale style={styles.smallBtn} onPress={addRenewal}>
-              <Text style={styles.btnText}>등록</Text>
-            </PressableScale>
-          </View>
+          <FadeInUp distance={12}>
+            <View style={styles.form}>
+              <TextInput style={styles.input} placeholder="서류 이름 (예: 보건증-홍길동)" value={cpName} onChangeText={setCpName} />
+              <TextInput style={styles.input} placeholder="만료일 (YYYY-MM-DD)" value={cpExpiry} onChangeText={setCpExpiry} />
+              <PressableScale style={styles.smallBtn} onPress={addRenewal}>
+                <Text style={styles.btnText}>등록</Text>
+              </PressableScale>
+            </View>
+          </FadeInUp>
         )}
         {renewals.length === 0 ? (
           <Text style={styles.emptyText}>등록된 갱신 서류가 없어요. 보건증·위생교육 수료증·임대차계약 만료일을 등록해 두면 미리 알려드려요.</Text>
@@ -547,31 +525,33 @@ export default function DocumentScreen() {
           busy={busy === 'pay'} actionLabel={openForm === 'pay' ? '닫기' : '입력'}
           onPress={() => setOpenForm(openForm === 'pay' ? null : 'pay')} />
         {openForm === 'pay' && (
-          <View style={styles.form}>
-            <TextInput style={styles.input} placeholder="직원 이름" value={empName} onChangeText={setEmpName} />
-            <View style={styles.formRow}>
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="연도" keyboardType="numeric" value={payYear} onChangeText={setPayYear} />
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="월" keyboardType="numeric" value={payMonth} onChangeText={setPayMonth} />
+          <FadeInUp distance={12}>
+            <View style={styles.form}>
+              <TextInput style={styles.input} placeholder="직원 이름" value={empName} onChangeText={setEmpName} />
+              <View style={styles.formRow}>
+                <TextInput style={[styles.input, { flex: 1, width: 0, flexShrink: 1 }]} placeholder="연도" keyboardType="numeric" value={payYear} onChangeText={setPayYear} />
+                <TextInput style={[styles.input, { flex: 1, width: 0, flexShrink: 1 }]} placeholder="월" keyboardType="numeric" value={payMonth} onChangeText={setPayMonth} />
+              </View>
+              <View style={styles.formRow}>
+                <TextInput style={[styles.input, { flex: 1, width: 0, flexShrink: 1 }]} placeholder="시급 (비우면 직원 정보 사용)" keyboardType="numeric" value={payWage} onChangeText={setPayWage} />
+                <TextInput style={[styles.input, { flex: 1, width: 0, flexShrink: 1 }]} placeholder="근무시간 (비우면 자동 집계)" keyboardType="numeric" value={payHours} onChangeText={setPayHours} />
+              </View>
+              <PressableScale style={styles.smallBtn} onPress={() => {
+                if (!empName.trim()) return toast('입력 확인', '직원 이름을 입력하세요.');
+                const y = toNumber(payYear);
+                const m = toNumber(payMonth);
+                if (y < 2000 || y > 2100) return toast('입력 확인', `연도를 확인하세요: "${payYear}" — 예: 2026`);
+                if (m < 1 || m > 12) return toast('입력 확인', `월을 확인하세요: "${payMonth}" — 1~12 사이 숫자`);
+                run('pay', () => createPayslip(token!, {
+                  employee_name: empName.trim(), year: y, month: m,
+                  ...(payWage.trim() ? { hourly_wage: toNumber(payWage) } : {}),
+                  ...(payHours.trim() ? { work_hours: toNumber(payHours) } : {}),
+                }));
+              }}>
+                <Text style={styles.btnText}>초안 생성</Text>
+              </PressableScale>
             </View>
-            <View style={styles.formRow}>
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="시급 (비우면 직원 정보 사용)" keyboardType="numeric" value={payWage} onChangeText={setPayWage} />
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="근무시간 (비우면 자동 집계)" keyboardType="numeric" value={payHours} onChangeText={setPayHours} />
-            </View>
-            <PressableScale style={styles.smallBtn} onPress={() => {
-              if (!empName.trim()) return toast('입력 확인', '직원 이름을 입력하세요.');
-              const y = toNumber(payYear);
-              const m = toNumber(payMonth);
-              if (y < 2000 || y > 2100) return toast('입력 확인', `연도를 확인하세요: "${payYear}" — 예: 2026`);
-              if (m < 1 || m > 12) return toast('입력 확인', `월을 확인하세요: "${payMonth}" — 1~12 사이 숫자`);
-              run('pay', () => createPayslip(token!, {
-                employee_name: empName.trim(), year: y, month: m,
-                ...(payWage.trim() ? { hourly_wage: toNumber(payWage) } : {}),
-                ...(payHours.trim() ? { work_hours: toNumber(payHours) } : {}),
-              }));
-            }}>
-              <Text style={styles.btnText}>초안 생성</Text>
-            </PressableScale>
-          </View>
+          </FadeInUp>
         )}
       </Card>
 
@@ -581,23 +561,25 @@ export default function DocumentScreen() {
           busy={busy === 'ct'} actionLabel={openForm === 'ct' ? '닫기' : '입력'}
           onPress={() => setOpenForm(openForm === 'ct' ? null : 'ct')} />
         {openForm === 'ct' && (
-          <View style={styles.form}>
-            <TextInput style={styles.input} placeholder="직원 이름" value={ctName} onChangeText={setCtName} />
-            <View style={styles.formRow}>
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="시급 (원)" keyboardType="numeric" value={ctWage} onChangeText={setCtWage} />
-              <TextInput style={[styles.input, { flex: 1.4 }]} placeholder="시작일 YYYY-MM-DD" value={ctStart} onChangeText={setCtStart} />
+          <FadeInUp distance={12}>
+            <View style={styles.form}>
+              <TextInput style={styles.input} placeholder="직원 이름" value={ctName} onChangeText={setCtName} />
+              <View style={styles.formRow}>
+                <TextInput style={[styles.input, { flex: 1, width: 0, flexShrink: 1 }]} placeholder="시급 (원)" keyboardType="numeric" value={ctWage} onChangeText={setCtWage} />
+                <TextInput style={[styles.input, { flex: 1.4, width: 0, flexShrink: 1 }]} placeholder="시작일 YYYY-MM-DD" value={ctStart} onChangeText={setCtStart} />
+              </View>
+              <PressableScale style={styles.smallBtn} onPress={() => {
+                if (!ctName.trim()) return toast('입력 확인', '직원 이름을 입력하세요.');
+                const wage = toNumber(ctWage);
+                if (!wage) return toast('입력 확인', `시급을 숫자로 입력하세요: "${ctWage}" — 예: 10500`);
+                const start = normalizeDate(ctStart);
+                if (!start) return toast('입력 확인', `시작일을 알아볼 수 없어요: "${ctStart}" — 예: 2026-08-01`);
+                run('ct', () => createContract(token!, { employee_name: ctName.trim(), hourly_wage: wage, start_date: start }));
+              }}>
+                <Text style={styles.btnText}>초안 생성</Text>
+              </PressableScale>
             </View>
-            <PressableScale style={styles.smallBtn} onPress={() => {
-              if (!ctName.trim()) return toast('입력 확인', '직원 이름을 입력하세요.');
-              const wage = toNumber(ctWage);
-              if (!wage) return toast('입력 확인', `시급을 숫자로 입력하세요: "${ctWage}" — 예: 10500`);
-              const start = normalizeDate(ctStart);
-              if (!start) return toast('입력 확인', `시작일을 알아볼 수 없어요: "${ctStart}" — 예: 2026-08-01`);
-              run('ct', () => createContract(token!, { employee_name: ctName.trim(), hourly_wage: wage, start_date: start }));
-            }}>
-              <Text style={styles.btnText}>초안 생성</Text>
-            </PressableScale>
-          </View>
+          </FadeInUp>
         )}
       </Card>
 
@@ -718,11 +700,14 @@ const styles = StyleSheet.create({
   smallBtn: { backgroundColor: colors.pointOrange, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
   btnText: { ...typography.L5, color: colors.white, fontWeight: '700' },
   form: { gap: 8, marginTop: 10 },
-  formRow: { flexDirection: 'row', gap: 8 },
+  formRow: { flexDirection: 'row', gap: 8, width: '100%', maxWidth: '100%' },
   input: {
     borderWidth: 1, borderColor: colors.mutedSand, borderRadius: 10,
     paddingHorizontal: 12, paddingVertical: 9, ...typography.L4, color: colors.espressoBrown,
     backgroundColor: colors.white,
+    minWidth: 0, // [한글 주석: 웹 플렉스박스 버그 방지] placeholder가 길어 너비가 늘어나는 현상 해결
+    width: '100%',
+    flexShrink: 1,
   },
   emptyText: { ...typography.L5, color: colors.mochaBrown, lineHeight: 18 },
   renewalRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
@@ -786,32 +771,92 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', gap: 10, marginTop: 14 },
 });
 
-// [한글 주석] OperationScreen에서 완벽하게 이관된 세금 관리 탭 컴포넌트
+// [백엔드 연동] 세금 관리 탭 — 부가세+종합소득세+원천징수 예상 및 신고 일정
+const nowYearMonth = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+const wonFmt = (n: number) => '₩' + Math.round(n || 0).toLocaleString('ko-KR');
+const ddayText = (d: number) => (d > 0 ? `D-${d}` : d === 0 ? 'D-DAY' : `D+${Math.abs(d)}`);
+const ddayTone = (status: string): 'danger' | 'orange' | 'neutral' =>
+  status === '임박' ? 'danger' : status === '기한 경과' ? 'neutral' : 'orange';
+
 function TaxTab() {
+  const { token } = useAuth();
+  const period = nowYearMonth();
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [tax, setTax] = useState<TaxEstimate | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      // DB 매출·비용·인건비 자동집계 → 부가세·종소세·원천징수 통합 계산
+      const t = token
+        ? await getTaxEstimate(token, period, 'general')
+        : await estimateTaxManual({ period, total_revenue: 0, total_expense: 0, tax_type: 'general' });
+      setTax(t);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [token, period]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  if (loading) {
+    return (
+      <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+        <ActivityIndicator color={colors.pointOrange} />
+        <Text style={[styles.hint, { marginTop: 8 }]}>세금을 계산하는 중…</Text>
+      </View>
+    );
+  }
+  if (err || !tax) {
+    return (
+      <Card>
+        <Text style={{ ...typography.L4, color: '#B23B2E', fontWeight: '600' }}>⚠ {err ?? '데이터를 불러오지 못했어요.'}</Text>
+        <Button label="다시 시도" variant="secondary" style={{ marginTop: 12 }} onPress={load} />
+      </Card>
+    );
+  }
+
+  const findLine = (name: string) => tax.lines.find((l) => l.name === name);
+
   return (
     <View style={{ gap: 20 }}>
+      {/* 예상 세금 총합 + 세목별 (부가세·종소세·원천징수) */}
       <Card>
         <View style={styles.rowBetween}>
-          <SectionTitle>부가세 예상</SectionTitle>
-          <Badge label="2분기" tone="neutral" />
+          <SectionTitle>예상 세금 합계</SectionTitle>
+          <Badge label={`${tax.period} 기준`} tone="neutral" />
         </View>
-        <Text style={styles.taxAmount}>₩1,284,000</Text>
-        <Text style={styles.hint}>매출 세액 − 매입 세액 기준 예상치</Text>
+        <Text style={styles.taxAmount}>{wonFmt(tax.total_tax)}</Text>
+        <Text style={styles.hint}>부가가치세 + 종합소득세 + 원천징수세 (참고용 예상)</Text>
         <Divider />
         <View style={styles.taxLine}>
-          <Text style={styles.taxLabel}>매출 세액</Text>
-          <Text style={styles.taxVal}>₩3,120,000</Text>
+          <Text style={styles.taxLabel}>부가가치세</Text>
+          <Text style={styles.taxVal}>{wonFmt(tax.vat)}</Text>
         </View>
         <View style={styles.taxLine}>
-          <Text style={styles.taxLabel}>매입 세액</Text>
-          <Text style={styles.taxVal}>− ₩1,836,000</Text>
+          <Text style={styles.taxLabel}>종합소득세</Text>
+          <Text style={styles.taxVal}>{wonFmt(tax.income_tax)}</Text>
         </View>
+        <View style={styles.taxLine}>
+          <Text style={styles.taxLabel}>원천징수세</Text>
+          <Text style={styles.taxVal}>{wonFmt(tax.withholding_tax)}</Text>
+        </View>
+        <Text style={[styles.hint, { marginTop: 8 }]}>과세표준 {wonFmt(tax.taxable_base)} · 매출 {wonFmt(tax.total_revenue)} · 비용 {wonFmt(tax.total_expense)}</Text>
       </Card>
 
       {/* 신고 초안 (draft_) */}
       <Card tone="cream">
         <View style={styles.rowBetween}>
-          <SectionTitle>부가세 신고 초안</SectionTitle>
+          <SectionTitle>세금 신고 초안</SectionTitle>
           <Badge label="확정 전" tone="orange" />
         </View>
         <Text style={styles.hint}>
@@ -824,8 +869,10 @@ function TaxTab() {
             style={{ flex: 1 }}
             onPress={() =>
               toast(
-                '부가세 신고 초안',
-                '과세표준 31,200,000원\n매출세액 3,120,000원\n매입세액 1,836,000원\n납부예상 1,284,000원\n\n검토 후 세무사에게 공유하세요.'
+                '세금 신고 초안',
+                `[부가가치세] ${wonFmt(tax.vat)}\n${findLine('부가가치세')?.basis ?? ''}\n\n` +
+                `[종합소득세] ${wonFmt(tax.income_tax)}\n${findLine('종합소득세')?.basis ?? ''}\n\n` +
+                `[원천징수세] ${wonFmt(tax.withholding_tax)}\n${findLine('원천징수세')?.basis ?? ''}\n\n검토 후 세무사에게 공유하세요.`
               )
             }
           />
@@ -837,19 +884,20 @@ function TaxTab() {
         </View>
       </Card>
 
+      {/* 다가오는 신고 일정 (부가세·종소세·원천징수 D-day) */}
       <Card>
         <SectionTitle>다가오는 신고 일정</SectionTitle>
         <View style={{ marginTop: 10, gap: 10 }}>
-          <View style={styles.dueRow}>
-            <Ionicons name="calendar-outline" size={18} color={colors.pointOrange} />
-            <Text style={styles.dueText}>부가세 확정신고</Text>
-            <Badge label="D-12" tone="danger" />
-          </View>
-          <View style={styles.dueRow}>
-            <Ionicons name="calendar-outline" size={18} color={colors.mochaBrown} />
-            <Text style={styles.dueText}>원천세 납부</Text>
-            <Badge label="D-25" tone="neutral" />
-          </View>
+          {tax.filing_schedule.map((f) => (
+            <View key={f.name} style={styles.dueRow}>
+              <Ionicons name="calendar-outline" size={18} color={f.status === '임박' ? colors.pointOrange : colors.mochaBrown} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.dueText}>{f.name}</Text>
+                <Text style={[styles.hint, { marginTop: 1 }]}>{f.due_date} · {f.note}</Text>
+              </View>
+              <Badge label={ddayText(f.dday)} tone={ddayTone(f.status)} />
+            </View>
+          ))}
         </View>
       </Card>
     </View>

@@ -111,16 +111,23 @@ _DOMAINS: list[dict[str, Any]] = [
         "name": "operation_expert",
         "title": "운영·세무 전문가",
         "description": (
-            "매출 예측, 운영 리포트 요약, 로스터리 원두 시세 비교, 세금 간이 추정과 "
+            "판매량 예측(익일·금주 — 날씨·요일·공휴일·행사 반영, 발주 추천 포함), "
+            "운영 리포트 요약, 로스터리 원두 시세 비교, 세금 간이 추정과 "
             "관련 법령·자료 검색을 처리한다."
         ),
         "modules": [
+            "app.services.ai.forecast_tools",
             "app.services.operation.forecasting_tools",
             "app.services.operation.operation_tools",
             "app.services.operation.roastery_tools",
             "app.services.operation.tax_tools",
         ],
-        "extra": "- 세금 추정치는 참고용이며 최종 신고는 세무사 확인이 필요하다고 항상 덧붙이세요.",
+        "extra": (
+            "- 판매량 예측은 forecast_sales_and_orders를 쓰세요 (DB에서 자동 조회).\n"
+            "- 사장님이 주변 행사를 언급하면 events_json으로 넣어 부스팅을 반영하세요.\n"
+            "- 예측 보고에는 근거(모델·날씨·보정 사유)와 발주 추천 요약을 포함하세요.\n"
+            "- 세금 추정치는 참고용이며 최종 신고는 세무사 확인이 필요하다고 항상 덧붙이세요."
+        ),
     },
     {
         "name": "report_expert",

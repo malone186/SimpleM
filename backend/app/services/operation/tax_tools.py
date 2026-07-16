@@ -13,19 +13,19 @@ except ImportError:
             return func
 
 @tool
-def estimate_tax_tool(total_revenue: int, total_expense: int, tax_rate: float = 0.1, period: str = "2026-07") -> dict:
-    """매출과 비용을 전달받아 참고용 예상 세금을 계산합니다.
+def estimate_tax_tool(total_revenue: int, total_expense: int, tax_type: str = "general", period: str = "2026-07") -> dict:
+    """매출과 비용을 전달받아 참고용 예상 세금(부가세+종합소득세)을 계산합니다.
     - total_revenue: 총 매출액 (0 이상)
-    - total_expense: total_expense: 총 비용액 (0 이상)
-    - tax_rate: 세율 (0.0 ~ 1.0, 기본값 0.1)
+    - total_expense: 총 비용액 (0 이상)
+    - tax_type: 과세유형 ('general' 일반과세 | 'simplified' 간이과세, 기본 general)
     - period: 대상 연월 (예: '2026-07')
     """
     try:
-        result = TaxService.calculate_estimated_tax(
+        result = TaxService.estimate_from_amounts(
             total_revenue=total_revenue,
             total_expense=total_expense,
-            tax_rate=tax_rate,
-            period=period
+            period=period,
+            tax_type=tax_type
         )
         return {
             "success": True,
@@ -49,20 +49,20 @@ def estimate_tax_tool(total_revenue: int, total_expense: int, tax_rate: float = 
         }
 
 @tool
-def get_tax_rag_documents_tool(total_revenue: int, total_expense: int, tax_rate: float = 0.1, period: str = "2026-07") -> dict:
+def get_tax_rag_documents_tool(total_revenue: int, total_expense: int, tax_type: str = "general", period: str = "2026-07") -> dict:
     """세무 계산 결과를 챗봇이 읽을 수 있는 RAG 문서 리스트 형태로 반환합니다.
     - total_revenue: 총 매출 (0 이상)
     - total_expense: 총 비용 (0 이상)
-    - tax_rate: 세율 (기본 0.1)
+    - tax_type: 과세유형 ('general' | 'simplified', 기본 general)
     - period: 대상 연월
     """
     try:
         # 1. 세무 계산 수행
-        tax_result = TaxService.calculate_estimated_tax(
+        tax_result = TaxService.estimate_from_amounts(
             total_revenue=total_revenue,
             total_expense=total_expense,
-            tax_rate=tax_rate,
-            period=period
+            period=period,
+            tax_type=tax_type
         )
         # 2. RAG 문서로 패키징
         rag_doc = OperationService.build_tax_rag_documents(tax_result)
