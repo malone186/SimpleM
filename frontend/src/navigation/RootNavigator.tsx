@@ -22,7 +22,10 @@ import OperationScreen from '../screens/operation/OperationScreen';
 import OrderScreen from '../screens/order/OrderScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 import SalesInputScreen from '../screens/sales/SalesInputScreen';
+import SettingsScreen from '../screens/settings/SettingsScreen';
+import TaxDraftDetailScreen from '../screens/document/TaxDraftDetailScreen';
 import { colors, typography } from '../theme';
+import type { TaxEstimate } from '../lib/api/operation';
 
 export type RootTabParamList = {
   Dashboard: undefined;
@@ -45,7 +48,9 @@ export type RootStackParamList = {
   Cost: undefined;
   LawSearch: undefined;
   Document: undefined;
+  TaxDraftDetail: { tax: TaxEstimate };
   Operation: undefined;
+  Settings: undefined;
 };
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -115,7 +120,9 @@ export default function RootNavigator() {
         <Stack.Screen name="Cost" component={CostScreen} options={erpHeader('원가 분석')} />
         <Stack.Screen name="LawSearch" component={LawSearchScreen} options={erpHeader('법령 검색')} />
         <Stack.Screen name="Document" component={DocumentScreen} options={erpHeader('서류 자동화')} />
+        <Stack.Screen name="TaxDraftDetail" component={TaxDraftDetailScreen} options={erpHeader('세금 신고 초안')} />
         <Stack.Screen name="Operation" component={OperationScreen} options={erpHeader('운영')} />
+        <Stack.Screen name="Settings" component={SettingsScreen} options={erpHeader('설정')} />
       </Stack.Navigator>
     </NavigationContainer>
   );

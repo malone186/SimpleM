@@ -1,7 +1,7 @@
 // [상단 웰컴 블록 - 애플 스타일 오로라 가우시안 블러 필터 적용]
 // 칼같이 보이던 원의 경계선을 feGaussianBlur 필터로 완벽히 뭉개고, 파스텔 톤의 모카 샌드 그라데이션으로 화사하게 튜닝했습니다.
-import { useEffect, useState } from 'react';
-import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, Easing, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Defs, LinearGradient, Stop, Path, Circle, Filter, FeGaussianBlur } from 'react-native-svg';
 
@@ -52,6 +52,37 @@ export default function WelcomeHeader({
   const quote = useDailyQuote();
   const initial = (storeName || 'S').charAt(0).toUpperCase();
 
+  // [한글 주석: 강아지와 말풍선을 묶어 위아래로 둥둥 띄우기 위한 애니메이션 상태변수 정의]
+  const floatAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    // [한글 주석: 강아지 캐릭터의 원래 바운스 주기(1250ms)와 속도 곡선(sin)을 완전히 흉내냅니다]
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatAnim, {
+          toValue: 1,
+          duration: 1250,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(floatAnim, {
+          toValue: 0,
+          duration: 1250,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [floatAnim]);
+
+  // [한글 주석: 위아래로 최대 7픽셀(px) 만큼 둥둥거리도록 애니메이션 수치 변환]
+  const translateY = floatAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -7],
+  });
+
   return (
     <View style={styles.header}>
       <View style={styles.topBar}>
@@ -68,14 +99,22 @@ export default function WelcomeHeader({
       </View>
 
       <View style={styles.row}>
-        <View style={styles.textCol}>
-          <Text style={styles.greeting}>안녕하세요 사장님 ☀️</Text>
-          <Text style={styles.title}>{storeName}</Text>
-          <Text style={styles.quote} numberOfLines={2}>
-            {quote}
-          </Text>
-        </View>
-        <Brew mood={mood} size={168} style={styles.mascot} />
+        {/* [한글 주석: 왼쪽 영역은 비우되, 강아지 캐릭터가 우측에 고정될 수 있도록 레이아웃 뼈대 빈 뷰를 남깁니다] */}
+        <View style={styles.textCol} />
+        
+        {/* [한글 주석: 마스코트 캐릭터와 말풍선을 한곳에 담아 한꺼번에 움직이는 애니메이션 상자] */}
+        <Animated.View style={[styles.mascotContainer, { transform: [{ translateY }] }]}>
+          {/* [한글 주석: 세 줄로 나뉘어 있던 정보를 하나의 자연스러운 문장으로 결합해 말풍선에 담습니다] */}
+          <View style={styles.bubble}>
+            <Text style={styles.bubbleText}>
+              안녕하세요, {storeName} 사장님! {quote} ☀️
+            </Text>
+            {/* [한글 주석: 강아지 뺨 옆으로 자연스레 뻗는 뾰족한 가로 꼬리] */}
+            <View style={styles.bubbleTail} />
+          </View>
+          {/* [한글 주석: 중복으로 들썩거리지 않도록 자체 흔들림 옵션은 꺼서 리프트에 고정시킵니다] */}
+          <Brew mood={mood} size={168} style={styles.mascot} disableMotion={true} />
+        </Animated.View>
       </View>
     </View>
   );
@@ -112,8 +151,53 @@ const styles = StyleSheet.create({
   avatarText: { fontSize: 9.5, color: colors.white, fontWeight: '900' }, // 아바타 축소에 따른 텍스트 비례 축소
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   textCol: { flex: 1, paddingRight: 8 },
-  greeting: { fontSize: 13, fontWeight: '600', color: '#BCAFA5', marginBottom: 4, letterSpacing: -0.2 },
   title: { fontSize: 28, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
   quote: { fontSize: 11, fontWeight: '400', color: '#D4C9C1', lineHeight: 17, marginTop: 6, paddingRight: 8, letterSpacing: -0.2 }, // 상호와의 간격 좁힘
+  mascotContainer: {
+    position: 'relative',
+    alignItems: 'center',
+  },
+  // [한글 주석: 강아지 캐릭터 머리맡에 뜨는 둥근 흰색 말풍선 상자 스타일]
+  bubble: {
+    position: 'absolute',
+    top: 18,              // 한 문장으로 부피가 줄어들었으므로 뺨 높이에 알맞게 top을 18로 조정합니다
+    left: -205,           // 말풍선이 왼쪽 영역을 여유롭게 감싸도록 left를 -205로 조정합니다
+    width: 200,           // 한 문장이 부드럽게 줄바꿈되도록 가로폭을 200px로 세팅합니다
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    zIndex: 10,           // 강아지 그래픽 위에 렌더링되도록 우선순위 지정
+    // [한글 주석: 그림자로 말풍선이 붕 떠 있는 듯한 세련된 오버레이 연출]
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    elevation: 5,         // 안드로이드 환경을 위한 그림자 대체
+  },
+  // [한글 주석: 말풍선 통합 텍스트 스타일 - 다정한 한 문장 용]
+  bubbleText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#2D1E17',     // 테마에 알맞는 진한 에스프레소 브라운 톤의 글자색
+    lineHeight: 18,       // 줄바꿈 시 글자가 겹치지 않고 여유롭게 읽히도록 행간 설정
+    letterSpacing: -0.3,
+  },
+  // [한글 주석: 말풍선 우측면에 붙어 강아지 얼굴 방향(오른쪽)으로 뻗어나가는 가로형 꼬리]
+  bubbleTail: {
+    position: 'absolute',
+    right: -8,            // 말풍선 오른쪽 벽면 바깥쪽에 접착
+    top: 24,              // 말풍선 높이가 낮아짐에 따라 꼬리 세로 위치를 top: 24로 올려 균형을 맞춥니다
+    width: 0,
+    height: 0,
+    backgroundColor: 'transparent',
+    borderStyle: 'solid',
+    borderTopWidth: 6,    // 위쪽 빗면 두께
+    borderBottomWidth: 6, // 아래쪽 빗면 두께
+    borderLeftWidth: 10,  // 왼쪽에서 오른쪽으로 향하는 삼각형의 길이 (꼬리의 뾰족한 길이)
+    borderTopColor: 'transparent',
+    borderBottomColor: 'transparent',
+    borderLeftColor: '#FFFFFF', // 말풍선 본체 색상과 동일하게 채움
+  },
   mascot: { marginRight: 4 },
 });

@@ -1,32 +1,28 @@
-// c:\STUDY\SimpleM\frontend\src\lib\firebase.ts
-import { initializeApp, getApps } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { initializeApp } from 'firebase/app';
+import { getAuth, type Auth } from 'firebase/auth';
 
 // [한글 주석] Firebase 클라이언트 앱을 구동하기 위한 필수 환경설정 값들입니다.
+// Expo 환경에서는 환경변수명 앞에 'EXPO_PUBLIC_'을 붙여 빌드 시 자동으로 주입받아 사용합니다.
+//
+// 키가 없거나 'mock-'으로 시작하면 가짜 설정으로 초기화한다 — apiKey가 비어 있으면
+// getAuth()가 앱 구동 시점에 auth/invalid-api-key를 던져 화면 전체가 흰 화면이 된다.
+// 이 경우 실제 인증은 AuthContext가 백엔드 로컬 인증 API로 우회하므로 Firebase는 호출되지 않는다.
 const firebaseConfig = {
-  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || "demo-api-key",
-  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || 'mock-api-key',
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || 'mock.firebaseapp.com',
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || 'mock-project',
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || 'mock-project.appspot.com',
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '0',
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || 'mock-app-id',
 };
 
-let app: any = null;
-let auth: any = null;
+// [한글 주석] 유효한 Firebase 키가 있을 때만 초기화한다.
+// 키가 없거나 mock 상태면 getAuth 가 'auth/invalid-api-key' 로 앱 로드 시점에 크래시하므로,
+// 그 경우 초기화를 건너뛰고 auth 를 null 로 둔다. 이때 로그인/가입은 AuthContext 의
+// 백엔드 자체 인증(isMockFirebase 우회) 경로로 처리된다.
+const hasRealKey = !!firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith('mock-');
 
-try {
-  // [한글 주석] 이미 앱이 생성되어 있는지 확인하고 생성되지 않은 경우에만 초기화합니다.
-  if (!getApps().length) {
-    app = initializeApp(firebaseConfig);
-  } else {
-    app = getApps()[0];
-  }
-  auth = getAuth(app);
-} catch (error) {
-  // [한글 주석] Firebase 키가 설정되지 않은 로컬 개발 환경에서도 앱이 차단되지 않도록 예외 처리
-  console.warn("Firebase 초기화 에러 (더미 모드로 대체 구동됩니다):", error);
-}
-
-export { app, auth };
-
+// 타입은 Auth 로 노출하되(호출부 타입 유지), 키가 없으면 런타임 값은 null 이다.
+// firebase 를 실제로 호출하는 지점(로그인/가입의 비-mock 경로)은 유효 키가 있을 때만 실행되고,
+// logout/updateProfile 의 무조건 호출부는 AuthContext 에서 null 가드로 감싼다.
+export const auth = (hasRealKey ? getAuth(initializeApp(firebaseConfig)) : null) as Auth;

@@ -7,6 +7,7 @@
 """
 
 import logging
+from datetime import date
 from pathlib import Path
 from typing import Optional
 
@@ -44,6 +45,7 @@ from app.services.ai import (
     ocr_service,
     price_service,
     report_service,
+    sales_service,
 )
 
 router = APIRouter(prefix="/chatbot", tags=["chatbot"])
@@ -283,6 +285,55 @@ def get_sales_forecast_api(
         return forecast_service.forecast(current_user.email, lat=lat, lon=lon, days=days)
     except forecast_service.ForecastError as e:
         raise HTTPException(409, str(e))
+
+
+class SaleItemIn(BaseModel):
+    menu_id: int
+    quantity: int = Field(1, ge=1)
+
+
+class SalesRecordRequest(BaseModel):
+    items: list[SaleItemIn]
+
+
+@router.post("/sales", status_code=201)
+def record_sales_api(
+    body: SalesRecordRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """판매 수동 등록 — Sale 기록 + 레시피 기준 재고 자동 차감.
+
+    여기로 등록한 판매는 대시보드·경영 리포트·예측이 읽는 Sale 테이블에 바로 반영된다.
+    """
+    try:
+        return sales_service.record_sales(
+            current_user.email, [i.model_dump() for i in body.items])
+    except sales_service.SalesError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.get("/sales/recent")
+def recent_sales_api(
+    limit: int = 10,
+    current_user: User = Depends(get_current_user),
+):
+    """최근 판매 내역 (판매 입력 화면 표시용)."""
+    return sales_service.recent_sales(current_user.email, limit=limit)
+
+
+@router.get("/sales/calendar")
+def get_sales_calendar_api(
+    year: int = 0,
+    month: int = 0,
+    current_user: User = Depends(get_current_user),
+):
+    """월간 캘린더용 일별 판매 집계 (기본: 이번 달) — 대시보드 월간 뷰 표시용.
+
+    일별 매출·잔 수·베스트 메뉴·피크 시간대와 월 합계·전월 대비 증감을 준다.
+    """
+    today = date.today()
+    return forecast_service.sales_calendar(
+        current_user.email, year or today.year, month or today.month)
 
 
 # ---------------------------------------------------------------------------

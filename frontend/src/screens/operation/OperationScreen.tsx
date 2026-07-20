@@ -11,8 +11,9 @@ import { colors, typography } from '../../theme';
 import { useAuth } from '../../auth/AuthContext';
 import {
   getSettlement, listPayroll, forecastSales, createExpense,
+  listSchedules, createSchedule, updateSchedule, deleteSchedule, recommendSchedule,
   createUnavailability, listUnavailabilities, deleteUnavailability, getScheduleRecommendation,
-  type Settlement, type Payroll, type Forecast, type EmployeeUnavailability, type ScheduleRecommendation
+  type Settlement, type Payroll, type Forecast, type Schedule, type EmployeeUnavailability, type ScheduleRecommendation
 } from '../../lib/api/operation';
 
 const notify = (title: string, message: string) => toast(title, message);
@@ -29,12 +30,6 @@ const tomorrowISO = () => {
 };
 const won = (n: number) => '₩' + Math.round(n || 0).toLocaleString('ko-KR');
 
-const INITIAL_SHIFTS = [
-  { day: '월, 수, 금', slot: '09–15', who: '김바리', peak: false },
-  { day: '화, 목', slot: '09–15', who: '김바리', peak: false },
-  { day: '금', slot: '13–21', who: '이알바', peak: true },
-  { day: '토, 일', slot: '11–20', who: '박주말', peak: true },
-];
 
 export default function OperationScreen() {
   return (
@@ -515,18 +510,23 @@ const unavStyles = StyleSheet.create({
 });
 
 function ScheduleTab() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [shifts, setShifts] = useState(INITIAL_SHIFTS);
   const [recommendation, setRecommendation] = useState<ScheduleRecommendation | null>(null);
   const [recLoading, setRecLoading] = useState(false);
-
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [names, setNames] = useState<Record<number, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [recommend, setRecommend] = useState<ScheduleRecommendation | null>(null);
+  const [recommendFailed, setRecommendFailed] = useState(false);
   const [editingShift, setEditingShift] = useState<{
-    index: number;
-    day: string;
+    id: number | null;
+    employeeId: number | null;
+    date: string | null;
+    days: string[];
     slot: string;
-    who: string;
-    peak: boolean;
   } | null>(null);
+  const [saving, setSaving] = useState(false);
 
   // [한글 주석] 스케줄 추천 백엔드 API 연동 함수
   const fetchRecommendation = async () => {
@@ -546,50 +546,141 @@ function ScheduleTab() {
     }
   };
 
-  // [한글 주석] 스케줄 편집 버튼 클릭 시 모달창 상태를 초기화합니다.
-  const handleEditPress = (index: number) => {
-    const s = shifts[index];
-    setEditingShift({ index, ...s });
-  };
-
-  // [한글 주석] 추가 버튼 누를 때 신규 가상 스케줄 인덱스(-1)와 디폴트 시간(09–18)으로 모달을 오픈합니다.
-  const handleAddPress = () => {
-    setEditingShift({ index: -1, day: '', slot: '09–18', who: '', peak: false });
-  };
-
-  // [한글 주석] 선택된 특정 근무자 스케줄을 삭제 처리하는 기능
-  const handleDelete = (index: number) => {
-    const targetName = shifts[index]?.who || '근무자';
-    if (Platform.OS === 'web') {
-      const confirmDelete = window.confirm(`정말 ${targetName}님의 근무 스케줄을 삭제하시겠습니까?`);
-      if (!confirmDelete) return;
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [rows, payroll] = await Promise.all([
+        listSchedules(),
+        listPayroll(nowYM()).catch(() => [] as Payroll[]),
+      ]);
+      const map: Record<number, string> = {};
+      payroll.forEach((p) => {
+        map[p.employee_id] = p.employee_name;
+      });
+      setNames(map);
+      setSchedules(rows);
+    } catch (e) {
+      notify('스케줄 조회 실패', e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
     }
-    const updated = shifts.filter((_, i) => i !== index);
-    setShifts(updated);
-    setEditingShift(null); // 모달이 켜져있다면 닫아줍니다.
+  }, []);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // AI 스케줄 추천 — 내일 매출 시간대 분석 (백엔드 실데이터, 하드코딩 문구 없음)
+  useEffect(() => {
+    if (!user?.email) return;
+    recommendSchedule({ target_date: tomorrowISO(), store_id: user.email })
+      .then(setRecommend)
+      .catch((e) => {
+        console.error('스케줄 추천 실패:', e);
+        setRecommendFailed(true);
+      });
+  }, [user?.email]);
+
+  // 이번 주 월요일~일요일 범위 계산
+  const WEEK_KO = ['일', '월', '화', '수', '목', '금', '토'];
+  const isoDate = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const today = new Date();
+  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  const sunday = new Date(monday);
+  sunday.setDate(sunday.getDate() + 6);
+
+  const weekRows = schedules
+    .filter((s) => s.date >= isoDate(monday) && s.date <= isoDate(sunday))
+    .sort((a, b) => (a.date === b.date ? a.start_time.localeCompare(b.start_time) : a.date.localeCompare(b.date)));
+
+  const hourOf = (iso: string) => Number(iso.slice(11, 13));
+  const slotOf = (s: Schedule) =>
+    `${String(hourOf(s.start_time)).padStart(2, '0')}–${String(hourOf(s.end_time)).padStart(2, '0')}`;
+  const nameOf = (id: number) => names[id] ?? `직원 ${id}`;
+  // 피크 여부는 입력이 아니라 시간대에서 판정 — 14시대(점심~오후 피크)를 커버하면 피크 근무
+  const isPeak = (s: Schedule) => hourOf(s.start_time) <= 14 && hourOf(s.end_time) > 14;
+  const dayLabelOf = (s: Schedule) => {
+    const [, m, d] = s.date.split('-').map(Number);
+    const wd = WEEK_KO[new Date(s.date + 'T00:00:00').getDay()];
+    return `${wd}요일 (${m}/${d})`;
   };
 
-  // [한글 주석] 모달에서 수정한 데이터를 확정하여 리스트 및 급여 항목에 연동합니다.
-  const handleSave = () => {
-    if (!editingShift) return;
-    const { index, day, slot, who, peak } = editingShift;
+  const employeeEntries = Object.entries(names).map(([id, name]) => ({ id: Number(id), name }));
 
-    if (!day.trim() || !slot.trim() || !who.trim()) {
-      if (Platform.OS === 'web') {
-        window.alert('요일, 근무자명, 시간을 모두 올바르게 입력해 주세요!');
-      }
+  const handleAddPress = () => {
+    if (employeeEntries.length === 0) {
+      notify('직원 정보 없음', '등록된 직원이 없어 스케줄을 추가할 수 없어요. 급여 관리에서 직원을 먼저 등록해 주세요.');
       return;
     }
+    setEditingShift({ id: null, employeeId: employeeEntries[0].id, date: null, days: [], slot: '09–18' });
+  };
 
-    if (index === -1) {
-      setShifts([...shifts, { day, slot, who, peak }]);
-    } else {
-      const updated = shifts.map((s, i) =>
-        i === index ? { day, slot, who, peak } : s
-      );
-      setShifts(updated);
+  const handleEditPress = (s: Schedule) => {
+    setEditingShift({ id: s.id, employeeId: s.employee_id, date: s.date, days: [], slot: slotOf(s) });
+  };
+
+  const handleDelete = async (id: number) => {
+    if (Platform.OS === 'web') {
+      const ok = window.confirm('정말 이 근무 스케줄을 삭제하시겠습니까?');
+      if (!ok) return;
     }
-    setEditingShift(null);
+    try {
+      await deleteSchedule(id);
+      setEditingShift(null);
+      await load();
+    } catch (e) {
+      notify('삭제 실패', e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const handleSave = async () => {
+    if (!editingShift || saving) return;
+    const m = editingShift.slot.match(/(\d+)\D+(\d+)/);
+    const sh = m ? Number(m[1]) : NaN;
+    const eh = m ? Number(m[2]) : NaN;
+    if (!m || Number.isNaN(sh) || Number.isNaN(eh) || sh >= eh) {
+      notify('입력 확인', '근무 시작 시간은 종료 시간보다 빨라야 해요.');
+      return;
+    }
+    const hh = (h: number) => String(h).padStart(2, '0');
+    setSaving(true);
+    try {
+      if (editingShift.id !== null && editingShift.date) {
+        // 기존 스케줄: 시간만 수정
+        await updateSchedule(editingShift.id, {
+          start_time: `${editingShift.date}T${hh(sh)}:00:00`,
+          end_time: `${editingShift.date}T${hh(eh)}:00:00`,
+        });
+      } else {
+        // 신규: 선택한 요일마다 이번 주 해당 날짜로 등록
+        if (!editingShift.employeeId || editingShift.days.length === 0) {
+          notify('입력 확인', '근무자와 요일을 선택해 주세요.');
+          setSaving(false);
+          return;
+        }
+        const offsets: Record<string, number> = { 월: 0, 화: 1, 수: 2, 목: 3, 금: 4, 토: 5, 일: 6 };
+        for (const day of editingShift.days) {
+          const d = new Date(monday);
+          d.setDate(d.getDate() + (offsets[day] ?? 0));
+          const dateStr = isoDate(d);
+          await createSchedule({
+            employee_id: editingShift.employeeId,
+            start_time: `${dateStr}T${hh(sh)}:00:00`,
+            end_time: `${dateStr}T${hh(eh)}:00:00`,
+          });
+        }
+      }
+      setEditingShift(null);
+      await load();
+    } catch (e) {
+      notify('저장 실패', e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -601,7 +692,7 @@ function ScheduleTab() {
           <Badge label="추천안" tone="orange" />
         </View>
         <Text style={styles.hint}>
-          {recommendation?.summary || '버튼을 누르면 과거 매출과 알바생 기피시간(Hard/Soft)을 종합 분석해 최적의 추천 스케줄을 계산합니다.'}
+          {recommendation?.summary || recommend?.summary || '버튼을 누르면 과거 매출과 알바생 기피시간(Hard/Soft)을 종합 분석해 최적의 추천 스케줄을 계산합니다.'}
         </Text>
 
         {/* ⚠️ 인원 부족 충돌 경고 메시지 표시 영역 */}
@@ -635,33 +726,47 @@ function ScheduleTab() {
             <Text style={styles.addBtnText}>추가</Text>
           </PressableScale>
         </View>
-        {shifts.map((s, i) => {
-          const firstChar = s.who ? s.who.charAt(0) : '👤';
-          const dayLabel = s.day.includes('요일') || s.day.includes('주말') ? s.day : `${s.day}요일`;
 
+        {loading && (
+          <Card style={styles.scheduleCard}>
+            <View style={{ paddingVertical: 12, alignItems: 'center' }}>
+              <ActivityIndicator color={colors.mochaBrown} />
+            </View>
+          </Card>
+        )}
+
+        {!loading && weekRows.length === 0 && (
+          <Card style={styles.scheduleCard}>
+            <Text style={styles.hint}>이번 주에 등록된 근무 스케줄이 없어요. 추가 버튼으로 등록해 보세요.</Text>
+          </Card>
+        )}
+
+        {weekRows.map((s) => {
+          const who = nameOf(s.employee_id);
+          const firstChar = who.charAt(0) || '👤';
           return (
-            <Card key={i} style={styles.scheduleCard}>
+            <Card key={s.id} style={styles.scheduleCard}>
               <View style={styles.shiftRow}>
                 {/* [한글 주석] 이니셜 타이포그래피 아바타 적용으로 고급화 */}
                 <View style={styles.initialAvatar}>
                   <Text style={styles.avatarText}>{firstChar}</Text>
                 </View>
-                
+
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={styles.shiftWho}>{s.who}</Text>
-                    {s.peak && <Badge label="피크" tone="green" />}
+                    <Text style={styles.shiftWho}>{who}</Text>
+                    {isPeak(s) && <Badge label="피크" tone="green" />}
                   </View>
-                  
-                  {/* [한글 주석] 촌스러운 요일 배지를 제거하고, 미니멀한 타임라인 태그로 디자인 통합 */}
+
+                  {/* [한글 주석] 미니멀한 타임라인 태그로 근무 일시 표시 */}
                   <View style={styles.timeTag}>
                     <Ionicons name="time-outline" size={13} color={colors.mochaBrown} />
-                    <Text style={styles.timeTagText}>{dayLabel} · {s.slot}</Text>
+                    <Text style={styles.timeTagText}>{dayLabelOf(s)} · {slotOf(s)}</Text>
                   </View>
                 </View>
 
                 {/* [한글 주석] 터치 영역 확대 및 조형 대칭을 위해 둥근 링으로 감싼 수정 버튼 */}
-                <PressableScale onPress={() => handleEditPress(i)} to={0.88} style={styles.editBtnCircle}>
+                <PressableScale onPress={() => handleEditPress(s)} to={0.88} style={styles.editBtnCircle}>
                   <Ionicons name="create-outline" size={16} color={colors.mochaBrown} />
                 </PressableScale>
               </View>
@@ -672,37 +777,57 @@ function ScheduleTab() {
 
       {/* [한글 주석] 이번 달 급여는 상단 "이번 달 정산·급여" 카드에서 백엔드 실데이터로 표시합니다. */}
 
-      {/* [한글 주석] 요일, 근무자명, 시간을 입력받는 스케줄 수정/등록 모달 */}
+      {/* [한글 주석] 근무자·요일·시간을 입력받는 스케줄 수정/등록 모달 */}
       <Modal visible={editingShift !== null} transparent animationType="slide" onRequestClose={() => setEditingShift(null)}>
         <View style={styles.modalRoot}>
           <Pressable style={styles.modalBackdrop} onPress={() => setEditingShift(null)} />
           <View style={styles.modalSheet}>
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>
-              {editingShift?.index === -1 ? '근무 스케줄 추가' : '근무 스케줄 수정'}
+              {editingShift?.id === null ? '근무 스케줄 추가' : '근무 스케줄 수정'}
             </Text>
 
             {editingShift && (
               <View style={{ gap: 14, marginBottom: 20 }}>
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>근무자 이름</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={editingShift.who}
-                    onChangeText={(text) => setEditingShift({ ...editingShift, who: text })}
-                    placeholder="예: 김바리"
-                    placeholderTextColor={colors.mochaBrown + '80'}
-                  />
-                </View>
+                {editingShift.id === null ? (
+                  <>
+                    {/* 근무자 선택 — 급여 명부에 등록된 실제 직원 중에서 */}
+                    <View style={styles.formGroup}>
+                      <Text style={styles.formLabel}>근무자 선택</Text>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                        {employeeEntries.map((emp) => {
+                          const active = editingShift.employeeId === emp.id;
+                          return (
+                            <PressableScale
+                              key={emp.id}
+                              style={[styles.peakSegmentBtn, { flex: 0, paddingHorizontal: 14 }, active && styles.segmentBtnActiveNormal]}
+                              onPress={() => setEditingShift({ ...editingShift, employeeId: emp.id })}
+                              to={0.94}
+                            >
+                              <Text style={[styles.peakSegmentText, active && styles.segmentTextActiveNormal]}>{emp.name}</Text>
+                            </PressableScale>
+                          );
+                        })}
+                      </View>
+                    </View>
 
-                {/* [한글 주석] 요일 칩 선택기: 직접 타이핑하지 않고 탭하여 다중 선택 */}
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>요일 선택</Text>
-                  <DayOfWeekPicker
-                    selectedDays={editingShift.day ? editingShift.day.split(',').map((d) => d.trim()).filter(Boolean) : []}
-                    onChange={(days) => setEditingShift({ ...editingShift, day: days.join(', ') })}
-                  />
-                </View>
+                    {/* [한글 주석] 요일 칩 선택기: 이번 주의 해당 요일마다 스케줄이 생성됩니다 */}
+                    <View style={styles.formGroup}>
+                      <Text style={styles.formLabel}>요일 선택 (이번 주)</Text>
+                      <DayOfWeekPicker
+                        selectedDays={editingShift.days}
+                        onChange={(days) => setEditingShift({ ...editingShift, days })}
+                      />
+                    </View>
+                  </>
+                ) : (
+                  <View style={styles.formGroup}>
+                    <Text style={styles.formLabel}>근무자 · 일자</Text>
+                    <Text style={{ ...typography.L4, color: colors.espressoBrown }}>
+                      {editingShift.employeeId !== null ? nameOf(editingShift.employeeId) : ''} · {editingShift.date}
+                    </Text>
+                  </View>
+                )}
 
                 {/* [한글 주석] iOS 스타일 휠 시간 선택기: 스크롤 드래그를 통해 스무스하게 작동 */}
                 <View style={styles.formGroup}>
@@ -712,49 +837,6 @@ function ScheduleTab() {
                     onChange={(slot) => setEditingShift({ ...editingShift, slot })}
                   />
                 </View>
-
-                {/* [한글 주석: 근무 시간대 설정 2분할 세그먼트]
-                    일반과 피크를 50%씩 양분하여 나란히 노출해 조작감을 대폭 높였습니다. */}
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>근무 시간대 종류</Text>
-                  <View style={styles.peakSegmentContainer}>
-                    <PressableScale
-                      style={[
-                        styles.peakSegmentBtn,
-                        !editingShift.peak && styles.segmentBtnActiveNormal,
-                      ]}
-                      onPress={() => setEditingShift({ ...editingShift, peak: false })}
-                      to={0.94} // 누를 때 텐션 있는 입체 반응
-                    >
-                      <Text
-                        style={[
-                          styles.peakSegmentText,
-                          !editingShift.peak && styles.segmentTextActiveNormal,
-                        ]}
-                      >
-                        일반 시간대
-                      </Text>
-                    </PressableScale>
-
-                    <PressableScale
-                      style={[
-                        styles.peakSegmentBtn,
-                        editingShift.peak && styles.segmentBtnActivePeak,
-                      ]}
-                      onPress={() => setEditingShift({ ...editingShift, peak: true })}
-                      to={0.94}
-                    >
-                      <Text
-                        style={[
-                          styles.peakSegmentText,
-                          editingShift.peak && styles.segmentTextActivePeak,
-                        ]}
-                      >
-                        🔥 피크 시간대
-                      </Text>
-                    </PressableScale>
-                  </View>
-                </View>
               </View>
             )}
 
@@ -763,13 +845,13 @@ function ScheduleTab() {
                 <Text style={styles.btnCancelText}>취소</Text>
               </PressableScale>
 
-              <PressableScale style={styles.btnSave} onPress={handleSave}>
-                <Text style={styles.btnSaveText}>저장</Text>
+              <PressableScale style={[styles.btnSave, saving && { opacity: 0.6 }]} onPress={handleSave}>
+                <Text style={styles.btnSaveText}>{saving ? '저장 중…' : '저장'}</Text>
               </PressableScale>
 
               {/* [한글 주석] 기존 스케줄 수정 시에만 삭제 버튼을 맨 오른쪽 구석에 노출 */}
-              {editingShift?.index !== -1 && (
-                <PressableScale style={styles.btnDelete} onPress={() => editingShift && handleDelete(editingShift.index)}>
+              {editingShift !== null && editingShift.id !== null && (
+                <PressableScale style={styles.btnDelete} onPress={() => handleDelete(editingShift.id as number)}>
                   <Text style={styles.btnDeleteText}>삭제</Text>
                 </PressableScale>
               )}

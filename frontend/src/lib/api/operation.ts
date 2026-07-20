@@ -186,6 +186,56 @@ export async function listPayroll(yearMonth: string): Promise<Payroll[]> {
   );
 }
 
+// ---------- 근무 스케줄 ----------
+export type Schedule = {
+  id: number;
+  employee_id: number;
+  start_time: string;
+  end_time: string;
+  date: string; // YYYY-MM-DD
+  actual_start_time?: string | null;
+  actual_end_time?: string | null;
+};
+
+/** 등록된 근무 스케줄 전체 조회 */
+export async function listSchedules(): Promise<Schedule[]> {
+  return unwrap(await apiFetch<CommonResponse<Schedule[]>>('/api/v1/operation/schedules'));
+}
+
+/** 근무 스케줄 등록 */
+export async function createSchedule(body: {
+  employee_id: number;
+  start_time: string;
+  end_time: string;
+}): Promise<Schedule> {
+  return unwrap(
+    await apiFetch<CommonResponse<Schedule>>('/api/v1/operation/schedules', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+/** 근무 스케줄 시간 수정 */
+export async function updateSchedule(
+  id: number,
+  body: { start_time?: string; end_time?: string },
+): Promise<Schedule> {
+  return unwrap(
+    await apiFetch<CommonResponse<Schedule>>(`/api/v1/operation/schedules/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+/** 근무 스케줄 삭제 */
+export async function deleteSchedule(id: number): Promise<null> {
+  return unwrap(
+    await apiFetch<CommonResponse<null>>(`/api/v1/operation/schedules/${id}`, { method: 'DELETE' }),
+  );
+}
+
 // ---------- 챗봇 / ERP 신규: 직원별 기피/불가 시간 & 스케줄 추천 ----------
 export type EmployeeUnavailability = {
   id: number;
@@ -220,10 +270,10 @@ export type HourlyRecommendation = {
 
 export type ScheduleRecommendation = {
   target_date: string;
-  hourly_recommendations: HourlyRecommendation[];
+  hourly_recommendations?: HourlyRecommendation[];
   total_recommended_hours: number;
   estimated_payroll_cost: number;
-  warnings: string[];
+  warnings?: string[];
   summary: string;
 };
 
@@ -271,7 +321,7 @@ export async function deleteUnavailability(token: string, unavailabilityId: numb
   });
 }
 
-/** 알바 스케줄 추천 API */
+/** 알바 스케줄 추천 API (기피시간 반영) */
 export async function getScheduleRecommendation(
   token: string,
   targetDate: string,
@@ -286,3 +336,15 @@ export async function getScheduleRecommendation(
   );
 }
 
+/** AI 스케줄 추천 — 과거 매출 시간대 분석 기반 */
+export async function recommendSchedule(body: {
+  target_date: string;
+  store_id?: string;
+}): Promise<ScheduleRecommendation> {
+  return unwrap(
+    await apiFetch<CommonResponse<ScheduleRecommendation>>('/api/v1/operation/schedules/recommend', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  );
+}
