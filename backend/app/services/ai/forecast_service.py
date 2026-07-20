@@ -404,9 +404,166 @@ def _load_hourly_shares(db, store_id: str, target_weekday: int) -> dict[str, flo
     return shares
 
 
+# 시간별 자료가 없을 때 쓰는 카페 기본 판매 곡선 (0~23시, 합계 1.0) — 점심·오후 피크
+_DEFAULT_HOUR_PROFILE = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0.06, 0.07, 0.09, 0.13, 0.11, 0.10, 0.09, 0.08, 0.07, 0.08, 0.07, 0.05,
+    0, 0, 0,
+]
+
+
+def _hourly_profile(db, store_id: str, target_weekday: int) -> list[float]:
+    """최근 60일 동일 요일의 시간(0~23시)별 판매 비중. 자료가 없으면 기본 곡선."""
+    import pandas as pd
+    from app.models.inventory import Sale
+
+    since = (date.today() - timedelta(days=60)).isoformat()
+    rows = (
+        db.query(Sale.sold_at, Sale.quantity)
+        .filter(Sale.store_id == store_id, Sale.sold_at >= since)
+        .all()
+    )
+    if not rows:
+        return list(_DEFAULT_HOUR_PROFILE)
+
+    df = pd.DataFrame(rows, columns=["sold_at", "quantity"])
+    df["sold_at"] = pd.to_datetime(df["sold_at"])
+    df_day = df[df["sold_at"].dt.weekday == target_weekday]
+    if df_day.empty:
+        df_day = df
+    grouped = df_day.groupby(df_day["sold_at"].dt.hour)["quantity"].sum()
+    total = float(grouped.sum())
+    if total <= 0:
+        return list(_DEFAULT_HOUR_PROFILE)
+    return [float(grouped.get(h, 0)) / total for h in range(24)]
+
+
+def _today_actuals(db, store_id: str) -> dict[str, Any]:
+    """오늘 실제 판매 실적 — 총액·잔 수·시간(0~23시)별 집계 + 어제 총매출(증감 비교용).
+
+    대시보드 '오늘 실시간' 그래프용. 기록이 없으면 전부 0 — 경영 리포트와 같은 기준이라
+    리포트가 0원인데 그래프만 매출이 있는 것처럼 보이는 불일치가 생기지 않는다.
+    """
+    from datetime import datetime
+    from app.models.inventory import Sale
+
+    today = date.today()
+    yesterday_iso = (today - timedelta(days=1)).isoformat()
+
+    rows = (
+        db.query(Sale.sold_at, Sale.quantity, Sale.total_price)
+        .filter(Sale.store_id == store_id, Sale.sold_at >= yesterday_iso)
+        .all()
+    )
+    hourly = [{"hour": h, "cups": 0, "revenue": 0} for h in range(24)]
+    cups = revenue = yesterday_revenue = 0
+    for sold_at, qty, price in rows:
+        try:
+            dt = sold_at if isinstance(sold_at, datetime) else datetime.fromisoformat(str(sold_at))
+        except ValueError:
+            continue
+        if dt.date() == today:
+            cups += qty
+            revenue += price
+            hourly[dt.hour]["cups"] += qty
+            hourly[dt.hour]["revenue"] += price
+        else:
+            yesterday_revenue += price
+    return {
+        "date": today.isoformat(),
+        "cups": round(cups),
+        "revenue": round(revenue),
+        "yesterday_revenue": round(yesterday_revenue),
+        "hourly": [{"hour": h["hour"], "cups": round(h["cups"]), "revenue": round(h["revenue"])} for h in hourly],
+    }
+
+
 # ---------------------------------------------------------------------------
 # 공개 인터페이스
 # ---------------------------------------------------------------------------
+
+def sales_calendar(store_id: str, year: int, month: int) -> dict[str, Any]:
+    """월간 캘린더용 일별 판매 집계 — 대시보드 월간 뷰가 쓴다.
+
+    일별 매출·잔 수·베스트 메뉴·피크 시간대와 월 합계를 실제 Sale 기록으로 집계한다.
+    전월 비교는 '같은 경과일까지'만 합산한다 — 진행 중인 달을 전월 전체와 비교하면
+    항상 감소로 보이기 때문 (report_service의 비교 원칙과 동일).
+    """
+    from datetime import datetime
+    from app.models.inventory import Menu, Sale
+    from app.services.ai.document_service import _session
+
+    first = date(year, month, 1)
+    next_first = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    prev_first = date(year - 1, 12, 1) if month == 1 else date(year, month - 1, 1)
+
+    with _session() as db:
+        rows = (
+            db.query(Sale.sold_at, Sale.quantity, Sale.total_price, Menu.name)
+            .outerjoin(Menu, Sale.menu_id == Menu.id)
+            .filter(
+                Sale.store_id == store_id,
+                Sale.sold_at >= prev_first.isoformat(),
+                Sale.sold_at < next_first.isoformat(),
+            )
+            .all()
+        )
+
+    today = date.today()
+    prev_cutoff_day = today.day if (year, month) == (today.year, today.month) else 31
+
+    days: dict[int, dict[str, Any]] = {}
+    month_cups = month_rev = 0.0
+    prev_cups = prev_rev = 0.0
+    for sold_at, qty, price, menu_name in rows:
+        try:
+            dt = sold_at if isinstance(sold_at, datetime) else datetime.fromisoformat(str(sold_at))
+        except ValueError:
+            continue
+        d = dt.date()
+        if d >= first:
+            day = days.setdefault(d.day, {"date": d.isoformat(), "cups": 0.0, "revenue": 0.0,
+                                          "menus": {}, "hours": {}})
+            day["cups"] += qty
+            day["revenue"] += price
+            if menu_name:
+                day["menus"][menu_name] = day["menus"].get(menu_name, 0) + qty
+            day["hours"][dt.hour] = day["hours"].get(dt.hour, 0) + qty
+            month_cups += qty
+            month_rev += price
+        elif d.day <= prev_cutoff_day:
+            prev_cups += qty
+            prev_rev += price
+
+    out_days = []
+    for day_num in sorted(days):
+        d = days[day_num]
+        top = sorted(d["menus"].items(), key=lambda kv: -kv[1])[:2]
+        peak_hour = max(d["hours"], key=d["hours"].get) if d["hours"] else None
+        out_days.append({
+            "day": day_num,
+            "date": d["date"],
+            "cups": round(d["cups"]),
+            "revenue": round(d["revenue"]),
+            "top_menus": [{"name": name, "qty": round(q)} for name, q in top],
+            "peak_hour": peak_hour,
+        })
+
+    # 월 대표 피크 시간대 = 일별 피크 시간의 최빈값
+    peaks = [d["peak_hour"] for d in out_days if d["peak_hour"] is not None]
+    month_peak = max(set(peaks), key=peaks.count) if peaks else None
+
+    return {
+        "year": year,
+        "month": month,
+        "month_total": {"cups": round(month_cups), "revenue": round(month_rev)},
+        "prev_month_total": {"cups": round(prev_cups), "revenue": round(prev_rev)},
+        "change_pct": round((month_rev - prev_rev) / prev_rev * 100, 1) if prev_rev else None,
+        "avg_price": round(month_rev / month_cups) if month_cups else None,
+        "peak_hour": month_peak,
+        "days": out_days,
+    }
+
 
 def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = None,
              days: int = 7, events: Optional[list[dict]] = None) -> dict[str, Any]:
@@ -431,20 +588,34 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
                 f"최소 {MIN_HISTORY_DAYS}일의 판매 기록이 쌓이면 예측이 열립니다. "
                 "(POS 동기화 또는 판매 입력을 계속해 주세요)")
 
+        # 예측 시작일은 실제 '내일'로 고정한다 — 마지막 판매일 다음 날로 잡으면
+        # 판매 입력이 며칠 끊겼을 때 '내일 예측'이 과거 날짜의 예측이 되어버린다.
+        # 공백(gap)만큼 예측 스텝을 더 뽑고, 실제 내일 이후 구간만 잘라 쓴다.
+        last_sale_day = series.index[-1].date()
+        start = max(date.today(), last_sale_day) + timedelta(days=1)
+        gap = (start - last_sale_day).days - 1
+        if gap > 90:
+            raise ForecastError(
+                f"마지막 판매 기록({last_sale_day.isoformat()})이 {gap}일 전이라 예측 정확도를 보장할 수 없어요. "
+                "판매 입력 또는 POS 동기화를 다시 시작하면 예측이 열립니다.")
+        horizon = days + gap
+
         # 시계열 기본 예측 (잔 수·매출 각각)
         model_name = f"SARIMAX(1,0,1)×(1,0,1,7) 주간 계절성 (학습 {len(series)}일)"
-        cups_pred = _forecast_sarimax(series["cups"], days)
-        rev_pred = _forecast_sarimax(series["revenue"], days) if cups_pred else None
+        cups_pred = _forecast_sarimax(series["cups"], horizon)
+        rev_pred = _forecast_sarimax(series["revenue"], horizon) if cups_pred else None
         if cups_pred is None or rev_pred is None:
             model_name = f"요일별 평균×추세 (학습 {len(series)}일, 폴백)"
-            cups_pred = _forecast_seasonal(series["cups"], days)
-            rev_pred = _forecast_seasonal(series["revenue"], days)
+            cups_pred = _forecast_seasonal(series["cups"], horizon)
+            rev_pred = _forecast_seasonal(series["revenue"], horizon)
+        # 마지막 판매일~내일 사이 공백 구간은 버리고 실제 내일부터 days개만 사용
+        cups_pred = cups_pred[gap:]
+        rev_pred = rev_pred[gap:]
 
         weather = _fetch_weather(lat, lon, days)
         region = _reverse_geocode(lat, lon)
 
         # 주변 행사 자동 수집(서울 문화행사 API) + 사장님이 직접 알려준 행사 병합
-        start = series.index[-1].date() + timedelta(days=1)
         nearby_events = _fetch_nearby_events(lat, lon, start, days)
         all_events = events + nearby_events
 
@@ -502,19 +673,43 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
             "revenue": max(0, tomorrow_revenue - allocated_revenue)
         })
 
+        # 내일 24시간 상세 분배 — 대시보드가 '현재 시각 기준 내일 같은 시각' 예측을 그릴 때 쓴다.
+        # 누적 목표치에서 직전 할당분을 빼는 방식이라 반올림 오차가 특정 시간에 몰리지 않는다.
+        profile = _hourly_profile(db, store_id, tomorrow_weekday)
+        tomorrow_hourly_24 = []
+        cum_share = 0.0
+        alloc_c = alloc_r = 0
+        for h in range(24):
+            cum_share += profile[h]
+            c_target = round(tomorrow_cups * min(cum_share, 1.0))
+            r_target = round(tomorrow_revenue * min(cum_share, 1.0))
+            tomorrow_hourly_24.append({
+                "hour": h,
+                "cups": max(0, c_target - alloc_c),
+                "revenue": max(0, r_target - alloc_r),
+            })
+            alloc_c, alloc_r = c_target, r_target
+
+        # 오늘 실시간 실적 (경영 리포트와 동일한 Sale 기준 집계)
+        today_actual = _today_actuals(db, store_id)
+
     return {
         "store_id": store_id,
         "location": {"lat": lat, "lon": lon, "region": region},
         "model": model_name,
         "history_days": len(series),
+        "today": today_actual,
         "tomorrow": week[0],
         "tomorrow_hourly": tomorrow_hourly,
+        "tomorrow_hourly_24": tomorrow_hourly_24,
         "week": week,
         "week_total": {"cups": week_cups, "revenue": sum(d["revenue"] for d in week)},
         "order_recommendations": recommendations,
         "nearby_events": nearby_events,   # 자동 수집 (서울 문화행사, 반경 3km)
         "events_applied": events,         # 사장님이 직접 입력한 행사
-        "note": "시계열 예측에 날씨(강수 -10%, 폭염 +5%)·주변 행사(자동 +10%/건, 직접 입력 +20%) "
+        "note": (f"마지막 판매 기록({last_sale_day.isoformat()}) 이후 {gap}일의 공백을 건너뛰고 "
+                 "실제 내일부터 예측했습니다. " if gap > 0 else "")
+                + "시계열 예측에 날씨(강수 -10%, 폭염 +5%)·주변 행사(자동 +10%/건, 직접 입력 +20%) "
                 "보정을 적용한 참고치입니다. 행사 자동 수집은 서울 지역(반경 3km) 문화행사 기준이며, "
                 "그 외 지역이나 놓친 행사는 챗봇에 말하면 반영됩니다.",
     }

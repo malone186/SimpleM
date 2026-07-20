@@ -12,36 +12,73 @@ import SalesCard from '../../components/dashboard/SalesCard';
 import TodoList, { type Todo } from '../../components/dashboard/TodoList';
 import WelcomeHeader from '../../components/dashboard/WelcomeHeader';
 import { FadeInUp, PressableScale } from '../../components/motion';
+import { listCompliance } from '../../lib/api/documents';
+import { listStocks } from '../../lib/api/inventory';
 import { colors, spacing, typography, shadows } from '../../theme';
 
-const INITIAL_TODOS: Todo[] = [
-  {
-    id: 'beans',
-    title: '원두 재고 부족',
-    subtitle: '에티오피아 예가체프 · 안전재고 미달',
-    actionable: true,
-  },
-  {
-    id: 'milk',
-    title: '우유 소진 임박',
-    subtitle: '서울우유 1L · 잔여 3팩',
-    actionable: true,
-  },
-  {
-    id: 'report',
-    title: '주간 리포트 도착',
-    subtitle: '이번 주 원가율 +3%p — 챗봇에서 확인',
-    actionable: false,
-  },
-];
-
 export default function DashboardScreen() {
-  const [todos, setTodos] = useState<Todo[]>(INITIAL_TODOS);
+  const [todos, setTodos] = useState<Todo[]>([]);
   const [selected, setSelected] = useState<Todo | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [runId, setRunId] = useState(0);
 
-  const { user } = useAuth();
+  const { user, token } = useAuth();
+
+  // 오늘 할 일 — 실제 재고(안전재고 미달)와 서류 갱신 임박 항목으로 구성 (하드코딩 없음)
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      const next: Todo[] = [];
+      try {
+        const stocks = await listStocks(token);
+        stocks
+          .filter((s) => s.current_quantity <= s.safety_quantity)
+          .sort(
+            (a, b) =>
+              a.current_quantity / (a.safety_quantity || 1) -
+              b.current_quantity / (b.safety_quantity || 1),
+          )
+          .slice(0, 4)
+          .forEach((s) => {
+            const soldOut = s.current_quantity <= 0;
+            next.push({
+              id: `stock-${s.ingredient_id}`,
+              title: soldOut ? `${s.name} 재고 소진` : `${s.name} 재고 부족`,
+              subtitle: `잔여 ${s.current_quantity}${s.unit} · 안전재고 ${s.safety_quantity}${s.unit}`,
+              actionable: true,
+              // 안전재고의 2배까지 채우는 추천량 — 실제 확정은 발주 승인 플로우에서
+              qty: `${Math.max(Math.ceil(s.safety_quantity * 2 - s.current_quantity), 1)} ${s.unit}`,
+            });
+          });
+      } catch (e) {
+        console.error('재고 할 일 조회 실패:', e);
+      }
+      try {
+        const items = await listCompliance(token);
+        items
+          .filter((c) => c.status !== 'ok')
+          .slice(0, 2)
+          .forEach((c) => {
+            next.push({
+              id: `comp-${c.id}`,
+              title: c.status === 'expired' ? `${c.name} 만료됨` : `${c.name} 갱신 임박`,
+              subtitle:
+                c.status === 'expired'
+                  ? `만료일 ${c.expiry_date} 경과 — 챗봇에서 갱신 안내 확인`
+                  : `D-${c.days_left} · 만료일 ${c.expiry_date}`,
+              actionable: false,
+            });
+          });
+      } catch (e) {
+        console.error('서류 갱신 할 일 조회 실패:', e);
+      }
+      if (!cancelled) setTodos(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, runId]);
   const navigation = useNavigation<any>();
   const isFocused = useIsFocused();
 
