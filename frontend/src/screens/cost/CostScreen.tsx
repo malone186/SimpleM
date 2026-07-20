@@ -129,7 +129,7 @@ export default function CostScreen() {
               <Detail label="원가" value={`₩${cost.toLocaleString()}`} />
               <Detail label="마진" value={`₩${margin.toLocaleString()}`} accent />
             </View>
-            <Divider style={{ marginVertical: 8 }} />
+            <Divider />
             
             {/* [한글 주석: 사장님께 AI 원가 절감 추천을 클릭하도록 안내하는 버튼] */}
             <Pressable
