@@ -219,7 +219,8 @@ def _inventory_snapshot(db, store_id: str) -> dict[str, Any]:
         total_value += qty * ing.current_price
         if stock and stock.safety_quantity > 0 and stock.current_quantity <= stock.safety_quantity:
             low_stock.append({
-                "name": f"{ing.name} ({ing.unit})",
+                "name": ing.name,
+                "unit": ing.unit,
                 "current_quantity": stock.current_quantity,
                 "safety_quantity": stock.safety_quantity,
             })
@@ -249,14 +250,23 @@ def _order_snapshot(db, store_id: str) -> dict[str, Any]:
 # 하이라이트 — 숫자에서 바로 읽어낼 수 있는 사실만 (해석·조언은 LLM 몫)
 # ---------------------------------------------------------------------------
 
-def _build_highlights(sales: dict, labor: dict,
-                      inventory: dict, compliance: list, profit: dict) -> list[str]:
+_PREV_WORD = {"daily": "전날보다", "weekly": "지난주보다", "monthly": "지난달보다"}
+
+
+def _fmt_qty(v: float) -> str:
+    """4.0 → '4', 1.5 → '1.5' — 수량을 군더더기 없이 표기."""
+    return str(int(v)) if float(v).is_integer() else str(v)
+
+
+def _build_highlights(sales: dict, labor: dict, inventory: dict,
+                      compliance: list, profit: dict, period_type: str) -> list[str]:
     h: list[str] = []
+    prev_word = _PREV_WORD.get(period_type, "이전 기간보다")
     if sales["change_pct"] is not None:
         direction = "증가" if sales["change_pct"] >= 0 else "감소"
-        h.append(f"매출 {sales['total']:,}원 — 이전 기간 대비 {abs(sales['change_pct'])}% {direction}")
+        h.append(f"매출 {sales['total']:,}원 — {prev_word} {abs(sales['change_pct'])}% {direction}")
     else:
-        h.append(f"매출 {sales['total']:,}원 (이전 기간 매출이 없어 비교 불가)")
+        h.append(f"매출 {sales['total']:,}원 (비교할 이전 매출 없음)")
     if sales["top_menus"]:
         best = sales["top_menus"][0]
         h.append(f"베스트 메뉴: {best['menu']} ({best['quantity']}잔, {best['total']:,}원)")
@@ -266,12 +276,19 @@ def _build_highlights(sales: dict, labor: dict,
     else:
         h.append(f"번 돈보다 쓴 돈이 {abs(profit['estimated_profit']):,}원 많음 — 비용 점검 필요")
     if inventory["low_stock"]:
-        h.append(f"곧 떨어질 재료 {len(inventory['low_stock'])}종 — 주문 필요")
-    if compliance:
-        h.append(f"기한이 다가온 서류 {len(compliance)}건")
+        # 어떤 재료가 얼마나 남았는지까지 바로 보여준다 — '3종' 같은 개수만으로는 행동을 못 정한다
+        items = [f"{it['name']} {_fmt_qty(it['current_quantity'])}{it['unit']}"
+                 for it in inventory["low_stock"][:3]]
+        more = len(inventory["low_stock"]) - 3
+        h.append("주문 필요: " + " · ".join(items) + (f" 외 {more}종" if more > 0 else "") + " 남음")
+    for doc in compliance[:2]:
+        left = "이미 만료" if doc.get("status") == "expired" else f"{doc['days_left']}일 남음"
+        h.append(f"서류 갱신 필요: {doc['name']} ({left})")
+    if len(compliance) > 2:
+        h.append(f"갱신할 서류 외 {len(compliance) - 2}건 더 있음")
     if labor["estimated_cost"] and sales["total"]:
         ratio = round(labor["estimated_cost"] / sales["total"] * 100, 1)
-        h.append(f"매출 중 인건비로 나간 비중 {ratio}%")
+        h.append(f"인건비는 매출의 {ratio}%")
     return h
 
 
@@ -398,7 +415,7 @@ def generate_management_report(store_id: str, period_type: str = "weekly",
         "inventory": inventory,
         "orders": orders,
         "compliance_alerts": compliance,
-        "highlights": _build_highlights(sales, labor, inventory, compliance, profit),
+        "highlights": _build_highlights(sales, labor, inventory, compliance, profit, period_type),
         "note": "매입은 스캔해서 확정한 영수증·거래명세서 기준, 인건비는 지금까지 일한 시간×시급으로 계산한 추정치입니다. "
                 "현금 매입·주휴수당 등 빠진 금액이 있을 수 있어 참고용으로 봐 주세요.",
     }
