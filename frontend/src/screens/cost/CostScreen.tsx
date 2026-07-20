@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../../auth/AuthContext';
 import { Card, Divider, ProgressBar, Screen, ScreenTitle, SectionTitle, Badge } from '../../components/ui';
+import { PressableScale } from '../../components/motion'; // [한글 주석: 터치 이벤트가 씹히지 않는 최적화 모션 프레스 컴포넌트 추가]
 import { apiFetch } from '../../lib/api/client';
 import { toast } from '../../components/toast';
 import { colors, typography } from '../../theme';
@@ -57,7 +58,11 @@ export default function CostScreen() {
 
   // [한글 주석: 특정 상품의 실시간 원가 절감 추천 정보를 백엔드에서 비동기 호출해 오는 함수입니다]
   const fetchRecommendations = async (menuId: number, menuName: string) => {
-    if (!token) return;
+    console.log('AI 원가 추천 터치 이벤트 캡처 성공:', menuId, menuName);
+    if (!token) {
+      console.warn('사용자 토큰이 유실되어 API 요청을 중단합니다.');
+      return;
+    }
     setRecLoading(true);
     setSelectedMenuName(menuName);
     setModalVisible(true);
@@ -66,6 +71,7 @@ export default function CostScreen() {
         headers: { Authorization: `Bearer ${token}` },
       });
       setRecommendations(data);
+      console.log('AI 원가 추천 데이터 연산 조회 완료:', data);
     } catch (e) {
       console.error('원가 절감 추천 로드 실패:', e);
       toast('추천 로드 실패', '대체재 가격 정보 데이터를 가져오지 못했습니다.');
@@ -76,80 +82,77 @@ export default function CostScreen() {
   };
 
   return (
-    <Screen>
-      <ScreenTitle title="원가 분석" subtitle="메뉴별 원가율 · 단가 변동 자동 반영" />
+    <View style={{ flex: 1 }}>
+      <Screen>
+        <ScreenTitle title="원가 분석" subtitle="메뉴별 원가율 · 단가 변동 자동 반영" />
 
-      {/* 요약 */}
-      <Card>
-        <Text style={styles.summaryLabel}>전체 평균 원가율</Text>
-        <Text style={styles.summaryValue}>{avg !== null ? `${avg}%` : '—'}</Text>
-        <Text style={styles.summaryHint}>일반적으로 30~35% 이하를 권장해요</Text>
-      </Card>
-
-      <SectionTitle>메뉴별 원가율</SectionTitle>
-
-      {menus === null && !failed && (
+        {/* 요약 */}
         <Card>
-          <View style={styles.stateWrap}>
-            <ActivityIndicator color={colors.mochaBrown} />
-            <Text style={styles.stateText}>메뉴 원가를 계산하는 중…</Text>
-          </View>
+          <Text style={styles.summaryLabel}>전체 평균 원가율</Text>
+          <Text style={styles.summaryValue}>{avg !== null ? `${avg}%` : '—'}</Text>
+          <Text style={styles.summaryHint}>일반적으로 30~35% 이하를 권장해요</Text>
         </Card>
-      )}
 
-      {failed && (
-        <Card>
-          <Text style={styles.stateText}>원가 정보를 가져오지 못했어요. 로그인과 서버를 확인해 주세요.</Text>
-        </Card>
-      )}
+        <SectionTitle>메뉴별 원가율</SectionTitle>
 
-      {menus !== null && rows.length === 0 && !failed && (
-        <Card>
-          <Text style={styles.stateText}>등록된 메뉴가 없어요. 메뉴 관리에서 메뉴와 레시피를 등록하면 원가율이 자동 계산됩니다.</Text>
-        </Card>
-      )}
-
-      {rows.map((m) => {
-        const cost = m.cost_price ?? 0;
-        const rate = Math.round(rateOf(m));
-        const margin = m.selling_price - cost;
-        const high = rate > 35;
-        return (
-          <Card key={m.id}>
-            <View style={styles.head}>
-              <Text style={styles.name}>{m.name}</Text>
-              <Text style={[styles.rate, { color: high ? '#B23B2E' : colors.trendGreenText }]}>
-                {rate}%
-              </Text>
+        {menus === null && !failed && (
+          <Card>
+            <View style={styles.stateWrap}>
+              <ActivityIndicator color={colors.mochaBrown} />
+              <Text style={styles.stateText}>메뉴 원가를 계산하는 중…</Text>
             </View>
-            <ProgressBar ratio={Math.min(rate, 100) / 100} tone={high ? 'danger' : 'green'} />
-            <Divider />
-            <View style={styles.detailRow}>
-              <Detail label="판매가" value={`₩${m.selling_price.toLocaleString()}`} />
-              <Detail label="원가" value={`₩${cost.toLocaleString()}`} />
-              <Detail label="마진" value={`₩${margin.toLocaleString()}`} accent />
-            </View>
-            <Divider />
-            
-            {/* [한글 주석: 사장님께 AI 원가 절감 추천을 클릭하도록 안내하는 버튼] */}
-            <Pressable
-              style={styles.recommendBtn}
-              onPress={() => fetchRecommendations(m.id, m.name)}
-            >
-              <Ionicons name="sparkles" size={13} color="#FFFFFF" style={{ marginRight: 6 }} />
-              <Text style={styles.recommendBtnText}>AI 원가 절감 추천</Text>
-            </Pressable>
           </Card>
-        );
-      })}
+        )}
 
-      {/* [한글 주석: AI 원가 절감 추천 화면을 모달 팝업 바텀 시트 형태로 띄웁니다] */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
-      >
+        {failed && (
+          <Card>
+            <Text style={styles.stateText}>원가 정보를 가져오지 못했어요. 로그인과 서버를 확인해 주세요.</Text>
+          </Card>
+        )}
+
+        {menus !== null && rows.length === 0 && !failed && (
+          <Card>
+            <Text style={styles.stateText}>등록된 메뉴가 없어요. 메뉴 관리에서 메뉴와 레시피를 등록하면 원가율이 자동 계산됩니다.</Text>
+          </Card>
+        )}
+
+        {rows.map((m) => {
+          const cost = m.cost_price ?? 0;
+          const rate = Math.round(rateOf(m));
+          const margin = m.selling_price - cost;
+          const high = rate > 35;
+          return (
+            <Card key={m.id}>
+              <View style={styles.head}>
+                <Text style={styles.name}>{m.name}</Text>
+                <Text style={[styles.rate, { color: high ? '#B23B2E' : colors.trendGreenText }]}>
+                  {rate}%
+                </Text>
+              </View>
+              <ProgressBar ratio={Math.min(rate, 100) / 100} tone={high ? 'danger' : 'green'} />
+              <Divider />
+              <View style={styles.detailRow}>
+                <Detail label="판매가" value={`₩${m.selling_price.toLocaleString()}`} />
+                <Detail label="원가" value={`₩${cost.toLocaleString()}`} />
+                <Detail label="마진" value={`₩${margin.toLocaleString()}`} accent />
+              </View>
+              <Divider />
+              
+              {/* [한글 주석: 꾹 눌리는 감각 피드백과 확실한 터치 감지를 위해 PressableScale 컴포넌트로 개조] */}
+              <PressableScale
+                style={styles.recommendBtn}
+                onPress={() => fetchRecommendations(m.id, m.name)}
+              >
+                <Ionicons name="sparkles" size={13} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text style={styles.recommendBtnText}>AI 원가 절감 추천</Text>
+              </PressableScale>
+            </Card>
+          );
+        })}
+      </Screen>
+
+      {/* [한글 주석: 스크롤 뷰(Screen) 영향을 받지 않도록 스크롤 뷰의 바깥(형제 레벨)에 절대 배치 팝업을 얹습니다] */}
+      {modalVisible && (
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
@@ -225,8 +228,8 @@ export default function CostScreen() {
             </ScrollView>
           </View>
         </View>
-      </Modal>
-    </Screen>
+      )}
+    </View>
   );
 }
 
@@ -280,24 +283,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // [한글 주석: 모달 팝업 오버레이 및 콘텐츠 레이아웃 스타일시트]
+  // [한글 주석: 웹 컴파일 시 기기 스크린을 탈출하는 현상을 막기 위한 절대 좌표 스타일시트]
   modalOverlay: {
-    flex: 1,
+    position: 'absolute',    // position을 absolute로 선언하여 폰 액정 스크린 내에 절대 위치시킵니다.
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
     alignItems: 'center',
-    width: '100%',
-    maxWidth: 420,         // [한글 주석] 어두운 뒷배경(딤드)마저도 휴대폰 액정 가로폭(420px) 밖으로 절대 나가지 못하도록 가둡니다.
-    alignSelf: 'center',   // [한글 주석] 브라우저 상에서 가상 스마트폰 중앙에 가로 정렬을 고정시킵니다.
+    zIndex: 9999,            // 폰 안에서 최상단 레이어로 출력되게 처리합니다.
   },
   modalContent: {
     backgroundColor: '#FAF7F2',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    height: '75%',
+    height: '80%',           // 폰 화면 내에서 스크롤 공간을 넉넉히 확보하기 위해 높이 80% 지정
     paddingTop: 16,
     width: '100%',
-    maxWidth: 420,         // [한글 주석] 480 -> 420으로 축소하여 폰 스크린 액정 너비 내에 팝업 테두리를 온전히 일치시킵니다.
   },
   modalHeader: {
     flexDirection: 'row',
