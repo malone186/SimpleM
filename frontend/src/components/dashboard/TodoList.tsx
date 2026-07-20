@@ -10,6 +10,7 @@ export type Todo = {
   subtitle: string;
   actionable?: boolean; // 발주 액션 대상
   done?: boolean;
+  qty?: string; // 발주 추천 수량 (예: "5 kg") — 재고 API 기준 계산값
 };
 
 export default function TodoList({
@@ -24,6 +25,9 @@ export default function TodoList({
   // [한글 주석: hideCard 옵션을 지원하여 SalesCard 내부에 자연스럽게 삽입될 수 있도록 뼈대를 분리합니다]
   const content = (
     <View style={{ gap: spacing.gridGap }}>
+      {todos.length === 0 && (
+        <Text style={styles.emptyText}>오늘 처리할 일이 없어요 ☕ 재고와 서류가 모두 안정 상태예요.</Text>
+      )}
       {todos.map((todo) => {
         const disabled = todo.done;
         return (
@@ -74,6 +78,7 @@ const styles = StyleSheet.create({
     ...shadows.soft,
   },
   heading: { fontSize: 13, fontWeight: '800', color: colors.espressoBrown, marginBottom: 12, letterSpacing: -0.2 },
+  emptyText: { fontSize: 11, fontWeight: '500', color: colors.mochaBrown, lineHeight: 16 },
   item: {
     flexDirection: 'row',
     alignItems: 'center',
