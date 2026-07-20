@@ -2,11 +2,14 @@
 
 AI-2: 거래명세서/영수증 사진 → {상품, 단가, 수량} 구조화 → 등록 초안.
 
-두 가지 백엔드를 지원한다 (OCR_BACKEND 환경변수로 선택, 폴백 없음):
+세 가지 백엔드를 지원한다 (OCR_BACKEND 환경변수로 선택, 폴백 없음):
   - clova_gemini (기본): OCR+LLM 2단계 (PRD §5.2 ②) — CLOVA OCR로 텍스트 추출 후 Gemini가 구조화.
     가장 빠르고(3~5초) 한국어 정확도가 높다. CLOVA 무료 한도(월 100건)를 파일로 집계해
     매 호출마다 사용 횟수를 응답에 담아 알려준다.
-  - ollama_vlm: VLM 단독 (PRD §5.2 ①) — 로컬 gemma4가 이미지에서 바로 추출. 완전 오프라인용.
+  - qwen_vlm: 파인튜닝 VLM 단독 (PRD §5.2 ①) — 영수증 데이터로 LoRA 파인튜닝한
+    Qwen3-VL-2B가 이미지에서 OCR+구조화를 한 번에. 외부 API 불필요, 무료 한도 없음.
+    학습은 backend/vlm_finetune/ 참고 (어댑터가 없으면 베이스 모델로 동작).
+  - ollama_vlm: VLM 단독 — 로컬 gemma4가 이미지에서 바로 추출. 완전 오프라인용.
 
 흐름: analyze_image(초안 생성) → update_draft(사용자 수정) → confirm_draft(사람 승인, 자동 확정 금지)
 """
@@ -34,6 +37,7 @@ from app.schemas.ai import (
     OcrResult,
     RegisterTarget,
 )
+from app.services.ai.vlm_prompt import EXTRACTION_SCHEMA, RULES, VLM_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +71,13 @@ CLOVA_USAGE_FILE = Path(
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
+# 파인튜닝 Qwen VLM (backend/vlm_finetune/train.py가 만든 LoRA 어댑터)
+QWEN_VLM_BASE = os.getenv("QWEN_VLM_BASE", "Qwen/Qwen3-VL-2B-Instruct")
+QWEN_VLM_ADAPTER_DIR = Path(
+    os.getenv("QWEN_VLM_ADAPTER_DIR", Path(__file__).resolve().parents[3] / "vlm_finetune" / "output" / "adapter")
+)
+QWEN_VLM_MAX_NEW_TOKENS = int(os.getenv("QWEN_VLM_MAX_NEW_TOKENS", "1024"))
+
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 # 기본값을 12b로 둔 이유: gemma4:latest(8B)는 Windows에서 이미지를 인식하지 못하는
 # Ollama 버그가 있다 (ollama/ollama#16532, 수정 PR #16879 미릴리스 — 2026-07 기준)
@@ -83,63 +94,10 @@ UPLOAD_DIR = Path(os.getenv("OCR_UPLOAD_DIR", Path(__file__).resolve().parents[3
 AMOUNT_TOLERANCE = 0.01  # 상대 1%
 AMOUNT_TOLERANCE_ABS = 10  # 절대 10원
 
-# Ollama structured output용 JSON 스키마 — 모델 출력을 이 형태로 강제
-_EXTRACTION_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "doc_type": {
-            "type": "string",
-            "enum": ["purchase_statement", "tax_invoice", "receipt", "sales_summary", "unknown"],
-        },
-        "vendor": {
-            "type": "object",
-            "properties": {
-                "name": {"type": ["string", "null"]},
-                "biz_no": {"type": ["string", "null"]},
-                "phone": {"type": ["string", "null"]},
-            },
-        },
-        "issued_date": {"type": ["string", "null"]},
-        "items": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "spec": {"type": ["string", "null"]},
-                    "quantity": {"type": ["number", "null"]},
-                    "unit": {"type": ["string", "null"]},
-                    "unit_price": {"type": ["number", "null"]},
-                    "amount": {"type": ["number", "null"]},
-                },
-                "required": ["name"],
-            },
-        },
-        "discount": {"type": ["number", "null"]},
-        "subtotal": {"type": ["number", "null"]},
-        "tax": {"type": ["number", "null"]},
-        "total": {"type": ["number", "null"]},
-    },
-    "required": ["doc_type", "items"],
-}
-
-_RULES = """규칙:
-- doc_type: 거래명세서=purchase_statement, 세금계산서=tax_invoice, 구매 영수증=receipt, 매출 일마감/정산표=sales_summary, 판별 불가=unknown
-- vendor: 공급자(판매자) 정보. 사업자등록번호는 biz_no에 숫자와 하이픈만.
-- issued_date: 발행일을 YYYY-MM-DD로. 없으면 null.
-- items: 품목 표의 각 행. 품목명(name)은 적힌 그대로. 규격(spec), 수량(quantity), 단위(unit), 단가(unit_price), 금액(amount)을 채우고 읽을 수 없는 값은 null.
-- 금액류는 쉼표 없는 숫자로. subtotal=공급가액, tax=세액, total=합계.
-- 할인: "판촉/팝 할인", "쿠폰", "멤버십 할인" 등 할인 줄은 품목(items)에 넣지 말고 discount에 할인 총액을 양수로 넣으세요 (-420이면 discount=420). 품목 amount는 할인 전 금액 그대로.
-- "합계수량/금액" 같은 소계 줄도 품목이 아닙니다.
-- 품목 표 바깥(주로 하단이나 우측 아래)의 공급가액·세액·합계 요약과 상단의 전화번호도 빠뜨리지 말고 읽으세요.
-- 영수증에서 품목명 아래 줄의 긴 바코드 숫자(예: 8809599360081)는 품목이 아니므로 무시하세요. 수량·금액이 품목명과 다른 줄에 있어도 같은 품목으로 묶으세요.
-- "행사", "할인" 같은 표시는 품목이 아닙니다. 과세물품가액=subtotal, 부가세=tax, 합계=total로 취급하세요.
-- 원문에 없는 값을 추측해 만들지 마세요. 불확실하면 null."""
-
-_PROMPT = f"""당신은 한국어 거래 서류 인식 전문가입니다. 첨부된 이미지에서 정보를 추출해 JSON으로 반환하세요.
-
-{_RULES}
-"""
+# 추출 프롬프트/스키마는 vlm_prompt.py가 단일 소스 (학습 스크립트와 공유)
+_EXTRACTION_SCHEMA = EXTRACTION_SCHEMA
+_RULES = RULES
+_PROMPT = VLM_PROMPT
 
 _GEMINI_PROMPT = f"""당신은 한국어 거래 서류 구조화 전문가입니다.
 아래는 영수증/거래명세서를 OCR한 원문 텍스트입니다 (줄바꿈은 문서의 실제 줄, OCR 오탈자가 있을 수 있음).
@@ -512,6 +470,67 @@ async def _call_gemini_structurer(ocr_text: str) -> dict[str, Any]:
         raise OcrError(f"Gemini 응답 파싱 실패: {e}") from e
 
 
+# 파인튜닝 Qwen VLM — 프로세스당 1회 로드해 상주시킨다 (로드 ~30초, 이후 호출 수 초)
+_qwen_vlm: Optional[tuple[Any, Any]] = None
+_qwen_vlm_lock = threading.Lock()
+
+
+def _load_qwen_vlm() -> tuple[Any, Any]:
+    global _qwen_vlm
+    with _qwen_vlm_lock:
+        if _qwen_vlm is None:
+            import torch
+            from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
+
+            device = "cuda:0" if torch.cuda.is_available() else "cpu"
+            dtype = torch.bfloat16 if device.startswith("cuda") else torch.float32
+            logger.info("Qwen VLM 로드 시작 — %s (%s)", QWEN_VLM_BASE, device)
+            processor = AutoProcessor.from_pretrained(QWEN_VLM_BASE)
+            model = Qwen3VLForConditionalGeneration.from_pretrained(
+                QWEN_VLM_BASE, dtype=dtype, attn_implementation="sdpa", device_map=device
+            )
+            if (QWEN_VLM_ADAPTER_DIR / "adapter_config.json").exists():
+                from peft import PeftModel
+
+                model = PeftModel.from_pretrained(model, str(QWEN_VLM_ADAPTER_DIR))
+                logger.info("Qwen VLM LoRA 어댑터 적용 — %s", QWEN_VLM_ADAPTER_DIR)
+            else:
+                logger.warning("Qwen VLM 어댑터 없음(%s) — 베이스 모델로 동작. "
+                               "backend/vlm_finetune/train.py로 학습하세요", QWEN_VLM_ADAPTER_DIR)
+            model.eval()
+            _qwen_vlm = (model, processor)
+    return _qwen_vlm
+
+
+def _qwen_vlm_infer_sync(image_bytes: bytes) -> dict[str, Any]:
+    """동기 추론 본체 — 이벤트 루프를 막지 않도록 executor에서 호출된다."""
+    import torch
+
+    model, processor = _load_qwen_vlm()
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    inputs = processor.apply_chat_template(
+        [{"role": "user", "content": [{"type": "image", "image": img}, {"type": "text", "text": _PROMPT}]}],
+        tokenize=True, add_generation_prompt=True, return_dict=True, return_tensors="pt",
+    ).to(model.device)
+    with torch.inference_mode():
+        out = model.generate(**inputs, max_new_tokens=QWEN_VLM_MAX_NEW_TOKENS, do_sample=False)
+    return _parse_model_json(
+        processor.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+    )
+
+
+async def _call_qwen_vlm(image_bytes: bytes) -> dict[str, Any]:
+    """파인튜닝 Qwen3-VL 호출 — 이미지 1장을 구조화 JSON으로 (외부 API 없음)."""
+    try:
+        return await asyncio.get_running_loop().run_in_executor(None, _qwen_vlm_infer_sync, image_bytes)
+    except json.JSONDecodeError as e:
+        raise OcrError(f"Qwen VLM 응답이 JSON이 아닙니다: {e}") from e
+    except OcrError:
+        raise
+    except Exception as e:
+        raise OcrError(f"Qwen VLM 추론 실패: {e}") from e
+
+
 async def _call_vlm(image_bytes: bytes) -> dict[str, Any]:
     """Ollama VLM 호출 — 이미지 1장을 구조화 JSON으로. 파싱 실패 시 1회 재시도."""
     payload = {
@@ -663,6 +682,8 @@ async def _run_backend(backend: str, image_bytes: bytes) -> tuple[dict[str, Any]
         # CLOVA는 고해상도일수록 정확 — VLM보다 크게 보낸다 (무료 한도는 건수 기준)
         text = await _call_clova_ocr(_preprocess_image(image_bytes, max_side=1920))
         return await _call_gemini_structurer(text), text
+    if backend == "qwen_vlm":
+        return await _call_qwen_vlm(_preprocess_image(image_bytes)), None
     if backend == "ollama_vlm":
         return await _call_vlm(_preprocess_image(image_bytes)), None
     raise OcrError(f"알 수 없는 OCR 백엔드: {backend}")
