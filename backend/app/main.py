@@ -65,6 +65,17 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api/v1")
 
 
+@app.on_event("startup")
+def _warmup_local_models() -> None:
+    """로컬 VLM(OCR_BACKEND=qwen_vlm)을 미리 로드 — 첫 OCR 요청의 모델 로드 지연 제거.
+
+    백그라운드 스레드로 돌아가므로 서버 기동을 막지 않고, 다른 백엔드에서는 즉시 반환한다.
+    """
+    from app.services.ai.ocr_service import warmup_ocr_backend
+
+    warmup_ocr_backend()
+
+
 # 1. 서버 작동 테스트용 첫 API (기본 주소로 들어왔을 때 환영 인사)
 @app.get("/")
 def read_root():

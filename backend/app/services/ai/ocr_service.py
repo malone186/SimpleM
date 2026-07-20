@@ -24,6 +24,7 @@ import re
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -77,8 +78,19 @@ QWEN_VLM_ADAPTER_DIR = Path(
     os.getenv("QWEN_VLM_ADAPTER_DIR", Path(__file__).resolve().parents[3] / "vlm_finetune" / "output" / "adapter")
 )
 QWEN_VLM_MAX_NEW_TOKENS = int(os.getenv("QWEN_VLM_MAX_NEW_TOKENS", "1024"))
-# 8GB VRAM에서는 4bit 로드가 사실상 필수 (bf16은 추론 중 OOM). 파인튜닝도 4bit로 했다.
+# 4bit(bnb nf4)는 VRAM을 아끼는 대신 매 토큰마다 역양자화가 들어가 오히려 2배 느리다.
+# RTX 5060(8GB) 실측: 4bit 10 tok/s·25초 vs bf16+어댑터병합 20 tok/s·14초, 피크 VRAM 4.5GB.
+# 2B 모델은 bf16으로도 8GB에 충분히 들어가므로 기본은 bf16. VRAM이 더 좁은 GPU에서만 1로 켤 것.
 QWEN_VLM_LOAD_4BIT = os.getenv("QWEN_VLM_LOAD_4BIT", "0") == "1"
+# LoRA 어댑터를 베이스 가중치에 합쳐 매 토큰 추가 행렬곱을 없앤다 (4bit일 땐 합칠 수 없어 자동 무시).
+QWEN_VLM_MERGE_ADAPTER = os.getenv("QWEN_VLM_MERGE_ADAPTER", "1") == "1"
+# 추론 해상도는 학습(train.py --max-side, 기본 1024)과 반드시 일치시킨다.
+# 1280(기본 전처리)으로 넣으면 학습 때 안 본 해상도라 정확도가 떨어지고,
+# vision 토큰이 (1280/1024)^2≈1.56배로 늘어 prefill이 그만큼 느려진다.
+QWEN_VLM_MAX_IMAGE_SIDE = int(os.getenv("QWEN_VLM_MAX_IMAGE_SIDE", "1024"))
+# Blackwell(RTX 50)은 flash_attention_2를 지원하지만 sm_120 휠이 없을 수 있어 기본은 sdpa.
+# flash-attn이 설치돼 있으면 QWEN_VLM_ATTN=flash_attention_2로 prefill을 더 줄일 수 있다.
+QWEN_VLM_ATTN = os.getenv("QWEN_VLM_ATTN", "sdpa")
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 # 기본값을 12b로 둔 이유: gemma4:latest(8B)는 Windows에서 이미지를 인식하지 못하는
@@ -472,9 +484,12 @@ async def _call_gemini_structurer(ocr_text: str) -> dict[str, Any]:
         raise OcrError(f"Gemini 응답 파싱 실패: {e}") from e
 
 
-# 파인튜닝 Qwen VLM — 프로세스당 1회 로드해 상주시킨다 (로드 ~30초, 이후 호출 수 초)
+# 파인튜닝 Qwen VLM — 프로세스당 1회 로드해 상주시킨다 (로드 ~17초, 이후 호출 10초대)
 _qwen_vlm: Optional[tuple[Any, Any]] = None
 _qwen_vlm_lock = threading.Lock()
+# GPU는 하나뿐이라 추론을 직렬화한다. 기본 executor를 쓰면 동시 요청이 같은 GPU에서
+# 겹쳐 서로를 느리게 만들고 VRAM 피크가 겹쳐 OOM이 난다.
+_qwen_vlm_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="qwen-vlm")
 
 
 def _load_qwen_vlm() -> tuple[Any, Any]:
@@ -497,14 +512,19 @@ def _load_qwen_vlm() -> tuple[Any, Any]:
                     bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.bfloat16,
                 )
             model = Qwen3VLForConditionalGeneration.from_pretrained(
-                QWEN_VLM_BASE, dtype=dtype, attn_implementation="sdpa", device_map=device,
+                QWEN_VLM_BASE, dtype=dtype, attn_implementation=QWEN_VLM_ATTN, device_map=device,
                 quantization_config=quant,
             )
             if (QWEN_VLM_ADAPTER_DIR / "adapter_config.json").exists():
                 from peft import PeftModel
 
                 model = PeftModel.from_pretrained(model, str(QWEN_VLM_ADAPTER_DIR))
-                logger.info("Qwen VLM LoRA 어댑터 적용 — %s", QWEN_VLM_ADAPTER_DIR)
+                # 4bit 위에서는 병합 시 역양자화가 필요해 지원되지 않는다 — bf16일 때만 합친다.
+                if QWEN_VLM_MERGE_ADAPTER and quant is None:
+                    model = model.merge_and_unload()
+                    logger.info("Qwen VLM LoRA 어댑터 병합 — %s", QWEN_VLM_ADAPTER_DIR)
+                else:
+                    logger.info("Qwen VLM LoRA 어댑터 적용 — %s", QWEN_VLM_ADAPTER_DIR)
             else:
                 logger.warning("Qwen VLM 어댑터 없음(%s) — 베이스 모델로 동작. "
                                "backend/vlm_finetune/train.py로 학습하세요", QWEN_VLM_ADAPTER_DIR)
@@ -533,13 +553,34 @@ def _qwen_vlm_infer_sync(image_bytes: bytes) -> dict[str, Any]:
 async def _call_qwen_vlm(image_bytes: bytes) -> dict[str, Any]:
     """파인튜닝 Qwen3-VL 호출 — 이미지 1장을 구조화 JSON으로 (외부 API 없음)."""
     try:
-        return await asyncio.get_running_loop().run_in_executor(None, _qwen_vlm_infer_sync, image_bytes)
+        return await asyncio.get_running_loop().run_in_executor(
+            _qwen_vlm_executor, _qwen_vlm_infer_sync, image_bytes
+        )
     except json.JSONDecodeError as e:
         raise OcrError(f"Qwen VLM 응답이 JSON이 아닙니다: {e}") from e
     except OcrError:
         raise
     except Exception as e:
         raise OcrError(f"Qwen VLM 추론 실패: {e}") from e
+
+
+def warmup_ocr_backend() -> None:
+    """qwen_vlm 백엔드일 때 모델을 미리 로드해 둔다 (첫 요청의 ~17초 로드 지연 제거).
+
+    앱 시작을 막지 않도록 백그라운드 스레드에서 돌린다. 실패해도 첫 요청 때 다시
+    시도하므로 로그만 남기고 넘어간다.
+    """
+    if OCR_BACKEND != "qwen_vlm":
+        return
+
+    def _warm() -> None:
+        try:
+            _load_qwen_vlm()
+            logger.info("Qwen VLM 예열 완료")
+        except Exception as e:  # 예열 실패가 서버 기동을 막아선 안 된다
+            logger.warning("Qwen VLM 예열 실패 — 첫 요청 때 다시 로드합니다: %s", e)
+
+    threading.Thread(target=_warm, name="qwen-vlm-warmup", daemon=True).start()
 
 
 async def _call_vlm(image_bytes: bytes) -> dict[str, Any]:
@@ -694,7 +735,8 @@ async def _run_backend(backend: str, image_bytes: bytes) -> tuple[dict[str, Any]
         text = await _call_clova_ocr(_preprocess_image(image_bytes, max_side=1920))
         return await _call_gemini_structurer(text), text
     if backend == "qwen_vlm":
-        return await _call_qwen_vlm(_preprocess_image(image_bytes)), None
+        # 학습과 같은 해상도(기본 1024)로 — train/serve skew 방지 + vision 토큰 축소
+        return await _call_qwen_vlm(_preprocess_image(image_bytes, max_side=QWEN_VLM_MAX_IMAGE_SIDE)), None
     if backend == "ollama_vlm":
         return await _call_vlm(_preprocess_image(image_bytes)), None
     raise OcrError(f"알 수 없는 OCR 백엔드: {backend}")

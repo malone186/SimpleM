@@ -94,6 +94,8 @@ def main():
     ap.add_argument("--adapter", type=str, default=str(HERE / "output" / "adapter"))
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--max-side", type=int, default=768)
+    ap.add_argument("--merge", action="store_true",
+                    help="어댑터를 베이스에 병합 (서빙과 동일 조건, 추론 ~2.7배 빠름)")
     ap.add_argument("--4bit", dest="use_4bit", action="store_true",
                     help="베이스를 4bit로 로드 (8GB VRAM). 어댑터도 이 위에 올린다")
     args = ap.parse_args()
@@ -118,6 +120,11 @@ def main():
         from peft import PeftModel
         model = PeftModel.from_pretrained(model, args.adapter)
         print(f"adapter loaded: {args.adapter}")
+        # 서빙(ocr_service)은 어댑터를 베이스에 병합해 돌린다. 병합은 수식상 동일하지만
+        # bf16 반올림 차이가 있으므로, 서빙과 같은 조건으로 재려면 --merge를 준다.
+        if args.merge:
+            model = model.merge_and_unload()
+            print("adapter merged into base")
     model.eval()
 
     report, agg = [], {}
