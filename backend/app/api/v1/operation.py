@@ -13,9 +13,10 @@ from app.schemas.operation import (
     RAGDocumentResponse, ReportSourceResponse, PayrollCalculateRequest, PayrollCalculateResponse,
     SettlementCalculateRequest, SettlementCalculateResponse,
     ScheduleRecommendationRequest, ScheduleRecommendationResponse,
-    ExpenseCreate, ExpenseResponse
+    ExpenseCreate, ExpenseResponse,
+    EmployeeUnavailabilityCreate, EmployeeUnavailabilityResponse
 )
-from app.services.operation.operation_service import OperationService
+from app.services.operation.operation_service import OperationService, EmployeeUnavailabilityService
 from app.services.operation.tax_service import TaxService
 from app.services.operation.forecasting_service import ForecastingService
 from app.models.user import User
@@ -105,7 +106,8 @@ def recommend_schedule_api(payload: ScheduleRecommendationRequest, db: Session =
     try:
         recommendation_result = OperationService.recommend_schedule(
             db=db,
-            target_date=payload.target_date,
+            period_start=payload.target_date,
+            period_end=payload.target_date,
             store_id=payload.store_id
         )
         data = ScheduleRecommendationResponse(
@@ -113,6 +115,7 @@ def recommend_schedule_api(payload: ScheduleRecommendationRequest, db: Session =
             hourly_recommendations=recommendation_result["hourly_recommendations"],
             total_recommended_hours=recommendation_result["total_recommended_hours"],
             estimated_payroll_cost=recommendation_result["estimated_payroll_cost"],
+            warnings=recommendation_result.get("warnings", []),
             summary=recommendation_result["summary"]
         )
         return CommonResponse(
@@ -125,6 +128,60 @@ def recommend_schedule_api(payload: ScheduleRecommendationRequest, db: Session =
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
+
+
+# ----------------------------------------------------
+# 챗봇 / ERP 신규: 직원별 기피/불가 시간 API 엔드포인트
+# ----------------------------------------------------
+
+@router.post("/unavailability", response_model=CommonResponse)
+def create_unavailability_api(payload: EmployeeUnavailabilityCreate, db: Session = Depends(get_db)):
+    """직원의 기피/불가 시간(Hard/Soft)을 신규 등록합니다."""
+    try:
+        unav = EmployeeUnavailabilityService.create_unavailability(db, payload)
+        return CommonResponse(
+            success=True,
+            data=EmployeeUnavailabilityResponse.model_validate(unav),
+            message="직원 기피/불가 시간 등록이 완료되었습니다."
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
+
+
+@router.get("/unavailability", response_model=CommonResponse)
+def get_unavailabilities_api(employee_id: Optional[int] = Query(None, description="직원 고유 ID 필터"), db: Session = Depends(get_db)):
+    """등록된 직원 기피/불가 시간 목록을 조회합니다."""
+    try:
+        unavs = EmployeeUnavailabilityService.get_unavailabilities(db, employee_id=employee_id)
+        data = [EmployeeUnavailabilityResponse.model_validate(u) for u in unavs]
+        return CommonResponse(
+            success=True,
+            data=data,
+            message="직원 기피/불가 시간 목록 조회가 완료되었습니다."
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
+
+
+@router.delete("/unavailability/{unavailability_id}", response_model=CommonResponse)
+def delete_unavailability_api(unavailability_id: int, db: Session = Depends(get_db)):
+    """등록된 직원 기피/불가 시간 설정을 삭제합니다."""
+    try:
+        success = EmployeeUnavailabilityService.delete_unavailability(db, unavailability_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="삭제할 기피 시간 설정 정보를 찾을 수 없습니다.")
+        return CommonResponse(
+            success=True,
+            data=None,
+            message="직원 기피 시간 설정이 성공적으로 삭제되었습니다."
+        )
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
+
 
 
 @router.get("/payroll", response_model=CommonResponse)

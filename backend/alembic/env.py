@@ -18,9 +18,8 @@ load_dotenv()
 # access to the values within the .ini file in use.
 config = context.config
 
-# [한글 주석] .env 파일에서 가져온 DATABASE_URL 연결 정보를 Alembic 설정에 동적으로 대입합니다. (보안성 확보)
-db_url = os.getenv("DATABASE_URL")
-if db_url:
+db_url = os.getenv("DATABASE_URL", "sqlite:///./simplem.db")
+if db_url and not db_url.startswith("driver"):
     config.set_main_option("sqlalchemy.url", db_url)
 
 # Interpret the config file for Python logging.
