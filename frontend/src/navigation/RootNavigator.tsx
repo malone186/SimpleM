@@ -12,6 +12,7 @@ import AuthScreen from '../screens/auth/AuthScreen';
 import ChatbotScreen from '../screens/chatbot/ChatbotScreen';
 import CostScreen from '../screens/cost/CostScreen';
 import DashboardScreen from '../screens/dashboard/DashboardScreen';
+import DessertScreen from '../screens/dessert/DessertScreen';
 import DocumentScreen from '../screens/document/DocumentScreen';
 import IngredientScreen from '../screens/ingredient/IngredientScreen';
 import InventoryScreen from '../screens/inventory/InventoryScreen';
@@ -51,6 +52,7 @@ export type RootStackParamList = {
   TaxDraftDetail: { tax: TaxEstimate };
   Operation: undefined;
   Settings: undefined;
+  Dessert: undefined;
 };
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -123,6 +125,7 @@ export default function RootNavigator() {
         <Stack.Screen name="TaxDraftDetail" component={TaxDraftDetailScreen} options={erpHeader('세금 신고 초안')} />
         <Stack.Screen name="Operation" component={OperationScreen} options={erpHeader('운영')} />
         <Stack.Screen name="Settings" component={SettingsScreen} options={erpHeader('설정')} />
+        <Stack.Screen name="Dessert" component={DessertScreen} options={erpHeader('디저트 관리')} />
       </Stack.Navigator>
     </NavigationContainer>
   );
