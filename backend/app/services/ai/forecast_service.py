@@ -588,20 +588,34 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
                 f"최소 {MIN_HISTORY_DAYS}일의 판매 기록이 쌓이면 예측이 열립니다. "
                 "(POS 동기화 또는 판매 입력을 계속해 주세요)")
 
+        # 예측 시작일은 실제 '내일'로 고정한다 — 마지막 판매일 다음 날로 잡으면
+        # 판매 입력이 며칠 끊겼을 때 '내일 예측'이 과거 날짜의 예측이 되어버린다.
+        # 공백(gap)만큼 예측 스텝을 더 뽑고, 실제 내일 이후 구간만 잘라 쓴다.
+        last_sale_day = series.index[-1].date()
+        start = max(date.today(), last_sale_day) + timedelta(days=1)
+        gap = (start - last_sale_day).days - 1
+        if gap > 90:
+            raise ForecastError(
+                f"마지막 판매 기록({last_sale_day.isoformat()})이 {gap}일 전이라 예측 정확도를 보장할 수 없어요. "
+                "판매 입력 또는 POS 동기화를 다시 시작하면 예측이 열립니다.")
+        horizon = days + gap
+
         # 시계열 기본 예측 (잔 수·매출 각각)
         model_name = f"SARIMAX(1,0,1)×(1,0,1,7) 주간 계절성 (학습 {len(series)}일)"
-        cups_pred = _forecast_sarimax(series["cups"], days)
-        rev_pred = _forecast_sarimax(series["revenue"], days) if cups_pred else None
+        cups_pred = _forecast_sarimax(series["cups"], horizon)
+        rev_pred = _forecast_sarimax(series["revenue"], horizon) if cups_pred else None
         if cups_pred is None or rev_pred is None:
             model_name = f"요일별 평균×추세 (학습 {len(series)}일, 폴백)"
-            cups_pred = _forecast_seasonal(series["cups"], days)
-            rev_pred = _forecast_seasonal(series["revenue"], days)
+            cups_pred = _forecast_seasonal(series["cups"], horizon)
+            rev_pred = _forecast_seasonal(series["revenue"], horizon)
+        # 마지막 판매일~내일 사이 공백 구간은 버리고 실제 내일부터 days개만 사용
+        cups_pred = cups_pred[gap:]
+        rev_pred = rev_pred[gap:]
 
         weather = _fetch_weather(lat, lon, days)
         region = _reverse_geocode(lat, lon)
 
         # 주변 행사 자동 수집(서울 문화행사 API) + 사장님이 직접 알려준 행사 병합
-        start = series.index[-1].date() + timedelta(days=1)
         nearby_events = _fetch_nearby_events(lat, lon, start, days)
         all_events = events + nearby_events
 
@@ -693,7 +707,9 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
         "order_recommendations": recommendations,
         "nearby_events": nearby_events,   # 자동 수집 (서울 문화행사, 반경 3km)
         "events_applied": events,         # 사장님이 직접 입력한 행사
-        "note": "시계열 예측에 날씨(강수 -10%, 폭염 +5%)·주변 행사(자동 +10%/건, 직접 입력 +20%) "
+        "note": (f"마지막 판매 기록({last_sale_day.isoformat()}) 이후 {gap}일의 공백을 건너뛰고 "
+                 "실제 내일부터 예측했습니다. " if gap > 0 else "")
+                + "시계열 예측에 날씨(강수 -10%, 폭염 +5%)·주변 행사(자동 +10%/건, 직접 입력 +20%) "
                 "보정을 적용한 참고치입니다. 행사 자동 수집은 서울 지역(반경 3km) 문화행사 기준이며, "
                 "그 외 지역이나 놓친 행사는 챗봇에 말하면 반영됩니다.",
     }
