@@ -104,12 +104,10 @@ export default function WelcomeHeader({
         
         {/* [한글 주석: 마스코트 캐릭터와 말풍선을 한곳에 담아 한꺼번에 움직이는 애니메이션 상자] */}
         <Animated.View style={[styles.mascotContainer, { transform: [{ translateY }] }]}>
-          {/* [한글 주석: 인사말, 상호명, 오늘의 명언까지 몽땅 품은 종합 말풍선 상자] */}
+          {/* [한글 주석: 세 줄로 나뉘어 있던 정보를 하나의 자연스러운 문장으로 결합해 말풍선에 담습니다] */}
           <View style={styles.bubble}>
-            <Text style={styles.bubbleGreeting}>안녕하세요 사장님 ☀️</Text>
-            <Text style={styles.bubbleTitle}>{storeName}</Text>
-            <Text style={styles.bubbleQuote} numberOfLines={2}>
-              {quote}
+            <Text style={styles.bubbleText}>
+              안녕하세요, {storeName} 사장님! {quote} ☀️
             </Text>
             {/* [한글 주석: 강아지 뺨 옆으로 자연스레 뻗는 뾰족한 가로 꼬리] */}
             <View style={styles.bubbleTail} />
@@ -162,9 +160,9 @@ const styles = StyleSheet.create({
   // [한글 주석: 강아지 캐릭터 머리맡에 뜨는 둥근 흰색 말풍선 상자 스타일]
   bubble: {
     position: 'absolute',
-    top: 5,               // 세 줄 텍스트 높이를 감안하여 기존 30에서 5로 높여 배치합니다
-    left: -195,           // 가로폭(190)보다 미세하게 넓게 음수 좌표를 주어 강아지 얼굴 왼쪽에 결합합니다
-    width: 190,           // 세 줄의 알찬 정보들이 예쁘게 담길 수 있도록 고정 가로폭 적용
+    top: 18,              // 한 문장으로 부피가 줄어들었으므로 뺨 높이에 알맞게 top을 18로 조정합니다
+    left: -205,           // 말풍선이 왼쪽 영역을 여유롭게 감싸도록 left를 -205로 조정합니다
+    width: 200,           // 한 문장이 부드럽게 줄바꿈되도록 가로폭을 200px로 세팅합니다
     backgroundColor: '#FFFFFF',
     borderRadius: 18,
     paddingHorizontal: 14,
@@ -177,35 +175,19 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 5,         // 안드로이드 환경을 위한 그림자 대체
   },
-  // [한글 주석: 말풍선 내 첫째 줄 - 인사말 폰트 스타일]
-  bubbleGreeting: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#8A7A71',     // 부드러운 브라운 톤의 연한 글자색
-    letterSpacing: -0.2,
-  },
-  // [한글 주석: 말풍선 내 둘째 줄 - 상호명(가게명) 폰트 스타일]
-  bubbleTitle: {
-    fontSize: 22,         // 말풍선 안에 들어가는 규격을 맞추어 기존 28에서 22로 아담하게 조정
-    fontWeight: '900',
-    color: '#2D1E17',     // 하얀 배경에 쨍하게 잘 보이는 어두운 에스프레소 브라운 색상
-    marginTop: 2,
-    letterSpacing: -0.4,
-  },
-  // [한글 주석: 말풍선 내 셋째 줄 - 오늘의 꿀팁(명언) 폰트 스타일]
-  bubbleQuote: {
-    fontSize: 10.5,
-    fontWeight: '500',
-    color: '#5C4E46',     // 명언 가독성을 위한 부드러운 회갈색
-    lineHeight: 14,
-    marginTop: 5,
-    letterSpacing: -0.2,
+  // [한글 주석: 말풍선 통합 텍스트 스타일 - 다정한 한 문장 용]
+  bubbleText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#2D1E17',     // 테마에 알맞는 진한 에스프레소 브라운 톤의 글자색
+    lineHeight: 18,       // 줄바꿈 시 글자가 겹치지 않고 여유롭게 읽히도록 행간 설정
+    letterSpacing: -0.3,
   },
   // [한글 주석: 말풍선 우측면에 붙어 강아지 얼굴 방향(오른쪽)으로 뻗어나가는 가로형 꼬리]
   bubbleTail: {
     position: 'absolute',
     right: -8,            // 말풍선 오른쪽 벽면 바깥쪽에 접착
-    top: 32,              // 세 줄 텍스트 높이 변화에 맞춰 꼬리가 말풍선 세로 중앙에 오도록 하향 조정
+    top: 24,              // 말풍선 높이가 낮아짐에 따라 꼬리 세로 위치를 top: 24로 올려 균형을 맞춥니다
     width: 0,
     height: 0,
     backgroundColor: 'transparent',
