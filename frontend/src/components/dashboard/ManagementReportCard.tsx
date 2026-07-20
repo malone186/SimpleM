@@ -64,6 +64,8 @@ export default function ManagementReportCard() {
   const salesDelta: number | null = c.sales?.change_pct ?? null;
   const deltaUp = salesDelta !== null && salesDelta >= 0;
   const highlights: string[] = Array.isArray(c.highlights) ? c.highlights : [];
+  // 백엔드 LLM이 집계 숫자를 근거로 작성한 문장형 조언 (실패 시 null → 섹션 숨김)
+  const aiAdvice: string | null = typeof c.ai_advice === 'string' && c.ai_advice ? c.ai_advice : null;
 
   return (
     <View style={styles.card}>
@@ -119,7 +121,7 @@ export default function ManagementReportCard() {
                 {won(c.profit?.estimated_profit ?? 0)}
               </Text>
               <Text style={styles.tileSub}>
-                {c.profit?.margin_pct != null ? `마진 ${c.profit.margin_pct}%` : '—'}
+                {c.profit?.margin_pct != null ? `이익률 ${c.profit.margin_pct}%` : '—'}
               </Text>
             </View>
             <View style={styles.tile}>
@@ -140,6 +142,14 @@ export default function ManagementReportCard() {
             </View>
           </View>
 
+          {/* AI 조언 — 숫자를 근거로 원인 → 해석 → 제안을 서술한 브루의 코멘트 */}
+          {aiAdvice && (
+            <View style={styles.adviceWrap}>
+              <Text style={styles.adviceLabel}>☕ 브루의 한마디</Text>
+              <Text style={styles.adviceText}>{aiAdvice}</Text>
+            </View>
+          )}
+
           {/* 핵심 요약 — 집계에서 바로 읽어낸 사실들 */}
           {highlights.length > 0 && (
             <View style={styles.highlightWrap}>
@@ -154,8 +164,8 @@ export default function ManagementReportCard() {
 
           {/* 운영 체크 + 상세 안내 */}
           <Text style={styles.opsLine}>
-            재고 경고 {c.inventory?.low_stock?.length ?? 0}건 · 진행 중 발주{' '}
-            {c.orders?.open_count ?? 0}건 · 갱신 임박 서류 {c.compliance_alerts?.length ?? 0}건
+            곧 떨어질 재료 {c.inventory?.low_stock?.length ?? 0}종 · 진행 중 발주{' '}
+            {c.orders?.open_count ?? 0}건 · 기한 임박 서류 {c.compliance_alerts?.length ?? 0}건
           </Text>
           <Text style={styles.chatHint}>
             품목별 상세 표는 챗봇에서 “{PERIODS.find((p) => p.value === period)?.label} 리포트
@@ -220,6 +230,16 @@ const styles = StyleSheet.create({
   tileLabel: { ...typography.L5, color: colors.mochaBrown },
   tileValue: { ...typography.L3, color: colors.espressoBrown },
   tileSub: { ...typography.L5, fontSize: 9, color: colors.mochaBrown },
+  adviceWrap: {
+    backgroundColor: colors.coffeeCream,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    padding: 12,
+    gap: 6,
+  },
+  adviceLabel: { ...typography.L5, fontWeight: '800', color: colors.espressoBrown },
+  adviceText: { ...typography.L5, fontSize: 11, color: colors.espressoBrown, lineHeight: 17 },
   highlightWrap: {
     backgroundColor: colors.creamSand,
     borderRadius: 14,

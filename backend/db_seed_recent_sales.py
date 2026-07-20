@@ -163,7 +163,8 @@ def seed_expenses(db, store_id: str, now: datetime) -> int:
     if exists:
         return 0
     rng = random.Random(f"exp:{store_id}:{today.isoformat()}")
-    db.add(Expense(store_id=store_id, amount=rng.randrange(70000, 120000, 5000),
+    # 하루 매출 대비 과하지 않게 — 추정 수익이 적자로 보이지 않는 수준
+    db.add(Expense(store_id=store_id, amount=rng.randrange(25000, 50000, 5000),
                    category="소모품", description="우유·컵·부자재 매입 (더미)",
                    expense_date=today))
     return 1

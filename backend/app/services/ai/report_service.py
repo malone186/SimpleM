@@ -11,8 +11,10 @@
 챗봇 화면에는 카드로 바로 표시되고, 서류 자동화 화면에서도 다시 볼 수 있다.
 """
 
+import json
 import logging
-from datetime import date, timedelta
+import os
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Optional
 
 from app.services.ai import document_service
@@ -20,6 +22,10 @@ from app.services.ai import document_service
 logger = logging.getLogger(__name__)
 
 PERIOD_LABEL = {"daily": "일간", "weekly": "주간", "monthly": "월간"}
+KST = timezone(timedelta(hours=9))
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 
 class ReportError(ValueError):
@@ -94,10 +100,19 @@ def _sales_summary(db, store_id: str, start: date, end: date,
         m["quantity"] += s.quantity
         m["total"] += s.total_price
 
+    # 진행 중인 기간은 이전 기간도 '같은 경과 시각'까지만 잘라 비교한다 —
+    # _period_range의 날짜 단위 트리밍을 시간 단위로 보강. 오후에 일간 리포트를 열면
+    # 오늘(반나절)과 어제(하루 전체)가 비교되어 항상 큰 폭 감소로 보이는 왜곡을 막는다.
+    # 끝난 기간은 경과 시간이 기간 길이를 넘어서므로 자연히 prev_end 그대로 쓰인다.
+    elapsed = datetime.now(KST) - datetime.combine(start, time.min, tzinfo=KST)
+    prev_cutoff = min(
+        datetime.combine(prev_end, time.min, tzinfo=KST),
+        datetime.combine(prev_start, time.min, tzinfo=KST) + elapsed,
+    )
     prev_total = sum(s.total_price for s in (
         db.query(Sale)
         .filter(Sale.store_id == store_id)
-        .filter(Sale.sold_at >= prev_start.isoformat(), Sale.sold_at < prev_end.isoformat())
+        .filter(Sale.sold_at >= prev_start.isoformat(), Sale.sold_at < prev_cutoff)
         .all()
     ))
     return {
@@ -155,7 +170,12 @@ def _expense_summary(db, store_id: str, start: date, end: date) -> dict[str, Any
 
 
 def _labor_summary(db, start: date, end: date) -> dict[str, Any]:
-    """인건비: 근무 스케줄 시간 × 직원 시급으로 추정 (주휴수당·보험 미포함 간이 계산)."""
+    """인건비: 근무 스케줄 시간 × 직원 시급으로 추정 (주휴수당·보험 미포함 간이 계산).
+
+    아직 끝나지 않은 근무는 지금 시각까지 일한 만큼만 계산한다 —
+    진행 중인 기간은 매출도 '지금까지'만 잡히므로, 인건비를 하루치 전체로 잡으면
+    오전 리포트가 항상 적자로 보이는 왜곡이 생긴다 (기간 비교 트리밍과 같은 원칙).
+    """
     from app.models.operation import Employee, Schedule
 
     rows = (
@@ -164,11 +184,13 @@ def _labor_summary(db, start: date, end: date) -> dict[str, Any]:
         .filter(Schedule.date >= start.isoformat(), Schedule.date < end.isoformat())
         .all()
     )
+    now = datetime.now()
     total_hours = 0.0
     total_cost = 0.0
     employees: set[str] = set()
     for sched, emp in rows:
-        hours = (sched.end_time - sched.start_time).total_seconds() / 3600
+        worked_until = min(sched.end_time, now)
+        hours = max((worked_until - sched.start_time).total_seconds() / 3600, 0.0)
         total_hours += hours
         total_cost += hours * emp.hourly_rate
         employees.add(emp.name)
@@ -238,16 +260,84 @@ def _build_highlights(sales: dict, labor: dict,
     if sales["top_menus"]:
         best = sales["top_menus"][0]
         h.append(f"베스트 메뉴: {best['menu']} ({best['quantity']}잔, {best['total']:,}원)")
-    if profit["estimated_profit"] < 0:
-        h.append(f"추정 수지 적자 {abs(profit['estimated_profit']):,}원 — 비용 점검 필요")
+    if profit["estimated_profit"] >= 0:
+        if sales["total"]:
+            h.append(f"비용을 다 빼고 {profit['estimated_profit']:,}원 남음")
+    else:
+        h.append(f"번 돈보다 쓴 돈이 {abs(profit['estimated_profit']):,}원 많음 — 비용 점검 필요")
     if inventory["low_stock"]:
-        h.append(f"안전재고 이하 재료 {len(inventory['low_stock'])}종 — 발주 검토 필요")
+        h.append(f"곧 떨어질 재료 {len(inventory['low_stock'])}종 — 주문 필요")
     if compliance:
-        h.append(f"갱신 임박·만료 서류 {len(compliance)}건")
+        h.append(f"기한이 다가온 서류 {len(compliance)}건")
     if labor["estimated_cost"] and sales["total"]:
         ratio = round(labor["estimated_cost"] / sales["total"] * 100, 1)
-        h.append(f"인건비 비중: 매출의 {ratio}%")
+        h.append(f"매출 중 인건비로 나간 비중 {ratio}%")
     return h
+
+
+# ---------------------------------------------------------------------------
+# AI 문장형 조언 — 집계 숫자를 근거로 원인 → 해석 → 제안을 서술한다
+# ---------------------------------------------------------------------------
+
+_ADVICE_PROMPT = """당신은 카페 경영 컨설턴트입니다. 아래는 한 카페의 {label} 경영 집계 데이터(JSON)입니다.
+이 숫자들만 근거로 점주에게 전할 조언을 한국어로 작성하세요.
+
+규칙:
+- 2~3문장, 부드러운 존댓말. 숫자 근거를 반드시 포함할 것.
+- '안전재고', '수지', '원가율', '%p' 같은 전문 용어는 쓰지 말고 누구나 바로 이해하는 쉬운 말로 쓸 것
+  (예: '재고가 곧 떨어지는 재료', '재료값', '남는 돈').
+- '원인 → 해석 → 제안' 흐름으로 쓸 것.
+  예시: "이번 주 재료값이 12만 원 늘었는데, 우유를 많이 쓰는 라떼가 잘 팔린 영향이에요. 우유 납품 단가를 한번 확인해 보세요."
+- 데이터에 없는 사실(단가 인상 이유 등)을 지어내지 말 것. 근거가 부족하면 눈에 띄는 수치 하나를 짚고 확인을 제안할 것.
+- 인사말·서론 없이 조언 본문만 출력할 것.
+
+집계 데이터:
+{data}"""
+
+
+def _generate_ai_advice(content: dict[str, Any], period_type: str) -> Optional[str]:
+    """Gemini로 리포트 숫자에 대한 문장형 조언을 생성한다. 실패하면 None (리포트는 그대로 발행)."""
+    if not GEMINI_API_KEY:
+        logger.info("GEMINI_API_KEY 없음 — AI 조언 생략")
+        return None
+
+    # LLM에 넘길 요약본 — 토큰 절약을 위해 일별 추이 등 긴 목록은 뺀다
+    slim = {
+        "period": content["period"],
+        "sales": {k: v for k, v in content["sales"].items() if k != "daily_trend"},
+        "purchases": content["purchases"],
+        "expenses": content["expenses"],
+        "labor": content["labor"],
+        "profit": content["profit"],
+        "inventory": {
+            "low_stock": content["inventory"]["low_stock"],
+            "total_value": content["inventory"]["total_value"],
+        },
+        "orders": content["orders"],
+        "compliance_alerts": len(content["compliance_alerts"]),
+    }
+    prompt = _ADVICE_PROMPT.format(
+        label=PERIOD_LABEL.get(period_type, period_type),
+        data=json.dumps(slim, ensure_ascii=False),
+    )
+    try:
+        import httpx
+
+        resp = httpx.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+            json={
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.3},
+            },
+            headers={"x-goog-api-key": GEMINI_API_KEY},
+            timeout=15.0,
+        )
+        resp.raise_for_status()
+        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        return text or None
+    except Exception as e:  # LLM 실패가 리포트 자체를 막으면 안 된다
+        logger.warning("AI 조언 생성 실패 (숫자 리포트만 발행): %s", e)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -309,9 +399,10 @@ def generate_management_report(store_id: str, period_type: str = "weekly",
         "orders": orders,
         "compliance_alerts": compliance,
         "highlights": _build_highlights(sales, labor, inventory, compliance, profit),
-        "note": "매입은 확정 OCR 문서, 인건비는 스케줄×시급 간이 추정 기준입니다. "
-                "현금 매입·주휴수당 등 누락분이 있을 수 있어 참고용으로 활용하세요.",
+        "note": "매입은 스캔해서 확정한 영수증·거래명세서 기준, 인건비는 지금까지 일한 시간×시급으로 계산한 추정치입니다. "
+                "현금 매입·주휴수당 등 빠진 금액이 있을 수 있어 참고용으로 봐 주세요.",
     }
+    content["ai_advice"] = _generate_ai_advice(content, period_type)
     if existing:
         return document_service.update_document(store_id, existing["id"], content)
     label = PERIOD_LABEL[period_type]
