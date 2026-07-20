@@ -22,8 +22,6 @@ import { listRoasteryBeans, RoasteryBean } from '../../lib/api/inventory';
 import BeanDetailModal from '../../components/order/BeanDetailModal';
 import BeanNotepad from '../../components/order/BeanNotepad';
 
-
-
 // [한글 주석: 부족한 부자재 재고 발주 추천 목록 데이터 정의]
 const DEFICIENT_ITEMS = [
   { id: 'milk', name: '서울우유 1L', status: '잔여 3팩 (안전재고 8팩)', query: '서울우유 1L' },
@@ -121,7 +119,11 @@ export default function OrderScreen() {
   if (error) {
     return (
       <Screen>
+<<<<<<< Updated upstream
         <ScreenTitle title="발주" />
+=======
+        <ScreenTitle title="원두 탐색" />
+>>>>>>> Stashed changes
         <View style={styles.centerBox}>
           <Ionicons name="alert-circle-outline" size={48} color={colors.mochaBrown} />
           <Text style={styles.errorTitle}>데이터를 불러오지 못했어요</Text>
