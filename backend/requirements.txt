@@ -11,9 +11,12 @@ langchain>=1.3
 langchain-core>=1.4
 <<<<<<< HEAD
 statsmodels>=0.14  # AI-3 판매 예측 (SARIMAX)
+
+# 운영/예측 (백엔드 B 인수) — 판매예측 시계열·집계
+pandas>=2.2
 =======
 
 # 운영/예측 (백엔드 B 인수) — 판매예측 시계열·집계
 pandas>=2.2
 statsmodels>=0.14
->>>>>>> 519be80d2c96da47759c8a48960c1fb399ff745a
+>>>>>>> 49c26542f6cae72f7f2aaf2f3ec99cd3e1694fbb

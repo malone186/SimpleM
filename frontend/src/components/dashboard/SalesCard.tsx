@@ -1,20 +1,40 @@
-import { useEffect, useRef, useState } from 'react';
-import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import Svg, { Defs, LinearGradient, Stop, Path, Circle, Line } from 'react-native-svg';
+import { useEffect, useRef, useState, useMemo } from 'react';
+import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View, ActivityIndicator } from 'react-native';
+import Svg, { Defs, LinearGradient, Stop, Path, Circle, Line, Text as SvgText, Rect, G } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 
 import { colors, spacing, typography, shadows } from '../../theme';
 import { useCountUp } from '../motion';
 import { PressableScale } from '../motion';
+import { useAuth } from '../../auth/AuthContext';
+import { getSalesForecast, getDevicePosition, type SalesForecast, type ForecastDay } from '../../lib/api/forecast';
+import Brew from '../brew/Brew';
+import TodoList, { type Todo } from './TodoList';
 
 // (삭제함 - Web 호환성을 위해 addListener + 일반 Circle을 사용하도록 개선)
 
-// 차트 트렌드 라인 패스 정의 (원래의 부드럽고 정돈된 패스로 원상복구)
-const LINE = 'M 10 90 C 60 85, 90 88, 130 80 C 170 72, 210 75, 250 62 L 290 50';
-const FILL = `${LINE} L 290 100 L 10 100 Z`;
+// [웹 호환 SVG 터치 핸들러] 웹에서 SVG 요소에 onPress를 주면 구형 Touchable 믹스인이 가동되어
+// 콘솔 에러가 발생하므로, 웹은 브라우저 표준 onClick으로 우회한다 (네이티브는 onPress 유지)
+const svgPress = (handler: () => void) =>
+  Platform.OS === 'web' ? ({ onClick: handler } as any) : { onPress: handler };
+
+// 차트 트렌드 라인 패스 정의 (양 끝 마진 25px로 대칭 및 한가운데 정렬)
+const REALTIME_LINE = 'M 25 100 L 108 78 L 192 63 L 275 55';
+const REALTIME_FILL = 'M 25 100 L 108 78 L 192 63 L 275 55 L 275 120 L 25 120 Z';
 
 // 캘린더 요일 및 데이터 셋 (영어 대문자로 세련되게 전환)
 const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+
+const WEATHER_ICON: Record<string, keyof typeof Ionicons.glyphMap> = {
+  맑음: 'sunny-outline',
+  구름: 'partly-sunny-outline',
+  흐림: 'cloud-outline',
+  비: 'rainy-outline',
+  소나기: 'rainy-outline',
+  뇌우: 'thunderstorm-outline',
+  눈: 'snow-outline',
+  안개: 'cloud-outline',
+};
 
 type DailyDetail = {
   income: number;
@@ -165,52 +185,199 @@ const CALENDAR_ITEMS = [
   { date: '31', income: 0 }
 ];
 
-// [슬라이딩 세그먼트 토글 컴포넌트]
+// [한글 주석: 3단 탭 상태 타입 정의]
+export type SalesTab = 'day' | 'month' | 'todo';
+
+// [슬라이딩 세그먼트 토글 컴포넌트 (3단 탭 지원)]
 function SlidingTabToggle({
   value,
   onChange,
 }: {
-  value: boolean;
-  onChange: (val: boolean) => void;
+  value: SalesTab;
+  onChange: (val: SalesTab) => void;
 }) {
-  const slideAnim = useRef(new Animated.Value(value ? 1 : 0)).current;
+  const tabIndex = value === 'day' ? 0 : value === 'month' ? 1 : 2;
+  const slideAnim = useRef(new Animated.Value(tabIndex)).current;
 
   useEffect(() => {
     Animated.spring(slideAnim, {
-      toValue: value ? 1 : 0,
+      toValue: tabIndex,
       useNativeDriver: true,
       tension: 110,
       friction: 11,
     }).start();
-  }, [value]);
+  }, [tabIndex]);
 
   const translateX = slideAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [2, 38],
+    inputRange: [0, 1, 2],
+    outputRange: [2, 39, 76],
   });
 
   return (
-    <Pressable onPress={() => onChange(!value)} style={StyleSheet.flatten([styles.toggleTrack, Platform.OS === 'web' && { cursor: 'pointer' }])}>
+    <View style={StyleSheet.flatten([styles.toggleTrack, Platform.OS === 'web' && { cursor: 'pointer' }])}>
       <Animated.View style={[styles.toggleCapsule, { transform: [{ translateX }] }]} />
       
       <View style={styles.toggleLabelsRow}>
-        <View style={styles.toggleLabelCell}>
-          <Text style={[styles.toggleLabelText, !value && styles.toggleLabelTextActive]}>일</Text>
-        </View>
-        <View style={styles.toggleLabelCell}>
-          <Text style={[styles.toggleLabelText, value && styles.toggleLabelTextActive]}>월</Text>
-        </View>
+        <Pressable onPress={() => onChange('day')} style={styles.toggleLabelCell}>
+          <Text style={[styles.toggleLabelText, value === 'day' && styles.toggleLabelTextActive]}>일</Text>
+        </Pressable>
+        <Pressable onPress={() => onChange('month')} style={styles.toggleLabelCell}>
+          <Text style={[styles.toggleLabelText, value === 'month' && styles.toggleLabelTextActive]}>월</Text>
+        </Pressable>
+        <Pressable onPress={() => onChange('todo')} style={styles.toggleLabelCell}>
+          <Text style={[styles.toggleLabelText, value === 'todo' && styles.toggleLabelTextActive]}>todo</Text>
+        </Pressable>
       </View>
-    </Pressable>
+    </View>
   );
 }
 
-// [한글 주석] onPressReport 콜백을 받아와 리포트 배너의 이벤트를 바인딩합니다.
-export default function SalesCard({ onPressReport }: { onPressReport?: () => void }) {
-  const [isMonthly, setIsMonthly] = useState(false);
+// [한글 주석] onPressReport 콜백, todos 리스트, onPressTodo 핸들러를 바인딩합니다.
+export default function SalesCard({
+  onPressReport,
+  todos = [],
+  onPressTodo,
+}: {
+  onPressReport?: () => void;
+  todos?: Todo[];
+  onPressTodo?: (todo: Todo) => void;
+}) {
+  const { token, user } = useAuth();
+  const [forecast, setForecast] = useState<SalesForecast | null>(null);
+  const [loadingForecast, setLoadingForecast] = useState(false);
+
+  const [activeTab, setActiveTab] = useState<SalesTab>('day');
   const [selectedDate, setSelectedDate] = useState<string | null>(null); // [한글 주석: 선택한 날짜의 상세 매출 분석 모달 노출 상태 변수]
-  const targetValue = isMonthly ? 12480000 : 428500;
-  const amount = useCountUp(targetValue, 1100, [isMonthly]);
+  const [selectedFutureDate, setSelectedFutureDate] = useState<string | null>(null);
+  const [showBrew, setShowBrew] = useState(false); // [브루 예측 설명 오버레이]
+  const [activeTooltip, setActiveTooltip] = useState<{
+    x: number;
+    y: number;
+    title: string;
+    value: string;
+  } | null>(null);
+  const [locationModalVisible, setLocationModalVisible] = useState(false);
+
+  const [layoutWidth, setLayoutWidth] = useState(300);
+  const tooltipAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (activeTooltip) {
+      tooltipAnim.setValue(0);
+      Animated.spring(tooltipAnim, {
+        toValue: 1,
+        friction: 6.5,
+        tension: 42,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(tooltipAnim, {
+        toValue: 0,
+        duration: 120,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [activeTooltip, tooltipAnim]);
+
+  const tooltipOpacity = tooltipAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
+  const tooltipScale = tooltipAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.88, 1.0],
+  });
+  const tooltipTranslateY = tooltipAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [5, 0],
+  });
+
+  const FALLBACK_FORECASTS: Record<string, ForecastDay> = {
+    '17': { date: '2026-07-17', weekday: '금', cups: 172, revenue: 512000, weather: 'Sunny', temp_max: 29.5, precip_prob: 0, adjustments: [], base_cups: 172, holiday: null },
+    '18': { date: '2026-07-18', weekday: '토', cups: 185, revenue: 554000, weather: 'Cloudy', temp_max: 28.0, precip_prob: 10, adjustments: [], base_cups: 185, holiday: null },
+    '19': { date: '2026-07-19', weekday: '일', cups: 190, revenue: 570000, weather: 'Rainy', temp_max: 26.5, precip_prob: 80, adjustments: ['강수 확률 80% 보정 (-10%)'], base_cups: 190, holiday: null },
+    '20': { date: '2026-07-20', weekday: '월', cups: 155, revenue: 462000, weather: 'Sunny', temp_max: 30.1, precip_prob: 0, adjustments: [], base_cups: 155, holiday: null },
+    '21': { date: '2026-07-21', weekday: '화', cups: 160, revenue: 480000, weather: 'Sunny', temp_max: 31.0, precip_prob: 0, adjustments: [], base_cups: 160, holiday: null },
+    '22': { date: '2026-07-22', weekday: '수', cups: 165, revenue: 495000, weather: 'Sunny', temp_max: 29.8, precip_prob: 0, adjustments: [], base_cups: 165, holiday: null },
+    '23': { date: '2026-07-23', weekday: '목', cups: 162, revenue: 486000, weather: 'Sunny', temp_max: 30.2, precip_prob: 0, adjustments: [], base_cups: 162, holiday: null },
+  };
+
+  const futureForecasts = {
+    ...FALLBACK_FORECASTS,
+    ...(forecast ? forecast.week.reduce<Record<string, ForecastDay>>((acc, d) => {
+      const day = String(Number(d.date.slice(-2))); 
+      acc[day] = d;
+      return acc;
+    }, {}) : {})
+  };
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      setLoadingForecast(true);
+      try {
+        const pos = await getDevicePosition();
+        const data = await getSalesForecast(token, pos?.lat, pos?.lon);
+        if (!cancelled) {
+          setForecast(data);
+        }
+      } catch (e) {
+        console.error('대시보드 판매 예측 조회 실패:', e);
+      } finally {
+        if (!cancelled) setLoadingForecast(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+  const targetValue = activeTab === 'month' ? 12480000 : 428500;
+  const amount = useCountUp(targetValue, 1100, [activeTab === 'month']);
+
+  const todayRevenue = 428500;
+  const tomorrowRevenue = forecast?.tomorrow.revenue ?? 480000;
+  const tomorrowCups = forecast?.tomorrow.cups ?? 165;
+
+  let predY = 55;
+  if (tomorrowRevenue && todayRevenue) {
+    const ratio = tomorrowRevenue / todayRevenue;
+    predY = 50 - (ratio - 1) * 50;
+    predY = Math.max(15, Math.min(85, predY));
+  }
+
+  // 내일 시간대별 매출 예측 연산 및 Svg 드로잉 패스 연산 (누적 기준)
+  const hourlyForecast = forecast?.tomorrow_hourly ?? [
+    { hour: '09시', cups: 15, revenue: 45000 },
+    { hour: '12시', cups: 65, revenue: 195000 },
+    { hour: '15시', cups: 50, revenue: 150000 },
+    { hour: '18시', cups: 35, revenue: 105000 }
+  ];
+
+  // 누적 잔수 및 매출액 계산
+  const tomorrowCupsCum = [
+    hourlyForecast[0].cups,
+    hourlyForecast[0].cups + hourlyForecast[1].cups,
+    hourlyForecast[0].cups + hourlyForecast[1].cups + hourlyForecast[2].cups,
+    hourlyForecast[0].cups + hourlyForecast[1].cups + hourlyForecast[2].cups + hourlyForecast[3].cups,
+  ];
+
+  const tomorrowRevCum = [
+    hourlyForecast[0].revenue,
+    hourlyForecast[0].revenue + hourlyForecast[1].revenue,
+    hourlyForecast[0].revenue + hourlyForecast[1].revenue + hourlyForecast[2].revenue,
+    hourlyForecast[0].revenue + hourlyForecast[1].revenue + hourlyForecast[2].revenue + hourlyForecast[3].revenue,
+  ];
+
+  const maxForecastRev = tomorrowRevCum[3] || 1;
+  // Y좌표 범위: 25(상단) ~ 105(하단)
+  const yForecast09 = 105 - (tomorrowRevCum[0] / maxForecastRev) * 80;
+  const yForecast12 = 105 - (tomorrowRevCum[1] / maxForecastRev) * 80;
+  const yForecast15 = 105 - (tomorrowRevCum[2] / maxForecastRev) * 80;
+  const yForecast18 = 105 - (tomorrowRevCum[3] / maxForecastRev) * 80; // 최대 매출은 Y=25 부근
+
+  const forecastLinePath = `M 25 ${yForecast09} L 108 ${yForecast12} L 192 ${yForecast15} L 275 ${yForecast18}`;
+  const forecastFillPath = `M 25 ${yForecast09} L 108 ${yForecast12} L 192 ${yForecast15} L 275 ${yForecast18} L 275 120 L 25 120 Z`;
 
   // [한글 주석] 펄스 애니메이션 구동 제어
   const pulse = useRef(new Animated.Value(0)).current;
@@ -242,19 +409,238 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
   const pulseOpacity = 0.6 - pulseVal * 0.6; // [0, 1] -> [0.6, 0]
 
   // 일/월별 상승 뱃지 텍스트
-  const badgeText = isMonthly ? '▲ 8.7%' : '▲ 12.4%';
+  const badgeText = activeTab === 'month' ? '▲ 8.7%' : '▲ 12.4%';
 
   // 하단 세부 요약 수치
-  const salesCount = isMonthly ? '4,120잔' : '142잔';
-  const averagePrice = isMonthly ? '₩3,085' : '₩3,018';
-  const peakTime = isMonthly ? '주말 오후' : '14–15시';
+  const salesCount = activeTab === 'month' ? '4,120잔' : '142잔';
+  const averagePrice = activeTab === 'month' ? '₩3,085' : '₩3,018';
+  const peakTime = activeTab === 'month' ? '주말 오후' : '14–15시';
+
+  const lat = forecast?.location.lat ?? 37.5562;
+  const lon = forecast?.location.lon ?? 126.9223;
+  const regionName = forecast?.location.region ?? "서울특별시 마포구 서교동";
+  // [한글 주석] 지도 마커에 표기할 매장명 — 회원가입 시 지정한 상호명(user.name)과 연동
+  const shopLabel = user?.name ? `내 매장 (${user.name})` : '내 매장';
+  const nearbyEvents = forecast?.nearby_events ?? [];
+  const serializedEvents = JSON.stringify(nearbyEvents);
+
+  // [네이버 지도 연동 설정 가이드]
+  // 1. 네이버 클라우드 플랫폼(NCP)에서 Maps > Web Dynamic Map 서비스를 신청하고 발급받은 Client ID를 아래에 기입해 줍니다.
+  //    ※ NCP 콘솔의 해당 애플리케이션에 Web 서비스 URL(예: http://localhost:8081)이 등록되어 있어야 인증됩니다.
+  // 2. 아래 ID가 비어있거나 'YOUR_NAVER_CLIENT_ID' 상태일 때는 자동으로 Leaflet.js 오픈맵이 폴백 구동되어 공백 없이 정상 동작합니다.
+  const NAVER_CLIENT_ID = process.env.EXPO_PUBLIC_NAVER_CLIENT_ID || "6amak4awt7";
+
+
+  // [네이버 지도 다이렉트 DOM 렌더링 훅]
+  // iframe 격리 시 브라우저가 Referer 오리진을 null/about:srcdoc으로 훼손하여 네이버가 차단하는 문제를 원천 해결합니다.
+  // 부모 창의 실제 도메인 주소(http://localhost:8081)가 100% 온전하게 네이버에 송신되어 에러 없이 가동됩니다.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !locationModalVisible) return;
+
+    // 1. 네이버 지도 API 스크립트 로드
+    const loadNaverScript = () => {
+      const existing = document.getElementById('naver-map-script-direct');
+      if (existing) {
+        // 스크립트 태그는 있지만 아직 로딩 중일 수 있음(모달 빠른 재오픈 등) — 로드 완료를 기다린 뒤 초기화
+        if ((window as any).naver?.maps) {
+          initNaverMapDirectly();
+        } else {
+          existing.addEventListener('load', initNaverMapDirectly, { once: true });
+        }
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.id = 'naver-map-script-direct';
+      script.type = 'text/javascript';
+      // 신규 NCP Maps API는 oapi 도메인 + ncpKeyId 파라미터로만 인증됨 (구 openapi/ncpClientId는 인증 실패 처리)
+      script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${NAVER_CLIENT_ID}`;
+      script.onload = initNaverMapDirectly;
+      script.onerror = () => {
+        console.error("네이버 지도 로딩 실패: Leaflet으로 전환");
+        initLeafletFallback();
+      };
+      document.head.appendChild(script);
+    };
+
+    // 2. 실제 DOM에 네이버 지도 생성 및 마킹
+    const initNaverMapDirectly = () => {
+      try {
+        const container = document.getElementById('naver-map-container');
+        if (!container) return;
+        container.innerHTML = "";
+
+        const naverObj = (window as any).naver;
+        if (!naverObj || !naverObj.maps) {
+          initLeafletFallback();
+          return;
+        }
+
+        const map = new naverObj.maps.Map(container, {
+          center: new naverObj.maps.LatLng(lat, lon),
+          zoom: 14,
+          zoomControl: false
+        });
+
+        // 내 매장 마커 마킹
+        const shopMarker = new naverObj.maps.Marker({
+          position: new naverObj.maps.LatLng(lat, lon),
+          map: map,
+          icon: {
+            content: '<div style="width:16px;height:16px;background:#4E3629;border:3px solid #FFFFFF;border-radius:50%;box-shadow:0 2px 5px rgba(0,0,0,0.3)"></div>',
+            anchor: new naverObj.maps.Point(8, 8)
+          }
+        });
+
+        const infoWindow = new naverObj.maps.InfoWindow({
+          content: '<div style="padding:10px;min-width:140px;line-height:140%;font-size:11px;font-family:-apple-system,sans-serif"><b>📍 ' + shopLabel + '</b><br/>' + regionName + '</div>',
+          borderWidth: 1,
+          borderColor: '#8C6F56',
+          borderRadius: 8,
+          backgroundColor: '#FFFFFF',
+          anchorSize: new naverObj.maps.Size(10, 10)
+        });
+
+        infoWindow.open(map, shopMarker);
+
+        // 인근 축제 마커들 생성 (열린 정보창을 모아두었다가 지도 빈 곳 클릭 시 일괄 닫기)
+        const eventWindows: any[] = [];
+        nearbyEvents.forEach((e: any) => {
+          if (e.lat && e.lon) {
+            const eventMarker = new naverObj.maps.Marker({
+              position: new naverObj.maps.LatLng(e.lat, e.lon),
+              map: map,
+              icon: {
+                content: '<div style="width:12px;height:12px;background:#E28257;border:2.5px solid #FFFFFF;border-radius:50%;box-shadow:0 2px 4px rgba(0,0,0,0.3)"></div>',
+                anchor: new naverObj.maps.Point(6, 6)
+              }
+            });
+
+            const eWindow = new naverObj.maps.InfoWindow({
+              content: '<div style="padding:10px;min-width:160px;line-height:140%;font-size:11px;font-family:-apple-system,sans-serif"><b>🎉 ' + e.name + '</b><br/>장소: ' + e.place + '<br/>거리: ' + e.distance_km + 'km<br/>날짜: ' + e.date + '</div>',
+              borderWidth: 1,
+              borderColor: '#E28257',
+              borderRadius: 8,
+              backgroundColor: '#FFFFFF'
+            });
+            eventWindows.push(eWindow);
+
+            naverObj.maps.Event.addListener(eventMarker, "click", () => {
+              if (eWindow.getMap()) {
+                eWindow.close();
+              } else {
+                eWindow.open(map, eventMarker);
+              }
+            });
+          }
+        });
+
+        // 지도 빈 곳을 클릭하면 열려 있는 행사 정보창을 모두 닫는다
+        naverObj.maps.Event.addListener(map, "click", () => {
+          eventWindows.forEach((w) => {
+            if (w.getMap()) w.close();
+          });
+        });
+      } catch (err) {
+        console.error("네이버 지도 직접 초기화 중 에러, 폴백 가동:", err);
+        initLeafletFallback();
+      }
+    };
+
+    // 3. Leaflet.js 폴백 복원 함수
+    const initLeafletFallback = () => {
+      try {
+        const container = document.getElementById('naver-map-container');
+        if (!container) return;
+        container.innerHTML = "";
+
+        let existingCss = document.getElementById('leaflet-css-direct');
+        if (!existingCss) {
+          const link = document.createElement('link');
+          link.id = 'leaflet-css-direct';
+          link.rel = 'stylesheet';
+          link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+          document.head.appendChild(link);
+        }
+
+        const startLeaflet = () => {
+          const L = (window as any).L;
+          if (!L) return;
+          const map = L.map(container, { zoomControl: false }).setView([lat, lon], 14);
+          
+          L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 19
+          }).addTo(map);
+
+          const shopMarker = L.circleMarker([lat, lon], {
+            color: '#4E3629',
+            fillColor: '#8C6F56',
+            fillOpacity: 1,
+            radius: 8,
+            weight: 3
+          }).addTo(map);
+          
+          shopMarker.bindPopup("<div style='font-size:11px'><b>📍 " + shopLabel + "</b><br/>" + regionName + "</div>").openPopup();
+
+          nearbyEvents.forEach((e: any) => {
+            if (e.lat && e.lon) {
+              L.circleMarker([e.lat, e.lon], {
+                color: '#E28257',
+                fillColor: '#FFFFFF',
+                fillOpacity: 0.9,
+                radius: 6,
+                weight: 3.5
+              }).addTo(map)
+                .bindPopup("<div style='font-size:11px'><b>🎉 " + e.name + "</b><br/>장소: " + e.place + "<br/>거리: " + e.distance_km + "km<br/>날짜: " + e.date + "</div>");
+            }
+          });
+        };
+
+        const existingScript = document.getElementById('leaflet-js-direct');
+        if (existingScript) {
+          startLeaflet();
+        } else {
+          const script = document.createElement('script');
+          script.id = 'leaflet-js-direct';
+          script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+          script.onload = startLeaflet;
+          document.head.appendChild(script);
+        }
+      } catch (err) {
+        console.error("Leaflet 로딩 실패:", err);
+      }
+    };
+
+    // 네이버 지도 인증 실패 전역 콜백 연결
+    (window as any).navermap_authFailure = () => {
+      console.warn("네이버 지도 인증 실패: 즉시 Leaflet 오픈 지도로 안전 전환합니다.");
+      initLeafletFallback();
+    };
+
+    const timer = setTimeout(loadNaverScript, 50);
+    return () => clearTimeout(timer);
+  }, [locationModalVisible, lat, lon, regionName, shopLabel, serializedEvents, NAVER_CLIENT_ID]);
 
   return (
     <View style={styles.card}>
       {/* 헤더 영역 */}
       <View style={styles.headRow}>
         <View style={{ flex: 1, alignItems: 'flex-start' }}>
-          <SlidingTabToggle value={isMonthly} onChange={setIsMonthly} />
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <SlidingTabToggle value={activeTab} onChange={setActiveTab} />
+            {forecast?.location && (
+              <PressableScale 
+                onPress={() => setLocationModalVisible(true)} 
+                style={styles.locationTag}
+                to={0.95}
+              >
+                <Ionicons name="location" size={10.5} color={colors.mochaBrown} style={{ opacity: 0.8 }} />
+                <Text style={styles.locationTagText}>
+                  {forecast.location.region}
+                </Text>
+              </PressableScale>
+            )}
+          </View>
           <Text style={[styles.amount, { marginTop: 6 }]}>₩ {amount.toLocaleString()}</Text>
         </View>
 
@@ -264,8 +650,8 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
         </View>
       </View>
 
-      {/* 실시간 차트 / 토스 달력 전환 영역 */}
-      {isMonthly ? (
+      {/* 실시간 차트 / 토스 달력 / 할 일 목록 전환 영역 */}
+      {activeTab === 'month' ? (
         <View style={styles.calendarContainer}>
           {/* 요일 행 */}
           <View style={styles.calendarHeaderRow}>
@@ -277,26 +663,37 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
           <View style={styles.calendarGrid}>
             {CALENDAR_ITEMS.map((item, idx) => {
               const hasData = item.date && SALES_DETAILS[item.date];
+              const isFuture = item.date && (Number(item.date) >= 17 && Number(item.date) <= 23);
               return (
                 <PressableScale 
                   key={idx} 
-                  disabled={!hasData}
-                  onPress={() => hasData && setSelectedDate(item.date)}
+                  disabled={!hasData && !isFuture}
+                  onPress={() => {
+                    if (hasData) setSelectedDate(item.date);
+                    else if (isFuture) setSelectedFutureDate(item.date);
+                  }}
                   style={[
                     styles.calendarCell,
                     item.date === '15' && styles.calendarTodayCell,
-                    !hasData && { opacity: 0.35 } // 매출 데이터가 없는 비활성 날짜는 옅게 처리
+                    isFuture && { backgroundColor: 'rgba(140, 111, 86, 0.04)' }, // 미래 예측일은 연한 브라운 틴트
+                    !hasData && !isFuture && { opacity: 0.35 } // 매출 데이터도 없고 미래 예측도 불가능하면 옅게
                   ]}
                   to={0.9}
                 >
                   <Text style={[
                     styles.calendarDateText,
-                    item.date === '15' && styles.calendarTodayText
+                    item.date === '15' && styles.calendarTodayText,
+                    isFuture && { color: colors.mochaBrown }
                   ]}>{item.date}</Text>
                   {item.income > 0 && (
+                    // [한글 주석: 사용자의 직관적인 '만' 단위 원복 요구 반영 (소수 첫째자리 내림 포맷)]
                     <Text style={styles.calendarIncomeText}>
-                      {/* [한글 주석: 사용자의 직관적인 '만' 단위 원복 요구 반영 (소수 첫째자리 내림 포맷)] */}
                       {`+${(item.income / 10000) % 1 === 0 ? item.income / 10000 : (Math.floor((item.income / 10000) * 10) / 10)}만`}
+                    </Text>
+                  )}
+                  {isFuture && (
+                    <Text style={[styles.calendarIncomeText, { color: colors.mochaBrown, fontSize: 7 }]}>
+                      {futureForecasts[item.date] ? `+${futureForecasts[item.date].cups}잔` : '예측'}
                     </Text>
                   )}
                 </PressableScale>
@@ -304,74 +701,194 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
             })}
           </View>
         </View>
+      ) : activeTab === 'todo' ? (
+        <View style={styles.todoWrapper}>
+          {/* [한글 주석: todo 탭 선택 시 카드 스타일이 없는 맑은 리스트를 렌더링합니다] */}
+          <TodoList todos={todos} onPressAction={onPressTodo || (() => {})} hideCard={true} />
+        </View>
       ) : (
-        <View style={styles.chartWrap}>
-          <Svg width="100%" height="100" viewBox="0 0 300 100" preserveAspectRatio="none">
-            <Defs>
-              <LinearGradient id="salesFill" x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0" stopColor={colors.mochaBrown} stopOpacity="0.12" />
-                <Stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
-              </LinearGradient>
-            </Defs>
+        <View>
+          {/* 오늘 / 내일 예측 범례 (Legend) */}
+          <View style={styles.legendContainer}>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendColorDot, { backgroundColor: colors.espressoBrown }]} />
+              <Text style={styles.legendText}>오늘 실시간</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendColorDot, { backgroundColor: colors.mochaBrown, opacity: 0.5 }]} />
+              <Text style={styles.legendText}>내일 AI 예측</Text>
+            </View>
 
-            {/* 그리드 가로선 */}
-            <Line x1="10" y1="20" x2="290" y2="20" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
-            <Line x1="10" y1="50" x2="290" y2="50" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
-            <Line x1="10" y1="80" x2="290" y2="80" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
+            {/* [브루] 예측 원인 설명 트리거 버튼 */}
+            <PressableScale style={styles.brewCta} onPress={() => setShowBrew(true)} to={0.95}>
+              <Ionicons name="cafe" size={12} color={colors.pointOrange} />
+              <Text style={styles.brewCtaText}>예측 이유</Text>
+            </PressableScale>
+          </View>
 
-            {/* [한글 주석: 세로 보조 점선 눈금] 스크린샷 시안과 동일하게 시간대 텍스트 축에 맞춤 */}
-            <Line x1="24" y1="90" x2="24" y2="82" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
-            <Line x1="108" y1="90" x2="108" y2="76" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
-            <Line x1="198" y1="90" x2="198" y2="60" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
+          <View 
+            style={styles.chartWrap}
+            onLayout={(e) => setLayoutWidth(e.nativeEvent.layout.width)}
+          >
+            <Svg width="100%" height="120" viewBox="0 0 300 130" preserveAspectRatio="none">
+              <Defs>
+                <LinearGradient id="todayFill" x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset="0" stopColor={colors.espressoBrown} stopOpacity="0.14" />
+                  <Stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
+                </LinearGradient>
+                <LinearGradient id="tomorrowFill" x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset="0" stopColor={colors.mochaBrown} stopOpacity="0.08" />
+                  <Stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
+                </LinearGradient>
+              </Defs>
 
-            <Path d={FILL} fill="url(#salesFill)" />
-            <Path d={LINE} stroke={colors.mochaBrown} strokeWidth={2} fill="none" strokeLinecap="round" />
-            
-            {/* 고정 피크 점 */}
-            <Circle cx={290} cy={50} r={3} fill={colors.trendGreenText} />
-            
-            {/* 
-              [한글 주석: Svg 내부 펄스 링] 
-              cx={290}, cy={50} 좌표를 고정 피크 점과 완벽히 일치시켜
-              화면 가로 폭 리사이징 시에도 단 0.1px의 엇갈림도 발생하지 않게 보장합니다.
-            */}
-            <Circle
-              cx={290}
-              cy={50}
-              r={pulseRadius}
-              fill={colors.trendGreenText}
-              opacity={pulseOpacity}
-            />
-          </Svg>
+              {/* 툴팁 닫기용 투명 배경 클릭 타겟 (세로 확장 130 대응) */}
+              <Rect width="300" height="130" fill="transparent" {...svgPress(() => setActiveTooltip(null))} />
 
-          {/* X축 */}
-          <View style={styles.xAxis}>
-            <Text style={styles.xAxisText}>09시</Text>
-            <Text style={styles.xAxisText}>12시</Text>
-            <Text style={styles.xAxisText}>15시</Text>
-            <Text style={[styles.xAxisText, { color: colors.trendGreenText, fontWeight: '700', opacity: 0.95 }]}>실시간</Text>
+              {/* 그리드 가로선 (세로 확장 정렬) */}
+              <Line x1="15" y1="25" x2="285" y2="25" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
+              <Line x1="15" y1="65" x2="285" y2="65" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
+              <Line x1="15" y1="105" x2="285" y2="105" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
+
+              {/* 세로 보조 점선 눈금 */}
+              <Line x1="25" y1="115" x2="25" y2="108" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
+              <Line x1="108" y1="115" x2="108" y2="85" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
+              <Line x1="192" y1="115" x2="192" y2="70" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
+              <Line x1="275" y1="115" x2="275" y2="62" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
+
+              {/* 1. 오늘 그래프 드로잉 (부드럽고 자연스러운 에스프레소 브라운 실선) */}
+              <Path d={REALTIME_FILL} fill="url(#todayFill)" />
+              <Path d={REALTIME_LINE} stroke={colors.espressoBrown} strokeWidth={2.0} fill="none" strokeLinecap="round" />
+              
+              {/* 오늘 실시간 펄스 링 & 고정 피크 점 (Y=55 밀착) */}
+              <Circle cx={275} cy={55} r={2.0} fill={colors.espressoBrown} />
+              <Circle
+                cx={275}
+                cy={55}
+                r={pulseRadius * 0.7}
+                fill={colors.espressoBrown}
+                opacity={pulseOpacity * 0.5}
+              />
+
+              {/* 2. 내일 그래프 드로잉 (부드럽고 고급스러운 모카 브라운 미세 대시선) */}
+              <Path d={forecastFillPath} fill="url(#tomorrowFill)" />
+              <Path d={forecastLinePath} stroke={colors.mochaBrown} strokeWidth={1.2} strokeOpacity={0.38} strokeDasharray="1.2,2.0" fill="none" strokeLinecap="round" />
+
+              {/* 내일 펄스 링 & 최종 예측 피크 점 */}
+              <Circle cx={275} cy={yForecast18} r={2.0} fill={colors.mochaBrown} opacity={0.4} />
+              <Circle
+                cx={275}
+                cy={yForecast18}
+                r={pulseRadius * 0.6}
+                fill={colors.mochaBrown}
+                opacity={pulseOpacity * 0.3}
+              />
+
+              {/* 3. 오늘 데이터 포인트 (터치용 보이지 않는 큰 Circle 영역 포함, Y좌표 꺾은선 일치) */}
+              <Circle cx={25} cy={100} r={2.2} fill={colors.espressoBrown} />
+              <Circle cx={25} cy={100} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 25, y: 100, title: '오늘 09시', value: '실제 25잔' }))} />
+
+              <Circle cx={108} cy={78} r={2.2} fill={colors.espressoBrown} />
+              <Circle cx={108} cy={78} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 108, y: 78, title: '오늘 12시', value: '실제 87잔' }))} />
+
+              <Circle cx={192} cy={63} r={2.2} fill={colors.espressoBrown} />
+              <Circle cx={192} cy={63} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 192, y: 63, title: '오늘 15시', value: '실제 127잔' }))} />
+
+              <Circle cx={275} cy={55} r={2.5} fill={colors.espressoBrown} />
+              <Circle cx={275} cy={55} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 275, y: 55, title: '오늘 실시간', value: '실제 142잔' }))} />
+
+              {/* 4. 내일 데이터 포인트 (뒤로 부드럽게 감도는 모카 브라운 톤 적용) */}
+              <Circle cx={25} cy={yForecast09} r={2.2} fill={colors.mochaBrown} opacity={0.4} />
+              <Circle cx={25} cy={yForecast09} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 25, y: yForecast09, title: '내일 09시', value: `예측 ${tomorrowCupsCum[0]}잔` }))} />
+
+              <Circle cx={108} cy={yForecast12} r={2.2} fill={colors.mochaBrown} opacity={0.4} />
+              <Circle cx={108} cy={yForecast12} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 108, y: yForecast12, title: '내일 12시', value: `예측 ${tomorrowCupsCum[1]}잔` }))} />
+
+              <Circle cx={192} cy={yForecast15} r={2.2} fill={colors.mochaBrown} opacity={0.4} />
+              <Circle cx={192} cy={yForecast15} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 192, y: yForecast15, title: '내일 15시', value: `예측 ${tomorrowCupsCum[2]}잔` }))} />
+
+              <Circle cx={275} cy={yForecast18} r={2.5} fill={colors.mochaBrown} opacity={0.4} />
+              <Circle cx={275} cy={yForecast18} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 275, y: yForecast18, title: '내일 18시', value: `예측 ${tomorrowCupsCum[3]}잔` }))} />
+
+
+              {/* 5. activeTooltip 플로팅 말풍선 렌더링 */}
+              {activeTooltip && (() => {
+                const rectX = Math.max(10, Math.min(200, activeTooltip.x - 45));
+                const textX = rectX + 45;
+                return (
+                  <G>
+                    {/* 말풍선 배경 사각형 */}
+                    <Rect
+                      x={rectX}
+                      y={activeTooltip.y - 30}
+                      width={90}
+                      height={18}
+                      rx={5}
+                      fill={colors.espressoBrown}
+                    />
+                    {/* 말풍선 꼬리 */}
+                    <Path
+                      d={`M ${activeTooltip.x - 4} ${activeTooltip.y - 12} L ${activeTooltip.x} ${activeTooltip.y - 7} L ${activeTooltip.x + 4} ${activeTooltip.y - 12} Z`}
+                      fill={colors.espressoBrown}
+                    />
+                    <SvgText
+                      x={textX}
+                      y={activeTooltip.y - 18}
+                      fontSize="8"
+                      fontWeight="bold"
+                      fill={colors.white}
+                      textAnchor="middle"
+                    >
+                      {`${activeTooltip.title}: ${activeTooltip.value}`}
+                    </SvgText>
+                  </G>
+                );
+              })()}
+            </Svg>
+
+
+            {/* X축 */}
+            <View style={styles.xAxis}>
+              <Text style={styles.xAxisText}>09시</Text>
+              <Text style={styles.xAxisText}>12시</Text>
+              <Text style={styles.xAxisText}>15시</Text>
+              <Text style={[styles.xAxisText, { color: colors.mochaBrown, fontWeight: '700', opacity: 0.95 }]}>
+                18시
+              </Text>
+            </View>
           </View>
         </View>
       )}
 
-      {/* 하단 요약 정보 그리드 */}
-      <View style={styles.footRow}>
-        <View style={styles.footItem}>
-          <Text style={styles.footLabel}>판매 잔</Text>
-          <Text style={styles.footValue}>{salesCount}</Text>
-        </View>
-        <View style={styles.footItem}>
-          <Text style={styles.footLabel}>객단가</Text>
-          <Text style={styles.footValue}>{averagePrice}</Text>
-        </View>
-        <View style={styles.footItem}>
-          <Text style={styles.footLabel}>피크</Text>
-          <Text style={[styles.footValue, { color: colors.trendGreenText }]}>{peakTime}</Text>
-        </View>
-      </View>
 
-      {/* [한글 주석: 통합형 주간 리포트 스마트 배너] 월간 모드일 때는 레이아웃 과밀을 피하기 위해 띄우지 않고, 일간 모드에서만 노출시킵니다 */}
-      {onPressReport && !isMonthly && (
+
+      {/* 하단 요약 정보 그리드 (todo 탭이 아닐 때만 노출) */}
+      {activeTab !== 'todo' && (
+        <View style={styles.footRow}>
+          <View style={styles.footItem}>
+            <Text style={styles.footLabel}>{activeTab === 'month' ? '판매 잔' : '판매 잔 (오늘 / 내일예상)'}</Text>
+            <Text style={styles.footValue}>
+              {salesCount}
+              {activeTab === 'day' && forecast && (
+                <Text style={{ fontSize: 11, color: colors.mochaBrown, fontWeight: 'normal' }}>
+                  {` / ${tomorrowCups}잔`}
+                </Text>
+              )}
+            </Text>
+          </View>
+          <View style={styles.footItem}>
+            <Text style={styles.footLabel}>객단가</Text>
+            <Text style={styles.footValue}>{averagePrice}</Text>
+          </View>
+          <View style={styles.footItem}>
+            <Text style={styles.footLabel}>피크</Text>
+            <Text style={[styles.footValue, { color: colors.trendGreenText }]}>{peakTime}</Text>
+          </View>
+        </View>
+      )}
+
+      {/* [한글 주석: 통합형 주간 리포트 스마트 배너] 월간/할일 모드일 때는 레이아웃 과밀을 피하기 위해 띄우지 않고, 일간 모드에서만 노출시킵니다 */}
+      {onPressReport && activeTab === 'day' && (
         <PressableScale onPress={onPressReport} style={styles.reportBanner}>
           <View style={{ flex: 1, gap: 3 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -471,11 +988,309 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
           </View>
         </View>
       </Modal>
+
+      {/* [한글 주석: 미래 날짜용 AI 판매량 예측 상세 모달] */}
+      <Modal
+        visible={selectedFutureDate !== null}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setSelectedFutureDate(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setSelectedFutureDate(null)} />
+          <View style={styles.modalContent}>
+            {selectedFutureDate && (
+              <View style={{ gap: 16 }}>
+                {/* 헤더 */}
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalDateTitle}>7월 {selectedFutureDate}일 AI 판매량 예측</Text>
+                  <Pressable onPress={() => setSelectedFutureDate(null)} style={{ padding: 4 }}>
+                    <Ionicons name="close" size={22} color={colors.espressoBrown} />
+                  </Pressable>
+                </View>
+
+                {/* 데이터가 없거나 로딩 중일 때 */}
+                {!futureForecasts[selectedFutureDate] ? (
+                  <View style={{ paddingVertical: 32, alignItems: 'center', justifyContent: 'center' }}>
+                    <ActivityIndicator size="small" color={colors.mochaBrown} style={{ marginBottom: 12 }} />
+                    <Text style={{ ...typography.L5, color: colors.mochaBrown }}>예측 정보를 불러오는 중입니다...</Text>
+                  </View>
+                ) : (
+                  (() => {
+                    const fDay = futureForecasts[selectedFutureDate] as ForecastDay;
+                    return (
+                      <View style={{ gap: 14 }}>
+                        {/* 예상 매출액 및 잔수 */}
+                        <View style={styles.modalIncomeBox}>
+                          <Text style={styles.modalIncomeLabel}>예상 판매량 및 매출</Text>
+                          <Text style={styles.modalIncomeValue}>
+                            {fDay.cups}잔{' '}
+                            <Text style={{ fontSize: 13, color: colors.mochaBrown, fontWeight: 'normal' }}>
+                              (₩{fDay.revenue.toLocaleString()})
+                            </Text>
+                          </Text>
+                        </View>
+
+                        {/* 세부 날씨 정보 */}
+                        {fDay.weather && (
+                          <View style={styles.detailRow}>
+                            <View style={styles.detailIconBg}>
+                              <Ionicons
+                                name={WEATHER_ICON[fDay.weather] ?? 'cloud-outline'}
+                                size={16}
+                                color={colors.pointOrange}
+                              />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.detailLabel}>예상 날씨</Text>
+                              <Text style={styles.detailValue}>
+                                {fDay.weather} {fDay.temp_max != null ? `· 최고 ${Math.round(fDay.temp_max)}°C` : ''}
+                                {fDay.precip_prob != null && fDay.precip_prob > 0 ? ` (강수확률 ${fDay.precip_prob}%)` : ''}
+                              </Text>
+                            </View>
+                          </View>
+                        )}
+
+                        {/* 공휴일 표기 */}
+                        {fDay.holiday && (
+                          <View style={[styles.detailRow, { backgroundColor: 'rgba(178,59,46,0.05)', borderRadius: 12, padding: 8 }]}>
+                            <View style={[styles.detailIconBg, { backgroundColor: 'rgba(178,59,46,0.1)' }]}>
+                              <Ionicons name="flag-outline" size={16} color="#B23B2E" />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.detailLabel, { color: '#B23B2E' }]}>공휴일 지정</Text>
+                              <Text style={[styles.detailValue, { color: '#B23B2E' }]}>{fDay.holiday}</Text>
+                            </View>
+                          </View>
+                        )}
+
+                        {/* 보정 근거 / 주변 행사 리스트 */}
+                        <View style={styles.brewCommentBox}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                            <Text style={{ fontSize: 16 }}>📊</Text>
+                            <Text style={styles.brewCommentTitle}>예측 근거 상세</Text>
+                          </View>
+                          {fDay.adjustments.length === 0 ? (
+                            <Text style={[styles.brewCommentText, { fontStyle: 'normal' }]}>
+                              특별한 날씨 변화나 인근 행사가 없어 기본적인 시계열 추세를 기준으로 예측되었습니다.
+                            </Text>
+                          ) : (
+                            fDay.adjustments.map((a, i) => (
+                              <Text key={i} style={[styles.brewCommentText, { fontSize: 10, lineHeight: 14, marginBottom: 2 }]}>
+                                ✦ {a}
+                              </Text>
+                            ))
+                          )}
+                        </View>
+                      </View>
+                    );
+                  })()
+                )}
+
+                {/* 닫기 버튼 */}
+                <PressableScale onPress={() => setSelectedFutureDate(null)} style={styles.modalCloseBtn}>
+                  <Text style={styles.modalCloseText}>확인</Text>
+                </PressableScale>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* [한글 주석: 매장 위치 및 주변 행사 지리 분석 지도 모달] */}
+      <Modal
+        visible={locationModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setLocationModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setLocationModalVisible(false)} />
+          <View style={[styles.modalContent, { width: '92%', maxWidth: 450, height: 420, padding: 0, overflow: 'hidden' }]}>
+            {/* 헤더 */}
+            <View style={[styles.modalHeader, { paddingHorizontal: 18, paddingVertical: 12, borderBottomWidth: 0.8, borderBottomColor: 'rgba(140, 111, 86, 0.08)' }]}>
+              <Text style={styles.modalDateTitle}>📍 매장 주변 지리 분석 지도</Text>
+              <Pressable onPress={() => setLocationModalVisible(false)} style={{ padding: 4 }}>
+                <Ionicons name="close" size={22} color={colors.espressoBrown} />
+              </Pressable>
+            </View>
+
+            {/* 지도 본문 (웹 환경 대응 브라우저 표준 iframe) */}
+            <View style={{ flex: 1, backgroundColor: '#F8F6F2', position: 'relative' }}>
+              {Platform.OS === 'web' ? (
+                <View
+                  id="naver-map-container"
+                  style={{ width: '100%', height: '100%' }}
+                />
+              ) : (
+                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+                  <Ionicons name="map-outline" size={32} color={colors.mochaBrown} style={{ marginBottom: 8 }} />
+                  <Text style={{ ...typography.L5, color: colors.mochaBrown, textAlign: 'center' }}>
+                    웹 브라우저 환경에서 인터랙티브 실지도 분석 모드가 지원됩니다.
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* 범례 및 안내 */}
+            <View style={{ paddingVertical: 10, paddingHorizontal: 16, backgroundColor: 'rgba(140, 111, 86, 0.05)', flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#8C6F56' }} />
+                <Text style={{ fontSize: 9.5, fontWeight: '800', color: colors.espressoBrown }}>내 매장</Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#E28257' }} />
+                <Text style={{ fontSize: 9.5, fontWeight: '800', color: colors.espressoBrown }}>인근 행사 (3km)</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* [브루 예측 설명 오버레이] 내일 예측 배지 탭 시 브루가 등장해 원인 설명 */}
+      <BrewForecastOverlay
+        visible={showBrew}
+        onClose={() => setShowBrew(false)}
+        cups={tomorrowCups}
+        revenue={tomorrowRevenue}
+        peak={peakTime}
+        growth={badgeText}
+      />
     </View>
   );
 }
 
+// [브루 등장 오버레이] 스프링으로 튀어올라오며 말풍선으로 예측 원인을 설명한다.
+function BrewForecastOverlay({
+  visible,
+  onClose,
+  cups,
+  revenue,
+  peak,
+  growth,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  cups: number;
+  revenue: number;
+  peak: string;
+  growth: string;
+}) {
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      anim.setValue(0);
+      Animated.spring(anim, {
+        toValue: 1,
+        useNativeDriver: true,
+        friction: 7,
+        tension: 80,
+      }).start();
+    }
+  }, [visible, anim]);
+
+  const growthClean = growth.replace(/[▲▼]/g, '').trim();
+  const reasons = [
+    { icon: '🕑', text: `${peak} 피크 시간대에 주문이 몰릴 거예요.` },
+    { icon: '📈', text: `최근 판매 추세가 오늘 대비 ${growthClean} 오름세예요.` },
+    { icon: '🌤️', text: '요일·날씨 패턴도 판매에 유리한 편이에요.' },
+  ];
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.brewBackdrop} onPress={onClose}>
+        <Animated.View
+          style={[
+            styles.brewSheet,
+            {
+              opacity: anim,
+              transform: [
+                { translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [60, 0] }) },
+                { scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
+              ],
+            },
+          ]}
+        >
+          {/* 브루 등장 */}
+          <View style={styles.brewMascotWrap} pointerEvents="none">
+            <Brew mood="serving" size={132} />
+          </View>
+
+          {/* 말풍선 카드 */}
+          <View style={styles.brewBubble}>
+            <Text style={styles.brewTitle}>내일은 {cups}잔 예상이에요! ☕</Text>
+            <Text style={styles.brewSub}>예상 매출 약 {Math.round(revenue / 10000)}만 원</Text>
+
+            <View style={styles.brewDivider} />
+
+            {reasons.map((r) => (
+              <View key={r.text} style={styles.brewReasonRow}>
+                <Text style={styles.brewReasonIcon}>{r.icon}</Text>
+                <Text style={styles.brewReasonText}>{r.text}</Text>
+              </View>
+            ))}
+
+            <Text style={styles.brewFoot}>최근 판매 데이터 기반 AI 예측 · — 브루 드림</Text>
+
+            <PressableScale style={styles.brewBtn} onPress={onClose} to={0.97}>
+              <Text style={styles.brewBtnText}>알겠어요</Text>
+            </PressableScale>
+          </View>
+        </Animated.View>
+      </Pressable>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
+  // [브루] 예측 이유 CTA 버튼 (범례 우측)
+  brewCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginLeft: 'auto',
+    backgroundColor: '#FBF0E4',
+    borderWidth: 1,
+    borderColor: 'rgba(194,94,53,0.35)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  brewCtaText: { fontSize: 11, fontWeight: '700', color: colors.pointOrange },
+  // [브루 예측 설명 오버레이]
+  brewBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(30,22,16,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  brewSheet: { width: '100%', maxWidth: 340, alignItems: 'center' },
+  brewMascotWrap: { marginBottom: -34, zIndex: 2 },
+  brewBubble: {
+    width: '100%',
+    backgroundColor: colors.white,
+    borderRadius: 24,
+    paddingTop: 40,
+    paddingHorizontal: 20,
+    paddingBottom: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.22,
+    shadowRadius: 22,
+    elevation: 10,
+  },
+  brewTitle: { fontSize: 18, fontWeight: '800', color: colors.espressoBrown, textAlign: 'center' },
+  brewSub: { ...typography.L5, color: colors.mochaBrown, textAlign: 'center', marginTop: 3, fontWeight: '600' },
+  brewDivider: { height: 1, backgroundColor: colors.mutedSand, marginVertical: 14 },
+  brewReasonRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, marginBottom: 9 },
+  brewReasonIcon: { fontSize: 15, marginTop: 1 },
+  brewReasonText: { flex: 1, fontSize: 13, color: colors.espressoBrown, lineHeight: 19, fontWeight: '500' },
+  brewFoot: { ...typography.L5, color: colors.mochaBrown, fontStyle: 'italic', textAlign: 'center', marginTop: 6, opacity: 0.85 },
+  brewBtn: { backgroundColor: colors.pointOrange, borderRadius: 14, paddingVertical: 13, alignItems: 'center', marginTop: 14 },
+  brewBtnText: { ...typography.L3, color: colors.white, fontWeight: '700' },
+
   card: {
     backgroundColor: 'rgba(242, 236, 224, 0.55)', // 원래 0.55 크림 베이지 톤으로 복구
     borderRadius: 24,
@@ -488,8 +1303,37 @@ const styles = StyleSheet.create({
   label: { ...typography.L5, color: colors.mochaBrown, marginBottom: 4 },
   amount: { fontSize: 26, fontWeight: '900', color: colors.espressoBrown, letterSpacing: -0.5 },
 
+  legendContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+    marginBottom: 16,
+    marginTop: 14,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  legendColorDot: {
+    width: 8,
+    height: 4,
+    borderRadius: 1.5,
+  },
+  legendText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: colors.mochaBrown,
+  },
+
+  todoWrapper: {
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    minHeight: 180,
+    justifyContent: 'center',
+  },
   toggleTrack: {
-    width: 76,
+    width: 114,
     height: 28,
     borderRadius: 999,
     backgroundColor: 'rgba(140, 111, 86, 0.08)', // [iOS 스타일] 투명감 도는 탭 트랙
@@ -531,6 +1375,36 @@ const styles = StyleSheet.create({
   },
   toggleLabelTextActive: {
     color: colors.espressoBrown, // 캡슐 위의 어두운 활성 텍스트
+    fontWeight: '800',
+  },
+  chartToggleContainer: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(140, 111, 86, 0.06)',
+    borderRadius: 10,
+    padding: 2,
+    alignSelf: 'flex-start',
+    marginBottom: 10,
+  },
+  chartToggleBtn: {
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  chartToggleBtnActive: {
+    backgroundColor: colors.white,
+    shadowColor: '#4E3629',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1.5,
+    elevation: 1.5,
+  },
+  chartToggleText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#9C8875',
+  },
+  chartToggleTextActive: {
+    color: colors.espressoBrown,
     fontWeight: '800',
   },
 
@@ -596,22 +1470,23 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   badgeText: { ...typography.L5, color: colors.trendGreenText, fontWeight: '700' },
-  chartWrap: { marginTop: 16, height: 112, position: 'relative' },
+  chartWrap: { marginTop: 16, height: 140, position: 'relative' },
   xAxis: {
     position: 'absolute',
-    bottom: -6,
-    left: 8,
-    right: 8,
+    bottom: -10,
+    left: 12,
+    right: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   xAxisText: {
-    fontSize: 9,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
     color: colors.mochaBrown,
-    opacity: 0.65,
+    opacity: 0.9,
   },
+
   footRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -755,5 +1630,65 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: colors.white,
+  },
+  forecastBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.espressoBrown,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    alignSelf: 'center',
+  },
+  forecastBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.white,
+  },
+  animatedTooltip: {
+    position: 'absolute',
+    backgroundColor: colors.espressoBrown,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#4E3629',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 5,
+    elevation: 4,
+    minWidth: 100,
+  },
+  animatedTooltipText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: colors.white,
+    textAlign: 'center',
+  },
+  tooltipArrow: {
+    position: 'absolute',
+    bottom: -3.5,
+    width: 7,
+    height: 7,
+    backgroundColor: colors.espressoBrown,
+    transform: [{ rotate: '45deg' }],
+  },
+  locationTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(140, 111, 86, 0.05)',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginLeft: 10,
+  },
+  locationTagText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.mochaBrown,
+    opacity: 0.85,
   },
 });

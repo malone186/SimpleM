@@ -750,12 +750,42 @@ class OperationService:
             )
 
         return {
-            "period_start": period_start,
-            "period_end": period_end,
+            "target_date": period_start,
             "hourly_recommendations": hourly_recommendations,
             "total_recommended_hours": total_recommended_hours,
             "estimated_payroll_cost": estimated_payroll_cost,
             "summary": summary
         }
 
+    @staticmethod
+    def create_expense(db: Session, store_id: str, amount: int, category: str, expense_date: Any, description: Optional[str] = None) -> Expense:
+        """[한글 주석] 매장의 원자재 매입이나 운영 지출 비용 내역을 데이터베이스에 신규 등록하고 저장합니다."""
+        new_expense = Expense(
+            store_id=store_id,
+            amount=amount,
+            category=category,
+            expense_date=expense_date,
+            description=description
+        )
+        db.add(new_expense)
+        db.commit()
+        db.refresh(new_expense)
+        return new_expense
 
+    @staticmethod
+    def get_expenses(db: Session, store_id: str, year_month: Optional[str] = None) -> List[Expense]:
+        """[한글 주석] 지정된 매장의 지출 내역 목록을 조회합니다. 연월(YYYY-MM) 필터를 적용할 수 있습니다."""
+        query = db.query(Expense).filter(Expense.store_id == store_id)
+        if year_month:
+            try:
+                year, month = map(int, year_month.split("-"))
+                query = query.filter(
+                    extract('year', Expense.expense_date) == year,
+                    extract('month', Expense.expense_date) == month
+                )
+            except ValueError:
+                pass
+        return query.order_by(Expense.expense_date.desc()).all()
+
+    # [중복 정의 제거] list_employees_payroll은 상단(기간 매핑 버전)에 이미 정의되어 있어 여기서는 삭제함
+    # (이 버전은 calculate_payroll을 year_month로 잘못 호출하고 total_salary 키를 참조해 런타임 오류를 유발했음)

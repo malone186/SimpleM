@@ -469,24 +469,11 @@ def update_order_status(db: Session, store_id: str, order_id: int, status_update
         )
         
     if target_status == "CONFIRMED":
-        # [실시간 재고 채우기 트랜잭션]
-        for item in order.items:
-            stock = db.query(Stock).filter(Stock.ingredient_id == item.ingredient_id).first()
-            if stock:
-                # 1. 창고 수량을 더해줍니다.
-                stock.current_quantity += item.quantity
-                
-                # 2. 입출고 거래 장부에 "발주 승인 입고" 유형(IN)으로 변동 이력을 의무 기록합니다.
-                tx = StockTransaction(
-                    ingredient_id=item.ingredient_id,
-                    quantity_change=item.quantity,
-                    type="IN",
-                    description=f"발주 승인 입고 (발주번호 #{order.id})"
-                )
-                db.add(tx)
-        
+        # [한글 주석: 자동 재고 추가 로직 제거]
+        # 발주 승인 시 자동으로 재고가 추가되는 기능을 삭제하여,
+        # 카페 오너가 실제로 직접 발주하고 입고된 재고를 수동으로 입력하도록 합니다.
         order.status = "CONFIRMED"
-        message = "발주 승인이 완료되어 재고가 정상적으로 창고에 입고되었습니다!"
+        message = "발주 승인이 완료되었습니다. (※ 자동 재고 가산 기능이 삭제되었으므로, 실제 입고 수량은 '재고' 메뉴에서 수동으로 조정해야 합니다.)"
     else:
         # 반려 처리
         order.status = "REJECTED"
@@ -494,3 +481,13 @@ def update_order_status(db: Session, store_id: str, order_id: int, status_update
         
     db.commit()
     return {"id": order.id, "status": order.status, "message": message}
+
+
+def get_roastery_beans(db: Session, limit: int = 10):
+    """
+    [한글 주석: 로스터리 원두 목록 조회 서비스]
+    데이터베이스에 저장된 외부 로스터리 원두 상품 목록을 로스터리 정보와 함께 가져옵니다.
+    """
+    from app.models.roastery import RoasteryBean
+    return db.query(RoasteryBean).order_by(RoasteryBean.id.asc()).limit(limit).all()
+

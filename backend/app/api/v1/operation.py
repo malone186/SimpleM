@@ -4,6 +4,7 @@ from fastapi import APIRouter, Query, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.auth import get_current_user
+from app.models.user import User
 from app.models.operation import Employee, Schedule, EstimatedPayroll, EstimatedSettlement
 from app.schemas.operation import (
     CommonResponse, ScheduleCreate, ScheduleUpdate, ScheduleResponse,
@@ -17,6 +18,7 @@ from app.schemas.operation import (
 from app.services.operation.operation_service import OperationService
 from app.services.operation.tax_service import TaxService
 from app.services.operation.forecasting_service import ForecastingService
+from app.models.user import User
 
 router = APIRouter(prefix="/operation", tags=["Operation"])
 
@@ -99,23 +101,31 @@ def delete_schedule_api(schedule_id: int, db: Session = Depends(get_db)):
 
 @router.post("/schedules/recommend", response_model=CommonResponse)
 def recommend_schedule_api(payload: ScheduleRecommendationRequest, db: Session = Depends(get_db)):
-    """실제 과거 매출 데이터를 기간별로 집계하고 분석하여 시간대별 알바 근무 인원 스케줄 추천안을 도출합니다."""
+    """실제 과거 매출 데이터를 시간대별로 분석하여 최적의 알바 근무 스케줄 추천안을 도출합니다."""
     try:
         recommendation_result = OperationService.recommend_schedule(
             db=db,
-            period_start=payload.period_start,
-            period_end=payload.period_end,
+            target_date=payload.target_date,
             store_id=payload.store_id
+        )
+        data = ScheduleRecommendationResponse(
+            target_date=recommendation_result["target_date"],
+            hourly_recommendations=recommendation_result["hourly_recommendations"],
+            total_recommended_hours=recommendation_result["total_recommended_hours"],
+            estimated_payroll_cost=recommendation_result["estimated_payroll_cost"],
+            summary=recommendation_result["summary"]
         )
         return CommonResponse(
             success=True,
-            data=ScheduleRecommendationResponse.model_validate(recommendation_result),
+            data=data,
             message="스케줄 추천 연산이 완료되었습니다."
         )
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
+
 
 @router.get("/payroll", response_model=CommonResponse)
 def get_payroll_api(
@@ -175,22 +185,7 @@ def get_all_payroll_api(
     except Exception as e:
         return CommonResponse(success=False, data=None, message=f"서버 오류: {str(e)}")
 
-@router.post("/settlements/calculate", response_model=CommonResponse)
-def calculate_settlement_api(payload: SettlementCalculateRequest):
-    """입력받은 매출액, 원가/비용, 인건비, 기타비용을 바탕으로 예상 정산 이익 및 이익률을 계산합니다."""
-    try:
-        settlement_result = OperationService.calculate_settlement(
-            revenue=payload.revenue,
-            cost=payload.cost,
-            labor_cost=payload.labor_cost,
-            other_expense=payload.other_expense
-        )
-        data = SettlementCalculateResponse.model_validate(settlement_result)
-        return CommonResponse(success=True, data=data, message="예상 정산 계산이 완료되었습니다.")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
+
 
 # --- [신규 GET API: 저장된 예상 결과 조회] ---
 

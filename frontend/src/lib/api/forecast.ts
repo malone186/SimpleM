@@ -38,11 +38,18 @@ export type NearbyEvent = {
   source: string;
 };
 
+export type HourlyForecast = {
+  hour: string;
+  cups: number;
+  revenue: number;
+};
+
 export type SalesForecast = {
   location: { lat: number; lon: number; region: string };
   model: string;
   history_days: number;
   tomorrow: ForecastDay;
+  tomorrow_hourly: HourlyForecast[];
   week: ForecastDay[];
   week_total: { cups: number; revenue: number };
   order_recommendations: OrderRecommendation[];

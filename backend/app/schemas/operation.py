@@ -319,9 +319,8 @@ class ReportSourceResponse(BaseModel):
     forecast_summary: str = Field(..., description="자연어로 작성된 판매 예측 리포트")
 
 class ScheduleRecommendationRequest(BaseModel):
-    """알바 스케줄 추천 요청 스키마"""
-    period_start: str = Field(..., description="분석 시작일 (YYYY-MM-DD)", examples=["2026-07-01"])
-    period_end: str = Field(..., description="분석 종료일 (YYYY-MM-DD)", examples=["2026-07-31"])
+    """[한글 주석] 알바 스케줄 추천 요청 스키마 (특정 대상일 기준)"""
+    target_date: str = Field(..., description="추천 대상 날짜 (YYYY-MM-DD)", examples=["2026-07-16"])
     store_id: str = Field(..., description="매장 식별 아이디", examples=["store_gildong"])
 
 class HourlyRecommendation(BaseModel):
@@ -333,9 +332,8 @@ class HourlyRecommendation(BaseModel):
     busy_level: str = Field(..., description="혼잡도 수준 (PEAK | HIGH | NORMAL | LOW)", examples=["PEAK"])
 
 class ScheduleRecommendationResponse(BaseModel):
-    """알바 스케줄 추천 응답 스키마"""
-    period_start: str = Field(..., description="분석 시작일", examples=["2026-07-01"])
-    period_end: str = Field(..., description="분석 종료일", examples=["2026-07-31"])
+    """[한글 주석] 알바 스케줄 추천 응답 스키마 (특정 대상일 기준)"""
+    target_date: str = Field(..., description="추천 대상 날짜", examples=["2026-07-16"])
     hourly_recommendations: List[HourlyRecommendation] = Field(..., description="시간대별 분석 및 추천 내역")
     total_recommended_hours: float = Field(..., description="추천 스케줄에 따른 총 합산 근무 시간 (시간)", examples=[18.5])
     estimated_payroll_cost: int = Field(..., description="추천 스케줄 실행 시 예상 인건비 지출액 (원)", examples=[185000])
