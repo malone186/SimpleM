@@ -196,7 +196,7 @@ export default function CostScreen() {
                       <View key={idx} style={styles.recCard}>
                         <View style={styles.recHeader}>
                           <Text style={styles.recIngName}>{rec.ingredient_name}</Text>
-                          <Badge text={rec.source} tone={rec.source.includes('도매') ? 'green' : 'info'} />
+                          <Badge label={rec.source} tone={rec.source.includes('도매') ? 'green' : 'neutral'} />
                         </View>
                         <Text style={styles.recAltName}>대체추천: {rec.alternative_name}</Text>
                         
@@ -285,6 +285,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 420,         // [한글 주석] 어두운 뒷배경(딤드)마저도 휴대폰 액정 가로폭(420px) 밖으로 절대 나가지 못하도록 가둡니다.
+    alignSelf: 'center',   // [한글 주석] 브라우저 상에서 가상 스마트폰 중앙에 가로 정렬을 고정시킵니다.
   },
   modalContent: {
     backgroundColor: '#FAF7F2',
@@ -292,6 +296,8 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     height: '75%',
     paddingTop: 16,
+    width: '100%',
+    maxWidth: 420,         // [한글 주석] 480 -> 420으로 축소하여 폰 스크린 액정 너비 내에 팝업 테두리를 온전히 일치시킵니다.
   },
   modalHeader: {
     flexDirection: 'row',
