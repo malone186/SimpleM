@@ -545,19 +545,66 @@ def calculate_payroll_api(payload: PayrollCalculateRequest):
 
 
 @router.post("/settlements/calculate", response_model=CommonResponse, summary="예상 손익 정산 계산 (MVP)")
-def calculate_settlement_api(payload: SettlementCalculateRequest):
+def calculate_settlement_api(payload: SettlementCalculateRequest, db: Session = Depends(get_db)):
     """
     [예상 손익 정산 계산 API]
-    매출, 원가/비용, 인건비, 기타비용을 입력받아 총 비용과 예상 정산 이익 및 이익률(%)을 연산합니다.
+    - period_start와 period_end가 입력되면 데이터베이스에서 해당 기간의 실시간 매출, 지출 비용, 인건비를 자동 집계하여 산출합니다.
+    - 그렇지 않고 수동 금액이 들어오면 수동 정산 연산을 수행합니다.
     - 입력값 범위 실패 시 HTTP 422
     - 도메인 검증 실패 시 HTTP 400 (예: 금액 음수 등)
     """
     try:
+        revenue = payload.revenue
+        cost = payload.cost
+        labor_cost = payload.labor_cost
+        other_expense = payload.other_expense or 0
+
+        # [한글 주석: 프론트엔드 모바일 앱이 기간 정보를 꽂아 보냈다면, DB에서 일체 실시간 집계를 수행합니다]
+        if payload.period_start and payload.period_end:
+            from datetime import datetime, timedelta
+            from sqlalchemy import func
+            from app.models.inventory import Sale
+            from app.models.operation import Expense
+            
+            # 1. 날짜 경계선 파싱 (마지막 날 23:59:59 누락을 막기 위해 종료일의 익일 0시 미만으로 안전하게 검색)
+            try:
+                p_start_dt = datetime.strptime(payload.period_start, "%Y-%m-%d")
+                p_end_dt = datetime.strptime(payload.period_end, "%Y-%m-%d") + timedelta(days=1)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="날짜 포맷은 YYYY-MM-DD 형식이어야 합니다.")
+
+            # 2. 지정 기간 총 매출(Sale) 자동 집계
+            sales_sum = db.query(func.sum(Sale.total_price)).filter(
+                Sale.sold_at >= p_start_dt,
+                Sale.sold_at < p_end_dt
+            ).scalar()
+            revenue = int(sales_sum or 0)
+
+            # 3. 지정 기간 총 지출 비용(Expense) 자동 집계
+            expense_sum = db.query(func.sum(Expense.amount)).filter(
+                Expense.expense_date >= payload.period_start,
+                Expense.expense_date <= payload.period_end
+            ).scalar()
+            cost = int(expense_sum or 0)
+
+            # 4. 지정 월 총 인건비(labor_cost) 자동 집계 (소속 직원들의 예상 급여 연산액 합산)
+            # period_start 문자열로부터 해당 연월(YYYY-MM)을 추출하여 급여 집계를 돌립니다.
+            year_month = payload.period_start[:7]
+            employees_payroll = OperationService.list_employees_payroll(db, year_month)
+            labor_cost = sum(payroll.get("estimated_salary", 0) for payroll in employees_payroll)
+
+        # [한글 주석: 두 경로 모두 유효 데이터가 확보되지 않았다면 에러를 리턴합니다]
+        if revenue is None or cost is None or labor_cost is None:
+            raise HTTPException(
+                status_code=422,
+                detail="수동 정산용 매출/비용/인건비 정보 또는 실시간 집계용 기간 정보(period_start/end)를 입력해 주세요."
+            )
+
         result = OperationService.calculate_settlement(
-            revenue=payload.revenue,
-            cost=payload.cost,
-            labor_cost=payload.labor_cost,
-            other_expense=payload.other_expense
+            revenue=revenue,
+            cost=cost,
+            labor_cost=labor_cost,
+            other_expense=other_expense
         )
         response_payload = SettlementCalculateResponse(**result)
         return CommonResponse(

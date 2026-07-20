@@ -29,7 +29,7 @@ type AuthContextValue = {
   login: (email: string, password: string, autoLogin: boolean) => Promise<void>;
   signup: (name: string, email: string, password: string, autoLogin: boolean) => Promise<void>;
   logout: () => Promise<void>;
-  updateProfile: (patch: { name?: string; password?: string; photo?: string }) => Promise<void>;
+  updateProfile: (patch: { name?: string; store_name?: string; password?: string; photo?: string }) => Promise<void>;
 };
 
 const SESSION_KEY = 'simplem:session'; // [한글 주석] 자동 로그인 체크 시 로컬에 저장할 세션 키
@@ -254,7 +254,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // [한글 주석] 로그아웃 시 Firebase 세션을 끊고 로컬 세션을 완전히 파기합니다.
   const logout = useCallback(async () => {
     try {
-      await signOut(auth);
+      // Firebase 미초기화(키 없음) 시 auth 는 null — 백엔드 우회 모드이므로 건너뛴다.
+      if (auth) await signOut(auth);
     } catch (err) {
       console.error('Firebase 로그아웃 실패:', err);
     }
@@ -265,12 +266,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // [한글 주석] 로그인된 점주님의 정보(이름/비밀번호)를 Firebase 및 백엔드 데이터베이스에 동시 갱신합니다.
   const updateProfile = useCallback(
-    async (patch: { name?: string; password?: string; photo?: string }) => {
+    async (patch: { name?: string; store_name?: string; password?: string; photo?: string }) => {
       if (!user || !token) return;
 
       try {
-        const currentUser = auth.currentUser;
-        
+        // Firebase 미초기화(키 없음) 시 auth 는 null 이므로 currentUser 도 없다.
+        const currentUser = auth ? auth.currentUser : null;
+
         // 1. 이름 변경 시 Firebase 인증 프로필 정보 갱신
         if (patch.name && currentUser) {
           await updateFirebaseProfile(currentUser, {
@@ -288,7 +290,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           body: JSON.stringify({
             name: patch.name?.trim() ? patch.name.trim() : undefined,
             password: patch.password ? patch.password : undefined,
-            store_name: patch.name?.trim() ? patch.name.trim() : undefined,
+            // 상호(store_name)는 이름과 독립적으로 수정 — 넘어온 경우에만 반영
+            store_name: patch.store_name?.trim() ? patch.store_name.trim() : undefined,
           }),
         });
 

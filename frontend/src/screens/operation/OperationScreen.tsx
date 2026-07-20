@@ -12,7 +12,8 @@ import { useAuth } from '../../auth/AuthContext';
 import {
   getSettlement, listPayroll, forecastSales, createExpense,
   listSchedules, createSchedule, updateSchedule, deleteSchedule, recommendSchedule,
-  type Settlement, type Payroll, type Forecast, type Schedule, type ScheduleRecommendation,
+  createUnavailability, listUnavailabilities, deleteUnavailability, getScheduleRecommendation,
+  type Settlement, type Payroll, type Forecast, type Schedule, type EmployeeUnavailability, type ScheduleRecommendation
 } from '../../lib/api/operation';
 
 const notify = (title: string, message: string) => toast(title, message);
@@ -34,12 +35,14 @@ export default function OperationScreen() {
   return (
     <Screen>
       {/* [한글 주석] 세금 기능이 서류 자동화 탭으로 통합됨에 따라, 본 화면은 스케줄·급여·정산 전용 화면입니다. */}
-      <ScreenTitle title="스케줄·급여" subtitle="알바 스케줄과 급여 정산을 한 곳에서" />
+      <ScreenTitle title="스케줄·급여" subtitle="알바 스케줄과 급여 정산, 기피 시간을 한 곳에서" />
       <LiveOperationCard />
+      <UnavailabilityManagementCard />
       <ScheduleTab />
     </Screen>
   );
 }
+
 
 // [백엔드 실시간 연동] 손익정산 · 직원별 급여 · 판매예측 (세금 제외)
 function LiveOperationCard() {
@@ -261,14 +264,261 @@ const liveStyles = StyleSheet.create({
   },
 });
 
+// ----------------------------------------------------
+// 챗봇 / ERP 신규: 알바생 기피/불가 시간 관리 카드 컴포넌트
+// ----------------------------------------------------
+function UnavailabilityManagementCard() {
+  const { token } = useAuth();
+  const [list, setList] = useState<EmployeeUnavailability[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+
+  // 폼 입력 상태
+  const [employeeId, setEmployeeId] = useState('1');
+  const [unavType, setUnavType] = useState<'weekly_recurring' | 'specific_date'>('weekly_recurring');
+  const [dayOfWeek, setDayOfWeek] = useState('0'); // 0=월
+  const [specificDate, setSpecificDate] = useState(tomorrowISO());
+  const [startHour, setStartHour] = useState('9');
+  const [endHour, setEndHour] = useState('12');
+  const [restrictionLevel, setRestrictionLevel] = useState<'hard' | 'soft'>('hard');
+  const [reason, setReason] = useState('');
+
+  const loadUnavailabilities = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const data = await listUnavailabilities(token);
+      setList(data);
+    } catch (e) {
+      console.warn('기피시간 조회 실패:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    loadUnavailabilities();
+  }, [loadUnavailabilities]);
+
+  const handleCreate = async () => {
+    if (!token) {
+      notify('로그인 필요', '기피시간 등록은 로그인 후 사용할 수 있습니다.');
+      return;
+    }
+    const empId = parseInt(employeeId, 10);
+    const sH = parseInt(startHour, 10);
+    const eH = parseInt(endHour, 10);
+    if (!empId || sH >= eH) {
+      notify('입력 확인', '직원 ID와 올바른 시작/종료 시각을 입력해 주세요.');
+      return;
+    }
+
+    try {
+      await createUnavailability(token, {
+        employee_id: empId,
+        unavailability_type: unavType,
+        day_of_week: unavType === 'weekly_recurring' ? parseInt(dayOfWeek, 10) : undefined,
+        specific_date: unavType === 'specific_date' ? specificDate : undefined,
+        start_hour: sH,
+        end_hour: eH,
+        restriction_level: restrictionLevel,
+        reason: reason.trim() || undefined,
+      });
+      notify('기피시간 등록 완료', '직원의 기피/불가 시간이 안전하게 등록되었습니다.');
+      setModalVisible(false);
+      setReason('');
+      await loadUnavailabilities();
+    } catch (e) {
+      notify('등록 실패', e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!token) return;
+    try {
+      await deleteUnavailability(token, id);
+      notify('삭제 완료', '해당 기피시간 설정이 지워졌습니다.');
+      await loadUnavailabilities();
+    } catch (e) {
+      notify('삭제 실패', e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const dayNames = ['월', '화', '수', '목', '금', '토', '일'];
+
+  return (
+    <Card tone="cream" style={{ marginBottom: 24 }}>
+      <View style={styles.rowBetween}>
+        <SectionTitle>알바 기피/불가 시간 관리</SectionTitle>
+        <PressableScale style={styles.addBtn} onPress={() => setModalVisible(true)}>
+          <Ionicons name="add" size={16} color={colors.white} />
+          <Text style={styles.addBtnText}>기피시간 등록</Text>
+        </PressableScale>
+      </View>
+      <Text style={styles.hint}>
+        Hard(절대 불가) 및 Soft(가급적 회피) 제약을 설정하면 AI 스케줄 추천 시 자동으로 피해서 배정합니다.
+      </Text>
+
+      {loading ? (
+        <ActivityIndicator color={colors.pointOrange} style={{ marginVertical: 14 }} />
+      ) : list.length === 0 ? (
+        <Text style={[styles.hint, { marginTop: 10, fontStyle: 'italic' }]}>등록된 알바생 기피 시간이 없습니다.</Text>
+      ) : (
+        <View style={{ gap: 8, marginTop: 12 }}>
+          {list.map((u) => {
+            const isHard = u.restriction_level === 'hard';
+            const typeLabel = u.unavailability_type === 'weekly_recurring'
+              ? `매주 ${dayNames[u.day_of_week ?? 0]}요일`
+              : `${u.specific_date}`;
+            return (
+              <View key={u.id} style={unavStyles.itemRow}>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={unavStyles.itemTitle}>직원(ID:{u.employee_id})</Text>
+                    <Badge label={isHard ? 'Hard 절대불가' : 'Soft 가급적회피'} tone={isHard ? 'orange' : 'cream'} />
+                  </View>
+                  <Text style={unavStyles.itemSub}>
+                    {typeLabel} · {u.start_hour}:00 ~ {u.end_hour}:00 {u.reason ? `(${u.reason})` : ''}
+                  </Text>
+                </View>
+                <PressableScale onPress={() => handleDelete(u.id)} style={styles.deleteBtnCircle}>
+                  <Ionicons name="trash-outline" size={16} color="#B23B2E" />
+                </PressableScale>
+              </View>
+            );
+          })}
+        </View>
+      )}
+
+      {/* 등록 모달 */}
+      <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
+        <View style={styles.modalRoot}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setModalVisible(false)} />
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>알바 기피/불가 시간 등록</Text>
+            
+            <View style={{ gap: 14 }}>
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>직원 ID</Text>
+                <TextInput style={styles.input} keyboardType="numeric" value={employeeId} onChangeText={setEmployeeId} />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>기피 유형</Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Button
+                    label="매주 요일 반복"
+                    variant={unavType === 'weekly_recurring' ? 'primary' : 'secondary'}
+                    style={{ flex: 1 }}
+                    onPress={() => setUnavType('weekly_recurring')}
+                  />
+                  <Button
+                    label="특정 날짜 지정"
+                    variant={unavType === 'specific_date' ? 'primary' : 'secondary'}
+                    style={{ flex: 1 }}
+                    onPress={() => setUnavType('specific_date')}
+                  />
+                </View>
+              </View>
+
+              {unavType === 'weekly_recurring' ? (
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel}>요일 선택 (0=월 ~ 6=일)</Text>
+                  <TextInput style={styles.input} keyboardType="numeric" value={dayOfWeek} onChangeText={setDayOfWeek} placeholder="0~6" />
+                </View>
+              ) : (
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel}>날짜 지정 (YYYY-MM-DD)</Text>
+                  <TextInput style={styles.input} value={specificDate} onChangeText={setSpecificDate} />
+                </View>
+              )}
+
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <View style={[styles.formGroup, { flex: 1 }]}>
+                  <Text style={styles.formLabel}>시작 시각 (0~23)</Text>
+                  <TextInput style={styles.input} keyboardType="numeric" value={startHour} onChangeText={setStartHour} />
+                </View>
+
+                <View style={[styles.formGroup, { flex: 1 }]}>
+                  <Text style={styles.formLabel}>종료 시각 (1~24)</Text>
+                  <TextInput style={styles.input} keyboardType="numeric" value={endHour} onChangeText={setEndHour} />
+                </View>
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>제약 강도</Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Button
+                    label="Hard (절대 불가)"
+                    variant={restrictionLevel === 'hard' ? 'primary' : 'secondary'}
+                    style={{ flex: 1 }}
+                    onPress={() => setRestrictionLevel('hard')}
+                  />
+                  <Button
+                    label="Soft (가급적 회피)"
+                    variant={restrictionLevel === 'soft' ? 'primary' : 'secondary'}
+                    style={{ flex: 1 }}
+                    onPress={() => setRestrictionLevel('soft')}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>사유 (선택)</Text>
+                <TextInput style={styles.input} value={reason} onChangeText={setReason} placeholder="예: 대학 수업, 병원 진료" />
+              </View>
+
+              <View style={[styles.rowActions, { marginTop: 10 }]}>
+                <Pressable style={styles.btnCancel} onPress={() => setModalVisible(false)}>
+                  <Text style={styles.btnCancelText}>취소</Text>
+                </Pressable>
+                <Pressable style={styles.btnSave} onPress={handleCreate}>
+                  <Text style={styles.btnSaveText}>저장</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </Card>
+  );
+}
+
+const unavStyles = StyleSheet.create({
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(140,111,86,0.12)',
+  },
+  itemTitle: { ...typography.L4, color: colors.espressoBrown, fontWeight: '700' },
+  itemSub: { ...typography.L5, color: colors.mochaBrown, marginTop: 2 },
+  warnCard: {
+    backgroundColor: '#F6DED8',
+    borderColor: '#B23B2E',
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 10,
+  },
+  warnText: { ...typography.L5, color: '#B23B2E', fontWeight: '700' },
+});
+
 function ScheduleTab() {
-  const { user } = useAuth();
+  const { token, user } = useAuth();
+  const [shifts, setShifts] = useState(INITIAL_SHIFTS);
+  const [recommendation, setRecommendation] = useState<ScheduleRecommendation | null>(null);
+  const [recLoading, setRecLoading] = useState(false);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [names, setNames] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
   const [recommend, setRecommend] = useState<ScheduleRecommendation | null>(null);
   const [recommendFailed, setRecommendFailed] = useState(false);
-  // id === null 이면 신규 등록 (요일 다중 선택), 아니면 기존 스케줄 시간 수정
   const [editingShift, setEditingShift] = useState<{
     id: number | null;
     employeeId: number | null;
@@ -277,6 +527,24 @@ function ScheduleTab() {
     slot: string;
   } | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // [한글 주석] 스케줄 추천 백엔드 API 연동 함수
+  const fetchRecommendation = async () => {
+    if (!token) {
+      notify('로그인 필요', '스케줄 추천은 로그인 후 이용해 주세요.');
+      return;
+    }
+    setRecLoading(true);
+    try {
+      const res = await getScheduleRecommendation(token, tomorrowISO());
+      setRecommendation(res);
+      notify('추천 완료', '직원 기피 시간이 반영된 알바 추천 스케줄이 계산되었습니다.');
+    } catch (e) {
+      notify('추천 실패', e instanceof Error ? e.message : String(e));
+    } finally {
+      setRecLoading(false);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -295,6 +563,8 @@ function ScheduleTab() {
       notify('스케줄 조회 실패', e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
+    }
+  }, []);
     }
   }, []);
 
@@ -415,25 +685,36 @@ function ScheduleTab() {
 
   return (
     <>
-      {/* AI 스케줄 추천 (AI-4) — 백엔드가 과거 매출 시간대를 분석해 만든 실제 추천 */}
+      {/* AI 스케줄 추천 (AI-4 + 기피시간 반영) */}
       <Card tone="cream">
         <View style={styles.rowBetween}>
-          <SectionTitle>AI 스케줄 추천</SectionTitle>
-          <Badge label="초안" tone="orange" />
+          <SectionTitle>AI 추천 스케줄 (기피시간 반영)</SectionTitle>
+          <Badge label="추천안" tone="orange" />
         </View>
         <Text style={styles.hint}>
-          {recommend
-            ? recommend.summary
-            : recommendFailed
-              ? '스케줄 추천 분석을 불러오지 못했어요. 판매 데이터가 쌓이고 서버가 준비되면 자동으로 표시됩니다.'
-              : '내일 매출 패턴을 분석하는 중…'}
+          {recommendation?.summary || recommend?.summary || '버튼을 누르면 과거 매출과 알바생 기피시간(Hard/Soft)을 종합 분석해 최적의 추천 스케줄을 계산합니다.'}
         </Text>
-        {recommend && (
-          <Text style={[styles.hint, { marginTop: 4 }]}>
-            권장 근무 {recommend.total_recommended_hours}시간 · 예상 인건비 {won(recommend.estimated_payroll_cost)}
-          </Text>
+
+        {/* ⚠️ 인원 부족 충돌 경고 메시지 표시 영역 */}
+        {recommendation?.warnings && recommendation.warnings.length > 0 && (
+          <View style={{ gap: 6, marginTop: 10 }}>
+            {recommendation.warnings.map((w, idx) => (
+              <View key={idx} style={unavStyles.warnCard}>
+                <Text style={unavStyles.warnText}>⚠️ {w}</Text>
+              </View>
+            ))}
+          </View>
         )}
+
+        <View style={styles.actions}>
+          <Button
+            label={recLoading ? '연산 중…' : 'AI 스케줄 추천 실행'}
+            style={{ flex: 1 }}
+            onPress={fetchRecommendation}
+          />
+        </View>
       </Card>
+
 
       {/* [한글 주석] 위쪽 박스(추천 스케줄)와의 조화로운 여백 조율을 위해 marginTop: 24 추가 */}
       <View style={{ gap: 10, marginTop: 24 }}>

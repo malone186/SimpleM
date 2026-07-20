@@ -1,11 +1,13 @@
 // 원가 분석 (ERP-6) — 메뉴별 원가·원가율. 정확한 숫자 화면 → 브루 미노출(금지구역)
 // 데이터: GET /api/v1/inventory/menus (백엔드가 레시피×재료 단가로 원가·원가율을 실시간 계산)
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View, Modal, Pressable, ScrollView, Linking } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../../auth/AuthContext';
-import { Card, Divider, ProgressBar, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
+import { Card, Divider, ProgressBar, Screen, ScreenTitle, SectionTitle, Badge } from '../../components/ui';
 import { apiFetch } from '../../lib/api/client';
+import { toast } from '../../components/toast';
 import { colors, typography } from '../../theme';
 
 // /inventory/menus 응답 중 원가 분석에 쓰는 필드만
@@ -21,6 +23,12 @@ export default function CostScreen() {
   const { token } = useAuth();
   const [menus, setMenus] = useState<MenuRow[] | null>(null);
   const [failed, setFailed] = useState(false);
+
+  // [한글 주석: AI 원가 절감 추천 팝업 관리를 위한 상태값 정의]
+  const [selectedMenuName, setSelectedMenuName] = useState<string | null>(null);
+  const [recommendations, setRecommendations] = useState<any | null>(null);
+  const [recLoading, setRecLoading] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -46,6 +54,26 @@ export default function CostScreen() {
   const rateOf = (m: MenuRow) =>
     m.cost_ratio !== undefined ? m.cost_ratio : ((m.cost_price ?? 0) / m.selling_price) * 100;
   const avg = rows.length ? Math.round(rows.reduce((s, m) => s + rateOf(m), 0) / rows.length) : null;
+
+  // [한글 주석: 특정 상품의 실시간 원가 절감 추천 정보를 백엔드에서 비동기 호출해 오는 함수입니다]
+  const fetchRecommendations = async (menuId: number, menuName: string) => {
+    if (!token) return;
+    setRecLoading(true);
+    setSelectedMenuName(menuName);
+    setModalVisible(true);
+    try {
+      const data = await apiFetch<any>(`/api/v1/inventory/menus/${menuId}/cost-reduction-recommendations`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setRecommendations(data);
+    } catch (e) {
+      console.error('원가 절감 추천 로드 실패:', e);
+      toast('추천 로드 실패', '대체재 가격 정보 데이터를 가져오지 못했습니다.');
+      setModalVisible(false);
+    } finally {
+      setRecLoading(false);
+    }
+  };
 
   return (
     <Screen>
@@ -101,9 +129,103 @@ export default function CostScreen() {
               <Detail label="원가" value={`₩${cost.toLocaleString()}`} />
               <Detail label="마진" value={`₩${margin.toLocaleString()}`} accent />
             </View>
+            <Divider style={{ marginVertical: 8 }} />
+            
+            {/* [한글 주석: 사장님께 AI 원가 절감 추천을 클릭하도록 안내하는 버튼] */}
+            <Pressable
+              style={styles.recommendBtn}
+              onPress={() => fetchRecommendations(m.id, m.name)}
+            >
+              <Ionicons name="sparkles" size={13} color="#FFFFFF" style={{ marginRight: 6 }} />
+              <Text style={styles.recommendBtnText}>AI 원가 절감 추천</Text>
+            </Pressable>
           </Card>
         );
       })}
+
+      {/* [한글 주석: AI 원가 절감 추천 화면을 모달 팝업 바텀 시트 형태로 띄웁니다] */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>✨ AI 원가 절감 추천</Text>
+              <Pressable onPress={() => setModalVisible(false)} style={styles.closeBtn}>
+                <Ionicons name="close" size={24} color={colors.espressoBrown} />
+              </Pressable>
+            </View>
+
+            <ScrollView style={styles.modalBody} contentContainerStyle={{ paddingBottom: 30 }}>
+              <Text style={styles.menuTitle}>{selectedMenuName} 레시피 분석</Text>
+              
+              {recLoading ? (
+                <View style={styles.loadingBox}>
+                  <ActivityIndicator size="large" color={colors.mochaBrown} />
+                  <Text style={styles.loadingText}>대체 도매상품 매칭 및 시뮬레이션 중…</Text>
+                </View>
+              ) : recommendations ? (
+                <View style={{ gap: 16 }}>
+                  {/* 정산 시뮬레이션 요약 카드 */}
+                  <View style={styles.simulationCard}>
+                    <Text style={styles.simTitle}>📊 대체재 일괄 변경 시뮬레이션</Text>
+                    <View style={styles.simGrid}>
+                      <View style={styles.simItem}>
+                        <Text style={styles.simLabel}>현재 원가</Text>
+                        <Text style={styles.simValue}>₩{recommendations.current_cost?.toLocaleString()} ({recommendations.current_ratio}%)</Text>
+                      </View>
+                      <View style={styles.simItem}>
+                        <Text style={styles.simLabel}>최대 절감액</Text>
+                        <Text style={[styles.simValue, { color: colors.trendGreenText, fontWeight: '700' }]}>-₩{recommendations.total_savings?.toLocaleString()}</Text>
+                      </View>
+                      <View style={styles.simItem}>
+                        <Text style={styles.simLabel}>예상 원가</Text>
+                        <Text style={[styles.simValue, { color: colors.pointOrange, fontWeight: '700' }]}>₩{recommendations.potential_cost?.toLocaleString()} ({recommendations.potential_ratio}%)</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  <Text style={styles.sectionHeader}>💡 추천 대체재 및 납품 정보</Text>
+                  {recommendations.recommendations?.length === 0 ? (
+                    <Text style={styles.emptyText}>현재 등록된 원부자재 단가가 도매 최저가 수준이므로 추가적인 절감 대안이 없습니다. 아주 훌륭하게 관리 중입니다! 👍</Text>
+                  ) : (
+                    recommendations.recommendations.map((rec: any, idx: number) => (
+                      <View key={idx} style={styles.recCard}>
+                        <View style={styles.recHeader}>
+                          <Text style={styles.recIngName}>{rec.ingredient_name}</Text>
+                          <Badge text={rec.source} tone={rec.source.includes('도매') ? 'green' : 'info'} />
+                        </View>
+                        <Text style={styles.recAltName}>대체추천: {rec.alternative_name}</Text>
+                        
+                        <View style={styles.recPriceRow}>
+                          <Text style={styles.priceCompare}>
+                            ₩{rec.current_price_per_unit?.toLocaleString()} → <Text style={{fontWeight: 'bold', color: colors.pointOrange}}>₩{rec.alternative_price_per_unit?.toLocaleString()}</Text> (원/{rec.unit})
+                          </Text>
+                          <Text style={styles.recSaving}>잔당 -₩{rec.saving_per_serving}</Text>
+                        </View>
+                        <Text style={styles.recDesc}>{rec.description}</Text>
+                        
+                        {rec.link ? (
+                          <Pressable
+                            style={styles.linkBtn}
+                            onPress={() => Linking.openURL(rec.link)}
+                          >
+                            <Ionicons name="link-outline" size={14} color={colors.mochaBrown} style={{ marginRight: 4 }} />
+                            <Text style={styles.linkBtnText}>상세 판매처 링크 이동</Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    ))
+                  )}
+                </View>
+              ) : null}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -126,7 +248,7 @@ const styles = StyleSheet.create({
   head: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'baseline', // [한글 주석] center 대신 baseline 정렬을 주어 이름과 퍼센트 텍스트 수직 밸런스를 잡습니다.
+    alignItems: 'baseline',
     marginBottom: 12,
     paddingHorizontal: 2
   },
@@ -134,11 +256,186 @@ const styles = StyleSheet.create({
     ...typography.L3,
     color: colors.espressoBrown,
     fontSize: 17,
-    fontWeight: '800', // [한글 주석] 기존 L3 굵기보다 더 진하고 선명하게 조절하여 가독성을 극대화합니다.
+    fontWeight: '800',
   },
   rate: { ...typography.L2, fontSize: 22 },
-  detailRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 }, // [한글 주석] ProgressBar 아래 여백 보강
+  detailRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
   detail: { flex: 1, alignItems: 'center' },
   detailLabel: { ...typography.L5, color: colors.mochaBrown },
   detailValue: { ...typography.L4, color: colors.espressoBrown, marginTop: 3 },
+  
+  // [한글 주석: AI 원가 절감 추천용 신규 추가 버튼 스타일시트]
+  recommendBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#6D4C41',
+    borderRadius: 8,
+    paddingVertical: 8,
+    marginTop: 10,
+  },
+  recommendBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+
+  // [한글 주석: 모달 팝업 오버레이 및 콘텐츠 레이아웃 스타일시트]
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#FAF7F2',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    height: '75%',
+    paddingTop: 16,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EFECE6',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.espressoBrown,
+  },
+  closeBtn: {
+    padding: 4,
+  },
+  modalBody: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
+  menuTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: colors.espressoBrown,
+    marginBottom: 16,
+  },
+  loadingBox: {
+    paddingVertical: 50,
+    alignItems: 'center',
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 13,
+    color: colors.mochaBrown,
+  },
+  
+  // 시뮬레이션 요약 카드
+  simulationCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#EFECE6',
+  },
+  simTitle: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: colors.mochaBrown,
+    marginBottom: 12,
+  },
+  simGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  simItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  simLabel: {
+    fontSize: 11,
+    color: colors.mochaBrown,
+    marginBottom: 4,
+  },
+  simValue: {
+    fontSize: 13.5,
+    color: colors.espressoBrown,
+  },
+  
+  sectionHeader: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.espressoBrown,
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  emptyText: {
+    fontSize: 13,
+    color: colors.mochaBrown,
+    lineHeight: 18,
+    textAlign: 'center',
+    paddingVertical: 30,
+  },
+  
+  // 추천 정보 카드
+  recCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#EFECE6',
+  },
+  recHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  recIngName: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.espressoBrown,
+  },
+  recAltName: {
+    fontSize: 13.5,
+    color: colors.espressoBrown,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  recPriceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  priceCompare: {
+    fontSize: 12.5,
+    color: colors.mochaBrown,
+  },
+  recSaving: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.trendGreenText,
+  },
+  recDesc: {
+    fontSize: 12,
+    color: colors.mochaBrown,
+    lineHeight: 16,
+    marginBottom: 10,
+  },
+  linkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.mochaBrown,
+    borderRadius: 6,
+    paddingVertical: 6,
+  },
+  linkBtnText: {
+    fontSize: 12,
+    color: colors.mochaBrown,
+    fontWeight: '600',
+  },
 });
+

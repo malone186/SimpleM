@@ -1,4 +1,3 @@
-// c:\STUDY\SimpleM\frontend\src\lib\firebase.ts
 import { initializeApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
 
@@ -17,17 +16,13 @@ const firebaseConfig = {
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || 'mock-app-id',
 };
 
-// [한글 주석] Firebase 앱을 한 번만 초기화하여 싱글톤 객체로 관리합니다.
-const app = initializeApp(firebaseConfig);
+// [한글 주석] 유효한 Firebase 키가 있을 때만 초기화한다.
+// 키가 없거나 mock 상태면 getAuth 가 'auth/invalid-api-key' 로 앱 로드 시점에 크래시하므로,
+// 그 경우 초기화를 건너뛰고 auth 를 null 로 둔다. 이때 로그인/가입은 AuthContext 의
+// 백엔드 자체 인증(isMockFirebase 우회) 경로로 처리된다.
+const hasRealKey = !!firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith('mock-');
 
-// [한글 주석] 이메일/비밀번호 로그인을 처리할 Firebase Auth 인스턴스를 생성하여 내보냅니다.
-// 어떤 이유로든 초기화가 실패해도 앱 전체가 죽지 않도록 빈 객체로 폴백한다
-// (AuthContext의 Firebase 호출부는 모두 try/catch 또는 mock 분기로 보호되어 있음).
-let authInstance: Auth;
-try {
-  authInstance = getAuth(app);
-} catch (e) {
-  console.warn('Firebase Auth 초기화 실패 — 백엔드 로컬 인증으로만 동작합니다:', e);
-  authInstance = { currentUser: null } as unknown as Auth;
-}
-export const auth = authInstance;
+// 타입은 Auth 로 노출하되(호출부 타입 유지), 키가 없으면 런타임 값은 null 이다.
+// firebase 를 실제로 호출하는 지점(로그인/가입의 비-mock 경로)은 유효 키가 있을 때만 실행되고,
+// logout/updateProfile 의 무조건 호출부는 AuthContext 에서 null 가드로 감싼다.
+export const auth = (hasRealKey ? getAuth(initializeApp(firebaseConfig)) : null) as Auth;

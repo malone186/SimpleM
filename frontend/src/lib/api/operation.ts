@@ -236,15 +236,107 @@ export async function deleteSchedule(id: number): Promise<null> {
   );
 }
 
+// ---------- 챗봇 / ERP 신규: 직원별 기피/불가 시간 & 스케줄 추천 ----------
+export type EmployeeUnavailability = {
+  id: number;
+  employee_id: number;
+  employee_name?: string;
+  unavailability_type: 'weekly_recurring' | 'specific_date';
+  day_of_week?: number;
+  specific_date?: string;
+  start_hour: number;
+  end_hour: number;
+  restriction_level: 'hard' | 'soft';
+  reason?: string;
+  created_at: string;
+};
+
+export type AssignedEmployee = {
+  id: number;
+  name: string;
+  role: string;
+  level: 'hard' | 'soft' | null;
+};
+
+export type HourlyRecommendation = {
+  hour: number;
+  predicted_sales: number;
+  predicted_profit: number;
+  recommended_employee_count: number;
+  busy_level: 'PEAK' | 'HIGH' | 'NORMAL' | 'LOW';
+  assigned_employees: AssignedEmployee[];
+  unassigned_count: number;
+};
+
 export type ScheduleRecommendation = {
   target_date: string;
-  hourly_recommendations: { hour: number; recommended_staff: number; reason?: string }[];
+  hourly_recommendations?: HourlyRecommendation[];
   total_recommended_hours: number;
   estimated_payroll_cost: number;
+  warnings?: string[];
   summary: string;
 };
 
-/** AI 스케줄 추천 — 과거 매출 시간대 분석 기반 (백엔드 실데이터) */
+/** 직원 기피/불가 시간 등록 API */
+export async function createUnavailability(
+  token: string,
+  body: {
+    employee_id: number;
+    unavailability_type: 'weekly_recurring' | 'specific_date';
+    day_of_week?: number;
+    specific_date?: string;
+    start_hour: number;
+    end_hour: number;
+    restriction_level: 'hard' | 'soft';
+    reason?: string;
+  },
+): Promise<EmployeeUnavailability> {
+  return unwrap(
+    await apiFetch<CommonResponse<EmployeeUnavailability>>('/api/v1/operation/unavailability', {
+      method: 'POST',
+      headers: auth(token),
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+/** 직원 기피/불가 시간 목록 조회 API */
+export async function listUnavailabilities(
+  token: string,
+  employeeId?: number,
+): Promise<EmployeeUnavailability[]> {
+  const q = employeeId ? `?employee_id=${employeeId}` : '';
+  return unwrap(
+    await apiFetch<CommonResponse<EmployeeUnavailability[]>>(`/api/v1/operation/unavailability${q}`, {
+      headers: auth(token),
+    }),
+  );
+}
+
+/** 직원 기피/불가 시간 삭제 API */
+export async function deleteUnavailability(token: string, unavailabilityId: number): Promise<void> {
+  await apiFetch<CommonResponse<null>>(`/api/v1/operation/unavailability/${unavailabilityId}`, {
+    method: 'DELETE',
+    headers: auth(token),
+  });
+}
+
+/** 알바 스케줄 추천 API (기피시간 반영) */
+export async function getScheduleRecommendation(
+  token: string,
+  targetDate: string,
+  storeId: string = 'store_gildong',
+): Promise<ScheduleRecommendation> {
+  return unwrap(
+    await apiFetch<CommonResponse<ScheduleRecommendation>>('/api/v1/operation/schedules/recommend', {
+      method: 'POST',
+      headers: auth(token),
+      body: JSON.stringify({ target_date: targetDate, store_id: storeId }),
+    }),
+  );
+}
+
+/** AI 스케줄 추천 — 과거 매출 시간대 분석 기반 */
 export async function recommendSchedule(body: {
   target_date: string;
   store_id?: string;
