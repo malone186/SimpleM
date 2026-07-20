@@ -16,7 +16,8 @@ export default function DeviceFrame({ children }: { children: ReactNode }) {
       <View style={styles.device}>
         {/* 상단 노치 */}
         <View style={styles.notch} />
-        <View style={styles.screen}>{children}</View>
+        {/* nativeID → 웹 DOM id. 설정의 글자크기(zoom)·다크모드(색반전) 적용 대상 */}
+        <View nativeID="app-screen" style={styles.screen}>{children}</View>
       </View>
     </View>
   );

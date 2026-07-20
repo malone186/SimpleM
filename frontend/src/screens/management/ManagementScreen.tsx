@@ -1,11 +1,12 @@
 // 관리 허브 (⑥ 탭) — 에디토리얼: 기울여 겹쳐 흩뿌린 카드 덱 (그레이지 팔레트)
-import { StyleSheet, Text, View } from 'react-native';
+// 헤더는 홈(대시보드)과 동일한 딥브라운 오로라 배경 + 밝은 텍스트 + 둥근 크림 시트 구조로 통일.
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import Svg, { Circle, Defs, FeGaussianBlur, Filter, LinearGradient, Path, Stop } from 'react-native-svg';
 
 import { PressableScale } from '../../components/motion';
-import { Screen } from '../../components/ui';
-import { colors } from '../../theme';
+import { colors, spacing } from '../../theme';
 import Brew from '../../components/brew/Brew';
 
 const IVORY = '#F4F1EF';
@@ -73,19 +74,55 @@ export default function ManagementScreen() {
   const navigation = useNavigation<any>();
 
   return (
-    <Screen>
-      {/* 헤더 — 타이틀 + 관리 담당 브루(클립보드) */}
-      <View style={styles.header}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.bigTitle}>관리</Text>
-          <Text style={styles.sub}>가게 운영에 필요한 모든 기능</Text>
-        </View>
-        <Brew mood="clipboard" size={104} />
+    <View style={styles.root}>
+      {/* [전역 오로라 배경] 홈(대시보드)과 동일 — 상단 딥브라운에서 하단 크림으로 자연스럽게 녹아든다 */}
+      <View style={StyleSheet.absoluteFill}>
+        <Svg width="100%" height="100%" preserveAspectRatio="none">
+          <Defs>
+            <LinearGradient id="mgmtAurora" x1="0%" y1="0%" x2="0%" y2="100%">
+              <Stop offset="0%" stopColor="#1E1612" />
+              <Stop offset="35%" stopColor="#251C17" />
+              <Stop offset="70%" stopColor="#6E5544" stopOpacity="0.35" />
+              <Stop offset="100%" stopColor={colors.creamSand} />
+            </LinearGradient>
+            <Filter id="mgmtGlow" x="-50%" y="-50%" width="200%" height="200%">
+              <FeGaussianBlur stdDeviation="70" />
+            </Filter>
+          </Defs>
+          <Path d="M0 0 H2000 V2000 H0 Z" fill="url(#mgmtAurora)" />
+          <Circle cx="85%" cy="12%" r="140" fill="#E28257" filter="url(#mgmtGlow)" opacity="0.25" />
+          <Circle cx="15%" cy="22%" r="130" fill="#C29D7A" filter="url(#mgmtGlow)" opacity="0.2" />
+          <Circle cx="60%" cy="4%" r="120" fill="#88BCB5" filter="url(#mgmtGlow)" opacity="0.16" />
+        </Svg>
       </View>
 
-        {/* 기울여 겹쳐 흩뿌린 카드 덱 */}
-        <View style={styles.deck}>
-          {ITEMS.map((it, i) => {
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* 상단 바 — 설정 진입 (홈의 프로필 칩과 동일한 우상단 위치) */}
+        <View style={styles.topBar}>
+          <PressableScale style={styles.gearBtn} onPress={() => navigation.navigate('Settings')} to={0.9}>
+            <Ionicons name="settings-outline" size={16} color={colors.creamSand} />
+            <Text style={styles.gearText}>설정</Text>
+          </PressableScale>
+        </View>
+
+        {/* 헤더 — 홈과 동일한 딥브라운 위 밝은 텍스트 + 관리 담당 브루(클립보드) */}
+        <View style={styles.header}>
+          <View style={{ flex: 1, paddingRight: 8 }}>
+            <Text style={styles.bigTitle}>관리</Text>
+            <Text style={styles.sub}>가게 운영에 필요한 모든 기능</Text>
+          </View>
+          <Brew mood="clipboard" size={148} style={styles.mascot} />
+        </View>
+
+        {/* [둥근 크림 시트] 홈의 바디 카드시트와 동일 — 카드 덱을 감싸 얹는다 */}
+        <View style={styles.body}>
+          {/* 기울여 겹쳐 흩뿌린 카드 덱 */}
+          <View style={styles.deck}>
+            {ITEMS.map((it, i) => {
             const lay = LAYOUT[i % LAYOUT.length];
             const s = scheme(it.color);
             return (
@@ -116,20 +153,64 @@ export default function ManagementScreen() {
               </PressableScale>
             );
           })}
-      </View>
-    </Screen>
+          </View>
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  // [홈과 동일] Svg 로딩 지연 중 어두운 광원을 채우기 위한 딥 브라운 루트
+  root: { flex: 1, backgroundColor: '#1E1612' },
+  scroll: { flex: 1 },
+  content: { paddingBottom: 0 },
+
+  // 상단 바 — 우상단 설정 칩 (홈 프로필 칩 위치와 정렬)
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingTop: 44,
+    paddingHorizontal: spacing.globalPadding,
+    marginBottom: -6,
+  },
+  gearBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 999,
+    paddingLeft: 9,
+    paddingRight: 12,
+    paddingVertical: 6,
+    borderWidth: 0.8,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  gearText: { color: colors.creamSand, fontSize: 12, fontWeight: '700' },
+
+  // [홈 웰컴 헤더와 동일 톤] 딥브라운 오로라 위 밝은 텍스트 + 우측 마스코트
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 14,
-    marginTop: 4,
+    justifyContent: 'space-between',
+    paddingTop: 6,
+    paddingBottom: 14,
+    paddingHorizontal: spacing.globalPadding,
   },
-  bigTitle: { fontSize: 20, fontWeight: '900', color: colors.espressoBrown, letterSpacing: -0.2, lineHeight: 24 },
-  sub: { fontSize: 12, color: colors.mochaBrown, marginTop: 4, fontWeight: '600' },
+  mascot: { marginRight: 4 },
+  bigTitle: { fontSize: 28, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
+  sub: { fontSize: 12.5, color: '#D4C9C1', marginTop: 6, fontWeight: '500', letterSpacing: -0.2 },
+
+  // [홈 바디 카드시트와 동일] 오로라 배경을 툭 끊김 없이 감싸안는 둥근 크림 시트
+  body: {
+    backgroundColor: colors.creamSand,
+    borderTopLeftRadius: 36,
+    borderTopRightRadius: 36,
+    paddingHorizontal: spacing.globalPadding,
+    paddingTop: spacing.verticalGap,
+    paddingBottom: 110,
+    gap: spacing.verticalGap,
+  },
 
   deck: { paddingHorizontal: 6, paddingTop: 6, paddingBottom: 20 },
   card: {
