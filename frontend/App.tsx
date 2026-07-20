@@ -2,6 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 
 import { AuthProvider } from './src/auth/AuthContext';
 import { PreferencesProvider } from './src/preferences/PreferencesContext';
+import { DessertProvider } from './src/dessert/DessertContext';
 import DeviceFrame from './src/components/DeviceFrame';
 import Splash from './src/components/Splash';
 import { ToastHost } from './src/components/toast';
@@ -12,6 +13,7 @@ export default function App() {
   return (
     <PreferencesProvider>
       <AuthProvider>
+        <DessertProvider>
         <DeviceFrame>
           <RootNavigator />
           <StatusBar style="auto" />
@@ -22,6 +24,7 @@ export default function App() {
           {/* 설정의 글자 크기·다크모드를 앱 콘텐츠에 실제 적용 (웹) */}
           <WebAppearance />
         </DeviceFrame>
+        </DessertProvider>
       </AuthProvider>
     </PreferencesProvider>
   );
