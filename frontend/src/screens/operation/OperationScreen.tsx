@@ -270,13 +270,17 @@ const liveStyles = StyleSheet.create({
 function UnavailabilityManagementCard() {
   const { token } = useAuth();
   const [list, setList] = useState<EmployeeUnavailability[]>([]);
+  // [한글 주석] 직원 명단을 저장하여 탭(칩) 선택 및 이름 표시를 처리하는 상태
+  const [employees, setEmployees] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
+  // [한글 주석] 백엔드 연결 실패 시 에러 문구를 저장하기 위한 상태
+  const [err, setErr] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
 
   // 폼 입력 상태
   const [employeeId, setEmployeeId] = useState('1');
   const [unavType, setUnavType] = useState<'weekly_recurring' | 'specific_date'>('weekly_recurring');
-  const [dayOfWeek, setDayOfWeek] = useState('0'); // 0=월
+  const [dayOfWeek, setDayOfWeek] = useState('0'); // 0=월, 1=화, ...
   const [specificDate, setSpecificDate] = useState(tomorrowISO());
   const [startHour, setStartHour] = useState('9');
   const [endHour, setEndHour] = useState('12');
@@ -286,15 +290,27 @@ function UnavailabilityManagementCard() {
   const loadUnavailabilities = useCallback(async () => {
     if (!token) return;
     setLoading(true);
+    setErr(null);
     try {
-      const data = await listUnavailabilities(token);
+      // [한글 주석] 기피시간 목록과 직원 명단을 함께 가져와 매핑합니다.
+      const [data, payrollData] = await Promise.all([
+        listUnavailabilities(token),
+        listPayroll(nowYM()).catch(() => [] as Payroll[]),
+      ]);
       setList(data);
+      const emps = payrollData.map((p) => ({ id: p.employee_id, name: p.employee_name }));
+      setEmployees(emps);
+      if (emps.length > 0 && !emps.some((e) => String(e.id) === employeeId)) {
+        setEmployeeId(String(emps[0].id));
+      }
     } catch (e) {
       console.warn('기피시간 조회 실패:', e);
+      // [한글 주석] 조회 실패 시 에러 메시지를 기록하여 화면에 명확히 표출함
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, employeeId]);
 
   useEffect(() => {
     loadUnavailabilities();
@@ -309,7 +325,7 @@ function UnavailabilityManagementCard() {
     const sH = parseInt(startHour, 10);
     const eH = parseInt(endHour, 10);
     if (!empId || sH >= eH) {
-      notify('입력 확인', '직원 ID와 올바른 시작/종료 시각을 입력해 주세요.');
+      notify('입력 확인', '올바른 직원 선택과 시작/종료 시각을 설정해 주세요.');
       return;
     }
 
@@ -361,6 +377,12 @@ function UnavailabilityManagementCard() {
 
       {loading ? (
         <ActivityIndicator color={colors.pointOrange} style={{ marginVertical: 14 }} />
+      ) : err ? (
+        // [한글 주석] 백엔드 연동에 실패했을 때 에러 메시지와 다시 시도 버튼을 출력합니다.
+        <View style={{ paddingVertical: 12 }}>
+          <Text style={liveStyles.errText}>⚠ {err}</Text>
+          <Button label="다시 시도" variant="secondary" style={{ marginTop: 10 }} onPress={loadUnavailabilities} />
+        </View>
       ) : list.length === 0 ? (
         <Text style={[styles.hint, { marginTop: 10, fontStyle: 'italic' }]}>등록된 알바생 기피 시간이 없습니다.</Text>
       ) : (
@@ -370,11 +392,14 @@ function UnavailabilityManagementCard() {
             const typeLabel = u.unavailability_type === 'weekly_recurring'
               ? `매주 ${dayNames[u.day_of_week ?? 0]}요일`
               : `${u.specific_date}`;
+            const empObj = employees.find((e) => e.id === u.employee_id);
+            const empName = empObj ? empObj.name : `직원 ${u.employee_id}`;
+
             return (
               <View key={u.id} style={unavStyles.itemRow}>
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={unavStyles.itemTitle}>직원(ID:{u.employee_id})</Text>
+                    <Text style={unavStyles.itemTitle}>{empName} (ID:{u.employee_id})</Text>
                     <Badge label={isHard ? 'Hard 절대불가' : 'Soft 가급적회피'} tone={isHard ? 'orange' : 'neutral'} />
                   </View>
                   <Text style={unavStyles.itemSub}>
@@ -399,9 +424,41 @@ function UnavailabilityManagementCard() {
             <Text style={styles.modalTitle}>알바 기피/불가 시간 등록</Text>
             
             <View style={{ gap: 14 }}>
+              {/* [한글 주석] 기존 텍스트 입력창 대신, 직원 목록을 탭하여 선택할 수 있는 칩UI 지원 */}
               <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>직원 ID</Text>
-                <TextInput style={styles.input} keyboardType="numeric" value={employeeId} onChangeText={setEmployeeId} />
+                <Text style={styles.formLabel}>직원 선택</Text>
+                {employees.length === 0 ? (
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <PressableScale
+                      style={[styles.peakSegmentBtn, { flex: 0, paddingHorizontal: 16, paddingVertical: 10 }, styles.segmentBtnActiveNormal]}
+                      onPress={() => setEmployeeId('1')}
+                    >
+                      <Text style={styles.segmentTextActiveNormal}>직원 1 (ID:1)</Text>
+                    </PressableScale>
+                  </View>
+                ) : (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                    {employees.map((emp) => {
+                      const active = String(emp.id) === employeeId;
+                      return (
+                        <PressableScale
+                          key={emp.id}
+                          style={[
+                            styles.peakSegmentBtn,
+                            { flex: 0, paddingHorizontal: 14, paddingVertical: 10 },
+                            active && styles.segmentBtnActiveNormal,
+                          ]}
+                          onPress={() => setEmployeeId(String(emp.id))}
+                          to={0.94}
+                        >
+                          <Text style={[styles.peakSegmentText, active && styles.segmentTextActiveNormal]}>
+                            {emp.name} (ID:{emp.id})
+                          </Text>
+                        </PressableScale>
+                      );
+                    })}
+                  </View>
+                )}
               </View>
 
               <View style={styles.formGroup}>
@@ -423,9 +480,30 @@ function UnavailabilityManagementCard() {
               </View>
 
               {unavType === 'weekly_recurring' ? (
+                /* [한글 주석] 숫자를 입력하던 기존 방식 대신 월~일 한글 요일 버튼 탭UI 적용 */
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>요일 선택 (0=월 ~ 6=일)</Text>
-                  <TextInput style={styles.input} keyboardType="numeric" value={dayOfWeek} onChangeText={setDayOfWeek} placeholder="0~6" />
+                  <Text style={styles.formLabel}>요일 선택</Text>
+                  <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                    {dayNames.map((dayName, idx) => {
+                      const active = dayOfWeek === String(idx);
+                      return (
+                        <PressableScale
+                          key={idx}
+                          style={[
+                            styles.peakSegmentBtn,
+                            { minWidth: 42, paddingHorizontal: 12, paddingVertical: 10 },
+                            active && styles.segmentBtnActivePeak,
+                          ]}
+                          onPress={() => setDayOfWeek(String(idx))}
+                          to={0.92}
+                        >
+                          <Text style={[styles.peakSegmentText, active && styles.segmentTextActivePeak]}>
+                            {dayName}
+                          </Text>
+                        </PressableScale>
+                      );
+                    })}
+                  </View>
                 </View>
               ) : (
                 <View style={styles.formGroup}>
@@ -511,7 +589,7 @@ const unavStyles = StyleSheet.create({
 
 function ScheduleTab() {
   const { token, user } = useAuth();
-  const [shifts, setShifts] = useState<any[]>([]); // FIX(머지): INITIAL_SHIFTS 미정의 참조 → 빈 배열로 대체
+  // [한글 주석] 백엔드 실데이터 연동에 따라 미사용 정의되지 않은 목업(INITIAL_SHIFTS) 상태를 제거하여 렌더링 에러를 해결함
   const [recommendation, setRecommendation] = useState<ScheduleRecommendation | null>(null);
   const [recLoading, setRecLoading] = useState(false);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
