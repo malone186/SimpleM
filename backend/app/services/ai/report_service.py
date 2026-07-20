@@ -272,15 +272,15 @@ def _build_highlights(sales: dict, labor: dict, inventory: dict,
         h.append(f"베스트 메뉴: {best['menu']} ({best['quantity']}잔, {best['total']:,}원)")
     if profit["estimated_profit"] >= 0:
         if sales["total"]:
-            h.append(f"비용을 다 빼고 {profit['estimated_profit']:,}원 남음")
+            h.append(f"순이익 {profit['estimated_profit']:,}원")
     else:
-        h.append(f"번 돈보다 쓴 돈이 {abs(profit['estimated_profit']):,}원 많음 — 비용 점검 필요")
+        h.append(f"적자 {abs(profit['estimated_profit']):,}원 — 비용 점검 필요")
     if inventory["low_stock"]:
         # 어떤 재료가 얼마나 남았는지까지 바로 보여준다 — '3종' 같은 개수만으로는 행동을 못 정한다
         items = [f"{it['name']} {_fmt_qty(it['current_quantity'])}{it['unit']}"
                  for it in inventory["low_stock"][:3]]
         more = len(inventory["low_stock"]) - 3
-        h.append("주문 필요: " + " · ".join(items) + (f" 외 {more}종" if more > 0 else "") + " 남음")
+        h.append("재고 부족: " + " · ".join(items) + (f" 외 {more}종" if more > 0 else ""))
     for doc in compliance[:2]:
         left = "이미 만료" if doc.get("status") == "expired" else f"{doc['days_left']}일 남음"
         h.append(f"서류 갱신 필요: {doc['name']} ({left})")

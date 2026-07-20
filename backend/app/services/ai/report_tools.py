@@ -20,6 +20,9 @@ def create_management_report(store_id: str, period_type: str = "weekly",
                              reference_date: str = "") -> str:
     """경영 리포트를 생성한다 — 매출(증감·베스트 메뉴), 매입, 기타 지출, 인건비 추정,
     수익 추정, 재고 경고, 진행 중 발주, 갱신 임박 서류를 한 번에 통합 집계.
+    "리포트/경영 리포트/일간(주간·월간) 리포트 보여줘"는 물론, "품목별 상세 표",
+    "메뉴별 매출 상세", "무엇이 얼마나 팔렸는지" 같은 요청도 이 도구로 처리한다
+    (리포트에 매출순 품목별 판매 수량·금액 상세가 포함됨).
     period_type: daily(하루) / weekly(그 주 월~일) / monthly(그 달).
     reference_date: 기준일 YYYY-MM-DD — 생략하면 오늘. 예: 지난주 리포트는 지난주 아무 날짜나 넣는다."""
     try:

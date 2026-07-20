@@ -1,6 +1,6 @@
 // 챗봇 (프론트 B) — PRD §5.3 통합 창구
 // 리포트 조회 · 원두 비교 · 법령 검색 · 문서 생성 · 발주 초안 등 전용 화면 없는 모든 기능
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -11,6 +11,9 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRoute, type RouteProp } from '@react-navigation/native';
+
+import type { RootTabParamList } from '../../navigation/RootNavigator';
 
 import { useAuth } from '../../auth/AuthContext';
 import Brew from '../../components/brew/Brew';
@@ -37,10 +40,12 @@ const GREETING: Msg = {
 
 export default function ChatbotScreen() {
   const { token } = useAuth();
+  const route = useRoute<RouteProp<RootTabParamList, 'Chatbot'>>();
   const [messages, setMessages] = useState<Msg[]>([GREETING]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
+  const inputRef = useRef<TextInput>(null);
 
   const scrollDown = () => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
 
@@ -74,6 +79,15 @@ export default function ChatbotScreen() {
       scrollDown();
     }
   };
+
+  // 경영 리포트 등에서 버튼으로 넘어오면 그 질문을 자동으로 전송한다 (입력만 채우지 않고 바로 물어봄).
+  // ts가 함께 바뀌므로 같은 질문 버튼을 다시 눌러도 매번 새로 전송된다.
+  useEffect(() => {
+    const prefill = route.params?.prefill;
+    if (prefill) send(prefill);
+    // send는 매 렌더 새로 생성되므로 의존성에서 제외 — 넘어온 질문(prefill/ts)이 바뀔 때만 전송한다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.params?.prefill, route.params?.ts]);
 
   return (
     <KeyboardAvoidingView
@@ -136,6 +150,7 @@ export default function ChatbotScreen() {
 
       <View style={styles.inputBar}>
         <TextInput
+          ref={inputRef}
           style={styles.input}
           placeholder={sending ? '답변을 기다리는 중…' : '브루에게 물어보세요'}
           placeholderTextColor={colors.mochaBrown}

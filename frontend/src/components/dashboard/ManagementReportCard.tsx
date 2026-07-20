@@ -2,8 +2,12 @@
 // 데이터: GET /chatbot/reports/management (매출·매입·지출·인건비·재고·발주·갱신 통합 집계)
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { useAuth } from '../../auth/AuthContext';
+import type { RootTabParamList } from '../../navigation/RootNavigator';
 import {
   getManagementReport,
   type GeneratedDocument,
@@ -29,6 +33,7 @@ const won = (n: number) => `${n < 0 ? '-' : ''}₩${Math.abs(n).toLocaleString('
 
 export default function ManagementReportCard() {
   const { token } = useAuth();
+  const navigation = useNavigation<NativeStackNavigationProp<RootTabParamList>>();
   const [period, setPeriod] = useState<ReportPeriodType>('daily');
   // 기간별 응답 캐시 — 탭을 오가도 다시 로딩하지 않는다 (카드 리마운트 시 초기화 = 당겨서 새로고침)
   const [reports, setReports] = useState<Partial<Record<ReportPeriodType, GeneratedDocument>>>({});
@@ -167,10 +172,17 @@ export default function ManagementReportCard() {
             곧 떨어질 재료 {c.inventory?.low_stock?.length ?? 0}종 · 진행 중 발주{' '}
             {c.orders?.open_count ?? 0}건 · 기한 임박 서류 {c.compliance_alerts?.length ?? 0}건
           </Text>
-          <Text style={styles.chatHint}>
-            품목별 상세 표는 챗봇에서 “{PERIODS.find((p) => p.value === period)?.label} 리포트
-            보여줘”라고 물어보세요
-          </Text>
+          {/* 품목별 상세는 전용 화면이 없으므로, 눌러서 챗봇에 질문을 바로 채워 넣는다 */}
+          <PressableScale
+            style={styles.detailBtn}
+            onPress={() => {
+              const label = PERIODS.find((p) => p.value === period)?.label ?? '일간';
+              navigation.navigate('Chatbot', { prefill: `${label} 품목별 상세 표 보여줘`, ts: Date.now() });
+            }}
+          >
+            <Ionicons name="chatbubble-ellipses" size={15} color={colors.white} />
+            <Text style={styles.detailBtnText}>품목별 상세 표 보기</Text>
+          </PressableScale>
         </>
       )}
     </View>
@@ -251,5 +263,14 @@ const styles = StyleSheet.create({
   highlight: { ...typography.L5, fontSize: 11, fontWeight: '500', color: colors.espressoBrown, lineHeight: 16 },
   highlightDot: { color: colors.pointOrange, fontWeight: '700' },
   opsLine: { ...typography.L5, color: colors.mochaBrown, textAlign: 'center' },
-  chatHint: { ...typography.L5, fontSize: 9, color: colors.mochaBrown, textAlign: 'center', marginTop: -8 },
+  detailBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    backgroundColor: colors.pointOrange,
+    borderRadius: 999,
+    paddingVertical: 11,
+  },
+  detailBtnText: { ...typography.L5, fontWeight: '800', color: colors.white },
 });
