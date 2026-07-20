@@ -1,6 +1,7 @@
 // 로그인 / 회원가입 화면 — 미로그인 시 이 화면만 노출 (탭 앱은 숨김)
 import { useState } from 'react';
 import {
+  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -22,7 +23,7 @@ const LOGO = require('../../../assets/logo_transparent.png');
 type Mode = 'login' | 'signup';
 
 export default function AuthScreen() {
-  const { login, signup } = useAuth();
+  const { login, signup, loginWithGoogle, loginWithApple } = useAuth();
   const [mode, setMode] = useState<Mode>('login');
 
   const [name, setName] = useState('');
@@ -50,6 +51,30 @@ export default function AuthScreen() {
       else await signup(name, email, password, autoLogin);
     } catch (e) {
       setError(e instanceof Error ? e.message : '문제가 발생했어요.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setError('');
+    setBusy(true);
+    try {
+      await loginWithGoogle(autoLogin);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '구글 로그인 중 문제가 발생했어요.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleAppleLogin = async () => {
+    setError('');
+    setBusy(true);
+    try {
+      await loginWithApple(autoLogin);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '애플 로그인 중 문제가 발생했어요.');
     } finally {
       setBusy(false);
     }
@@ -133,6 +158,35 @@ export default function AuthScreen() {
               </Text>
             </PressableScale>
 
+            {/* [한글 주석] 소셜 로그인 구분선 및 버튼 영역을 추가합니다. */}
+            <View style={styles.socialSeparator}>
+              <View style={styles.separatorLine} />
+              <Text style={styles.separatorText}>또는 소셜 계정으로 로그인</Text>
+              <View style={styles.separatorLine} />
+            </View>
+
+            <View style={styles.socialButtonsRow}>
+              {/* [한글 주석] 구글 로그인 버튼 (실제 연동 및 로딩 가드) */}
+              <PressableScale
+                style={[styles.socialBtn, styles.googleBtn]}
+                onPress={handleGoogleLogin}
+                disabled={busy}
+              >
+                <Ionicons name="logo-google" size={18} color={colors.espressoBrown} />
+                <Text style={[styles.socialBtnText, styles.googleBtnText]}>Google</Text>
+              </PressableScale>
+
+              {/* [한글 주석] 애플 로그인 버튼 (실제 연동 및 로딩 가드) */}
+              <PressableScale
+                style={[styles.socialBtn, styles.appleBtn]}
+                onPress={handleAppleLogin}
+                disabled={busy}
+              >
+                <Ionicons name="logo-apple" size={18} color={colors.white} />
+                <Text style={[styles.socialBtnText, styles.appleBtnText]}>Apple</Text>
+              </PressableScale>
+            </View>
+
             <Text style={styles.switchText}>
               {mode === 'login' ? '아직 계정이 없으신가요? ' : '이미 계정이 있으신가요? '}
               <Text
@@ -214,4 +268,55 @@ const styles = StyleSheet.create({
   submitText: { ...typography.L3, color: colors.white },
   switchText: { ...typography.L5, color: colors.mochaBrown, textAlign: 'center', marginTop: 4 },
   switchLink: { color: colors.pointOrange, fontWeight: '700' },
+  // [한글 주석] 소셜 로그인 구분선 및 버튼 레이아웃 스타일
+  socialSeparator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 15,
+    marginBottom: 5,
+  },
+  separatorLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(78, 54, 41, 0.15)', // 연한 에스프레소 브라운 구분선
+  },
+  separatorText: {
+    ...typography.L5,
+    color: colors.mochaBrown,
+    fontWeight: '700',
+  },
+  socialButtonsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'space-between',
+  },
+  socialBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+  },
+  googleBtn: {
+    backgroundColor: colors.white,
+    borderColor: colors.mutedSand,
+  },
+  googleBtnText: {
+    color: colors.espressoBrown,
+  },
+  appleBtn: {
+    backgroundColor: colors.pointOrange, // 테마 컬러에 맞춘 다크 브라운 블랙
+    borderColor: colors.pointOrange,
+  },
+  appleBtnText: {
+    color: colors.white,
+  },
+  socialBtnText: {
+    ...typography.L4,
+    fontWeight: '700',
+  },
 });
