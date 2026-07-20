@@ -1,7 +1,7 @@
 """운영 API 스키마 (백엔드 C 최초 작성 → 백엔드 B 인수)"""
 from datetime import datetime, date
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, AliasChoices, ConfigDict
 
 class CommonResponse(BaseModel):
     """API 공통 응답 포맷 규격"""
@@ -36,17 +36,124 @@ class ScheduleResponse(BaseModel):
         from_attributes = True
 
 class PayrollCalculateRequest(BaseModel):
-    """급여 예상 계산 요청 양식"""
-    employee_id: int = Field(..., description="직원 고유 번호", examples=[1])
-    period_start: str = Field(..., description="조회 시작일 (YYYY-MM-DD)", examples=["2026-07-01"])
-    period_end: str = Field(..., description="조회 종료일 (YYYY-MM-DD)", examples=["2026-07-31"])
-    deduct_break_time: bool = Field(False, description="법정 휴게시간 공제 적용 여부 (4시간당 30분, 8시간당 1시간)")
+    """급여 예상 계산 요청 양식 (MVP + 자정넘김 + 주휴수당/세금공제 지원)"""
+    employee_name: Optional[str] = Field(None, min_length=1, description="직원 이름 (최소 1글자)", examples=["홍길동"])
+    start_time: datetime = Field(..., description="근무 시작 일시 (YYYY-MM-DDTHH:MM:SS)", examples=["2026-07-20T22:00:00"])
+    end_time: datetime = Field(..., description="근무 종료 일시 (YYYY-MM-DDTHH:MM:SS)", examples=["2026-07-21T06:00:00"])
+    break_minutes: float = Field(0.0, ge=0, description="휴게시간 (분 단위, 0 이상)", examples=[60.0])
+    hourly_rate: int = Field(..., gt=0, description="시급 (원 단위, 0보다 커야 함)", examples=[10000])
+    weekly_work_hours: Optional[float] = Field(None, ge=0, description="주간 총 예상 근무시간 (15시간 이상 시 주휴수당 계산)", examples=[20.0])
+    include_weekly_holiday: bool = Field(False, description="주휴수당 포함 계산 여부", examples=[True])
+    deduct_tax: bool = Field(False, description="3.3% 사업소득세 원천징수 공제 여부", examples=[True])
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "employee_name": "홍길동",
+                "start_time": "2026-07-20T22:00:00",
+                "end_time": "2026-07-21T06:00:00",
+                "break_minutes": 60.0,
+                "hourly_rate": 10000,
+                "weekly_work_hours": 20.0,
+                "include_weekly_holiday": True,
+                "deduct_tax": True
+            }
+        }
+    )
+
+class PayrollCalculateResponse(BaseModel):
+    """급여 예상 계산 응답 양식 (세후 실수령액 및 주휴수당 포함)"""
+    total_hours: float = Field(..., description="전체 근무시간 (시간)", examples=[8.0])
+    break_hours: float = Field(..., description="휴게시간 (시간)", examples=[1.0])
+    actual_work_hours: float = Field(..., description="실근무시간 (시간)", examples=[7.0])
+    hourly_rate: int = Field(..., description="시급 (원)", examples=[10000])
+    base_payroll: int = Field(..., description="기본 근무 급여액 (원)", examples=[70000])
+    estimated_payroll: int = Field(..., description="기본 근무 급여액 (하위 호환)", examples=[70000])
+    weekly_holiday_allowance: int = Field(0, description="예상 주휴수당 (원)", examples=[32000])
+    gross_payroll: int = Field(..., description="공제 전 총 급여액 (기본급 + 주휴수당)", examples=[102000])
+    withholding_tax: int = Field(0, description="예상 3.3% 원천징수 세금 (원)", examples=[3366])
+    net_payroll: int = Field(..., description="세후 예상 실수령액 (원)", examples=[98634])
+    disclaimer: str = Field(
+        "본 급여 계산 결과는 확정 지급액이 아니며 참고용 예상 급여입니다.",
+        description="급여 면책 고지"
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "total_hours": 8.0,
+                "break_hours": 1.0,
+                "actual_work_hours": 7.0,
+                "hourly_rate": 10000,
+                "base_payroll": 70000,
+                "estimated_payroll": 70000,
+                "weekly_holiday_allowance": 32000,
+                "gross_payroll": 102000,
+                "withholding_tax": 3366,
+                "net_payroll": 98634,
+                "disclaimer": "본 급여 계산 결과는 확정 지급액이 아니며 참고용 예상 급여입니다."
+            }
+        }
+    )
 
 class SettlementCalculateRequest(BaseModel):
-    """정산 예상 계산 요청 양식"""
-    period_start: str = Field(..., description="조회 시작일 (YYYY-MM-DD)", examples=["2026-07-01"])
-    period_end: str = Field(..., description="조회 종료일 (YYYY-MM-DD)", examples=["2026-07-31"])
-    other_expense: Optional[int] = Field(0, description="기타 추가 비용", examples=[50000])
+    """정산 예상 계산 요청 양식 (MVP 계산용)"""
+    revenue: int = Field(..., ge=0, description="매출액 (원 단위, 0 이상)", examples=[1000000])
+    cost: int = Field(..., ge=0, description="원가 및 지출 비용 (원 단위, 0 이상)", examples=[300000])
+    labor_cost: int = Field(..., ge=0, description="인건비 (원 단위, 0 이상)", examples=[200000])
+    other_expense: int = Field(0, ge=0, description="기타 비용 (원 단위, 0 이상)", examples=[50000])
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "revenue": 1000000,
+                "cost": 300000,
+                "labor_cost": 200000,
+                "other_expense": 50000
+            }
+        }
+    )
+
+class SettlementCalculateResponse(BaseModel):
+    """정산 예상 계산 응답 양식"""
+    revenue: int = Field(..., description="매출액 (원)", examples=[1000000])
+    cost: int = Field(..., description="원가 및 비용 (원)", examples=[300000])
+    labor_cost: int = Field(..., description="인건비 (원)", examples=[200000])
+    other_expense: int = Field(..., description="기타 비용 (원)", examples=[50000])
+    total_cost: int = Field(..., description="총 비용 (원가 + 인건비 + 기타비용)", examples=[550000])
+    estimated_profit: int = Field(..., description="예상 정산 이익 (매출 - 총 비용)", examples=[450000])
+    profit_rate: Optional[float] = Field(
+        None,
+        validation_alias=AliasChoices("profit_rate", "profit_margin"),
+        description="이익률 (%, 매출이 0인 경우 null)",
+        examples=[45.0]
+    )
+    profit_margin: Optional[float] = Field(
+        None,
+        description="이익률 하위 호환 필드 (%, 매출이 0인 경우 null)",
+        examples=[45.0]
+    )
+    disclaimer: str = Field(
+        "본 정산 결과는 확정 정산이 아닌 단순 참고용 예상 정산 결과입니다.",
+        description="정산 면책 고지"
+    )
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_schema_extra={
+            "example": {
+                "revenue": 1000000,
+                "cost": 300000,
+                "labor_cost": 200000,
+                "other_expense": 50000,
+                "total_cost": 550000,
+                "estimated_profit": 450000,
+                "profit_rate": 45.0,
+                "profit_margin": 45.0,
+                "disclaimer": "본 정산 결과는 확정 정산이 아닌 단순 참고용 예상 정산 결과입니다."
+            }
+        }
+    )
 
 class ExpenseCreate(BaseModel):
     """지출(비용) 등록 요청 양식"""
