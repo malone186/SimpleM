@@ -1,7 +1,7 @@
 // 원가 분석 (ERP-6) — 메뉴별 원가·원가율. 정확한 숫자 화면 → 브루 미노출(금지구역)
 // 데이터: GET /api/v1/inventory/menus (백엔드가 레시피×재료 단가로 원가·원가율을 실시간 계산)
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View, Modal, Pressable, ScrollView, Linking } from 'react-native';
+import { useEffect, useState, useRef } from 'react';
+import { ActivityIndicator, StyleSheet, Text, View, Pressable, ScrollView, Linking, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../../auth/AuthContext';
@@ -30,6 +30,33 @@ export default function CostScreen() {
   const [recommendations, setRecommendations] = useState<any | null>(null);
   const [recLoading, setRecLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+
+  // [한글 주석: 슬라이드 모션을 위한 애니메이션 Y축 오프셋 상태 정의]
+  const slideAnim = useRef(new Animated.Value(800)).current;
+
+  // [한글 주석: 팝업을 열 때 Y축 오프셋을 0으로 슥 당겨 올리는 애니메이션을 실행합니다]
+  const openModal = (menuId: number, menuName: string) => {
+    setSelectedMenuName(menuName);
+    setModalVisible(true);
+    slideAnim.setValue(800);
+    Animated.timing(slideAnim, {
+      toValue: 0,
+      duration: 250,
+      useNativeDriver: true,
+    }).start();
+    fetchRecommendations(menuId, menuName);
+  };
+
+  // [한글 주석: 팝업을 닫을 때 먼저 Y축 오프셋을 800으로 내린 뒤, 애니메이션이 끝나면 팝업을 안 보이게 처리합니다]
+  const closeModal = () => {
+    Animated.timing(slideAnim, {
+      toValue: 800,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      setModalVisible(false);
+    });
+  };
 
   useEffect(() => {
     if (!token) return;
@@ -64,8 +91,6 @@ export default function CostScreen() {
       return;
     }
     setRecLoading(true);
-    setSelectedMenuName(menuName);
-    setModalVisible(true);
     try {
       const data = await apiFetch<any>(`/api/v1/inventory/menus/${menuId}/cost-reduction-recommendations`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -75,7 +100,7 @@ export default function CostScreen() {
     } catch (e) {
       console.error('원가 절감 추천 로드 실패:', e);
       toast('추천 로드 실패', '대체재 가격 정보 데이터를 가져오지 못했습니다.');
-      setModalVisible(false);
+      closeModal();
     } finally {
       setRecLoading(false);
     }
@@ -141,7 +166,7 @@ export default function CostScreen() {
               {/* [한글 주석: 꾹 눌리는 감각 피드백과 확실한 터치 감지를 위해 PressableScale 컴포넌트로 개조] */}
               <PressableScale
                 style={styles.recommendBtn}
-                onPress={() => fetchRecommendations(m.id, m.name)}
+                onPress={() => openModal(m.id, m.name)}
               >
                 <Ionicons name="sparkles" size={13} color="#FFFFFF" style={{ marginRight: 6 }} />
                 <Text style={styles.recommendBtnText}>AI 원가 절감 추천</Text>
@@ -151,13 +176,18 @@ export default function CostScreen() {
         })}
       </Screen>
 
-      {/* [한글 주석: 스크롤 뷰(Screen) 영향을 받지 않도록 스크롤 뷰의 바깥(형제 레벨)에 절대 배치 팝업을 얹습니다] */}
+      {/* [한글 주석: 팝업의 정돈된 반투명 배경 레이아웃을 백퍼센트 유지하며, 카드만 아래에서 위로 부드럽게 솟구치도록 애니메이션 뷰를 얹습니다] */}
       {modalVisible && (
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <Animated.View 
+            style={[
+              styles.modalContent, 
+              { transform: [{ translateY: slideAnim }] }
+            ]}
+          >
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>✨ AI 원가 절감 추천</Text>
-              <Pressable onPress={() => setModalVisible(false)} style={styles.closeBtn}>
+              <Pressable onPress={closeModal} style={styles.closeBtn}>
                 <Ionicons name="close" size={24} color={colors.espressoBrown} />
               </Pressable>
             </View>
@@ -226,7 +256,7 @@ export default function CostScreen() {
                 </View>
               ) : null}
             </ScrollView>
-          </View>
+          </Animated.View>
         </View>
       )}
     </View>
