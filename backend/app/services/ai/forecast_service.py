@@ -251,6 +251,8 @@ def _fetch_nearby_events(lat: float, lon: float, start: date, days: int) -> list
                 "distance_km": round(dist, 1),
                 "place": (row.get("PLACE") or "").strip()[:30],
                 "source": "서울 열린데이터광장",
+                "lat": elat,
+                "lon": elon,
             })
     _event_cache[cache_key] = (time.time(), events)
     return events
@@ -478,12 +480,27 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
         tomorrow_revenue = week[0]["revenue"]
 
         tomorrow_hourly = []
-        for h_bin in ["09시", "12시", "15시", "18시"]:
+        allocated_cups = 0
+        allocated_revenue = 0
+        
+        # 09시, 12시, 15시 (앞선 3개 시간대 분배)
+        for h_bin in ["09시", "12시", "15시"]:
+            c_val = round(tomorrow_cups * shares[h_bin])
+            r_val = round(tomorrow_revenue * shares[h_bin])
+            allocated_cups += c_val
+            allocated_revenue += r_val
             tomorrow_hourly.append({
                 "hour": h_bin,
-                "cups": round(tomorrow_cups * shares[h_bin]),
-                "revenue": round(tomorrow_revenue * shares[h_bin])
+                "cups": c_val,
+                "revenue": r_val
             })
+            
+        # 18시 (마지막 시간대: 총량에서 차감한 잔여값 할당으로 반올림 누적 오차 완전 보정)
+        tomorrow_hourly.append({
+            "hour": "18시",
+            "cups": max(0, tomorrow_cups - allocated_cups),
+            "revenue": max(0, tomorrow_revenue - allocated_revenue)
+        })
 
     return {
         "store_id": store_id,

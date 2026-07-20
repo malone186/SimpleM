@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View, ActivityIndicator } from 'react-native';
 import Svg, { Defs, LinearGradient, Stop, Path, Circle, Line, Text as SvgText, Rect, G } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,6 +11,11 @@ import { getSalesForecast, getDevicePosition, type SalesForecast, type ForecastD
 import Brew from '../brew/Brew';
 
 // (삭제함 - Web 호환성을 위해 addListener + 일반 Circle을 사용하도록 개선)
+
+// [웹 호환 SVG 터치 핸들러] 웹에서 SVG 요소에 onPress를 주면 구형 Touchable 믹스인이 가동되어
+// 콘솔 에러가 발생하므로, 웹은 브라우저 표준 onClick으로 우회한다 (네이티브는 onPress 유지)
+const svgPress = (handler: () => void) =>
+  Platform.OS === 'web' ? ({ onClick: handler } as any) : { onPress: handler };
 
 // 차트 트렌드 라인 패스 정의 (양 끝 마진 25px로 대칭 및 한가운데 정렬)
 const REALTIME_LINE = 'M 25 100 L 108 78 L 192 63 L 275 55';
@@ -221,7 +226,7 @@ function SlidingTabToggle({
 
 // [한글 주석] onPressReport 콜백을 받아와 리포트 배너의 이벤트를 바인딩합니다.
 export default function SalesCard({ onPressReport }: { onPressReport?: () => void }) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [forecast, setForecast] = useState<SalesForecast | null>(null);
   const [loadingForecast, setLoadingForecast] = useState(false);
 
@@ -235,12 +240,60 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
     title: string;
     value: string;
   } | null>(null);
+  const [locationModalVisible, setLocationModalVisible] = useState(false);
 
-  const futureForecasts = forecast ? forecast.week.reduce<Record<string, ForecastDay>>((acc, d) => {
-    const day = String(Number(d.date.slice(-2))); 
-    acc[day] = d;
-    return acc;
-  }, {}) : {};
+  const [layoutWidth, setLayoutWidth] = useState(300);
+  const tooltipAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (activeTooltip) {
+      tooltipAnim.setValue(0);
+      Animated.spring(tooltipAnim, {
+        toValue: 1,
+        friction: 6.5,
+        tension: 42,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(tooltipAnim, {
+        toValue: 0,
+        duration: 120,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [activeTooltip, tooltipAnim]);
+
+  const tooltipOpacity = tooltipAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
+  const tooltipScale = tooltipAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.88, 1.0],
+  });
+  const tooltipTranslateY = tooltipAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [5, 0],
+  });
+
+  const FALLBACK_FORECASTS: Record<string, ForecastDay> = {
+    '17': { date: '2026-07-17', weekday: '금', cups: 172, revenue: 512000, weather: 'Sunny', temp_max: 29.5, precip_prob: 0, adjustments: [], base_cups: 172, holiday: null },
+    '18': { date: '2026-07-18', weekday: '토', cups: 185, revenue: 554000, weather: 'Cloudy', temp_max: 28.0, precip_prob: 10, adjustments: [], base_cups: 185, holiday: null },
+    '19': { date: '2026-07-19', weekday: '일', cups: 190, revenue: 570000, weather: 'Rainy', temp_max: 26.5, precip_prob: 80, adjustments: ['강수 확률 80% 보정 (-10%)'], base_cups: 190, holiday: null },
+    '20': { date: '2026-07-20', weekday: '월', cups: 155, revenue: 462000, weather: 'Sunny', temp_max: 30.1, precip_prob: 0, adjustments: [], base_cups: 155, holiday: null },
+    '21': { date: '2026-07-21', weekday: '화', cups: 160, revenue: 480000, weather: 'Sunny', temp_max: 31.0, precip_prob: 0, adjustments: [], base_cups: 160, holiday: null },
+    '22': { date: '2026-07-22', weekday: '수', cups: 165, revenue: 495000, weather: 'Sunny', temp_max: 29.8, precip_prob: 0, adjustments: [], base_cups: 165, holiday: null },
+    '23': { date: '2026-07-23', weekday: '목', cups: 162, revenue: 486000, weather: 'Sunny', temp_max: 30.2, precip_prob: 0, adjustments: [], base_cups: 162, holiday: null },
+  };
+
+  const futureForecasts = {
+    ...FALLBACK_FORECASTS,
+    ...(forecast ? forecast.week.reduce<Record<string, ForecastDay>>((acc, d) => {
+      const day = String(Number(d.date.slice(-2))); 
+      acc[day] = d;
+      return acc;
+    }, {}) : {})
+  };
 
   useEffect(() => {
     if (!token) return;
@@ -347,21 +400,232 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
   const averagePrice = isMonthly ? '₩3,085' : '₩3,018';
   const peakTime = isMonthly ? '주말 오후' : '14–15시';
 
+  const lat = forecast?.location.lat ?? 37.5562;
+  const lon = forecast?.location.lon ?? 126.9223;
+  const regionName = forecast?.location.region ?? "서울특별시 마포구 서교동";
+  // [한글 주석] 지도 마커에 표기할 매장명 — 회원가입 시 지정한 상호명(user.name)과 연동
+  const shopLabel = user?.name ? `내 매장 (${user.name})` : '내 매장';
+  const nearbyEvents = forecast?.nearby_events ?? [];
+  const serializedEvents = JSON.stringify(nearbyEvents);
+
+  // [네이버 지도 연동 설정 가이드]
+  // 1. 네이버 클라우드 플랫폼(NCP)에서 Maps > Web Dynamic Map 서비스를 신청하고 발급받은 Client ID를 아래에 기입해 줍니다.
+  //    ※ NCP 콘솔의 해당 애플리케이션에 Web 서비스 URL(예: http://localhost:8081)이 등록되어 있어야 인증됩니다.
+  // 2. 아래 ID가 비어있거나 'YOUR_NAVER_CLIENT_ID' 상태일 때는 자동으로 Leaflet.js 오픈맵이 폴백 구동되어 공백 없이 정상 동작합니다.
+  const NAVER_CLIENT_ID = process.env.EXPO_PUBLIC_NAVER_CLIENT_ID || "6amak4awt7";
+
+
+  // [네이버 지도 다이렉트 DOM 렌더링 훅]
+  // iframe 격리 시 브라우저가 Referer 오리진을 null/about:srcdoc으로 훼손하여 네이버가 차단하는 문제를 원천 해결합니다.
+  // 부모 창의 실제 도메인 주소(http://localhost:8081)가 100% 온전하게 네이버에 송신되어 에러 없이 가동됩니다.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !locationModalVisible) return;
+
+    // 1. 네이버 지도 API 스크립트 로드
+    const loadNaverScript = () => {
+      const existing = document.getElementById('naver-map-script-direct');
+      if (existing) {
+        // 스크립트 태그는 있지만 아직 로딩 중일 수 있음(모달 빠른 재오픈 등) — 로드 완료를 기다린 뒤 초기화
+        if ((window as any).naver?.maps) {
+          initNaverMapDirectly();
+        } else {
+          existing.addEventListener('load', initNaverMapDirectly, { once: true });
+        }
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.id = 'naver-map-script-direct';
+      script.type = 'text/javascript';
+      // 신규 NCP Maps API는 oapi 도메인 + ncpKeyId 파라미터로만 인증됨 (구 openapi/ncpClientId는 인증 실패 처리)
+      script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${NAVER_CLIENT_ID}`;
+      script.onload = initNaverMapDirectly;
+      script.onerror = () => {
+        console.error("네이버 지도 로딩 실패: Leaflet으로 전환");
+        initLeafletFallback();
+      };
+      document.head.appendChild(script);
+    };
+
+    // 2. 실제 DOM에 네이버 지도 생성 및 마킹
+    const initNaverMapDirectly = () => {
+      try {
+        const container = document.getElementById('naver-map-container');
+        if (!container) return;
+        container.innerHTML = "";
+
+        const naverObj = (window as any).naver;
+        if (!naverObj || !naverObj.maps) {
+          initLeafletFallback();
+          return;
+        }
+
+        const map = new naverObj.maps.Map(container, {
+          center: new naverObj.maps.LatLng(lat, lon),
+          zoom: 14,
+          zoomControl: false
+        });
+
+        // 내 매장 마커 마킹
+        const shopMarker = new naverObj.maps.Marker({
+          position: new naverObj.maps.LatLng(lat, lon),
+          map: map,
+          icon: {
+            content: '<div style="width:16px;height:16px;background:#4E3629;border:3px solid #FFFFFF;border-radius:50%;box-shadow:0 2px 5px rgba(0,0,0,0.3)"></div>',
+            anchor: new naverObj.maps.Point(8, 8)
+          }
+        });
+
+        const infoWindow = new naverObj.maps.InfoWindow({
+          content: '<div style="padding:10px;min-width:140px;line-height:140%;font-size:11px;font-family:-apple-system,sans-serif"><b>📍 ' + shopLabel + '</b><br/>' + regionName + '</div>',
+          borderWidth: 1,
+          borderColor: '#8C6F56',
+          borderRadius: 8,
+          backgroundColor: '#FFFFFF',
+          anchorSize: new naverObj.maps.Size(10, 10)
+        });
+
+        infoWindow.open(map, shopMarker);
+
+        // 인근 축제 마커들 생성 (열린 정보창을 모아두었다가 지도 빈 곳 클릭 시 일괄 닫기)
+        const eventWindows: any[] = [];
+        nearbyEvents.forEach((e: any) => {
+          if (e.lat && e.lon) {
+            const eventMarker = new naverObj.maps.Marker({
+              position: new naverObj.maps.LatLng(e.lat, e.lon),
+              map: map,
+              icon: {
+                content: '<div style="width:12px;height:12px;background:#E28257;border:2.5px solid #FFFFFF;border-radius:50%;box-shadow:0 2px 4px rgba(0,0,0,0.3)"></div>',
+                anchor: new naverObj.maps.Point(6, 6)
+              }
+            });
+
+            const eWindow = new naverObj.maps.InfoWindow({
+              content: '<div style="padding:10px;min-width:160px;line-height:140%;font-size:11px;font-family:-apple-system,sans-serif"><b>🎉 ' + e.name + '</b><br/>장소: ' + e.place + '<br/>거리: ' + e.distance_km + 'km<br/>날짜: ' + e.date + '</div>',
+              borderWidth: 1,
+              borderColor: '#E28257',
+              borderRadius: 8,
+              backgroundColor: '#FFFFFF'
+            });
+            eventWindows.push(eWindow);
+
+            naverObj.maps.Event.addListener(eventMarker, "click", () => {
+              if (eWindow.getMap()) {
+                eWindow.close();
+              } else {
+                eWindow.open(map, eventMarker);
+              }
+            });
+          }
+        });
+
+        // 지도 빈 곳을 클릭하면 열려 있는 행사 정보창을 모두 닫는다
+        naverObj.maps.Event.addListener(map, "click", () => {
+          eventWindows.forEach((w) => {
+            if (w.getMap()) w.close();
+          });
+        });
+      } catch (err) {
+        console.error("네이버 지도 직접 초기화 중 에러, 폴백 가동:", err);
+        initLeafletFallback();
+      }
+    };
+
+    // 3. Leaflet.js 폴백 복원 함수
+    const initLeafletFallback = () => {
+      try {
+        const container = document.getElementById('naver-map-container');
+        if (!container) return;
+        container.innerHTML = "";
+
+        let existingCss = document.getElementById('leaflet-css-direct');
+        if (!existingCss) {
+          const link = document.createElement('link');
+          link.id = 'leaflet-css-direct';
+          link.rel = 'stylesheet';
+          link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+          document.head.appendChild(link);
+        }
+
+        const startLeaflet = () => {
+          const L = (window as any).L;
+          if (!L) return;
+          const map = L.map(container, { zoomControl: false }).setView([lat, lon], 14);
+          
+          L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 19
+          }).addTo(map);
+
+          const shopMarker = L.circleMarker([lat, lon], {
+            color: '#4E3629',
+            fillColor: '#8C6F56',
+            fillOpacity: 1,
+            radius: 8,
+            weight: 3
+          }).addTo(map);
+          
+          shopMarker.bindPopup("<div style='font-size:11px'><b>📍 " + shopLabel + "</b><br/>" + regionName + "</div>").openPopup();
+
+          nearbyEvents.forEach((e: any) => {
+            if (e.lat && e.lon) {
+              L.circleMarker([e.lat, e.lon], {
+                color: '#E28257',
+                fillColor: '#FFFFFF',
+                fillOpacity: 0.9,
+                radius: 6,
+                weight: 3.5
+              }).addTo(map)
+                .bindPopup("<div style='font-size:11px'><b>🎉 " + e.name + "</b><br/>장소: " + e.place + "<br/>거리: " + e.distance_km + "km<br/>날짜: " + e.date + "</div>");
+            }
+          });
+        };
+
+        const existingScript = document.getElementById('leaflet-js-direct');
+        if (existingScript) {
+          startLeaflet();
+        } else {
+          const script = document.createElement('script');
+          script.id = 'leaflet-js-direct';
+          script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+          script.onload = startLeaflet;
+          document.head.appendChild(script);
+        }
+      } catch (err) {
+        console.error("Leaflet 로딩 실패:", err);
+      }
+    };
+
+    // 네이버 지도 인증 실패 전역 콜백 연결
+    (window as any).navermap_authFailure = () => {
+      console.warn("네이버 지도 인증 실패: 즉시 Leaflet 오픈 지도로 안전 전환합니다.");
+      initLeafletFallback();
+    };
+
+    const timer = setTimeout(loadNaverScript, 50);
+    return () => clearTimeout(timer);
+  }, [locationModalVisible, lat, lon, regionName, shopLabel, serializedEvents, NAVER_CLIENT_ID]);
+
   return (
     <View style={styles.card}>
       {/* 헤더 영역 */}
       <View style={styles.headRow}>
         <View style={{ flex: 1, alignItems: 'flex-start' }}>
-          <SlidingTabToggle value={isMonthly} onChange={setIsMonthly} />
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <SlidingTabToggle value={isMonthly} onChange={setIsMonthly} />
+            {forecast?.location && (
+              <PressableScale 
+                onPress={() => setLocationModalVisible(true)} 
+                style={styles.locationTag}
+                to={0.95}
+              >
+                <Ionicons name="location" size={10.5} color={colors.mochaBrown} style={{ opacity: 0.8 }} />
+                <Text style={styles.locationTagText}>
+                  {forecast.location.region}
+                </Text>
+              </PressableScale>
+            )}
+          </View>
           <Text style={[styles.amount, { marginTop: 6 }]}>₩ {amount.toLocaleString()}</Text>
-          {!isMonthly && (
-            <View style={[styles.forecastBadge, { marginTop: 6, alignSelf: 'flex-start' }]}>
-              <Ionicons name="sparkles" size={10} color={colors.white} />
-              <Text style={styles.forecastBadgeText}>
-                내일 {tomorrowCups}잔 예측 (₩{Math.round(tomorrowRevenue / 10000)}만)
-              </Text>
-            </View>
-          )}
         </View>
 
         {/* 성장폭 뱃지 */}
@@ -383,7 +647,7 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
           <View style={styles.calendarGrid}>
             {CALENDAR_ITEMS.map((item, idx) => {
               const hasData = item.date && SALES_DETAILS[item.date];
-              const isFuture = item.date && (Number(item.date) >= 16 && Number(item.date) <= 22);
+              const isFuture = item.date && (Number(item.date) >= 17 && Number(item.date) <= 23);
               return (
                 <PressableScale 
                   key={idx} 
@@ -441,7 +705,10 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
             </PressableScale>
           </View>
 
-          <View style={styles.chartWrap}>
+          <View 
+            style={styles.chartWrap}
+            onLayout={(e) => setLayoutWidth(e.nativeEvent.layout.width)}
+          >
             <Svg width="100%" height="120" viewBox="0 0 300 130" preserveAspectRatio="none">
               <Defs>
                 <LinearGradient id="todayFill" x1="0" y1="0" x2="0" y2="1">
@@ -455,7 +722,7 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
               </Defs>
 
               {/* 툴팁 닫기용 투명 배경 클릭 타겟 (세로 확장 130 대응) */}
-              <Rect width="300" height="130" fill="transparent" onPress={() => setActiveTooltip(null)} />
+              <Rect width="300" height="130" fill="transparent" {...svgPress(() => setActiveTooltip(null))} />
 
               {/* 그리드 가로선 (세로 확장 정렬) */}
               <Line x1="15" y1="25" x2="285" y2="25" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
@@ -485,7 +752,7 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
               {/* 2. 내일 그래프 드로잉 (부드럽고 고급스러운 모카 브라운 미세 대시선) */}
               <Path d={forecastFillPath} fill="url(#tomorrowFill)" />
               <Path d={forecastLinePath} stroke={colors.mochaBrown} strokeWidth={1.2} strokeOpacity={0.38} strokeDasharray="1.2,2.0" fill="none" strokeLinecap="round" />
-              
+
               {/* 내일 펄스 링 & 최종 예측 피크 점 */}
               <Circle cx={275} cy={yForecast18} r={2.0} fill={colors.mochaBrown} opacity={0.4} />
               <Circle
@@ -498,29 +765,29 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
 
               {/* 3. 오늘 데이터 포인트 (터치용 보이지 않는 큰 Circle 영역 포함, Y좌표 꺾은선 일치) */}
               <Circle cx={25} cy={100} r={2.2} fill={colors.espressoBrown} />
-              <Circle cx={25} cy={100} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 25, y: 100, title: '오늘 09시', value: '실제 25잔' })} />
-              
+              <Circle cx={25} cy={100} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 25, y: 100, title: '오늘 09시', value: '실제 25잔' }))} />
+
               <Circle cx={108} cy={78} r={2.2} fill={colors.espressoBrown} />
-              <Circle cx={108} cy={78} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 108, y: 78, title: '오늘 12시', value: '실제 87잔' })} />
+              <Circle cx={108} cy={78} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 108, y: 78, title: '오늘 12시', value: '실제 87잔' }))} />
 
               <Circle cx={192} cy={63} r={2.2} fill={colors.espressoBrown} />
-              <Circle cx={192} cy={63} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 192, y: 63, title: '오늘 15시', value: '실제 127잔' })} />
+              <Circle cx={192} cy={63} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 192, y: 63, title: '오늘 15시', value: '실제 127잔' }))} />
 
               <Circle cx={275} cy={55} r={2.5} fill={colors.espressoBrown} />
-              <Circle cx={275} cy={55} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 275, y: 55, title: '오늘 실시간', value: '실제 142잔' })} />
+              <Circle cx={275} cy={55} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 275, y: 55, title: '오늘 실시간', value: '실제 142잔' }))} />
 
               {/* 4. 내일 데이터 포인트 (뒤로 부드럽게 감도는 모카 브라운 톤 적용) */}
               <Circle cx={25} cy={yForecast09} r={2.2} fill={colors.mochaBrown} opacity={0.4} />
-              <Circle cx={25} cy={yForecast09} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 25, y: yForecast09, title: '내일 09시', value: `예측 ${tomorrowCupsCum[0]}잔` })} />
-              
+              <Circle cx={25} cy={yForecast09} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 25, y: yForecast09, title: '내일 09시', value: `예측 ${tomorrowCupsCum[0]}잔` }))} />
+
               <Circle cx={108} cy={yForecast12} r={2.2} fill={colors.mochaBrown} opacity={0.4} />
-              <Circle cx={108} cy={yForecast12} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 108, y: yForecast12, title: '내일 12시', value: `예측 ${tomorrowCupsCum[1]}잔` })} />
+              <Circle cx={108} cy={yForecast12} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 108, y: yForecast12, title: '내일 12시', value: `예측 ${tomorrowCupsCum[1]}잔` }))} />
 
               <Circle cx={192} cy={yForecast15} r={2.2} fill={colors.mochaBrown} opacity={0.4} />
-              <Circle cx={192} cy={yForecast15} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 192, y: yForecast15, title: '내일 15시', value: `예측 ${tomorrowCupsCum[2]}잔` })} />
+              <Circle cx={192} cy={yForecast15} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 192, y: yForecast15, title: '내일 15시', value: `예측 ${tomorrowCupsCum[2]}잔` }))} />
 
               <Circle cx={275} cy={yForecast18} r={2.5} fill={colors.mochaBrown} opacity={0.4} />
-              <Circle cx={275} cy={yForecast18} r={14} fill="transparent" onPress={() => setActiveTooltip({ x: 275, y: yForecast18, title: '내일 18시', value: `예측 ${tomorrowCupsCum[3]}잔` })} />
+              <Circle cx={275} cy={yForecast18} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 275, y: yForecast18, title: '내일 18시', value: `예측 ${tomorrowCupsCum[3]}잔` }))} />
 
 
               {/* 5. activeTooltip 플로팅 말풍선 렌더링 */}
@@ -580,7 +847,7 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
           <Text style={styles.footLabel}>{isMonthly ? '판매 잔' : '판매 잔 (오늘 / 내일예상)'}</Text>
           <Text style={styles.footValue}>
             {salesCount}
-            {!isMonthly && (
+            {!isMonthly && forecast && (
               <Text style={{ fontSize: 11, color: colors.mochaBrown, fontWeight: 'normal' }}>
                 {` / ${tomorrowCups}잔`}
               </Text>
@@ -807,6 +1074,56 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
         </View>
       </Modal>
 
+      {/* [한글 주석: 매장 위치 및 주변 행사 지리 분석 지도 모달] */}
+      <Modal
+        visible={locationModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setLocationModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setLocationModalVisible(false)} />
+          <View style={[styles.modalContent, { width: '92%', maxWidth: 450, height: 420, padding: 0, overflow: 'hidden' }]}>
+            {/* 헤더 */}
+            <View style={[styles.modalHeader, { paddingHorizontal: 18, paddingVertical: 12, borderBottomWidth: 0.8, borderBottomColor: 'rgba(140, 111, 86, 0.08)' }]}>
+              <Text style={styles.modalDateTitle}>📍 매장 주변 지리 분석 지도</Text>
+              <Pressable onPress={() => setLocationModalVisible(false)} style={{ padding: 4 }}>
+                <Ionicons name="close" size={22} color={colors.espressoBrown} />
+              </Pressable>
+            </View>
+
+            {/* 지도 본문 (웹 환경 대응 브라우저 표준 iframe) */}
+            <View style={{ flex: 1, backgroundColor: '#F8F6F2', position: 'relative' }}>
+              {Platform.OS === 'web' ? (
+                <View
+                  id="naver-map-container"
+                  style={{ width: '100%', height: '100%' }}
+                />
+              ) : (
+                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+                  <Ionicons name="map-outline" size={32} color={colors.mochaBrown} style={{ marginBottom: 8 }} />
+                  <Text style={{ ...typography.L5, color: colors.mochaBrown, textAlign: 'center' }}>
+                    웹 브라우저 환경에서 인터랙티브 실지도 분석 모드가 지원됩니다.
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* 범례 및 안내 */}
+            <View style={{ paddingVertical: 10, paddingHorizontal: 16, backgroundColor: 'rgba(140, 111, 86, 0.05)', flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#8C6F56' }} />
+                <Text style={{ fontSize: 9.5, fontWeight: '800', color: colors.espressoBrown }}>내 매장</Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#E28257' }} />
+                <Text style={{ fontSize: 9.5, fontWeight: '800', color: colors.espressoBrown }}>인근 행사 (3km)</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* [브루 예측 설명 오버레이] 내일 예측 배지 탭 시 브루가 등장해 원인 설명 */}
       <BrewForecastOverlay
         visible={showBrew}
@@ -880,7 +1197,7 @@ function BrewForecastOverlay({
           {/* 말풍선 카드 */}
           <View style={styles.brewBubble}>
             <Text style={styles.brewTitle}>내일은 {cups}잔 예상이에요! ☕</Text>
-            <Text style={styles.brewSub}>예상 매출 약 ₩{Math.round(revenue / 10000)}만 원</Text>
+            <Text style={styles.brewSub}>예상 매출 약 {Math.round(revenue / 10000)}만 원</Text>
 
             <View style={styles.brewDivider} />
 
@@ -1299,5 +1616,50 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '800',
     color: colors.white,
+  },
+  animatedTooltip: {
+    position: 'absolute',
+    backgroundColor: colors.espressoBrown,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#4E3629',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 5,
+    elevation: 4,
+    minWidth: 100,
+  },
+  animatedTooltipText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: colors.white,
+    textAlign: 'center',
+  },
+  tooltipArrow: {
+    position: 'absolute',
+    bottom: -3.5,
+    width: 7,
+    height: 7,
+    backgroundColor: colors.espressoBrown,
+    transform: [{ rotate: '45deg' }],
+  },
+  locationTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(140, 111, 86, 0.05)',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginLeft: 10,
+  },
+  locationTagText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.mochaBrown,
+    opacity: 0.85,
   },
 });
