@@ -61,7 +61,8 @@ export default function QuickOrderModal({
                 <Text style={styles.itemSub}>{todo.subtitle}</Text>
                 <View style={styles.qtyRow}>
                   <Text style={styles.qtyLabel}>추천 수량</Text>
-                  <Text style={styles.qtyValue}>5 kg</Text>
+                  {/* 재고 API 기준 계산값 (안전재고 2배까지 채우는 양) — 실제 확정은 발주 승인 화면 */}
+                  <Text style={styles.qtyValue}>{todo.qty ?? '—'}</Text>
                 </View>
               </View>
             )}

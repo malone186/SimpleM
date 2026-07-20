@@ -74,6 +74,39 @@ export type SalesForecast = {
   note: string;
 };
 
+// --- 월간 캘린더 (GET /chatbot/sales/calendar) ---
+
+export type CalendarDay = {
+  day: number; // 1~31
+  date: string;
+  cups: number;
+  revenue: number;
+  top_menus: { name: string; qty: number }[];
+  peak_hour: number | null;
+};
+
+export type SalesCalendar = {
+  year: number;
+  month: number;
+  month_total: { cups: number; revenue: number };
+  prev_month_total: { cups: number; revenue: number }; // 전월 같은 경과일까지 합계
+  change_pct: number | null;
+  avg_price: number | null;
+  peak_hour: number | null;
+  days: CalendarDay[]; // 판매가 있는 날만 온다
+};
+
+/** 월간 캘린더용 일별 판매 집계 (기본: 이번 달). 실제 Sale 기록 기준. */
+export const getSalesCalendar = (token: string, year?: number, month?: number) => {
+  const params = new URLSearchParams();
+  if (year) params.set('year', String(year));
+  if (month) params.set('month', String(month));
+  const qs = params.toString();
+  return apiFetch<SalesCalendar>(`/api/v1/chatbot/sales/calendar${qs ? `?${qs}` : ''}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+};
+
 /** 익일·금주 판매량 예측. 판매 기록 14일 미만이면 409 에러(안내 메시지). */
 export const getSalesForecast = (token: string, lat?: number, lon?: number, days = 7) => {
   const params = new URLSearchParams({ days: String(days) });

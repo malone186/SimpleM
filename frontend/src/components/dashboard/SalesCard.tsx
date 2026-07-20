@@ -7,7 +7,16 @@ import { colors, spacing, typography, shadows } from '../../theme';
 import { useCountUp } from '../motion';
 import { PressableScale } from '../motion';
 import { useAuth } from '../../auth/AuthContext';
-import { getSalesForecast, getDevicePosition, type SalesForecast, type ForecastDay, type HourlyPoint } from '../../lib/api/forecast';
+import {
+  getDevicePosition,
+  getSalesCalendar,
+  getSalesForecast,
+  type CalendarDay,
+  type ForecastDay,
+  type HourlyPoint,
+  type SalesCalendar,
+  type SalesForecast,
+} from '../../lib/api/forecast';
 import Brew from '../brew/Brew';
 
 // (삭제함 - Web 호환성을 위해 addListener + 일반 Circle을 사용하도록 개선)
@@ -45,154 +54,16 @@ const WEATHER_ICON: Record<string, keyof typeof Ionicons.glyphMap> = {
   안개: 'cloud-outline',
 };
 
-type DailyDetail = {
-  income: number;
-  popular: string;
-  beans: string;
-  customers: number;
-  peak: string;
-  brewComment: string;
-};
+// 월간 캘린더 그리드 — 실제 연·월 기준으로 셀을 만든다 (월요일 시작, 앞쪽 공백 포함)
+function buildMonthCells(year: number, month0: number): (number | null)[] {
+  const firstOffset = (new Date(year, month0, 1).getDay() + 6) % 7; // 월=0 … 일=6
+  const daysInMonth = new Date(year, month0 + 1, 0).getDate();
+  return [
+    ...Array.from({ length: firstOffset }, () => null as number | null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+}
 
-// [한글 주석: 달력 날짜별 상세 매출 분석 데이터셋] 7월 1일부터 15일까지의 세부 가상 데이터
-const SALES_DETAILS: Record<string, DailyDetail> = {
-  '1': {
-    income: 420000,
-    popular: '☕ 아메리카노 (48잔) · 🥐 크로와상 (15개)',
-    beans: '1.9 kg',
-    customers: 82,
-    peak: '11:30 - 12:30',
-    brewComment: '오전 브런치 타임에 디저트류 판매가 평소보다 25% 상승했어요. 빵 굽는 고소한 냄새가 한몫했네요!',
-  },
-  '2': {
-    income: 380000,
-    popular: '🥛 바닐라라떼 (25잔) · ☕ 아메리카노 (38잔)',
-    beans: '1.6 kg',
-    customers: 76,
-    peak: '13:00 - 14:00',
-    brewComment: '비가 내려 따뜻하고 달달한 라떼 음료가 큰 사랑을 받았습니다. 매장의 안온한 온도가 한몫했네요.',
-  },
-  '3': {
-    income: 450000,
-    popular: '☕ 아메리카노 (55잔) · 🍰 딸기케이크 (12개)',
-    beans: '2.0 kg',
-    customers: 90,
-    peak: '14:30 - 15:30',
-    brewComment: '금요일 오후 피크타임 매출이 아주 훌륭해요! 주말을 앞두고 시그니처 케이크 주문율이 높았습니다.',
-  },
-  '4': {
-    income: 620000,
-    popular: '☕ 아메리카노 (72잔) · 🥐 크로와상 (28개)',
-    beans: '2.8 kg',
-    customers: 125,
-    peak: '14:00 - 16:00',
-    brewComment: '주말 토요일 매출 스파이크 달성! 아메리카노와 베이커리 세트 구성이 대단히 성공적이었습니다.',
-  },
-  '5': {
-    income: 580000,
-    popular: '☕ 아메리카노 (64잔) · 🍋 레몬에이드 (20잔)',
-    beans: '2.4 kg',
-    customers: 110,
-    peak: '15:00 - 17:30',
-    brewComment: '화창한 일요일 오후, 갈증을 해소하는 아이스 에이드류의 주문이 어제보다 30% 증가했습니다.',
-  },
-  '6': {
-    income: 390000,
-    popular: '☕ 아메리카노 (45잔) · 🥯 베이글 (14개)',
-    beans: '1.7 kg',
-    customers: 79,
-    peak: '08:30 - 10:00',
-    brewComment: '월요일 아침 출근길 직장인분들의 모닝 세트(커피+🥯) 구매율이 대폭 치솟았습니다.',
-  },
-  '7': {
-    income: 410000,
-    popular: '☕ 아메리카노 (50잔) · 🥛 카페라떼 (30잔)',
-    beans: '1.9 kg',
-    customers: 84,
-    peak: '12:00 - 13:30',
-    brewComment: '점심 식사 이후 12:30부터 1시간 동안 라떼 주문량이 많았습니다. 빠른 제조 덕분에 회전율을 지켰어요.',
-  },
-  '8': {
-    income: 430000,
-    popular: '☕ 아메리카노 (53잔) · 🥐 크로와상 (18개)',
-    beans: '2.0 kg',
-    customers: 86,
-    peak: '13:00 - 14:30',
-    brewComment: '수요일 오후 미팅용 단체 주문 건 덕분에 안정적으로 일일 목표 매출을 빠르게 달성했습니다.',
-  },
-  '9': {
-    income: 350000,
-    popular: '☕ 아메리카노 (36잔) · 🥛 바닐라라떼 (18잔)',
-    beans: '1.5 kg',
-    customers: 68,
-    peak: '14:00 - 15:00',
-    brewComment: '목요일 평일 오후 시간대의 매장 유동 인구가 다소 적었습니다. 인근 사무실 할인 이벤트를 추천해요.',
-  },
-  '10': {
-    income: 490000,
-    popular: '☕ 아메리카노 (58잔) · 🍰 초코케이크 (15개)',
-    beans: '2.2 kg',
-    customers: 98,
-    peak: '15:00 - 16:30',
-    brewComment: '금요일 오후, 당 충전을 원하는 직장인 손님 덕에 단 디저트류 판매가 평소 대비 폭증했습니다.',
-  },
-  '11': {
-    income: 710000,
-    popular: '☕ 아메리카노 (85잔) · 🥐 크로와상 (32개)',
-    beans: '3.1 kg',
-    customers: 140,
-    peak: '13:30 - 16:00',
-    brewComment: '이번 달 일일 최고 매출을 경신했습니다! 근처 축제 행사 덕분에 테이크아웃 회전이 훌륭했어요.',
-  },
-  '12': {
-    income: 630000,
-    popular: '☕ 아메리카노 (70잔) · 🍋 레몬에이드 (25잔)',
-    beans: '2.7 kg',
-    customers: 120,
-    peak: '14:30 - 16:30',
-    brewComment: '일요일 오후 아이스 패밀리 세트가 주문 급상승하여 재재료 소진이 평소보다 2시간 빨랐습니다.',
-  },
-  '13': {
-    income: 380000,
-    popular: '☕ 아메리카노 (42잔) · 🥯 베이글 (12개)',
-    beans: '1.6 kg',
-    customers: 75,
-    peak: '12:00 - 13:00',
-    brewComment: '월요일 점심 직장인 유입 비중이 높았습니다. 간편한 모바일 포인트를 통한 결제가 대다수였어요.',
-  },
-  '14': {
-    income: 400000,
-    popular: '☕ 아메리카노 (48잔) · 🥛 카페라떼 (28잔)',
-    beans: '1.8 kg',
-    customers: 82,
-    peak: '13:00 - 14:00',
-    brewComment: '카페라떼 우유 소비량이 다소 많아 내일 안전 재고를 평소 대비 1팩 더 주문해두는 것이 안전합니다.',
-  },
-  '15': {
-    income: 428500,
-    popular: '☕ 아메리카노 (52잔) · 🍋 레몬에이드 (18잔)',
-    beans: '1.9 kg',
-    customers: 88,
-    peak: '14:00 - 15:00',
-    brewComment: '폭염 주의보 여파로 시원한 음료와 에이드가 날개 돋친 듯이 많이 팔려 나갔습니다!',
-  }
-};
-
-// 7월 가상 캘린더 매출 현황 (수입 전용)
-const CALENDAR_ITEMS = [
-  { date: '', income: 0 }, { date: '', income: 0 },
-  { date: '1', income: 420000 }, { date: '2', income: 380000 }, { date: '3', income: 450000 },
-  { date: '4', income: 620000 }, { date: '5', income: 580000 }, { date: '6', income: 390000 },
-  { date: '7', income: 410000 }, { date: '8', income: 430000 }, { date: '9', income: 350000 },
-  { date: '10', income: 490000 }, { date: '11', income: 710000 }, { date: '12', income: 630000 },
-  { date: '13', income: 380000 }, { date: '14', income: 400000 }, { date: '15', income: 428500 }, // 오늘 날짜 수입
-  { date: '16', income: 0 }, { date: '17', income: 0 }, { date: '18', income: 0 },
-  { date: '19', income: 0 }, { date: '20', income: 0 }, { date: '21', income: 0 },
-  { date: '22', income: 0 }, { date: '23', income: 0 }, { date: '24', income: 0 },
-  { date: '25', income: 0 }, { date: '26', income: 0 }, { date: '27', income: 0 },
-  { date: '28', income: 0 }, { date: '29', income: 0 }, { date: '30', income: 0 },
-  { date: '31', income: 0 }
-];
 
 // [슬라이딩 세그먼트 토글 컴포넌트]
 function SlidingTabToggle({
@@ -238,11 +109,12 @@ function SlidingTabToggle({
 export default function SalesCard({ onPressReport }: { onPressReport?: () => void }) {
   const { token, user } = useAuth();
   const [forecast, setForecast] = useState<SalesForecast | null>(null);
+  const [calendar, setCalendar] = useState<SalesCalendar | null>(null); // 이번 달 일별 실판매 집계
   const [loadingForecast, setLoadingForecast] = useState(false);
 
   const [isMonthly, setIsMonthly] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<string | null>(null); // [한글 주석: 선택한 날짜의 상세 매출 분석 모달 노출 상태 변수]
-  const [selectedFutureDate, setSelectedFutureDate] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<number | null>(null); // 선택한 날짜(일)의 상세 매출 분석 모달
+  const [selectedFutureDate, setSelectedFutureDate] = useState<number | null>(null);
   const [showBrew, setShowBrew] = useState(false); // [브루 예측 설명 오버레이]
   const [activeTooltip, setActiveTooltip] = useState<{
     x: number;
@@ -286,25 +158,6 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
     outputRange: [5, 0],
   });
 
-  const FALLBACK_FORECASTS: Record<string, ForecastDay> = {
-    '17': { date: '2026-07-17', weekday: '금', cups: 172, revenue: 512000, weather: 'Sunny', temp_max: 29.5, precip_prob: 0, adjustments: [], base_cups: 172, holiday: null },
-    '18': { date: '2026-07-18', weekday: '토', cups: 185, revenue: 554000, weather: 'Cloudy', temp_max: 28.0, precip_prob: 10, adjustments: [], base_cups: 185, holiday: null },
-    '19': { date: '2026-07-19', weekday: '일', cups: 190, revenue: 570000, weather: 'Rainy', temp_max: 26.5, precip_prob: 80, adjustments: ['강수 확률 80% 보정 (-10%)'], base_cups: 190, holiday: null },
-    '20': { date: '2026-07-20', weekday: '월', cups: 155, revenue: 462000, weather: 'Sunny', temp_max: 30.1, precip_prob: 0, adjustments: [], base_cups: 155, holiday: null },
-    '21': { date: '2026-07-21', weekday: '화', cups: 160, revenue: 480000, weather: 'Sunny', temp_max: 31.0, precip_prob: 0, adjustments: [], base_cups: 160, holiday: null },
-    '22': { date: '2026-07-22', weekday: '수', cups: 165, revenue: 495000, weather: 'Sunny', temp_max: 29.8, precip_prob: 0, adjustments: [], base_cups: 165, holiday: null },
-    '23': { date: '2026-07-23', weekday: '목', cups: 162, revenue: 486000, weather: 'Sunny', temp_max: 30.2, precip_prob: 0, adjustments: [], base_cups: 162, holiday: null },
-  };
-
-  const futureForecasts = {
-    ...FALLBACK_FORECASTS,
-    ...(forecast ? forecast.week.reduce<Record<string, ForecastDay>>((acc, d) => {
-      const day = String(Number(d.date.slice(-2))); 
-      acc[day] = d;
-      return acc;
-    }, {}) : {})
-  };
-
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
@@ -322,6 +175,15 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
         if (!cancelled) setLoadingForecast(false);
       }
     })();
+    // 월간 캘린더 집계 — 예측(GPS 대기)과 독립적으로 병렬 조회
+    (async () => {
+      try {
+        const cal = await getSalesCalendar(token);
+        if (!cancelled) setCalendar(cal);
+      } catch (e) {
+        console.error('월간 판매 캘린더 조회 실패:', e);
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -337,16 +199,42 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
   const anchorHour = Math.min(23, Math.max(9, now.getHours()));
   const axisHours = [anchorHour - 9, anchorHour - 6, anchorHour - 3, anchorHour];
 
+  // 실제 오늘 날짜 기준 캘린더 좌표
+  const year = now.getFullYear();
+  const month0 = now.getMonth(); // 0-based
+  const todayDay = now.getDate();
+  const monthCells = useMemo(() => buildMonthCells(year, month0), [year, month0]);
+
+  // 일(day) → 실판매 집계 맵
+  const calDayMap = useMemo(() => {
+    const m: Record<number, CalendarDay> = {};
+    calendar?.days.forEach((d) => {
+      m[d.day] = d;
+    });
+    return m;
+  }, [calendar]);
+
+  // 일(day) → AI 예측 맵 — 예측 API가 준 이번 달 미래 날짜만 (하드코딩 폴백 없음)
+  const futureForecasts = useMemo(() => {
+    const m: Record<number, ForecastDay> = {};
+    forecast?.week.forEach((d) => {
+      const [fy, fm, fd] = d.date.split('-').map(Number);
+      if (fy === year && fm === month0 + 1) m[fd] = d;
+    });
+    return m;
+  }, [forecast, year, month0]);
+
   // 오늘 실적 — 백엔드 실데이터 (없으면 0: AI 경영 리포트와 같은 집계 기준)
   const todayActual = forecast?.today ?? null;
   const todayRevenueTotal = todayActual?.revenue ?? 0;
   const todayCupsTotal = todayActual?.cups ?? 0;
 
-  const targetValue = isMonthly ? 12480000 : todayRevenueTotal;
+  const targetValue = isMonthly ? (calendar?.month_total.revenue ?? 0) : todayRevenueTotal;
   const amount = useCountUp(targetValue, 1100, [isMonthly, targetValue]);
 
-  const tomorrowRevenue = forecast?.tomorrow.revenue ?? 480000;
-  const tomorrowCups = forecast?.tomorrow.cups ?? 165;
+  // 예측이 없으면 0 — 하드코딩 폴백 없이 '예측 준비 중'으로 표시한다
+  const tomorrowRevenue = forecast?.tomorrow.revenue ?? 0;
+  const tomorrowCups = forecast?.tomorrow.cups ?? 0;
 
   // 내일 시간(0~23시)별 예측 — 백엔드 분배가 없으면 기본 곡선으로 총량을 나눈다
   const tomorrowHourly24: HourlyPoint[] =
@@ -410,25 +298,28 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
   const pulseRadius = 4 + pulseVal * 8; // [0, 1] -> [4, 12]
   const pulseOpacity = 0.6 - pulseVal * 0.6; // [0, 1] -> [0.6, 0]
 
-  // 일/월별 상승 뱃지 텍스트 — 일간은 어제 매출 대비 실제 증감 (비교 대상 없으면 '비교 없음')
+  // 증감 뱃지 — 일간은 어제 매출 대비, 월간은 전월 같은 경과일 대비 (비교 대상 없으면 '비교 없음')
   const yesterdayRevenue = todayActual?.yesterday_revenue ?? 0;
-  const dailyDeltaPct = yesterdayRevenue > 0 ? ((todayRevenueTotal - yesterdayRevenue) / yesterdayRevenue) * 100 : null;
-  const badgeText = isMonthly
-    ? '▲ 8.7%'
-    : dailyDeltaPct === null
-      ? '비교 없음'
-      : `${dailyDeltaPct >= 0 ? '▲' : '▼'} ${Math.abs(dailyDeltaPct).toFixed(1)}%`;
+  const deltaPct = isMonthly
+    ? (calendar?.change_pct ?? null)
+    : yesterdayRevenue > 0
+      ? ((todayRevenueTotal - yesterdayRevenue) / yesterdayRevenue) * 100
+      : null;
+  const badgeText = deltaPct === null ? '비교 없음' : `${deltaPct >= 0 ? '▲' : '▼'} ${Math.abs(deltaPct).toFixed(1)}%`;
 
-  // 하단 세부 요약 수치 — 일간은 오늘 실적 기반 (데이터 없으면 '—')
-  const salesCount = isMonthly ? '4,120잔' : `${todayCupsTotal.toLocaleString()}잔`;
+  // 하단 세부 요약 수치 — 일간은 오늘 실적, 월간은 이번 달 집계 (데이터 없으면 '—')
+  const monthCups = calendar?.month_total.cups ?? 0;
+  const salesCount = isMonthly ? `${monthCups.toLocaleString()}잔` : `${todayCupsTotal.toLocaleString()}잔`;
   const averagePrice = isMonthly
-    ? '₩3,085'
+    ? calendar?.avg_price
+      ? `₩${calendar.avg_price.toLocaleString()}`
+      : '—'
     : todayCupsTotal > 0
       ? `₩${Math.round(todayRevenueTotal / todayCupsTotal).toLocaleString()}`
       : '—';
   let peakTime = '—';
   if (isMonthly) {
-    peakTime = '주말 오후';
+    if (calendar?.peak_hour != null) peakTime = `${calendar.peak_hour}–${calendar.peak_hour + 1}시`;
   } else if (todayActual) {
     const best = todayActual.hourly.reduce((a, b) => (b.cups > a.cups ? b : a));
     if (best.cups > 0) peakTime = `${best.hour}–${best.hour + 1}시`;
@@ -677,22 +568,26 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
               <Text key={day} style={styles.calendarHeaderDay}>{day}</Text>
             ))}
           </View>
-          {/* 날짜 그리드 행 */}
+          {/* 날짜 그리드 행 — 실제 이번 달 달력 + DB 일별 판매 집계 */}
           <View style={styles.calendarGrid}>
-            {CALENDAR_ITEMS.map((item, idx) => {
-              const hasData = item.date && SALES_DETAILS[item.date];
-              const isFuture = item.date && (Number(item.date) >= 17 && Number(item.date) <= 23);
+            {monthCells.map((day, idx) => {
+              const dayData = day !== null ? calDayMap[day] : undefined;
+              const fDay = day !== null && day > todayDay ? futureForecasts[day] : undefined;
+              const hasData = !!dayData && dayData.revenue > 0;
+              const isFuture = !!fDay;
+              const isToday = day === todayDay;
+              const income = dayData?.revenue ?? 0;
               return (
-                <PressableScale 
-                  key={idx} 
+                <PressableScale
+                  key={idx}
                   disabled={!hasData && !isFuture}
                   onPress={() => {
-                    if (hasData) setSelectedDate(item.date);
-                    else if (isFuture) setSelectedFutureDate(item.date);
+                    if (hasData && day !== null) setSelectedDate(day);
+                    else if (isFuture && day !== null) setSelectedFutureDate(day);
                   }}
                   style={[
                     styles.calendarCell,
-                    item.date === '15' && styles.calendarTodayCell,
+                    isToday && styles.calendarTodayCell,
                     isFuture && { backgroundColor: 'rgba(140, 111, 86, 0.04)' }, // 미래 예측일은 연한 브라운 틴트
                     !hasData && !isFuture && { opacity: 0.35 } // 매출 데이터도 없고 미래 예측도 불가능하면 옅게
                   ]}
@@ -700,18 +595,18 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
                 >
                   <Text style={[
                     styles.calendarDateText,
-                    item.date === '15' && styles.calendarTodayText,
+                    isToday && styles.calendarTodayText,
                     isFuture && { color: colors.mochaBrown }
-                  ]}>{item.date}</Text>
-                  {item.income > 0 && (
+                  ]}>{day ?? ''}</Text>
+                  {income > 0 && (
                     <Text style={styles.calendarIncomeText}>
                       {/* [한글 주석: 사용자의 직관적인 '만' 단위 원복 요구 반영 (소수 첫째자리 내림 포맷)] */}
-                      {`+${(item.income / 10000) % 1 === 0 ? item.income / 10000 : (Math.floor((item.income / 10000) * 10) / 10)}만`}
+                      {`+${(income / 10000) % 1 === 0 ? income / 10000 : (Math.floor((income / 10000) * 10) / 10)}만`}
                     </Text>
                   )}
                   {isFuture && (
                     <Text style={[styles.calendarIncomeText, { color: colors.mochaBrown, fontSize: 7 }]}>
-                      {futureForecasts[item.date] ? `+${futureForecasts[item.date].cups}잔` : '예측'}
+                      {`+${fDay.cups}잔`}
                     </Text>
                   )}
                 </PressableScale>
@@ -782,19 +677,23 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
                 opacity={pulseOpacity * 0.5}
               />
 
-              {/* 2. 내일 그래프 드로잉 (부드럽고 고급스러운 모카 브라운 미세 대시선) */}
-              <Path d={forecastFillPath} fill="url(#tomorrowFill)" />
-              <Path d={forecastLinePath} stroke={colors.mochaBrown} strokeWidth={1.2} strokeOpacity={0.38} strokeDasharray="1.2,2.0" fill="none" strokeLinecap="round" />
+              {/* 2. 내일 그래프 드로잉 — 예측 API가 성공했을 때만 (폴백 가짜 예측 없음) */}
+              {forecast && (
+                <G>
+                  <Path d={forecastFillPath} fill="url(#tomorrowFill)" />
+                  <Path d={forecastLinePath} stroke={colors.mochaBrown} strokeWidth={1.2} strokeOpacity={0.38} strokeDasharray="1.2,2.0" fill="none" strokeLinecap="round" />
 
-              {/* 내일 펄스 링 & 최종 예측 피크 점 */}
-              <Circle cx={275} cy={tomorrowY[3]} r={2.0} fill={colors.mochaBrown} opacity={0.4} />
-              <Circle
-                cx={275}
-                cy={tomorrowY[3]}
-                r={pulseRadius * 0.6}
-                fill={colors.mochaBrown}
-                opacity={pulseOpacity * 0.3}
-              />
+                  {/* 내일 펄스 링 & 최종 예측 피크 점 */}
+                  <Circle cx={275} cy={tomorrowY[3]} r={2.0} fill={colors.mochaBrown} opacity={0.4} />
+                  <Circle
+                    cx={275}
+                    cy={tomorrowY[3]}
+                    r={pulseRadius * 0.6}
+                    fill={colors.mochaBrown}
+                    opacity={pulseOpacity * 0.3}
+                  />
+                </G>
+              )}
 
               {/* 3. 오늘 데이터 포인트 (터치용 보이지 않는 큰 Circle 영역 포함, Y좌표 꺾은선 일치) */}
               {CHART_X.map((x, i) => (
@@ -816,7 +715,7 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
               ))}
 
               {/* 4. 내일 데이터 포인트 — 오늘과 같은 시간대의 예측 (뒤로 부드럽게 감도는 모카 브라운 톤) */}
-              {CHART_X.map((x, i) => (
+              {forecast && CHART_X.map((x, i) => (
                 <G key={`tomorrow-pt-${i}`}>
                   <Circle cx={x} cy={tomorrowY[i]} r={i === 3 ? 2.5 : 2.2} fill={colors.mochaBrown} opacity={0.4} />
                   <Circle
@@ -926,7 +825,7 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
               </View>
             </View>
             <Text style={{ fontSize: 10, fontWeight: '600', color: colors.mochaBrown }}>
-              매출 +8.2% · 원가율 주의 — 터치하여 편지 읽기
+              이번 주 매출·비용·재고 요약 — 터치하여 편지 읽기
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={16} color={colors.mochaBrown} />
@@ -943,76 +842,74 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
         <View style={styles.modalOverlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setSelectedDate(null)} />
           <View style={styles.modalContent}>
-            {selectedDate && SALES_DETAILS[selectedDate] && (
-              <View style={{ gap: 16 }}>
-                {/* 헤더 */}
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalDateTitle}>7월 {selectedDate}일 매출 상세 리포트</Text>
-                  <Pressable onPress={() => setSelectedDate(null)} style={{ padding: 4 }}>
-                    <Ionicons name="close" size={22} color={colors.espressoBrown} />
-                  </Pressable>
-                </View>
+            {selectedDate !== null && calDayMap[selectedDate] && (() => {
+              const d = calDayMap[selectedDate];
+              const popular = d.top_menus.map((m) => `${m.name} (${m.qty}잔)`).join(' · ') || '판매 기록 없음';
+              const brewComment =
+                `이날 총 ${d.cups}잔이 팔렸어요.` +
+                (d.top_menus[0] ? ` ${d.top_menus[0].name}가 가장 인기였고,` : '') +
+                (d.peak_hour != null ? ` ${d.peak_hour}시대에 주문이 가장 몰렸습니다.` : '');
+              return (
+                <View style={{ gap: 16 }}>
+                  {/* 헤더 */}
+                  <View style={styles.modalHeader}>
+                    <Text style={styles.modalDateTitle}>{month0 + 1}월 {selectedDate}일 매출 상세 리포트</Text>
+                    <Pressable onPress={() => setSelectedDate(null)} style={{ padding: 4 }}>
+                      <Ionicons name="close" size={22} color={colors.espressoBrown} />
+                    </Pressable>
+                  </View>
 
-                {/* 매출액 */}
-                <View style={styles.modalIncomeBox}>
-                  <Text style={styles.modalIncomeLabel}>일일 총매출액</Text>
-                  <Text style={styles.modalIncomeValue}>
-                    ₩ {SALES_DETAILS[selectedDate].income.toLocaleString()}
-                  </Text>
-                </View>
+                  {/* 매출액 */}
+                  <View style={styles.modalIncomeBox}>
+                    <Text style={styles.modalIncomeLabel}>일일 총매출액</Text>
+                    <Text style={styles.modalIncomeValue}>
+                      ₩ {d.revenue.toLocaleString()}
+                    </Text>
+                  </View>
 
-                {/* 세부 분석 데이터 */}
-                <View style={styles.detailsList}>
-                  <View style={styles.detailRow}>
-                    <View style={styles.detailIconBg}>
-                      <Ionicons name="star" size={16} color={colors.pointOrange} />
+                  {/* 세부 분석 데이터 */}
+                  <View style={styles.detailsList}>
+                    <View style={styles.detailRow}>
+                      <View style={styles.detailIconBg}>
+                        <Ionicons name="star" size={16} color={colors.pointOrange} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.detailLabel}>그날따라 가장 잘 나간 메뉴</Text>
+                        <Text style={styles.detailValue}>{popular}</Text>
+                      </View>
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.detailLabel}>그날따라 가장 잘 나간 메뉴</Text>
-                      <Text style={styles.detailValue}>{SALES_DETAILS[selectedDate].popular}</Text>
+
+                    <View style={styles.detailRow}>
+                      <View style={styles.detailIconBg}>
+                        <Ionicons name="cafe" size={16} color={colors.pointOrange} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.detailLabel}>판매 잔 수 / 피크 시간</Text>
+                        <Text style={styles.detailValue}>
+                          {d.cups}잔{d.peak_hour != null ? ` · 피크 ${d.peak_hour}:00 - ${d.peak_hour + 1}:00` : ''}
+                        </Text>
+                      </View>
                     </View>
                   </View>
 
-                  <View style={styles.detailRow}>
-                    <View style={styles.detailIconBg}>
-                      <Ionicons name="people" size={16} color={colors.pointOrange} />
+                  {/* 브루의 한마디 */}
+                  <View style={styles.brewCommentBox}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                      <Text style={{ fontSize: 18 }}>☕</Text>
+                      <Text style={styles.brewCommentTitle}>브루의 한마디</Text>
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.detailLabel}>방문 객수 / 피크 시간</Text>
-                      <Text style={styles.detailValue}>
-                        {SALES_DETAILS[selectedDate].customers}명 · 피크 {SALES_DETAILS[selectedDate].peak}
-                      </Text>
-                    </View>
+                    <Text style={styles.brewCommentText}>
+                      "{brewComment}"
+                    </Text>
                   </View>
 
-                  <View style={styles.detailRow}>
-                    <View style={styles.detailIconBg}>
-                      <Ionicons name="leaf" size={16} color={colors.pointOrange} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.detailLabel}>주요 원재료 소모량</Text>
-                      <Text style={styles.detailValue}>{SALES_DETAILS[selectedDate].beans} (원두)</Text>
-                    </View>
-                  </View>
+                  {/* 닫기 버튼 */}
+                  <PressableScale onPress={() => setSelectedDate(null)} style={styles.modalCloseBtn}>
+                    <Text style={styles.modalCloseText}>확인</Text>
+                  </PressableScale>
                 </View>
-
-                {/* 브루의 한마디 */}
-                <View style={styles.brewCommentBox}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                    <Text style={{ fontSize: 18 }}>☕</Text>
-                    <Text style={styles.brewCommentTitle}>브루의 한마디</Text>
-                  </View>
-                  <Text style={styles.brewCommentText}>
-                    "{SALES_DETAILS[selectedDate].brewComment}"
-                  </Text>
-                </View>
-
-                {/* 닫기 버튼 */}
-                <PressableScale onPress={() => setSelectedDate(null)} style={styles.modalCloseBtn}>
-                  <Text style={styles.modalCloseText}>확인</Text>
-                </PressableScale>
-              </View>
-            )}
+              );
+            })()}
           </View>
         </View>
       </Modal>
@@ -1031,7 +928,7 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
               <View style={{ gap: 16 }}>
                 {/* 헤더 */}
                 <View style={styles.modalHeader}>
-                  <Text style={styles.modalDateTitle}>7월 {selectedFutureDate}일 AI 판매량 예측</Text>
+                  <Text style={styles.modalDateTitle}>{month0 + 1}월 {selectedFutureDate}일 AI 판매량 예측</Text>
                   <Pressable onPress={() => setSelectedFutureDate(null)} style={{ padding: 4 }}>
                     <Ionicons name="close" size={22} color={colors.espressoBrown} />
                   </Pressable>

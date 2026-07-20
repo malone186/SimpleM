@@ -185,3 +185,74 @@ export async function listPayroll(yearMonth: string): Promise<Payroll[]> {
     await apiFetch<CommonResponse<Payroll[]>>(`/api/v1/operation/payroll/all?year_month=${yearMonth}`),
   );
 }
+
+// ---------- 근무 스케줄 ----------
+export type Schedule = {
+  id: number;
+  employee_id: number;
+  start_time: string;
+  end_time: string;
+  date: string; // YYYY-MM-DD
+  actual_start_time?: string | null;
+  actual_end_time?: string | null;
+};
+
+/** 등록된 근무 스케줄 전체 조회 */
+export async function listSchedules(): Promise<Schedule[]> {
+  return unwrap(await apiFetch<CommonResponse<Schedule[]>>('/api/v1/operation/schedules'));
+}
+
+/** 근무 스케줄 등록 */
+export async function createSchedule(body: {
+  employee_id: number;
+  start_time: string;
+  end_time: string;
+}): Promise<Schedule> {
+  return unwrap(
+    await apiFetch<CommonResponse<Schedule>>('/api/v1/operation/schedules', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+/** 근무 스케줄 시간 수정 */
+export async function updateSchedule(
+  id: number,
+  body: { start_time?: string; end_time?: string },
+): Promise<Schedule> {
+  return unwrap(
+    await apiFetch<CommonResponse<Schedule>>(`/api/v1/operation/schedules/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+/** 근무 스케줄 삭제 */
+export async function deleteSchedule(id: number): Promise<null> {
+  return unwrap(
+    await apiFetch<CommonResponse<null>>(`/api/v1/operation/schedules/${id}`, { method: 'DELETE' }),
+  );
+}
+
+export type ScheduleRecommendation = {
+  target_date: string;
+  hourly_recommendations: { hour: number; recommended_staff: number; reason?: string }[];
+  total_recommended_hours: number;
+  estimated_payroll_cost: number;
+  summary: string;
+};
+
+/** AI 스케줄 추천 — 과거 매출 시간대 분석 기반 (백엔드 실데이터) */
+export async function recommendSchedule(body: {
+  target_date: string;
+  store_id?: string;
+}): Promise<ScheduleRecommendation> {
+  return unwrap(
+    await apiFetch<CommonResponse<ScheduleRecommendation>>('/api/v1/operation/schedules/recommend', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  );
+}

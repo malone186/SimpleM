@@ -482,6 +482,89 @@ def _today_actuals(db, store_id: str) -> dict[str, Any]:
 # 공개 인터페이스
 # ---------------------------------------------------------------------------
 
+def sales_calendar(store_id: str, year: int, month: int) -> dict[str, Any]:
+    """월간 캘린더용 일별 판매 집계 — 대시보드 월간 뷰가 쓴다.
+
+    일별 매출·잔 수·베스트 메뉴·피크 시간대와 월 합계를 실제 Sale 기록으로 집계한다.
+    전월 비교는 '같은 경과일까지'만 합산한다 — 진행 중인 달을 전월 전체와 비교하면
+    항상 감소로 보이기 때문 (report_service의 비교 원칙과 동일).
+    """
+    from datetime import datetime
+    from app.models.inventory import Menu, Sale
+    from app.services.ai.document_service import _session
+
+    first = date(year, month, 1)
+    next_first = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    prev_first = date(year - 1, 12, 1) if month == 1 else date(year, month - 1, 1)
+
+    with _session() as db:
+        rows = (
+            db.query(Sale.sold_at, Sale.quantity, Sale.total_price, Menu.name)
+            .outerjoin(Menu, Sale.menu_id == Menu.id)
+            .filter(
+                Sale.store_id == store_id,
+                Sale.sold_at >= prev_first.isoformat(),
+                Sale.sold_at < next_first.isoformat(),
+            )
+            .all()
+        )
+
+    today = date.today()
+    prev_cutoff_day = today.day if (year, month) == (today.year, today.month) else 31
+
+    days: dict[int, dict[str, Any]] = {}
+    month_cups = month_rev = 0.0
+    prev_cups = prev_rev = 0.0
+    for sold_at, qty, price, menu_name in rows:
+        try:
+            dt = sold_at if isinstance(sold_at, datetime) else datetime.fromisoformat(str(sold_at))
+        except ValueError:
+            continue
+        d = dt.date()
+        if d >= first:
+            day = days.setdefault(d.day, {"date": d.isoformat(), "cups": 0.0, "revenue": 0.0,
+                                          "menus": {}, "hours": {}})
+            day["cups"] += qty
+            day["revenue"] += price
+            if menu_name:
+                day["menus"][menu_name] = day["menus"].get(menu_name, 0) + qty
+            day["hours"][dt.hour] = day["hours"].get(dt.hour, 0) + qty
+            month_cups += qty
+            month_rev += price
+        elif d.day <= prev_cutoff_day:
+            prev_cups += qty
+            prev_rev += price
+
+    out_days = []
+    for day_num in sorted(days):
+        d = days[day_num]
+        top = sorted(d["menus"].items(), key=lambda kv: -kv[1])[:2]
+        peak_hour = max(d["hours"], key=d["hours"].get) if d["hours"] else None
+        out_days.append({
+            "day": day_num,
+            "date": d["date"],
+            "cups": round(d["cups"]),
+            "revenue": round(d["revenue"]),
+            "top_menus": [{"name": name, "qty": round(q)} for name, q in top],
+            "peak_hour": peak_hour,
+        })
+
+    # 월 대표 피크 시간대 = 일별 피크 시간의 최빈값
+    peaks = [d["peak_hour"] for d in out_days if d["peak_hour"] is not None]
+    month_peak = max(set(peaks), key=peaks.count) if peaks else None
+
+    return {
+        "year": year,
+        "month": month,
+        "month_total": {"cups": round(month_cups), "revenue": round(month_rev)},
+        "prev_month_total": {"cups": round(prev_cups), "revenue": round(prev_rev)},
+        "change_pct": round((month_rev - prev_rev) / prev_rev * 100, 1) if prev_rev else None,
+        "avg_price": round(month_rev / month_cups) if month_cups else None,
+        "peak_hour": month_peak,
+        "days": out_days,
+    }
+
+
 def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = None,
              days: int = 7, events: Optional[list[dict]] = None) -> dict[str, Any]:
     """익일·금주 판매량 예측 + 발주 추천.
