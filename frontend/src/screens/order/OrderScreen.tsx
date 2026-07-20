@@ -31,7 +31,7 @@ const DEFICIENT_ITEMS = [
     status: '잔여 1봉 (안전재고 5봉)', 
     query: '가델로 에스프레소 블렌드', 
     is_bean: true, 
-    product_url: 'https://smartstore.naver.com/gadellocoffee/products/5623062330' 
+    product_url: 'https://mungmung.site/?q=%EA%B0%80%EB%8D%B8%EB%A1%9C%20%EC%97%90%EC%8A%A4%ED%94%84%EB%A0%88%EC%86%8C%20%EB%B8%94%EB%A0%8C%EB%93%9C' 
   },
   { id: 'cup', name: '종이컵 14oz', status: '잔여 150개 (안전재고 500개)', query: '카페 종이컵 14oz', is_bean: false },
   { id: 'holder', name: '컵 홀더 (크라프트)', status: '잔여 80개 (안전재고 300개)', query: '카페 컵홀더 크라프트', is_bean: false },
@@ -88,17 +88,10 @@ export default function OrderScreen() {
     loadBeans();
   }, []);
 
-  // [한글 주석: m.m.m. 오타 및 로그인 창 팝업 없이 100% 정상 접속되는 깨끗한 주소 정제 함수]
+  // [한글 주석: 만료된 네이버 스마트스토어 대신 mungmung.site 의 검색 쿼리를 결합해 상세 페이지 링크를 구성합니다]
   const getNoLoginProductUrl = (bean: RoasteryBean): string => {
-    if (!bean.product_url) {
-      const keyword = bean.roastery?.name ? `${bean.roastery.name} ${bean.name}` : bean.name;
-      return `https://search.shopping.naver.com/search/all?query=${encodeURIComponent(keyword)}`;
-    }
-    // [한글 주석: 1. 중복으로 붙은 m.m.m. 도메인을 표준 도메인으로 복원]
-    let url = bean.product_url.replace(/https?:\/\/(m\.)+/g, 'https://');
-    // [한글 주석: 2. 로그인 팝업을 유도하는 /main/ 세션 경로 제거]
-    url = url.replace('/main/products/', '/products/');
-    return url;
+    const keyword = bean.name;
+    return `https://mungmung.site/?q=${encodeURIComponent(keyword)}`;
   };
 
   // 로그인 창 없이 원두 상품 구매 상세 페이지로 직행
@@ -178,11 +171,9 @@ export default function OrderScreen() {
                 key={item.id}
                 style={styles.defCard}
                 onPress={() => {
-                  // [한글 주석: 원두 상품은 데이터베이스(DB)에 지정된 오리지널 로스터리 사이트 링크로 바로 연결하고, 그 외 일반 부자재는 네이버 쇼핑에서 검색합니다]
+                  // [한글 주석: 원두 상품은 데이터베이스(DB)에 지정된 오리지널 mungmung.site 검색 링크로 연결하고, 그 외 일반 부자재는 네이버 쇼핑에서 검색합니다]
                   if (item.is_bean && item.product_url) {
-                    let url = item.product_url.replace(/https?:\/\/(m\.)+/g, 'https://');
-                    url = url.replace('/main/products/', '/products/');
-                    Linking.openURL(url);
+                    Linking.openURL(item.product_url);
                   } else {
                     Linking.openURL(`https://search.shopping.naver.com/search/all?query=${encodeURIComponent(item.query)}`);
                   }
