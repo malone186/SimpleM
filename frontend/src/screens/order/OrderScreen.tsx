@@ -22,12 +22,20 @@ import { listRoasteryBeans, RoasteryBean } from '../../lib/api/inventory';
 import BeanDetailModal from '../../components/order/BeanDetailModal';
 import BeanNotepad from '../../components/order/BeanNotepad';
 
-// [한글 주석: 부족한 부자재 재고 발주 추천 목록 데이터 정의]
+// [한글 주석: 부족한 부자재 및 원두 재고 발주 추천 목록 데이터 정의]
 const DEFICIENT_ITEMS = [
-  { id: 'milk', name: '서울우유 1L', status: '잔여 3팩 (안전재고 8팩)', query: '서울우유 1L' },
-  { id: 'cup', name: '종이컵 14oz', status: '잔여 150개 (안전재고 500개)', query: '카페 종이컵 14oz' },
-  { id: 'holder', name: '컵 홀더 (크라프트)', status: '잔여 80개 (안전재고 300개)', query: '카페 컵홀더 크라프트' },
-  { id: 'straw', name: '종이 빨대', status: '소진 임박 (안전재고 미달)', query: '카페 종이 빨대' },
+  { id: 'milk', name: '서울우유 1L', status: '잔여 3팩 (안전재고 8팩)', query: '서울우유 1L', is_bean: false },
+  { 
+    id: 'bean_gadello', 
+    name: '가델로 에스프레소 블렌드 원두 500g', 
+    status: '잔여 1봉 (안전재고 5봉)', 
+    query: '가델로 에스프레소 블렌드', 
+    is_bean: true, 
+    product_url: 'https://smartstore.naver.com/gadellocoffee/products/5623062330' 
+  },
+  { id: 'cup', name: '종이컵 14oz', status: '잔여 150개 (안전재고 500개)', query: '카페 종이컵 14oz', is_bean: false },
+  { id: 'holder', name: '컵 홀더 (크라프트)', status: '잔여 80개 (안전재고 300개)', query: '카페 컵홀더 크라프트', is_bean: false },
+  { id: 'straw', name: '종이 빨대', status: '소진 임박 (안전재고 미달)', query: '카페 종이 빨대', is_bean: false },
 ];
 
 export default function OrderScreen() {
@@ -170,7 +178,14 @@ export default function OrderScreen() {
                 key={item.id}
                 style={styles.defCard}
                 onPress={() => {
-                  Linking.openURL(`https://search.shopping.naver.com/search/all?query=${encodeURIComponent(item.query)}`);
+                  // [한글 주석: 원두 상품은 데이터베이스(DB)에 지정된 오리지널 로스터리 사이트 링크로 바로 연결하고, 그 외 일반 부자재는 네이버 쇼핑에서 검색합니다]
+                  if (item.is_bean && item.product_url) {
+                    let url = item.product_url.replace(/https?:\/\/(m\.)+/g, 'https://');
+                    url = url.replace('/main/products/', '/products/');
+                    Linking.openURL(url);
+                  } else {
+                    Linking.openURL(`https://search.shopping.naver.com/search/all?query=${encodeURIComponent(item.query)}`);
+                  }
                 }}
                 activeOpacity={0.8}
               >
