@@ -565,8 +565,6 @@ function ScheduleTab() {
       setLoading(false);
     }
   }, []);
-    }
-  }, []);
 
   useEffect(() => {
     load();
