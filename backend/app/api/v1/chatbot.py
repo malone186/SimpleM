@@ -6,6 +6,7 @@
 챗봇 대화 엔드포인트는 main_agent 구현 시 추가 예정.
 """
 
+import logging
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -21,6 +22,9 @@ from app.services.ai.agents import main_agent
 from app.core.auth import get_current_user
 from app.core.database import get_db
 from app.models.user import User
+
+# [한글 주석] 상세 장애 진단을 위한 로거 선언
+logger = logging.getLogger(__name__)
 
 from app.schemas.ai import (
     ComplianceItemCreate,
@@ -443,4 +447,6 @@ async def chat_message(
         )
         return ChatResponse(response=result["text"], documents=result["documents"])
     except Exception as e:
+        # [한글 주석] 장애 추적을 위해 로컬 콘솔에 상세 예외 Traceback을 기록합니다.
+        logger.exception("챗봇 서비스 실행 중 장애 발생")
         raise HTTPException(500, f"챗봇 서비스 실행 중 장애 발생: {str(e)}")

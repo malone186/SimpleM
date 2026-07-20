@@ -330,14 +330,50 @@ class HourlyRecommendation(BaseModel):
     predicted_profit: int = Field(..., description="해당 시간 예상 이익액 (원)", examples=[100000])
     recommended_employee_count: int = Field(..., description="추천 근무 인원수 (명)", examples=[3])
     busy_level: str = Field(..., description="혼잡도 수준 (PEAK | HIGH | NORMAL | LOW)", examples=["PEAK"])
+    assigned_employees: List[Dict[str, Any]] = Field(default_factory=list, description="해당 시간대 추천 배정 직원 목록 (id, name, level 등)")
+    unassigned_count: int = Field(0, description="인원 부족으로 배정되지 못한 인원수")
 
 class ScheduleRecommendationResponse(BaseModel):
-    """[한글 주석] 알바 스케줄 추천 응답 스키마 (특정 대상일 기준)"""
+    """[한글 주석] 알바 추천 스케줄 응답 스키마 (특정 대상일 기준)"""
     target_date: str = Field(..., description="추천 대상 날짜", examples=["2026-07-16"])
     hourly_recommendations: List[HourlyRecommendation] = Field(..., description="시간대별 분석 및 추천 내역")
     total_recommended_hours: float = Field(..., description="추천 스케줄에 따른 총 합산 근무 시간 (시간)", examples=[18.5])
     estimated_payroll_cost: int = Field(..., description="추천 스케줄 실행 시 예상 인건비 지출액 (원)", examples=[185000])
+    warnings: List[str] = Field(default_factory=list, description="기피 시간 충돌 및 인원 부족 경고 메시지 목록")
     summary: str = Field(..., description="AI 요약 가이드라인 및 조언 문구", examples=["점심 피크타임인 12시~14시에 혼잡도가 높으므로 근무자를 집중 배치하세요."])
+
+
+# ----------------------------------------------------
+# 챗봇 / ERP 신규: 직원별 기피/불가 시간 Pydantic 스키마
+# ----------------------------------------------------
+
+class EmployeeUnavailabilityCreate(BaseModel):
+    """직원 기피/불가 시간 등록 요청 스키마"""
+    employee_id: int = Field(..., description="직원 고유 ID", examples=[1])
+    unavailability_type: str = Field("weekly_recurring", description="기피 유형 (weekly_recurring 요일 반복 | specific_date 특정 날짜 지정)", examples=["weekly_recurring"])
+    day_of_week: Optional[int] = Field(None, ge=0, le=6, description="요일 번호 (0=월, 1=화, ..., 6=일)", examples=[0])
+    specific_date: Optional[str] = Field(None, description="특정 지정 날짜 (YYYY-MM-DD)", examples=["2026-07-25"])
+    start_hour: int = Field(0, ge=0, le=23, description="기피 시작 시각 (0~23)", examples=[9])
+    end_hour: int = Field(24, ge=1, le=24, description="기피 종료 시각 (1~24)", examples=[12])
+    restriction_level: str = Field("hard", description="제약 수준 (hard 절대 불가 | soft 가급적 회피)", examples=["hard"])
+    reason: Optional[str] = Field(None, description="기피/불가 사유", examples=["대학 수업"])
+
+class EmployeeUnavailabilityResponse(BaseModel):
+    """직원 기피/불가 시간 반환 스키마"""
+    id: int = Field(..., description="기피 설정 고유 번호", examples=[1])
+    employee_id: int = Field(..., description="직원 고유 ID", examples=[1])
+    employee_name: Optional[str] = Field(None, description="직원 이름", examples=["홍길동"])
+    unavailability_type: str = Field(..., description="기피 유형")
+    day_of_week: Optional[int] = Field(None, description="요일 번호")
+    specific_date: Optional[str] = Field(None, description="특정 지정 날짜")
+    start_hour: int = Field(..., description="기피 시작 시각")
+    end_hour: int = Field(..., description="기피 종료 시각")
+    restriction_level: str = Field(..., description="제약 수준 (hard | soft)")
+    reason: Optional[str] = Field(None, description="기피 사유")
+    created_at: datetime = Field(..., description="등록 일시")
+
+    class Config:
+        from_attributes = True
 
 
 
