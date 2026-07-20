@@ -91,11 +91,13 @@ def seed_data():
                 except ValueError:
                     price_pg = 0.0
 
-            # [한글 주석: 네이버의 IP 어뷰징 차단(접속 제한)을 100% 우회하기 위해, 쇼핑 검색결과 창 주소로 안전하게 가공합니다.
-            # 또한, 원두 이름이 길어 인코딩 시 URL이 255글자를 초과하여 데이터베이스 Truncation 에러가 발생하는 것을 방지하도록 앞 22글자만 잘라내어 인코딩합니다]
-            import urllib.parse
-            cleaned_query_name = b['name'][:22].strip()
-            product_url = f"https://search.shopping.naver.com/search/all?query={urllib.parse.quote(cleaned_query_name)}"
+            # [한글 주석: 스마트스토어 구매 링크를 모바일 버전(m.smartstore)으로 자동 치환합니다.
+            # 모바일 도메인을 사용하면 로그인 창이 뜨지 않고 비로그인 상태로도 상세 상품 정보에 다이렉트 진입할 수 있으며, 자사몰 링크도 훼손 없이 보존됩니다]
+            orig_url = b.get("productUrl", "")
+            if "smartstore.naver.com" in orig_url:
+                product_url = orig_url.replace("smartstore.naver.com", "m.smartstore.naver.com")
+            else:
+                product_url = orig_url
 
             bean_mappings.append({
                 "id": b["id"],
