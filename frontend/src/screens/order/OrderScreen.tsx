@@ -21,8 +21,11 @@ import { colors, shadows, spacing, typography } from '../../theme';
 import { listRoasteryBeans, RoasteryBean } from '../../lib/api/inventory';
 import BeanDetailModal from '../../components/order/BeanDetailModal';
 import BeanNotepad from '../../components/order/BeanNotepad';
+<<<<<<< Updated upstream
 
 
+=======
+>>>>>>> Stashed changes
 
 export default function OrderScreen() {
   // [상태] 원두 목록, 로딩 중 여부, 오류 여부, 상세 모달 대상 원두
@@ -113,7 +116,11 @@ export default function OrderScreen() {
   if (error) {
     return (
       <Screen>
+<<<<<<< Updated upstream
         <ScreenTitle title="발주" />
+=======
+        <ScreenTitle title="원두 탐색" />
+>>>>>>> Stashed changes
         <View style={styles.centerBox}>
           <Ionicons name="alert-circle-outline" size={48} color={colors.mochaBrown} />
           <Text style={styles.errorTitle}>데이터를 불러오지 못했어요</Text>
@@ -145,7 +152,10 @@ export default function OrderScreen() {
         <View style={styles.sectionLine} />
       </View>
 
+<<<<<<< Updated upstream
 
+=======
+>>>>>>> Stashed changes
       {/* 원두 카드 목록 */}
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContainer}>
         {beans.map((bean) => {
