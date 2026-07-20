@@ -65,12 +65,13 @@ export default function QuickOrderModal({
                 </View>
               </View>
             )}
-            <PressableScale style={styles.confirmBtn} onPress={() => todo && onConfirm(todo)}>
-              <Text style={styles.confirmText}>즉시 발주하기</Text>
+            {/* [한글 주석: 앱 내 직접 발주 미지원 고지 및 닫기 버튼 배치] */}
+            <Text style={styles.infoText}>
+              * 앱 내 결제 및 직접 발주는 지원하지 않습니다. 외부 공급처를 통해 별도로 주문해주시기 바랍니다.
+            </Text>
+            <PressableScale style={styles.confirmBtn} onPress={onClose}>
+              <Text style={styles.confirmText}>닫기</Text>
             </PressableScale>
-            <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
-              <Text style={styles.cancelText}>나중에</Text>
-            </TouchableOpacity>
           </View>
         </Animated.View>
       </View>
@@ -126,6 +127,14 @@ const styles = StyleSheet.create({
   },
   qtyLabel: { ...typography.L5, color: colors.mochaBrown },
   qtyValue: { ...typography.L3, color: colors.espressoBrown },
+  infoText: {
+    ...typography.L5,
+    color: colors.mochaBrown,
+    fontSize: 11,
+    lineHeight: 15,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
   confirmBtn: {
     backgroundColor: colors.pointOrange,
     borderRadius: 16,
