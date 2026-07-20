@@ -98,10 +98,12 @@ class PayrollCalculateResponse(BaseModel):
 
 class SettlementCalculateRequest(BaseModel):
     """정산 예상 계산 요청 양식 (MVP 계산용)"""
-    revenue: int = Field(..., ge=0, description="매출액 (원 단위, 0 이상)", examples=[1000000])
-    cost: int = Field(..., ge=0, description="원가 및 지출 비용 (원 단위, 0 이상)", examples=[300000])
-    labor_cost: int = Field(..., ge=0, description="인건비 (원 단위, 0 이상)", examples=[200000])
-    other_expense: int = Field(0, ge=0, description="기타 비용 (원 단위, 0 이상)", examples=[50000])
+    revenue: Optional[int] = Field(None, ge=0, description="매출액 (원 단위, 0 이상)", examples=[1000000])
+    cost: Optional[int] = Field(None, ge=0, description="원가 및 지출 비용 (원 단위, 0 이상)", examples=[300000])
+    labor_cost: Optional[int] = Field(None, ge=0, description="인건비 (원 단위, 0 이상)", examples=[200000])
+    other_expense: Optional[int] = Field(0, ge=0, description="기타 비용 (원 단위, 0 이상)", examples=[50000])
+    period_start: Optional[str] = Field(None, description="집계 시작일 (YYYY-MM-DD)", examples=["2026-07-01"])
+    period_end: Optional[str] = Field(None, description="집계 종료일 (YYYY-MM-DD)", examples=["2026-07-31"])
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -109,7 +111,9 @@ class SettlementCalculateRequest(BaseModel):
                 "revenue": 1000000,
                 "cost": 300000,
                 "labor_cost": 200000,
-                "other_expense": 50000
+                "other_expense": 50000,
+                "period_start": "2026-07-01",
+                "period_end": "2026-07-31"
             }
         }
     )

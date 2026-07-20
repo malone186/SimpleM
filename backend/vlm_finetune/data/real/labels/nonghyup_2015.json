@@ -1,0 +1,21 @@
+{
+  "image": "nonghyup_2015.jpg",
+  "note": "농협 하나로마트 영수증 (2015-11-03, 경기 의정부). 사업자번호·전화번호는 마스킹(***)되어 null. 부가세면세물품 7,180 + 과세물품 1,255 혼합 판매라 subtotal은 null, tax=125만 기재.",
+  "label": {
+    "doc_type": "receipt",
+    "vendor": {"name": "농협", "biz_no": null, "phone": null},
+    "issued_date": "2015-11-03",
+    "items": [
+      {"name": "P굿모닝우유 900ML", "spec": null, "quantity": 1, "unit": null, "unit_price": 1350, "amount": 1350},
+      {"name": "P양파", "spec": null, "quantity": 1, "unit": null, "unit_price": 3300, "amount": 3300},
+      {"name": "P무", "spec": null, "quantity": 1, "unit": null, "unit_price": 500, "amount": 500},
+      {"name": "P깻잎", "spec": null, "quantity": 1, "unit": null, "unit_price": 750, "amount": 750},
+      {"name": "P하선정 바로먹기좋은장아찌 150g", "spec": null, "quantity": 1, "unit": null, "unit_price": 1380, "amount": 1380},
+      {"name": "P부로커리", "spec": null, "quantity": 1, "unit": null, "unit_price": 1280, "amount": 1280}
+    ],
+    "discount": null,
+    "subtotal": null,
+    "tax": 125,
+    "total": 8560
+  }
+}

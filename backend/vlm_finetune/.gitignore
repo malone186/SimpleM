@@ -1,0 +1,3 @@
+# 생성물은 커밋하지 않는다 — synth_gen.py로 재생성 가능, 어댑터는 학습 산출물
+data/synth/
+output/

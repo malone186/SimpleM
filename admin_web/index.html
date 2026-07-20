@@ -97,17 +97,17 @@
               <span class="metric-title">전체 회원</span>
               <div class="icon-circle brown"><i data-lucide="users"></i></div>
             </div>
-            <div class="metric-value">9<span class="unit">명</span></div>
-            <div class="metric-sub green-text">↑ 12.5% 이번달 신규</div>
+            <div class="metric-value" id="stats-total-stores">0<span class="unit">명</span></div>
+            <div class="metric-sub green-text">실시간 연동 중</div>
           </div>
 
           <div class="metric-card">
             <div class="metric-header">
-              <span class="metric-title">프리미엄 회원</span>
+              <span class="metric-title">프리미엄 회원 비율</span>
               <div class="icon-circle green"><i data-lucide="crown"></i></div>
             </div>
-            <div class="metric-value">4<span class="unit">명</span></div>
-            <div class="metric-sub green-text">전체 회원의 44% 이용 중</div>
+            <div class="metric-value" id="stats-premium-ratio">0%<span class="unit"></span></div>
+            <div class="metric-sub green-text" id="stats-premium-sub">전체 회원 대비 비율</div>
           </div>
 
           <div class="metric-card">
@@ -115,17 +115,17 @@
               <span class="metric-title">누적 등록 재료</span>
               <div class="icon-circle orange"><i data-lucide="package"></i></div>
             </div>
-            <div class="metric-value">12<span class="unit">품목</span></div>
-            <div class="metric-sub">재고 데이터 정상 동기화 중</div>
+            <div class="metric-value" id="stats-total-ingredients">0<span class="unit">품목</span></div>
+            <div class="metric-sub">재고 데이터 동기화 완료</div>
           </div>
 
           <div class="metric-card">
             <div class="metric-header">
-              <span class="metric-title">OCR 영수증 처리</span>
+              <span class="metric-title">활성 접속 점포</span>
               <div class="icon-circle blue"><i data-lucide="scan-line"></i></div>
             </div>
-            <div class="metric-value">0<span class="unit">건</span></div>
-            <div class="metric-sub">자동 문서 인식 대기 중</div>
+            <div class="metric-value" id="stats-ocr-count">0<span class="unit">개</span></div>
+            <div class="metric-sub">동시 모니터링 세션 수</div>
           </div>
         </div>
 
@@ -450,6 +450,11 @@
             <div class="info-item full-width-action" style="grid-column: span 2; margin-top: 8px;">
               <button class="action-btn approve-btn" id="btn-approve-user">
                 <i data-lucide="check-circle-2"></i> 회원 가입 즉시 승인 및 계정 활성화
+              </button>
+            </div>
+            <div class="info-item full-width-action" style="grid-column: span 2; margin-top: 4px;">
+              <button class="action-btn cancel" id="btn-delete-user" style="background-color: #C62828; color: #FFFFFF; font-weight: bold; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; border: none; border-radius: 8px; padding: 10px;">
+                <i data-lucide="user-x"></i> 이 사장님 계정 강제 차단 및 영구 삭제
               </button>
             </div>
           </div>

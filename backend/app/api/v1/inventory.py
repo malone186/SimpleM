@@ -205,3 +205,18 @@ def update_order_status_api(
     """
     from app.services.inventory_service import update_order_status
     return update_order_status(db=db, store_id=current_user.email, order_id=order_id, status_update=payload.status)
+
+
+@router.get("/menus/{menu_id}/cost-reduction-recommendations")
+def get_cost_reduction_recommendations_api(
+    menu_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    [한글 주석: AI 원가 절감 대체재 추천 API 창구]
+    선택한 메뉴 레시피 재료들의 매입 단가를 분석하고, 원두 마켓 도매 제품 및 인터넷 실시간 가격 비교(다나와)와 대조해
+    더 싼 대체 재료와 예상 마진 개선율 분석표를 반환합니다.
+    """
+    from app.services.inventory_service import get_menu_cost_reduction_recommendations
+    return get_menu_cost_reduction_recommendations(db=db, store_id=current_user.email, menu_id=menu_id)
