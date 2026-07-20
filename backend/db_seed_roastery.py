@@ -91,13 +91,20 @@ def seed_data():
                 except ValueError:
                     price_pg = 0.0
 
+            # [한글 주석: 로그인하지 않은 유저도 상품 사양을 즉시 조회할 수 있도록 naverProductId 기반의 쇼핑 카탈로그 주소로 링크를 교체 가공합니다]
+            naver_id = b.get("naverProductId")
+            if naver_id:
+                product_url = f"https://search.shopping.naver.com/catalog/{naver_id}"
+            else:
+                product_url = b.get("productUrl")
+
             bean_mappings.append({
                 "id": b["id"],
                 "name": b["name"],
                 "price": price_val,
                 "roastery_id": roastery_id,
                 "thumbnail_url": b.get("thumbnailUrl"),
-                "product_url": b.get("productUrl"),
+                "product_url": product_url,
                 "date_added": b.get("dateAdded"),
                 "best": bool(b.get("best")),
                 "new": bool(b.get("new")),

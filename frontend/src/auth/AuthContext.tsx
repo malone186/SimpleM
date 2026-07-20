@@ -69,8 +69,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // [한글 주석] Firebase Auth를 통해 사용자를 인증하고 ID Token을 획득하여 백엔드와 동기화합니다.
+  // 가짜 Firebase 키 상황일 경우 백엔드 자체 로컬 인증 API로 즉시 우회합니다.
   const login = useCallback(
     async (email: string, password: string, autoLogin: boolean) => {
+      const FIREBASE_API_KEY = process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '';
+      const isMockFirebase = FIREBASE_API_KEY.startsWith('mock-') || !FIREBASE_API_KEY;
+
+      if (isMockFirebase) {
+        try {
+          // [한글 주석: 가짜 키 상태이므로 백엔드의 로컬 로그인 API 창구를 노크하여 전용 토큰을 얻어옵니다]
+          const res = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+          });
+
+          if (!res.ok) {
+            const errData = await res.json();
+            throw new Error(errData.detail || '이메일 또는 비밀번호가 일치하지 않습니다.');
+          }
+
+          const data = await res.json();
+          const u = {
+            email: data.email,
+            name: data.name,
+            token: data.access_token,
+          };
+
+          // 로컬 환경 상태값 세팅 및 세션 영구 보관
+          setUser({ email: u.email, name: u.name });
+          setToken(u.token);
+          await persistSession(u, autoLogin);
+          return;
+        } catch (error: any) {
+          throw new Error(error.message || '로컬 로그인 중 오류가 발생했습니다.');
+        }
+      }
+
       try {
         // 1. Firebase Auth를 통한 이메일/비밀번호 로그인 처리
         const userCredential = await signInWithEmailAndPassword(
@@ -128,8 +163,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   // [한글 주석] Firebase Auth로 계정을 최초 생성하고 닉네임을 설정합니다.
+  // 가짜 Firebase 키 상황일 경우 백엔드 자체 로컬 회원가입 API로 즉시 우회합니다.
   const signup = useCallback(
     async (name: string, email: string, password: string, autoLogin: boolean) => {
+      const FIREBASE_API_KEY = process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '';
+      const isMockFirebase = FIREBASE_API_KEY.startsWith('mock-') || !FIREBASE_API_KEY;
+
+      if (isMockFirebase) {
+        try {
+          // [한글 주석: 가짜 키 상태이므로 백엔드의 로컬 회원가입 API를 호출하여 즉시 DB 등록을 요청합니다]
+          const res = await fetch(`${API_BASE_URL}/api/v1/auth/signup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: email.trim().toLowerCase(),
+              password,
+              name: name.trim(),
+              store_name: `${name.trim()} 매장`,
+            }),
+          });
+
+          if (!res.ok) {
+            const errData = await res.json();
+            throw new Error(errData.detail || '회원가입 요청에 실패했습니다.');
+          }
+
+          // 가입에 성공했다면 즉시 로컬 연계 로그인 기능 호출
+          await login(email, password, autoLogin);
+          return;
+        } catch (error: any) {
+          throw new Error(error.message || '로컬 회원가입 중 오류가 발생했습니다.');
+        }
+      }
+
       try {
         // 1. Firebase Auth 상에 회원 계정 생성
         const userCredential = await createUserWithEmailAndPassword(
