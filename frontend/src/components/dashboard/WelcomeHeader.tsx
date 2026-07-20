@@ -154,22 +154,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  // [한글 주석: 뱃지 없는 컴팩트 둥근 아이보리 말풍선 카드]
+  // [한글 주석: 뱃지 없는 컴팩트 둥근 아이보리 말풍선 카드 - 더 얇고 은은한 그림자 디자인으로 세련되게 개편]
   bubble: {
     flex: 1,
-    backgroundColor: '#FFFCFA',
-    borderRadius: 18,
-    borderWidth: 1.2,
-    borderColor: '#F2E6DD',
-    paddingHorizontal: 15,
-    paddingVertical: 11,
+    backgroundColor: colors.white,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(140, 111, 86, 0.15)', // 테마의 mutedSand 계열 적용
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     marginRight: 12,
     position: 'relative',
-    shadowColor: '#3A2012',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 4,
+    shadowColor: '#4E3629',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 3,
   },
   // [한글 주석: 인사말 라인 (1줄 피트)]
   greetingLine: {
@@ -178,11 +178,11 @@ const styles = StyleSheet.create({
     color: '#2C1D17',
     marginBottom: 3,
   },
-  // [한글 주석: 사장님 성함 하이라이트]
+  // [한글 주석: 사장님 성함 하이라이트 - 붉은 주황색에서 차분하고 감성적인 로컬 모카 브라운 톤으로 변경]
   nameHighlight: {
     fontSize: 15.5,
     fontWeight: '900',
-    color: colors.espressoBrown, // 브랜드 에스프레소 브라운 (기존 빨강 #D9531E에서 변경)
+    color: colors.mochaBrown, // 로컬 모카 브라운 톤 (기존 빨강 #D9531E에서 변경)
     letterSpacing: -0.4,
   },
   // [한글 주석: 명언 라인 (어색한 단어 꺾임 방지 10.5px 및 1줄 피트)]
@@ -195,7 +195,23 @@ const styles = StyleSheet.create({
   },
   bubbleTail: {
     position: 'absolute',
-    right: -9,
+    right: -8,
+    top: '50%',
+    marginTop: -5,
+    width: 0,
+    height: 0,
+    backgroundColor: 'transparent',
+    borderStyle: 'solid',
+    borderTopWidth: 5,
+    borderBottomWidth: 5,
+    borderLeftWidth: 8,
+    borderTopColor: 'transparent',
+    borderBottomColor: 'transparent',
+    borderLeftColor: colors.white,
+  },
+  bubbleTailBorder: {
+    position: 'absolute',
+    right: -10,
     top: '50%',
     marginTop: -6,
     width: 0,
@@ -207,23 +223,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 9,
     borderTopColor: 'transparent',
     borderBottomColor: 'transparent',
-    borderLeftColor: '#FFFCFA',
-  },
-  bubbleTailBorder: {
-    position: 'absolute',
-    right: -11,
-    top: '50%',
-    marginTop: -7,
-    width: 0,
-    height: 0,
-    backgroundColor: 'transparent',
-    borderStyle: 'solid',
-    borderTopWidth: 7,
-    borderBottomWidth: 7,
-    borderLeftWidth: 10,
-    borderTopColor: 'transparent',
-    borderBottomColor: 'transparent',
-    borderLeftColor: '#F2E6DD',
+    borderLeftColor: 'rgba(140, 111, 86, 0.15)',
   },
   mascot: { marginRight: 2 },
 });

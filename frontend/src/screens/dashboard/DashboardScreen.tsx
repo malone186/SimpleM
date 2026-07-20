@@ -231,7 +231,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 36,
     paddingHorizontal: spacing.globalPadding,
     paddingTop: spacing.verticalGap, // 원래 패딩값으로 복원
-    paddingBottom: 110, // [한글 주석: 하단 탭 바 가림 방지 여백 확보] 원래 48에서 110으로 확장하여 탭 바 위로 부드럽게 스크롤되도록 조율
+    paddingBottom: 40, // [한글 주석: 하단 탭 바 가림 방지 여백 조정] 과도한 여백(110)을 줄여서 깔끔하게 배치되도록 조율
     gap: spacing.verticalGap,
   },
 });

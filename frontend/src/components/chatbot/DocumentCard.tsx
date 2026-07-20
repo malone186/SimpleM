@@ -86,11 +86,18 @@ function ObjectSection({ name, obj }: { name: string; obj: Record<string, unknow
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{label(name)}</Text>
-      {Object.entries(obj).map(([k, v]) => (
-        <Row key={k} k={k} v={fmt(k, v)} />
-      ))}
+      {/* 중첩 배열·객체(일별 매출·베스트 메뉴·카테고리별 지출 등)도 재귀 렌더링 —
+          그냥 Row로 찍으면 배열/객체가 "[object Object]"로 보인다 */}
+      {Object.entries(obj).map(([k, v]) => renderField(k, v))}
     </View>
   );
+}
+
+/** content의 한 필드를 타입에 맞는 컴포넌트로 — 배열→품목 블록, 객체→섹션, 스칼라→행 */
+function renderField(key: string, value: unknown) {
+  if (Array.isArray(value)) return <ArraySection key={key} name={key} list={value} />;
+  if (isPlainObject(value)) return <ObjectSection key={key} name={key} obj={value} />;
+  return <Row key={key} k={key} v={fmt(key, value)} />;
 }
 
 export default function DocumentCard({ doc }: { doc: ChatDocument }) {
@@ -115,12 +122,9 @@ export default function DocumentCard({ doc }: { doc: ChatDocument }) {
       </View>
 
       <View style={styles.body}>
-        {entries.map(([key, value]) => {
-          if (key === 'note') return null; // 하단 안내문으로 별도 표시
-          if (Array.isArray(value)) return <ArraySection key={key} name={key} list={value} />;
-          if (isPlainObject(value)) return <ObjectSection key={key} name={key} obj={value} />;
-          return <Row key={key} k={key} v={fmt(key, value)} />;
-        })}
+        {entries.map(([key, value]) =>
+          key === 'note' ? null : renderField(key, value), // note는 하단 안내문으로 별도 표시
+        )}
       </View>
 
       {note && (

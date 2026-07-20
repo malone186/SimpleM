@@ -93,7 +93,9 @@ def main():
     ap.add_argument("--base", action="store_true", help="어댑터 없이 베이스 모델 평가")
     ap.add_argument("--adapter", type=str, default=str(HERE / "output" / "adapter"))
     ap.add_argument("--limit", type=int, default=None)
-    ap.add_argument("--max-side", type=int, default=1024)
+    ap.add_argument("--max-side", type=int, default=768)
+    ap.add_argument("--4bit", dest="use_4bit", action="store_true",
+                    help="베이스를 4bit로 로드 (8GB VRAM). 어댑터도 이 위에 올린다")
     args = ap.parse_args()
 
     rows = load_rows(args.limit)
@@ -101,8 +103,16 @@ def main():
           f"real={sum(1 for r in rows if r[2] == 'real')})")
 
     processor = AutoProcessor.from_pretrained(MODEL_ID)
+    quant = None
+    if args.use_4bit:
+        from transformers import BitsAndBytesConfig
+        quant = BitsAndBytesConfig(
+            load_in_4bit=True, bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.bfloat16,
+        )
     model = Qwen3VLForConditionalGeneration.from_pretrained(
         MODEL_ID, dtype=torch.bfloat16, attn_implementation="sdpa", device_map="cuda:0",
+        quantization_config=quant,
     )
     if not args.base:
         from peft import PeftModel
