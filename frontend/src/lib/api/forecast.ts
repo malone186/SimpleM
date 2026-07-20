@@ -44,12 +44,29 @@ export type HourlyForecast = {
   revenue: number;
 };
 
+// 시간(0~23시) 단위 판매 집계 — 오늘 실적·내일 24시간 예측 공용
+export type HourlyPoint = {
+  hour: number;
+  cups: number;
+  revenue: number;
+};
+
+export type TodayActuals = {
+  date: string;
+  cups: number;
+  revenue: number;
+  yesterday_revenue: number; // 어제 총매출 (증감률 비교용, 없으면 0)
+  hourly: HourlyPoint[]; // 0~23시 실제 판매 집계
+};
+
 export type SalesForecast = {
   location: { lat: number; lon: number; region: string };
   model: string;
   history_days: number;
+  today?: TodayActuals; // 오늘 실시간 실적 (경영 리포트와 같은 Sale 집계 기준)
   tomorrow: ForecastDay;
   tomorrow_hourly: HourlyForecast[];
+  tomorrow_hourly_24?: HourlyPoint[]; // 내일 시간(0~23시)별 예측 분배
   week: ForecastDay[];
   week_total: { cups: number; revenue: number };
   order_recommendations: OrderRecommendation[];

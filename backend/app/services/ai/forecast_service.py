@@ -404,6 +404,80 @@ def _load_hourly_shares(db, store_id: str, target_weekday: int) -> dict[str, flo
     return shares
 
 
+# 시간별 자료가 없을 때 쓰는 카페 기본 판매 곡선 (0~23시, 합계 1.0) — 점심·오후 피크
+_DEFAULT_HOUR_PROFILE = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0.06, 0.07, 0.09, 0.13, 0.11, 0.10, 0.09, 0.08, 0.07, 0.08, 0.07, 0.05,
+    0, 0, 0,
+]
+
+
+def _hourly_profile(db, store_id: str, target_weekday: int) -> list[float]:
+    """최근 60일 동일 요일의 시간(0~23시)별 판매 비중. 자료가 없으면 기본 곡선."""
+    import pandas as pd
+    from app.models.inventory import Sale
+
+    since = (date.today() - timedelta(days=60)).isoformat()
+    rows = (
+        db.query(Sale.sold_at, Sale.quantity)
+        .filter(Sale.store_id == store_id, Sale.sold_at >= since)
+        .all()
+    )
+    if not rows:
+        return list(_DEFAULT_HOUR_PROFILE)
+
+    df = pd.DataFrame(rows, columns=["sold_at", "quantity"])
+    df["sold_at"] = pd.to_datetime(df["sold_at"])
+    df_day = df[df["sold_at"].dt.weekday == target_weekday]
+    if df_day.empty:
+        df_day = df
+    grouped = df_day.groupby(df_day["sold_at"].dt.hour)["quantity"].sum()
+    total = float(grouped.sum())
+    if total <= 0:
+        return list(_DEFAULT_HOUR_PROFILE)
+    return [float(grouped.get(h, 0)) / total for h in range(24)]
+
+
+def _today_actuals(db, store_id: str) -> dict[str, Any]:
+    """오늘 실제 판매 실적 — 총액·잔 수·시간(0~23시)별 집계 + 어제 총매출(증감 비교용).
+
+    대시보드 '오늘 실시간' 그래프용. 기록이 없으면 전부 0 — 경영 리포트와 같은 기준이라
+    리포트가 0원인데 그래프만 매출이 있는 것처럼 보이는 불일치가 생기지 않는다.
+    """
+    from datetime import datetime
+    from app.models.inventory import Sale
+
+    today = date.today()
+    yesterday_iso = (today - timedelta(days=1)).isoformat()
+
+    rows = (
+        db.query(Sale.sold_at, Sale.quantity, Sale.total_price)
+        .filter(Sale.store_id == store_id, Sale.sold_at >= yesterday_iso)
+        .all()
+    )
+    hourly = [{"hour": h, "cups": 0, "revenue": 0} for h in range(24)]
+    cups = revenue = yesterday_revenue = 0
+    for sold_at, qty, price in rows:
+        try:
+            dt = sold_at if isinstance(sold_at, datetime) else datetime.fromisoformat(str(sold_at))
+        except ValueError:
+            continue
+        if dt.date() == today:
+            cups += qty
+            revenue += price
+            hourly[dt.hour]["cups"] += qty
+            hourly[dt.hour]["revenue"] += price
+        else:
+            yesterday_revenue += price
+    return {
+        "date": today.isoformat(),
+        "cups": round(cups),
+        "revenue": round(revenue),
+        "yesterday_revenue": round(yesterday_revenue),
+        "hourly": [{"hour": h["hour"], "cups": round(h["cups"]), "revenue": round(h["revenue"])} for h in hourly],
+    }
+
+
 # ---------------------------------------------------------------------------
 # 공개 인터페이스
 # ---------------------------------------------------------------------------
@@ -502,13 +576,35 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
             "revenue": max(0, tomorrow_revenue - allocated_revenue)
         })
 
+        # 내일 24시간 상세 분배 — 대시보드가 '현재 시각 기준 내일 같은 시각' 예측을 그릴 때 쓴다.
+        # 누적 목표치에서 직전 할당분을 빼는 방식이라 반올림 오차가 특정 시간에 몰리지 않는다.
+        profile = _hourly_profile(db, store_id, tomorrow_weekday)
+        tomorrow_hourly_24 = []
+        cum_share = 0.0
+        alloc_c = alloc_r = 0
+        for h in range(24):
+            cum_share += profile[h]
+            c_target = round(tomorrow_cups * min(cum_share, 1.0))
+            r_target = round(tomorrow_revenue * min(cum_share, 1.0))
+            tomorrow_hourly_24.append({
+                "hour": h,
+                "cups": max(0, c_target - alloc_c),
+                "revenue": max(0, r_target - alloc_r),
+            })
+            alloc_c, alloc_r = c_target, r_target
+
+        # 오늘 실시간 실적 (경영 리포트와 동일한 Sale 기준 집계)
+        today_actual = _today_actuals(db, store_id)
+
     return {
         "store_id": store_id,
         "location": {"lat": lat, "lon": lon, "region": region},
         "model": model_name,
         "history_days": len(series),
+        "today": today_actual,
         "tomorrow": week[0],
         "tomorrow_hourly": tomorrow_hourly,
+        "tomorrow_hourly_24": tomorrow_hourly_24,
         "week": week,
         "week_total": {"cups": week_cups, "revenue": sum(d["revenue"] for d in week)},
         "order_recommendations": recommendations,

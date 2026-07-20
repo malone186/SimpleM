@@ -33,6 +33,24 @@ const DEMO_USER: StoredUser = { email: 'test@test.com', password: '1234', name: 
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+// JWT의 exp(만료 시각)를 확인한다 — 백엔드 토큰은 24시간 유효라서,
+// 자동 로그인으로 복원한 토큰이 이미 죽어 있으면 모든 API가 401을 뱉는다.
+// 디코드 실패(구버전 토큰 등)도 만료로 취급해 재로그인을 유도한다.
+function isTokenExpired(token: string): boolean {
+  try {
+    const payloadPart = token.split('.')[1];
+    const base64 = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
+    const json = decodeURIComponent(
+      Array.from(atob(base64), (c) => `%${c.charCodeAt(0).toString(16).padStart(2, '0')}`).join('')
+    );
+    const { exp } = JSON.parse(json) as { exp?: number };
+    if (!exp) return false; // exp 없는 토큰은 만료 개념이 없으므로 통과
+    return exp * 1000 <= Date.now();
+  } catch {
+    return true;
+  }
+}
+
 async function readUsers(): Promise<StoredUser[]> {
   const raw = await AsyncStorage.getItem(USERS_KEY);
   return raw ? (JSON.parse(raw) as StoredUser[]) : [];
@@ -59,8 +77,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const raw = await AsyncStorage.getItem(SESSION_KEY);
         if (raw) {
           const saved = JSON.parse(raw) as User & { token?: string };
-          setUser({ email: saved.email, name: saved.name, photo: saved.photo });
-          setToken(saved.token ?? null);
+          if (saved.token && !isTokenExpired(saved.token)) {
+            setUser({ email: saved.email, name: saved.name, photo: saved.photo });
+            setToken(saved.token);
+          } else {
+            // 토큰이 없거나 만료됨 — 로그인된 척하다가 API마다 401 나는 것보다
+            // 세션을 지우고 로그인 화면으로 보내는 게 낫다
+            await AsyncStorage.removeItem(SESSION_KEY);
+          }
         }
       } finally {
         setBooting(false);

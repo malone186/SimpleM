@@ -7,7 +7,7 @@ import { colors, spacing, typography, shadows } from '../../theme';
 import { useCountUp } from '../motion';
 import { PressableScale } from '../motion';
 import { useAuth } from '../../auth/AuthContext';
-import { getSalesForecast, getDevicePosition, type SalesForecast, type ForecastDay } from '../../lib/api/forecast';
+import { getSalesForecast, getDevicePosition, type SalesForecast, type ForecastDay, type HourlyPoint } from '../../lib/api/forecast';
 import Brew from '../brew/Brew';
 
 // (삭제함 - Web 호환성을 위해 addListener + 일반 Circle을 사용하도록 개선)
@@ -17,9 +17,19 @@ import Brew from '../brew/Brew';
 const svgPress = (handler: () => void) =>
   Platform.OS === 'web' ? ({ onClick: handler } as any) : { onPress: handler };
 
-// 차트 트렌드 라인 패스 정의 (양 끝 마진 25px로 대칭 및 한가운데 정렬)
-const REALTIME_LINE = 'M 25 100 L 108 78 L 192 63 L 275 55';
-const REALTIME_FILL = 'M 25 100 L 108 78 L 192 63 L 275 55 L 275 120 L 25 120 Z';
+// 차트 X좌표 4개 (양 끝 마진 25px로 대칭 및 한가운데 정렬)
+const CHART_X = [25, 108, 192, 275];
+
+// 백엔드가 24시간 예측 분배를 못 준 경우 총량을 나눌 카페 기본 판매 곡선 (0~23시, 합계 1.0)
+// backend forecast_service._DEFAULT_HOUR_PROFILE과 동일해야 한다
+const DEFAULT_HOUR_PROFILE = [
+  0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0.06, 0.07, 0.09, 0.13, 0.11, 0.1, 0.09, 0.08, 0.07, 0.08, 0.07, 0.05,
+  0, 0, 0,
+];
+
+// X축 시간 라벨 포맷 (9 → "09시")
+const hourLabel = (h: number) => `${String(h).padStart(2, '0')}시`;
 
 // 캘린더 요일 및 데이터 셋 (영어 대문자로 세련되게 전환)
 const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
@@ -316,52 +326,60 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
       cancelled = true;
     };
   }, [token]);
-  const targetValue = isMonthly ? 12480000 : 428500;
-  const amount = useCountUp(targetValue, 1100, [isMonthly]);
+  // [실시간 시계] 매분 확인 — 정시가 바뀌면 X축 시간대와 '내일 같은 시각' 예측 기준이 따라 움직인다
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
-  const todayRevenue = 428500;
+  // X축 4개 시간대: 현재 시각을 마지막 점으로 3시간 간격 (새벽에는 09시를 하한으로 고정)
+  const anchorHour = Math.min(23, Math.max(9, now.getHours()));
+  const axisHours = [anchorHour - 9, anchorHour - 6, anchorHour - 3, anchorHour];
+
+  // 오늘 실적 — 백엔드 실데이터 (없으면 0: AI 경영 리포트와 같은 집계 기준)
+  const todayActual = forecast?.today ?? null;
+  const todayRevenueTotal = todayActual?.revenue ?? 0;
+  const todayCupsTotal = todayActual?.cups ?? 0;
+
+  const targetValue = isMonthly ? 12480000 : todayRevenueTotal;
+  const amount = useCountUp(targetValue, 1100, [isMonthly, targetValue]);
+
   const tomorrowRevenue = forecast?.tomorrow.revenue ?? 480000;
   const tomorrowCups = forecast?.tomorrow.cups ?? 165;
 
-  let predY = 55;
-  if (tomorrowRevenue && todayRevenue) {
-    const ratio = tomorrowRevenue / todayRevenue;
-    predY = 50 - (ratio - 1) * 50;
-    predY = Math.max(15, Math.min(85, predY));
-  }
+  // 내일 시간(0~23시)별 예측 — 백엔드 분배가 없으면 기본 곡선으로 총량을 나눈다
+  const tomorrowHourly24: HourlyPoint[] =
+    forecast?.tomorrow_hourly_24 ??
+    DEFAULT_HOUR_PROFILE.map((share, hour) => ({
+      hour,
+      cups: Math.round(tomorrowCups * share),
+      revenue: Math.round(tomorrowRevenue * share),
+    }));
 
-  // 내일 시간대별 매출 예측 연산 및 Svg 드로잉 패스 연산 (누적 기준)
-  const hourlyForecast = forecast?.tomorrow_hourly ?? [
-    { hour: '09시', cups: 15, revenue: 45000 },
-    { hour: '12시', cups: 65, revenue: 195000 },
-    { hour: '15시', cups: 50, revenue: 150000 },
-    { hour: '18시', cups: 35, revenue: 105000 }
-  ];
+  // 특정 시각까지의 누적값 (오늘 실적·내일 예측 공용)
+  const cumUpTo = (points: HourlyPoint[] | undefined, hour: number, key: 'cups' | 'revenue') =>
+    (points ?? []).reduce((acc, p) => (p.hour <= hour ? acc + p[key] : acc), 0);
 
-  // 누적 잔수 및 매출액 계산
-  const tomorrowCupsCum = [
-    hourlyForecast[0].cups,
-    hourlyForecast[0].cups + hourlyForecast[1].cups,
-    hourlyForecast[0].cups + hourlyForecast[1].cups + hourlyForecast[2].cups,
-    hourlyForecast[0].cups + hourlyForecast[1].cups + hourlyForecast[2].cups + hourlyForecast[3].cups,
-  ];
+  const todayCupsCum = axisHours.map((h) => cumUpTo(todayActual?.hourly, h, 'cups'));
+  const todayRevCum = axisHours.map((h) => cumUpTo(todayActual?.hourly, h, 'revenue'));
+  const tomorrowCupsCum = axisHours.map((h) => cumUpTo(tomorrowHourly24, h, 'cups'));
+  const tomorrowRevCum = axisHours.map((h) => cumUpTo(tomorrowHourly24, h, 'revenue'));
 
-  const tomorrowRevCum = [
-    hourlyForecast[0].revenue,
-    hourlyForecast[0].revenue + hourlyForecast[1].revenue,
-    hourlyForecast[0].revenue + hourlyForecast[1].revenue + hourlyForecast[2].revenue,
-    hourlyForecast[0].revenue + hourlyForecast[1].revenue + hourlyForecast[2].revenue + hourlyForecast[3].revenue,
-  ];
+  // 두 라인을 같은 스케일로 그린다 — Y좌표 범위: 25(상단) ~ 105(하단)
+  const chartMax = Math.max(...todayRevCum, ...tomorrowRevCum, 1);
+  const yOf = (v: number) => 105 - (v / chartMax) * 80;
+  const todayY = todayRevCum.map(yOf);
+  const tomorrowY = tomorrowRevCum.map(yOf);
 
-  const maxForecastRev = tomorrowRevCum[3] || 1;
-  // Y좌표 범위: 25(상단) ~ 105(하단)
-  const yForecast09 = 105 - (tomorrowRevCum[0] / maxForecastRev) * 80;
-  const yForecast12 = 105 - (tomorrowRevCum[1] / maxForecastRev) * 80;
-  const yForecast15 = 105 - (tomorrowRevCum[2] / maxForecastRev) * 80;
-  const yForecast18 = 105 - (tomorrowRevCum[3] / maxForecastRev) * 80; // 최대 매출은 Y=25 부근
+  const linePath = (ys: number[]) =>
+    `M ${CHART_X[0]} ${ys[0]} L ${CHART_X[1]} ${ys[1]} L ${CHART_X[2]} ${ys[2]} L ${CHART_X[3]} ${ys[3]}`;
+  const fillPath = (ys: number[]) => `${linePath(ys)} L ${CHART_X[3]} 120 L ${CHART_X[0]} 120 Z`;
 
-  const forecastLinePath = `M 25 ${yForecast09} L 108 ${yForecast12} L 192 ${yForecast15} L 275 ${yForecast18}`;
-  const forecastFillPath = `M 25 ${yForecast09} L 108 ${yForecast12} L 192 ${yForecast15} L 275 ${yForecast18} L 275 120 L 25 120 Z`;
+  const realtimeLinePath = linePath(todayY);
+  const realtimeFillPath = fillPath(todayY);
+  const forecastLinePath = linePath(tomorrowY);
+  const forecastFillPath = fillPath(tomorrowY);
 
   // [한글 주석] 펄스 애니메이션 구동 제어
   const pulse = useRef(new Animated.Value(0)).current;
@@ -392,13 +410,29 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
   const pulseRadius = 4 + pulseVal * 8; // [0, 1] -> [4, 12]
   const pulseOpacity = 0.6 - pulseVal * 0.6; // [0, 1] -> [0.6, 0]
 
-  // 일/월별 상승 뱃지 텍스트
-  const badgeText = isMonthly ? '▲ 8.7%' : '▲ 12.4%';
+  // 일/월별 상승 뱃지 텍스트 — 일간은 어제 매출 대비 실제 증감 (비교 대상 없으면 '비교 없음')
+  const yesterdayRevenue = todayActual?.yesterday_revenue ?? 0;
+  const dailyDeltaPct = yesterdayRevenue > 0 ? ((todayRevenueTotal - yesterdayRevenue) / yesterdayRevenue) * 100 : null;
+  const badgeText = isMonthly
+    ? '▲ 8.7%'
+    : dailyDeltaPct === null
+      ? '비교 없음'
+      : `${dailyDeltaPct >= 0 ? '▲' : '▼'} ${Math.abs(dailyDeltaPct).toFixed(1)}%`;
 
-  // 하단 세부 요약 수치
-  const salesCount = isMonthly ? '4,120잔' : '142잔';
-  const averagePrice = isMonthly ? '₩3,085' : '₩3,018';
-  const peakTime = isMonthly ? '주말 오후' : '14–15시';
+  // 하단 세부 요약 수치 — 일간은 오늘 실적 기반 (데이터 없으면 '—')
+  const salesCount = isMonthly ? '4,120잔' : `${todayCupsTotal.toLocaleString()}잔`;
+  const averagePrice = isMonthly
+    ? '₩3,085'
+    : todayCupsTotal > 0
+      ? `₩${Math.round(todayRevenueTotal / todayCupsTotal).toLocaleString()}`
+      : '—';
+  let peakTime = '—';
+  if (isMonthly) {
+    peakTime = '주말 오후';
+  } else if (todayActual) {
+    const best = todayActual.hourly.reduce((a, b) => (b.cups > a.cups ? b : a));
+    if (best.cups > 0) peakTime = `${best.hour}–${best.hour + 1}시`;
+  }
 
   const lat = forecast?.location.lat ?? 37.5562;
   const lon = forecast?.location.lon ?? 126.9223;
@@ -729,21 +763,20 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
               <Line x1="15" y1="65" x2="285" y2="65" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
               <Line x1="15" y1="105" x2="285" y2="105" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="3,3" opacity="0.2" />
 
-              {/* 세로 보조 점선 눈금 */}
-              <Line x1="25" y1="115" x2="25" y2="108" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
-              <Line x1="108" y1="115" x2="108" y2="85" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
-              <Line x1="192" y1="115" x2="192" y2="70" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
-              <Line x1="275" y1="115" x2="275" y2="62" stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
+              {/* 세로 보조 점선 눈금 (각 데이터 포인트 위치까지) */}
+              {CHART_X.map((x, i) => (
+                <Line key={`tick-${i}`} x1={x} y1="115" x2={x} y2={Math.min(todayY[i], tomorrowY[i]) + 3} stroke={colors.mutedSand} strokeWidth="1" strokeDasharray="2,2" opacity="0.3" />
+              ))}
 
               {/* 1. 오늘 그래프 드로잉 (부드럽고 자연스러운 에스프레소 브라운 실선) */}
-              <Path d={REALTIME_FILL} fill="url(#todayFill)" />
-              <Path d={REALTIME_LINE} stroke={colors.espressoBrown} strokeWidth={2.0} fill="none" strokeLinecap="round" />
-              
-              {/* 오늘 실시간 펄스 링 & 고정 피크 점 (Y=55 밀착) */}
-              <Circle cx={275} cy={55} r={2.0} fill={colors.espressoBrown} />
+              <Path d={realtimeFillPath} fill="url(#todayFill)" />
+              <Path d={realtimeLinePath} stroke={colors.espressoBrown} strokeWidth={2.0} fill="none" strokeLinecap="round" />
+
+              {/* 오늘 실시간 펄스 링 & 현재 시각 지점 */}
+              <Circle cx={275} cy={todayY[3]} r={2.0} fill={colors.espressoBrown} />
               <Circle
                 cx={275}
-                cy={55}
+                cy={todayY[3]}
                 r={pulseRadius * 0.7}
                 fill={colors.espressoBrown}
                 opacity={pulseOpacity * 0.5}
@@ -754,40 +787,52 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
               <Path d={forecastLinePath} stroke={colors.mochaBrown} strokeWidth={1.2} strokeOpacity={0.38} strokeDasharray="1.2,2.0" fill="none" strokeLinecap="round" />
 
               {/* 내일 펄스 링 & 최종 예측 피크 점 */}
-              <Circle cx={275} cy={yForecast18} r={2.0} fill={colors.mochaBrown} opacity={0.4} />
+              <Circle cx={275} cy={tomorrowY[3]} r={2.0} fill={colors.mochaBrown} opacity={0.4} />
               <Circle
                 cx={275}
-                cy={yForecast18}
+                cy={tomorrowY[3]}
                 r={pulseRadius * 0.6}
                 fill={colors.mochaBrown}
                 opacity={pulseOpacity * 0.3}
               />
 
               {/* 3. 오늘 데이터 포인트 (터치용 보이지 않는 큰 Circle 영역 포함, Y좌표 꺾은선 일치) */}
-              <Circle cx={25} cy={100} r={2.2} fill={colors.espressoBrown} />
-              <Circle cx={25} cy={100} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 25, y: 100, title: '오늘 09시', value: '실제 25잔' }))} />
+              {CHART_X.map((x, i) => (
+                <G key={`today-pt-${i}`}>
+                  <Circle cx={x} cy={todayY[i]} r={i === 3 ? 2.5 : 2.2} fill={colors.espressoBrown} />
+                  <Circle
+                    cx={x}
+                    cy={todayY[i]}
+                    r={14}
+                    fill="transparent"
+                    {...svgPress(() => setActiveTooltip({
+                      x,
+                      y: todayY[i],
+                      title: i === 3 ? `오늘 ${hourLabel(axisHours[i])} 실시간` : `오늘 ${hourLabel(axisHours[i])}`,
+                      value: `실제 ${todayCupsCum[i]}잔`,
+                    }))}
+                  />
+                </G>
+              ))}
 
-              <Circle cx={108} cy={78} r={2.2} fill={colors.espressoBrown} />
-              <Circle cx={108} cy={78} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 108, y: 78, title: '오늘 12시', value: '실제 87잔' }))} />
-
-              <Circle cx={192} cy={63} r={2.2} fill={colors.espressoBrown} />
-              <Circle cx={192} cy={63} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 192, y: 63, title: '오늘 15시', value: '실제 127잔' }))} />
-
-              <Circle cx={275} cy={55} r={2.5} fill={colors.espressoBrown} />
-              <Circle cx={275} cy={55} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 275, y: 55, title: '오늘 실시간', value: '실제 142잔' }))} />
-
-              {/* 4. 내일 데이터 포인트 (뒤로 부드럽게 감도는 모카 브라운 톤 적용) */}
-              <Circle cx={25} cy={yForecast09} r={2.2} fill={colors.mochaBrown} opacity={0.4} />
-              <Circle cx={25} cy={yForecast09} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 25, y: yForecast09, title: '내일 09시', value: `예측 ${tomorrowCupsCum[0]}잔` }))} />
-
-              <Circle cx={108} cy={yForecast12} r={2.2} fill={colors.mochaBrown} opacity={0.4} />
-              <Circle cx={108} cy={yForecast12} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 108, y: yForecast12, title: '내일 12시', value: `예측 ${tomorrowCupsCum[1]}잔` }))} />
-
-              <Circle cx={192} cy={yForecast15} r={2.2} fill={colors.mochaBrown} opacity={0.4} />
-              <Circle cx={192} cy={yForecast15} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 192, y: yForecast15, title: '내일 15시', value: `예측 ${tomorrowCupsCum[2]}잔` }))} />
-
-              <Circle cx={275} cy={yForecast18} r={2.5} fill={colors.mochaBrown} opacity={0.4} />
-              <Circle cx={275} cy={yForecast18} r={14} fill="transparent" {...svgPress(() => setActiveTooltip({ x: 275, y: yForecast18, title: '내일 18시', value: `예측 ${tomorrowCupsCum[3]}잔` }))} />
+              {/* 4. 내일 데이터 포인트 — 오늘과 같은 시간대의 예측 (뒤로 부드럽게 감도는 모카 브라운 톤) */}
+              {CHART_X.map((x, i) => (
+                <G key={`tomorrow-pt-${i}`}>
+                  <Circle cx={x} cy={tomorrowY[i]} r={i === 3 ? 2.5 : 2.2} fill={colors.mochaBrown} opacity={0.4} />
+                  <Circle
+                    cx={x}
+                    cy={tomorrowY[i]}
+                    r={14}
+                    fill="transparent"
+                    {...svgPress(() => setActiveTooltip({
+                      x,
+                      y: tomorrowY[i],
+                      title: `내일 ${hourLabel(axisHours[i])}`,
+                      value: `예측 ${tomorrowCupsCum[i]}잔`,
+                    }))}
+                  />
+                </G>
+              ))}
 
 
               {/* 5. activeTooltip 플로팅 말풍선 렌더링 */}
@@ -826,14 +871,20 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
             </Svg>
 
 
-            {/* X축 */}
+            {/* X축 — 현재 시각이 마지막 점, 시간이 지나면 자동으로 밀린다 */}
             <View style={styles.xAxis}>
-              <Text style={styles.xAxisText}>09시</Text>
-              <Text style={styles.xAxisText}>12시</Text>
-              <Text style={styles.xAxisText}>15시</Text>
-              <Text style={[styles.xAxisText, { color: colors.mochaBrown, fontWeight: '700', opacity: 0.95 }]}>
-                18시
-              </Text>
+              {axisHours.map((h, i) => (
+                <Text
+                  key={`axis-${h}`}
+                  style={
+                    i === 3
+                      ? [styles.xAxisText, { color: colors.mochaBrown, fontWeight: '700' as const, opacity: 0.95 }]
+                      : styles.xAxisText
+                  }
+                >
+                  {i === 3 ? `${hourLabel(h)} (지금)` : hourLabel(h)}
+                </Text>
+              ))}
             </View>
           </View>
         </View>
@@ -1169,8 +1220,12 @@ function BrewForecastOverlay({
 
   const growthClean = growth.replace(/[▲▼]/g, '').trim();
   const reasons = [
-    { icon: '🕑', text: `${peak} 피크 시간대에 주문이 몰릴 거예요.` },
-    { icon: '📈', text: `최근 판매 추세가 오늘 대비 ${growthClean} 오름세예요.` },
+    // 피크 시간대를 아직 모르면(오늘 판매 기록 없음) 해당 문장은 생략
+    ...(peak !== '—' ? [{ icon: '🕑', text: `${peak} 피크 시간대에 주문이 몰릴 거예요.` }] : []),
+    // 어제 매출과 비교가 가능할 때만 증감 문장을 보여준다
+    ...(growth.includes('%')
+      ? [{ icon: '📈', text: `최근 판매 추세가 오늘 대비 ${growthClean} ${growth.includes('▼') ? '내림세' : '오름세'}예요.` }]
+      : []),
     { icon: '🌤️', text: '요일·날씨 패턴도 판매에 유리한 편이에요.' },
   ];
 
