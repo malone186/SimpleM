@@ -38,15 +38,18 @@ export default function Brew({
   round = false,
   framed = false,
   style,
+  disableMotion = false, // [한글 주석: 말풍선 등과 애니메이션을 통합하기 위해 자체 모션을 끌 수 있는 제어 장치 추가]
 }: {
   mood?: BrewMood;
   size?: number;
   round?: boolean; // 크림 원형 프레임 안에 넣기 (흰 카드 위 등)
   framed?: boolean; // 둥근 크림 카드로 감싸기 (드립/턱괸 등 장면 포즈용)
   style?: StyleProp<ViewStyle>;
+  disableMotion?: boolean;
 }) {
   const a = useRef(new Animated.Value(0)).current;
-  const motion = MOTION_BY_MOOD[mood];
+  // [한글 주석: disableMotion이 켜지면 강아지 고유의 흔들림 모션을 'none'(정지) 상태로 바꿉니다]
+  const motion = disableMotion ? 'none' : MOTION_BY_MOOD[mood];
 
   useEffect(() => {
     if (motion === 'none') return;

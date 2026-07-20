@@ -1,7 +1,7 @@
 // [상단 웰컴 블록 - 애플 스타일 오로라 가우시안 블러 필터 적용]
 // 칼같이 보이던 원의 경계선을 feGaussianBlur 필터로 완벽히 뭉개고, 파스텔 톤의 모카 샌드 그라데이션으로 화사하게 튜닝했습니다.
-import { useEffect, useState } from 'react';
-import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, Easing, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Defs, LinearGradient, Stop, Path, Circle, Filter, FeGaussianBlur } from 'react-native-svg';
 
@@ -52,6 +52,37 @@ export default function WelcomeHeader({
   const quote = useDailyQuote();
   const initial = (storeName || 'S').charAt(0).toUpperCase();
 
+  // [한글 주석: 강아지와 말풍선을 묶어 위아래로 둥둥 띄우기 위한 애니메이션 상태변수 정의]
+  const floatAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    // [한글 주석: 강아지 캐릭터의 원래 바운스 주기(1250ms)와 속도 곡선(sin)을 완전히 흉내냅니다]
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatAnim, {
+          toValue: 1,
+          duration: 1250,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(floatAnim, {
+          toValue: 0,
+          duration: 1250,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [floatAnim]);
+
+  // [한글 주석: 위아래로 최대 7픽셀(px) 만큼 둥둥거리도록 애니메이션 수치 변환]
+  const translateY = floatAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -7],
+  });
+
   return (
     <View style={styles.header}>
       <View style={styles.topBar}>
@@ -75,16 +106,17 @@ export default function WelcomeHeader({
             {quote}
           </Text>
         </View>
-        {/* [한글 주석: 마스코트 캐릭터와 말풍선을 한곳에 담는 컨테이너로 감쌉니다] */}
-        <View style={styles.mascotContainer}>
+        {/* [한글 주석: 마스코트 캐릭터와 말풍선을 한곳에 담아 한꺼번에 움직이는 애니메이션 상자(Animated.View)로 감쌉니다] */}
+        <Animated.View style={[styles.mascotContainer, { transform: [{ translateY }] }]}>
           {/* [한글 주석: 강아지가 직접 말하는 듯한 흰색 입체 말풍선 상자입니다] */}
           <View style={styles.bubble}>
             <Text style={styles.bubbleText}>안녕하세요 사장님 ☀️</Text>
             {/* [한글 주석: 말풍선 하단에 강아지 방향을 향하는 뾰족한 꼬리를 얹어줍니다] */}
             <View style={styles.bubbleTail} />
           </View>
-          <Brew mood={mood} size={168} style={styles.mascot} />
-        </View>
+          {/* [한글 주석: 중복으로 들썩거리지 않도록 자체 흔들림 옵션은 꺼서 리프트에 고정시킵니다] */}
+          <Brew mood={mood} size={168} style={styles.mascot} disableMotion={true} />
+        </Animated.View>
       </View>
     </View>
   );
