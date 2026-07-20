@@ -77,6 +77,8 @@ QWEN_VLM_ADAPTER_DIR = Path(
     os.getenv("QWEN_VLM_ADAPTER_DIR", Path(__file__).resolve().parents[3] / "vlm_finetune" / "output" / "adapter")
 )
 QWEN_VLM_MAX_NEW_TOKENS = int(os.getenv("QWEN_VLM_MAX_NEW_TOKENS", "1024"))
+# 8GB VRAM에서는 4bit 로드가 사실상 필수 (bf16은 추론 중 OOM). 파인튜닝도 4bit로 했다.
+QWEN_VLM_LOAD_4BIT = os.getenv("QWEN_VLM_LOAD_4BIT", "0") == "1"
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 # 기본값을 12b로 둔 이유: gemma4:latest(8B)는 Windows에서 이미지를 인식하지 못하는
@@ -484,10 +486,19 @@ def _load_qwen_vlm() -> tuple[Any, Any]:
 
             device = "cuda:0" if torch.cuda.is_available() else "cpu"
             dtype = torch.bfloat16 if device.startswith("cuda") else torch.float32
-            logger.info("Qwen VLM 로드 시작 — %s (%s)", QWEN_VLM_BASE, device)
+            logger.info("Qwen VLM 로드 시작 — %s (%s, 4bit=%s)", QWEN_VLM_BASE, device, QWEN_VLM_LOAD_4BIT)
             processor = AutoProcessor.from_pretrained(QWEN_VLM_BASE)
+            quant = None
+            if QWEN_VLM_LOAD_4BIT and device.startswith("cuda"):
+                from transformers import BitsAndBytesConfig
+
+                quant = BitsAndBytesConfig(
+                    load_in_4bit=True, bnb_4bit_quant_type="nf4",
+                    bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.bfloat16,
+                )
             model = Qwen3VLForConditionalGeneration.from_pretrained(
-                QWEN_VLM_BASE, dtype=dtype, attn_implementation="sdpa", device_map=device
+                QWEN_VLM_BASE, dtype=dtype, attn_implementation="sdpa", device_map=device,
+                quantization_config=quant,
             )
             if (QWEN_VLM_ADAPTER_DIR / "adapter_config.json").exists():
                 from peft import PeftModel
