@@ -159,17 +159,18 @@ export default function DashboardScreen() {
         */}
         <View style={styles.body}>
           <FadeInUp key={`sales-${runId}`} delay={80}>
-            <SalesCard key={`salescard-${runId}`} />
+            {/* [한글 주석: todos 리스트와 발주 액션 핸들러를 SalesCard에 전달하여 탭 전환 시 할 일 목록이 노출되도록 연동합니다] */}
+            <SalesCard
+              key={`salescard-${runId}`}
+              todos={todos}
+              onPressTodo={openOrder}
+            />
           </FadeInUp>
 
           {/* AI 경영 리포트 — 일간/주간/월간 탭을 누르면 홈에서 바로 보인다
               (runId 키로 당겨서 새로고침 시 리마운트 → 최신 수치 재조회) */}
           <FadeInUp key={`report-${runId}`} delay={140}>
             <ManagementReportCard key={`reportcard-${runId}`} />
-          </FadeInUp>
-
-          <FadeInUp key={`todo-${runId}`} delay={200}>
-            <TodoList todos={todos} onPressAction={openOrder} />
           </FadeInUp>
         </View>
       </Animated.ScrollView>

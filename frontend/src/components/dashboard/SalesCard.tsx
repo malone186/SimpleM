@@ -9,6 +9,7 @@ import { PressableScale } from '../motion';
 import { useAuth } from '../../auth/AuthContext';
 import { getSalesForecast, getDevicePosition, type SalesForecast, type ForecastDay } from '../../lib/api/forecast';
 import Brew from '../brew/Brew';
+import TodoList, { type Todo } from './TodoList';
 
 // (삭제함 - Web 호환성을 위해 addListener + 일반 Circle을 사용하도록 개선)
 
@@ -184,53 +185,68 @@ const CALENDAR_ITEMS = [
   { date: '31', income: 0 }
 ];
 
-// [슬라이딩 세그먼트 토글 컴포넌트]
+// [한글 주석: 3단 탭 상태 타입 정의]
+export type SalesTab = 'day' | 'month' | 'todo';
+
+// [슬라이딩 세그먼트 토글 컴포넌트 (3단 탭 지원)]
 function SlidingTabToggle({
   value,
   onChange,
 }: {
-  value: boolean;
-  onChange: (val: boolean) => void;
+  value: SalesTab;
+  onChange: (val: SalesTab) => void;
 }) {
-  const slideAnim = useRef(new Animated.Value(value ? 1 : 0)).current;
+  const tabIndex = value === 'day' ? 0 : value === 'month' ? 1 : 2;
+  const slideAnim = useRef(new Animated.Value(tabIndex)).current;
 
   useEffect(() => {
     Animated.spring(slideAnim, {
-      toValue: value ? 1 : 0,
+      toValue: tabIndex,
       useNativeDriver: true,
       tension: 110,
       friction: 11,
     }).start();
-  }, [value]);
+  }, [tabIndex]);
 
   const translateX = slideAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [2, 38],
+    inputRange: [0, 1, 2],
+    outputRange: [2, 39, 76],
   });
 
   return (
-    <Pressable onPress={() => onChange(!value)} style={StyleSheet.flatten([styles.toggleTrack, Platform.OS === 'web' && { cursor: 'pointer' }])}>
+    <View style={StyleSheet.flatten([styles.toggleTrack, Platform.OS === 'web' && { cursor: 'pointer' }])}>
       <Animated.View style={[styles.toggleCapsule, { transform: [{ translateX }] }]} />
       
       <View style={styles.toggleLabelsRow}>
-        <View style={styles.toggleLabelCell}>
-          <Text style={[styles.toggleLabelText, !value && styles.toggleLabelTextActive]}>일</Text>
-        </View>
-        <View style={styles.toggleLabelCell}>
-          <Text style={[styles.toggleLabelText, value && styles.toggleLabelTextActive]}>월</Text>
-        </View>
+        <Pressable onPress={() => onChange('day')} style={styles.toggleLabelCell}>
+          <Text style={[styles.toggleLabelText, value === 'day' && styles.toggleLabelTextActive]}>일</Text>
+        </Pressable>
+        <Pressable onPress={() => onChange('month')} style={styles.toggleLabelCell}>
+          <Text style={[styles.toggleLabelText, value === 'month' && styles.toggleLabelTextActive]}>월</Text>
+        </Pressable>
+        <Pressable onPress={() => onChange('todo')} style={styles.toggleLabelCell}>
+          <Text style={[styles.toggleLabelText, value === 'todo' && styles.toggleLabelTextActive]}>todo</Text>
+        </Pressable>
       </View>
-    </Pressable>
+    </View>
   );
 }
 
-// [한글 주석] onPressReport 콜백을 받아와 리포트 배너의 이벤트를 바인딩합니다.
-export default function SalesCard({ onPressReport }: { onPressReport?: () => void }) {
+// [한글 주석] onPressReport 콜백, todos 리스트, onPressTodo 핸들러를 바인딩합니다.
+export default function SalesCard({
+  onPressReport,
+  todos = [],
+  onPressTodo,
+}: {
+  onPressReport?: () => void;
+  todos?: Todo[];
+  onPressTodo?: (todo: Todo) => void;
+}) {
   const { token, user } = useAuth();
   const [forecast, setForecast] = useState<SalesForecast | null>(null);
   const [loadingForecast, setLoadingForecast] = useState(false);
 
-  const [isMonthly, setIsMonthly] = useState(false);
+  const [activeTab, setActiveTab] = useState<SalesTab>('day');
   const [selectedDate, setSelectedDate] = useState<string | null>(null); // [한글 주석: 선택한 날짜의 상세 매출 분석 모달 노출 상태 변수]
   const [selectedFutureDate, setSelectedFutureDate] = useState<string | null>(null);
   const [showBrew, setShowBrew] = useState(false); // [브루 예측 설명 오버레이]
@@ -316,8 +332,8 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
       cancelled = true;
     };
   }, [token]);
-  const targetValue = isMonthly ? 12480000 : 428500;
-  const amount = useCountUp(targetValue, 1100, [isMonthly]);
+  const targetValue = activeTab === 'month' ? 12480000 : 428500;
+  const amount = useCountUp(targetValue, 1100, [activeTab === 'month']);
 
   const todayRevenue = 428500;
   const tomorrowRevenue = forecast?.tomorrow.revenue ?? 480000;
@@ -393,12 +409,12 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
   const pulseOpacity = 0.6 - pulseVal * 0.6; // [0, 1] -> [0.6, 0]
 
   // 일/월별 상승 뱃지 텍스트
-  const badgeText = isMonthly ? '▲ 8.7%' : '▲ 12.4%';
+  const badgeText = activeTab === 'month' ? '▲ 8.7%' : '▲ 12.4%';
 
   // 하단 세부 요약 수치
-  const salesCount = isMonthly ? '4,120잔' : '142잔';
-  const averagePrice = isMonthly ? '₩3,085' : '₩3,018';
-  const peakTime = isMonthly ? '주말 오후' : '14–15시';
+  const salesCount = activeTab === 'month' ? '4,120잔' : '142잔';
+  const averagePrice = activeTab === 'month' ? '₩3,085' : '₩3,018';
+  const peakTime = activeTab === 'month' ? '주말 오후' : '14–15시';
 
   const lat = forecast?.location.lat ?? 37.5562;
   const lon = forecast?.location.lon ?? 126.9223;
@@ -611,7 +627,7 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
       <View style={styles.headRow}>
         <View style={{ flex: 1, alignItems: 'flex-start' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <SlidingTabToggle value={isMonthly} onChange={setIsMonthly} />
+            <SlidingTabToggle value={activeTab} onChange={setActiveTab} />
             {forecast?.location && (
               <PressableScale 
                 onPress={() => setLocationModalVisible(true)} 
@@ -634,8 +650,8 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
         </View>
       </View>
 
-      {/* 실시간 차트 / 토스 달력 전환 영역 */}
-      {isMonthly ? (
+      {/* 실시간 차트 / 토스 달력 / 할 일 목록 전환 영역 */}
+      {activeTab === 'month' ? (
         <View style={styles.calendarContainer}>
           {/* 요일 행 */}
           <View style={styles.calendarHeaderRow}>
@@ -837,35 +853,42 @@ export default function SalesCard({ onPressReport }: { onPressReport?: () => voi
             </View>
           </View>
         </View>
+      ) : activeTab === 'todo' ? (
+        <View style={styles.todoWrapper}>
+          <TodoList todos={todos} onPressAction={onPressTodo || (() => {})} hideCard={true} />
+        </View>
+      ) : (
+        <View style={styles.chartWrapper}>
+
+
+
+      {/* 하단 요약 정보 그리드 (todo 탭이 아닐 때만 노출) */}
+      {activeTab !== 'todo' && (
+        <View style={styles.footRow}>
+          <View style={styles.footItem}>
+            <Text style={styles.footLabel}>{activeTab === 'month' ? '판매 잔' : '판매 잔 (오늘 / 내일예상)'}</Text>
+            <Text style={styles.footValue}>
+              {salesCount}
+              {activeTab === 'day' && forecast && (
+                <Text style={{ fontSize: 11, color: colors.mochaBrown, fontWeight: 'normal' }}>
+                  {` / ${tomorrowCups}잔`}
+                </Text>
+              )}
+            </Text>
+          </View>
+          <View style={styles.footItem}>
+            <Text style={styles.footLabel}>객단가</Text>
+            <Text style={styles.footValue}>{averagePrice}</Text>
+          </View>
+          <View style={styles.footItem}>
+            <Text style={styles.footLabel}>피크</Text>
+            <Text style={[styles.footValue, { color: colors.trendGreenText }]}>{peakTime}</Text>
+          </View>
+        </View>
       )}
 
-
-
-      {/* 하단 요약 정보 그리드 */}
-      <View style={styles.footRow}>
-        <View style={styles.footItem}>
-          <Text style={styles.footLabel}>{isMonthly ? '판매 잔' : '판매 잔 (오늘 / 내일예상)'}</Text>
-          <Text style={styles.footValue}>
-            {salesCount}
-            {!isMonthly && forecast && (
-              <Text style={{ fontSize: 11, color: colors.mochaBrown, fontWeight: 'normal' }}>
-                {` / ${tomorrowCups}잔`}
-              </Text>
-            )}
-          </Text>
-        </View>
-        <View style={styles.footItem}>
-          <Text style={styles.footLabel}>객단가</Text>
-          <Text style={styles.footValue}>{averagePrice}</Text>
-        </View>
-        <View style={styles.footItem}>
-          <Text style={styles.footLabel}>피크</Text>
-          <Text style={[styles.footValue, { color: colors.trendGreenText }]}>{peakTime}</Text>
-        </View>
-      </View>
-
-      {/* [한글 주석: 통합형 주간 리포트 스마트 배너] 월간 모드일 때는 레이아웃 과밀을 피하기 위해 띄우지 않고, 일간 모드에서만 노출시킵니다 */}
-      {onPressReport && !isMonthly && (
+      {/* [한글 주석: 통합형 주간 리포트 스마트 배너] 월간/할일 모드일 때는 레이아웃 과밀을 피하기 위해 띄우지 않고, 일간 모드에서만 노출시킵니다 */}
+      {onPressReport && activeTab === 'day' && (
         <PressableScale onPress={onPressReport} style={styles.reportBanner}>
           <View style={{ flex: 1, gap: 3 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -1303,8 +1326,14 @@ const styles = StyleSheet.create({
     color: colors.mochaBrown,
   },
 
+  todoWrapper: {
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    minHeight: 180,
+    justifyContent: 'center',
+  },
   toggleTrack: {
-    width: 76,
+    width: 114,
     height: 28,
     borderRadius: 999,
     backgroundColor: 'rgba(140, 111, 86, 0.08)', // [iOS 스타일] 투명감 도는 탭 트랙
