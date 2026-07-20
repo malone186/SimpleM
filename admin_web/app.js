@@ -127,152 +127,30 @@ document.addEventListener('DOMContentLoaded', () => {
   checkBackendHealth();
   setInterval(checkBackendHealth, 10000);
 
-  // 3. 회원 데이터
-  const mockUsers = [
-    {
-      id: 1,
-      name: '포슬이',
-      store: '포슬카페',
-      email: 'owner@cafe.com',
-      status: '활성',
-      joined: '2026-07-01 10:15',
-      plan: '프리미엄 회원',
-      subPrice: '월 19,900원',
-      nextPay: '2026-08-01',
-      ocrCount: 14,
-      stockCount: 28,
-      memo: '초기 테스터 사장님 계정. 프리미엄 이용 중.',
-    },
-    {
-      id: 2,
-      name: '김철수',
-      store: '블루보틀 강남',
-      email: 'chulsoo@cafe.com',
-      status: '활성',
-      joined: '2026-07-03 14:20',
-      plan: '프리미엄 회원',
-      subPrice: '월 19,900원',
-      nextPay: '2026-08-03',
-      ocrCount: 45,
-      stockCount: 62,
-      memo: '강남점 매장. 프리미엄 결제 이용 중.',
-    },
-    {
-      id: 3,
-      name: '이영희',
-      store: '성수 로스터스',
-      email: 'young@cafe.com',
-      status: '활성',
-      joined: '2026-07-05 09:30',
-      plan: '프리미엄 회원',
-      subPrice: '월 19,900원',
-      nextPay: '2026-08-05',
-      ocrCount: 8,
-      stockCount: 15,
-      memo: '원두 큐레이션 및 프리미엄 전용 기능 활용.',
-    },
-    {
-      id: 4,
-      name: '박민수',
-      store: '카페 민트',
-      email: 'min@cafe.com',
-      status: '활성',
-      joined: '2026-07-07 16:45',
-      plan: '일반 회원',
-      subPrice: '무료 (미구독)',
-      nextPay: '-',
-      ocrCount: 19,
-      stockCount: 34,
-      memo: '일반 무료 이용 사장님.',
-    },
-    {
-      id: 5,
-      name: '최동현',
-      store: '더드립 청담',
-      email: 'choi@cafe.com',
-      status: '대기',
-      joined: '2026-07-10 11:10',
-      plan: '일반 회원',
-      subPrice: '무료 (미구독)',
-      nextPay: '-',
-      ocrCount: 0,
-      stockCount: 5,
-      memo: '서류 승인 대기 중.',
-    },
-    {
-      id: 6,
-      name: '정수진',
-      store: '빈브라더스 판교',
-      email: 'sujin@cafe.com',
-      status: '활성',
-      joined: '2026-07-12 18:00',
-      plan: '프리미엄 회원',
-      subPrice: '월 19,900원',
-      nextPay: '2026-08-12',
-      ocrCount: 22,
-      stockCount: 40,
-      memo: '프리미엄 이용 사장님.',
-    },
-    {
-      id: 7,
-      name: '강지훈',
-      store: '메머드커피 신촌',
-      email: 'kang@cafe.com',
-      status: '활성',
-      joined: '2026-07-14 13:25',
-      plan: '일반 회원',
-      subPrice: '무료 (미구독)',
-      nextPay: '-',
-      ocrCount: 6,
-      stockCount: 18,
-      memo: '일반 무료 회원.',
-    },
-    {
-      id: 8,
-      name: '윤아름',
-      store: '컴포즈 서초',
-      email: 'arum@cafe.com',
-      status: '활성',
-      joined: '2026-07-15 15:50',
-      plan: '일반 회원',
-      subPrice: '무료 (미구독)',
-      nextPay: '-',
-      ocrCount: 11,
-      stockCount: 22,
-      memo: '일반 무료 회원.',
-    },
-    {
-      id: 9,
-      name: '한상우',
-      store: '텐퍼센트 혜화',
-      email: 'han@cafe.com',
-      status: '대기',
-      joined: '2026-07-16 17:05',
-      plan: '일반 회원',
-      subPrice: '무료 (미구독)',
-      nextPay: '-',
-      ocrCount: 0,
-      stockCount: 2,
-      memo: '신규 회원 가입.',
-    },
-  ];
+  // 3. 실시간 백엔드 API 연동 베이스 URL
+  const API_BASE = 'http://localhost:8000/api/v1';
+
+  // [한글 주석: 백엔드 API 호출을 통해 채워질 실시간 데이터 보관함]
+  let mockUsers = [];
+  let mockCSList = [];
+  let mockNotifHistory = [];
+  let mockPayments = [];
 
   let selectedUser = null;
   let currentFilter = 'all'; // 'all' | 'premium' | 'general'
 
-  // 4. [한글 주석: 메인 대시보드 최근 가입 타임라인 피드 - 실시간 롤링 슬라이드 스트림]
+  // 4. [한글 주석: 메인 대시보드 최근 가입 타임라인 피드 - DB 최신순 가입 사장님 노출]
   const recentFeedContainer = document.getElementById('recent-users-feed');
-  let feedListIndex = 3; // 기본 3개 노출 후 다음 신규 가입 순번
 
   function renderTimelineFeed(highlightFirst = false) {
-    if (!recentFeedContainer) return;
-
-    // 전체 mockUsers에서 3개 선택 (feedListIndex 기준 롤링)
-    const currentList = [];
-    for (let i = 0; i < 3; i++) {
-      const idx = (feedListIndex - 3 + i + mockUsers.length) % mockUsers.length;
-      currentList.unshift(mockUsers[idx]); // 최신순 정렬
+    if (!recentFeedContainer || mockUsers.length === 0) {
+      if (recentFeedContainer) recentFeedContainer.innerHTML = '<div style="padding: 20px; text-align: center; color: #8A7A71;">최근 가입한 회원이 없습니다.</div>';
+      return;
     }
+
+    // 가입일이 최신인 순서대로 정렬하여 상위 3개 점포를 보여줍니다.
+    const sorted = [...mockUsers].sort((a, b) => new Date(b.joined) - new Date(a.joined));
+    const currentList = sorted.slice(0, 3);
 
     recentFeedContainer.innerHTML = currentList
       .map((u, index) => {
@@ -300,18 +178,15 @@ document.addEventListener('DOMContentLoaded', () => {
       .join('');
   }
 
-  renderTimelineFeed();
-
-  // [한글 주석: 4초마다 새로운 사장님이 가입되는 실시간 라이브 피드 롤링 연출]
-  setInterval(() => {
-    feedListIndex = (feedListIndex + 1) % mockUsers.length;
-    renderTimelineFeed(true);
-  }, 4000);
-
   // 5. [회원 관리] 탭 통합 사장님 테이블 렌더링
   const userTableBody = document.getElementById('user-table-body');
   function renderUserTable() {
     if (!userTableBody) return;
+
+    if (mockUsers.length === 0) {
+      userTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 30px; color: #8A7A71;">가입된 사장님 회원 데이터가 없습니다.</td></tr>';
+      return;
+    }
 
     let items = mockUsers;
     if (currentFilter === 'premium') {
@@ -343,8 +218,6 @@ document.addEventListener('DOMContentLoaded', () => {
       )
       .join('');
   }
-
-  renderUserTable();
 
   // 상단 필터 탭 (Pill Buttons) 이벤트
   const filterPills = document.querySelectorAll('.filter-pill');
@@ -452,7 +325,7 @@ document.addEventListener('DOMContentLoaded', () => {
         selectedUser.status = e.target.value;
         renderUserTable();
         renderTimelineFeed();
-        alert(`${selectedUser.name} 사장님의 계정 상태가 '${e.target.value}'(으)로 변경되었습니다.`);
+        alert(`${selectedUser.name} 사장님의 계정 상태가 '${e.target.value}'(으)로 가상 업데이트되었습니다.`);
       }
     });
   }
@@ -510,7 +383,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (selectedUser) {
         const memoText = document.getElementById('drawer-user-memo').value;
         selectedUser.memo = memoText;
-        alert(`${selectedUser.store} 사장님에 대한 CS 관리자 메모가 저장되었습니다.`);
+        alert(`${selectedUser.store} 사장님에 대한 CS 관리자 메모가 로컬에 임시 저장되었습니다.`);
       }
     });
   }
@@ -538,6 +411,33 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // 🩺 [한글 주석: PostgreSQL 사장님 계정 영구 강제 탈퇴/삭제 연동]
+  const btnDeleteUser = document.getElementById('btn-delete-user');
+  if (btnDeleteUser) {
+    btnDeleteUser.addEventListener('click', async () => {
+      if (!selectedUser) return;
+      if (confirm(`⚠️ [영구 차단 경고]\n'${selectedUser.store}' 매장 (${selectedUser.name} 사장님) 계정을 데이터베이스에서 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) {
+        try {
+          const res = await fetch(`${API_BASE}/admin/users/${selectedUser.id}`, {
+            method: 'DELETE'
+          });
+          if (res.ok) {
+            alert('사장님 회원 계정이 PostgreSQL DB에서 성공적으로 영구 삭제되었습니다.');
+            closeUserDrawer();
+            await loadUsers(); // 사장님 목록 다시 리로드
+            await loadDashboardStats(); // 통계 재계산
+          } else {
+            const errData = await res.json();
+            alert(`계정 삭제 실패: ${errData.detail}`);
+          }
+        } catch (err) {
+          console.error(err);
+          alert('서버 통신 중 에러가 발생하여 계정 삭제를 처리하지 못했습니다.');
+        }
+      }
+    });
+  }
+
   // 13. [한글 주석: 사장님 전용 푸시 알림 전송 및 발송 이력 관리]
   let currentNotifTarget = 'all';
   const targetPills = document.querySelectorAll('.target-pill');
@@ -554,12 +454,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  const mockNotifHistory = [
-    { id: 1, title: '[안내] 7월 AI 매출 예측 엔진 정기 업데이트', body: 'AI 매출 예측 엔진의 정확도가 향상된 모델로 업데이트되었습니다. 앱에서 확인해 보세요.', target: '전체 사장님', time: '2026-07-18 14:00' },
-    { id: 2, title: '👑 프리미엄 회원 전용 1:1 세무 컨설팅 수신', body: '이번 달 결산 세무 보조 리포트가 완성되었습니다.', target: '프리미엄 회원만', time: '2026-07-15 10:30' },
-    { id: 3, title: '[공지] 바코드 영수증 OCR 인식 속도 2배 개선', body: '영수증 촬영 후 자동 입력 속도가 더욱 빨라졌습니다.', target: '전체 사장님', time: '2026-07-10 09:15' },
-  ];
-
   const notifHistoryContainer = document.getElementById('notif-history-list');
   const notifHistoryCount = document.getElementById('notif-history-count');
 
@@ -573,56 +467,61 @@ document.addEventListener('DOMContentLoaded', () => {
       <div class="notif-history-card">
         <div class="notif-history-header">
           <span class="notif-history-title">${n.title}</span>
-          <span class="notif-history-time">${n.time}</span>
+          <span class="notif-history-time">${n.date || n.time}</span>
         </div>
-        <div class="notif-history-body">${n.body}</div>
+        <div class="notif-history-body">${n.body || '내용 없음'}</div>
         <span class="notif-target-tag">수신: ${n.target}</span>
       </div>
     `
       )
       .join('');
   }
-  renderNotifHistory();
+
+  // 알림 발송 시 특정 사장님 선택 드롭다운 채우기
+  function updateSpecificUserSelect() {
+    if (!specificSelect) return;
+    specificSelect.innerHTML = '<option value="">-- 수신 점포 선택 --</option>' + 
+      mockUsers.map(u => `<option value="${u.store}">${u.store} (${u.name})</option>`).join('');
+  }
 
   const notifForm = document.getElementById('notif-form');
   if (notifForm) {
-    notifForm.addEventListener('submit', (e) => {
+    notifForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const title = document.getElementById('notif-title').value.trim();
       const body = document.getElementById('notif-body').value.trim();
       if (!title || !body) return;
 
-      let targetLabel = '전체 사장님 (9명)';
-      if (currentNotifTarget === 'premium') targetLabel = '👑 프리미엄 회원만 (4명)';
+      let targetLabel = '전체 사장님';
+      if (currentNotifTarget === 'premium') targetLabel = '프리미엄 회원만';
       else if (currentNotifTarget === 'specific' && specificSelect) {
         targetLabel = `특정 매장 (${specificSelect.value})`;
       }
 
-      const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 16);
-      mockNotifHistory.unshift({
-        id: Date.now(),
-        title,
-        body,
-        target: targetLabel,
-        time: nowStr,
-      });
-
-      renderNotifHistory();
-      document.getElementById('notif-title').value = '';
-      document.getElementById('notif-body').value = '';
-      alert(`📲 [발송 완료] ${targetLabel} 대상 사장님 전용 알림 메시지가 성공적으로 전달되었습니다!`);
+      try {
+        const res = await fetch(`${API_BASE}/admin/notifications`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: title,
+            target: targetLabel
+          })
+        });
+        if (res.ok) {
+          // 성공 시 리스트 다시 불러옴
+          document.getElementById('notif-title').value = '';
+          document.getElementById('notif-body').value = '';
+          alert(`📲 [발송 완료] ${targetLabel} 대상 사장님 알림 발송이 백엔드에 동기화되었습니다!`);
+          await loadNotifications();
+        }
+      } catch (err) {
+        console.error(err);
+        alert('알림 전송 중 오류가 발생했습니다.');
+      }
     });
   }
 
   // 14. [한글 주석: CS / 1:1 문의 데이터 및 관리 모달]
-  const mockCSList = [
-    { id: 101, store: '포슬카페', name: '포슬이', category: '영수증 OCR', title: '바코드가 약간 구겨져도 인식이 잘 되나요?', date: '2026-07-19 15:30', status: '답변 대기', question: '영수증 OCR 촬영 시 바코드가 약간 구겨져도 제대로 인식이 되는지 궁금합니다!', answer: '' },
-    { id: 102, store: '블루보틀 강남', name: '김철수', category: '결제/구독', title: '프리미엄 요금제 영수증 발행 요청', date: '2026-07-18 11:20', status: '답변 대기', question: '7월분 프리미엄 회원 구독료에 대한 사업자 증빙 영수증을 이메일로 받아볼 수 있을까요?', answer: '' },
-    { id: 103, store: '성수 로스터스', name: '이영희', category: '원두 큐레이션', title: '에티오피아 원두 산미 추천 필터 문의', date: '2026-07-16 17:45', status: '처리 완료', question: '원두 취향 큐레이터에서 약배전 산미 위주 원두 목록을 추가해 주실 수 있나요?', answer: '안녕하세요 이영희 사장님! 원두 취향 큐레이터에 산미/가공방식 필터가 추가되었습니다.' },
-    { id: 104, store: '카페 민트', name: '박민수', category: '앱 사용법', title: '알바 스케줄 자동 생성 추천 활용법', date: '2026-07-14 09:10', status: '처리 완료', question: '주말 피크 타임에 알바 1명 추가 추천이 떠서 반영했습니다. 감사합니다!', answer: '감사합니다 사장님! AI 스케줄러가 매장 매출 추이를 분석해 피크타임을 자동 계산합니다.' },
-    { id: 105, store: '더드립 청담', name: '최동현', category: '계정/승인', title: '매장 가입 승인 서류 제출 완료 문의', date: '2026-07-12 16:30', status: '처리 완료', question: '사업자등록증 서류 등록을 마쳤습니다. 승인 부탁드립니다.', answer: '사장님, 서류 확인이 정상 완료되어 승인 처리해 드렸습니다!' }
-  ];
-
   let currentCSFilter = 'all';
   const csTableBody = document.getElementById('cs-table-body');
 
@@ -636,7 +535,7 @@ document.addEventListener('DOMContentLoaded', () => {
       <tr class="clickable-row" onclick="openCSModal(${c.id})">
         <td>#CS-${c.id}</td>
         <td><strong>${c.store}</strong> (${c.name})</td>
-        <td><span class="feed-plan-chip">${c.category}</span></td>
+        <td><span class="feed-plan-chip">${c.category || '기타 문의'}</span></td>
         <td>${c.title}</td>
         <td>${c.date}</td>
         <td><span class="status-badge ${c.status === '처리 완료' ? 'green-bg' : 'amber-bg pulse'}">${c.status === '처리 완료' ? '✅ ' : '⏳ '}${c.status}</span></td>
@@ -644,7 +543,6 @@ document.addEventListener('DOMContentLoaded', () => {
       </tr>
     `).join('');
   }
-  renderCSTable();
 
   const csFilterPills = document.querySelectorAll('.cs-filter-pill');
   csFilterPills.forEach(pill => {
@@ -668,8 +566,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('cs-modal-id').textContent = `#CS-${item.id}`;
     document.getElementById('cs-modal-store').textContent = `${item.store} (${item.name} 사장님)`;
     document.getElementById('cs-modal-date').textContent = item.date;
-    document.getElementById('cs-modal-question').textContent = item.question;
-    document.getElementById('cs-answer-input').value = item.answer || '';
+    document.getElementById('cs-modal-question').textContent = item.question || item.content;
+    document.getElementById('cs-answer-input').value = item.reply || '';
 
     if (window.lucide) lucide.createIcons();
     if (csModalOverlay) csModalOverlay.classList.add('active');
@@ -683,29 +581,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const btnSendCSAnswer = document.getElementById('btn-send-cs-answer');
   if (btnSendCSAnswer) {
-    btnSendCSAnswer.addEventListener('click', () => {
+    btnSendCSAnswer.addEventListener('click', async () => {
       if (!selectedCSItem) return;
       const answerText = document.getElementById('cs-answer-input').value.trim();
       if (!answerText) {
         alert('사장님께 전송할 답변 내용을 입력해 주세요!');
         return;
       }
-      selectedCSItem.answer = answerText;
-      selectedCSItem.status = '처리 완료';
-      renderCSTable();
-      if (csModalOverlay) csModalOverlay.classList.remove('active');
-      alert(`💌 [답변 전달 완료] ${selectedCSItem.store} 사장님 앱 1:1 문의 답변으로 전송되었습니다!`);
+
+      try {
+        const res = await fetch(`${API_BASE}/admin/cs/${selectedCSItem.id}/reply`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reply: answerText })
+        });
+        if (res.ok) {
+          alert(`💌 [답변 전달 완료] ${selectedCSItem.store} 사장님께 답변이 전달되었습니다!`);
+          if (csModalOverlay) csModalOverlay.classList.remove('active');
+          await loadCSList();
+        }
+      } catch (err) {
+        console.error(err);
+        alert('CS 답변 등록 실패');
+      }
     });
   }
 
   // 15. [한글 주석: 결제 & 구독 매출 관리 이력 리스트]
-  const mockPayments = [
-    { id: 'PAY-2026-0701', date: '2026-07-01 10:15', store: '포슬카페 (owner@cafe.com)', plan: '프리미엄 회원 (월정액)', amount: '₩19,900', method: '신용카드 (현대 8492)', status: '결제 성공' },
-    { id: 'PAY-2026-0703', date: '2026-07-03 14:20', store: '블루보틀 강남 (chulsoo@cafe.com)', plan: '프리미엄 회원 (월정액)', amount: '₩19,900', method: '카카오페이', status: '결제 성공' },
-    { id: 'PAY-2026-0705', date: '2026-07-05 09:30', store: '성수 로스터스 (young@cafe.com)', plan: '프리미엄 회원 (월정액)', amount: '₩19,900', method: '신용카드 (신한 1039)', status: '결제 성공' },
-    { id: 'PAY-2026-0712', date: '2026-07-12 18:00', store: '빈브라더스 판교 (sujin@cafe.com)', plan: '프리미엄 회원 (월정액)', amount: '₩19,900', method: '네이버페이', status: '결제 성공' }
-  ];
-
   const paymentTableBody = document.getElementById('payment-table-body');
   function renderPaymentsTable() {
     if (!paymentTableBody) return;
@@ -713,13 +615,93 @@ document.addEventListener('DOMContentLoaded', () => {
       <tr>
         <td><strong>${p.id}</strong></td>
         <td>${p.date}</td>
-        <td>${p.store}</td>
-        <td><span class="status-badge green-bg">★ ${p.plan}</span></td>
+        <td>${p.store} ${p.owner ? '(' + p.owner + ')' : ''}</td>
+        <td><span class="status-badge green-bg">★ ${p.plan || '프리미엄'}</span></td>
         <td><strong>${p.amount}</strong></td>
-        <td>${p.method}</td>
-        <td><span class="status-badge green-bg">✅ ${p.status}</span></td>
+        <td>${p.method || '신용카드'}</td>
+        <td><span class="status-badge green-bg">✅ ${p.status || '결제 성공'}</span></td>
       </tr>
     `).join('');
   }
-  renderPaymentsTable();
+
+  // ---------------------------------------------------------------------------
+  // 🩺 [한글 주석: 백엔드 API로부터 실시간 데이터 로드 함수 정의]
+  // ---------------------------------------------------------------------------
+  async function loadUsers() {
+    try {
+      const res = await fetch(`${API_BASE}/admin/users`);
+      if (res.ok) {
+        mockUsers = await res.json();
+        renderUserTable();
+        renderTimelineFeed();
+        updateSpecificUserSelect();
+      }
+    } catch (err) {
+      console.error('회원 목록 조회 실패:', err);
+    }
+  }
+
+  async function loadDashboardStats() {
+    try {
+      const res = await fetch(`${API_BASE}/admin/dashboard/stats`);
+      if (res.ok) {
+        const data = await res.json();
+        document.getElementById('stats-total-stores').innerHTML = `${data.totalStores}<span class="unit">명</span>`;
+        document.getElementById('stats-premium-ratio').innerHTML = `${data.premiumRatio}<span class="unit"></span>`;
+        document.getElementById('stats-premium-sub').textContent = `전체 사장님 대비 프리미엄 비율`;
+        document.getElementById('stats-total-ingredients').innerHTML = `${data.totalIngredients}<span class="unit">품목</span>`;
+        document.getElementById('stats-ocr-count').innerHTML = `${data.activeUsersCount}<span class="unit">개</span>`;
+      }
+    } catch (err) {
+      console.error('통계 로드 실패:', err);
+    }
+  }
+
+  async function loadCSList() {
+    try {
+      const res = await fetch(`${API_BASE}/admin/cs`);
+      if (res.ok) {
+        mockCSList = await res.json();
+        renderCSTable();
+      }
+    } catch (err) {
+      console.error('CS 리스트 조회 실패:', err);
+    }
+  }
+
+  async function loadNotifications() {
+    try {
+      const res = await fetch(`${API_BASE}/admin/notifications`);
+      if (res.ok) {
+        mockNotifHistory = await res.json();
+        renderNotifHistory();
+      }
+    } catch (err) {
+      console.error('알림 조회 실패:', err);
+    }
+  }
+
+  async function loadPayments() {
+    try {
+      const res = await fetch(`${API_BASE}/admin/payments`);
+      if (res.ok) {
+        mockPayments = await res.json();
+        renderPaymentsTable();
+      }
+    } catch (err) {
+      console.error('결제 조회 실패:', err);
+    }
+  }
+
+  // [한글 주석: 초기 구동 시 실시간 데이터 전면 동기화]
+  async function initDashboard() {
+    await checkBackendHealth();
+    await loadDashboardStats();
+    await loadUsers();
+    await loadCSList();
+    await loadNotifications();
+    await loadPayments();
+  }
+
+  initDashboard();
 });
