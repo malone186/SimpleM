@@ -196,7 +196,7 @@ export default function CostScreen() {
                       <View key={idx} style={styles.recCard}>
                         <View style={styles.recHeader}>
                           <Text style={styles.recIngName}>{rec.ingredient_name}</Text>
-                          <Badge text={rec.source} tone={rec.source.includes('도매') ? 'green' : 'info'} />
+                          <Badge label={rec.source} tone={rec.source.includes('도매') ? 'green' : 'neutral'} />
                         </View>
                         <Text style={styles.recAltName}>대체추천: {rec.alternative_name}</Text>
                         

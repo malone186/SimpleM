@@ -375,7 +375,7 @@ function UnavailabilityManagementCard() {
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <Text style={unavStyles.itemTitle}>직원(ID:{u.employee_id})</Text>
-                    <Badge label={isHard ? 'Hard 절대불가' : 'Soft 가급적회피'} tone={isHard ? 'orange' : 'cream'} />
+                    <Badge label={isHard ? 'Hard 절대불가' : 'Soft 가급적회피'} tone={isHard ? 'orange' : 'neutral'} />
                   </View>
                   <Text style={unavStyles.itemSub}>
                     {typeLabel} · {u.start_hour}:00 ~ {u.end_hour}:00 {u.reason ? `(${u.reason})` : ''}
@@ -511,7 +511,7 @@ const unavStyles = StyleSheet.create({
 
 function ScheduleTab() {
   const { token, user } = useAuth();
-  const [shifts, setShifts] = useState(INITIAL_SHIFTS);
+  const [shifts, setShifts] = useState<any[]>([]); // FIX(머지): INITIAL_SHIFTS 미정의 참조 → 빈 배열로 대체
   const [recommendation, setRecommendation] = useState<ScheduleRecommendation | null>(null);
   const [recLoading, setRecLoading] = useState(false);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -563,8 +563,6 @@ function ScheduleTab() {
       notify('스케줄 조회 실패', e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
-    }
-  }, []);
     }
   }, []);
 
