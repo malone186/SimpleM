@@ -4,12 +4,14 @@ from fastapi import APIRouter, Query, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.auth import get_current_user
+from app.models.user import User
 from app.models.operation import Employee, Schedule, EstimatedPayroll, EstimatedSettlement
 from app.schemas.operation import (
     CommonResponse, ScheduleCreate, ScheduleUpdate, ScheduleResponse,
     PayrollResponse, PayrollListItem, SettlementResponse, SettlementListItem,
     TaxEstimateRequest, TaxEstimateResponse, ForecastRequest, ForecastResponse,
-    RAGDocumentResponse, ReportSourceResponse, PayrollCalculateRequest, SettlementCalculateRequest,
+    RAGDocumentResponse, ReportSourceResponse, PayrollCalculateRequest, PayrollCalculateResponse,
+    SettlementCalculateRequest, SettlementCalculateResponse,
     ScheduleRecommendationRequest, ScheduleRecommendationResponse,
     ExpenseCreate, ExpenseResponse
 )
@@ -124,47 +126,6 @@ def recommend_schedule_api(payload: ScheduleRecommendationRequest, db: Session =
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
 
-@router.post("/payroll/calculate", response_model=CommonResponse)
-def calculate_payroll_api(payload: PayrollCalculateRequest, db: Session = Depends(get_db)):
-    """[한글 주석] 특정 직원의 지정 기간 내 스케줄을 조회하여 예상 급여를 계산하고 DB(EstimatedPayroll)에 영속화 저장합니다."""
-    try:
-        # [한글 주석] period_start (예: "2026-07-01")로부터 서비스 레이어가 필요로 하는 연월(YYYY-MM)을 슬라이싱 추출합니다.
-        year_month = payload.period_start[:7]
-        payroll_result = OperationService.calculate_payroll(
-            db=db,
-            employee_id=payload.employee_id,
-            year_month=year_month
-        )
-        
-        # [한글 주석] 계산된 예상 데이터를 실제 데이터베이스 테이블에 저장하여 적재 이력을 남깁니다.
-        db_payroll = EstimatedPayroll(
-            employee_id=payroll_result["employee_id"],
-            period_start=payload.period_start,
-            period_end=payload.period_end,
-            total_work_hours=payroll_result["total_work_hours"],
-            estimated_salary=payroll_result["total_salary"]
-        )
-        db.add(db_payroll)
-        db.commit()
-        db.refresh(db_payroll)
-
-        data = PayrollResponse(
-            id=db_payroll.id,
-            employee_id=db_payroll.employee_id,
-            employee_name=payroll_result["employee_name"],
-            period_start=db_payroll.period_start,
-            period_end=db_payroll.period_end,
-            total_work_hours=db_payroll.total_work_hours,
-            base_salary=payroll_result["base_salary"],
-            weekly_holiday_allowance=payroll_result["weekly_holiday_allowance"],
-            estimated_salary=db_payroll.estimated_salary,
-            calculated_at=db_payroll.calculated_at
-        )
-        return CommonResponse(success=True, data=data, message="예상 급여 계산 및 저장이 완료되었습니다.")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
 
 @router.get("/payroll", response_model=CommonResponse)
 def get_payroll_api(
@@ -186,19 +147,22 @@ def get_payroll_api(
         payroll_list = []
         for emp in employees:
             try:
-                payroll = OperationService.calculate_payroll(db, emp.id, year_month)
+                p_start = f"{year_month}-01"
+                p_end = f"{year_month}-31"
+                payroll = OperationService.calculate_payroll_from_db(db, emp.id, p_start, p_end)
                 if payroll["total_work_hours"] > 0:
                     payroll_list.append(
                         PayrollListItem(
+                            id=payroll["id"],
                             employee_id=emp.id,
                             employee_name=emp.name,
-                            year_month=year_month,
+                            period_start=p_start,
+                            period_end=p_end,
                             total_work_hours=payroll["total_work_hours"],
-                            estimated_payroll=payroll["total_salary"]
+                            estimated_salary=payroll["estimated_salary"]
                         )
                     )
             except ValueError:
-                # 시급이 <= 0 이거나 스케줄이 아예 없는 경우 리스트에서 스킵
                 continue
                 
         return CommonResponse(success=True, data=payroll_list, message="예상 급여 목록 조회가 완료되었습니다.")
@@ -221,47 +185,7 @@ def get_all_payroll_api(
     except Exception as e:
         return CommonResponse(success=False, data=None, message=f"서버 오류: {str(e)}")
 
-@router.post("/settlements/calculate", response_model=CommonResponse)
-def calculate_settlement_api(payload: SettlementCalculateRequest, db: Session = Depends(get_db)):
-    """[한글 주석] 지정 기간 동안의 매장 매출, 지출, 총 인건비를 연동해 예상 손익 정산을 계산하고 DB(EstimatedSettlement)에 저장합니다."""
-    try:
-        settlement_result = OperationService.calculate_settlement(
-            db=db,
-            period_start=payload.period_start,
-            period_end=payload.period_end,
-            other_expense=payload.other_expense or 0
-        )
 
-        # [한글 주석] 연산된 매장 예상 정산 결과를 데이터베이스에 최종 영속화 저장합니다.
-        db_settlement = EstimatedSettlement(
-            period_start=payload.period_start,
-            period_end=payload.period_end,
-            total_sales=settlement_result["total_sales"],
-            total_expense=settlement_result["total_expense"],
-            total_payroll=settlement_result["total_payroll"],
-            other_expense=settlement_result["other_expense"],
-            net_profit=settlement_result["net_profit"]
-        )
-        db.add(db_settlement)
-        db.commit()
-        db.refresh(db_settlement)
-
-        data = SettlementResponse(
-            id=db_settlement.id,
-            period_start=db_settlement.period_start,
-            period_end=db_settlement.period_end,
-            total_sales=db_settlement.total_sales,
-            total_expense=db_settlement.total_expense,
-            total_payroll=db_settlement.total_payroll,
-            other_expense=db_settlement.other_expense,
-            net_profit=db_settlement.net_profit,
-            calculated_at=db_settlement.calculated_at
-        )
-        return CommonResponse(success=True, data=data, message="예상 정산 계산 및 저장이 완료되었습니다.")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
 
 # --- [신규 GET API: 저장된 예상 결과 조회] ---
 
@@ -529,6 +453,65 @@ async def sync_pos_data_api(
             data=None,
             message=f"POS 동기화 실패: {str(e)}"
         )
+
+
+# --- [6. 예상 급여 및 예상 손익 정산 계산 API (MVP)] ---
+
+@router.post("/payroll/calculate", response_model=CommonResponse, summary="예상 급여 계산 (MVP + 옵션 A/B)")
+def calculate_payroll_api(payload: PayrollCalculateRequest):
+    """
+    [예상 급여 계산 API]
+    근무 시작/종료 시각과 휴게시간(분), 시급을 입력받아 실근무시간과 예상 급여를 연산합니다.
+    - [옵션 A] 자정 넘김(익일 퇴근) 지원
+    - [옵션 B] 주휴수당(주 15시간 이상) 및 3.3% 사업소득세 공제 연산 지원
+    """
+    try:
+        result = OperationService.calculate_payroll(
+            start_time=payload.start_time,
+            end_time=payload.end_time,
+            break_minutes=payload.break_minutes,
+            hourly_rate=payload.hourly_rate,
+            weekly_work_hours=payload.weekly_work_hours,
+            include_weekly_holiday=payload.include_weekly_holiday,
+            deduct_tax=payload.deduct_tax
+        )
+        response_payload = PayrollCalculateResponse(**result)
+        return CommonResponse(
+            success=True,
+            data=response_payload.model_dump(),
+            message="예상 급여 계산이 완료되었습니다."
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"서버 오류가 발생했습니다: {str(e)}")
+
+
+@router.post("/settlements/calculate", response_model=CommonResponse, summary="예상 손익 정산 계산 (MVP)")
+def calculate_settlement_api(payload: SettlementCalculateRequest):
+    """
+    [예상 손익 정산 계산 API]
+    매출, 원가/비용, 인건비, 기타비용을 입력받아 총 비용과 예상 정산 이익 및 이익률(%)을 연산합니다.
+    - 입력값 범위 실패 시 HTTP 422
+    - 도메인 검증 실패 시 HTTP 400 (예: 금액 음수 등)
+    """
+    try:
+        result = OperationService.calculate_settlement(
+            revenue=payload.revenue,
+            cost=payload.cost,
+            labor_cost=payload.labor_cost,
+            other_expense=payload.other_expense
+        )
+        response_payload = SettlementCalculateResponse(**result)
+        return CommonResponse(
+            success=True,
+            data=response_payload.model_dump(),
+            message="예상 정산 결과 계산이 완료되었습니다."
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"서버 오류가 발생했습니다: {str(e)}")
 
 
 

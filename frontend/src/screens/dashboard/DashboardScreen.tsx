@@ -1,12 +1,11 @@
 // 대시보드 (프론트 A) — Design Spec 기반
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import Svg, { Defs, LinearGradient, Stop, Path, Circle, Filter, FeGaussianBlur } from 'react-native-svg';
 
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../auth/AuthContext';
-import ReportModal from '../../components/brew/ReportModal';
 import ManagementReportCard from '../../components/dashboard/ManagementReportCard';
 import QuickOrderModal from '../../components/dashboard/QuickOrderModal';
 import SalesCard from '../../components/dashboard/SalesCard';
@@ -41,14 +40,13 @@ export default function DashboardScreen() {
   const [selected, setSelected] = useState<Todo | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [runId, setRunId] = useState(0);
-  const [showReport, setShowReport] = useState(false); // [한글 주석: 주간 리포트 모달 토글용 상태값 복원]
 
   const { user } = useAuth();
   const navigation = useNavigation<any>();
   const isFocused = useIsFocused();
 
-  // 오늘 상태 → 브루 표정 (매출 상승 = 활짝 웃는 브루)
-  const brewMood = 'happy';
+  // 홈 헤더 마스코트 — 모자 쓰고 커피 든 바리스타 브루(brew_top)
+  const brewMood = 'top';
   const scrollY = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -68,9 +66,22 @@ export default function DashboardScreen() {
     setSelected(todo);
   };
 
+  // [한글 주석: 직접 발주 안내 Alert 처리]
+  // 오너가 외부 공급처에서 직접 주문하도록 안내 팝업을 띄우고, 확인 클릭 시 할 일 목록에서 해당 항목을 완료(done) 처리합니다.
   const confirmOrder = (todo: Todo) => {
-    setTodos((prev) => prev.map((t) => (t.id === todo.id ? { ...t, done: true } : t)));
-    setSelected(null);
+    Alert.alert(
+      '직접 발주 안내',
+      '앱 내 직접 발주 기능은 지원하지 않습니다. 외부 공급처를 통해 별도로 주문해주시기 바랍니다.\n\n발주 완료 후 재료의 재고 수량은 [재고] 탭에서 수동으로 업데이트해주세요.',
+      [
+        {
+          text: '확인',
+          onPress: () => {
+            setTodos((prev) => prev.map((t) => (t.id === todo.id ? { ...t, done: true } : t)));
+            setSelected(null);
+          },
+        },
+      ]
+    );
   };
 
   // 스크롤에 따라 헤더가 반 속도로 따라오는 패럴럭스 + 부드러운 페이드
@@ -148,28 +159,17 @@ export default function DashboardScreen() {
         */}
         <View style={styles.body}>
           <FadeInUp key={`sales-${runId}`} delay={80}>
-            <SalesCard key={`salescard-${runId}`} />
+            <SalesCard
+              key={`salescard-${runId}`}
+              todos={todos}
+              onPressTodo={openOrder}
+            />
           </FadeInUp>
 
           {/* AI 경영 리포트 — 일간/주간/월간 탭을 누르면 홈에서 바로 보인다
               (runId 키로 당겨서 새로고침 시 리마운트 → 최신 수치 재조회) */}
           <FadeInUp key={`report-${runId}`} delay={140}>
             <ManagementReportCard key={`reportcard-${runId}`} />
-          </FadeInUp>
-
-          <FadeInUp key={`weekly-report-${runId}`} delay={200}>
-            <PressableScale style={styles.reportEntry} onPress={() => setShowReport(true)}>
-              <View style={styles.reportDot} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.reportTitle}>브루가 이번 주 리포트를 준비했어요</Text>
-                <Text style={styles.reportSub}>매출 +8.2% · 원가율 주의 — 눌러서 편지 받기</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown} />
-            </PressableScale>
-          </FadeInUp>
-
-          <FadeInUp key={`todo-${runId}`} delay={260}>
-            <TodoList todos={todos} onPressAction={openOrder} />
           </FadeInUp>
         </View>
       </Animated.ScrollView>
@@ -180,7 +180,6 @@ export default function DashboardScreen() {
         onClose={() => setSelected(null)}
         onConfirm={confirmOrder}
       />
-      <ReportModal visible={showReport} onClose={() => setShowReport(false)} />
     </View>
   );
 }
@@ -198,19 +197,5 @@ const styles = StyleSheet.create({
     paddingBottom: 110, // [한글 주석: 하단 탭 바 가림 방지 여백 확보] 원래 48에서 110으로 확장하여 탭 바 위로 부드럽게 스크롤되도록 조율
     gap: spacing.verticalGap,
   },
-  // [한글 주석: 복원된 주간 리포트 진입 배너 스타일]
-  reportEntry: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: colors.coffeeCream,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.mutedSand,
-    padding: 16,
-  },
-  reportDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.pointOrange },
-  reportTitle: { ...typography.L4, color: colors.espressoBrown },
-  reportSub: { ...typography.L5, color: colors.mochaBrown, marginTop: 3 },
 });
 
