@@ -91,12 +91,11 @@ def seed_data():
                 except ValueError:
                     price_pg = 0.0
 
-            # [한글 주석: 로그인하지 않은 유저도 상품 사양을 즉시 조회할 수 있도록 naverProductId 기반의 쇼핑 카탈로그 주소로 링크를 교체 가공합니다]
-            naver_id = b.get("naverProductId")
-            if naver_id:
-                product_url = f"https://search.shopping.naver.com/catalog/{naver_id}"
-            else:
-                product_url = b.get("productUrl")
+            # [한글 주석: 네이버의 IP 어뷰징 차단(접속 제한)을 100% 우회하기 위해, 쇼핑 검색결과 창 주소로 안전하게 가공합니다.
+            # 또한, 원두 이름이 길어 인코딩 시 URL이 255글자를 초과하여 데이터베이스 Truncation 에러가 발생하는 것을 방지하도록 앞 22글자만 잘라내어 인코딩합니다]
+            import urllib.parse
+            cleaned_query_name = b['name'][:22].strip()
+            product_url = f"https://search.shopping.naver.com/search/all?query={urllib.parse.quote(cleaned_query_name)}"
 
             bean_mappings.append({
                 "id": b["id"],
