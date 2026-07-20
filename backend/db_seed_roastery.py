@@ -91,13 +91,21 @@ def seed_data():
                 except ValueError:
                     price_pg = 0.0
 
+            # [한글 주석: 스마트스토어 구매 링크를 모바일 버전(m.smartstore)으로 자동 치환합니다.
+            # 모바일 도메인을 사용하면 로그인 창이 뜨지 않고 비로그인 상태로도 상세 상품 정보에 다이렉트 진입할 수 있으며, 자사몰 링크도 훼손 없이 보존됩니다]
+            orig_url = b.get("productUrl", "")
+            if "smartstore.naver.com" in orig_url:
+                product_url = orig_url.replace("smartstore.naver.com", "m.smartstore.naver.com")
+            else:
+                product_url = orig_url
+
             bean_mappings.append({
                 "id": b["id"],
                 "name": b["name"],
                 "price": price_val,
                 "roastery_id": roastery_id,
                 "thumbnail_url": b.get("thumbnailUrl"),
-                "product_url": b.get("productUrl"),
+                "product_url": product_url,
                 "date_added": b.get("dateAdded"),
                 "best": bool(b.get("best")),
                 "new": bool(b.get("new")),

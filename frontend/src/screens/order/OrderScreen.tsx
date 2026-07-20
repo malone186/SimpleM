@@ -22,7 +22,13 @@ import { listRoasteryBeans, RoasteryBean } from '../../lib/api/inventory';
 import BeanDetailModal from '../../components/order/BeanDetailModal';
 import BeanNotepad from '../../components/order/BeanNotepad';
 
-
+// [한글 주석: 부족한 부자재 재고 발주 추천 목록 데이터 정의]
+const DEFICIENT_ITEMS = [
+  { id: 'milk', name: '서울우유 1L', status: '잔여 3팩 (안전재고 8팩)', query: '서울우유 1L' },
+  { id: 'cup', name: '종이컵 14oz', status: '잔여 150개 (안전재고 500개)', query: '카페 종이컵 14oz' },
+  { id: 'holder', name: '컵 홀더 (크라프트)', status: '잔여 80개 (안전재고 300개)', query: '카페 컵홀더 크라프트' },
+  { id: 'straw', name: '종이 빨대', status: '소진 임박 (안전재고 미달)', query: '카페 종이 빨대' },
+];
 
 export default function OrderScreen() {
   // [상태] 원두 목록, 로딩 중 여부, 오류 여부, 상세 모달 대상 원두
@@ -132,22 +138,50 @@ export default function OrderScreen() {
       {/* 상단 타이틀 */}
       <ScreenTitle
         title="발주"
-        subtitle="원두 메모 관리 및 로스터리 원두 탐색"
+        subtitle="부자재 부족 재고 쇼핑 및 로스터리 원두 탐색"
       />
 
       {/* 원두 메모장 — 현재 사용 원두 및 체험 노트 */}
       <BeanNotepad />
 
-      {/* 섹션 구분 라벨 */}
-      <View style={styles.sectionLabel}>
-        <View style={styles.sectionLine} />
-        <Text style={styles.sectionLabelText}>로스터리 원두 탐색</Text>
-        <View style={styles.sectionLine} />
-      </View>
-
-
-      {/* 원두 카드 목록 */}
+      {/* 원두 및 부자재 스크롤 목록 */}
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContainer}>
+        {/* [한글 주석: 부족한 일반 부자재 재고 발주 추천 섹션을 렌더링합니다] */}
+        <View style={styles.defSection}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="warning-outline" size={16} color={colors.pointOrange} />
+            <Text style={styles.defSectionTitle}>부족한 재고 발주 추천</Text>
+          </View>
+          <View style={styles.defList}>
+            {DEFICIENT_ITEMS.map((item) => (
+              <TouchableOpacity
+                key={item.id}
+                style={styles.defCard}
+                onPress={() => {
+                  Linking.openURL(`https://search.shopping.naver.com/search/all?query=${encodeURIComponent(item.query)}`);
+                }}
+                activeOpacity={0.8}
+              >
+                <View style={styles.defInfo}>
+                  <Text style={styles.defName}>{item.name}</Text>
+                  <Text style={styles.defStatus}>{item.status}</Text>
+                </View>
+                <View style={styles.defBuyBtn}>
+                  <Ionicons name="cart-outline" size={13} color={colors.white} />
+                  <Text style={styles.defBuyText}>구매</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* 섹션 구분 라벨 */}
+        <View style={styles.sectionLabel}>
+          <View style={styles.sectionLine} />
+          <Text style={styles.sectionLabelText}>로스터리 원두 탐색</Text>
+          <View style={styles.sectionLine} />
+        </View>
+
         {beans.map((bean) => {
           const badges = getBadges(bean);
           return (
@@ -491,5 +525,69 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     marginTop: 12,
     paddingHorizontal: 8,
+  },
+
+  // [한글 주석: 부족한 부자재 재고 발주 추천 UI 스타일 세트]
+  defSection: {
+    marginBottom: 20,
+    backgroundColor: 'rgba(212,120,50,0.04)', // 오렌지-베이지 톤의 부드러운 틴트
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(212,120,50,0.15)',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 12,
+  },
+  defSectionTitle: {
+    ...typography.L3,
+    color: colors.espressoBrown,
+    fontWeight: '800',
+  },
+  defList: {
+    gap: 8,
+  },
+  defCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    ...shadows.soft,
+  },
+  defInfo: {
+    flex: 1,
+    gap: 3,
+  },
+  defName: {
+    ...typography.L4,
+    color: colors.espressoBrown,
+    fontWeight: '700',
+  },
+  defStatus: {
+    fontSize: 11.5,
+    color: '#A06030', // 강하지만 정돈된 갈색 톤 경고 색상
+    fontWeight: '600',
+  },
+  defBuyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.pointOrange,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+  },
+  defBuyText: {
+    fontSize: 11,
+    color: colors.white,
+    fontWeight: '700',
   },
 });

@@ -1,6 +1,6 @@
 // 대시보드 (프론트 A) — Design Spec 기반
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import Svg, { Defs, LinearGradient, Stop, Path, Circle, Filter, FeGaussianBlur } from 'react-native-svg';
 
@@ -103,9 +103,22 @@ export default function DashboardScreen() {
     setSelected(todo);
   };
 
+  // [한글 주석: 직접 발주 안내 Alert 처리]
+  // 오너가 외부 공급처에서 직접 주문하도록 안내 팝업을 띄우고, 확인 클릭 시 할 일 목록에서 해당 항목을 완료(done) 처리합니다.
   const confirmOrder = (todo: Todo) => {
-    setTodos((prev) => prev.map((t) => (t.id === todo.id ? { ...t, done: true } : t)));
-    setSelected(null);
+    Alert.alert(
+      '직접 발주 안내',
+      '앱 내 직접 발주 기능은 지원하지 않습니다. 외부 공급처를 통해 별도로 주문해주시기 바랍니다.\n\n발주 완료 후 재료의 재고 수량은 [재고] 탭에서 수동으로 업데이트해주세요.',
+      [
+        {
+          text: '확인',
+          onPress: () => {
+            setTodos((prev) => prev.map((t) => (t.id === todo.id ? { ...t, done: true } : t)));
+            setSelected(null);
+          },
+        },
+      ]
+    );
   };
 
   // 스크롤에 따라 헤더가 반 속도로 따라오는 패럴럭스 + 부드러운 페이드
@@ -183,17 +196,17 @@ export default function DashboardScreen() {
         */}
         <View style={styles.body}>
           <FadeInUp key={`sales-${runId}`} delay={80}>
-            <SalesCard key={`salescard-${runId}`} />
+            <SalesCard
+              key={`salescard-${runId}`}
+              todos={todos}
+              onPressTodo={openOrder}
+            />
           </FadeInUp>
 
           {/* AI 경영 리포트 — 일간/주간/월간 탭을 누르면 홈에서 바로 보인다
               (runId 키로 당겨서 새로고침 시 리마운트 → 최신 수치 재조회) */}
           <FadeInUp key={`report-${runId}`} delay={140}>
             <ManagementReportCard key={`reportcard-${runId}`} />
-          </FadeInUp>
-
-          <FadeInUp key={`todo-${runId}`} delay={200}>
-            <TodoList todos={todos} onPressAction={openOrder} />
           </FadeInUp>
         </View>
       </Animated.ScrollView>

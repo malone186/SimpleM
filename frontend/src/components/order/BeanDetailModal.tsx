@@ -16,32 +16,33 @@ import { RoasteryBean } from '../../lib/api/inventory';
 import { colors, shadows, typography } from '../../theme';
 
 // ─── 원산지(나라) → 지역 특성 한 줄 설명 ────────────────────────────────
-const ORIGIN_HINT: Record<string, { flag: string; region: string; hint: string }> = {
-  에티오피아:   { flag: '🇪🇹', region: '아프리카', hint: '꽃향·베리·홍차 같은 화려한 과일 향의 고향' },
-  케냐:         { flag: '🇰🇪', region: '아프리카', hint: '선명한 산미, 블랙커런트·자몽의 복잡한 풍미' },
-  르완다:       { flag: '🇷🇼', region: '아프리카', hint: '레드베리·복숭아·허브의 달콤하고 섬세한 향' },
-  탄자니아:     { flag: '🇹🇿', region: '아프리카', hint: '체리·자두·초콜릿의 복합적인 밝은 맛' },
-  우간다:       { flag: '🇺🇬', region: '아프리카', hint: '진한 바디감, 견과류·초콜릿의 풍부한 향미' },
-  콜롬비아:     { flag: '🇨🇴', region: '중남미', hint: '캐러멜·헤이즐넛·초콜릿의 균형 잡힌 단맛' },
-  브라질:       { flag: '🇧🇷', region: '중남미', hint: '견과류·초콜릿·카카오의 묵직하고 고소한 맛' },
-  과테말라:     { flag: '🇬🇹', region: '중남미', hint: '다크초콜릿·브라운슈거·스파이스의 복잡한 달콤함' },
-  코스타리카:   { flag: '🇨🇷', region: '중남미', hint: '복숭아·사과·꿀의 깔끔하고 밝은 단맛' },
-  파나마:       { flag: '🇵🇦', region: '중남미', hint: '게이샤의 본고장. 재스민·열대과일의 귀한 향' },
-  페루:         { flag: '🇵🇪', region: '중남미', hint: '부드러운 산미와 다크초콜릿·꿀의 은은한 단맛' },
-  멕시코:       { flag: '🇲🇽', region: '중남미', hint: '가볍고 부드러운 바디, 견과류·밀크초콜릿 향' },
-  인도네시아:   { flag: '🇮🇩', region: '아시아', hint: '흙내음·스파이시·허브의 묵직하고 개성 강한 맛' },
-  예멘:         { flag: '🇾🇪', region: '중동', hint: '와인·건포도·시나몬의 신비롭고 복고적인 향' },
-  인도:         { flag: '🇮🇳', region: '아시아', hint: '몬순 처리 특유의 묵직한 바디, 스파이시한 향' },
-  중국:         { flag: '🇨🇳', region: '아시아', hint: '운남성 원두 특유의 다크초콜릿·흑설탕 풍미' },
+// ─── 원산지(나라) → 지역 특성 한 줄 설명 ────────────────────────────────
+const ORIGIN_HINT: Record<string, { region: string; hint: string }> = {
+  에티오피아:   { region: '아프리카', hint: '꽃향·베리·홍차 같은 화려한 과일 향의 고향' },
+  케냐:         { region: '아프리카', hint: '선명한 산미, 블랙커런트·자몽의 복잡한 풍미' },
+  르완다:       { region: '아프리카', hint: '레드베리·복숭아·허브의 달콤하고 섬세한 향' },
+  탄자니아:     { region: '아프리카', hint: '체리·자두·초콜릿의 복합적인 밝은 맛' },
+  우간다:       { region: '아프리카', hint: '진한 바디감, 견과류·초콜릿의 풍부한 향미' },
+  콜롬비아:     { region: '중남미', hint: '캐러멜·헤이즐넛·초콜릿의 균형 잡힌 단맛' },
+  브라질:       { region: '중남미', hint: '견과류·초콜릿·카카오의 묵직하고 고소한 맛' },
+  과테말라:     { region: '중남미', hint: '다크초콜릿·브라운슈거·스파이스의 복잡한 달콤함' },
+  코스타리카:   { region: '중남미', hint: '복숭아·사과·꿀의 깔끔하고 밝은 단맛' },
+  파나마:       { region: '중남미', hint: '게이샤의 본고장. 재스민·열대과일의 귀한 향' },
+  페루:         { region: '중남미', hint: '부드러운 산미와 다크초콜릿·꿀의 은은한 단맛' },
+  멕시코:       { region: '중남미', hint: '가볍고 부드러운 바디, 견과류·밀크초콜릿 향' },
+  인도네시아:   { region: '아시아', hint: '흙내음·스파이시·허브의 묵직하고 개성 강한 맛' },
+  예멘:         { region: '중동', hint: '와인·건포도·시나몬의 신비롭고 복고적인 향' },
+  인도:         { region: '아시아', hint: '몬순 처리 특유의 묵직한 바디, 스파이시한 향' },
+  중국:         { region: '아시아', hint: '운남성 원두 특유의 다크초콜릿·흑설탕 풍미' },
 };
 
 // ─── 가공 방식 → 설명 ──────────────────────────────────────────────────
-const PROCESS_HINT: Record<string, { emoji: string; label: string; hint: string }> = {
-  washed:    { emoji: '💧', label: 'Washed (워시드)', hint: '물로 씻어 말린 방식 — 깨끗하고 투명한 산미, 원산지 본연의 맛이 살아남' },
-  natural:   { emoji: '☀️', label: 'Natural (내추럴)', hint: '통째로 말린 방식 — 과일처럼 진한 단맛과 풍부한 향, 묵직한 바디감' },
-  honey:     { emoji: '🍯', label: 'Honey (허니)', hint: '점액질을 남겨 말린 방식 — 꿀처럼 달콤하고 부드럽게 마무리됨' },
-  anaerobic: { emoji: '🧪', label: 'Anaerobic (애너로빅)', hint: '밀폐 발효 방식 — 와인·캔디·열대과일의 독특하고 복잡한 풍미' },
-  pulped:    { emoji: '🌿', label: 'Pulped Natural', hint: '과육 일부 제거 후 건조 — 단맛·산미의 균형, 부드러운 질감' },
+const PROCESS_HINT: Record<string, { label: string; hint: string }> = {
+  washed:    { label: 'Washed (워시드)', hint: '물로 씻어 말린 방식 — 깨끗하고 투명한 산미, 원산지 본연의 맛이 살아남' },
+  natural:   { label: 'Natural (내추럴)', hint: '통째로 말린 방식 — 과일처럼 진한 단맛과 풍부한 향, 묵직한 바디감' },
+  honey:     { label: 'Honey (허니)', hint: '점액질을 남겨 말린 방식 — 꿀처럼 달콤하고 부드럽게 마무리됨' },
+  anaerobic: { label: 'Anaerobic (애너로빅)', hint: '밀폐 발효 방식 — 와인·캔디·열대과일의 독특하고 복잡한 풍미' },
+  pulped:    { label: 'Pulped Natural', hint: '과육 일부 제거 후 건조 — 단맛·산미의 균형, 부드러운 질감' },
 };
 
 function getProcessInfo(raw: string | null) {
@@ -78,19 +79,17 @@ const rowStyles = StyleSheet.create({
   value: { ...typography.L5, color: colors.espressoBrown, flex: 1, lineHeight: 18 },
 });
 
-// ─── 섹션 타이틀 ───────────────────────────────────────────────────────
-function SectionTitle({ emoji, title }: { emoji: string; title: string }) {
+// ─── 섹션 타이틀 (이모지 제거 버전) ───────────────────────────────────
+function SectionTitle({ title }: { title: string }) {
   return (
     <View style={sectionStyles.row}>
-      <Text style={sectionStyles.emoji}>{emoji}</Text>
       <Text style={sectionStyles.text}>{title}</Text>
     </View>
   );
 }
 const sectionStyles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
-  emoji: { fontSize: 15 },
-  text: { ...typography.L4, color: colors.espressoBrown },
+  text: { ...typography.L4, color: colors.espressoBrown, fontWeight: '700' },
 });
 
 // ─── 특성 배지 ─────────────────────────────────────────────────────────
@@ -190,28 +189,28 @@ export default function BeanDetailModal({ bean, visible, onClose }: Props) {
             </View>
           </View>
 
-          {/* ━━━ 배지 줄 ━━━ */}
+          {/* ━━━ 배지 줄 (이모지 완벽 제거) ━━━ */}
           <View style={styles.tagRow}>
-            {bean.best && <Tag label="⭐ BEST" color="rgba(212,120,50,0.14)" textColor="#C07030" />}
-            {bean.new && <Tag label="✨ NEW" color="rgba(78,125,58,0.14)" textColor="#4E7D3A" />}
-            {bean.gesha && <Tag label="💎 게이샤" color="rgba(60,100,180,0.12)" textColor="#3C64B4" />}
-            {bean.decaf && <Tag label="☕ 디카페인" />}
-            {bean.blend && <Tag label="🔀 블렌드" />}
-            {bean.sold_out && <Tag label="⛔ 품절" color="rgba(0,0,0,0.06)" textColor="#999" />}
+            {bean.best && <Tag label="BEST" color="rgba(212,120,50,0.14)" textColor="#C07030" />}
+            {bean.new && <Tag label="NEW" color="rgba(78,125,58,0.14)" textColor="#4E7D3A" />}
+            {bean.gesha && <Tag label="게이샤" color="rgba(60,100,180,0.12)" textColor="#3C64B4" />}
+            {bean.decaf && <Tag label="디카페인" />}
+            {bean.blend && <Tag label="블렌드" />}
+            {bean.sold_out && <Tag label="품절" color="rgba(0,0,0,0.06)" textColor="#999" />}
           </View>
 
-          {/* ━━━ 핵심 정보 (DB 실데이터) ━━━ */}
+          {/* ━━━ 핵심 정보 (이모지 완벽 제거) ━━━ */}
           <View style={styles.section}>
-            <SectionTitle emoji="📋" title="원두 정보" />
+            <SectionTitle title="원두 정보" />
             <View style={styles.infoBox}>
 
               {/* 원산지: DB의 실제 country 값 */}
               {bean.country && (
                 <View>
                   <InfoRow
-                    label="🌍 원산지"
+                    label="원산지"
                     value={originInfo
-                      ? `${originInfo.flag} ${bean.country}  (${originInfo.region})`
+                      ? `${bean.country} (${originInfo.region})`
                       : bean.country}
                   />
                   {/* 해당 나라의 커피 특성 한 줄 힌트 */}
@@ -228,7 +227,7 @@ export default function BeanDetailModal({ bean, visible, onClose }: Props) {
               {bean.process && (
                 <View>
                   <InfoRow
-                    label="⚙️ 가공"
+                    label="가공"
                     value={processInfo ? processInfo.label : bean.process}
                   />
                   {processInfo && (
@@ -242,7 +241,7 @@ export default function BeanDetailModal({ bean, visible, onClose }: Props) {
 
               {/* 블렌드 여부 */}
               <InfoRow
-                label="🔀 타입"
+                label="타입"
                 value={bean.blend ? '블렌드 (여러 원두 혼합)' : '싱글 오리진 (단일 산지)'}
               />
 
@@ -250,17 +249,17 @@ export default function BeanDetailModal({ bean, visible, onClose }: Props) {
               {bean.decaf && (
                 <>
                   <View style={styles.divider} />
-                  <InfoRow label="☕ 카페인" value="디카페인 (카페인 제거 처리)" />
+                  <InfoRow label="카페인" value="디카페인 (카페인 제거 처리)" />
                 </>
               )}
 
             </View>
           </View>
 
-          {/* ━━━ 원두 소개 / 맛 설명 (DB의 description) ━━━ */}
+          {/* ━━━ 원두 소개 / 맛 설명 (이모지 완벽 제거) ━━━ */}
           {bean.description ? (
             <View style={styles.section}>
-              <SectionTitle emoji="☕" title="맛과 향" />
+              <SectionTitle title="맛과 향" />
               <View style={styles.descBox}>
                 <Text style={styles.descText}>{bean.description}</Text>
               </View>
@@ -269,7 +268,7 @@ export default function BeanDetailModal({ bean, visible, onClose }: Props) {
             // description이 없을 때 원산지 기반 힌트로 대체
             originInfo && (
               <View style={styles.section}>
-                <SectionTitle emoji="☕" title="예상되는 맛과 향" />
+                <SectionTitle title="예상되는 맛과 향" />
                 <View style={styles.descBox}>
                   <Text style={styles.descText}>
                     {bean.country} 원두는 일반적으로 {originInfo.hint.replace(' 특성', '')} 특징을 가집니다.
@@ -280,9 +279,9 @@ export default function BeanDetailModal({ bean, visible, onClose }: Props) {
             )
           )}
 
-          {/* ━━━ 로스팅 단계 가이드 (참고용) ━━━ */}
+          {/* ━━━ 로스팅 단계 가이드 (이모지 완벽 제거) ━━━ */}
           <View style={styles.section}>
-            <SectionTitle emoji="🔥" title="로스팅 단계 가이드" />
+            <SectionTitle title="로스팅 단계 가이드" />
             <Text style={styles.guideNote}>
               원두 포장지의 로스팅 표기를 참고해 취향에 맞는 원두를 고르세요.
             </Text>
@@ -305,17 +304,7 @@ export default function BeanDetailModal({ bean, visible, onClose }: Props) {
             </View>
           </View>
 
-          {/* ━━━ 테이스팅 노트 설명 ━━━ */}
-          <View style={styles.section}>
-            <SectionTitle emoji="✨" title="테이스팅 노트란?" />
-            <View style={styles.tasteBox}>
-              <Text style={styles.tasteText}>
-                포장지의 <Text style={styles.tasteBold}>"Apple, Jasmine, Chocolate"</Text> 같은 단어는{'\n'}
-                인공 향료가 아닌, 마셨을 때 자연스럽게 연상되는{'\n'}
-                <Text style={styles.tasteBold}>천연의 맛과 향을 전문가가 기록한 맛의 지도</Text>입니다.
-              </Text>
-            </View>
-          </View>
+          {/* [한글 주석: 사용자 요청에 따라 테이스팅 노트 설명 섹션 제거 완료] */}
 
           {/* ━━━ 구매 버튼 ━━━ */}
           {bean.product_url && !bean.sold_out && (
@@ -384,7 +373,8 @@ const styles = StyleSheet.create({
     zIndex: 20,
   },
 
-  content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 20 },
+  // [한글 주석: 상단 닫기(X) 버튼과 헤더 카드가 겹치지 않도록 상단 여백(paddingTop)을 44px로 확장]
+  content: { paddingHorizontal: 16, paddingTop: 44, paddingBottom: 20 },
 
   // 헤더 카드
   headerCard: {

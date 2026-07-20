@@ -16,43 +16,54 @@ export type Todo = {
 export default function TodoList({
   todos,
   onPressAction,
+  hideCard = false,
 }: {
   todos: Todo[];
   onPressAction: (todo: Todo) => void;
+  hideCard?: boolean;
 }) {
-  return (
-    <View style={styles.card}>
-      <Text style={styles.heading}>오늘 할 일</Text>
+  // [한글 주석: hideCard 옵션을 지원하여 SalesCard 내부에 자연스럽게 삽입될 수 있도록 뼈대를 분리합니다]
+  const content = (
+    <View style={{ gap: spacing.gridGap }}>
       {todos.length === 0 && (
         <Text style={styles.emptyText}>오늘 처리할 일이 없어요 ☕ 재고와 서류가 모두 안정 상태예요.</Text>
       )}
-      <View style={{ gap: spacing.gridGap }}>
-        {todos.map((todo) => {
-          const disabled = todo.done;
-          return (
-            <PressableScale
-              key={todo.id}
-              disabled={disabled || !todo.actionable}
-              onPress={() => onPressAction(todo)}
-              style={[styles.item, disabled && styles.itemDone]}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.itemTitle, disabled && styles.strike]}>{todo.title}</Text>
-                <Text style={[styles.itemSub, disabled && styles.strike]}>{todo.subtitle}</Text>
+      {todos.map((todo) => {
+        const disabled = todo.done;
+        return (
+          <PressableScale
+            key={todo.id}
+            disabled={disabled || !todo.actionable}
+            onPress={() => onPressAction(todo)}
+            style={[styles.item, disabled && styles.itemDone]}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.itemTitle, disabled && styles.strike]}>{todo.title}</Text>
+              <Text style={[styles.itemSub, disabled && styles.strike]}>{todo.subtitle}</Text>
+            </View>
+            {disabled ? (
+              <PopIn style={styles.doneBadge}>
+                <Text style={styles.doneBadgeText}>✓ 발주 완료</Text>
+              </PopIn>
+            ) : todo.actionable ? (
+              <View style={styles.actionHint}>
+                <Text style={styles.actionHintText}>발주 ›</Text>
               </View>
-              {disabled ? (
-                <PopIn style={styles.doneBadge}>
-                  <Text style={styles.doneBadgeText}>✓ 발주 완료</Text>
-                </PopIn>
-              ) : todo.actionable ? (
-                <View style={styles.actionHint}>
-                  <Text style={styles.actionHintText}>발주 ›</Text>
-                </View>
-              ) : null}
-            </PressableScale>
-          );
-        })}
-      </View>
+            ) : null}
+          </PressableScale>
+        );
+      })}
+    </View>
+  );
+
+  if (hideCard) {
+    return content;
+  }
+
+  return (
+    <View style={styles.card}>
+      <Text style={styles.heading}>오늘 할 일</Text>
+      {content}
     </View>
   );
 }
