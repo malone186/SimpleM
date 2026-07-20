@@ -1,0 +1,19 @@
+{
+  "image": "handonang_2013.jpg",
+  "note": "한돈당(음식점) 중간계산서 (2013-09-22, 경주). [단가|수량|금액] 레이아웃, 부가세 표기 없음 → subtotal/tax null. 받을금액=합계 217,000.",
+  "label": {
+    "doc_type": "receipt",
+    "vendor": {"name": "한돈당", "biz_no": "610-09-74049", "phone": "054-777-3770"},
+    "issued_date": "2013-09-22",
+    "items": [
+      {"name": "생삼겹살", "spec": null, "quantity": 25, "unit": null, "unit_price": 7000, "amount": 175000},
+      {"name": "맥주", "spec": null, "quantity": 4, "unit": null, "unit_price": 3000, "amount": 12000},
+      {"name": "음료수", "spec": null, "quantity": 4, "unit": null, "unit_price": 1000, "amount": 4000},
+      {"name": "밥+된장", "spec": null, "quantity": 13, "unit": null, "unit_price": 2000, "amount": 26000}
+    ],
+    "discount": null,
+    "subtotal": null,
+    "tax": null,
+    "total": 217000
+  }
+}

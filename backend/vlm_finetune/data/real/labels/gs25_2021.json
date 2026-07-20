@@ -1,0 +1,18 @@
+{
+  "image": "gs25_2021.jpg",
+  "note": "GS25 포곡골든점 (2021-10-31). 판촉/팝 할인 -420은 discount=420으로, '합계수량/금액 3 7,500' 소계 줄은 품목 아님. 품목 합 7,500 - 할인 420 = 합계 7,080.",
+  "label": {
+    "doc_type": "receipt",
+    "vendor": {"name": "GS25포곡골든점", "biz_no": "638-09-00924", "phone": "031-332-1182"},
+    "issued_date": "2021-10-31",
+    "items": [
+      {"name": "마늘빅프랑크", "spec": null, "quantity": 1, "unit": null, "unit_price": null, "amount": 2100},
+      {"name": "예거라들러레몬", "spec": null, "quantity": 1, "unit": null, "unit_price": null, "amount": 3300},
+      {"name": "마운틴블러스트", "spec": null, "quantity": 1, "unit": null, "unit_price": null, "amount": 2100}
+    ],
+    "discount": 420,
+    "subtotal": 6436,
+    "tax": 644,
+    "total": 7080
+  }
+}

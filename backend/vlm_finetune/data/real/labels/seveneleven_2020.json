@@ -1,0 +1,18 @@
+{
+  "image": "seveneleven_2020.jpg",
+  "note": "세븐일레븐 문정수정점 현금영수증 (2020-06-09). 단가 열이 없는 [수량|금액] 레이아웃 — unit_price는 null이 정답. 품목명 아래 바코드 숫자는 무시. 봉투보증금 20원도 품목.",
+  "label": {
+    "doc_type": "receipt",
+    "vendor": {"name": "세븐일레븐 문정수정점", "biz_no": "215-85-44631", "phone": "02-400-6307"},
+    "issued_date": "2020-06-09",
+    "items": [
+      {"name": "라라스윗)바닐라파인트474", "spec": null, "quantity": 1, "unit": null, "unit_price": null, "amount": 6900},
+      {"name": "라라스윗)조코파인트474ml", "spec": null, "quantity": 1, "unit": null, "unit_price": null, "amount": 6900},
+      {"name": "비닐봉투 보증금 20원", "spec": null, "quantity": 1, "unit": null, "unit_price": null, "amount": 20}
+    ],
+    "discount": null,
+    "subtotal": 12545,
+    "tax": 1255,
+    "total": 13820
+  }
+}

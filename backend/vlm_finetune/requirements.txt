@@ -1,0 +1,7 @@
+# VLM 파인튜닝 전용 의존성 (backend/requirements.txt와 분리 — 팀원은 설치 불필요)
+# torch는 반드시 CUDA 빌드로:
+#   pip install --index-url https://download.pytorch.org/whl/cu128 torch torchvision --force-reinstall --no-deps
+transformers>=5.0
+peft>=0.14
+accelerate>=1.0
+pillow

@@ -1,0 +1,20 @@
+{
+  "image": "motemote_undated.jpg",
+  "note": "모트모트(문구점) 영수증. 상단 결제정보·하단 합계가 블러/크롭되어 날짜·합계는 null. 0원 품목(사은품)이 존재하는 특이 케이스.",
+  "label": {
+    "doc_type": "receipt",
+    "vendor": {"name": "motemote", "biz_no": null, "phone": null},
+    "issued_date": null,
+    "items": [
+      {"name": "커다란 응원", "spec": null, "quantity": 1, "unit": null, "unit_price": 0, "amount": 0},
+      {"name": "떡메모자 (네이비)", "spec": null, "quantity": 1, "unit": null, "unit_price": 0, "amount": 0},
+      {"name": "펜꽂이 - 블랙", "spec": null, "quantity": 1, "unit": null, "unit_price": 5800, "amount": 5800},
+      {"name": "펜꽂이 - 핑크", "spec": null, "quantity": 1, "unit": null, "unit_price": 5800, "amount": 5800},
+      {"name": "데브 노트 A6 롤드 - 선샤인 그림", "spec": null, "quantity": 1, "unit": null, "unit_price": 12500, "amount": 12500}
+    ],
+    "discount": null,
+    "subtotal": null,
+    "tax": null,
+    "total": null
+  }
+}
