@@ -182,7 +182,7 @@ const styles = StyleSheet.create({
   nameHighlight: {
     fontSize: 15.5,
     fontWeight: '900',
-    color: '#D9531E',
+    color: colors.espressoBrown, // 브랜드 에스프레소 브라운 (기존 빨강 #D9531E에서 변경)
     letterSpacing: -0.4,
   },
   // [한글 주석: 명언 라인 (어색한 단어 꺾임 방지 10.5px 및 1줄 피트)]
