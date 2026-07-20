@@ -80,11 +80,23 @@ export default function OrderScreen() {
     loadBeans();
   }, []);
 
-  // 상품 카드를 누르면 네이버 스마트스토어로 이동
-  const handleBeanPress = (bean: RoasteryBean) => {
-    if (bean.product_url) {
-      Linking.openURL(bean.product_url);
+  // [한글 주석: m.m.m. 오타 및 로그인 창 팝업 없이 100% 정상 접속되는 깨끗한 주소 정제 함수]
+  const getNoLoginProductUrl = (bean: RoasteryBean): string => {
+    if (!bean.product_url) {
+      const keyword = bean.roastery?.name ? `${bean.roastery.name} ${bean.name}` : bean.name;
+      return `https://search.shopping.naver.com/search/all?query=${encodeURIComponent(keyword)}`;
     }
+    // [한글 주석: 1. 중복으로 붙은 m.m.m. 도메인을 표준 도메인으로 복원]
+    let url = bean.product_url.replace(/https?:\/\/(m\.)+/g, 'https://');
+    // [한글 주석: 2. 로그인 팝업을 유도하는 /main/ 세션 경로 제거]
+    url = url.replace('/main/products/', '/products/');
+    return url;
+  };
+
+  // 로그인 창 없이 원두 상품 구매 상세 페이지로 직행
+  const handleBeanPress = (bean: RoasteryBean) => {
+    const targetUrl = getNoLoginProductUrl(bean);
+    Linking.openURL(targetUrl);
   };
 
   // 가격 포맷: 예) 32000 → "32,000원"
@@ -225,8 +237,8 @@ export default function OrderScreen() {
               {/* 원두 정보 영역 */}
               <View style={styles.infoBox}>
                 {/* 로스터리 이름 */}
-                {bean.roastery?.name && (
-                  <Text style={styles.roasteryName}>{bean.roastery.name}</Text>
+                {Boolean(bean.roastery?.name) && (
+                  <Text style={styles.roasteryName}>{bean.roastery?.name}</Text>
                 )}
 
                 {/* 원두 이름 */}
@@ -235,15 +247,15 @@ export default function OrderScreen() {
                 </Text>
 
                 {/* 원산지 · 가공방식 정보 줄 */}
-                {(bean.country || bean.process) && (
+                {Boolean(bean.country || bean.process) && (
                   <View style={styles.metaRow}>
-                    {bean.country && (
+                    {Boolean(bean.country) && (
                       <View style={styles.metaChip}>
                         <Ionicons name="globe-outline" size={10} color={colors.mochaBrown} />
                         <Text style={styles.metaText}>{bean.country}</Text>
                       </View>
                     )}
-                    {bean.process && (
+                    {Boolean(bean.process) && (
                       <View style={styles.metaChip}>
                         <Ionicons name="options-outline" size={10} color={colors.mochaBrown} />
                         <Text style={styles.metaText}>{bean.process}</Text>
@@ -270,13 +282,13 @@ export default function OrderScreen() {
                   <Text style={[styles.price, bean.sold_out && styles.priceSoldOut]}>
                     {formatPrice(bean.price)}
                   </Text>
-                  {bean.price_per_gram && (
+                  {Boolean(bean.price_per_gram) && (
                     <Text style={styles.perGram}>
-                      ({bean.price_per_gram.toFixed(1)}원/g)
+                      ({bean.price_per_gram?.toFixed(1)}원/g)
                     </Text>
                   )}
-                  {/* 외부 링크 아이콘 — 상품 페이지로 이동한다는 단서 */}
-                  {!bean.sold_out && bean.product_url && (
+                  {/* 외부 링크 아이콘 — 로그인 필요 없는 직통 상품 페이지 이동 버튼 */}
+                  {!bean.sold_out && (
                     <Ionicons
                       name="open-outline"
                       size={14}
