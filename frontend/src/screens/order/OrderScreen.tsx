@@ -208,7 +208,7 @@ export default function OrderScreen() {
                     resizeMode="cover"
                   />
                 ) : (
-                  // 이미지 없을 경우 대체 아이콘
+                  {/* 이미지 없을 경우 대체 아이콘 */}
                   <View style={styles.noImageBox}>
                     <Ionicons name="cafe-outline" size={32} color={colors.mochaBrown} />
                   </View>

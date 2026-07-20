@@ -13,3 +13,8 @@ statsmodels>=0.14  # AI-3 판매 예측 (SARIMAX)
 
 # 운영/예측 (백엔드 B 인수) — 판매예측 시계열·집계
 pandas>=2.2
+
+# 가격 비교 크롤링 (백엔드 B)
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+
