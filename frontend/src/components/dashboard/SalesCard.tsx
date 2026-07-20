@@ -686,8 +686,8 @@ export default function SalesCard({
                     isFuture && { color: colors.mochaBrown }
                   ]}>{item.date}</Text>
                   {item.income > 0 && (
+                    // [한글 주석: 사용자의 직관적인 '만' 단위 원복 요구 반영 (소수 첫째자리 내림 포맷)]
                     <Text style={styles.calendarIncomeText}>
-                      {/* [한글 주석: 사용자의 직관적인 '만' 단위 원복 요구 반영 (소수 첫째자리 내림 포맷)] */}
                       {`+${(item.income / 10000) % 1 === 0 ? item.income / 10000 : (Math.floor((item.income / 10000) * 10) / 10)}만`}
                     </Text>
                   )}
@@ -701,7 +701,12 @@ export default function SalesCard({
             })}
           </View>
         </View>
-      ) : activeTab === 'day' ? (
+      ) : activeTab === 'todo' ? (
+        <View style={styles.todoWrapper}>
+          {/* [한글 주석: todo 탭 선택 시 카드 스타일이 없는 맑은 리스트를 렌더링합니다] */}
+          <TodoList todos={todos} onPressAction={onPressTodo || (() => {})} hideCard={true} />
+        </View>
+      ) : (
         <View>
           {/* 오늘 / 내일 예측 범례 (Legend) */}
           <View style={styles.legendContainer}>
@@ -853,13 +858,9 @@ export default function SalesCard({
             </View>
           </View>
         </View>
-      ) : activeTab === 'todo' ? (
-        <View style={styles.todoWrapper}>
-          <TodoList todos={todos} onPressAction={onPressTodo || (() => {})} hideCard={true} />
-        </View>
-      ) : (
-        <View style={styles.chartWrap} />
       )}
+
+
 
       {/* 하단 요약 정보 그리드 (todo 탭이 아닐 때만 노출) */}
       {activeTab !== 'todo' && (

@@ -76,3 +76,37 @@ class EstimatedSettlement(Base):
     net_profit = Column(Integer, nullable=False)        # 예상 매출 - (비용 + 인건비 + 기타비용) 순수익 (원)
     calculated_at = Column(DateTime, nullable=False, server_default=func.now())  # 계산이 실행된 시각
 
+
+# 6. 직원별 기피/불가 시간 설정을 저장하는 테이블입니다. (신규 추가)
+class EmployeeUnavailability(Base):
+    """직원 기피/불가 시간 설정 모델"""
+    __tablename__ = "employee_unavailabilities"
+
+    id = Column(Integer, primary_key=True, index=True)
+    # 기피 시간을 신청한 직원의 외래키 아이디
+    employee_id = Column(Integer, ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
+    
+    # 기피 유형: 'weekly_recurring' (매주 특정 요일 반복) 또는 'specific_date' (특정 날짜 지정)
+    unavailability_type = Column(String(30), nullable=False, default="weekly_recurring")
+    
+    # 요일 반복일 때 요일 번호 (0=월요일, 1=화요일, ..., 6=일요일)
+    day_of_week = Column(Integer, nullable=True)
+    
+    # 특정 날짜 지정일 때 날짜 문자열 (YYYY-MM-DD 포맷)
+    specific_date = Column(String(10), nullable=True)
+    
+    # 시작 시각 (0 ~ 23시)
+    start_hour = Column(Integer, nullable=False, default=0)
+    
+    # 종료 시각 (1 ~ 24시)
+    end_hour = Column(Integer, nullable=False, default=24)
+    
+    # 제약 수준: 'hard' (절대 근무 불가 - 배정 금지) | 'soft' (가급적 회피 - 페널티 부여 후 가급적 배정 지양)
+    restriction_level = Column(String(10), nullable=False, default="hard")
+    
+    # 기피 신청 사유 (예: 학원 수업, 병원 방문 등)
+    reason = Column(String(255), nullable=True)
+    
+    # 생성 일시
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+

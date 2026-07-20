@@ -1,4 +1,6 @@
-"""매장 운영 챗봇 도구 래퍼 (백엔드 C)"""
+"""매장 운영(급여·정산·운영요약) 챗봇 도구 래퍼 (백엔드 C)"""
+from datetime import datetime
+from typing import Any, List, Optional
 from app.services.operation.operation_service import OperationService
 
 # LangChain @tool 데코레이터 안전 로드 구조
@@ -11,31 +13,114 @@ except ImportError:
         def tool(func):
             return func
 
+
 @tool
-def get_report_source_tool(period: str) -> dict:
-    """지정 기간(daily, weekly, monthly)에 대한 자연어 요약 리포트 소스들을 취합하여 조회합니다.
-    - period: 조회 대상 기간 단위 (daily, weekly, monthly 중 선택)
+def propose_payroll_tool(
+    start_time: str,
+    end_time: str,
+    break_minutes: float = 0.0,
+    hourly_rate: int = 9860,
+    weekly_work_hours: Optional[float] = None,
+    include_weekly_holiday: bool = False,
+    deduct_tax: bool = False
+) -> dict:
+    """근무 시간을 기준으로 알바생의 예상 급여 초안(Draft)을 계산합니다.
+    - start_time: 근무 시작 일시 (예: '2026-07-20 09:00:00' 또는 ISO 포맷)
+    - end_time: 근무 종료 일시 (예: '2026-07-20 18:00:00' 또는 ISO 포맷)
+    - break_minutes: 휴게시간 (분 단위, 기본 0.0)
+    - hourly_rate: 적용 시급 (원 단위, 기본 9860)
+    - weekly_work_hours: 주당 총 근무시간 (주휴수당 계산 시 사용)
+    - include_weekly_holiday: 주휴수당 포함 여부 (기본 False)
+    - deduct_tax: 세금 공제(3.3% 사업소득) 여부 (기본 False)
     """
     try:
-        result = OperationService.build_report_source_documents(period)
+        # [한글 주석] 문자열 형태의 일시 데이터를 파이썬 datetime 객체로 전환합니다.
+        s_dt = datetime.fromisoformat(start_time.replace(" ", "T"))
+        e_dt = datetime.fromisoformat(end_time.replace(" ", "T"))
+
+        # [한글 주석] 실제 계산 로직은 OperationService 비즈니스 함수를 호출합니다.
+        result = OperationService.calculate_payroll(
+            start_time=s_dt,
+            end_time=e_dt,
+            break_minutes=break_minutes,
+            hourly_rate=hourly_rate,
+            weekly_work_hours=weekly_work_hours,
+            include_weekly_holiday=include_weekly_holiday,
+            deduct_tax=deduct_tax
+        )
+
         return {
             "success": True,
-            "data": result,
+            "data": {"payroll_draft": result},
             "documents": [],
-            "message": "리포트 소스 조회가 완료되었습니다."
+            "message": "예상 급여 계산 초안(Propose)이 성공적으로 생성되었습니다."
+        }
+    except ValueError as e:
+        # [한글 주석] 입력값 유효성 검사 실패 시 처리
+        return {
+            "success": False,
+            "data": None,
+            "documents": [],
+            "message": f"예상 급여 계산 실패 (입력값 오류): {str(e)}"
+        }
+    except Exception as e:
+        # [한글 주석] 예기치 못한 예외 처리
+        return {
+            "success": False,
+            "data": None,
+            "documents": [],
+            "message": f"예상 급여 계산 중 서버 오류 발생: {str(e)}"
+        }
+
+
+@tool
+def propose_settlement_tool(
+    revenue: int,
+    cost: int,
+    labor_cost: int,
+    other_expense: int = 0
+) -> dict:
+    """매출액, 재료비, 인건비, 기타 경비를 입력받아 예상 정산 결과 초안(Draft)을 계산합니다.
+    - revenue: 총 매출액 (원)
+    - cost: 재료비/원가 (원)
+    - labor_cost: 총 인건비 (원)
+    - other_expense: 기타 경비/임대료 등 (원, 기본 0)
+    """
+    try:
+        # [한글 주석] 실제 정산 연산은 OperationService 비즈니스 로직을 호출합니다.
+        result = OperationService.calculate_settlement(
+            revenue=revenue,
+            cost=cost,
+            labor_cost=labor_cost,
+            other_expense=other_expense
+        )
+
+        return {
+            "success": True,
+            "data": {"settlement_draft": result},
+            "documents": [],
+            "message": "예상 정산 결과 초안(Propose)이 성공적으로 생성되었습니다."
+        }
+    except ValueError as e:
+        return {
+            "success": False,
+            "data": None,
+            "documents": [],
+            "message": f"예상 정산 계산 실패 (입력값 오류): {str(e)}"
         }
     except Exception as e:
         return {
             "success": False,
-            "data": {},
+            "data": None,
             "documents": [],
-            "message": f"리포트 소스 조회 실패: {str(e)}"
+            "message": f"예상 정산 연산 중 서버 오류 발생: {str(e)}"
         }
 
+
 @tool
-def get_operation_summary_tool(period: str) -> dict:
-    """일간, 주간, 월간 운영 상태에 관한 자연어 줄글 요약 텍스트를 반환합니다.
-    - period: 조회 기간 구분 (daily, weekly, monthly 중 선택)
+def get_operation_summary_tool(period: str = "daily") -> dict:
+    """일간, 주간, 월간 매장 운영 상태에 대한 자연어 요약 정보를 조회합니다.
+    - period: 조회 대상 기간 ('daily', 'weekly', 'monthly' 중 선택, 기본 'daily')
     """
     try:
         period_lower = period.lower()
@@ -46,7 +131,7 @@ def get_operation_summary_tool(period: str) -> dict:
         elif period_lower == "monthly":
             summary_text = OperationService.get_monthly_operation_summary()
         else:
-            raise ValueError("period는 daily, weekly, monthly 중 하나여야 합니다.")
+            raise ValueError("period 항목은 'daily', 'weekly', 'monthly' 중 하나여야 합니다.")
 
         return {
             "success": True,
@@ -55,70 +140,109 @@ def get_operation_summary_tool(period: str) -> dict:
                 "summary": summary_text
             },
             "documents": [],
-            "message": "운영 요약 조회가 완료되었습니다."
+            "message": "운영 상태 요약 조회가 완료되었습니다."
         }
     except ValueError as e:
         return {
             "success": False,
-            "data": {},
+            "data": None,
             "documents": [],
-            "message": str(e)
+            "message": f"운영 요약 조회 실패: {str(e)}"
         }
     except Exception as e:
         return {
             "success": False,
-            "data": {},
+            "data": None,
             "documents": [],
-            "message": f"운영 요약 조회 실패: {str(e)}"
+            "message": f"운영 요약 조회 처리 중 서버 오류 발생: {str(e)}"
         }
 
+
 @tool
-def recommend_schedule_tool(target_date: str, store_id: str) -> dict:
-    """과거 매출 및 이익 데이터를 시간대별로 분석하여 최적의 알바 근무 인원 스케줄을 추천합니다.
-    - target_date: 스케줄 추천 대상 날짜 (YYYY-MM-DD 포맷, 예: '2026-07-16')
+def build_operation_rag_documents_tool(schedules: Optional[List[Any]] = None) -> dict:
+    """근무 스케줄 목록을 AI 챗봇 참조용 RAG 문서 형태로 변환합니다.
+    - schedules: 스케줄 객체 또는 dict 리스트 (생략 시 기본 세션 쿼리 적용 가능)
+    """
+    try:
+        # [한글 주석] 스케줄 목록이 전달되지 않은 경우 비어있는 리스트로 전달
+        target_schedules = schedules if schedules is not None else []
+        rag_docs = OperationService.build_operation_rag_documents(target_schedules)
+
+        return {
+            "success": True,
+            "data": {},
+            "documents": rag_docs,
+            "message": "운영 스케줄 RAG 문서가 성공적으로 생성되었습니다."
+        }
+    except ValueError as e:
+        return {
+            "success": False,
+            "data": None,
+            "documents": [],
+            "message": f"운영 RAG 문서 생성 실패: {str(e)}"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "data": None,
+            "documents": [],
+            "message": f"운영 RAG 문서 변환 처리 중 서버 오류 발생: {str(e)}"
+        }
+
+
+@tool
+def recommend_schedule_tool(target_date: str, store_id: str = "store_gildong") -> dict:
+    """매출 및 직원별 기피/불가 시간(Hard/Soft) 제약을 종합 분석하여 지정일의 추천 알바 스케줄을 도출합니다.
+    - target_date: 스케줄 추천 대상 날짜 (YYYY-MM-DD 포맷, 예: '2026-07-25')
     - store_id: 매장 고유 식별자 아이디 (예: 'store_gildong')
     """
     try:
         from app.core.database import SessionLocal
-        # [한글 주석] 안전한 데이터베이스 작업 처리를 위해 세션을 열고 사용 후 자동으로 닫습니다.
-        db = SessionLocal()
-        try:
+        with SessionLocal() as db:
             result = OperationService.recommend_schedule(
                 db=db,
-                target_date=target_date,
+                period_start=target_date,
+                period_end=target_date,
                 store_id=store_id
             )
-            
-            # [한글 주석] AI 챗봇이 필요시 참조할 수 있도록 시간대별 스케줄 추천 결과 문서를 RAG 포맷으로 포장합니다.
+
+            # [한글 주석] AI 챗봇 참조용 시간대별 추천 스케줄 RAG 문서 포장
             hourly_docs = []
             for item in result.get("hourly_recommendations", []):
+                assigned_names = ", ".join([e["name"] for e in item.get("assigned_employees", [])]) or "없음(인원부족/영업시간 외)"
                 content = (
-                    f"{target_date} {item['hour']}시 예상 매출은 {item['predicted_sales']:,}원, "
-                    f"예상 이익은 {item['predicted_profit']:,}원입니다. "
-                    f"추천 근무자 수는 {item['recommended_employee_count']}명(혼잡도: {item['busy_level']})입니다."
+                    f"{target_date} {item['hour']}시 예상 매출은 {item['predicted_sales']:,}원이며, "
+                    f"추천 인원수는 {item['recommended_employee_count']}명(혼잡도: {item['busy_level']})입니다. "
+                    f"추천 배정 직원: {assigned_names}."
                 )
                 hourly_docs.append({
-                    "title": f"{target_date} {item['hour']}시 알바 스케줄 분석 및 추천",
+                    "title": f"{target_date} {item['hour']}시 알바 추천 스케줄",
                     "content": content,
-                    "summary": f"{target_date} {item['hour']}시 노무 추천 가이드",
+                    "summary": f"{target_date} {item['hour']}시 추천 스케줄 정보",
                     "category": "schedule_recommendation",
-                    "tags": ["schedule", "recommend", "profit", target_date],
+                    "tags": ["schedule", "recommend", target_date],
                     "source_type": "schedule_recommendation",
                     "source_id": item['hour']
                 })
-            
+
             return {
                 "success": True,
                 "data": result,
                 "documents": hourly_docs,
-                "message": "스케줄 추천 연산이 완료되었습니다."
+                "message": "직원 기피 시간이 반영된 추천 스케줄 연산이 성공적으로 완료되었습니다."
             }
-        finally:
-            db.close()
+    except ValueError as e:
+        return {
+            "success": False,
+            "data": None,
+            "documents": [],
+            "message": f"추천 스케줄 연산 실패 (입력값 오류): {str(e)}"
+        }
     except Exception as e:
         return {
             "success": False,
-            "data": {},
+            "data": None,
             "documents": [],
-            "message": f"스케줄 추천 연산 중 서버 오류 발생: {str(e)}"
+            "message": f"추천 스케줄 연산 중 서버 오류 발생: {str(e)}"
         }
+

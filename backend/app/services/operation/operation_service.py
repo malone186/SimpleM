@@ -1,5 +1,5 @@
 """운영(스케줄·급여) 로직 (백엔드 C)"""
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
@@ -7,8 +7,16 @@ from app.models.operation import Employee, Schedule, Expense, EstimatedPayroll, 
 from app.models.inventory import Sale
 from app.schemas.operation import ScheduleUpdate
 
+# 반올림 및 연산 정책 상수 명시
+HOUR_DECIMALS: int = 2
+RATE_DECIMALS: int = 2
+
 class OperationService:
     """스케줄 관리 및 근무 시간, 급여 연산 비즈니스 로직을 담당하는 서비스 클래스"""
+
+    # 반올림 정책 클래스 내 상수 지정
+    HOUR_DECIMALS = HOUR_DECIMALS
+    RATE_DECIMALS = RATE_DECIMALS
 
     @staticmethod
     def get_employee(db: Session, employee_id: int) -> Optional[Employee]:
@@ -93,37 +101,117 @@ class OperationService:
         return True
 
     @staticmethod
-    def calculate_work_hours(start_time: datetime, end_time: datetime, deduct_break_time: bool = False) -> float:
-        """출퇴근 시간을 받아 실 근무시간 계산 (Timezone 일치 작업 및 법정 휴게시간 공제 기능 내장)"""
-        # [한글 주석] Naive와 Aware Datetime 혼용에 따른 연산 오류 방지를 위해 타임존 정보를 제거합니다.
+    def calculate_work_hours(start_time: datetime, end_time: datetime, break_minutes: float = 0.0) -> float:
+        """
+        [한글 주석] 근무 시작 시간, 종료 시간, 휴게시간(분)을 입력받아 실근무시간(시간 단위)을 계산합니다.
+        - [옵션 A] 종료 시간이 시작 시간보다 빠르거나 같으면 자정 넘김(익일 퇴근)으로 판단하여 24시간 보정합니다.
+        - 휴게시간이 전체 근무시간보다 길거나 같으면 ValueError를 발생시킵니다.
+        """
+        # [한글 주석] Naive 및 Aware datetime 간 연산 오류를 방지하기 위해 타임존 정보를 제거합니다.
         s_naive = start_time.replace(tzinfo=None) if start_time.tzinfo is not None else start_time
         e_naive = end_time.replace(tzinfo=None) if end_time.tzinfo is not None else end_time
-        
-        duration = e_naive - s_naive
-        total_hours = duration.total_seconds() / 3600.0
-        
-        # [한글 주석] 휴게시간 공제 옵션이 True일 때, 근로기준법상 기준(4시간 근무 시 30분, 8시간 근무 시 1시간)을 공제합니다.
-        if deduct_break_time:
-            if total_hours >= 8.0:
-                total_hours -= 1.0
-            elif total_hours >= 4.0:
-                total_hours -= 0.5
-                
-        return max(0.0, total_hours)
+
+        # 1. 자정 넘김(익일 퇴근) 보정: 종료 시각이 시작 시각 이하인 경우 24시간(1일) 보정
+        if e_naive <= s_naive:
+            e_naive += timedelta(days=1)
+
+        # 2. 전체 근무시간 계산 (시간 단위)
+        total_seconds = (e_naive - s_naive).total_seconds()
+
+        # 시작 시각과 완전 동일(0초) 또는 24시간 초과인 경우 유효성 실패
+        if total_seconds <= 0 or total_seconds >= 86400:
+            raise ValueError("근무 시작 시각과 종료 시각이 올바르지 않습니다 (24시간 이상 연속 근무 불가).")
+
+        total_hours = total_seconds / 3600.0
+
+        # 3. 휴게시간 계산 (분 -> 시간 환산)
+        break_hours = break_minutes / 60.0
+
+        # 4. 휴게시간이 전체 근무시간 이상인지 검증
+        if break_hours >= total_hours:
+            raise ValueError("휴게시간은 전체 근무시간보다 적어야 합니다.")
+
+        # 5. 실근무시간 반환 (소수점 HOUR_DECIMALS자리로 반올림)
+        return round(total_hours - break_hours, HOUR_DECIMALS)
 
     @classmethod
-    def calculate_payroll(cls, db: Session, employee_id: int, period_start: str, period_end: str, deduct_break_time: bool = False) -> dict:
-        """특정 직원의 지정 기간(시작일~종료일) 내 실제 기록된 출퇴근 시각을 기준으로 예상 급여를 계산하고 DB에 저장합니다."""
-        # [한글 주석] 데이터베이스에서 해당 직원이 존재하는지 검증합니다.
+    def calculate_payroll(
+        cls,
+        start_time: datetime,
+        end_time: datetime,
+        break_minutes: float,
+        hourly_rate: int,
+        weekly_work_hours: Optional[float] = None,
+        include_weekly_holiday: bool = False,
+        deduct_tax: bool = False
+    ) -> dict:
+        """
+        [한글 주석] 근무 시작/종료 시간, 휴게시간, 시급을 입력받아 실근무시간, 주휴수당, 세금 공제 후 실수령액을 연산합니다.
+        - [옵션 A] 자정 넘김(익일 퇴근) 자동 지원
+        - [옵션 B] 주 15시간 이상 시 주휴수당 산출 및 3.3% 사업소득세 원천징수 공제 연산 지원
+        """
+        # 1. 시급 유효성 검증
+        if hourly_rate <= 0:
+            raise ValueError("시급은 0보다 커야 합니다.")
+
+        # 2. 실근무시간 계산 (자정 넘김 보정 및 유효성 검증 포함)
+        actual_work_hours = cls.calculate_work_hours(start_time, end_time, break_minutes)
+
+        # 3. 전체 근무시간 및 휴게시간 계산 (소수점 표기용)
+        s_naive = start_time.replace(tzinfo=None) if start_time.tzinfo is not None else start_time
+        e_naive = end_time.replace(tzinfo=None) if end_time.tzinfo is not None else end_time
+        if e_naive <= s_naive:
+            e_naive += timedelta(days=1)
+
+        total_hours = round((e_naive - s_naive).total_seconds() / 3600.0, HOUR_DECIMALS)
+        break_hours = round(break_minutes / 60.0, HOUR_DECIMALS)
+
+        # 4. 기본 급여 계산 (실근무시간 × 시급 round 후 int 정수 반환)
+        base_payroll = int(round(actual_work_hours * hourly_rate))
+
+        # 5. [옵션 B] 주휴수당 연산 ((주간 실근무시간 / 40시간) × 8시간 × 시급, 최대 8시간 시급)
+        effective_weekly_hours = weekly_work_hours if (weekly_work_hours is not None and weekly_work_hours >= 15.0) else actual_work_hours
+        is_weekly_holiday_target = include_weekly_holiday or (weekly_work_hours is not None and weekly_work_hours >= 15.0)
+        
+        weekly_holiday_allowance = 0
+        if is_weekly_holiday_target and effective_weekly_hours >= 15.0:
+            weekly_holiday_allowance = int(round(min(1.0, effective_weekly_hours / 40.0) * 8 * hourly_rate))
+
+        # 6. 총 급여액 (기본급 + 주휴수당)
+        gross_payroll = base_payroll + weekly_holiday_allowance
+
+        # 7. [옵션 B] 3.3% 사업소득세 원천징수 세금 계산
+        withholding_tax = 0
+        if deduct_tax:
+            withholding_tax = int(round(gross_payroll * 0.033))
+
+        # 8. 최종 세후 실수령액 (총 급여 - 원천징수 세금)
+        net_payroll = gross_payroll - withholding_tax
+
+        return {
+            "total_hours": total_hours,
+            "break_hours": break_hours,
+            "actual_work_hours": actual_work_hours,
+            "hourly_rate": hourly_rate,
+            "base_payroll": base_payroll,
+            "estimated_payroll": base_payroll,
+            "weekly_holiday_allowance": weekly_holiday_allowance,
+            "gross_payroll": gross_payroll,
+            "withholding_tax": withholding_tax,
+            "net_payroll": net_payroll,
+            "disclaimer": "본 급여 계산 결과는 확정 지급액이 아니며 참고용 예상 급여입니다."
+        }
+
+    @classmethod
+    def calculate_payroll_from_db(cls, db: Session, employee_id: int, period_start: str, period_end: str, deduct_break_time: bool = False) -> dict:
+        """[DB 연동] 특정 직원의 지정 기간 내 스케줄 조회 기반 예상 급여 계산 및 저장"""
         employee = db.query(Employee).filter(Employee.id == employee_id).first()
         if not employee:
             raise ValueError(f"존재하지 않는 직원 ID입니다: {employee_id}")
             
-        # [한글 주석] 직원의 시급 유효성을 검사합니다.
         if employee.hourly_rate <= 0:
             raise ValueError(f"해당 직원의 시급 설정이 올바르지 않습니다 (시급: {employee.hourly_rate}원). 시급은 0보다 커야 합니다.")
 
-        # [한글 주석] 지정 기간 내에 속하는 근무 스케줄들을 조회합니다.
         schedules = db.query(Schedule).filter(
             Schedule.employee_id == employee_id,
             Schedule.date >= period_start,
@@ -136,20 +224,23 @@ class OperationService:
         total_hours = 0.0
         based_on_actual = False
         for schedule in schedules:
-            # [한글 주석] 실제 출퇴근 시각(actual_*)이 존재하면 우선 적용(실제화)하고, 없으면 계획 근무시간(start/end)으로 폴백합니다.
+            st = schedule.actual_start_time if (schedule.actual_start_time and schedule.actual_end_time) else schedule.start_time
+            et = schedule.actual_end_time if (schedule.actual_start_time and schedule.actual_end_time) else schedule.end_time
             if schedule.actual_start_time and schedule.actual_end_time:
-                hours = cls.calculate_work_hours(schedule.actual_start_time, schedule.actual_end_time, deduct_break_time)
                 based_on_actual = True
-            else:
-                hours = cls.calculate_work_hours(schedule.start_time, schedule.end_time, deduct_break_time)
-            total_hours += hours
+            
+            dur = (et - st).total_seconds() / 3600.0
+            if deduct_break_time:
+                if dur >= 8.0:
+                    dur -= 1.0
+                elif dur >= 4.0:
+                    dur -= 0.5
+            total_hours += max(0.0, dur)
                 
-        # [한글 주석] 기본급 및 예상 주휴수당(원격지 필드 지원)을 연산합니다.
         base_salary = int(total_hours * employee.hourly_rate)
-        weekly_holiday_allowance = 0  # 주휴수당은 일단 기본값 0으로 대입합니다.
+        weekly_holiday_allowance = 0
         estimated_salary = base_salary + weekly_holiday_allowance
 
-        # [한글 주석] 계산된 결과를 데이터베이스(estimated_payrolls)에 저장 혹은 업데이트(Upsert) 합니다.
         est_payroll = db.query(EstimatedPayroll).filter(
             EstimatedPayroll.employee_id == employee_id,
             EstimatedPayroll.period_start == period_start,
@@ -192,99 +283,49 @@ class OperationService:
 
     @classmethod
     def list_employees_payroll(cls, db: Session, year_month: str) -> List[dict]:
-        """[하위 호환 헬퍼] 등록된 모든 직원의 해당 월 예상 급여 목록을 반환합니다. (기간 기반 호출로 매핑)"""
+        """[하위 호환 헬퍼] 등록된 모든 직원의 해당 월 예상 급여 목록을 반환합니다."""
         results = []
         p_start = f"{year_month}-01"
         p_end = f"{year_month}-31"
         for emp in db.query(Employee).all():
             try:
-                results.append(cls.calculate_payroll(db, emp.id, p_start, p_end))
+                results.append(cls.calculate_payroll_from_db(db, emp.id, p_start, p_end))
             except ValueError:
                 continue
         return results
 
     @classmethod
-    def calculate_settlement(cls, db: Session, period_start: str, period_end: str, other_expense: int = 0) -> dict:
-        """매장의 기간별 매출액, 지출 비용, 총 인건비, 기타비용을 취합해 예상 정산 손익을 도출하고 DB에 저장합니다."""
-        from datetime import time, timezone, timedelta
-        # [한글 주석] 외부 라이브러리(pytz) 없이 파이썬 내장 기능을 사용하여 KST(한국 표준시)를 정의합니다.
-        kst = timezone(timedelta(hours=9))
+    def calculate_settlement(cls, revenue: int, cost: int, labor_cost: int, other_expense: int = 0) -> dict:
+        """
+        [한글 주석] 매출 - 원가/비용 - 인건비 - 기타비용으로 예상 정산 이익 및 이익률을 계산합니다.
+        - 매출/비용/인건비/기타비용은 음수가 될 수 없습니다.
+        - 매출이 0인 경우 이익률은 null(None) 처리합니다.
+        """
+        # 1. 음수 입력값 검증
+        if revenue < 0 or cost < 0 or labor_cost < 0 or other_expense < 0:
+            raise ValueError("매출액, 원가/비용, 인건비, 기타비용은 음수가 될 수 없습니다.")
 
-        try:
-            start_date = datetime.strptime(period_start, "%Y-%m-%d").date()
-            end_date = datetime.strptime(period_end, "%Y-%m-%d").date()
-        except ValueError:
-            raise ValueError("기간 포맷은 YYYY-MM-DD 형식이어야 합니다.")
+        # 2. 총 비용 산출 (원가 + 인건비 + 기타비용)
+        total_cost = cost + labor_cost + other_expense
 
-        # [한글 주석] 타임존 인식형 DateTime 필터 조건 생성을 위해 현지화(KST) 작업을 진행합니다.
-        start_dt = datetime.combine(start_date, time.min).replace(tzinfo=kst)
-        end_dt = datetime.combine(end_date, time.max).replace(tzinfo=kst)
+        # 3. 예상 정산 이익 산출 (매출 - 총 비용)
+        estimated_profit = revenue - total_cost
 
-        # 1. 데이터베이스에서 매출액(sales) 합산 (실제 매출 테이블)
-        total_sales = db.query(func.sum(Sale.total_price)).filter(
-            Sale.sold_at >= start_dt,
-            Sale.sold_at <= end_dt
-        ).scalar() or 0
+        # 4. 이익률 산출 (매출이 0이면 null 처리, 소수점 RATE_DECIMALS자리 반올림)
+        profit_rate: Optional[float] = None
+        if revenue > 0:
+            profit_rate = round((estimated_profit / revenue) * 100, RATE_DECIMALS)
 
-        # 2. 데이터베이스에서 지출액(expenses) 합산 (실제 비용 테이블)
-        total_expense = db.query(func.sum(Expense.amount)).filter(
-            Expense.expense_date >= start_date,
-            Expense.expense_date <= end_date
-        ).scalar() or 0
-        
-        # 3. 등록된 모든 직원의 해당 기간 예상 급여 합산 (인건비 자동 계산 연동)
-        total_payroll = 0
-        employees = db.query(Employee).all()
-        for emp in employees:
-            try:
-                # [한글 주석] 각 직원에 대해 스케줄이 존재하면 급여를 계산하여 총인건비에 반영합니다. (스케줄이 없으면 예외 처리로 스킵)
-                payroll = cls.calculate_payroll(db, emp.id, period_start, period_end)
-                total_payroll += payroll["estimated_salary"]
-            except ValueError:
-                continue
-                
-        # 4. 예상 순이익 = 매출 - (비용 + 인건비 + 기타 비용)
-        net_profit = total_sales - (total_expense + total_payroll + other_expense)
-        
-        # 5. 계산 결과를 데이터베이스(estimated_settlements)에 저장/업데이트(Upsert) 합니다.
-        est_settlement = db.query(EstimatedSettlement).filter(
-            EstimatedSettlement.period_start == period_start,
-            EstimatedSettlement.period_end == period_end
-        ).first()
-
-        if est_settlement:
-            est_settlement.total_sales = total_sales
-            est_settlement.total_expense = total_expense
-            est_settlement.total_payroll = total_payroll
-            est_settlement.other_expense = other_expense
-            est_settlement.net_profit = net_profit
-            est_settlement.calculated_at = datetime.now()
-        else:
-            est_settlement = EstimatedSettlement(
-                period_start=period_start,
-                period_end=period_end,
-                total_sales=total_sales,
-                total_expense=total_expense,
-                total_payroll=total_payroll,
-                other_expense=other_expense,
-                net_profit=net_profit,
-                calculated_at=datetime.now()
-            )
-            db.add(est_settlement)
-
-        db.commit()
-        db.refresh(est_settlement)
-        
         return {
-            "id": est_settlement.id,
-            "period_start": period_start,
-            "period_end": period_end,
-            "total_sales": total_sales,
-            "total_expense": total_expense,
-            "total_payroll": total_payroll,
+            "revenue": revenue,
+            "cost": cost,
+            "labor_cost": labor_cost,
             "other_expense": other_expense,
-            "net_profit": net_profit,
-            "calculated_at": est_settlement.calculated_at
+            "total_cost": total_cost,
+            "estimated_profit": estimated_profit,
+            "profit_rate": profit_rate,
+            "profit_margin": profit_rate,
+            "disclaimer": "본 정산 결과는 확정 정산이 아닌 단순 참고용 예상 정산 결과입니다."
         }
 
     # ==========================================
@@ -682,39 +723,174 @@ class OperationService:
                 })
                 total_recommended_hours += emp_count
 
-        # 5. 예상 인건비 연산 (소속 직원들의 평균 시급 계산, 없으면 10,000원 기준)
-        from app.models.operation import Employee
+        # 5. 직원 기피/불가 시간(Hard/Soft) 반영 및 추천 배정 처리 (신규 고도화)
+        from app.models.operation import Employee, EmployeeUnavailability
         employees = db.query(Employee).all()
+        target_day_of_week = start_date.weekday() # 0=월 ~ 6=일
+        target_date_str = start_date.strftime("%Y-%m-%d")
+
+        # 해당 매장의 모든 기피 설정 정보 조회
+        unavailabilities = db.query(EmployeeUnavailability).all()
+
+        # 직원별 기피시간 확인 도우미 함수
+        def get_unavailability_level(emp_id: int, hour: int) -> Optional[str]:
+            """해당 직원의 특정 시간대 기피 제약 수준 ('hard', 'soft', 또는 None) 반환"""
+            user_unavs = [u for u in unavailabilities if u.employee_id == emp_id]
+            hard_match = False
+            soft_match = False
+            for u in user_unavs:
+                # 시작시각 <= hour < 종료시각 범위 검사
+                if u.start_hour <= hour < u.end_hour:
+                    if u.unavailability_type == "specific_date" and u.specific_date == target_date_str:
+                        if u.restriction_level == "hard":
+                            hard_match = True
+                        elif u.restriction_level == "soft":
+                            soft_match = True
+                    elif u.unavailability_type == "weekly_recurring" and u.day_of_week == target_day_of_week:
+                        if u.restriction_level == "hard":
+                            hard_match = True
+                        elif u.restriction_level == "soft":
+                            soft_match = True
+            if hard_match:
+                return "hard"
+            if soft_match:
+                return "soft"
+            return None
+
+        warnings: List[str] = []
+        emp_work_counts = {emp.id: 0 for emp in employees} # 직원별 총 배정 시간 추적 (균등 배정 목적)
+
+        # 각 시간대별로 배정 가능 인원 채우기 및 충돌 검사
+        for item in hourly_recommendations:
+            h = item["hour"]
+            req_count = item["recommended_employee_count"]
+            if req_count == 0:
+                item["assigned_employees"] = []
+                item["unassigned_count"] = 0
+                continue
+
+            # 해당 시간대 배정 후보군 추출
+            candidates = []
+            for emp in employees:
+                unav_level = get_unavailability_level(emp.id, h)
+                if unav_level == "hard":
+                    # Hard 절대 불가는 후보에서 제외!
+                    continue
+                
+                # Soft 가급적 회피는 페널티 점수(+100) 부여
+                penalty = 100 if unav_level == "soft" else 0
+                # 점수 = 현재 총 배정 시간 + 페널티 점수 (낮을수록 우선 배정)
+                score = emp_work_counts[emp.id] + penalty
+                candidates.append({
+                    "employee": emp,
+                    "level": unav_level,
+                    "score": score
+                })
+
+            # 점수가 낮은 순(배정 시간이 적고 Soft 기피가 아닌 사람 우선)으로 정렬
+            candidates.sort(key=lambda c: c["score"])
+
+            assigned = []
+            for cand in candidates[:req_count]:
+                emp = cand["employee"]
+                assigned.append({
+                    "id": emp.id,
+                    "name": emp.name,
+                    "role": emp.role,
+                    "level": cand["level"]
+                })
+                emp_work_counts[emp.id] += 1
+
+            item["assigned_employees"] = assigned
+            unassigned_cnt = max(req_count - len(assigned), 0)
+            item["unassigned_count"] = unassigned_cnt
+
+            # 필요 인원에 비해 Hard 기피 설정 등으로 직원이 모자란 경우 경고 기록
+            if unassigned_cnt > 0:
+                warn_msg = (
+                    f"{target_date_str} {h:02d}시: 필요 인원 {req_count}명 중 절대 불가(Hard) 제약 등으로 인해 "
+                    f"{len(assigned)}명만 배정되었습니다. (부족 인원: {unassigned_cnt}명)"
+                )
+                warnings.append(warn_msg)
+
+        # 6. 예상 인건비 연산 (소속 직원들의 평균 시급 또는 실제 배정 시급 합산)
         hourly_rates = [emp.hourly_rate for emp in employees if emp.hourly_rate > 0]
         avg_hourly_rate = int(sum(hourly_rates) / len(hourly_rates)) if hourly_rates else 10000
+
         estimated_payroll_cost = int(total_recommended_hours * avg_hourly_rate)
 
-        # 6. 피크타임을 파악하여 자연어 요약 조언 메시지 생성
-        total_predicted_sales = sum(item["predicted_sales"] for item in hourly_recommendations)
-        total_predicted_profit = sum(item["predicted_profit"] for item in hourly_recommendations)
-        
-        peak_hours = [item["hour"] for item in hourly_recommendations if item["busy_level"] == "PEAK"]
-        if peak_hours:
-            peak_str = ", ".join([f"{ph}시" for ph in peak_hours])
-            summary = (
-                f"분석 결과, {period_start} ~ {period_end} 기간에는 {peak_str}에 강한 매출 피크가 예상되어 최대로 알바생(3명)을 집중 배치할 것을 권장합니다. "
-                f"시간대별 평균 예상 매출 총합은 {total_predicted_sales:,}원, 예상 마진 이익은 {total_predicted_profit:,}원입니다. "
-                f"피크 외 시간대에는 1명으로 인력을 통제하여 예상 인건비 지출({estimated_payroll_cost:,}원) 대비 수익 효율을 극대화하세요."
-            )
-        else:
-            summary = (
-                f"{period_start} ~ {period_end} 기간에는 뚜렷한 피크타임 없이 전반적으로 평이하거나 한산할 것으로 분석됩니다. "
-                f"시간대별 평균 예상 매출 총합은 {total_predicted_sales:,}원, 예상 마진 이익은 {total_predicted_profit:,}원입니다. "
-                f"영업 시간 내내 최소 인원(1명)으로 유연하게 조율하여 고정 인건비 지출({estimated_payroll_cost:,}원)을 방지하시는 것을 추천합니다."
-            )
+        warn_summary = f" (⚠️ 인원 부족/충돌 경고 {len(warnings)}건 발생)" if warnings else ""
+        summary_text = (
+            f"{target_date_str} 추천 스케줄 분석 결과입니다. 총 추천 근무시간은 {total_recommended_hours}시간이며, "
+            f"예상 인건비 지출액은 약 {estimated_payroll_cost:,}원입니다.{warn_summary} "
+            f"본 스케줄은 확정이 아닌 추천 가이드이므로 매장 상황에 따라 조정해 주세요."
+        )
 
         return {
-            "target_date": period_start,
+            "target_date": target_date_str,
             "hourly_recommendations": hourly_recommendations,
             "total_recommended_hours": total_recommended_hours,
             "estimated_payroll_cost": estimated_payroll_cost,
-            "summary": summary
+            "warnings": warnings,
+            "summary": summary_text
         }
+
+
+# ----------------------------------------------------
+# 챗봇 / ERP 신규: 직원별 기피/불가 시간 CRUD 서비스 클래스
+# ----------------------------------------------------
+
+class EmployeeUnavailabilityService:
+    """직원별 기피/불가 시간 생성, 조회, 삭제 비즈니스 로직"""
+
+    @staticmethod
+    def create_unavailability(db: Session, payload: Any) -> Any:
+        """새 기피/불가 시간을 등록합니다."""
+        from app.models.operation import Employee, EmployeeUnavailability
+        # 직원 존재 유효성 검사
+        emp = db.query(Employee).filter(Employee.id == payload.employee_id).first()
+        if not emp:
+            raise ValueError(f"존재하지 않는 직원 ID입니다: {payload.employee_id}")
+
+        if payload.start_hour >= payload.end_hour:
+            raise ValueError("시작 시각은 종료 시각보다 빨라야 합니다.")
+
+        new_unav = EmployeeUnavailability(
+            employee_id=payload.employee_id,
+            unavailability_type=payload.unavailability_type,
+            day_of_week=payload.day_of_week,
+            specific_date=payload.specific_date,
+            start_hour=payload.start_hour,
+            end_hour=payload.end_hour,
+            restriction_level=payload.restriction_level,
+            reason=payload.reason
+        )
+        db.add(new_unav)
+        db.commit()
+        db.refresh(new_unav)
+        return new_unav
+
+    @staticmethod
+    def get_unavailabilities(db: Session, employee_id: Optional[int] = None) -> List[Any]:
+        """등록된 기피/불가 시간 목록을 조회합니다."""
+        from app.models.operation import EmployeeUnavailability
+        query = db.query(EmployeeUnavailability)
+        if employee_id is not None:
+            query = query.filter(EmployeeUnavailability.employee_id == employee_id)
+        return query.order_by(EmployeeUnavailability.id.desc()).all()
+
+    @staticmethod
+    def delete_unavailability(db: Session, unavailability_id: int) -> bool:
+        """기피 시간 설정을 지웁니다."""
+        from app.models.operation import EmployeeUnavailability
+        target = db.query(EmployeeUnavailability).filter(EmployeeUnavailability.id == unavailability_id).first()
+        if not target:
+            return False
+        db.delete(target)
+        db.commit()
+        return True
+
+
 
     @staticmethod
     def create_expense(db: Session, store_id: str, amount: int, category: str, expense_date: Any, description: Optional[str] = None) -> Expense:

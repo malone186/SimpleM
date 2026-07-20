@@ -2,11 +2,16 @@
 // 바텀 시트 + 딤드 배경(bg-black/40) — PRD §1.4: 발주는 초안-승인 원칙이나
 // 본 모달은 '자주 시키는 항목 즉시 발주' UX 데모 (실제 확정은 발주 승인 화면)
 import { useEffect, useRef } from 'react';
-import { Animated, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View, Linking } from 'react-native';
 
 import { colors, spacing, typography } from '../../theme';
 import { PressableScale } from '../motion';
 import type { Todo } from './TodoList';
+
+// [한글 주석: "우유 재고 부족" ➔ "우유" 와 같이 순수 제품명만 잘라내어 검색어로 정제합니다]
+const getSearchQuery = (title: string) => {
+  return title.replace(/\s*재고\s*부족.*/gi, '').trim();
+};
 
 export default function QuickOrderModal({
   visible,
@@ -65,6 +70,20 @@ export default function QuickOrderModal({
                 </View>
               </View>
             )}
+
+            {todo && (
+              <PressableScale
+                style={styles.searchBtn}
+                onPress={() => {
+                  const query = getSearchQuery(todo.title);
+                  Linking.openURL(`https://search.shopping.naver.com/search/all?query=${encodeURIComponent(query)}`);
+                }}
+              >
+                {/* [한글 주석: 정제된 부족재고 이름으로 네이버 스마트스토어(네이버 쇼핑) 검색결과 창을 즉시 띄웁니다] */}
+                <Text style={styles.searchText}>네이버 스마트스토어에서 구매하기</Text>
+              </PressableScale>
+            )}
+
             {/* [한글 주석: 앱 내 직접 발주 미지원 고지 및 닫기 버튼 배치] */}
             <Text style={styles.infoText}>
               * 앱 내 결제 및 직접 발주는 지원하지 않습니다. 외부 공급처를 통해 별도로 주문해주시기 바랍니다.
@@ -142,6 +161,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   confirmText: { ...typography.L3, color: colors.white },
+  searchBtn: {
+    backgroundColor: colors.espressoBrown,
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  searchText: { ...typography.L3, color: colors.white },
   cancelBtn: { paddingVertical: 14, alignItems: 'center' },
   cancelText: { ...typography.L4, color: colors.mochaBrown },
 });
