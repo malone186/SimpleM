@@ -119,11 +119,7 @@ export default function OrderScreen() {
   if (error) {
     return (
       <Screen>
-<<<<<<< Updated upstream
         <ScreenTitle title="발주" />
-=======
-        <ScreenTitle title="원두 탐색" />
->>>>>>> Stashed changes
         <View style={styles.centerBox}>
           <Ionicons name="alert-circle-outline" size={48} color={colors.mochaBrown} />
           <Text style={styles.errorTitle}>데이터를 불러오지 못했어요</Text>
