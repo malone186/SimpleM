@@ -262,33 +262,44 @@ def _build_highlights(sales: dict, labor: dict, inventory: dict,
                       compliance: list, profit: dict, period_type: str) -> list[str]:
     h: list[str] = []
     prev_word = _PREV_WORD.get(period_type, "이전 기간보다")
+    
+    # [매출 변동] 전 주/달 대비 매출 증감율 표시
     if sales["change_pct"] is not None:
-        direction = "증가" if sales["change_pct"] >= 0 else "감소"
+        direction = "감소" if sales["change_pct"] < 0 else "증가"
         h.append(f"매출 {sales['total']:,}원 — {prev_word} {abs(sales['change_pct'])}% {direction}")
     else:
-        h.append(f"매출 {sales['total']:,}원 (비교할 이전 매출 없음)")
+        h.append(f"매출 {sales['total']:,}원 (이전 비교 데이터 없음)")
+        
+    # [베스트 메뉴] 최다 판매 메뉴와 매출 기여액 표시
     if sales["top_menus"]:
         best = sales["top_menus"][0]
-        h.append(f"베스트 메뉴: {best['menu']} ({best['quantity']}잔, {best['total']:,}원)")
+        h.append(f"베스트 메뉴: {best['menu']} ({best['quantity']}잔 / {best['total']:,}원)")
+        
+    # [순수익 계산] 모든 비용을 제하고 남은 순수익 혹은 지출 초과(적자) 표시
     if profit["estimated_profit"] >= 0:
         if sales["total"]:
-            h.append(f"비용을 다 빼고 {profit['estimated_profit']:,}원 남음")
+            h.append(f"예상 순수익 {profit['estimated_profit']:,}원")
     else:
-        h.append(f"번 돈보다 쓴 돈이 {abs(profit['estimated_profit']):,}원 많음 — 비용 점검 필요")
+        h.append(f"지출 초과 {abs(profit['estimated_profit']):,}원 (비용 점검 필요)")
+        
+    # [재고 경보] 부족한 재료를 한눈에 볼 수 있도록 나열
     if inventory["low_stock"]:
-        # 어떤 재료가 얼마나 남았는지까지 바로 보여준다 — '3종' 같은 개수만으로는 행동을 못 정한다
         items = [f"{it['name']} {_fmt_qty(it['current_quantity'])}{it['unit']}"
                  for it in inventory["low_stock"][:3]]
         more = len(inventory["low_stock"]) - 3
-        h.append("주문 필요: " + " · ".join(items) + (f" 외 {more}종" if more > 0 else "") + " 남음")
+        h.append("재고 부족: " + " · ".join(items) + (f" 외 {more}종" if more > 0 else "") + " (주문 필요)")
+        
+    # [서류 관리] 위생교육 등 갱신이 임박한 인허가 서류 잔여일 표기
     for doc in compliance[:2]:
         left = "이미 만료" if doc.get("status") == "expired" else f"{doc['days_left']}일 남음"
-        h.append(f"서류 갱신 필요: {doc['name']} ({left})")
+        h.append(f"갱신 임박 서류: {doc['name']} ({left})")
     if len(compliance) > 2:
-        h.append(f"갱신할 서류 외 {len(compliance) - 2}건 더 있음")
+        h.append(f"미갱신 서류 외 {len(compliance) - 2}건 추가 대기 중")
+        
+    # [인건비 비율] 매출 총액 대비 예상 인건비 비중 계산
     if labor["estimated_cost"] and sales["total"]:
         ratio = round(labor["estimated_cost"] / sales["total"] * 100, 1)
-        h.append(f"인건비는 매출의 {ratio}%")
+        h.append(f"매출 대비 인건비 {ratio}%")
     return h
 
 
