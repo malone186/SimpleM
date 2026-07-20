@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 
@@ -783,6 +784,7 @@ const ddayTone = (status: string): 'danger' | 'orange' | 'neutral' =>
 
 function TaxTab() {
   const { token } = useAuth();
+  const navigation = useNavigation<any>();
   const period = nowYearMonth();
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -825,8 +827,6 @@ function TaxTab() {
     );
   }
 
-  const findLine = (name: string) => tax.lines.find((l) => l.name === name);
-
   return (
     <View style={{ gap: 20 }}>
       {/* 예상 세금 총합 + 세목별 (부가세·종소세·원천징수) */}
@@ -867,19 +867,7 @@ function TaxTab() {
             label="초안 상세 보기"
             variant="secondary"
             style={{ flex: 1 }}
-            onPress={() =>
-              toast(
-                '세금 신고 초안',
-                `[부가가치세] ${wonFmt(tax.vat)}\n${findLine('부가가치세')?.basis ?? ''}\n\n` +
-                `[종합소득세] ${wonFmt(tax.income_tax)}\n${findLine('종합소득세')?.basis ?? ''}\n\n` +
-                `[원천징수세] ${wonFmt(tax.withholding_tax)}\n${findLine('원천징수세')?.basis ?? ''}\n\n검토 후 세무사에게 공유하세요.`
-              )
-            }
-          />
-          <Button
-            label="세무사 공유"
-            style={{ flex: 1 }}
-            onPress={() => toast('공유 완료', '신고 초안을 담당 세무사에게 전달했어요. 확정은 세무사 확인 후 진행됩니다.')}
+            onPress={() => navigation.navigate('TaxDraftDetail', { tax })}
           />
         </View>
       </Card>

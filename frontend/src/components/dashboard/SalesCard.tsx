@@ -701,7 +701,7 @@ export default function SalesCard({
             })}
           </View>
         </View>
-      ) : (
+      ) : activeTab === 'day' ? (
         <View>
           {/* 오늘 / 내일 예측 범례 (Legend) */}
           <View style={styles.legendContainer}>
@@ -858,9 +858,8 @@ export default function SalesCard({
           <TodoList todos={todos} onPressAction={onPressTodo || (() => {})} hideCard={true} />
         </View>
       ) : (
-        <View style={styles.chartWrapper}>
-
-
+        <View style={styles.chartWrap} />
+      )}
 
       {/* 하단 요약 정보 그리드 (todo 탭이 아닐 때만 노출) */}
       {activeTab !== 'todo' && (
