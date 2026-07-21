@@ -18,6 +18,7 @@ import {
   useContext,
   useEffect,
   useState,
+  useMemo,
   type ReactNode,
 } from 'react';
 import * as WebBrowser from 'expo-web-browser';
@@ -89,14 +90,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.log('🔗 [Google 소셜 로그인 리디렉션 URI]:', finalRedirectUri);
   }, [finalRedirectUri]);
 
-  // [한글 주석] expo-auth-session을 이용해 모바일 환경에서의 Google 소셜 로그인 요청을 세팅합니다.
-  const [request, response, promptAsync] = AuthSession.useAuthRequest(
-    {
+  // [한글 주석] response_type=id_token 흐름에서 구글이 보안을 위해 필수로 요구하는 일회용 위조 방지 난수(nonce)를 생성하고 useMemo로 고정합니다.
+  const googleNonce = useMemo(() => {
+    return 'simplem_google_auth_nonce_' + Math.random().toString(36).substring(2, 15);
+  }, []);
+
+  // [한글 주석] useAuthRequest가 렌더링 시마다 갱신되어 무한 루프에 빠지는 것을 방지하기 위해 전체 설정을 useMemo로 박제합니다.
+  const googleRequestConfig = useMemo(() => {
+    return {
       clientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
       redirectUri: finalRedirectUri,
       scopes: ['openid', 'profile', 'email'],
       responseType: 'id_token',
-    },
+      usePKCE: false,
+      nonce: googleNonce,
+      extraParams: {
+        nonce: googleNonce,
+      },
+    };
+  }, [finalRedirectUri, googleNonce]);
+
+  // [한글 주석] expo-auth-session을 이용해 모바일 환경에서의 Google 소셜 로그인 요청을 세팅합니다.
+  const [request, response, promptAsync] = AuthSession.useAuthRequest(
+    googleRequestConfig,
     {
       authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
     }
