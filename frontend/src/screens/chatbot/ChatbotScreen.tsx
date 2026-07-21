@@ -285,46 +285,50 @@ export default function ChatbotScreen() {
         animationType="slide"
         onRequestClose={() => setHistoryOpen(false)}
       >
-        <Pressable style={styles.modalDim} onPress={() => setHistoryOpen(false)} />
-        <View style={styles.sheet}>
-          <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>채팅 기록</Text>
-            {sessions.length > 0 && (
-              <PressableScale style={styles.clearBtn} onPress={removeAllSessions}>
-                <Text style={styles.clearBtnText}>전체 삭제</Text>
+        {/* FormSheet 패턴 — 웹에서도 폰 프레임(maxWidth 420) 안에 시트를 가둔다 */}
+        <View style={styles.modalRoot}>
+          <Pressable style={styles.modalDim} onPress={() => setHistoryOpen(false)} />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>채팅 기록</Text>
+              {sessions.length > 0 && (
+                <PressableScale style={styles.clearBtn} onPress={removeAllSessions}>
+                  <Text style={styles.clearBtnText}>전체 삭제</Text>
+                </PressableScale>
+              )}
+              <PressableScale style={styles.closeBtn} onPress={() => setHistoryOpen(false)}>
+                <Ionicons name="close" size={22} color={colors.espressoBrown} />
               </PressableScale>
-            )}
-            <PressableScale style={styles.closeBtn} onPress={() => setHistoryOpen(false)}>
-              <Ionicons name="close" size={22} color={colors.espressoBrown} />
-            </PressableScale>
-          </View>
+            </View>
 
-          <ScrollView style={styles.sheetList} showsVerticalScrollIndicator={false}>
-            {sessions.length === 0 && (
-              <Text style={styles.emptyText}>
-                아직 저장된 채팅이 없어요.{'\n'}브루와 대화하면 자동으로 기록됩니다.
-              </Text>
-            )}
-            {sessions.map((s) => {
-              const isCurrent = s.id === sessionIdRef.current;
-              const turns = s.messages.filter((m) => m.role === 'user').length;
-              return (
-                <View key={s.id} style={[styles.sessionRow, isCurrent && styles.sessionRowActive]}>
-                  <Pressable style={styles.sessionMain} onPress={() => openSession(s)}>
-                    <Text style={styles.sessionTitle} numberOfLines={1}>
-                      {s.title}
-                    </Text>
-                    <Text style={styles.sessionMeta}>
-                      {timeLabel(s.updatedAt)} · 질문 {turns}개{isCurrent ? ' · 지금 보는 중' : ''}
-                    </Text>
-                  </Pressable>
-                  <PressableScale style={styles.trashBtn} onPress={() => removeSession(s)}>
-                    <Ionicons name="trash-outline" size={18} color={colors.mochaBrown} />
-                  </PressableScale>
-                </View>
-              );
-            })}
-          </ScrollView>
+            <ScrollView style={styles.sheetList} showsVerticalScrollIndicator={false}>
+              {sessions.length === 0 && (
+                <Text style={styles.emptyText}>
+                  아직 저장된 채팅이 없어요.{'\n'}브루와 대화하면 자동으로 기록됩니다.
+                </Text>
+              )}
+              {sessions.map((s) => {
+                const isCurrent = s.id === sessionIdRef.current;
+                const turns = s.messages.filter((m) => m.role === 'user').length;
+                return (
+                  <View key={s.id} style={[styles.sessionRow, isCurrent && styles.sessionRowActive]}>
+                    <Pressable style={styles.sessionMain} onPress={() => openSession(s)}>
+                      <Text style={styles.sessionTitle} numberOfLines={1}>
+                        {s.title}
+                      </Text>
+                      <Text style={styles.sessionMeta}>
+                        {timeLabel(s.updatedAt)} · 질문 {turns}개{isCurrent ? ' · 지금 보는 중' : ''}
+                      </Text>
+                    </Pressable>
+                    <PressableScale style={styles.trashBtn} onPress={() => removeSession(s)}>
+                      <Ionicons name="trash-outline" size={18} color={colors.mochaBrown} />
+                    </PressableScale>
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </View>
         </View>
       </Modal>
     </KeyboardAvoidingView>
@@ -411,21 +415,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // 과거 채팅 시트
-  modalDim: { flex: 1, backgroundColor: colors.black40 },
+  // 과거 채팅 시트 — FormSheet와 같은 폰 프레임 규격
+  modalRoot: { flex: 1, justifyContent: 'flex-end', width: '100%', maxWidth: 420, alignSelf: 'center' },
+  modalDim: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: colors.black40 },
   sheet: {
     maxHeight: '70%',
     backgroundColor: colors.creamSand,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     paddingBottom: 24,
+  },
+  sheetHandle: {
+    alignSelf: 'center',
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colors.mutedSand,
+    marginTop: 12,
   },
   sheetHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     paddingHorizontal: spacing.globalPadding,
-    paddingTop: 18,
+    paddingTop: 14,
     paddingBottom: 12,
   },
   sheetTitle: { ...typography.L3, color: colors.espressoBrown, flex: 1 },
