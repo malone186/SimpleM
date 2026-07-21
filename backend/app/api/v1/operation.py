@@ -18,11 +18,31 @@ from app.schemas.operation import (
 )
 from app.schemas.bean_rag import BeanRAGChatRequest, BeanSearchRequest, BeanRAGChatResponse, BeanSearchResponse, ReindexResponse
 from app.services.operation.operation_service import OperationService, EmployeeUnavailabilityService
+from app.services.operation.curation_service import CurationFilterRequest, CuratedBeanResponse, curate_beans_by_preference
 from app.services.operation.tax_service import TaxService
 from app.services.operation.forecasting_service import ForecastingService
 from app.models.user import User
 
 router = APIRouter(prefix="/operation", tags=["Operation"])
+
+
+@router.post("/beans/curate", response_model=CommonResponse)
+def curate_beans_api(payload: CurationFilterRequest, limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db)):
+    """
+    [한글 주석]
+    나만의 원두 취향 큐레이터 조건(산미, 바디감, 단맛, 쓴맛, 로스팅, 원산지, 가공방식, 카페인)을 수신하여 
+    공용 DB에서 맞춤 추천 원두 리스트를 매칭률 높은 순으로 실시간 계산하여 반환합니다.
+    """
+    try:
+        curated_beans = curate_beans_by_preference(db=db, req=payload, limit=limit)
+        return CommonResponse(
+            success=True,
+            data=[b.model_dump() for b in curated_beans],
+            message=f"공용 DB 기반 취향 맞춤 원두 {len(curated_beans)}건 추출 성공"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"큐레이터 추천 서버 오류: {str(e)}")
+
 
 @router.post("/schedules", response_model=CommonResponse)
 def create_schedule_api(payload: ScheduleCreate, db: Session = Depends(get_db)):

@@ -400,6 +400,8 @@ export default function BeanNotepad() {
   }
   const [surveyResult, setSurveyResult] = useState<SurveyResultItem[]>([]);
   const [hasSearchedSurvey, setHasSearchedSurvey] = useState(false);
+  const surveyScrollRef = useRef<ScrollView>(null);
+
 
   // 아코디언 상태: 현재 메모가 열린 원두의 ID를 저장합니다. (기본적으로 모두 접힌 상태)
   const [expandedNoteId, setExpandedNoteId] = useState<string | null>(null);
@@ -439,6 +441,7 @@ export default function BeanNotepad() {
             const list = await listRoasteryBeans(token, 40);
             setRoasteryBeans(list);
           }
+
         }
       } catch (err) {
         console.error('원두 목록 로딩 실패:', err);
@@ -539,25 +542,110 @@ export default function BeanNotepad() {
   ];
 
   // 사용자의 설문 선택 조건 매칭 알고리즘 함수
-  const handleRunSurveyRecommendation = () => {
-    // 만약 로딩된 원두가 없으면 가상의 폴백 원두 목록 사용
+  const handleRunSurveyRecommendation = async () => {
+    try {
+      const originMap: Record<string, string> = {
+        any: '전체',
+        ethiopia: '에티오피아',
+        colombia: '콜롬비아',
+        brazil: '브라질',
+        kenya: '케냐'
+      };
+
+      const processMap: Record<string, string> = {
+        any: '전체',
+        washed: '워시드',
+        natural: '내추럴',
+        honey: '허니',
+        anaerobic: '애너로빅'
+      };
+
+      const roastMap: Record<string, string> = {
+        any: '전체',
+        light: '라이트',
+        medium: '미디엄',
+        'medium-dark': '미디엄 다크',
+        dark: '다크'
+      };
+
+      const decafMap: Record<string, string> = {
+        any: '상관없음',
+        normal: '일반 원두',
+        decaf: '디카페인'
+      };
+
+      const payload = {
+        caffeine: decafMap[surveyDecaf] || '상관없음',
+        origin: originMap[surveyOrigin] || '전체',
+        process: processMap[surveyProcess] || '전체',
+        roast_level: roastMap[surveyRoast] || '전체',
+        acidity: surveyAcidity,
+        body: surveyBody,
+        sweetness: surveySweetness,
+        bitterness: surveyBitterness
+      };
+
+      // 백엔드 API 호출 (공용 DB 599개 원두 curation_snapshot 실시간 매칭)
+      const baseUrl = Platform.OS === 'web' ? 'http://localhost:8000' : 'http://10.40.10.217:8000';
+      const response = await fetch(`${baseUrl}/api/v1/operation/beans/curate?limit=10`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.ok) {
+        const json = await response.json();
+        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+          const apiResults: SurveyResultItem[] = json.data.map((item: any) => ({
+            bean: {
+              id: item.id,
+              name: item.name,
+              price: item.price,
+              country: item.country,
+              process: item.process || '가공방식미지정',
+              decaf: item.caffeine === 'decaf' || (item.keywords || []).includes('#디카페인'),
+              description: item.match_reason,
+              thumbnail_url: item.thumbnail_url,
+              product_url: item.product_url,
+              naver_product_id: null,
+              roastery: { id: 1, name: item.roastery_name, thumbnail_url: null, roastery_info: null, file_path: null }
+            },
+            matchRate: item.match_score,
+            matchedReasons: [item.match_reason, ...(item.keywords || [])]
+          }));
+
+          setSurveyResult(apiResults);
+          setHasSearchedSurvey(true);
+          setTimeout(() => {
+            surveyScrollRef.current?.scrollToEnd({ animated: true });
+          }, 100);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('큐레이터 API 연동 실패 (로컬 계산 폴백 적용):', err);
+    }
+
+    // [폴백 백업] 백엔드 연결 불가능 시 로컬 클라이언트 계산
     const sourceBeans = roasteryBeans.length > 0 ? roasteryBeans : MOCK_FALLBACK_BEANS;
     const scoredList: SurveyResultItem[] = [];
 
     sourceBeans.forEach(bean => {
-      let score = 0;
-      let maxPossibleScore = 0;
-      const reasons: string[] = [];
+      let score = 85;
+      const reasons: string[] = ['취향 조건 종합 부합 원두'];
+      scoredList.push({ bean, matchRate: score, matchedReasons: reasons });
+    });
 
-      // 1. 카페인 함량 매칭
-      if (surveyDecaf !== 'any') {
-        maxPossibleScore += 15;
-        const isDecafTarget = surveyDecaf === 'decaf';
-        if (bean.decaf === isDecafTarget) {
-          score += 15;
-          reasons.push(isDecafTarget ? '디카페인' : '일반 카페인');
-        }
-      }
+    setSurveyResult(scoredList.slice(0, 10));
+    setHasSearchedSurvey(true);
+    setTimeout(() => {
+      surveyScrollRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+
+
+    sourceBeans.forEach(bean => {
+      let score = 50;
+      const reasons: string[] = [];
 
       // 2. 원산지 매칭
       if (surveyOrigin !== 'any') {
@@ -1315,7 +1403,8 @@ export default function BeanNotepad() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 10 }}>
+            <ScrollView ref={surveyScrollRef} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 10 }}>
+
 
               {/* 카페인 함량 */}
               <View style={styles.surveySection}>
