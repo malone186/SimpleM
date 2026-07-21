@@ -91,7 +91,7 @@ function SlidingTabToggle({
 
   const translateX = slideAnim.interpolate({
     inputRange: [0, 1, 2],
-    outputRange: [2, 39, 76],
+    outputRange: [2, 68, 134],
   });
 
   return (
@@ -131,7 +131,7 @@ export default function SalesCard({
   onEditTodo?: (id: string, newTitle: string) => void;
   onDeleteTodo?: (id: string) => void;
 }) {
-  const { token, user } = useAuth();
+  const { token } = useAuth();
   const [forecast, setForecast] = useState<SalesForecast | null>(null);
   const [calendar, setCalendar] = useState<SalesCalendar | null>(null); // 이번 달 일별 실판매 집계
   const [loadingForecast, setLoadingForecast] = useState(false);
@@ -147,7 +147,7 @@ export default function SalesCard({
     title: string;
     value: string;
   } | null>(null);
-  const [locationModalVisible, setLocationModalVisible] = useState(false);
+  // [한글 주석] 매장 위치 지도는 프로필 화면(StoreLocationMap)으로 이동됨
 
   const [layoutWidth, setLayoutWidth] = useState(300);
   const tooltipAnim = useRef(new Animated.Value(0)).current;
@@ -334,6 +334,16 @@ export default function SalesCard({
       ? ((todayRevenueTotal - yesterdayRevenue) / yesterdayRevenue) * 100
       : null;
   const badgeText = deltaPct === null ? '비교 없음' : `${deltaPct >= 0 ? '▲' : '▼'} ${Math.abs(deltaPct).toFixed(1)}%`;
+  const isBadgeDown = deltaPct !== null && deltaPct < 0;
+  // [한글 주석] 사장님이 %의 비교 기준을 바로 알 수 있게 배지 아래에 붙이는 설명 문구
+  const badgeHint =
+    deltaPct === null
+      ? isMonthly
+        ? '지난달 기록 없음'
+        : '어제 판매 기록 없음'
+      : isMonthly
+        ? '지난달 같은 기간 대비'
+        : '어제 하루 매출 대비';
 
   // 하단 세부 요약 수치 — 일간은 오늘 실적, 월간은 이번 달 집계 (데이터 없으면 '—')
   const monthCups = calendar?.month_total.cups ?? 0;
@@ -353,242 +363,29 @@ export default function SalesCard({
     if (best.cups > 0) peakTime = `${best.hour}–${best.hour + 1}시`;
   }
 
-  const lat = forecast?.location.lat ?? 37.5562;
-  const lon = forecast?.location.lon ?? 126.9223;
-  const regionName = forecast?.location.region ?? "서울특별시 마포구 서교동";
-  // [한글 주석] 지도 마커에 표기할 매장명 — 회원가입 시 지정한 상호명(user.name)과 연동
-  const shopLabel = user?.name ? `내 매장 (${user.name})` : '내 매장';
-  const nearbyEvents = forecast?.nearby_events ?? [];
-  const serializedEvents = JSON.stringify(nearbyEvents);
 
-  // [네이버 지도 연동 설정 가이드]
-  // 1. 네이버 클라우드 플랫폼(NCP)에서 Maps > Web Dynamic Map 서비스를 신청하고 발급받은 Client ID를 아래에 기입해 줍니다.
-  //    ※ NCP 콘솔의 해당 애플리케이션에 Web 서비스 URL(예: http://localhost:8081)이 등록되어 있어야 인증됩니다.
-  // 2. 아래 ID가 비어있거나 'YOUR_NAVER_CLIENT_ID' 상태일 때는 자동으로 Leaflet.js 오픈맵이 폴백 구동되어 공백 없이 정상 동작합니다.
-  const NAVER_CLIENT_ID = process.env.EXPO_PUBLIC_NAVER_CLIENT_ID || "6amak4awt7";
-
-
-  // [네이버 지도 다이렉트 DOM 렌더링 훅]
-  // iframe 격리 시 브라우저가 Referer 오리진을 null/about:srcdoc으로 훼손하여 네이버가 차단하는 문제를 원천 해결합니다.
-  // 부모 창의 실제 도메인 주소(http://localhost:8081)가 100% 온전하게 네이버에 송신되어 에러 없이 가동됩니다.
-  useEffect(() => {
-    if (Platform.OS !== 'web' || !locationModalVisible) return;
-
-    // 1. 네이버 지도 API 스크립트 로드
-    const loadNaverScript = () => {
-      const existing = document.getElementById('naver-map-script-direct');
-      if (existing) {
-        // 스크립트 태그는 있지만 아직 로딩 중일 수 있음(모달 빠른 재오픈 등) — 로드 완료를 기다린 뒤 초기화
-        if ((window as any).naver?.maps) {
-          initNaverMapDirectly();
-        } else {
-          existing.addEventListener('load', initNaverMapDirectly, { once: true });
-        }
-        return;
-      }
-
-      const script = document.createElement('script');
-      script.id = 'naver-map-script-direct';
-      script.type = 'text/javascript';
-      // 신규 NCP Maps API는 oapi 도메인 + ncpKeyId 파라미터로만 인증됨 (구 openapi/ncpClientId는 인증 실패 처리)
-      script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${NAVER_CLIENT_ID}`;
-      script.onload = initNaverMapDirectly;
-      script.onerror = () => {
-        console.error("네이버 지도 로딩 실패: Leaflet으로 전환");
-        initLeafletFallback();
-      };
-      document.head.appendChild(script);
-    };
-
-    // 2. 실제 DOM에 네이버 지도 생성 및 마킹
-    const initNaverMapDirectly = () => {
-      try {
-        const container = document.getElementById('naver-map-container');
-        if (!container) return;
-        container.innerHTML = "";
-
-        const naverObj = (window as any).naver;
-        if (!naverObj || !naverObj.maps) {
-          initLeafletFallback();
-          return;
-        }
-
-        const map = new naverObj.maps.Map(container, {
-          center: new naverObj.maps.LatLng(lat, lon),
-          zoom: 14,
-          zoomControl: false
-        });
-
-        // 내 매장 마커 마킹
-        const shopMarker = new naverObj.maps.Marker({
-          position: new naverObj.maps.LatLng(lat, lon),
-          map: map,
-          icon: {
-            content: '<div style="width:16px;height:16px;background:#4E3629;border:3px solid #FFFFFF;border-radius:50%;box-shadow:0 2px 5px rgba(0,0,0,0.3)"></div>',
-            anchor: new naverObj.maps.Point(8, 8)
-          }
-        });
-
-        const infoWindow = new naverObj.maps.InfoWindow({
-          content: '<div style="padding:10px;min-width:140px;line-height:140%;font-size:11px;font-family:-apple-system,sans-serif"><b>📍 ' + shopLabel + '</b><br/>' + regionName + '</div>',
-          borderWidth: 1,
-          borderColor: '#8C6F56',
-          borderRadius: 8,
-          backgroundColor: '#FFFFFF',
-          anchorSize: new naverObj.maps.Size(10, 10)
-        });
-
-        infoWindow.open(map, shopMarker);
-
-        // 인근 축제 마커들 생성 (열린 정보창을 모아두었다가 지도 빈 곳 클릭 시 일괄 닫기)
-        const eventWindows: any[] = [];
-        nearbyEvents.forEach((e: any) => {
-          if (e.lat && e.lon) {
-            const eventMarker = new naverObj.maps.Marker({
-              position: new naverObj.maps.LatLng(e.lat, e.lon),
-              map: map,
-              icon: {
-                content: '<div style="width:12px;height:12px;background:#E28257;border:2.5px solid #FFFFFF;border-radius:50%;box-shadow:0 2px 4px rgba(0,0,0,0.3)"></div>',
-                anchor: new naverObj.maps.Point(6, 6)
-              }
-            });
-
-            const eWindow = new naverObj.maps.InfoWindow({
-              content: '<div style="padding:10px;min-width:160px;line-height:140%;font-size:11px;font-family:-apple-system,sans-serif"><b>🎉 ' + e.name + '</b><br/>장소: ' + e.place + '<br/>거리: ' + e.distance_km + 'km<br/>날짜: ' + e.date + '</div>',
-              borderWidth: 1,
-              borderColor: '#E28257',
-              borderRadius: 8,
-              backgroundColor: '#FFFFFF'
-            });
-            eventWindows.push(eWindow);
-
-            naverObj.maps.Event.addListener(eventMarker, "click", () => {
-              if (eWindow.getMap()) {
-                eWindow.close();
-              } else {
-                eWindow.open(map, eventMarker);
-              }
-            });
-          }
-        });
-
-        // 지도 빈 곳을 클릭하면 열려 있는 행사 정보창을 모두 닫는다
-        naverObj.maps.Event.addListener(map, "click", () => {
-          eventWindows.forEach((w) => {
-            if (w.getMap()) w.close();
-          });
-        });
-      } catch (err) {
-        console.error("네이버 지도 직접 초기화 중 에러, 폴백 가동:", err);
-        initLeafletFallback();
-      }
-    };
-
-    // 3. Leaflet.js 폴백 복원 함수
-    const initLeafletFallback = () => {
-      try {
-        const container = document.getElementById('naver-map-container');
-        if (!container) return;
-        container.innerHTML = "";
-
-        let existingCss = document.getElementById('leaflet-css-direct');
-        if (!existingCss) {
-          const link = document.createElement('link');
-          link.id = 'leaflet-css-direct';
-          link.rel = 'stylesheet';
-          link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-          document.head.appendChild(link);
-        }
-
-        const startLeaflet = () => {
-          const L = (window as any).L;
-          if (!L) return;
-          const map = L.map(container, { zoomControl: false }).setView([lat, lon], 14);
-          
-          L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-            maxZoom: 19
-          }).addTo(map);
-
-          const shopMarker = L.circleMarker([lat, lon], {
-            color: '#4E3629',
-            fillColor: '#8C6F56',
-            fillOpacity: 1,
-            radius: 8,
-            weight: 3
-          }).addTo(map);
-          
-          shopMarker.bindPopup("<div style='font-size:11px'><b>📍 " + shopLabel + "</b><br/>" + regionName + "</div>").openPopup();
-
-          nearbyEvents.forEach((e: any) => {
-            if (e.lat && e.lon) {
-              L.circleMarker([e.lat, e.lon], {
-                color: '#E28257',
-                fillColor: '#FFFFFF',
-                fillOpacity: 0.9,
-                radius: 6,
-                weight: 3.5
-              }).addTo(map)
-                .bindPopup("<div style='font-size:11px'><b>🎉 " + e.name + "</b><br/>장소: " + e.place + "<br/>거리: " + e.distance_km + "km<br/>날짜: " + e.date + "</div>");
-            }
-          });
-        };
-
-        const existingScript = document.getElementById('leaflet-js-direct');
-        if (existingScript) {
-          startLeaflet();
-        } else {
-          const script = document.createElement('script');
-          script.id = 'leaflet-js-direct';
-          script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-          script.onload = startLeaflet;
-          document.head.appendChild(script);
-        }
-      } catch (err) {
-        console.error("Leaflet 로딩 실패:", err);
-      }
-    };
-
-    // 네이버 지도 인증 실패 전역 콜백 연결
-    (window as any).navermap_authFailure = () => {
-      console.warn("네이버 지도 인증 실패: 즉시 Leaflet 오픈 지도로 안전 전환합니다.");
-      initLeafletFallback();
-    };
-
-    const timer = setTimeout(loadNaverScript, 50);
-    return () => clearTimeout(timer);
-  }, [locationModalVisible, lat, lon, regionName, shopLabel, serializedEvents, NAVER_CLIENT_ID]);
 
   return (
     <View style={styles.card}>
       {/* 헤더 영역 */}
       <View style={styles.headRow}>
         <View style={{ flex: 1, alignItems: 'flex-start' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <SlidingTabToggle value={activeTab} onChange={setActiveTab} />
-            {/* [한글 주석] todo 탭이 아닐 때(일/월 탭)는 위치 태그 칩을 표시합니다 */}
-            {activeTab !== 'todo' && forecast?.location && (
-              <PressableScale 
-                onPress={() => setLocationModalVisible(true)} 
-                style={styles.locationTag}
-                to={0.95}
-              >
-                <Ionicons name="location" size={10.5} color={colors.mochaBrown} style={{ opacity: 0.8 }} />
-                <Text style={styles.locationTagText}>
-                  {forecast.location.region}
-                </Text>
-              </PressableScale>
-            )}
-          </View>
+          {/* [한글 주석] 위치 칩은 웰컴 헤더(말풍선 아래)로 이동 — 탭 토글이 그 자리까지 넓게 쓴다 */}
+          <SlidingTabToggle value={activeTab} onChange={setActiveTab} />
           {/* [한글 주석] todo 탭일 때는 상단 비용(매출액) 문구를 표시하지 않음 */}
           {activeTab !== 'todo' && (
-            <Text style={[styles.amount, { marginTop: 6 }]}>₩ {amount.toLocaleString()}</Text>
+            <Text style={[styles.amount, { marginTop: 10 }]}>₩ {amount.toLocaleString()}</Text>
           )}
         </View>
 
         {/* [한글 주석] todo 탭일 때는 성장폭 뱃지도 표시하지 않음 */}
         {activeTab !== 'todo' && (
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>{badgeText}</Text>
+          <View style={{ alignItems: 'flex-end', gap: 3 }}>
+            <View style={[styles.badge, isBadgeDown && styles.badgeDown]}>
+              <Text style={[styles.badgeText, isBadgeDown && styles.badgeTextDown]}>{badgeText}</Text>
+            </View>
+            {/* [한글 주석] % 비교 기준 안내 — 예: "어제 하루 매출 대비" */}
+            <Text style={styles.badgeHint}>{badgeHint}</Text>
           </View>
         )}
       </View>
@@ -1071,55 +868,6 @@ export default function SalesCard({
         </View>
       </Modal>
 
-      {/* [한글 주석: 매장 위치 및 주변 행사 지리 분석 지도 모달] */}
-      <Modal
-        visible={locationModalVisible}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setLocationModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setLocationModalVisible(false)} />
-          <View style={[styles.modalContent, { width: '92%', maxWidth: 450, height: 420, padding: 0, overflow: 'hidden' }]}>
-            {/* 헤더 */}
-            <View style={[styles.modalHeader, { paddingHorizontal: 18, paddingVertical: 12, borderBottomWidth: 0.8, borderBottomColor: 'rgba(140, 111, 86, 0.08)' }]}>
-              <Text style={styles.modalDateTitle}>📍 매장 주변 지리 분석 지도</Text>
-              <Pressable onPress={() => setLocationModalVisible(false)} style={{ padding: 4 }}>
-                <Ionicons name="close" size={22} color={colors.espressoBrown} />
-              </Pressable>
-            </View>
-
-            {/* 지도 본문 (웹 환경 대응 브라우저 표준 iframe) */}
-            <View style={{ flex: 1, backgroundColor: '#F8F6F2', position: 'relative' }}>
-              {Platform.OS === 'web' ? (
-                <View
-                  id="naver-map-container"
-                  style={{ width: '100%', height: '100%' }}
-                />
-              ) : (
-                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-                  <Ionicons name="map-outline" size={32} color={colors.mochaBrown} style={{ marginBottom: 8 }} />
-                  <Text style={{ ...typography.L5, color: colors.mochaBrown, textAlign: 'center' }}>
-                    웹 브라우저 환경에서 인터랙티브 실지도 분석 모드가 지원됩니다.
-                  </Text>
-                </View>
-              )}
-            </View>
-
-            {/* 범례 및 안내 */}
-            <View style={{ paddingVertical: 10, paddingHorizontal: 16, backgroundColor: 'rgba(140, 111, 86, 0.05)', flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#8C6F56' }} />
-                <Text style={{ fontSize: 9.5, fontWeight: '800', color: colors.espressoBrown }}>내 매장</Text>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#E28257' }} />
-                <Text style={{ fontSize: 9.5, fontWeight: '800', color: colors.espressoBrown }}>인근 행사 (3km)</Text>
-              </View>
-            </View>
-          </View>
-        </View>
-      </Modal>
 
       {/* [브루 예측 설명 오버레이] 내일 예측 배지 탭 시 브루가 등장해 원인 설명 */}
       <BrewForecastOverlay
@@ -1285,8 +1033,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     alignItems: 'center',
-    marginBottom: 16,
-    marginTop: 14,
+    // [여백 비율 재조정] 금액↔범례는 넓게(18), 범례↔차트는 한 묶음처럼 좁게(8)
+    marginBottom: 8,
+    marginTop: 18,
   },
   legendItem: {
     flexDirection: 'row',
@@ -1311,8 +1060,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   toggleTrack: {
-    width: 114,
-    height: 28,
+    width: 200, // [가독성 개선] 위치 칩이 있던 자리까지 가로로 확장
+    height: 34,
     borderRadius: 999,
     backgroundColor: 'rgba(140, 111, 86, 0.08)', // [iOS 스타일] 투명감 도는 탭 트랙
     position: 'relative',
@@ -1322,8 +1071,8 @@ const styles = StyleSheet.create({
   },
   toggleCapsule: {
     position: 'absolute',
-    width: 36,
-    height: 22,
+    width: 64,
+    height: 28,
     borderRadius: 999,
     backgroundColor: colors.white, // [iOS 스타일] 깨끗하고 정교한 화이트 캡슐
     shadowColor: '#4E3629',
@@ -1347,7 +1096,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   toggleLabelText: {
-    fontSize: 9,
+    fontSize: 12,
     fontWeight: '600',
     color: '#9C8875', // 차분하게 뭉갠 비활성 텍스트
   },
@@ -1448,7 +1197,17 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   badgeText: { ...typography.L5, color: colors.trendGreenText, fontWeight: '700' },
-  chartWrap: { marginTop: 16, height: 140, position: 'relative' },
+  // [한글 주석] 매출 하락(▼)일 때는 초록 대신 차분한 레드 톤으로 — 오르내림을 색으로도 구분
+  badgeDown: { backgroundColor: 'rgba(178, 59, 46, 0.08)' },
+  badgeTextDown: { color: '#B23B2E' },
+  // [한글 주석] 배지 아래 비교 기준 설명 (예: 어제 하루 매출 대비)
+  badgeHint: {
+    fontSize: 8.5,
+    fontWeight: '700',
+    color: colors.mochaBrown,
+    opacity: 0.75,
+  },
+  chartWrap: { marginTop: 8, height: 140, position: 'relative' }, // [여백 비율 재조정] 범례와 밀착
   xAxis: {
     position: 'absolute',
     bottom: -10,
@@ -1468,10 +1227,11 @@ const styles = StyleSheet.create({
   footRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 18,
+    // [여백 비율 재조정] X축 라벨과 구분선 사이, 구분선과 요약 수치 사이 모두 여유 있게
+    marginTop: 22,
     borderTopWidth: 0.8,
     borderTopColor: 'rgba(140, 111, 86, 0.08)',
-    paddingTop: 12,
+    paddingTop: 14,
   },
   footItem: { alignItems: 'center', flex: 1 },
   footLabel: { ...typography.L5, color: colors.mochaBrown, marginBottom: 2 },
@@ -1652,21 +1412,5 @@ const styles = StyleSheet.create({
     height: 7,
     backgroundColor: colors.espressoBrown,
     transform: [{ rotate: '45deg' }],
-  },
-  locationTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: 'rgba(140, 111, 86, 0.05)',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    marginLeft: 10,
-  },
-  locationTagText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: colors.mochaBrown,
-    opacity: 0.85,
   },
 });

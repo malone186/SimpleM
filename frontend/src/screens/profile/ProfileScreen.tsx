@@ -1,6 +1,7 @@
-// 프로필 화면 — 사진 변경 + 상호/비밀번호 수정 + 로그아웃
-import { useState } from 'react';
+// 프로필 화면 — 사진 변경 + 상호/비밀번호 수정 + 매장 위치 지도 + 로그아웃
+import { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -16,17 +17,38 @@ import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
 
 import { useAuth } from '../../auth/AuthContext';
+import StoreLocationMap from '../../components/dashboard/StoreLocationMap';
 import { FadeInUp, PressableScale } from '../../components/motion';
+import { getDevicePosition, getSalesForecast, type SalesForecast } from '../../lib/api/forecast';
 import { colors, spacing, typography } from '../../theme';
 
 export default function ProfileScreen() {
   const navigation = useNavigation();
-  const { user, updateProfile, logout } = useAuth();
+  const { user, token, updateProfile, logout } = useAuth();
 
   const [name, setName] = useState(user?.name ?? '');
   const [password, setPassword] = useState('');
   const [photo, setPhoto] = useState<string | undefined>(user?.photo);
   const [saved, setSaved] = useState(false);
+
+  // [한글 주석] 매장 위치·주변 행사 — 대시보드와 같은 예측 API에서 좌표와 지역명을 받아 네이버 지도에 표시
+  const [forecast, setForecast] = useState<SalesForecast | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const pos = await getDevicePosition();
+        const data = await getSalesForecast(token, pos?.lat, pos?.lon);
+        if (!cancelled) setForecast(data);
+      } catch (e) {
+        console.error('프로필 매장 위치 조회 실패:', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   const initial = (user?.name || 'S').charAt(0).toUpperCase();
 
@@ -110,6 +132,30 @@ export default function ProfileScreen() {
           <View style={[styles.field, styles.fieldDisabled]}>
             <Ionicons name="mail-outline" size={18} color={colors.mochaBrown} />
             <Text style={styles.readonly}>{user?.email}</Text>
+          </View>
+        </FadeInUp>
+
+        {/* [한글 주석] 매장 위치 네이버 지도 — 위치 칩 대신 프로필 창에서 확인 (브라운 마커=내 매장, 오렌지=인근 행사) */}
+        <FadeInUp delay={225}>
+          <Text style={styles.label}>
+            매장 위치{forecast?.location?.region ? ` — ${forecast.location.region}` : ''}
+          </Text>
+          <View style={styles.mapCard}>
+            {forecast?.location ? (
+              <StoreLocationMap
+                lat={forecast.location.lat}
+                lon={forecast.location.lon}
+                regionName={forecast.location.region}
+                shopLabel={user?.name ? `내 매장 (${user.name})` : '내 매장'}
+                nearbyEvents={forecast.nearby_events ?? []}
+                containerId="profile-store-map"
+              />
+            ) : (
+              <View style={styles.mapLoading}>
+                <ActivityIndicator size="small" color={colors.mochaBrown} />
+                <Text style={styles.mapLoadingText}>매장 위치를 불러오는 중...</Text>
+              </View>
+            )}
           </View>
         </FadeInUp>
 
@@ -202,6 +248,23 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   fieldDisabled: { backgroundColor: colors.coffeeCream },
+  // [한글 주석] 매장 위치 지도 카드 — 입력 필드와 같은 라운드·보더 톤으로 통일
+  mapCard: {
+    height: 240,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    backgroundColor: '#F8F6F2',
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  mapLoading: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  mapLoadingText: { ...typography.L5, color: colors.mochaBrown },
   input: { flex: 1, paddingVertical: 13, ...typography.L4, fontWeight: '500', color: colors.espressoBrown },
   readonly: { flex: 1, paddingVertical: 13, ...typography.L4, color: colors.mochaBrown },
   saveBtn: { backgroundColor: colors.pointOrange, borderRadius: 14, paddingVertical: 15, alignItems: 'center', marginTop: 16 },
