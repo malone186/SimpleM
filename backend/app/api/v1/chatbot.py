@@ -539,7 +539,7 @@ class ChatResponse(BaseModel):
 def get_agent_overview_api() -> dict:
     """멀티에이전트 편성 현황 — 관리자 콘솔(3000) AI 에이전트 탭 표시용.
 
-    메인 오케스트레이터(포슬이)와 서브에이전트(전문가)별 활성 여부·보유 도구 목록을 돌려준다.
+    메인 오케스트레이터(브루)와 서브에이전트(전문가)별 활성 여부·보유 도구 목록을 돌려준다.
     """
     return main_agent.get_agent_overview()
 
