@@ -151,6 +151,45 @@ def create_unavailability_api(payload: EmployeeUnavailabilityCreate, db: Session
         raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
 
 
+@router.get("/unavailability", response_model=CommonResponse)
+def list_unavailabilities_api(
+    employee_id: Optional[int] = Query(None, description="특정 직원만 조회할 직원 ID (생략 시 전체)"),
+    db: Session = Depends(get_db)
+):
+    """등록된 직원 기피/불가 시간 목록을 조회합니다."""
+    try:
+        rows = EmployeeUnavailabilityService.get_unavailabilities(db, employee_id)
+        name_map = {e.id: e.name for e in db.query(Employee).all()}
+        data = []
+        for unav in rows:
+            item = EmployeeUnavailabilityResponse.model_validate(unav)
+            item.employee_name = name_map.get(unav.employee_id)
+            data.append(item)
+        return CommonResponse(
+            success=True,
+            data=data,
+            message="직원 기피/불가 시간 목록 조회가 완료되었습니다."
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
+
+
+@router.delete("/unavailability/{unavailability_id}", response_model=CommonResponse)
+def delete_unavailability_api(unavailability_id: int, db: Session = Depends(get_db)):
+    """등록된 직원 기피/불가 시간 설정을 삭제합니다."""
+    try:
+        deleted = EmployeeUnavailabilityService.delete_unavailability(db, unavailability_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"존재하지 않는 기피 시간 ID입니다: {unavailability_id}")
+        return CommonResponse(
+            success=True,
+            data=None,
+            message="직원 기피/불가 시간 삭제가 완료되었습니다."
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
 
 
 @router.get("/settlements/estimated", response_model=CommonResponse)
@@ -522,6 +561,26 @@ def calculate_payroll_api(payload: PayrollCalculateRequest):
         raise HTTPException(status_code=500, detail=f"서버 오류가 발생했습니다: {str(e)}")
 
 
+@router.get("/payroll/all", response_model=CommonResponse, summary="전체 직원 월별 예상 급여 목록")
+def list_all_payroll_api(
+    year_month: str = Query(..., description="조회 대상 연월 (YYYY-MM)"),
+    db: Session = Depends(get_db)
+):
+    """등록된 모든 직원의 해당 월 예상 급여 목록을 조회합니다. (해당 월 스케줄이 없는 직원은 제외)"""
+    import re
+    if not re.fullmatch(r"\d{4}-\d{2}", year_month):
+        raise HTTPException(status_code=400, detail="year_month는 YYYY-MM 형식이어야 합니다.")
+    try:
+        results = OperationService.list_employees_payroll(db, year_month)
+        return CommonResponse(
+            success=True,
+            data=results,
+            message="전체 직원 예상 급여 목록 조회가 완료되었습니다."
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
+
+
 @router.post("/settlements/calculate", response_model=CommonResponse, summary="예상 손익 정산 계산 (MVP)")
 def calculate_settlement_api(payload: SettlementCalculateRequest, db: Session = Depends(get_db)):
     # [예상 손익 정산 계산 API]
@@ -580,9 +639,20 @@ def calculate_settlement_api(payload: SettlementCalculateRequest, db: Session = 
             other_expense=other_expense
         )
         response_payload = SettlementCalculateResponse(**result)
+        data = response_payload.model_dump()
+        # 프론트 정산 카드가 쓰는 total_* 네이밍 호환 필드 (settlements/estimated 목록과 동일 규격)
+        data.update({
+            "total_sales": data["revenue"],
+            "total_expense": data["cost"],
+            "total_payroll": data["labor_cost"],
+            "net_profit": data["estimated_profit"],
+            "year_month": (payload.period_start or "")[:7] or None,
+            "period_start": payload.period_start,
+            "period_end": payload.period_end,
+        })
         return CommonResponse(
             success=True,
-            data=response_payload.model_dump(),
+            data=data,
             message="예상 정산 결과 계산이 완료되었습니다."
         )
     except ValueError as e:
