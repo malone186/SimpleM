@@ -103,3 +103,33 @@ def build_tax_rag_documents_tool(
             "documents": [],
             "message": f"세무 RAG 문서 생성 처리 중 서버 오류 발생: {str(e)}"
         }
+
+
+@tool
+def get_tax_schedule_tool(
+    period: str = "2026-07",
+    tax_type: str = "general"
+) -> dict:
+    """부가가치세, 종합소득세, 원천징수세 등의 주요 세무 신고 기한 및 일정(D-Day)을 조회합니다.
+    - period: 대상 연월 (기본 '2026-07', 포맷: YYYY-MM)
+    - tax_type: 과세 유형 ('general' 일반과세자 | 'simplified' 간이과세자, 기본 'general')
+    """
+    try:
+        # [한글 주석] 세무 신고 기한 및 일정 정보 서비스 함수 호출
+        schedule = TaxService.filing_deadlines(period=period, tax_type=tax_type)
+
+        return {
+            "success": True,
+            "data": schedule,
+            "documents": [],
+            "message": "주요 세무 신고 기한 및 일정 조회가 성공적으로 완료되었습니다."
+        }
+    except Exception as e:
+        # [한글 주석] 세무 신고 일정 조회 예외 처리
+        return {
+            "success": False,
+            "data": [],
+            "documents": [],
+            "message": f"세무 신고 일정 조회 중 오류가 발생했습니다: {str(e)}"
+        }
+

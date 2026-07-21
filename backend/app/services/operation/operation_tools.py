@@ -158,14 +158,21 @@ def get_operation_summary_tool(period: str = "daily") -> dict:
         }
 
 
+import json
+
 @tool
-def build_operation_rag_documents_tool(schedules: Optional[List[Any]] = None) -> dict:
+def build_operation_rag_documents_tool(schedules: Optional[str] = None) -> dict:
     """근무 스케줄 목록을 AI 챗봇 참조용 RAG 문서 형태로 변환합니다.
-    - schedules: 스케줄 객체 또는 dict 리스트 (생략 시 기본 세션 쿼리 적용 가능)
+    - schedules: 스케줄 JSON 문자열 (선택)
     """
     try:
-        # [한글 주석] 스케줄 목록이 전달되지 않은 경우 비어있는 리스트로 전달
-        target_schedules = schedules if schedules is not None else []
+        target_schedules = []
+        if schedules:
+            try:
+                target_schedules = json.loads(schedules) if isinstance(schedules, str) else schedules
+            except Exception:
+                target_schedules = []
+
         rag_docs = OperationService.build_operation_rag_documents(target_schedules)
 
         return {

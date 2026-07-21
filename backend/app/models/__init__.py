@@ -6,6 +6,9 @@ from app.models.ai import ComplianceItem, GeneratedDocument, OcrDocument, OcrIte
 # I (inventory.py)
 from app.models.inventory import Ingredient, IngredientPriceHistory, Menu, Recipe, Stock, StockTransaction, Sale, Order, OrderItem
 
+# L (law.py)
+from app.models.law import LawArticle
+
 # O (operation.py)
 from app.models.operation import Employee, EstimatedPayroll, EstimatedSettlement, Expense, Schedule  # 정산/급여 및 지출 모델 불러오기
 

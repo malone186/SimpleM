@@ -21,6 +21,10 @@ api_router.include_router(chatbot.router)
 # I (inventory)
 api_router.include_router(inventory_router)
 
+# L (law)
+from app.api.v1.law import router as law_router
+api_router.include_router(law_router)
+
 # O (operation)
 api_router.include_router(operation_router)
 
