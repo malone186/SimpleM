@@ -73,21 +73,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [booting, setBooting] = useState(true);
   const [socialAutoLogin, setSocialAutoLogin] = useState(true);
 
-  // [한글 주석] Expo 환경에 맞게 동적으로 리디렉션 URI를 생성합니다.
+  // [한글 주석] Expo Go 로컬 주소(exp://) 대신, 구글이 허용하는 HTTPS 프록시 주소(https://auth.expo.io)를 생성하도록 preferLocal: false를 설정합니다.
   const redirectUri = AuthSession.makeRedirectUri({
     scheme: 'simplem',
+    preferLocal: false,
   });
+
+  // [한글 주석] 일부 환경에서 여전히 로컬 사설 주소(exp://)가 반환될 경우, 구글 400 에러를 방지하기 위해 강제로 정식 HTTPS 프록시 주소로 우회 처리합니다.
+  const finalRedirectUri = redirectUri.startsWith('exp://')
+    ? 'https://auth.expo.io/@anonymous/frontend'
+    : redirectUri;
 
   // [한글 주석] 구글 콘솔 등록을 위해 현재 앱이 생성한 리디렉션 URI 주소를 터미널 로그에 인쇄합니다.
   useEffect(() => {
-    console.log('🔗 [Google 소셜 로그인 리디렉션 URI]:', redirectUri);
-  }, [redirectUri]);
+    console.log('🔗 [Google 소셜 로그인 리디렉션 URI]:', finalRedirectUri);
+  }, [finalRedirectUri]);
 
   // [한글 주석] expo-auth-session을 이용해 모바일 환경에서의 Google 소셜 로그인 요청을 세팅합니다.
   const [request, response, promptAsync] = AuthSession.useAuthRequest(
     {
       clientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
-      redirectUri,
+      redirectUri: finalRedirectUri,
       scopes: ['openid', 'profile', 'email'],
       responseType: 'id_token',
     },
