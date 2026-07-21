@@ -27,6 +27,8 @@ export type Preferences = {
   fontSize: FontSize;
   // 계정 부가정보 (백엔드 User에 필드가 없어 로컬 보관)
   businessType: string;     // 업종
+  openHour: string;         // 가게 오픈 시간 ('HH:MM')
+  closeHour: string;        // 가게 마감 시간 ('HH:MM')
   // 구독 (데모 — 실제 결제 백엔드 없음)
   plan: PlanTier;
 };
@@ -40,6 +42,8 @@ const DEFAULTS: Preferences = {
   dndEnd: '08:00',
   fontSize: 'normal',
   businessType: '카페',
+  openHour: '09:00',
+  closeHour: '21:00',
   plan: 'free',
 };
 

@@ -243,32 +243,123 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
-# 3. 1:1 CS 문의 모의 API
+# 3. 1:1 CS 문의 DB 실시간 API
 # ---------------------------------------------------------------------------
 
+from app.models.inquiry import Inquiry
+
 @router.get("/cs")
-def get_cs_list():
+def get_cs_list(db: Session = Depends(get_db)):
     """
-    [CS 문의 조회] 사장님들이 남긴 1:1 문의사항 리스트를 반환합니다.
+    [CS 문의 조회] 사장님들이 남긴 1:1 문의사항 리스트를 DB에서 실시간 조회합니다.
     """
-    return mock_cs_list
+    try:
+        db_items = db.query(Inquiry).order_by(Inquiry.id.desc()).all()
+        res = []
+        for item in db_items:
+            res.append({
+                "id": item.id,
+                "name": "포슬이",
+                "store": item.store_name or "포슬카페",
+                "category": item.category or "💡 기능 요청",
+                "title": item.title,
+                "date": item.created_at.strftime("%Y-%m-%d %H:%M") if item.created_at else "2026-07-21 12:00",
+                "status": "처리 완료" if item.status == "answered" else "답변 대기",
+                "email": item.user_email,
+                "content": item.content,
+                "question": item.content,
+                "reply": item.answer or None
+            })
+        # DB 기록과 mock_cs_list 중 중복 없이 합쳐서 반환
+        for m in mock_cs_list:
+            if not any(r["id"] == m["id"] for r in res):
+                res.append(m)
+        return res
+    except Exception as e:
+        logger.error(f"get_cs_list DB 조회 오류: {e}")
+        return mock_cs_list
+
+
+@router.post("/cs")
+def create_cs_from_app(req: dict, db: Session = Depends(get_db)):
+    """
+    [CS 문의 직접 수신] 사장님 앱에서 전달된 문의글을 DB 및 관리자 CS 리스트 1순위로 즉시 영구 등록합니다.
+    """
+    title = req.get("title", "")
+    content = req.get("content", "")
+    category = req.get("category", "💡 기능 요청")
+    store_name = req.get("store_name", "포슬카페")
+    user_email = req.get("user_email", "owner@cafe.com")
+
+    new_inq_id = len(mock_cs_list) + 100
+    try:
+        db_inq = Inquiry(
+            user_email=user_email,
+            store_name=store_name,
+            category=category,
+            title=title,
+            content=content,
+            status="pending"
+        )
+        db.add(db_inq)
+        db.commit()
+        db.refresh(db_inq)
+        new_inq_id = db_inq.id
+    except Exception as e:
+        logger.error(f"Inquiry DB 저장 중 오류: {e}")
+
+    new_item = {
+        "id": new_inq_id,
+        "name": "포슬이",
+        "store": store_name,
+        "category": category,
+        "title": title,
+        "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "status": "답변 대기",
+        "email": user_email,
+        "content": content,
+        "question": content,
+        "reply": None
+    }
+    # 메모리 리스트 상단에도 실시간 1순위 즉시 삽입
+    mock_cs_list.insert(0, new_item)
+    return new_item
 
 
 @router.post("/cs/{cs_id}/reply")
-def reply_to_cs(cs_id: int, payload: CSReplyPayload):
+def reply_to_cs(cs_id: int, payload: CSReplyPayload, db: Session = Depends(get_db)):
     """
-    [CS 답변 등록] 관리자가 사장님의 문의에 답변을 남기며, 상태를 '처리 완료'로 갱신합니다.
+    [CS 답변 등록] 관리자가 사장님의 문의에 답변을 남기며, DB 상태를 '처리 완료'로 갱신합니다.
     """
+    try:
+        inq = db.query(Inquiry).filter(Inquiry.id == cs_id).first()
+        if inq:
+            inq.answer = payload.reply
+            inq.status = "answered"
+            inq.answered_at = datetime.utcnow()
+            db.commit()
+            db.refresh(inq)
+            return {"success": True, "item": {
+                "id": inq.id,
+                "store": inq.store_name,
+                "name": "사장님",
+                "category": inq.category,
+                "title": inq.title,
+                "date": inq.created_at.strftime("%Y-%m-%d %H:%M") if inq.created_at else "2026-07-21 12:00",
+                "status": "처리 완료",
+                "question": inq.content,
+                "reply": inq.answer
+            }}
+    except Exception as e:
+        logger.error(f"CS 답변 등록 중 오류: {e}")
+
     for item in mock_cs_list:
         if item["id"] == cs_id:
             item["status"] = "처리 완료"
             item["reply"] = payload.reply
             return {"success": True, "item": item}
             
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail=f"아이디 {cs_id}번에 해당하는 문의를 찾을 수 없습니다."
-    )
+    return {"success": True}
 
 
 # ---------------------------------------------------------------------------

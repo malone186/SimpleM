@@ -3,7 +3,8 @@
 # A (ai.py)
 from app.models.ai import ChatSession, ComplianceItem, GeneratedDocument, OcrDocument, OcrItem
 
-# I (inventory.py)
+# I (inquiry.py & inventory.py)
+from app.models.inquiry import Inquiry
 from app.models.inventory import Ingredient, IngredientPriceHistory, Menu, Recipe, Stock, StockTransaction, Sale, Order, OrderItem
 
 # L (law.py)

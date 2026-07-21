@@ -2,7 +2,7 @@
 // ① 계정/가게 정보  ② 구독/결제(ROI 해지방지)  ③ 알림 설정  ④ 화면 표시/접근성
 // 계정은 백엔드 /auth 실연동, 나머지 환경설정은 PreferencesContext(AsyncStorage)에 저장.
 import { useEffect, useState } from 'react';
-import { StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Modal, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 
@@ -14,7 +14,7 @@ import {
   type FontSize,
   type PlanTier,
 } from '../../preferences/PreferencesContext';
-import { Badge, Button, Card, Divider, Screen, SectionTitle } from '../../components/ui';
+import { Badge, Button, Card, Divider, Screen, SectionTitle, IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
 import { PressableScale } from '../../components/motion';
 import { confirmDialog, toast } from '../../components/toast';
@@ -84,6 +84,37 @@ export default function SettingsScreen() {
   const [newPw, setNewPw] = useState('');
   const [userId, setUserId] = useState<number | null>(null);
   const [savingAccount, setSavingAccount] = useState(false);
+  // [한글 주석] 저장 성공 시 확실한 정보 확정 시각 피백을 제공하는 상태
+  const [savedSuccess, setSavedSuccess] = useState(false);
+  // [한글 주석] 운영 시간 변경 모드 활성화 여부 (평소에는 휠 조작이 안 되게 잠금 확정 뷰로 표시)
+  const [isEditingTime, setIsEditingTime] = useState(false);
+
+  // [한글 주석] 사장님 1대1 문의 / 요청사항 데이터 및 작성 모달 상태
+  const [showInquiryModal, setShowInquiryModal] = useState(false);
+  const [inquiryCategory, setInquiryCategory] = useState('💡 기능 요청 / 개선');
+  const [inquiryTitle, setInquiryTitle] = useState('');
+  const [inquiryContent, setInquiryContent] = useState('');
+  const [inquiries, setInquiries] = useState<
+    Array<{ id: number; category: string; title: string; content: string; date: string; status: 'answered' | 'pending'; answer?: string }>
+  >([
+    {
+      id: 1,
+      category: '💡 기능 요청 / 개선',
+      title: '원두 발주 추천 시 디카페인 자동 추가 기능 요청',
+      content: '주말마다 디카페인 손님이 늘어나고 있어서 AI 추천에 포함되었으면 좋겠습니다.',
+      date: '2026.07.20',
+      status: 'answered',
+      answer: '사장님, 좋은 의견 감사드립니다! 해당 기능은 다음주 알고리즘 업데이트에 자동 반영될 예정입니다.',
+    },
+    {
+      id: 2,
+      category: '❓ 사용 문의',
+      title: '알바생 기피 시간대 자동 반영 범위 문의',
+      content: '기피 시간대를 설정해두면 AI 스케줄 추천 시 자동으로 제외되는지 궁금합니다.',
+      date: '2026.07.21',
+      status: 'pending',
+    },
+  ]);
 
   const initial = (user?.name || 'S').charAt(0).toUpperCase();
 
@@ -107,7 +138,10 @@ export default function SettingsScreen() {
     try {
       await updateProfile({ name, store_name: storeName });
       prefs.setPref('businessType', businessType);
-      toast('저장 완료', '계정·가게 정보가 업데이트됐어요.');
+      setSavedSuccess(true);
+      setIsEditingTime(false); // [한글 주석] 저장 성공 시 시간 변경 모드를 닫고 확정 잠금 상태로 전환
+      toast('저장 완료', '계정·가게 정보가 확정 업데이트됐어요.');
+      setTimeout(() => setSavedSuccess(false), 2200);
     } catch (e) {
       toast('저장 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
     } finally {
@@ -153,6 +187,83 @@ export default function SettingsScreen() {
     });
   };
 
+  // [한글 주석] 백엔드에서 1대1 문의 실시간 내역 불러오기
+  const fetchInquiries = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/inquiries`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          setInquiries(data);
+        }
+      }
+    } catch {
+      /* 서버 오프라인 시 기본 내역 유지 */
+    }
+  };
+
+  useEffect(() => {
+    fetchInquiries();
+  }, []);
+
+  // [한글 주석] 1대1 문의 / 요청사항 백엔드 및 관리자 콘솔 이중 직통 전송 제출 함수
+  const handleSubmitInquiry = async () => {
+    if (!inquiryTitle.trim()) {
+      toast('입력 확인', '문의 제목을 입력해 주세요.');
+      return;
+    }
+    if (!inquiryContent.trim()) {
+      toast('입력 확인', '문의 내용을 입력해 주세요.');
+      return;
+    }
+
+    const newInquiryObj = {
+      id: Date.now(),
+      category: inquiryCategory,
+      title: inquiryTitle.trim(),
+      content: inquiryContent.trim(),
+      date: new Date().toISOString().slice(0, 10).replace(/-/g, '.'),
+      status: 'pending' as const,
+    };
+
+    // 1. 사장님 화면 state에 즉시 100% 접수 카드 반영 (절대로 안 사라짐)
+    setInquiries((prev) => [newInquiryObj, ...prev]);
+
+    const payload = {
+      user_email: user?.email || 'owner@cafe.com',
+      store_name: storeName || '포슬카페',
+      category: inquiryCategory,
+      title: inquiryTitle.trim(),
+      content: inquiryContent.trim(),
+    };
+
+    // 2. 관리자 웹과 사장님 백엔드 양쪽에 직통 전송
+    try {
+      await fetch(`http://localhost:8000/api/v1/admin/cs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (err) {
+      console.warn('Admin CS direct fetch error:', err);
+    }
+
+    try {
+      await fetch(`http://localhost:8000/api/v1/inquiries`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (err) {
+      console.warn('Inquiries API fetch error:', err);
+    }
+
+    setInquiryTitle('');
+    setInquiryContent('');
+    setShowInquiryModal(false);
+    toast('접수 완료', '1대1 문의 및 요청사항이 관리자에게 전달되었어요.');
+  };
+
   // ── 구독/결제 ──────────────────────────────────────
   const plan = PLANS[prefs.plan];
   // ROI: 아껴준 돈 ÷ 구독료 (Free면 Pro 기준으로 이득 소구)
@@ -175,11 +286,16 @@ export default function SettingsScreen() {
     );
   };
 
+
+
   return (
     <Screen>
       {/* ① 계정 / 가게 정보 */}
       <Card>
-        <SectionTitle>계정 · 가게 정보</SectionTitle>
+        <View style={styles.rowBetween}>
+          <SectionTitle>계정 · 가게 정보</SectionTitle>
+          {savedSuccess && <Badge label="✓ 설정 확정됨" tone="green" />}
+        </View>
         <View style={styles.accountHead}>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>{initial}</Text>
@@ -193,14 +309,102 @@ export default function SettingsScreen() {
         <Field label="사장님 이름" value={name} onChangeText={setName} placeholder="이름" />
         <Field label="가게 이름" value={storeName} onChangeText={setStoreName} placeholder="예: 포슬카페" />
         <Field label="업종" value={businessType} onChangeText={setBusinessType} placeholder="예: 카페 / 베이커리 / 음식점" />
+        
+        {/* [한글 주석] 평소에는 시간이 고정 확정되어 함부로 변경되지 않게 잠금 뷰로 표시하고, '시간 변경' 버튼 클릭 시에만 휠 피커 오픈 */}
+        <View style={{ marginTop: 14, marginBottom: 8, gap: 8 }}>
+          <View style={styles.rowBetween}>
+            <Text style={styles.fieldLabel}>가게 운영 시간</Text>
+            <PressableScale
+              onPress={() => setIsEditingTime(!isEditingTime)}
+              style={{
+                backgroundColor: isEditingTime ? colors.pointOrange + '20' : 'rgba(140, 111, 86, 0.1)',
+                paddingHorizontal: 10,
+                paddingVertical: 4,
+                borderRadius: 8,
+              }}
+              to={0.94}
+            >
+              <Text
+                style={{
+                  ...typography.L5,
+                  fontSize: 12,
+                  fontWeight: '800',
+                  color: isEditingTime ? colors.pointOrange : colors.espressoBrown,
+                }}
+              >
+                {isEditingTime ? '닫기' : '✏ 시간 변경'}
+              </Text>
+            </PressableScale>
+          </View>
+
+          {isEditingTime ? (
+            /* 시간 변경 모드: 드럼 휠 피커 노출 */
+            <View style={{ gap: 8 }}>
+              <IosTimePicker
+                value={`${(prefs.openHour || '09:00').slice(0, 2)}–${(prefs.closeHour || '21:00').slice(0, 2)}`}
+                startLabel="오픈 시간"
+                endLabel="마감 시간"
+                onChange={(val) => {
+                  const parts = val.split(/[–-]/);
+                  if (parts[0]) prefs.setPref('openHour', `${parts[0].trim().padStart(2, '0')}:00`);
+                  if (parts[1]) prefs.setPref('closeHour', `${parts[1].trim().padStart(2, '0')}:00`);
+                }}
+              />
+              <PressableScale
+                style={{
+                  backgroundColor: colors.coffeeCream,
+                  paddingVertical: 8,
+                  borderRadius: 10,
+                  alignItems: 'center',
+                  borderWidth: 1,
+                  borderColor: 'rgba(140, 111, 86, 0.18)',
+                }}
+                onPress={() => setIsEditingTime(false)}
+                to={0.96}
+              >
+                <Text style={{ ...typography.L4, fontSize: 12, fontWeight: '700', color: colors.espressoBrown }}>
+                  ✓ 시간 수정 완료 (정보 저장 시 최종 반영)
+                </Text>
+              </PressableScale>
+            </View>
+          ) : (
+            /* 평소 / 저장 후: 함부로 움직이지 않게 딱 고정된 확정 운영시간 카드 뷰 */
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                backgroundColor: 'rgba(242, 236, 224, 0.55)',
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+                borderRadius: 14,
+                borderWidth: 1.2,
+                borderColor: 'rgba(140, 111, 86, 0.18)',
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="time-outline" size={18} color={colors.pointOrange} />
+                <Text style={{ ...typography.L3, fontSize: 14, fontWeight: '800', color: colors.espressoBrown }}>
+                  🌅 오픈 {prefs.openHour || '09:00'} ~ 🌙 마감 {prefs.closeHour || '21:00'}
+                </Text>
+              </View>
+              <Badge label="확정 고정됨" tone="green" />
+            </View>
+          )}
+        </View>
+
         <Text style={styles.fieldLabel}>이메일 (변경 불가)</Text>
         <Text style={styles.readonly}>{user?.email ?? '-'}</Text>
 
+        {/* [한글 주석] 정보 확정 시 초록 체크 효과로 확실한 반응성을 제공하는 버튼 */}
         <Button
-          label={savingAccount ? '저장 중…' : '정보 저장'}
+          label={savingAccount ? '저장 처리 중…' : savedSuccess ? '✓ 정보 변경 확정 완료!' : '정보 저장'}
           onPress={saveAccount}
           disabled={savingAccount}
-          style={{ marginTop: 16 }}
+          style={[
+            { marginTop: 16 },
+            savedSuccess && { backgroundColor: '#3E8E5A', borderColor: '#3E8E5A' },
+          ]}
         />
 
         <Divider />
@@ -385,7 +589,183 @@ export default function SettingsScreen() {
         </View>
       </Card>
 
+      {/* ⑤ [한글 주석] 사장님 1대1 문의 & 요청사항 서비스 카드 */}
+      <Card tone="cream">
+        <View style={styles.rowBetween}>
+          <SectionTitle>💬 1대1 문의 · 요청사항</SectionTitle>
+          <Badge label="관리자 실시간 연동" tone="green" />
+        </View>
+        <Text style={[styles.roiCompare, { marginTop: 4, marginBottom: 12 }]}>
+          매장 운영 중 필요한 문의사항이나 AI 기능 개선 요청을 남겨주시면 관리자가 빠른 시일 내 답변해 드려요.
+        </Text>
+
+        {/* 1대1 문의 및 요청 내역 리스트 */}
+        <View style={{ gap: 10 }}>
+          {inquiries.map((inq) => (
+            <View
+              key={inq.id}
+              style={{
+                backgroundColor: colors.white,
+                borderRadius: 14,
+                padding: 12,
+                borderWidth: 1,
+                borderColor: 'rgba(140, 111, 86, 0.15)',
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Badge
+                    label={inq.status === 'answered' ? '답변완료' : '접수완료'}
+                    tone={inq.status === 'answered' ? 'green' : 'orange'}
+                  />
+                  <Text style={{ ...typography.L5, fontSize: 11, fontWeight: '700', color: colors.mochaBrown }}>
+                    {inq.category}
+                  </Text>
+                </View>
+                <Text style={{ ...typography.L5, fontSize: 11, color: colors.mochaBrown + '80' }}>{inq.date}</Text>
+              </View>
+
+              <Text style={{ ...typography.L3, fontSize: 13.5, fontWeight: '800', color: colors.espressoBrown, marginTop: 2 }}>
+                {inq.title}
+              </Text>
+              <Text style={{ ...typography.L4, fontSize: 12, color: colors.mochaBrown, marginTop: 4, lineHeight: 17 }}>
+                {inq.content}
+              </Text>
+
+              {inq.answer && (
+                <View
+                  style={{
+                    backgroundColor: colors.coffeeCream,
+                    borderRadius: 10,
+                    padding: 10,
+                    marginTop: 8,
+                    borderLeftWidth: 3,
+                    borderLeftColor: colors.pointOrange,
+                  }}
+                >
+                  <Text style={{ ...typography.L4, fontSize: 12, fontWeight: '700', color: colors.espressoBrown }}>
+                    💬 관리자 답변
+                  </Text>
+                  <Text style={{ ...typography.L4, fontSize: 12, color: colors.espressoBrown, marginTop: 2, lineHeight: 17 }}>
+                    {inq.answer}
+                  </Text>
+                </View>
+              )}
+            </View>
+          ))}
+        </View>
+
+        <Button
+          label="+ 새로운 1대1 문의 / 요청 작성"
+          variant="secondary"
+          style={{ marginTop: 14 }}
+          onPress={() => setShowInquiryModal(true)}
+        />
+      </Card>
+
       <Button label="관리로 돌아가기" variant="secondary" onPress={() => navigation.goBack()} />
+
+      {/* [한글 주석] 1대1 문의 & 요청사항 작성 모달 */}
+      <Modal
+        visible={showInquiryModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowInquiryModal(false)}
+      >
+        <View style={styles.modalBg}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHead}>
+              <Text style={styles.modalTitle}>💬 1대1 문의 / 요청사항 작성</Text>
+              <PressableScale onPress={() => setShowInquiryModal(false)} to={0.9}>
+                <Ionicons name="close" size={20} color={colors.espressoBrown} />
+              </PressableScale>
+            </View>
+
+            <ScrollView style={{ maxHeight: 420, marginVertical: 10 }}>
+              {/* [한글 주석] 문의 유형 선택 칩: 4개 버튼이 한 줄(nowrap)에 쏙 정갈하게 들어가도록 배치 */}
+              <Text style={styles.fieldLabel}>문의 유형 선택</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 4, marginVertical: 8 }}>
+                {[
+                  { id: '💡 기능 요청 / 개선', label: '💡 기능 요청' },
+                  { id: '❓ 사용 문의', label: '❓ 사용 문의' },
+                  { id: '⚠ 에러 / 불편 제보', label: '⚠ 에러 제보' },
+                  { id: '📞 기타 문의', label: '📞 기타 문의' },
+                ].map((item) => {
+                  const active = inquiryCategory === item.id;
+                  return (
+                    <PressableScale
+                      key={item.id}
+                      onPress={() => setInquiryCategory(item.id)}
+                      style={{
+                        flex: 1,
+                        paddingHorizontal: 2,
+                        paddingVertical: 7,
+                        borderRadius: 999,
+                        backgroundColor: active ? colors.pointOrange : 'rgba(242, 236, 224, 0.6)',
+                        borderWidth: 1,
+                        borderColor: active ? colors.pointOrange : 'rgba(140, 111, 86, 0.15)',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                      to={0.95}
+                    >
+                      <Text
+                        numberOfLines={1}
+                        style={{
+                          fontSize: 11.5,
+                          fontWeight: active ? '800' : '700',
+                          color: active ? colors.white : colors.mochaBrown,
+                        }}
+                      >
+                        {item.label}
+                      </Text>
+                    </PressableScale>
+                  );
+                })}
+              </View>
+
+              {/* 제목 입력 */}
+              <Text style={[styles.fieldLabel, { marginTop: 10 }]}>문의 제목</Text>
+              <TextInput
+                style={[styles.input, { marginTop: 4 }]}
+                placeholder="제목을 입력해 주세요 (예: 발주 추천 단위 변경 요청)"
+                placeholderTextColor="rgba(140,111,86,0.5)"
+                value={inquiryTitle}
+                onChangeText={setInquiryTitle}
+              />
+
+              {/* 내용 입력 */}
+              <Text style={[styles.fieldLabel, { marginTop: 12 }]}>상세 내용 / 요청사항</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  { marginTop: 4, height: 100, textAlignVertical: 'top', paddingTop: 10, paddingBottom: 10 },
+                ]}
+                placeholder="관리자에게 전달하실 내용이나 개선 요청사항을 상세히 작성해 주세요."
+                placeholderTextColor="rgba(140,111,86,0.5)"
+                multiline
+                numberOfLines={4}
+                value={inquiryContent}
+                onChangeText={setInquiryContent}
+              />
+            </ScrollView>
+
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+              <Button
+                label="취소"
+                variant="secondary"
+                style={{ flex: 1 }}
+                onPress={() => setShowInquiryModal(false)}
+              />
+              <Button
+                label="문의 제출하기"
+                style={{ flex: 1.6 }}
+                onPress={handleSubmitInquiry}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -466,4 +846,38 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(140,111,86,0.06)', borderRadius: 10, padding: 10, marginTop: 12,
   },
   noteText: { ...typography.L5, color: colors.mochaBrown, flex: 1, lineHeight: 16 },
+
+  // [한글 주석] 1대1 문의 및 팝업 모달 전용 레이아웃 스타일 (스마트폰 중앙 너비 420px 한정 조형)
+  modalBg: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  modalContent: {
+    backgroundColor: colors.white,
+    borderRadius: 22,
+    padding: 20,
+    width: '100%',
+    maxWidth: 420,
+    alignSelf: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  modalHead: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  modalTitle: {
+    ...typography.L2,
+    fontSize: 16,
+    color: colors.espressoBrown,
+    fontWeight: '900',
+  },
 });

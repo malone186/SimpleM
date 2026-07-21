@@ -18,7 +18,9 @@ api_router.include_router(auth_router)
 # C (chatbot)
 api_router.include_router(chatbot.router)
 
-# I (inventory)
+# I (inquiry, inventory)
+from app.api.v1.inquiry import router as inquiry_router
+api_router.include_router(inquiry_router)
 api_router.include_router(inventory_router)
 
 # L (law)
