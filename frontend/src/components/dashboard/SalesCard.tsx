@@ -615,18 +615,25 @@ export default function SalesCard({
 
 
             {/* X축 — 현재 시각이 마지막 점, 시간이 지나면 자동으로 밀린다 */}
+            {/* [정렬 보정] 라벨을 균등 분배하지 않고 차트 원(CHART_X) 좌표 비율에 맞춰 배치 —
+                원에서 세로 점선을 따라 내려오면 시간 라벨 한가운데에 딱 떨어진다 */}
             <View style={styles.xAxis}>
               {axisHours.map((h, i) => (
-                <Text
+                <View
                   key={`axis-${h}`}
-                  style={
-                    i === 3
-                      ? [styles.xAxisText, { color: colors.mochaBrown, fontWeight: '700' as const, opacity: 0.95 }]
-                      : styles.xAxisText
-                  }
+                  style={[styles.xAxisTickWrap, { left: `${(CHART_X[i] / 300) * 100}%` }]}
                 >
-                  {i === 3 ? `${hourLabel(h)} (지금)` : hourLabel(h)}
-                </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={
+                      i === 3
+                        ? [styles.xAxisText, { color: colors.mochaBrown, fontWeight: '700' as const, opacity: 0.95 }]
+                        : styles.xAxisText
+                    }
+                  >
+                    {i === 3 ? `${hourLabel(h)} (지금)` : hourLabel(h)}
+                  </Text>
+                </View>
               ))}
             </View>
           </View>
@@ -1211,10 +1218,15 @@ const styles = StyleSheet.create({
   xAxis: {
     position: 'absolute',
     bottom: -10,
-    left: 12,
-    right: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    left: 0,
+    right: 0,
+    height: 16,
+  },
+  // [정렬 보정] 폭 0 앵커 + 넘치는 텍스트 중앙 정렬 트릭 — 라벨 중심이 차트 원 좌표와 일치
+  xAxisTickWrap: {
+    position: 'absolute',
+    top: 0,
+    width: 0,
     alignItems: 'center',
   },
   xAxisText: {
@@ -1222,6 +1234,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.mochaBrown,
     opacity: 0.9,
+    width: 90,
+    textAlign: 'center',
   },
 
   footRow: {

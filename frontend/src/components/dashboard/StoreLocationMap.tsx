@@ -97,7 +97,14 @@ export default function StoreLocationMap({
           anchorSize: new naverObj.maps.Size(10, 10),
         });
 
-        infoWindow.open(map, shopMarker);
+        // [한글 주석] 축소된 지도를 말풍선이 가리지 않게 자동 오픈 대신 마커 클릭 시 토글
+        naverObj.maps.Event.addListener(shopMarker, 'click', () => {
+          if (infoWindow.getMap()) {
+            infoWindow.close();
+          } else {
+            infoWindow.open(map, shopMarker);
+          }
+        });
 
         // 인근 축제 마커들 생성 (열린 정보창을 모아두었다가 지도 빈 곳 클릭 시 일괄 닫기)
         const eventWindows: any[] = [];
@@ -176,7 +183,7 @@ export default function StoreLocationMap({
             weight: 3,
           }).addTo(map);
 
-          shopMarker.bindPopup("<div style='font-size:11px'><b>📍 " + shopLabel + '</b><br/>' + regionName + '</div>').openPopup();
+          shopMarker.bindPopup("<div style='font-size:11px'><b>📍 " + shopLabel + '</b><br/>' + regionName + '</div>');
 
           nearbyEvents.forEach((e: any) => {
             if (e.lat && e.lon) {
