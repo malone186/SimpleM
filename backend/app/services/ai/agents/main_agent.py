@@ -4,7 +4,7 @@
 
     사용자 질문
         ↓
-    메인 에이전트 '포슬이' (오케스트레이터)
+    메인 에이전트 '브루' (오케스트레이터)
         ├─ inventory_expert  : 재고·재료·메뉴·발주  (백엔드 A 도구 — 구현되면 자동 활성화)
         ├─ document_expert   : 서류 자동화·갱신 알림 (document_tools 15종)
         ├─ ocr_expert        : 영수증/명세서 OCR 문서 조회·수정 (ocr_tools)
@@ -62,6 +62,20 @@ if os.getenv("LANGSMITH_API_KEY", "").strip():
 # 무한 위임/루프 방지 — langgraph 그래프 스텝 상한
 SUB_RECURSION_LIMIT = 12   # 서브에이전트: 도구 몇 번 쓰고 답하기에 충분
 MAIN_RECURSION_LIMIT = 16  # 메인: 전문가 여러 명에게 순차 위임 가능
+
+# ---------------------------------------------------------------------------
+# 메인 에이전트(오케스트레이터) 정의 — 이름·역할·설명의 단일 출처.
+# 시스템 프롬프트와 관리자 콘솔 API(get_agent_overview)가 모두 여기서 읽는다.
+# ---------------------------------------------------------------------------
+
+_MAIN_AGENT: dict[str, str] = {
+    "name": "브루",  # 서비스 마스코트 BREW — 챗봇 화면('브루 챗봇')과 같은 정체성
+    "role": "메인 오케스트레이터 (supervisor)",
+    "description": (
+        "직접 도구를 만지지 않고 사장님의 요청을 분석해 알맞은 전문가에게 위임하고, "
+        "여러 전문가의 보고를 종합해 최종 답변을 만든다."
+    ),
+}
 
 # ---------------------------------------------------------------------------
 # 도메인(서브에이전트) 정의 — 모듈에 도구가 생기면 자동으로 전문가가 활성화된다
@@ -197,7 +211,7 @@ _DOMAINS: list[dict[str, Any]] = [
     },
 ]
 
-_MAIN_PROMPT = """당신은 카페 사장님들을 위한 AI 비서 '포슬이'입니다.
+_MAIN_PROMPT = """당신은 카페 사장님들을 위한 AI 비서 '{agent_name}'입니다.
 어려운 전문 용어 없이, 누구나 바로 이해할 수 있게 한국어 구어체로 대답합니다.
 
 [말투 — 사장님은 당신의 상사입니다]
@@ -369,6 +383,51 @@ def _make_delegate_tool(domain: dict[str, Any], subagent):
 # 공개 인터페이스 — /chatbot/chat 엔드포인트가 호출한다
 # ---------------------------------------------------------------------------
 
+def get_agent_overview() -> dict[str, Any]:
+    """관리자 콘솔(3000)용 — 메인 에이전트와 서브에이전트 편성을 한눈에 보여준다.
+
+    실제 대화 때와 같은 규칙(_module_tools)으로 도구를 로드해 보기 때문에,
+    여기서 '활성'으로 나오면 챗봇에서도 그 전문가가 실제로 활성화된다.
+    """
+    experts: list[dict[str, Any]] = []
+    total_tools = 0
+    for domain in _DOMAINS:
+        tools = []
+        for module_path in domain["modules"]:
+            for t in _module_tools(module_path):
+                desc = (t.description or "").strip().splitlines()
+                tools.append({
+                    "name": t.name,
+                    "description": desc[0][:120] if desc else "",
+                    "module": module_path,
+                })
+        total_tools += len(tools)
+        experts.append({
+            "name": domain["name"],
+            "title": domain["title"],
+            "description": domain["description"],
+            "modules": domain["modules"],
+            "active": bool(tools),
+            "tool_count": len(tools),
+            "tools": tools,
+        })
+
+    return {
+        "main": {
+            **_MAIN_AGENT,
+            "model": GEMINI_MODEL,
+            "api_key_set": bool(GEMINI_API_KEY),
+            "recursion_limit": MAIN_RECURSION_LIMIT,
+        },
+        "sub_recursion_limit": SUB_RECURSION_LIMIT,
+        "langsmith_enabled": bool(os.getenv("LANGSMITH_API_KEY", "").strip()),
+        "active_experts": sum(1 for e in experts if e["active"]),
+        "total_experts": len(experts),
+        "total_tools": total_tools,
+        "experts": experts,
+    }
+
+
 async def generate_response(
     user_message: str,
     store_id: str,
@@ -418,6 +477,7 @@ async def generate_response(
             _get_model(model_name),
             delegate_tools,
             system_prompt=_MAIN_PROMPT.format(
+                agent_name=_MAIN_AGENT["name"],
                 experts="\n".join(expert_lines),
                 today=date.today().isoformat(),
                 store_id=store_id,

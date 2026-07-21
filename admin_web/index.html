@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Pretendard:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
-  <link rel="stylesheet" href="style.css?v=1.0.6">
+  <link rel="stylesheet" href="style.css?v=1.0.7">
 </head>
 <body>
   <div class="desktop-layout">
@@ -32,6 +32,10 @@
         <button class="nav-item active" data-tab="dashboard">
           <i data-lucide="layout-dashboard"></i>
           <span>대시보드</span>
+        </button>
+        <button class="nav-item" data-tab="agents">
+          <i data-lucide="bot"></i>
+          <span>AI 에이전트</span>
         </button>
         <button class="nav-item" data-tab="users">
           <i data-lucide="users"></i>
@@ -192,6 +196,67 @@
             </div>
           </div>
 
+        </div>
+
+      </section>
+
+      <!-- ━━━ 탭: AI 에이전트 오케스트레이션 뷰 ━━━ -->
+      <section id="tab-agents" class="tab-content">
+
+        <!-- 상단 요약 지표 4종 -->
+        <div class="metrics-row">
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">활성 전문가</span>
+              <div class="icon-circle green"><i data-lucide="bot"></i></div>
+            </div>
+            <div class="metric-value" id="agents-active-count">-</div>
+            <div class="metric-sub green-text">도구가 로드된 서브 에이전트</div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">등록된 도구</span>
+              <div class="icon-circle orange"><i data-lucide="wrench"></i></div>
+            </div>
+            <div class="metric-value" id="agents-tool-count">-</div>
+            <div class="metric-sub">전 전문가 합산 도구 수</div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">LLM 모델</span>
+              <div class="icon-circle brown"><i data-lucide="cpu"></i></div>
+            </div>
+            <div class="metric-value" id="agents-model" style="font-size: 20px;">-</div>
+            <div class="metric-sub" id="agents-api-key-sub">API 키 확인 중...</div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">LangSmith 트레이싱</span>
+              <div class="icon-circle blue"><i data-lucide="activity"></i></div>
+            </div>
+            <div class="metric-value" id="agents-trace" style="font-size: 20px;">-</div>
+            <div class="metric-sub">에이전트 실행 기록 추적</div>
+          </div>
+        </div>
+
+        <!-- 오케스트레이션 트리 -->
+        <div class="content-box full-width">
+          <div class="box-header">
+            <h3 class="box-title"><i data-lucide="network"></i> 멀티에이전트 오케스트레이션 구조 (Supervisor 패턴)</h3>
+            <div class="status-right-action">
+              <span class="live-tag" id="agents-live-tag">LIVE</span>
+              <button class="health-refresh-btn" onclick="loadAgents(true)" title="구성 다시 불러오기">
+                <i data-lucide="refresh-cw"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="orchestra-wrap" id="agent-orchestra">
+            <div class="orchestra-loading">백엔드(8000)에서 에이전트 편성을 불러오는 중...</div>
+          </div>
         </div>
 
       </section>
@@ -559,6 +624,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=1.0.6"></script>
+  <script src="app.js?v=1.0.7"></script>
 </body>
 </html>
