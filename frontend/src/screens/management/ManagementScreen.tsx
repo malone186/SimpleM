@@ -1,13 +1,12 @@
-// 관리 허브 (⑥ 탭) — 딥브라운 오로라 헤더 + 둥근 크림 시트 위에 항목 카드를 수평으로 나열.
-// 헤더는 홈(대시보드)과 같은 톤이되 위아래로 짧게 눌러 카드가 쓸 높이를 확보한다.
-// 시트 높이를 실측해 카드 높이를 나눠 갖게 하므로 기기 높이와 무관하게 스크롤 없이 한 화면에 들어온다.
-import { useState } from 'react';
-import { LayoutChangeEvent, Platform, StatusBar, StyleSheet, Text, View } from 'react-native';
+// 관리 허브 (⑥ 탭) — 딥브라운 오로라 헤더는 고정, 그 아래 크림 시트 안에서 카드만 스크롤.
+// 카드는 좌우로 번갈아 기울인 지그재그 배치이며, 탭에 들어올 때마다 아래에서 순차로 떠오른다.
+import { useEffect, useState } from 'react';
+import { Platform, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import Svg, { Circle, Defs, FeGaussianBlur, Filter, LinearGradient, Path, Stop } from 'react-native-svg';
 
-import { PressableScale } from '../../components/motion';
+import { FadeInUp, PressableScale } from '../../components/motion';
 import { colors } from '../../theme';
 import Brew from '../../components/brew/Brew';
 
@@ -35,7 +34,19 @@ const ITEMS: Item[] = [
   { label: '운영·원두 분석', en: 'OPERATION', desc: '원두 최저가 시세 · 실리뷰 분석', color: '#463C34', route: 'BeanOperation' },
 ];
 
-const GAP = 8; // 카드 사이 간격
+// 좌우로 번갈아 기울이고 밀어 지그재그를 만든다
+const LAYOUT = [
+  { deg: -4, tx: -10 },
+  { deg: 4, tx: 12 },
+  { deg: -3.5, tx: -12 },
+  { deg: 4, tx: 10 },
+  { deg: -4, tx: -8 },
+  { deg: 3.5, tx: 12 },
+  { deg: -4, tx: -10 },
+];
+
+const CARD_H = 132; // 카드 높이 (스크롤이 있으므로 넉넉하게)
+const GAP = 12; // 카드 사이 간격 — 겹치지 않을 만큼만 아주 조금
 
 // 상태바(시계·카메라 노치)에 가리지 않을 만큼만 띄운다.
 const TOP_INSET = Platform.select({
@@ -77,16 +88,13 @@ function scheme(color: string) {
 
 export default function ManagementScreen() {
   const navigation = useNavigation<any>();
-  const [deckH, setDeckH] = useState(0);
 
-  const onDeckLayout = (e: LayoutChangeEvent) => {
-    const h = e.nativeEvent.layout.height;
-    if (h > 0 && Math.abs(h - deckH) > 1) setDeckH(h);
-  };
-
-  // 남은 높이를 카드 수로 나눈다 (겹침 없음) — 글자 크기도 이 높이에 맞춰 스케일한다.
-  const n = ITEMS.length;
-  const cardH = deckH > 0 ? Math.max(52, (deckH - GAP * (n - 1)) / n) : 0;
+  // 탭에 다시 들어올 때마다 카드 등장 애니메이션을 재생한다 (홈 화면과 같은 방식)
+  const isFocused = useIsFocused();
+  const [runId, setRunId] = useState(0);
+  useEffect(() => {
+    if (isFocused) setRunId((x) => x + 1);
+  }, [isFocused]);
 
   return (
     <View style={styles.root}>
@@ -111,15 +119,15 @@ export default function ManagementScreen() {
         </Svg>
       </View>
 
-      {/* 헤더 — 제목·마스코트와 설정 칩을 한 줄에 겹쳐 배치해 세로 길이를 줄였다 */}
+      {/* 헤더 — ScrollView 밖에 있어 카드가 흘러도 제자리에 고정된다 */}
       <View style={styles.header}>
-        <View style={styles.headerText}>
+        <FadeInUp key={`title-${runId}`} style={styles.headerText}>
           <Text style={styles.bigTitle}>관리</Text>
           <Text style={styles.sub}>가게 운영에 필요한 모든 기능</Text>
-        </View>
+        </FadeInUp>
 
         <View style={styles.headerRight}>
-          {/* 설정 진입 — 카드에서 내려와 헤더 안으로 들어왔다 */}
+          {/* 설정 진입 — 카드가 아니라 헤더 안에 둔다 */}
           <PressableScale style={styles.gearBtn} onPress={() => navigation.navigate('Settings')} to={0.9}>
             <Ionicons name="settings-outline" size={15} color={colors.creamSand} />
             <Text style={styles.gearText}>설정</Text>
@@ -128,37 +136,39 @@ export default function ManagementScreen() {
         </View>
       </View>
 
-      {/* [둥근 크림 시트] 홈의 바디 카드시트와 동일 — 카드를 감싸 얹는다 */}
+      {/* [둥근 크림 시트] 시트 자체는 고정, 그 안에서 카드만 스크롤한다 */}
       <View style={styles.body}>
-        <View style={styles.deck} onLayout={onDeckLayout}>
-          {cardH > 0 &&
-            ITEMS.map((it, i) => {
-              const s = scheme(it.color);
-              return (
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.deck}
+          showsVerticalScrollIndicator={false}
+        >
+          {ITEMS.map((it, i) => {
+            const lay = LAYOUT[i % LAYOUT.length];
+            const s = scheme(it.color);
+            return (
+              // 아래에서 순차로 떠오르는 진입 모션 — 카드마다 60ms씩 늦춰 물결처럼 들어온다
+              <FadeInUp key={`${it.route}-${runId}`} delay={i * 60} distance={20}>
                 <PressableScale
-                  key={it.route}
                   style={[
                     styles.card,
                     {
-                      height: cardH,
+                      height: CARD_H,
                       marginTop: i === 0 ? 0 : GAP,
                       backgroundColor: it.color,
                       borderColor: s.border,
-                      borderWidth: s.border === 'transparent' ? 0 : 1,
+                      borderWidth: s.border === 'transparent' ? 0 : 1.5,
+                      zIndex: i + 1,
+                      transform: [{ rotate: `${lay.deg}deg` }, { translateX: lay.tx }],
                     },
                   ]}
                   onPress={() => navigation.navigate(it.route, it.params)}
                   to={0.97}
                 >
-                  <Text style={[styles.cardGhost, { color: s.ghost, fontSize: cardH * 0.72 }]}>
-                    {String(i + 1).padStart(2, '0')}
-                  </Text>
+                  <Text style={[styles.cardGhost, { color: s.ghost }]}>{String(i + 1).padStart(2, '0')}</Text>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.cardEn, { color: s.en }]}>{it.en}</Text>
-                    <Text
-                      style={[styles.cardLabel, { color: s.label, fontSize: Math.min(19, cardH * 0.26) }]}
-                      numberOfLines={1}
-                    >
+                    <Text style={[styles.cardLabel, { color: s.label }]} numberOfLines={1}>
                       {it.label}
                     </Text>
                     <Text style={[styles.cardDesc, { color: s.desc }]} numberOfLines={1}>
@@ -166,12 +176,13 @@ export default function ManagementScreen() {
                     </Text>
                   </View>
                   <View style={[styles.cardArrow, { backgroundColor: s.arrowBg }]}>
-                    <Ionicons name="arrow-forward" size={15} color={s.arrowFg} />
+                    <Ionicons name="arrow-forward" size={17} color={s.arrowFg} />
                   </View>
                 </PressableScale>
-              );
-            })}
-        </View>
+              </FadeInUp>
+            );
+          })}
+        </ScrollView>
       </View>
     </View>
   );
@@ -181,8 +192,7 @@ const styles = StyleSheet.create({
   // Svg 로딩 지연 중 어두운 광원을 채우기 위한 딥 브라운 루트
   root: { flex: 1, backgroundColor: '#1E1612' },
 
-  // [홈 웰컴 헤더와 같은 톤] 딥브라운 오로라 위 밝은 텍스트 + 우측 마스코트.
-  // 원안(마스코트 148·상하 여백 넉넉)보다 눌러서 카드가 쓸 높이를 확보했다.
+  // [홈 웰컴 헤더와 같은 톤] 딥브라운 오로라 위 밝은 텍스트 + 우측 마스코트
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -210,47 +220,47 @@ const styles = StyleSheet.create({
   },
   gearText: { color: colors.creamSand, fontSize: 11.5, fontWeight: '700' },
 
-  // [홈 바디 카드시트와 동일] 오로라 배경을 끊김 없이 감싸안는 둥근 크림 시트
+  // [홈 바디 카드시트와 동일] 둥근 크림 시트 — flex:1로 남은 높이를 채우고 내부만 스크롤
   body: {
     flex: 1,
     backgroundColor: colors.creamSand,
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 10,
+    overflow: 'hidden', // 스크롤되는 카드가 둥근 모서리 밖으로 삐져나오지 않게
   },
-  deck: { flex: 1 },
-
-  // 기울임 없이 전부 수평. 높이는 시트 높이를 카드 수로 나눠 채운다.
+  scroll: { flex: 1 },
+  // 기울인 카드의 모서리가 잘리지 않도록 좌우로 숨통을 준다
+  deck: { paddingHorizontal: 22, paddingTop: 18, paddingBottom: 24 },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    borderRadius: 16,
-    paddingHorizontal: 16,
+    gap: 14,
+    borderRadius: 22,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     overflow: 'hidden',
-    shadowColor: '#4E3629',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 8,
   },
   cardGhost: {
     position: 'absolute',
-    // 화살표(우측 16 + 지름 32)를 피해 그 왼쪽에 워터마크로 앉힌다 — 겹치면 둘 다 뭉개진다
-    right: 56,
-    top: -6,
+    // 화살표(우측 20 + 지름 38)를 피해 그 왼쪽에 워터마크로 앉힌다 — 겹치면 둘 다 뭉개진다
+    right: 62,
+    top: -8,
+    fontSize: 82,
     fontWeight: '900',
     letterSpacing: -4,
   },
-  cardEn: { fontSize: 8.5, fontWeight: '800', letterSpacing: 1 },
-  cardLabel: { fontWeight: '900', letterSpacing: -0.4, marginTop: 1 },
-  cardDesc: { fontSize: 10.5, fontWeight: '500', marginTop: 2 },
+  cardEn: { fontSize: 9.5, fontWeight: '800', letterSpacing: 1.1 },
+  cardLabel: { fontSize: 23, fontWeight: '900', letterSpacing: -0.5, marginTop: 2 },
+  cardDesc: { fontSize: 12, fontWeight: '500', marginTop: 4 },
   cardArrow: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
   },
