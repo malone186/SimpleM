@@ -118,6 +118,7 @@ export const FIELD_LABELS: Record<string, string> = {
   open_count: '진행 중 발주',
   open_amount: '발주 예상 금액',
   compliance_alerts: '기한 임박 서류',
+  ai_advice: '브루의 조언',
   // 갱신 서류
   expiry_date: '만료일',
   remind_before_days: '알림 시작(일 전)',

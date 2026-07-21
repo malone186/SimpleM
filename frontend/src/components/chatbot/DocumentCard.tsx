@@ -93,8 +93,22 @@ function ObjectSection({ name, obj }: { name: string; obj: Record<string, unknow
   );
 }
 
+/** AI 조언처럼 긴 문장은 라벨:값 행으로 찍으면 오른쪽 정렬 좁은 칸에 뭉개진다 — 전용 블록으로 */
+function AdviceBlock({ text }: { text: string }) {
+  return (
+    <View style={styles.adviceWrap}>
+      <View style={styles.adviceHeader}>
+        <Ionicons name="cafe-outline" size={13} color={colors.pointOrange} />
+        <Text style={styles.adviceTitle}>브루의 조언</Text>
+      </View>
+      <Text style={styles.adviceText}>{text}</Text>
+    </View>
+  );
+}
+
 /** content의 한 필드를 타입에 맞는 컴포넌트로 — 배열→품목 블록, 객체→섹션, 스칼라→행 */
 function renderField(key: string, value: unknown) {
+  if (key === 'ai_advice' && typeof value === 'string') return <AdviceBlock key={key} text={value} />;
   if (Array.isArray(value)) return <ArraySection key={key} name={key} list={value} />;
   if (isPlainObject(value)) return <ObjectSection key={key} name={key} obj={value} />;
   return <Row key={key} k={key} v={fmt(key, value)} />;
@@ -103,10 +117,13 @@ function renderField(key: string, value: unknown) {
 export default function DocumentCard({ doc }: { doc: ChatDocument }) {
   const entries = Object.entries(doc.content ?? {});
   const note = typeof doc.content?.note === 'string' ? (doc.content.note as string) : null;
+  // 경영 리포트처럼 항목이 많은 문서는 채팅을 길게 밀어내므로 접힌 상태로 시작한다
+  const isLong = doc.kind === 'management_report' || entries.length > 6;
+  const [open, setOpen] = useState(!isLong);
 
   return (
     <View style={styles.card}>
-      <View style={styles.header}>
+      <PressableScale style={styles.header} onPress={() => setOpen((v) => !v)}>
         <View style={styles.headerIcon}>
           <Ionicons name="document-text-outline" size={16} color={colors.pointOrange} />
         </View>
@@ -119,19 +136,32 @@ export default function DocumentCard({ doc }: { doc: ChatDocument }) {
             <Text style={styles.draftBadgeText}>초안</Text>
           </View>
         )}
-      </View>
+        <Ionicons
+          name={open ? 'chevron-up' : 'chevron-down'}
+          size={16}
+          color={colors.mochaBrown}
+        />
+      </PressableScale>
 
-      <View style={styles.body}>
-        {entries.map(([key, value]) =>
-          key === 'note' ? null : renderField(key, value), // note는 하단 안내문으로 별도 표시
-        )}
-      </View>
+      {open ? (
+        <>
+          <View style={styles.body}>
+            {entries.map(([key, value]) =>
+              key === 'note' ? null : renderField(key, value), // note는 하단 안내문으로 별도 표시
+            )}
+          </View>
 
-      {note && (
-        <View style={styles.noteWrap}>
-          <Ionicons name="information-circle-outline" size={13} color={colors.mochaBrown} />
-          <Text style={styles.noteText}>{note}</Text>
-        </View>
+          {note && (
+            <View style={styles.noteWrap}>
+              <Ionicons name="information-circle-outline" size={13} color={colors.mochaBrown} />
+              <Text style={styles.noteText}>{note}</Text>
+            </View>
+          )}
+        </>
+      ) : (
+        <PressableScale style={styles.collapsedHint} onPress={() => setOpen(true)}>
+          <Text style={styles.collapsedHintText}>내용 펼쳐보기</Text>
+        </PressableScale>
       )}
     </View>
   );
@@ -193,7 +223,22 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   itemTitle: { ...typography.L5, fontSize: 11, fontWeight: '700', color: colors.espressoBrown },
-  itemDetail: { ...typography.L5, color: colors.mochaBrown, lineHeight: 14 },
+  itemDetail: { ...typography.L5, color: colors.mochaBrown, lineHeight: 16 },
+  adviceWrap: {
+    backgroundColor: colors.coffeeCream,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 4,
+    gap: 6,
+  },
+  adviceHeader: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  adviceTitle: { ...typography.L5, fontWeight: '700', color: colors.pointOrange },
+  adviceText: { ...typography.L5, fontSize: 12, color: colors.espressoBrown, lineHeight: 19 },
+  collapsedHint: { paddingVertical: 9, alignItems: 'center' },
+  collapsedHintText: { ...typography.L5, fontWeight: '700', color: colors.pointOrange },
   moreText: {
     ...typography.L5,
     fontWeight: '700',
