@@ -17,6 +17,7 @@ _TOOL_MODULES = [
     "app.services.ai.ocr_tools",                 # 백엔드 B
     "app.services.ai.price_tools",               # 백엔드 B (인터넷 가격 비교)
     "app.services.ai.report_tools",              # 백엔드 B (경영 리포트 — 일간·주간·월간)
+    "app.services.ai.sensor_tools",              # 백엔드 B (매장 IoT 센서 실시간 상태·발주 코치)
     "app.services.ai.web_search_tools",          # 백엔드 B (Tavily 웹 검색 통합)
     "app.services.operation.bean_chatbot_tools", # 백엔드 C (원두 추천·리뷰 RAG·시세 챗봇 도구)
     "app.services.operation.forecasting_tools",  # 백엔드 C

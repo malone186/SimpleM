@@ -20,9 +20,20 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, shadows, typography } from '../../theme';
 import { listRoasteryBeans, RoasteryBean } from '../../lib/api/inventory';
+import {
+  getSensorLive,
+  getSensorRecommendations,
+  setSensorBeans,
+  SensorLive,
+  SensorRecommendation,
+} from '../../lib/api/sensor';
 
 // 🟢 [한글 주석: 실시간으로 부드럽게 점멸(Pulse)하는 라이브 연동 배지 컴포넌트]
-const LivePulseBadge: React.FC<{ label?: string }> = ({ label = 'LIVE 실시간 연동' }) => {
+// active=false면 회색 '센서 연결 중' 상태로 표시하여 가짜 LIVE 연출을 막는다.
+const LivePulseBadge: React.FC<{ label?: string; active?: boolean }> = ({
+  label = 'LIVE 실시간 연동',
+  active = true,
+}) => {
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -44,6 +55,15 @@ const LivePulseBadge: React.FC<{ label?: string }> = ({ label = 'LIVE 실시간 
     return () => animation.stop();
   }, [pulseAnim]);
 
+  if (!active) {
+    return (
+      <View style={[liveComponentStyles.pulseBadgeContainer, liveComponentStyles.pulseBadgeContainerOff]}>
+        <View style={[liveComponentStyles.pulseDot, liveComponentStyles.pulseDotOff]} />
+        <Text style={[liveComponentStyles.pulseText, liveComponentStyles.pulseTextOff]}>센서 연결 중</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={liveComponentStyles.pulseBadgeContainer}>
       <Animated.View style={[liveComponentStyles.pulseDot, { opacity: pulseAnim }]} />
@@ -53,14 +73,11 @@ const LivePulseBadge: React.FC<{ label?: string }> = ({ label = 'LIVE 실시간 
 };
 
 // 📺 [한글 주석: 매장 원두 가동 상태를 전광판처럼 롤링 전송해주는 실시간 틱커 배너]
-const TICKER_MESSAGES = [
-  '🟢 [실시간] 카페인 호퍼 온·습도 93.5°C / 45% 최적 유지',
-  '☕ [방금 전] 콜롬비아 원두 에스프레소 142번째 샷 추출 완료',
-  '⚡ [센서 연동] 디카페인 호퍼 잔여량 60% (1.2kg 남음)',
-  '💡 [AI 추천] 주말 피크타임 전 카페인 원두 1.5kg 추가 장착 추천',
-];
+// messages는 백엔드 /sensor/live 의 events 피드 — 없으면 연결 대기 문구를 보여준다.
+const FALLBACK_TICKER = ['📡 매장 센서 연결을 기다리는 중이에요 (백엔드 /sensor/live)'];
 
-const LiveTickerBanner: React.FC = () => {
+const LiveTickerBanner: React.FC<{ messages?: string[] }> = ({ messages }) => {
+  const list = messages && messages.length > 0 ? messages : FALLBACK_TICKER;
   const [index, setIndex] = useState(0);
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
@@ -71,7 +88,7 @@ const LiveTickerBanner: React.FC = () => {
         duration: 300,
         useNativeDriver: true,
       }).start(() => {
-        setIndex((prev) => (prev + 1) % TICKER_MESSAGES.length);
+        setIndex((prev) => prev + 1);
         Animated.timing(fadeAnim, {
           toValue: 1,
           duration: 300,
@@ -87,7 +104,7 @@ const LiveTickerBanner: React.FC = () => {
     <View style={liveComponentStyles.tickerContainer}>
       <Ionicons name="radio-outline" size={14} color={colors.pointOrange} />
       <Animated.Text style={[liveComponentStyles.tickerText, { opacity: fadeAnim }]} numberOfLines={1}>
-        {TICKER_MESSAGES[index]}
+        {list[index % list.length]}
       </Animated.Text>
     </View>
   );
@@ -290,6 +307,12 @@ export default function BeanNotepad() {
   // 로스터리 전체 원두 목록 (큐레이션 필터 검색용)
   const [roasteryBeans, setRoasteryBeans] = useState<RoasteryBean[]>([]);
 
+  // 📡 매장 IoT 센서 실시간 상태 (5초 폴링) + AI 발주 코치 (60초 폴링)
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [sensor, setSensor] = useState<SensorLive | null>(null);
+  const [coachItems, setCoachItems] = useState<SensorRecommendation[]>([]);
+  const [coachUpdatedAt, setCoachUpdatedAt] = useState<string | null>(null);
+
   // 취향 추천 모달 및 질문 상태들
   const [showSurveyModal, setShowSurveyModal] = useState(false);
   const [surveyDecaf, setSurveyDecaf] = useState<'any' | 'normal' | 'decaf'>('any'); // 카페인
@@ -345,6 +368,7 @@ export default function BeanNotepad() {
           const session = JSON.parse(rawSession);
           const token = session?.token;
           if (token) {
+            setAuthToken(token); // 센서 폴링 시작 트리거
             const list = await listRoasteryBeans(token, 40);
             setRoasteryBeans(list);
           }
@@ -355,6 +379,43 @@ export default function BeanNotepad() {
     };
     loadBeansData();
   }, []);
+
+  // 📡 센서 라이브 5초 폴링 + AI 발주 코치 60초 폴링 (토큰 확보 후 시작)
+  useEffect(() => {
+    if (!authToken) return;
+    let alive = true;
+
+    const pollLive = async () => {
+      try {
+        const snap = await getSensorLive(authToken);
+        if (alive) setSensor(snap);
+      } catch {
+        // 백엔드 미기동/네트워크 단절 시 '센서 연결 중' 상태로 강등
+        if (alive) setSensor(null);
+      }
+    };
+    const pollCoach = async () => {
+      try {
+        const res = await getSensorRecommendations(authToken);
+        if (alive) {
+          setCoachItems(res.items);
+          setCoachUpdatedAt(res.generated_at);
+        }
+      } catch {
+        // 추천 실패는 조용히 무시 (다음 주기에 재시도)
+      }
+    };
+
+    pollLive();
+    pollCoach();
+    const liveTimer = setInterval(pollLive, 5000);
+    const coachTimer = setInterval(pollCoach, 60000);
+    return () => {
+      alive = false;
+      clearInterval(liveTimer);
+      clearInterval(coachTimer);
+    };
+  }, [authToken]);
 
   // 가상의 폴백 원두 (DB에 추천용 원두가 아직 없을 때를 위한 안정적인 예시 데이터)
   const MOCK_FALLBACK_BEANS: RoasteryBean[] = [
@@ -566,6 +627,15 @@ export default function BeanNotepad() {
       currentCaffeine: tempCaffeine.trim(),
       currentDecaf: tempDecaf.trim(),
     });
+    // 호퍼 RFID 태그에도 원두명 재기록 → 다음 폴링부터 센서 응답에 반영됨
+    if (authToken) {
+      setSensorBeans(authToken, {
+        caffeine: tempCaffeine.trim(),
+        decaf: tempDecaf.trim(),
+      })
+        .then(() => getSensorLive(authToken).then(setSensor).catch(() => {}))
+        .catch(() => {});
+    }
     setShowCurrentEdit(false);
   };
 
@@ -639,19 +709,95 @@ export default function BeanNotepad() {
   };
 
   // ─── 렌더링 ────────────────────────────────────────────────────────────
+  // 센서(RFID) 원두명이 있으면 우선, 없으면 로컬 메모 값으로 폴백
+  const cafHopper = sensor?.hoppers.caffeine ?? null;
+  const decafHopper = sensor?.hoppers.decaf ?? null;
+  const cafDisplayName = sensor?.rfid.caffeine_bean || data.currentCaffeine;
+  const decafDisplayName = sensor?.rfid.decaf_bean || data.currentDecaf;
+
+  // 호퍼 잔량 게이지 색: 20% 이하 빨강, 40% 이하 주황, 그 외 브라운
+  const gaugeColor = (percent: number, base: string) =>
+    percent <= 20 ? '#C0392B' : percent <= 40 ? '#D97706' : base;
+
+  // 카페인/디카페인 공용 행 렌더러 (센서 연동 시 게이지·샷 수·소진 예상까지 표시)
+  const renderHopperRow = (
+    label: string,
+    icon: 'cafe' | 'cafe-outline',
+    iconColor: string,
+    name: string,
+    hopperState: typeof cafHopper,
+    barBaseColor: string,
+    tagId?: string,
+  ) => (
+    <View style={styles.currentRow}>
+      <View style={styles.currentLabel}>
+        <Ionicons name={icon} size={14} color={iconColor} />
+        <Text style={styles.currentLabelText}>{label}</Text>
+      </View>
+      <View style={{ flex: 1, gap: 4 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text style={[styles.currentValue, !name && styles.currentEmpty]} numberOfLines={1}>
+            {name || (hopperState ? '원두명 미지정 — 수정에서 입력' : '아직 입력하지 않았어요')}
+          </Text>
+          {hopperState ? (
+            <View style={liveComponentStyles.shotBadge}>
+              <Text style={liveComponentStyles.shotBadgeText}>오늘 {hopperState.shots_today}잔 추출</Text>
+            </View>
+          ) : null}
+        </View>
+
+        {/* [한글 주석: 무게센서(로드셀) 실측 기반 호퍼 잔량 게이지] */}
+        {hopperState ? (
+          <>
+            <View style={liveComponentStyles.gaugeRow}>
+              <View style={liveComponentStyles.gaugeTrack}>
+                <View
+                  style={[
+                    liveComponentStyles.gaugeFill,
+                    {
+                      width: `${Math.min(100, Math.max(2, hopperState.percent))}%`,
+                      backgroundColor: gaugeColor(hopperState.percent, barBaseColor),
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={liveComponentStyles.gaugeText}>
+                호퍼 {hopperState.percent}% ({(hopperState.remaining_g / 1000).toFixed(1)}kg)
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              {tagId ? (
+                <Text style={liveComponentStyles.rfidTagText}>{tagId}</Text>
+              ) : null}
+              {hopperState.depletion_at ? (
+                <Text style={liveComponentStyles.depletionText}>
+                  현재 페이스면 {hopperState.depletion_at}경 재장전 필요
+                </Text>
+              ) : hopperState.refills_today > 0 ? (
+                <Text style={liveComponentStyles.depletionText}>
+                  오늘 재장전 {hopperState.refills_today}회 감지
+                </Text>
+              ) : null}
+            </View>
+          </>
+        ) : null}
+      </View>
+    </View>
+  );
+
   return (
     <View style={styles.wrapper}>
 
-      {/* ━━━ 현재 사용 중인 원두 카드 (실시간 라이브 대시보드 연출) ━━━ */}
+      {/* ━━━ 현재 사용 중인 원두 카드 (실시간 라이브 대시보드) ━━━ */}
       <View style={styles.card}>
-        {/* [한글 주석: 실시간 매장 원두 가동 상태 롤링 피드 틱커] */}
-        <LiveTickerBanner />
+        {/* [한글 주석: /sensor/live events 피드를 롤링하는 실시간 틱커] */}
+        <LiveTickerBanner messages={sensor?.events} />
 
         <View style={styles.cardHeader}>
           <View style={styles.cardTitleRow}>
             <Text style={styles.cardTitle}>현재 사용 중인 원두</Text>
-            {/* [한글 주석: 실시간 점멸 연동 라이브 배지] */}
-            <LivePulseBadge />
+            {/* [한글 주석: 센서 응답이 실제로 올 때만 초록 LIVE — 아니면 회색 '센서 연결 중'] */}
+            <LivePulseBadge active={!!sensor} />
           </View>
           <TouchableOpacity style={styles.editBtn} onPress={openCurrentEdit}>
             <Ionicons name="pencil-outline" size={14} color={colors.mochaBrown} />
@@ -659,67 +805,53 @@ export default function BeanNotepad() {
           </TouchableOpacity>
         </View>
 
-        {/* 카페인 원두 정보 및 실시간 샷/호퍼 잔여량 게이지 */}
-        <View style={styles.currentRow}>
-          <View style={styles.currentLabel}>
-            <Ionicons name="cafe" size={14} color={colors.espressoBrown} />
-            <Text style={styles.currentLabelText}>카페인</Text>
-          </View>
-          <View style={{ flex: 1, gap: 4 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={[styles.currentValue, !data.currentCaffeine && styles.currentEmpty]}>
-                {data.currentCaffeine || '아직 입력하지 않았어요'}
-              </Text>
-              {data.currentCaffeine ? (
-                <View style={liveComponentStyles.shotBadge}>
-                  <Text style={liveComponentStyles.shotBadgeText}>오늘 142잔 추출</Text>
-                </View>
-              ) : null}
-            </View>
-
-            {/* [한글 주석: 실시간 호퍼 잔량 프로그레스 바 게이지] */}
-            {data.currentCaffeine ? (
-              <View style={liveComponentStyles.gaugeRow}>
-                <View style={liveComponentStyles.gaugeTrack}>
-                  <View style={[liveComponentStyles.gaugeFill, { width: '85%', backgroundColor: colors.espressoBrown }]} />
-                </View>
-                <Text style={liveComponentStyles.gaugeText}>호퍼 85% (1.7kg)</Text>
-              </View>
-            ) : null}
-          </View>
-        </View>
+        {renderHopperRow(
+          '카페인', 'cafe', colors.espressoBrown,
+          cafDisplayName, cafHopper, colors.espressoBrown, sensor?.rfid.caffeine_tag,
+        )}
 
         <View style={styles.divider} />
 
-        {/* 디카페인 원두 정보 및 실시간 샷/호퍼 잔여량 게이지 */}
-        <View style={styles.currentRow}>
-          <View style={styles.currentLabel}>
-            <Ionicons name="cafe-outline" size={14} color={colors.mochaBrown} />
-            <Text style={styles.currentLabelText}>디카페인</Text>
-          </View>
-          <View style={{ flex: 1, gap: 4 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={[styles.currentValue, !data.currentDecaf && styles.currentEmpty]}>
-                {data.currentDecaf || '아직 입력하지 않았어요'}
-              </Text>
-              {data.currentDecaf ? (
-                <View style={liveComponentStyles.shotBadgeDecaf}>
-                  <Text style={liveComponentStyles.shotBadgeTextDecaf}>오늘 48잔 추출</Text>
-                </View>
-              ) : null}
-            </View>
+        {renderHopperRow(
+          '디카페인', 'cafe-outline', colors.mochaBrown,
+          decafDisplayName, decafHopper, colors.mochaBrown, sensor?.rfid.decaf_tag,
+        )}
 
-            {/* [한글 주석: 실시간 호퍼 잔량 프로그레스 바 게이지] */}
-            {data.currentDecaf ? (
-              <View style={liveComponentStyles.gaugeRow}>
-                <View style={liveComponentStyles.gaugeTrack}>
-                  <View style={[liveComponentStyles.gaugeFill, { width: '60%', backgroundColor: colors.mochaBrown }]} />
-                </View>
-                <Text style={liveComponentStyles.gaugeText}>호퍼 60% (1.2kg)</Text>
-              </View>
-            ) : null}
+        {/* 🛠️ 매장 설비 미니 상태 스트립 (머신·우유·정수·냉장) */}
+        {sensor ? (
+          <View style={liveComponentStyles.equipStrip}>
+            <View style={liveComponentStyles.equipChip}>
+              <Ionicons
+                name={sensor.machine.status === 'extracting' ? 'flash' : 'flash-outline'}
+                size={11}
+                color={sensor.machine.status === 'extracting' ? '#D97706' : colors.mochaBrown}
+              />
+              <Text style={liveComponentStyles.equipChipText}>
+                {sensor.machine.status === 'extracting'
+                  ? `추출 중${sensor.machine.current_menu ? ` · ${sensor.machine.current_menu}` : ''}`
+                  : sensor.machine.status === 'idle' ? '머신 대기' : '영업 전'}
+              </Text>
+            </View>
+            <View style={liveComponentStyles.equipChip}>
+              <Ionicons name="water-outline" size={11} color={sensor.milk.percent <= 25 ? '#C0392B' : colors.mochaBrown} />
+              <Text style={[liveComponentStyles.equipChipText, sensor.milk.percent <= 25 && liveComponentStyles.equipAlertText]}>
+                우유 {(sensor.milk.remaining_ml / 1000).toFixed(1)}L
+              </Text>
+            </View>
+            <View style={liveComponentStyles.equipChip}>
+              <Ionicons name="filter-outline" size={11} color={sensor.water.ok ? colors.mochaBrown : '#C0392B'} />
+              <Text style={[liveComponentStyles.equipChipText, !sensor.water.ok && liveComponentStyles.equipAlertText]}>
+                정수 {sensor.water.percent}%
+              </Text>
+            </View>
+            <View style={liveComponentStyles.equipChip}>
+              <Ionicons name="thermometer-outline" size={11} color={sensor.fridge.ok ? colors.mochaBrown : '#C0392B'} />
+              <Text style={[liveComponentStyles.equipChipText, !sensor.fridge.ok && liveComponentStyles.equipAlertText]}>
+                냉장 {sensor.fridge.temp_c}℃
+              </Text>
+            </View>
           </View>
-        </View>
+        ) : null}
 
         {/* ☕ 나만의 원두 취향 큐레이션 추천 탐색기 버튼 [NEW] */}
         <View style={styles.curationBtnWrapper}>
@@ -747,6 +879,58 @@ export default function BeanNotepad() {
         </View>
       </View>
 
+
+      {/* ━━━ AI 발주 코치 카드 (센서+판매 데이터 근거 기반 추천) ━━━ */}
+      {coachItems.length > 0 && (
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardTitleRow}>
+              <Ionicons name="sparkles" size={15} color={colors.espressoBrown} />
+              <Text style={styles.cardTitle}>AI 발주 코치</Text>
+            </View>
+            {coachUpdatedAt ? (
+              <Text style={coachStyles.updatedAt}>
+                {new Date(coachUpdatedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} 기준
+              </Text>
+            ) : null}
+          </View>
+
+          <View style={{ gap: 8 }}>
+            {coachItems.map((item, idx) => {
+              const barColor =
+                item.priority === 'urgent' ? '#C0392B'
+                  : item.priority === 'warn' ? '#D97706'
+                    : colors.mochaBrown;
+              const priorityLabel =
+                item.priority === 'urgent' ? '긴급' : item.priority === 'warn' ? '주의' : '참고';
+              return (
+                <View key={idx} style={coachStyles.item}>
+                  <View style={[coachStyles.bar, { backgroundColor: barColor }]} />
+                  <View style={coachStyles.body}>
+                    <View style={coachStyles.titleRow}>
+                      <View style={[coachStyles.priorityChip, { backgroundColor: `${barColor}18`, borderColor: `${barColor}44` }]}>
+                        <Text style={[coachStyles.priorityChipText, { color: barColor }]}>{priorityLabel}</Text>
+                      </View>
+                      <Text style={coachStyles.title} numberOfLines={2}>{item.title}</Text>
+                    </View>
+
+                    {/* 근거 수치 — 사장님이 "왜?"를 바로 알 수 있게 */}
+                    <Text style={coachStyles.reason}>{item.reason}</Text>
+
+                    {/* 실행 액션 — 지금 뭘 하면 되는지 */}
+                    <View style={coachStyles.actionRow}>
+                      <Ionicons name="arrow-forward-circle" size={13} color={colors.espressoBrown} />
+                      <Text style={coachStyles.actionText}>{item.action}</Text>
+                    </View>
+
+                    <Text style={coachStyles.source}>근거: {item.source}</Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      )}
 
       {/* ━━━ 원두 체험 노트 카드 ━━━ */}
       <View style={styles.card}>
@@ -1718,6 +1902,136 @@ const liveComponentStyles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     color: colors.mochaBrown,
+  },
+
+  // 센서 미연결(회색) 배지 상태
+  pulseBadgeContainerOff: {
+    backgroundColor: 'rgba(120, 113, 108, 0.08)',
+    borderColor: 'rgba(120, 113, 108, 0.18)',
+  },
+  pulseDotOff: {
+    backgroundColor: '#A8A29E',
+  },
+  pulseTextOff: {
+    color: '#78716C',
+  },
+
+  // RFID 태그 · 소진 예상 보조 텍스트
+  rfidTagText: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: colors.stone300,
+    letterSpacing: 0.5,
+  },
+  depletionText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#D97706',
+  },
+
+  // 🛠️ 설비 미니 상태 스트립 (머신·우유·정수·냉장)
+  equipStrip: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.coffeeCream,
+  },
+  equipChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(140, 111, 86, 0.05)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(140, 111, 86, 0.12)',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  equipChipText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: colors.mochaBrown,
+  },
+  equipAlertText: {
+    color: '#C0392B',
+  },
+});
+
+// 🤖 [한글 주석: AI 발주 코치 카드 전용 스타일 시트]
+const coachStyles = StyleSheet.create({
+  updatedAt: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: colors.stone300,
+  },
+  item: {
+    flexDirection: 'row',
+    backgroundColor: colors.creamSand,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  bar: {
+    width: 4,
+    flexShrink: 0,
+  },
+  body: {
+    flex: 1,
+    padding: 11,
+    gap: 4,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  priorityChip: {
+    borderRadius: 5,
+    borderWidth: 0.5,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  priorityChipText: {
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  title: {
+    ...typography.L4,
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.espressoBrown,
+    flex: 1,
+  },
+  reason: {
+    ...typography.L5,
+    fontSize: 11,
+    color: colors.mochaBrown,
+    lineHeight: 16,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(140, 111, 86, 0.07)',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    marginTop: 2,
+  },
+  actionText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.espressoBrown,
+    flex: 1,
+    lineHeight: 15,
+  },
+  source: {
+    fontSize: 8,
+    fontWeight: '600',
+    color: colors.stone300,
+    alignSelf: 'flex-end',
   },
 });
 

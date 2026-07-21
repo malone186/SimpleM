@@ -1,0 +1,42 @@
+"""매장 IoT 센서 라이브 API (백엔드 B)
+
+발주 화면 '현재 사용 중인 원두' 카드의 실시간 연동 전용 엔드포인트.
+- GET  /sensor/live             : 폴링용 전체 센서 스냅샷 (5초 주기 호출 가정)
+- GET  /sensor/recommendations  : AI 발주 코치 추천 (규칙 기반, LLM 쿼터 소모 없음)
+- POST /sensor/beans            : RFID 태그 원두명 재지정 (수정 모달 저장 시)
+"""
+
+from typing import Optional
+
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
+
+from app.core.auth import get_current_user
+from app.models.user import User
+from app.services.ai import sensor_service
+
+router = APIRouter(prefix="/sensor", tags=["Sensor"])
+
+
+class BeanTagUpdate(BaseModel):
+    caffeine: Optional[str] = None   # 카페인 호퍼 RFID에 기록할 원두명
+    decaf: Optional[str] = None      # 디카페인 호퍼 RFID에 기록할 원두명
+
+
+@router.get("/live")
+def get_live(current_user: User = Depends(get_current_user)):
+    """[한글 주석] 실시간 센서 스냅샷 — store_id는 로그인 계정 이메일 기준"""
+    return sensor_service.get_live_snapshot(current_user.email)
+
+
+@router.get("/recommendations")
+def get_recommendations(current_user: User = Depends(get_current_user)):
+    """[한글 주석] 센서+판매 데이터 기반 AI 발주 코치 추천 목록"""
+    return sensor_service.get_recommendations(current_user.email)
+
+
+@router.post("/beans")
+def set_beans(payload: BeanTagUpdate, current_user: User = Depends(get_current_user)):
+    """[한글 주석] 수정 모달에서 저장한 원두명을 호퍼 RFID 태그에 반영"""
+    tags = sensor_service.set_bean_tags(current_user.email, payload.caffeine, payload.decaf)
+    return {"ok": True, "tags": tags}

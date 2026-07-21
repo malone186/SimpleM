@@ -30,6 +30,10 @@ api_router.include_router(law_router)
 # O (operation)
 api_router.include_router(operation_router)
 
+# S (sensor)
+from app.api.v1.sensor import router as sensor_router
+api_router.include_router(sensor_router)
+
 # R (roastery_search)
 from app.api.v1.roastery_search import router as roastery_search_router
 api_router.include_router(roastery_search_router)
