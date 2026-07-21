@@ -12,11 +12,12 @@ export default function BeanOperationScreen() {
 
   // 599개 실데이터 샘플 카탈로그 리스트
   const sampleBeans = [
-    { id: 1, name: 'BG블렌드 (500g)', roastery: '타이커피', price: 15000, lowest_price: 13500, country: '에티오피아', rating: 4.8, review_count: 25, positive_ratio: 92, keywords: ['#고소함', '#라떼강추', '#가성비'], product_url: 'https://smartstore.naver.com' },
-    { id: 2, name: '에티오피아 예가체프 (200g)', roastery: '가델로 커피', price: 14000, lowest_price: 13800, country: '에티오피아', rating: 4.9, review_count: 150, positive_ratio: 96, keywords: ['#상큼한산미', '#꽃향기', '#드립전용'], product_url: 'https://smartstore.naver.com' },
-    { id: 3, name: '콜롬비아 수프리모 (500g)', roastery: '모카 팩토리', price: 16500, lowest_price: 15000, country: '콜롬비아', rating: 4.7, review_count: 88, positive_ratio: 90, keywords: ['#밸런스좋음', '#견과류풍미', '#데일리'], product_url: 'https://smartstore.naver.com' },
-    { id: 4, name: '디카페인 딥 블렌드 (200g)', roastery: '타이커피', price: 15500, lowest_price: 14500, country: '과테말라', rating: 4.6, review_count: 42, positive_ratio: 88, keywords: ['#속편한', '#디카페인', '#다크초콜릿'], product_url: 'https://smartstore.naver.com' },
-    { id: 5, name: '자메이카 블루마운틴 (200g)', roastery: '가델로 커피', price: 45000, lowest_price: 45000, country: '자메이카', rating: 5.0, review_count: 30, positive_ratio: 98, keywords: ['#최고급', '#품절대란', '#명품원두'], product_url: 'https://smartstore.naver.com' },
+    { id: 1, name: 'BG블렌드 (500g)', roastery: '타이커피', price: 15000, lowest_price: 13500, country: '에티오피아', rating: 4.8, review_count: 25, positive_ratio: 92, keywords: ['#고소함', '#라떼강추', '#가성비'], product_url: 'https://search.shopping.naver.com/search/all?query=BG블렌드%20500g' },
+    { id: 2, name: '에티오피아 예가체프 (200g)', roastery: '가델로 커피', price: 14000, lowest_price: 13800, country: '에티오피아', rating: 4.9, review_count: 150, positive_ratio: 96, keywords: ['#상큼한산미', '#꽃향기', '#드립전용'], product_url: 'https://search.shopping.naver.com/search/all?query=에티오피아%20예가체프%20200g' },
+    { id: 3, name: '콜롬비아 수프리모 (500g)', roastery: '모카 팩토리', price: 16500, lowest_price: 15000, country: '콜롬비아', rating: 4.7, review_count: 88, positive_ratio: 90, keywords: ['#밸런스좋음', '#견과류풍미', '#데일리'], product_url: 'https://search.shopping.naver.com/search/all?query=콜롬비아%20수프리모%20500g' },
+    { id: 4, name: '디카페인 딥 블렌드 (200g)', roastery: '타이커피', price: 15500, lowest_price: 14500, country: '과테말라', rating: 4.6, review_count: 42, positive_ratio: 88, keywords: ['#속편한', '#디카페인', '#다크초콜릿'], product_url: 'https://search.shopping.naver.com/search/all?query=디카페인%20원두%20200g' },
+    { id: 5, name: '자메이카 블루마운틴 (200g)', roastery: '가델로 커피', price: 45000, lowest_price: 45000, country: '자메이카', rating: 5.0, review_count: 30, positive_ratio: 98, keywords: ['#최고급', '#품절대란', '#명품원두'], product_url: 'https://search.shopping.naver.com/search/all?query=자메이카%20블루마운틴%20200g' },
+
   ];
 
   const filteredBeans = sampleBeans.filter(b => 
