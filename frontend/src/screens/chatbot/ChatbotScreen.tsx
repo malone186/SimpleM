@@ -1,6 +1,7 @@
 // 챗봇 (프론트 B) — PRD §5.3 통합 창구
 // 리포트 조회 · 원두 비교 · 법령 검색 · 문서 생성 · 발주 초안 등 전용 화면 없는 모든 기능
-// 대화 세션 관리: 새 채팅 열기 + 과거 채팅 복원/삭제 (기기 로컬 AsyncStorage 보관)
+// 대화 세션 관리: 새 채팅 열기 + 과거 채팅 복원/삭제
+// (로그인 시 서버 DB에 계정별 보관 — 비로그인·서버 장애 시 기기 로컬 폴백)
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
@@ -81,19 +82,22 @@ export default function ChatbotScreen() {
 
   const scrollDown = () => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
 
-  // 화면 상태 갱신 + 사용자 발화가 있는 세션만 로컬 보관소에 저장
+  // 화면 상태 갱신 + 사용자 발화가 있는 세션만 보관소에 저장 (로그인 시 서버, 아니면 로컬)
   const commit = (next: Msg[]) => {
     messagesRef.current = next;
     setMessages(next);
     const firstUser = next.find((m) => m.role === 'user');
     if (!firstUser) return;
-    saveSession({
-      id: sessionIdRef.current,
-      title: makeTitle(firstUser.text),
-      messages: next,
-      createdAt: createdAtRef.current,
-      updatedAt: Date.now(),
-    }).catch(() => {});
+    saveSession(
+      {
+        id: sessionIdRef.current,
+        title: makeTitle(firstUser.text),
+        messages: next,
+        createdAt: createdAtRef.current,
+        updatedAt: Date.now(),
+      },
+      token,
+    ).catch(() => {});
   };
 
   // 백엔드 멀티에이전트 두뇌(/chatbot/chat) 호출 — 이전 대화도 함께 보내 맥락을 유지한다
@@ -142,7 +146,7 @@ export default function ChatbotScreen() {
 
   // 과거 채팅 패널 열기 — 열 때마다 보관소에서 최신 목록을 읽는다
   const openHistory = async () => {
-    setSessions(await loadSessions());
+    setSessions(await loadSessions(token));
     setHistoryOpen(true);
   };
 
@@ -159,8 +163,8 @@ export default function ChatbotScreen() {
 
   const removeSession = (s: ChatSession) => {
     confirmAsk('채팅 삭제', `'${s.title}' 채팅을 삭제할까요?`, '삭제', async () => {
-      await deleteSession(s.id);
-      setSessions(await loadSessions());
+      await deleteSession(s.id, token);
+      setSessions(await loadSessions(token));
       // 지금 보고 있던 채팅을 지웠다면 새 채팅으로 초기화
       if (s.id === sessionIdRef.current) startNewChat();
     });
@@ -168,7 +172,7 @@ export default function ChatbotScreen() {
 
   const removeAllSessions = () => {
     confirmAsk('전체 삭제', '과거 채팅을 모두 삭제할까요? 되돌릴 수 없어요.', '전체 삭제', async () => {
-      await clearSessions();
+      await clearSessions(token);
       setSessions([]);
       startNewChat();
     });

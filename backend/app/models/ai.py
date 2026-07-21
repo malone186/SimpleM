@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -81,6 +81,24 @@ class GeneratedDocument(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class ChatSession(Base):
+    """챗봇 대화 세션 — 사용자별 대화 기록을 서버에 보관 (기기·브라우저가 바뀌어도 이어보기)
+
+    말풍선 배열은 프론트 ChatMsg[] 모양 그대로 JSON 문자열로 저장해 복원 시 무손실.
+    id는 프론트가 만드는 값(s<epoch_ms>)이라 사용자 간 충돌이 가능하므로 store_id와 복합 PK.
+    시각은 프론트 정렬·표시 기준인 epoch ms 정수를 그대로 보관한다.
+    """
+
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    store_id: Mapped[str] = mapped_column(String(100), primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String(100))
+    messages: Mapped[str] = mapped_column(Text)  # ChatMsg[] JSON (docs 문서 카드 포함)
+    created_at_ms: Mapped[int] = mapped_column(BigInteger)
+    updated_at_ms: Mapped[int] = mapped_column(BigInteger, index=True)
 
 
 class ComplianceItem(Base):

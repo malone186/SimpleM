@@ -192,3 +192,25 @@ class ComplianceItemResponse(BaseModel):
     memo: Optional[str] = None
     days_left: int = Field(description="만료까지 남은 일수 (음수면 만료됨)")
     status: Literal["ok", "due_soon", "expired"]
+
+
+# ---------------------------------------------------------------------------
+# 챗봇 대화 세션 — 사용자별 대화 기록 서버 보관 (프론트 로컬 보관소와 같은 모양)
+# ---------------------------------------------------------------------------
+
+
+class ChatSessionUpsert(BaseModel):
+    """세션 저장(신규/갱신) 입력 — 시각은 프론트 기준인 epoch ms 정수"""
+
+    title: str = Field(max_length=100)
+    messages: list[dict] = Field(description="말풍선 배열 (프론트 ChatMsg[] 그대로, 문서 카드 포함)")
+    created_at: int = Field(description="세션 생성 시각 epoch ms")
+    updated_at: int = Field(description="마지막 수정 시각 epoch ms")
+
+
+class ChatSessionResponse(BaseModel):
+    id: str
+    title: str
+    messages: list[dict]
+    created_at: int
+    updated_at: int

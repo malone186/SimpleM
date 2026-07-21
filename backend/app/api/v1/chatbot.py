@@ -6,6 +6,7 @@
 챗봇 대화 엔드포인트는 main_agent 구현 시 추가 예정.
 """
 
+import json
 import logging
 from datetime import date
 from pathlib import Path
@@ -21,12 +22,15 @@ from app.services.ai.agents import main_agent
 
 from app.core.auth import get_current_user
 from app.core.database import get_db
+from app.models.ai import ChatSession
 from app.models.user import User
 
 # [한글 주석] 상세 장애 진단을 위한 로거 선언
 logger = logging.getLogger(__name__)
 
 from app.schemas.ai import (
+    ChatSessionResponse,
+    ChatSessionUpsert,
     ComplianceItemCreate,
     ComplianceItemResponse,
     EmploymentContractRequest,
@@ -408,6 +412,101 @@ def delete_compliance_item(item_id: int, current_user: User = Depends(get_curren
     except document_service.DocumentError as e:
         raise HTTPException(404, str(e))
     return {"deleted": item_id}  # 프론트 apiFetch가 JSON 응답을 기대하므로 204 대신 본문 반환
+
+
+# ---------------------------------------------------------------------------
+# 챗봇 대화 세션 — 사용자별 대화 기록 서버 보관 (새 채팅·과거 채팅 복원/삭제)
+# 기기 로컬(AsyncStorage)이 아닌 DB에 저장해 기기·브라우저가 바뀌어도 기록이 따라온다
+# ---------------------------------------------------------------------------
+
+MAX_CHAT_SESSIONS = 50  # 사용자당 보관 상한 — 초과분은 오래된 것부터 자동 정리
+
+
+def _session_to_response(row: ChatSession) -> ChatSessionResponse:
+    return ChatSessionResponse(
+        id=row.id,
+        title=row.title,
+        messages=json.loads(row.messages),
+        created_at=row.created_at_ms,
+        updated_at=row.updated_at_ms,
+    )
+
+
+@router.get("/sessions", response_model=list[ChatSessionResponse])
+def list_chat_sessions(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[ChatSessionResponse]:
+    """내 대화 세션 전체 — 최근 수정 순. 복원에 필요한 말풍선 전문을 함께 준다."""
+    rows = (
+        db.query(ChatSession)
+        .filter(ChatSession.store_id == current_user.email)
+        .order_by(ChatSession.updated_at_ms.desc())
+        .all()
+    )
+    return [_session_to_response(r) for r in rows]
+
+
+@router.put("/sessions/{session_id}", response_model=ChatSessionResponse)
+def upsert_chat_session(
+    session_id: str,
+    body: ChatSessionUpsert,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ChatSessionResponse:
+    """세션 저장(신규/갱신) — 프론트가 턴마다 대화 전문을 통째로 올린다."""
+    row = db.get(ChatSession, (session_id, current_user.email))
+    if row is None:
+        row = ChatSession(id=session_id, store_id=current_user.email)
+        db.add(row)
+    row.title = body.title
+    row.messages = json.dumps(body.messages, ensure_ascii=False)
+    row.created_at_ms = body.created_at
+    row.updated_at_ms = body.updated_at
+
+    # 상한 초과분은 오래된 것부터 정리 (로컬 보관소와 같은 정책)
+    stale = (
+        db.query(ChatSession)
+        .filter(ChatSession.store_id == current_user.email, ChatSession.id != session_id)
+        .order_by(ChatSession.updated_at_ms.desc())
+        .offset(MAX_CHAT_SESSIONS - 1)
+        .all()
+    )
+    for s in stale:
+        db.delete(s)
+
+    db.commit()
+    db.refresh(row)
+    return _session_to_response(row)
+
+
+@router.delete("/sessions/{session_id}")
+def delete_chat_session(
+    session_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    row = db.get(ChatSession, (session_id, current_user.email))
+    if row is None:
+        raise HTTPException(404, "세션을 찾을 수 없습니다")
+    db.delete(row)
+    db.commit()
+    return {"deleted": session_id}  # 프론트 apiFetch가 JSON 응답을 기대하므로 204 대신 본문 반환
+
+
+@router.delete("/sessions")
+def clear_chat_sessions(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """과거 채팅 전체 삭제."""
+    count = (
+        db.query(ChatSession)
+        .filter(ChatSession.store_id == current_user.email)
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+    return {"deleted": count}
 
 
 # [한글 주석] 사용자가 챗봇에게 대화를 보낼 때의 입력 형식 명세
