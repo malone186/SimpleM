@@ -46,7 +46,7 @@ const LAYOUT = [
 ];
 
 const CARD_H = 132; // 카드 높이 (스크롤이 있으므로 넉넉하게)
-const GAP = 12; // 카드 사이 간격 — 겹치지 않을 만큼만 아주 조금
+const GAP = 7; // 카드 사이 간격 — 겹치지 않을 만큼만 아주 조금
 
 // 상태바(시계·카메라 노치)에 가리지 않을 만큼만 띄운다.
 const TOP_INSET = Platform.select({
