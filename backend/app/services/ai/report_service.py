@@ -11,6 +11,7 @@
 챗봇 화면에는 카드로 바로 표시되고, 서류 자동화 화면에서도 다시 볼 수 있다.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -330,13 +331,16 @@ _ADVICE_PROMPT = """당신은 카페 사장님 곁에서 일을 돕는 친근한
 {data}"""
 
 
-def _generate_ai_advice(content: dict[str, Any], period_type: str) -> Optional[str]:
-    """Gemini로 리포트 숫자에 대한 문장형 조언을 생성한다. 실패하면 None (리포트는 그대로 발행)."""
-    if not GEMINI_API_KEY:
-        logger.info("GEMINI_API_KEY 없음 — AI 조언 생략")
-        return None
+# 근거 숫자가 바뀌었어도 조언 재생성은 최소 이 간격을 지킨다 — 근무 중 인건비처럼
+# 분 단위로 미세하게 변하는 값 때문에 새로고침마다 Gemini가 호출되는 낭비 방지
+_ADVICE_MIN_INTERVAL = timedelta(minutes=30)
 
-    # LLM에 넘길 요약본 — 토큰 절약을 위해 일별 추이 등 긴 목록은 뺀다
+
+def _advice_source(content: dict[str, Any]) -> str:
+    """조언의 근거가 되는 집계 요약본(JSON 문자열) — 토큰 절약을 위해 일별 추이 등 긴 목록은 뺀다.
+
+    이 문자열이 지난 리포트와 같으면 조언도 같아야 하므로 Gemini를 다시 부르지 않는다.
+    """
     slim = {
         "period": content["period"],
         "sales": {k: v for k, v in content["sales"].items() if k != "daily_trend"},
@@ -351,9 +355,18 @@ def _generate_ai_advice(content: dict[str, Any], period_type: str) -> Optional[s
         "orders": content["orders"],
         "compliance_alerts": len(content["compliance_alerts"]),
     }
+    return json.dumps(slim, ensure_ascii=False, sort_keys=True)
+
+
+def _generate_ai_advice(source: str, period_type: str) -> Optional[str]:
+    """Gemini로 리포트 숫자에 대한 문장형 조언을 생성한다. 실패하면 None (리포트는 그대로 발행)."""
+    if not GEMINI_API_KEY:
+        logger.info("GEMINI_API_KEY 없음 — AI 조언 생략")
+        return None
+
     prompt = _ADVICE_PROMPT.format(
         label=PERIOD_LABEL.get(period_type, period_type),
-        data=json.dumps(slim, ensure_ascii=False),
+        data=source,
     )
     try:
         import httpx
@@ -437,7 +450,31 @@ def generate_management_report(store_id: str, period_type: str = "weekly",
         "note": "매입은 스캔해서 확정한 영수증·거래명세서 기준, 인건비는 지금까지 일한 시간×시급으로 계산한 추정치입니다. "
                 "현금 매입·주휴수당 등 빠진 금액이 있을 수 있어 참고용으로 봐 주세요.",
     }
-    content["ai_advice"] = _generate_ai_advice(content, period_type)
+    # AI 조언 — 근거 숫자가 지난 리포트와 같으면 Gemini를 부르지 않고 이전 조언을 재사용하고,
+    # 숫자가 바뀌었어도 마지막 생성 후 30분 안에는 재생성하지 않는다
+    # (홈 화면이 열릴 때마다 refresh=True로 이 함수가 불려 호출이 누적되던 낭비 제거)
+    source = _advice_source(content)
+    source_hash = hashlib.sha256(source.encode("utf-8")).hexdigest()[:16]
+    prev = existing["content"] if existing else {}
+    reuse = False
+    if prev.get("ai_advice"):
+        if prev.get("ai_advice_hash") == source_hash:
+            reuse = True
+        else:
+            try:
+                age = datetime.now(KST) - datetime.fromisoformat(prev["ai_advice_at"])
+                reuse = age < _ADVICE_MIN_INTERVAL
+            except (KeyError, TypeError, ValueError):
+                reuse = False
+    if reuse:
+        content["ai_advice"] = prev["ai_advice"]
+        content["ai_advice_hash"] = prev.get("ai_advice_hash")
+        content["ai_advice_at"] = prev.get("ai_advice_at")
+    else:
+        # 생성 실패(None)면 해시를 저장해도 ai_advice가 비어 있어 다음 갱신 때 다시 시도된다
+        content["ai_advice"] = _generate_ai_advice(source, period_type)
+        content["ai_advice_hash"] = source_hash
+        content["ai_advice_at"] = datetime.now(KST).isoformat()
     if existing:
         return document_service.update_document(store_id, existing["id"], content)
     label = PERIOD_LABEL[period_type]
