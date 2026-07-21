@@ -663,6 +663,26 @@ export default function SettingsScreen() {
         />
       </Card>
 
+      {/* ⑥ 약관 및 정책 */}
+      <Card>
+        <SectionTitle>약관 및 정책</SectionTitle>
+        <PressableScale
+          style={styles.legalRow}
+          onPress={() => navigation.navigate('Legal', { doc: 'terms' })}
+        >
+          <Text style={styles.legalLabel}>이용약관</Text>
+          <Ionicons name="chevron-forward" size={17} color={colors.mochaBrown} />
+        </PressableScale>
+        <Divider />
+        <PressableScale
+          style={styles.legalRow}
+          onPress={() => navigation.navigate('Legal', { doc: 'privacy' })}
+        >
+          <Text style={styles.legalLabel}>개인정보처리방침</Text>
+          <Ionicons name="chevron-forward" size={17} color={colors.mochaBrown} />
+        </PressableScale>
+      </Card>
+
       <Button label="관리로 돌아가기" variant="secondary" onPress={() => navigation.goBack()} />
 
       {/* [한글 주석] 1대1 문의 & 요청사항 작성 모달 */}
@@ -846,6 +866,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(140,111,86,0.06)', borderRadius: 10, padding: 10, marginTop: 12,
   },
   noteText: { ...typography.L5, color: colors.mochaBrown, flex: 1, lineHeight: 16 },
+
+  legalRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14 },
+  legalLabel: { ...typography.L4, color: colors.espressoBrown },
 
   // [한글 주석] 1대1 문의 및 팝업 모달 전용 레이아웃 스타일 (스마트폰 중앙 너비 420px 한정 조형)
   modalBg: {
