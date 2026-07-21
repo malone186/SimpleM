@@ -105,7 +105,9 @@ def main():
     by_img = load_all_items()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     for split in ("train", "val", "test"):
-        img_dir = DESKTOP / split / split / "images"
+        img_dir = DESKTOP / split / "images"
+        if not img_dir.is_dir():  # zip을 중첩 폴더로 푼 경우 (train/train/images)
+            img_dir = DESKTOP / split / split / "images"
         rows, skipped = [], []
         imgs = [p for p in img_dir.iterdir() if p.suffix.lower() in (".png", ".jpg", ".jpeg")]
         for img in sorted(imgs):
