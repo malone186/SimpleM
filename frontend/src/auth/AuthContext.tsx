@@ -10,6 +10,7 @@ import {
   GoogleAuthProvider,
   OAuthProvider,
   signInWithPopup,
+  signInWithCredential,
 } from 'firebase/auth';
 import {
   createContext,
@@ -19,9 +20,14 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import * as WebBrowser from 'expo-web-browser';
+import * as AuthSession from 'expo-auth-session';
 
 import { auth } from '../lib/firebase';
 import { API_BASE_URL } from '../lib/api/client';
+
+// [한글 주석] 모바일 환경에서 로그인 후 브라우저 창을 닫기 위해 초기화합니다.
+WebBrowser.maybeCompleteAuthSession();
 
 export type User = { email: string; name: string; photo?: string };
 type StoredUser = User & { password?: string };
@@ -64,6 +70,80 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [booting, setBooting] = useState(true);
+  const [socialAutoLogin, setSocialAutoLogin] = useState(true);
+
+  // [한글 주석] 구글 콘솔 등록을 위해 현재 앱이 생성한 리디렉션 URI 주소를 터미널 로그에 인쇄합니다.
+  useEffect(() => {
+    console.log('🔗 [Google 소셜 로그인 리디렉션 URI]: https://auth.expo.io/@anonymous/frontend');
+  }, []);
+
+  // [한글 주석] expo-auth-session을 이용해 모바일 환경에서의 Google 소셜 로그인 요청을 세팅합니다.
+  const [request, response, promptAsync] = AuthSession.useAuthRequest(
+    {
+      clientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+      redirectUri: 'https://auth.expo.io/@anonymous/frontend',
+      scopes: ['openid', 'profile', 'email'],
+      responseType: 'id_token',
+    },
+    {
+      authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
+    }
+  );
+
+  // [한글 주석] 자동 로그인 여부에 따라 디스크에 세션을 남기거나 지웁니다.
+  const persistSession = useCallback(async (u: User & { token: string }, autoLogin: boolean) => {
+    if (autoLogin) {
+      await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(u));
+    } else {
+      await AsyncStorage.removeItem(SESSION_KEY);
+    }
+  }, []);
+
+  // [한글 주석] 모바일 Google 로그인 성공 시 웹뷰로부터 인증 정보(id_token)를 받아와 처리합니다.
+  useEffect(() => {
+    if (response?.type === 'success') {
+      const { id_token } = response.params;
+      (async () => {
+        try {
+          if (!auth) throw new Error('Firebase가 초기화되지 않았습니다.');
+          const credential = GoogleAuthProvider.credential(id_token);
+          const result = await signInWithCredential(auth, credential);
+          const fbUser = result.user;
+          const idToken = await fbUser.getIdToken();
+          const userName = fbUser.displayName || fbUser.email?.split('@')[0] || '구글사장님';
+
+          // 백엔드 프로필 동기화
+          const res = await fetch(`${API_BASE_URL}/api/v1/auth/profile`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${idToken}`,
+            },
+            body: JSON.stringify({
+              name: userName,
+              store_name: `${userName} 매장`,
+            }),
+          });
+
+          if (!res.ok) {
+            console.warn('백엔드 계정 동기화 경고: 소셜 회원 연동이 완전하지 않을 수 있습니다.');
+          }
+
+          const u = {
+            email: fbUser.email || 'google-사장님@test.com',
+            name: userName,
+            token: idToken,
+          };
+
+          setUser({ email: u.email, name: u.name });
+          setToken(idToken);
+          await persistSession(u, socialAutoLogin);
+        } catch (err) {
+          console.error('모바일 구글 로그인 후 처리 실패:', err);
+        }
+      })();
+    }
+  }, [response, persistSession, socialAutoLogin]);
 
   // [한글 주석] 앱 구동 시 로컬 저장소에서 세션을 읽어 자동 로그인을 복원합니다.
   useEffect(() => {
@@ -87,15 +167,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setBooting(false);
       }
     })();
-  }, []);
-
-  // [한글 주석] 자동 로그인 여부에 따라 디스크에 세션을 남기거나 지웁니다.
-  const persistSession = useCallback(async (u: User & { token: string }, autoLogin: boolean) => {
-    if (autoLogin) {
-      await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(u));
-    } else {
-      await AsyncStorage.removeItem(SESSION_KEY);
-    }
   }, []);
 
   // [한글 주석] Firebase Auth를 통해 사용자를 인증하고 ID Token을 획득하여 백엔드와 동기화합니다.
@@ -279,12 +350,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const FIREBASE_API_KEY = process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '';
       const isMockFirebase = FIREBASE_API_KEY.startsWith('mock-') || !FIREBASE_API_KEY;
 
-      // [한글 주석] Mock 모드 혹은 모바일 환경(Platform.OS !== 'web')일 때는 
-      // 백엔드 자체 로컬 인증 API를 호출하여 실제 백엔드가 수용 가능한 유효한 HS256 토큰을 발급받아 우회 로그인합니다.
-      if (isMockFirebase || Platform.OS !== 'web') {
-        if (Platform.OS !== 'web') {
-          console.warn('⚠️ 모바일 앱 환경에서는 웹 팝업 로그인이 지원되지 않아 로컬 Mock 세션으로 우회 처리합니다.');
-        }
+      // [한글 주석] Mock 모드일 때는 백엔드 자체 로컬 인증 API를 호출하여 실제 백엔드가 수용 가능한 유효한 HS256 토큰을 발급받아 우회 로그인합니다.
+      if (isMockFirebase) {
         try {
           const res = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
             method: 'POST',
@@ -311,6 +378,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.error('소셜 Mock 우회 로그인 중 오류:', error);
           throw new Error('가상 로그인 처리 중 에러가 발생했습니다.');
         }
+      }
+
+      if (Platform.OS !== 'web') {
+        // [한글 주석] 모바일 환경일 경우 AuthSession의 promptAsync를 호출하여 웹 브라우저를 엽니다.
+        setSocialAutoLogin(autoLogin);
+        if (request) {
+          const result = await promptAsync();
+          if (result.type !== 'success') {
+            throw new Error('구글 로그인이 취소되었거나 실패했습니다.');
+          }
+        } else {
+          throw new Error('구글 로그인 요청이 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요.');
+        }
+        return;
       }
 
       if (!auth) throw new Error('Firebase가 초기화되지 않았습니다.');
@@ -354,7 +435,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(err.message || '구글 로그인 중 오류가 발생했습니다.');
       }
     },
-    [persistSession]
+    [persistSession, request, promptAsync]
   );
 
   // [한글 주석] 애플 계정을 이용한 소셜 로그인을 처리합니다. (Mock 모드 지원)

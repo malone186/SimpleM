@@ -103,8 +103,9 @@ export default function AuthScreen() {
 
   // 1단계 기본 정보
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('test@test.com');
-  const [password, setPassword] = useState('1234');
+  // [한글 주석] 직접 입력하여 가입 및 로그인을 할 수 있도록 기본값(데모 계정)을 삭제합니다.
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [autoLogin, setAutoLogin] = useState(true);
 
   // 2단계 가게 상세 설정 정보
