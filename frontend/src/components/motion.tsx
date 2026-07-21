@@ -4,6 +4,7 @@ import {
   Animated,
   Easing,
   Pressable,
+  StyleSheet,
   type GestureResponderEvent,
   type StyleProp,
   type ViewStyle,
@@ -61,13 +62,19 @@ export function PressableScale({
     ]).start();
   };
 
+  // 호출부가 style에 transform(회전·이동 등)을 넘겼을 때 프레스 scale이 그것을 통째로
+  // 덮어써서 무시되던 문제 — 둘을 합성한다. scale을 마지막에 두어 배치 변형(회전/이동)이
+  // 먼저 적용되고, 눌림 축소는 그 결과물의 중심을 기준으로 일어나게 한다.
+  const { transform: outerTransform, ...restStyle } = (StyleSheet.flatten(style) ?? {}) as ViewStyle;
+  const composedTransform = [...(Array.isArray(outerTransform) ? outerTransform : []), { scale }];
+
   return (
     <AnimatedPressable
       onPress={onPress}
       onPressIn={pressIn}
       onPressOut={pressOut}
       disabled={disabled}
-      style={[style, { transform: [{ scale }], opacity }]}
+      style={[restStyle, { transform: composedTransform, opacity }]}
     >
       {children}
     </AnimatedPressable>
