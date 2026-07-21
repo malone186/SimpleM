@@ -1058,7 +1058,7 @@ const styles = StyleSheet.create({
       overflow: 'hidden',
     } : {}),
   },
-  modalBackdrop: { ...StyleSheet.absoluteFill, backgroundColor: colors.black40 },
+  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.black40 },
   modalSheet: {
     backgroundColor: colors.white,
     borderTopLeftRadius: 28,
