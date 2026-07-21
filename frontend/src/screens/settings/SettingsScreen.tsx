@@ -202,11 +202,14 @@ export default function SettingsScreen() {
     }
   };
 
+  // 최초 로드 + 8초 주기 폴링 — 관리자(3000번 콘솔)가 답변하면 앱에 자동 반영
   useEffect(() => {
     fetchInquiries();
+    const timer = setInterval(fetchInquiries, 8000);
+    return () => clearInterval(timer);
   }, []);
 
-  // [한글 주석] 1대1 문의 / 요청사항 백엔드 및 관리자 콘솔 이중 직통 전송 제출 함수
+  // [한글 주석] 1대1 문의 제출 — 백엔드 /inquiries 한 곳에만 등록 (백엔드가 관리자 CS 리스트에 동일 id로 자동 연동)
   const handleSubmitInquiry = async () => {
     if (!inquiryTitle.trim()) {
       toast('입력 확인', '문의 제목을 입력해 주세요.');
@@ -226,7 +229,7 @@ export default function SettingsScreen() {
       status: 'pending' as const,
     };
 
-    // 1. 사장님 화면 state에 즉시 100% 접수 카드 반영 (절대로 안 사라짐)
+    // 1. 사장님 화면 state에 즉시 접수 카드 반영 (서버 응답 후 실제 id로 교체됨)
     setInquiries((prev) => [newInquiryObj, ...prev]);
 
     const payload = {
@@ -237,23 +240,14 @@ export default function SettingsScreen() {
       content: inquiryContent.trim(),
     };
 
-    // 2. 관리자 웹과 사장님 백엔드 양쪽에 직통 전송
+    // 2. 백엔드에 등록 → 관리자 콘솔 CS 탭에 3초 내 자동 표시
     try {
-      await fetch(`http://localhost:8000/api/v1/admin/cs`, {
+      const res = await fetch(`${API_BASE_URL}/api/v1/inquiries`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-    } catch (err) {
-      console.warn('Admin CS direct fetch error:', err);
-    }
-
-    try {
-      await fetch(`http://localhost:8000/api/v1/inquiries`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      if (res.ok) await fetchInquiries(); // 서버 확정본(실제 id)으로 목록 동기화
     } catch (err) {
       console.warn('Inquiries API fetch error:', err);
     }
