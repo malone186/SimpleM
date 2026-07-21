@@ -50,6 +50,15 @@ const GREETING: Msg = {
   text: '안녕하세요 사장님! 저는 브루예요 ☕\n경영 리포트·서류 생성·영수증 문서·매출 예측·원두 비교·세금까지 뭐든 물어보세요.',
 };
 
+// 두뇌가 간혹 붙이는 마크다운 기호를 걷어낸다 — 말풍선은 일반 텍스트라 **가 그대로 보인다.
+// (프롬프트로도 금지하지만, 과거 저장된 채팅과 모델의 실수까지 커버하는 안전망)
+function plainText(t: string): string {
+  return t
+    .replace(/\*\*(.+?)\*\*/g, '$1') // **굵게** → 굵게
+    .replace(/^[ \t]*[*•-]\s+/gm, '· ') // "* 항목" → "· 항목"
+    .replace(/^#{1,4}\s+/gm, ''); // "## 제목" → "제목"
+}
+
 // 웹은 Alert.alert 버튼이 동작하지 않으므로 window.confirm으로 분기한다
 function confirmAsk(title: string, message: string, okLabel: string, onOk: () => void) {
   if (Platform.OS === 'web') {
@@ -226,7 +235,7 @@ export default function ChatbotScreen() {
             >
               <View style={[styles.bubble, m.role === 'user' ? styles.userBubble : styles.botBubble]}>
                 <Text style={[styles.bubbleText, m.role === 'user' && { color: colors.white }]}>
-                  {m.text}
+                  {m.role === 'bot' ? plainText(m.text) : m.text}
                 </Text>
               </View>
             </FadeInUp>
