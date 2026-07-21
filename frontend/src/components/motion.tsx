@@ -4,6 +4,7 @@ import {
   Animated,
   Easing,
   Pressable,
+  StyleSheet,
   type GestureResponderEvent,
   type StyleProp,
   type ViewStyle,
@@ -61,13 +62,19 @@ export function PressableScale({
     ]).start();
   };
 
+  // 호출부가 style에 transform(회전·이동 등)을 넘겼을 때 프레스 scale이 그것을 통째로
+  // 덮어써서 무시되던 문제 — 둘을 합성한다. scale을 마지막에 두어 배치 변형(회전/이동)이
+  // 먼저 적용되고, 눌림 축소는 그 결과물의 중심을 기준으로 일어나게 한다.
+  const { transform: outerTransform, ...restStyle } = (StyleSheet.flatten(style) ?? {}) as ViewStyle;
+  const composedTransform = [...(Array.isArray(outerTransform) ? outerTransform : []), { scale }];
+
   return (
     <AnimatedPressable
       onPress={onPress}
       onPressIn={pressIn}
       onPressOut={pressOut}
       disabled={disabled}
-      style={[style, { transform: [{ scale }], opacity }]}
+      style={[restStyle, { transform: composedTransform, opacity }]}
     >
       {children}
     </AnimatedPressable>
@@ -138,4 +145,34 @@ export function useCountUp(target: number, duration = 900, deps: unknown[] = [])
   }, [target, duration, ...deps]);
 
   return value;
+}
+
+// ── 아이메시지 스타일: 아래에서 슉 솟아오르며 부드럽게 나타나기 ──
+export function SlideUp({ children, delay = 0, style }: { children: ReactNode; delay?: number; style?: StyleProp<ViewStyle> }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    anim.setValue(0);
+    Animated.spring(anim, {
+      toValue: 1,
+      delay,
+      useNativeDriver: true,
+      tension: 140, // 쫀득한 반동 텐션
+      friction: 12, // 부드러운 안착 마찰
+    }).start();
+  }, [anim, delay]);
+
+  const translateY = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [24, 0], // 24px 아래에서 0px로 슉 솟아오름
+  });
+  const opacity = anim.interpolate({
+    inputRange: [0, 0.4, 1],
+    outputRange: [0, 0.6, 1], // 페이드인
+  });
+
+  return (
+    <Animated.View style={[style, { opacity, transform: [{ translateY }] }]}>
+      {children}
+    </Animated.View>
+  );
 }

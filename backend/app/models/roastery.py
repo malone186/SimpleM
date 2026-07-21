@@ -98,6 +98,9 @@ class RoasteryBean(Base):
     positive_ratio = Column(Float, default=0.0, nullable=False)
     top_keywords = Column(JSON, nullable=True)
 
+    # [한글 주석] 원두 큐레이터 기준 집계 스냅샷 (산미/바디/단맛/쓴맛 평균 & 표본수, 최빈값 범주)
+    curation_snapshot = Column(JSON, nullable=True)
+
     # [한글 주석] 관계 정의
     roastery = relationship("Roastery", back_populates="beans")
     reviews = relationship("BeanReview", back_populates="bean", cascade="all, delete-orphan")
@@ -136,7 +139,27 @@ class BeanReview(Base):
     # 리뷰 수집 일시
     collected_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # [한글 주석] 원두 취향 큐레이터 필터용 구조화 추출 컬럼
+    # 척도 (0=없음, 1=낮음, 2=중간, 3=높음, 근거없으면 null)
+    acidity = Column(Integer, nullable=True)
+    body = Column(Integer, nullable=True)
+    sweetness = Column(Integer, nullable=True)
+    bitterness = Column(Integer, nullable=True)
+
+    # 범주 (roast_level: light/medium/medium_dark/dark, process: washed/natural/honey/anaerobic, origin: ethiopia/colombia/brazil/kenya/etc, caffeine: normal/decaf)
+    roast_level = Column(String(30), nullable=True)
+    process = Column(String(30), nullable=True)
+    origin = Column(String(30), nullable=True)
+    caffeine = Column(String(30), nullable=True)
+
+    # 판단 근거 문장 인용
+    evidence = Column(Text, nullable=True)
+
+    # LLM 증분 배치 처리 완료 플래그
+    processed = Column(Boolean, default=False, nullable=False, index=True)
+
     bean = relationship("RoasteryBean", back_populates="reviews")
+
 
 
 # [한글 주석] 4. 외부 판매처별 상품 실시간 가격 및 재고 정보(오퍼) 테이블입니다.

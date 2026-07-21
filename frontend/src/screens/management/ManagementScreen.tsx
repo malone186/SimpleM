@@ -1,12 +1,14 @@
-// 관리 허브 (⑥ 탭) — 에디토리얼: 기울여 겹쳐 흩뿌린 카드 덱 (그레이지 팔레트)
-// 헤더는 홈(대시보드)과 동일한 딥브라운 오로라 배경 + 밝은 텍스트 + 둥근 크림 시트 구조로 통일.
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+// 관리 허브 (⑥ 탭) — 딥브라운 오로라 헤더 + 둥근 크림 시트 위에 항목 카드를 수평으로 나열.
+// 헤더는 홈(대시보드)과 같은 톤이되 위아래로 짧게 눌러 카드가 쓸 높이를 확보한다.
+// 시트 높이를 실측해 카드 높이를 나눠 갖게 하므로 기기 높이와 무관하게 스크롤 없이 한 화면에 들어온다.
+import { useState } from 'react';
+import { LayoutChangeEvent, Platform, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import Svg, { Circle, Defs, FeGaussianBlur, Filter, LinearGradient, Path, Stop } from 'react-native-svg';
 
 import { PressableScale } from '../../components/motion';
-import { colors, spacing } from '../../theme';
+import { colors } from '../../theme';
 import Brew from '../../components/brew/Brew';
 
 const IVORY = '#F4F1EF';
@@ -22,6 +24,7 @@ type Item = {
 };
 
 // 지정 팔레트 — 에스프레소 → 모카 → 토프 → 스톤 베이지 → 페일 아이보리
+// 설정은 카드가 아니라 헤더 우상단 칩으로 들어간다.
 const ITEMS: Item[] = [
   { label: '디저트 관리', en: 'DESSERT', desc: '소비기한 · 폐기 손실 · 마진 순위', color: '#6B4A32', route: 'Dessert' },
   { label: '스케줄·급여', en: 'PAYROLL', desc: '알바 스케줄 · 손익 정산', color: '#5B514C', route: 'Operation' },
@@ -30,20 +33,16 @@ const ITEMS: Item[] = [
   { label: '원가 분석', en: 'COST', desc: '메뉴별 원가율 진단', color: '#E1DCD7', route: 'Cost' },
   { label: '법령 검색', en: 'LAW', desc: '노무 · 위생 법령', color: '#F4F1EF', route: 'LawSearch' },
   { label: '운영·원두 분석', en: 'OPERATION', desc: '원두 최저가 시세 · 실리뷰 분석', color: '#463C34', route: 'BeanOperation' },
-
 ];
 
-// 사진처럼 기울여 겹쳐 흩뿌리는 배치값 (회전 · 좌우 이동 · 겹침)
-const LAYOUT = [
-  { rotate: '-5deg', tx: -8, mt: 0 },
-  { rotate: '4deg', tx: 14, mt: -18 },
-  { rotate: '-3deg', tx: -14, mt: -20 },
-  { rotate: '5deg', tx: 10, mt: -18 },
-  { rotate: '-4deg', tx: -6, mt: -20 },
-  { rotate: '3deg', tx: 12, mt: -20 },
-  { rotate: '-2deg', tx: -8, mt: -20 },
-];
+const GAP = 8; // 카드 사이 간격
 
+// 상태바(시계·카메라 노치)에 가리지 않을 만큼만 띄운다.
+const TOP_INSET = Platform.select({
+  android: (StatusBar.currentHeight ?? 24) + 4,
+  ios: 56,
+  default: 44, // 웹(디바이스 프레임)
+}) as number;
 
 // 배경색 밝기로 텍스트 명암 결정
 const isDark = (hex: string) => {
@@ -78,10 +77,20 @@ function scheme(color: string) {
 
 export default function ManagementScreen() {
   const navigation = useNavigation<any>();
+  const [deckH, setDeckH] = useState(0);
+
+  const onDeckLayout = (e: LayoutChangeEvent) => {
+    const h = e.nativeEvent.layout.height;
+    if (h > 0 && Math.abs(h - deckH) > 1) setDeckH(h);
+  };
+
+  // 남은 높이를 카드 수로 나눈다 (겹침 없음) — 글자 크기도 이 높이에 맞춰 스케일한다.
+  const n = ITEMS.length;
+  const cardH = deckH > 0 ? Math.max(52, (deckH - GAP * (n - 1)) / n) : 0;
 
   return (
     <View style={styles.root}>
-      {/* [전역 오로라 배경] 홈(대시보드)과 동일 — 상단 딥브라운에서 하단 크림으로 자연스럽게 녹아든다 */}
+      {/* [전역 오로라 배경] 홈(대시보드)과 동일 — 상단 딥브라운에서 하단 크림으로 녹아든다 */}
       <View style={StyleSheet.absoluteFill}>
         <Svg width="100%" height="100%" preserveAspectRatio="none">
           <Defs>
@@ -102,34 +111,28 @@ export default function ManagementScreen() {
         </Svg>
       </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* 상단 바 — 설정 진입 (홈의 프로필 칩과 동일한 우상단 위치) */}
-        <View style={styles.topBar}>
+      {/* 헤더 — 제목·마스코트와 설정 칩을 한 줄에 겹쳐 배치해 세로 길이를 줄였다 */}
+      <View style={styles.header}>
+        <View style={styles.headerText}>
+          <Text style={styles.bigTitle}>관리</Text>
+          <Text style={styles.sub}>가게 운영에 필요한 모든 기능</Text>
+        </View>
+
+        <View style={styles.headerRight}>
+          {/* 설정 진입 — 카드에서 내려와 헤더 안으로 들어왔다 */}
           <PressableScale style={styles.gearBtn} onPress={() => navigation.navigate('Settings')} to={0.9}>
-            <Ionicons name="settings-outline" size={16} color={colors.creamSand} />
+            <Ionicons name="settings-outline" size={15} color={colors.creamSand} />
             <Text style={styles.gearText}>설정</Text>
           </PressableScale>
+          <Brew mood="clipboard" size={96} />
         </View>
+      </View>
 
-        {/* 헤더 — 홈과 동일한 딥브라운 위 밝은 텍스트 + 관리 담당 브루(클립보드) */}
-        <View style={styles.header}>
-          <View style={{ flex: 1, paddingRight: 8 }}>
-            <Text style={styles.bigTitle}>관리</Text>
-            <Text style={styles.sub}>가게 운영에 필요한 모든 기능</Text>
-          </View>
-          <Brew mood="clipboard" size={148} style={styles.mascot} />
-        </View>
-
-        {/* [둥근 크림 시트] 홈의 바디 카드시트와 동일 — 카드 덱을 감싸 얹는다 */}
-        <View style={styles.body}>
-          {/* 기울여 겹쳐 흩뿌린 카드 덱 */}
-          <View style={styles.deck}>
-            {ITEMS.map((it, i) => {
-              const lay = LAYOUT[i % LAYOUT.length];
+      {/* [둥근 크림 시트] 홈의 바디 카드시트와 동일 — 카드를 감싸 얹는다 */}
+      <View style={styles.body}>
+        <View style={styles.deck} onLayout={onDeckLayout}>
+          {cardH > 0 &&
+            ITEMS.map((it, i) => {
               const s = scheme(it.color);
               return (
                 <PressableScale
@@ -137,49 +140,62 @@ export default function ManagementScreen() {
                   style={[
                     styles.card,
                     {
+                      height: cardH,
+                      marginTop: i === 0 ? 0 : GAP,
                       backgroundColor: it.color,
                       borderColor: s.border,
-                      borderWidth: s.border === 'transparent' ? 0 : 1.5,
-                      marginTop: lay.mt,
-                      zIndex: i + 1,
-                      transform: [{ rotate: lay.rotate }, { translateX: lay.tx }],
+                      borderWidth: s.border === 'transparent' ? 0 : 1,
                     },
                   ]}
                   onPress={() => navigation.navigate(it.route, it.params)}
                   to={0.97}
                 >
-                  <Text style={[styles.cardGhost, { color: s.ghost }]}>{String(i + 1).padStart(2, '0')}</Text>
+                  <Text style={[styles.cardGhost, { color: s.ghost, fontSize: cardH * 0.72 }]}>
+                    {String(i + 1).padStart(2, '0')}
+                  </Text>
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.cardLabel, { color: s.label }]}>{it.label}</Text>
-                    <Text style={[styles.cardDesc, { color: s.desc }]}>{it.desc}</Text>
+                    <Text style={[styles.cardEn, { color: s.en }]}>{it.en}</Text>
+                    <Text
+                      style={[styles.cardLabel, { color: s.label, fontSize: Math.min(19, cardH * 0.26) }]}
+                      numberOfLines={1}
+                    >
+                      {it.label}
+                    </Text>
+                    <Text style={[styles.cardDesc, { color: s.desc }]} numberOfLines={1}>
+                      {it.desc}
+                    </Text>
                   </View>
                   <View style={[styles.cardArrow, { backgroundColor: s.arrowBg }]}>
-                    <Ionicons name="arrow-forward" size={18} color={s.arrowFg} />
+                    <Ionicons name="arrow-forward" size={15} color={s.arrowFg} />
                   </View>
                 </PressableScale>
               );
             })}
-          </View>
         </View>
-      </ScrollView>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // [홈과 동일] Svg 로딩 지연 중 어두운 광원을 채우기 위한 딥 브라운 루트
+  // Svg 로딩 지연 중 어두운 광원을 채우기 위한 딥 브라운 루트
   root: { flex: 1, backgroundColor: '#1E1612' },
-  scroll: { flex: 1 },
-  content: { paddingBottom: 0 },
 
-  // 상단 바 — 우상단 설정 칩 (홈 프로필 칩 위치와 정렬)
-  topBar: {
+  // [홈 웰컴 헤더와 같은 톤] 딥브라운 오로라 위 밝은 텍스트 + 우측 마스코트.
+  // 원안(마스코트 148·상하 여백 넉넉)보다 눌러서 카드가 쓸 높이를 확보했다.
+  header: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    paddingTop: 44,
-    paddingHorizontal: spacing.globalPadding,
-    marginBottom: -6,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: TOP_INSET,
+    paddingBottom: 8,
+    paddingHorizontal: 18,
   },
+  headerText: { flex: 1, paddingRight: 8 },
+  // 설정 칩을 마스코트 위에 얹어 세로로 쌓지 않는다 (헤더 높이 절약)
+  headerRight: { alignItems: 'flex-end', gap: 2 },
+  bigTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
+  sub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
   gearBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -188,66 +204,53 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingLeft: 9,
     paddingRight: 12,
-    paddingVertical: 6,
+    paddingVertical: 5,
     borderWidth: 0.8,
     borderColor: 'rgba(255,255,255,0.14)',
   },
-  gearText: { color: colors.creamSand, fontSize: 12, fontWeight: '700' },
+  gearText: { color: colors.creamSand, fontSize: 11.5, fontWeight: '700' },
 
-  // [홈 웰컴 헤더와 동일 톤] 딥브라운 오로라 위 밝은 텍스트 + 우측 마스코트
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 6,
-    paddingBottom: 14,
-    paddingHorizontal: spacing.globalPadding,
-  },
-  mascot: { marginRight: 4 },
-  bigTitle: { fontSize: 28, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
-  sub: { fontSize: 12.5, color: '#D4C9C1', marginTop: 6, fontWeight: '500', letterSpacing: -0.2 },
-
-  // [홈 바디 카드시트와 동일] 오로라 배경을 툭 끊김 없이 감싸안는 둥근 크림 시트
+  // [홈 바디 카드시트와 동일] 오로라 배경을 끊김 없이 감싸안는 둥근 크림 시트
   body: {
+    flex: 1,
     backgroundColor: colors.creamSand,
-    borderTopLeftRadius: 36,
-    borderTopRightRadius: 36,
-    paddingHorizontal: spacing.globalPadding,
-    paddingTop: spacing.verticalGap,
-    paddingBottom: 110,
-    gap: spacing.verticalGap,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 10,
   },
+  deck: { flex: 1 },
 
-  deck: { paddingHorizontal: 6, paddingTop: 6, paddingBottom: 20 },
+  // 기울임 없이 전부 수평. 높이는 시트 높이를 카드 수로 나눠 채운다.
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
-    minHeight: 122,
-    borderRadius: 22,
-    paddingHorizontal: 22,
-    paddingVertical: 20,
+    gap: 12,
+    borderRadius: 16,
+    paddingHorizontal: 16,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    elevation: 8,
+    shadowColor: '#4E3629',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 4,
   },
   cardGhost: {
     position: 'absolute',
-    right: 16,
-    top: -8,
-    fontSize: 82,
+    // 화살표(우측 16 + 지름 32)를 피해 그 왼쪽에 워터마크로 앉힌다 — 겹치면 둘 다 뭉개진다
+    right: 56,
+    top: -6,
     fontWeight: '900',
     letterSpacing: -4,
   },
-  cardLabel: { fontSize: 25, fontWeight: '900', letterSpacing: -0.5, marginTop: 4 },
-  cardDesc: { fontSize: 12, fontWeight: '500', marginTop: 5 },
+  cardEn: { fontSize: 8.5, fontWeight: '800', letterSpacing: 1 },
+  cardLabel: { fontWeight: '900', letterSpacing: -0.4, marginTop: 1 },
+  cardDesc: { fontSize: 10.5, fontWeight: '500', marginTop: 2 },
   cardArrow: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },

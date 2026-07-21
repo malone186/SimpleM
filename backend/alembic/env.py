@@ -44,18 +44,24 @@ def include_object(object, name, type_, reflected, compare_to):
     return True
 
 
+import os
+db_schema = os.getenv("DB_SCHEMA", None)
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
     url = config.get_main_option("sqlalchemy.url")
-    context.configure(
-        url=url,
-        target_metadata=target_metadata,
-        literal_binds=True,
-        dialect_opts={"paramstyle": "named"},
-        version_table_schema="simplem",
-        include_schemas=True,
-        include_object=include_object,
-    )
+    opts = {
+        "url": url,
+        "target_metadata": target_metadata,
+        "literal_binds": True,
+        "dialect_opts": {"paramstyle": "named"},
+        "include_object": include_object,
+    }
+    if db_schema:
+        opts["version_table_schema"] = db_schema
+        opts["include_schemas"] = True
+
+    context.configure(**opts)
 
     with context.begin_transaction():
         context.run_migrations()
@@ -70,16 +76,20 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            version_table_schema="simplem",
-            include_schemas=True,
-            include_object=include_object,
-        )
+        opts = {
+            "connection": connection,
+            "target_metadata": target_metadata,
+            "include_object": include_object,
+        }
+        if db_schema:
+            opts["version_table_schema"] = db_schema
+            opts["include_schemas"] = True
+
+        context.configure(**opts)
 
         with context.begin_transaction():
             context.run_migrations()
+
 
 
 if context.is_offline_mode():

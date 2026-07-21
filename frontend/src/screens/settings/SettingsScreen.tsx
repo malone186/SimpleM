@@ -551,15 +551,31 @@ export default function SettingsScreen() {
               <Text style={styles.fixedInfoValue}>{businessType || '-'}</Text>
             </View>
             <Divider style={{ marginVertical: 2, opacity: 0.4 }} />
+            <View style={styles.fixedInfoRow}>
+              <Text style={styles.fixedInfoLabel}>가게 운영 시간</Text>
+              <View style={{ alignItems: 'flex-end', gap: 2 }}>
+                <Text style={{
+                  fontFamily: Platform.OS === 'ios' ? 'Apple SD Gothic Neo' : 'System',
+                  fontSize: 13,
+                  fontWeight: '600',
+                  color: colors.espressoBrown,
+                }}>오픈 {prefs.openHour || '09:00'}</Text>
+                <Text style={{
+                  fontFamily: Platform.OS === 'ios' ? 'Apple SD Gothic Neo' : 'System',
+                  fontSize: 13,
+                  fontWeight: '600',
+                  color: colors.espressoBrown,
+                }}>마감 {prefs.closeHour || '21:00'}</Text>
+              </View>
+            </View>
+            <Divider style={{ marginVertical: 2, opacity: 0.4 }} />
           </View>
         )}
         
-        {/* [한글 주석] 가게 운영 시간 섹션: 수정 상태에 따라 인풋과 잠금 카드가 동시 연동됨 */}
-        <View style={{ marginTop: 14, marginBottom: 8, gap: 8 }}>
-          <Text style={styles.fieldLabel}>가게 운영 시간</Text>
-
-          {isEditingAccount ? (
-            /* [한글 주석] 수정 모드일 때: 다른 정보와 동시에 수정할 수 있도록 휠 피커 즉시 개방 */
+        {/* [한글 주석] 가게 운영 시간 섹션: 수정 상태일 때만 입력용 휠 피커를 노출시킴 */}
+        {isEditingAccount && (
+          <View style={{ marginTop: 14, marginBottom: 8, gap: 8 }}>
+            <Text style={styles.fieldLabel}>가게 운영 시간 수정</Text>
             <View style={{ gap: 8, marginTop: 4 }}>
               <IosTimePicker
                 value={`${(prefs.openHour || '09:00').slice(0, 2)}–${(prefs.closeHour || '21:00').slice(0, 2)}`}
@@ -572,28 +588,8 @@ export default function SettingsScreen() {
                 }}
               />
             </View>
-          ) : (
-            /* [한글 주석] 평상시: 이모지와 아이콘을 싹 걷어내고 아주 심플하게 텍스트로만 배치한 카드 */
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                backgroundColor: 'rgba(140, 111, 86, 0.04)',
-                paddingHorizontal: 16,
-                paddingVertical: 14,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: 'rgba(140, 111, 86, 0.08)',
-              }}
-            >
-              <Text style={{ ...typography.L3, fontSize: 13.5, fontWeight: '800', color: colors.espressoBrown }}>
-                오픈 {prefs.openHour || '09:00'}    마감 {prefs.closeHour || '21:00'}
-              </Text>
-              <Text style={{ ...typography.L5, fontSize: 11, color: colors.mochaBrown, fontWeight: '700' }}>고정됨</Text>
-            </View>
-          )}
-        </View>
+          </View>
+        )}
 
         <Text style={styles.fieldLabel}>이메일 (변경 불가)</Text>
         <Text style={styles.readonly}>{user?.email ?? '-'}</Text>
