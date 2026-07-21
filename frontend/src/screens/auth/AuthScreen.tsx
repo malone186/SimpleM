@@ -282,8 +282,8 @@ export default function AuthScreen() {
           map.setCenter(latlng);
           map.setZoom(16);
           marker.setPosition(latlng);
-          // 검색 시엔 사용자가 입력한 주소 문구를 유지하고 핀 좌표만 확정한다 (주소 덮어쓰기 없음)
-          applyPick(found.lat, found.lon);
+          // 찾은 명칭·주소를 입력창에 채운다 ('협성대' → '경기도 화성시 봉담읍 협성대학교')
+          applyPick(found.lat, found.lon, found.label);
           setMapNotice(found.label ? `📍 ${found.label}` : '📍 위치로 이동했어요. 핀을 눌러 미세 조정할 수 있어요.');
         };
 
@@ -341,8 +341,8 @@ export default function AuthScreen() {
           }
           map.setView([found.lat, found.lon], 16);
           marker.setLatLng([found.lat, found.lon]);
-          // 검색 시엔 사용자가 입력한 주소 문구를 유지하고 핀 좌표만 확정한다
-          applyPick(found.lat, found.lon);
+          // 찾은 명칭·주소를 입력창에 채운다 ('협성대' → '경기도 화성시 봉담읍 협성대학교')
+          applyPick(found.lat, found.lon, found.label);
           setMapNotice(found.label ? `📍 ${found.label}` : '📍 위치로 이동했어요. 핀을 눌러 미세 조정할 수 있어요.');
         };
 

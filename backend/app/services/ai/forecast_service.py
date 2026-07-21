@@ -194,52 +194,50 @@ def _reverse_geocode(lat: float, lon: float) -> str:
         return f"위도 {lat:.4f}, 경도 {lon:.4f}"
 
 
-def geocode(query: str) -> Optional[dict[str, Any]]:
-    """주소/상호 → 좌표 (회원가입 지도 핀 검색용).
-
-    네이버 지역 검색 API가 한국 도로명주소·상호에 가장 강해 1순위로 쓰고
-    (mapx/mapy는 WGS84 좌표 × 1e7), 키가 없거나 실패하면 Nominatim으로 폴백한다.
-    """
+def _geocode_naver_local(q: str) -> Optional[dict[str, Any]]:
+    """네이버 지역 검색 API — developers.naver.com 키가 있을 때만 동작 (현재 키는 NCP용이라 스킵됨)."""
     import re
 
     import requests
 
-    q = (query or "").strip()
-    if not q:
-        return None
-
     cid = os.getenv("NAVER_CLIENT_ID", "")
     csec = os.getenv("NAVER_CLIENT_SECRET", "")
-    if cid and csec and not _naver_local_auth_failed[0]:
-        try:
-            r = requests.get(
-                "https://openapi.naver.com/v1/search/local.json",
-                params={"query": q, "display": 1},
-                headers={"X-Naver-Client-Id": cid, "X-Naver-Client-Secret": csec},
-                timeout=5,
-            )
-            if r.status_code in (401, 403):
-                # 현재 키는 NCP용이라 openapi.naver.com 인증이 안 된다 — 프로세스 생존 동안 재시도하지 않음
-                _naver_local_auth_failed[0] = True
-                logger.info("네이버 지역 검색 인증 실패(%s) — 이후 Nominatim만 사용", r.status_code)
-                raise requests.HTTPError(str(r.status_code))
-            r.raise_for_status()
-            items = r.json().get("items", [])
-            if items:
-                it = items[0]
-                lat, lon = int(it["mapy"]) / 1e7, int(it["mapx"]) / 1e7
-                name = re.sub(r"<[^>]+>", "", it.get("title", ""))
-                if lat and lon:
-                    return {
-                        "lat": lat, "lon": lon,
-                        "address": it.get("roadAddress") or it.get("address") or name,
-                        "name": name, "source": "naver_local",
-                    }
-        except Exception:
-            logger.warning("네이버 지역 검색 지오코딩 실패 — Nominatim 폴백", exc_info=True)
+    if not (cid and csec) or _naver_local_auth_failed[0]:
+        return None
+    try:
+        r = requests.get(
+            "https://openapi.naver.com/v1/search/local.json",
+            params={"query": q, "display": 1},
+            headers={"X-Naver-Client-Id": cid, "X-Naver-Client-Secret": csec},
+            timeout=5,
+        )
+        if r.status_code in (401, 403):
+            # 현재 키는 NCP용이라 openapi.naver.com 인증이 안 된다 — 프로세스 생존 동안 재시도하지 않음
+            _naver_local_auth_failed[0] = True
+            logger.info("네이버 지역 검색 인증 실패(%s) — 이후 무료 지오코더만 사용", r.status_code)
+            return None
+        r.raise_for_status()
+        items = r.json().get("items", [])
+        if items:
+            it = items[0]
+            lat, lon = int(it["mapy"]) / 1e7, int(it["mapx"]) / 1e7  # WGS84 × 1e7
+            name = re.sub(r"<[^>]+>", "", it.get("title", ""))
+            if lat and lon:
+                return {
+                    "lat": lat, "lon": lon,
+                    "address": it.get("roadAddress") or it.get("address") or name,
+                    "name": name, "source": "naver_local",
+                }
+    except Exception:
+        logger.warning("네이버 지역 검색 지오코딩 실패", exc_info=True)
+    return None
 
-    # Nominatim — 도로명주소는 정확하지만 전체 문자열이 안 맞으면 빈 결과가 온다.
-    # 앞쪽 광역 지명을 하나씩 떼며 재시도해 적중률을 높인다 (예: '부산 해운대구 우동 센텀시티' → '우동 센텀시티' → '센텀시티')
+
+def _geocode_nominatim(q: str) -> Optional[dict[str, Any]]:
+    """Nominatim — 도로명주소·정식 지명에 강하다. 전체 문자열이 안 맞으면
+    앞쪽 광역 지명을 하나씩 떼며 재시도한다 ('부산 해운대구 우동 센텀시티' → '우동 센텀시티')."""
+    import requests
+
     tokens = q.split()
     variants = [q] + [" ".join(tokens[i:]) for i in range(1, min(len(tokens), 4))]
     for variant in variants:
@@ -247,19 +245,106 @@ def geocode(query: str) -> Optional[dict[str, Any]]:
             r = requests.get(
                 "https://nominatim.openstreetmap.org/search",
                 params={"q": variant, "format": "json", "accept-language": "ko",
-                        "countrycodes": "kr", "limit": 1},
+                        "countrycodes": "kr", "limit": 1, "addressdetails": 1},
                 headers={"User-Agent": "SimpleM-cafe-app/1.0"},
                 timeout=5,
             )
             data = r.json()
-            if data:
-                return {
-                    "lat": float(data[0]["lat"]), "lon": float(data[0]["lon"]),
-                    "address": data[0].get("display_name", "")[:80], "name": "",
-                    "source": "nominatim",
-                }
+            if not data:
+                continue
+            hit = data[0]
+            a = hit.get("address", {})
+            # 한국식 주소 순서로 조립 (시/도 → 구/군 → 동/읍 → 도로명 → 번지)
+            parts = [a.get("province") or a.get("state") or a.get("city"),
+                     a.get("borough") or a.get("county") or a.get("city_district"),
+                     a.get("suburb") or a.get("quarter") or a.get("town") or a.get("village"),
+                     a.get("road"), a.get("house_number")]
+            seen: list[str] = []
+            for p in parts:
+                if p and p not in seen:
+                    seen.append(p)
+            address = " ".join(seen) or hit.get("display_name", "")[:80]
+            name = hit.get("name") or ""
+            # 검색어가 기관/상호명일 때만 이름을 주소 끝에 붙인다 ('명동성당' → '... 명동길 명동대성당').
+            # 순수 도로명주소 검색이면 그 지번의 엉뚱한 건물명이 붙는 걸 막는다.
+            if name and (name in variant or variant in name):
+                address = f"{address} {name}".strip()
+            return {
+                "lat": float(hit["lat"]), "lon": float(hit["lon"]),
+                "address": address, "name": name,
+                "source": "nominatim",
+            }
         except Exception:
             logger.warning("Nominatim 지오코딩 실패 (query=%s)", variant, exc_info=True)
+    return None
+
+
+def _geocode_photon(q: str) -> Optional[dict[str, Any]]:
+    """Photon(OSM) — 접두어·퍼지 매칭이 되어 '협성대'→'협성대학교'처럼 축약 명칭을 잘 찾는다.
+    후보 중 이름이 검색어로 시작/일치하는 것을 우선하고, 자전거 대여소 같은 부속 시설은 피한다."""
+    import requests
+
+    try:
+        r = requests.get(
+            "https://photon.komoot.io/api/",
+            params={"q": q, "limit": 5, "bbox": "124,33,132,39"},  # 한반도 영역으로 제한
+            headers={"User-Agent": "SimpleM-cafe-app/1.0"},
+            timeout=6,
+        )
+        feats = r.json().get("features", [])
+        if not feats:
+            return None
+
+        def score(f: dict) -> tuple:
+            props = f.get("properties", {})
+            name = props.get("name") or ""
+            exact = name == q
+            prefix = name.startswith(q)
+            minor = props.get("osm_value") in ("bicycle_rental", "vending_machine", "parking")
+            return (exact, prefix, not minor)  # True가 앞서도록 내림차순 정렬에 사용
+
+        best = max(feats, key=score)
+        props = best.get("properties", {})
+        lon_p, lat_p = best["geometry"]["coordinates"][:2]
+        name = props.get("name") or ""
+        region_parts: list[str] = []
+        for key in ("state", "city", "county", "district"):
+            v = props.get(key)
+            if v and v not in region_parts:
+                region_parts.append(v)
+        address = " ".join(region_parts + ([name] if name else [])) or name
+        return {
+            "lat": float(lat_p), "lon": float(lon_p),
+            "address": address, "name": name, "source": "photon",
+        }
+    except Exception:
+        logger.warning("Photon 지오코딩 실패 (query=%s)", q, exc_info=True)
+    return None
+
+
+def geocode(query: str) -> Optional[dict[str, Any]]:
+    """주소/상호/기관명 → 좌표 (회원가입 지도 핀 검색용).
+
+    주소형 검색어('...로 26', '...동')는 Nominatim을, '협성대' 같은 명칭형 검색어는
+    접두어 매칭이 되는 Photon을 먼저 시도한다. 네이버 지역 검색은 유효한
+    developers.naver.com 키가 들어오면 자동으로 최우선 활성화된다.
+    """
+    q = (query or "").strip()
+    if not q:
+        return None
+
+    hit = _geocode_naver_local(q)
+    if hit:
+        return hit
+
+    # 숫자(번지)나 행정구역/도로명 접미어가 있으면 주소형으로 본다
+    looks_like_address = any(ch.isdigit() for ch in q) or any(
+        t[-1] in "시구군동읍면리로길가" for t in q.split() if t)
+    engines = [_geocode_nominatim, _geocode_photon] if looks_like_address else [_geocode_photon, _geocode_nominatim]
+    for engine in engines:
+        hit = engine(q)
+        if hit:
+            return hit
     return None
 
 
