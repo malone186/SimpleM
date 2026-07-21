@@ -15,9 +15,11 @@ AI 추천은 Gemini 호출 없이 판매 데이터 규칙 기반으로 계산한
 """
 
 import hashlib
+import json
 import logging
 import math
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -45,6 +47,155 @@ _DECAF_KEYWORDS = ("디카페인", "디카프", "decaf")
 
 # 매장별 RFID 태그 상태 (실물에선 리더기가 채워줌) — 서버 메모리 보관
 _rfid_state: dict[str, dict[str, str]] = {}
+
+# ─── 센서 기기 카탈로그 & 페어링 (연동 온보딩) ────────────────────────────
+# 프론트 '센서 스테이션' 마법사가 이 카탈로그를 그대로 렌더링한다.
+# metric: 이 기기가 페어링되면 실측(live)으로 승격되는 대시보드 지표.
+SENSOR_DEVICES: list[dict[str, Any]] = [
+    {
+        "id": "bean_scale", "metric": "hoppers", "icon": "scale-outline",
+        "name": "원두 호퍼 무게센서", "model": "로드셀 패드 ×2",
+        "where": "카페인·디카페인 호퍼 받침 아래",
+        "benefit": "잔량이 g 단위 실측으로 바뀌고 소진 예상 시각이 정확해져요",
+        "steps": [
+            "호퍼를 잠시 들어내고 받침 위에 로드셀 패드를 올려요",
+            "패드 케이블을 센서 허브(ESP32) 1·2번 포트에 꽂아요",
+            "호퍼를 다시 올린 뒤 아래 '기기 스캔'을 눌러요",
+        ],
+    },
+    {
+        "id": "rfid_reader", "metric": "rfid", "icon": "pricetag-outline",
+        "name": "원두 RFID 리더", "model": "13.56MHz 리더 + 태그 스티커",
+        "where": "호퍼 거치대 안쪽",
+        "benefit": "원두통을 갈아끼우면 원두명이 자동으로 바뀌어요 (수기 입력 불필요)",
+        "steps": [
+            "원두통마다 RFID 태그 스티커를 바닥에 붙여요",
+            "리더를 호퍼 거치대 안쪽에 부착하고 허브에 연결해요",
+            "원두통을 올려둔 상태로 '기기 스캔'을 눌러요",
+        ],
+    },
+    {
+        "id": "milk_scale", "metric": "milk", "icon": "water-outline",
+        "name": "우유 무게센서", "model": "로드셀 받침",
+        "where": "우유 디스펜서(또는 우유팩 보관 선반) 아래",
+        "benefit": "우유 잔량이 실측되어 '우유 부족' 알림이 정확해져요",
+        "steps": [
+            "우유 디스펜서를 로드셀 받침 위에 올려요",
+            "받침 케이블을 허브 3번 포트에 꽂아요",
+            "디스펜서를 채운 상태로 '기기 스캔'을 눌러요",
+        ],
+    },
+    {
+        "id": "fridge_temp", "metric": "fridge", "icon": "thermometer-outline",
+        "name": "냉장고 온도센서", "model": "방수 프로브(DS18B20)",
+        "where": "우유 보관 냉장고 안쪽 벽",
+        "benefit": "보관 온도 7℃ 초과 시 즉시 경고를 받아요",
+        "steps": [
+            "프로브를 냉장고 안쪽 벽 중간 높이에 부착해요",
+            "케이블을 문틈 실링으로 빼서 허브에 연결해요",
+            "냉장고 문을 닫고 '기기 스캔'을 눌러요",
+        ],
+    },
+    {
+        "id": "water_level", "metric": "water", "icon": "filter-outline",
+        "name": "정수 탱크 수위센서", "model": "플로트 스위치",
+        "where": "머신 급수 탱크(또는 정수 라인)",
+        "benefit": "물 부족으로 추출이 멈추기 전에 미리 알려줘요",
+        "steps": [
+            "플로트 스위치를 탱크 최소 수위 지점에 고정해요",
+            "배선을 허브 4번 포트에 꽂아요",
+            "탱크를 채운 상태로 '기기 스캔'을 눌러요",
+        ],
+    },
+    {
+        "id": "smart_plug", "metric": "machine", "icon": "flash-outline",
+        "name": "머신 스마트 플러그", "model": "전류 감지형 16A",
+        "where": "에스프레소 머신 전원 콘센트",
+        "benefit": "추출 시작·완료가 자동 감지돼요 (전류 패턴 분석)",
+        "steps": [
+            "머신 플러그를 뽑고 스마트 플러그를 먼저 콘센트에 꽂아요",
+            "머신 플러그를 스마트 플러그에 다시 꽂아요",
+            "머신 전원을 켠 상태로 '기기 스캔'을 눌러요",
+        ],
+    },
+]
+
+_DEVICE_IDS = {d["id"] for d in SENSOR_DEVICES}
+
+# 페어링 상태는 서버 재시작에도 유지되도록 backend/sensor_pairing.json에 저장
+_PAIRING_FILE = Path(__file__).resolve().parents[3] / "sensor_pairing.json"
+_pairing_cache: dict[str, dict[str, str]] | None = None  # store_id -> {device_id: paired_at ISO}
+
+
+def _load_pairing() -> dict[str, dict[str, str]]:
+    global _pairing_cache
+    if _pairing_cache is None:
+        try:
+            _pairing_cache = json.loads(_PAIRING_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            _pairing_cache = {}
+    return _pairing_cache
+
+
+def _save_pairing() -> None:
+    try:
+        _PAIRING_FILE.write_text(
+            json.dumps(_load_pairing(), ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        logger.warning("센서 페어링 상태 저장 실패", exc_info=True)
+
+
+def _device_serial(store_id: str, device_id: str) -> str:
+    """페어링 시 발급되는 기기 시리얼 (매장+기기 조합으로 결정론적 생성)"""
+    tag = hashlib.md5(f"{store_id}:{device_id}".encode()).hexdigest()[:4].upper()
+    prefix = {"bean_scale": "LC", "rfid_reader": "RF", "milk_scale": "LC",
+              "fridge_temp": "TH", "water_level": "WL", "smart_plug": "SP"}.get(device_id, "SM")
+    return f"SM-{prefix}-{tag}"
+
+
+def get_pairing_summary(store_id: str) -> dict[str, Any]:
+    """매장의 센서 연동 진행 상태 요약 (스냅샷·마법사 공용)"""
+    paired = _load_pairing().get(store_id, {})
+    return {
+        "paired": {d["id"]: d["id"] in paired for d in SENSOR_DEVICES},
+        "paired_count": sum(1 for d in SENSOR_DEVICES if d["id"] in paired),
+        "total": len(SENSOR_DEVICES),
+        "demo_mode": len(paired) == 0,   # 하나도 연결 안 됐으면 전체 데모 모드
+    }
+
+
+def get_devices(store_id: str) -> dict[str, Any]:
+    """센서 스테이션 마법사용: 기기 카탈로그 + 매장별 페어링 상태"""
+    paired = _load_pairing().get(store_id, {})
+    devices = []
+    for d in SENSOR_DEVICES:
+        devices.append({
+            **d,
+            "paired": d["id"] in paired,
+            "paired_at": paired.get(d["id"]),
+            "serial": _device_serial(store_id, d["id"]) if d["id"] in paired else None,
+        })
+    return {**get_pairing_summary(store_id), "devices": devices}
+
+
+def pair_device(store_id: str, device_id: str) -> dict[str, Any]:
+    """기기 페어링 (실물에선 허브가 BLE/WiFi 핸드셰이크 — 지금은 즉시 성공 시뮬레이션)"""
+    if device_id not in _DEVICE_IDS:
+        raise ValueError(f"알 수 없는 기기: {device_id}")
+    store = _load_pairing().setdefault(store_id, {})
+    store[device_id] = _now().isoformat()
+    _save_pairing()
+    name = next(d["name"] for d in SENSOR_DEVICES if d["id"] == device_id)
+    return {"ok": True, "device_id": device_id, "name": name,
+            "serial": _device_serial(store_id, device_id)}
+
+
+def unpair_device(store_id: str, device_id: str) -> dict[str, Any]:
+    """기기 연결 해제"""
+    store = _load_pairing().get(store_id, {})
+    store.pop(device_id, None)
+    _save_pairing()
+    return {"ok": True, "device_id": device_id}
 
 
 # ─── 내부 유틸 ─────────────────────────────────────────────────────────────
@@ -250,17 +401,40 @@ def get_live_snapshot(store_id: str) -> dict[str, Any]:
     # RFID 태그 (수정 모달에서 재지정된 원두명)
     tags = _rfid_state.get(store_id, {})
 
+    # 센서 연동(페어링) 상태 — 지표별 실측/데모 구분
+    pairing = get_pairing_summary(store_id)
+    p = pairing["paired"]
+    live_metrics = {
+        "hoppers": p["bean_scale"],
+        "rfid": p["rfid_reader"],
+        "milk": p["milk_scale"],
+        "fridge": p["fridge_temp"],
+        "water": p["water_level"],
+        "machine": p["smart_plug"],
+    }
+
+    def src(metric: str) -> str:
+        """이벤트 문구용 출처 라벨 — 페어링 전엔 '데모'로 정직하게 표기"""
+        return "" if live_metrics[metric] else " (데모)"
+
     # 틱커 이벤트 피드 (프론트 전광판용)
     events: list[str] = []
+    if pairing["demo_mode"]:
+        events.append("🔌 데모 모드 — 센서를 연결하면 아래 수치가 실측으로 바뀌어요")
+    elif pairing["paired_count"] < pairing["total"]:
+        events.append(
+            f"🧩 센서 {pairing['paired_count']}/{pairing['total']} 연결됨 — 나머지도 연결하면 전 지표 실측!")
     if extracting and last_menu:
-        events.append(f"☕ [추출 중] {last_menu} — 머신 전류센서 감지")
+        events.append(f"☕ [추출 중{src('machine')}] {last_menu} — 머신 전류센서 감지")
     elif last_menu:
         events.append(f"☕ [방금 전] {last_menu} 판매 · 오늘 {caf_shots + decaf_shots}잔째")
-    events.append(f"⚖️ [로드셀] 카페인 호퍼 {caf_hopper['percent']}% ({caf_hopper['remaining_g'] / 1000:.1f}kg) 남음")
-    events.append(f"🌿 [로드셀] 디카페인 호퍼 {decaf_hopper['percent']}% · 오늘 {decaf_shots}잔 추출")
-    events.append(f"🥛 [우유] {milk['percent']}% ({milk_remaining / 1000:.1f}L) · 냉장 {fridge['temp_c']}℃ 정상")
+    events.append(
+        f"⚖️ [로드셀{src('hoppers')}] 카페인 호퍼 {caf_hopper['percent']}% ({caf_hopper['remaining_g'] / 1000:.1f}kg) 남음")
+    events.append(f"🌿 [로드셀{src('hoppers')}] 디카페인 호퍼 {decaf_hopper['percent']}% · 오늘 {decaf_shots}잔 추출")
+    events.append(
+        f"🥛 [우유{src('milk')}] {milk['percent']}% ({milk_remaining / 1000:.1f}L) · 냉장{src('fridge')} {fridge['temp_c']}℃")
     if caf_hopper["refills_today"]:
-        events.append(f"🔄 [RFID] 오늘 카페인 호퍼 재장전 {caf_hopper['refills_today']}회 감지")
+        events.append(f"🔄 [RFID{src('rfid')}] 오늘 카페인 호퍼 재장전 {caf_hopper['refills_today']}회 감지")
     if caf_hopper["depletion_at"]:
         events.append(f"⏳ [예측] 현재 페이스면 카페인 호퍼 {caf_hopper['depletion_at']}경 재장전 필요")
 
@@ -269,6 +443,8 @@ def get_live_snapshot(store_id: str) -> dict[str, Any]:
         "store_id": store_id,
         "simulated": simulated,          # True면 DB 폴백(시뮬레이션) 모드
         "in_business": in_business,
+        "pairing": pairing,              # 센서 연동 진행 상태 (데모/부분/완전)
+        "live_metrics": live_metrics,    # 지표별 실측 여부 (True=페어링된 센서 실측)
         "hoppers": {"caffeine": caf_hopper, "decaf": decaf_hopper},
         "machine": machine,
         "milk": milk,
@@ -396,6 +572,13 @@ def get_recommendations(store_id: str) -> dict[str, Any]:
                 f"오늘 현재 {cur}잔 / 지난주 같은 요일 하루 {base}잔. 평소보다 {trend} 흐름이에요.",
                 "페이스가 +20%를 넘으면 원두·우유 소진이 하루 일찍 올 수 있어요.",
                 "판매 데이터")
+
+    # 8) 센서 미연결 안내 — 데모 모드일 때 실측 연동을 자연스럽게 유도
+    if snap["pairing"]["demo_mode"]:
+        add("info", "지금 잔량은 판매 기록 기반 추정값이에요",
+            "센서가 아직 연결되지 않아 호퍼·우유 잔량을 판매 데이터로 역산하고 있어요.",
+            "원두 카드의 '센서 연결'에서 무게센서를 페어링하면 실측 기반으로 정확해져요.",
+            "센서 스테이션")
 
     if not items:
         add("info", "재고·설비 흐름 안정",

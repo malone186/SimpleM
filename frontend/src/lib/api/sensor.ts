@@ -15,11 +15,31 @@ export interface HopperState {
   depletion_at: string | null; // 오늘 안에 소진 예상 시 "HH:MM"
 }
 
+// 센서 연동(페어링) 진행 상태
+export interface SensorPairing {
+  paired: Record<string, boolean>;   // device_id -> 페어링 여부
+  paired_count: number;
+  total: number;
+  demo_mode: boolean;                // 하나도 연결 안 됨 = 전체 데모 모드
+}
+
+// 지표별 실측 여부 (해당 센서가 페어링됐는지)
+export interface LiveMetrics {
+  hoppers: boolean;
+  rfid: boolean;
+  milk: boolean;
+  fridge: boolean;
+  water: boolean;
+  machine: boolean;
+}
+
 export interface SensorLive {
   updated_at: string;
   store_id: string;
   simulated: boolean;   // true면 DB 폴백(시뮬레이션) 모드
   in_business: boolean;
+  pairing: SensorPairing;
+  live_metrics: LiveMetrics;
   hoppers: { caffeine: HopperState; decaf: HopperState };
   machine: { status: 'extracting' | 'idle' | 'off'; current_menu: string | null; last_menu: string | null };
   milk: { remaining_ml: number; capacity_ml: number; percent: number; drinks_today: number };
@@ -63,3 +83,38 @@ export const setSensorBeans = (token: string, payload: { caffeine?: string; deca
     body: JSON.stringify(payload),
     headers: auth(token),
   });
+
+// ─── 센서 스테이션 (기기 페어링 마법사) ───────────────────────────────────
+
+export interface SensorDevice {
+  id: string;
+  metric: keyof LiveMetrics;
+  icon: string;          // Ionicons 이름
+  name: string;
+  model: string;
+  where: string;         // 설치 위치 한 줄
+  benefit: string;       // 연결하면 좋아지는 점
+  steps: string[];       // 설치 가이드 3단계
+  paired: boolean;
+  paired_at: string | null;
+  serial: string | null; // 페어링 완료 시 발급된 기기 시리얼
+}
+
+export interface SensorDevicesResponse extends SensorPairing {
+  devices: SensorDevice[];
+}
+
+export const getSensorDevices = (token: string) =>
+  apiFetch<SensorDevicesResponse>('/api/v1/sensor/devices', { headers: auth(token) });
+
+export const pairSensorDevice = (token: string, deviceId: string) =>
+  apiFetch<{ ok: boolean; device_id: string; name: string; serial: string }>(
+    `/api/v1/sensor/devices/${deviceId}/pair`,
+    { method: 'POST', headers: auth(token) },
+  );
+
+export const unpairSensorDevice = (token: string, deviceId: string) =>
+  apiFetch<{ ok: boolean; device_id: string }>(
+    `/api/v1/sensor/devices/${deviceId}/unpair`,
+    { method: 'POST', headers: auth(token) },
+  );

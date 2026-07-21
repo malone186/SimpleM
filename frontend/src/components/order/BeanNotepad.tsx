@@ -24,16 +24,28 @@ import {
   getSensorLive,
   getSensorRecommendations,
   setSensorBeans,
+  LiveMetrics,
   SensorLive,
   SensorRecommendation,
 } from '../../lib/api/sensor';
+import SensorSetupModal from './SensorSetupModal';
+
+// 대시보드 지표 → 센서 스테이션 기기 id 매핑 (설비 칩 탭 시 해당 가이드로 바로 진입)
+const METRIC_TO_DEVICE: Record<keyof LiveMetrics, string> = {
+  hoppers: 'bean_scale',
+  rfid: 'rfid_reader',
+  milk: 'milk_scale',
+  fridge: 'fridge_temp',
+  water: 'water_level',
+  machine: 'smart_plug',
+};
 
 // 🟢 [한글 주석: 실시간으로 부드럽게 점멸(Pulse)하는 라이브 연동 배지 컴포넌트]
-// active=false면 회색 '센서 연결 중' 상태로 표시하여 가짜 LIVE 연출을 막는다.
-const LivePulseBadge: React.FC<{ label?: string; active?: boolean }> = ({
-  label = 'LIVE 실시간 연동',
-  active = true,
-}) => {
+// variant: 'connecting'(회색, 서버 응답 없음) | 'demo'(주황, 센서 0개 연결) | 'live'(초록)
+const LivePulseBadge: React.FC<{
+  variant?: 'connecting' | 'demo' | 'live';
+  label?: string;
+}> = ({ variant = 'live', label }) => {
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -55,7 +67,7 @@ const LivePulseBadge: React.FC<{ label?: string; active?: boolean }> = ({
     return () => animation.stop();
   }, [pulseAnim]);
 
-  if (!active) {
+  if (variant === 'connecting') {
     return (
       <View style={[liveComponentStyles.pulseBadgeContainer, liveComponentStyles.pulseBadgeContainerOff]}>
         <View style={[liveComponentStyles.pulseDot, liveComponentStyles.pulseDotOff]} />
@@ -64,10 +76,21 @@ const LivePulseBadge: React.FC<{ label?: string; active?: boolean }> = ({
     );
   }
 
+  if (variant === 'demo') {
+    return (
+      <View style={[liveComponentStyles.pulseBadgeContainer, liveComponentStyles.pulseBadgeContainerDemo]}>
+        <Animated.View
+          style={[liveComponentStyles.pulseDot, liveComponentStyles.pulseDotDemo, { opacity: pulseAnim }]}
+        />
+        <Text style={[liveComponentStyles.pulseText, liveComponentStyles.pulseTextDemo]}>데모 모드</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={liveComponentStyles.pulseBadgeContainer}>
       <Animated.View style={[liveComponentStyles.pulseDot, { opacity: pulseAnim }]} />
-      <Text style={liveComponentStyles.pulseText}>{label}</Text>
+      <Text style={liveComponentStyles.pulseText}>{label ?? 'LIVE 실시간 연동'}</Text>
     </View>
   );
 };
@@ -312,6 +335,27 @@ export default function BeanNotepad() {
   const [sensor, setSensor] = useState<SensorLive | null>(null);
   const [coachItems, setCoachItems] = useState<SensorRecommendation[]>([]);
   const [coachUpdatedAt, setCoachUpdatedAt] = useState<string | null>(null);
+
+  // 🔌 센서 스테이션(페어링 마법사) 모달 상태
+  const [showSensorSetup, setShowSensorSetup] = useState(false);
+  const [setupInitialDevice, setSetupInitialDevice] = useState<string | null>(null);
+
+  const openSensorSetup = (deviceId: string | null = null) => {
+    setSetupInitialDevice(deviceId);
+    setShowSensorSetup(true);
+  };
+
+  // 페어링이 바뀌면 다음 5초 폴링을 기다리지 않고 즉시 라이브/코치 갱신
+  const refreshAfterPairing = () => {
+    if (!authToken) return;
+    getSensorLive(authToken).then(setSensor).catch(() => {});
+    getSensorRecommendations(authToken)
+      .then((res) => {
+        setCoachItems(res.items);
+        setCoachUpdatedAt(res.generated_at);
+      })
+      .catch(() => {});
+  };
 
   // 취향 추천 모달 및 질문 상태들
   const [showSurveyModal, setShowSurveyModal] = useState(false);
@@ -720,6 +764,7 @@ export default function BeanNotepad() {
     percent <= 20 ? '#C0392B' : percent <= 40 ? '#D97706' : base;
 
   // 카페인/디카페인 공용 행 렌더러 (센서 연동 시 게이지·샷 수·소진 예상까지 표시)
+  // isLive=false면 게이지 옆에 '데모' 태그를 붙여 실측이 아님을 정직하게 보여준다.
   const renderHopperRow = (
     label: string,
     icon: 'cafe' | 'cafe-outline',
@@ -728,6 +773,7 @@ export default function BeanNotepad() {
     hopperState: typeof cafHopper,
     barBaseColor: string,
     tagId?: string,
+    isLive?: boolean,
   ) => (
     <View style={styles.currentRow}>
       <View style={styles.currentLabel}>
@@ -764,6 +810,15 @@ export default function BeanNotepad() {
               <Text style={liveComponentStyles.gaugeText}>
                 호퍼 {hopperState.percent}% ({(hopperState.remaining_g / 1000).toFixed(1)}kg)
               </Text>
+              {isLive === false ? (
+                <TouchableOpacity style={liveComponentStyles.demoTag} onPress={() => openSensorSetup('bean_scale')}>
+                  <Text style={liveComponentStyles.demoTagText}>데모</Text>
+                </TouchableOpacity>
+              ) : isLive ? (
+                <View style={liveComponentStyles.liveTag}>
+                  <Text style={liveComponentStyles.liveTagText}>실측</Text>
+                </View>
+              ) : null}
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               {tagId ? (
@@ -796,8 +851,15 @@ export default function BeanNotepad() {
         <View style={styles.cardHeader}>
           <View style={styles.cardTitleRow}>
             <Text style={styles.cardTitle}>현재 사용 중인 원두</Text>
-            {/* [한글 주석: 센서 응답이 실제로 올 때만 초록 LIVE — 아니면 회색 '센서 연결 중'] */}
-            <LivePulseBadge active={!!sensor} />
+            {/* [한글 주석: 회색=서버 미응답 / 주황=센서 0개(데모) / 초록=LIVE(부분 연결 시 진행도 표기)] */}
+            <LivePulseBadge
+              variant={!sensor ? 'connecting' : sensor.pairing?.demo_mode ? 'demo' : 'live'}
+              label={
+                sensor?.pairing && !sensor.pairing.demo_mode && sensor.pairing.paired_count < sensor.pairing.total
+                  ? `LIVE · 센서 ${sensor.pairing.paired_count}/${sensor.pairing.total}`
+                  : undefined
+              }
+            />
           </View>
           <TouchableOpacity style={styles.editBtn} onPress={openCurrentEdit}>
             <Ionicons name="pencil-outline" size={14} color={colors.mochaBrown} />
@@ -805,51 +867,115 @@ export default function BeanNotepad() {
           </TouchableOpacity>
         </View>
 
+        {/* 🔌 센서 연동 유도 배너 — 데모 모드면 큰 배너, 부분 연결이면 얇은 진행 줄 */}
+        {sensor?.pairing?.demo_mode ? (
+          <TouchableOpacity
+            style={liveComponentStyles.demoBanner}
+            onPress={() => openSensorSetup(null)}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="hardware-chip-outline" size={18} color="#B45309" />
+            <View style={{ flex: 1 }}>
+              <Text style={liveComponentStyles.demoBannerTitle}>지금 수치는 가상 데모예요</Text>
+              <Text style={liveComponentStyles.demoBannerDesc}>
+                무게·온도 센서를 연결하면 내 매장 실측값으로 바뀌어요
+              </Text>
+            </View>
+            <View style={liveComponentStyles.demoBannerCta}>
+              <Text style={liveComponentStyles.demoBannerCtaText}>센서 연결</Text>
+              <Ionicons name="chevron-forward" size={11} color={colors.white} />
+            </View>
+          </TouchableOpacity>
+        ) : sensor?.pairing && sensor.pairing.paired_count < sensor.pairing.total ? (
+          <TouchableOpacity
+            style={liveComponentStyles.partialRow}
+            onPress={() => openSensorSetup(null)}
+            activeOpacity={0.7}
+          >
+            <Text style={liveComponentStyles.partialRowText}>
+              🧩 센서 {sensor.pairing.paired_count}/{sensor.pairing.total} 연결됨 — 나머지도 연결하고 전 지표 실측 만들기
+            </Text>
+            <Ionicons name="chevron-forward" size={12} color={colors.mochaBrown} />
+          </TouchableOpacity>
+        ) : null}
+
         {renderHopperRow(
           '카페인', 'cafe', colors.espressoBrown,
-          cafDisplayName, cafHopper, colors.espressoBrown, sensor?.rfid.caffeine_tag,
+          cafDisplayName, cafHopper, colors.espressoBrown,
+          sensor?.live_metrics?.rfid ? sensor.rfid.caffeine_tag : undefined,
+          sensor ? !!sensor.live_metrics?.hoppers : undefined,
         )}
 
         <View style={styles.divider} />
 
         {renderHopperRow(
           '디카페인', 'cafe-outline', colors.mochaBrown,
-          decafDisplayName, decafHopper, colors.mochaBrown, sensor?.rfid.decaf_tag,
+          decafDisplayName, decafHopper, colors.mochaBrown,
+          sensor?.live_metrics?.rfid ? sensor.rfid.decaf_tag : undefined,
+          sensor ? !!sensor.live_metrics?.hoppers : undefined,
         )}
 
-        {/* 🛠️ 매장 설비 미니 상태 스트립 (머신·우유·정수·냉장) */}
+        {/* 🛠️ 매장 설비 미니 상태 스트립 — 미연결 센서는 점선 칩, 탭하면 해당 페어링 가이드로 */}
         {sensor ? (
           <View style={liveComponentStyles.equipStrip}>
-            <View style={liveComponentStyles.equipChip}>
-              <Ionicons
-                name={sensor.machine.status === 'extracting' ? 'flash' : 'flash-outline'}
-                size={11}
-                color={sensor.machine.status === 'extracting' ? '#D97706' : colors.mochaBrown}
-              />
-              <Text style={liveComponentStyles.equipChipText}>
-                {sensor.machine.status === 'extracting'
-                  ? `추출 중${sensor.machine.current_menu ? ` · ${sensor.machine.current_menu}` : ''}`
-                  : sensor.machine.status === 'idle' ? '머신 대기' : '영업 전'}
-              </Text>
-            </View>
-            <View style={liveComponentStyles.equipChip}>
-              <Ionicons name="water-outline" size={11} color={sensor.milk.percent <= 25 ? '#C0392B' : colors.mochaBrown} />
-              <Text style={[liveComponentStyles.equipChipText, sensor.milk.percent <= 25 && liveComponentStyles.equipAlertText]}>
-                우유 {(sensor.milk.remaining_ml / 1000).toFixed(1)}L
-              </Text>
-            </View>
-            <View style={liveComponentStyles.equipChip}>
-              <Ionicons name="filter-outline" size={11} color={sensor.water.ok ? colors.mochaBrown : '#C0392B'} />
-              <Text style={[liveComponentStyles.equipChipText, !sensor.water.ok && liveComponentStyles.equipAlertText]}>
-                정수 {sensor.water.percent}%
-              </Text>
-            </View>
-            <View style={liveComponentStyles.equipChip}>
-              <Ionicons name="thermometer-outline" size={11} color={sensor.fridge.ok ? colors.mochaBrown : '#C0392B'} />
-              <Text style={[liveComponentStyles.equipChipText, !sensor.fridge.ok && liveComponentStyles.equipAlertText]}>
-                냉장 {sensor.fridge.temp_c}℃
-              </Text>
-            </View>
+            {([
+              {
+                metric: 'machine' as const,
+                icon: sensor.machine.status === 'extracting' ? 'flash' : 'flash-outline',
+                alert: false,
+                text:
+                  sensor.machine.status === 'extracting'
+                    ? `추출 중${sensor.machine.current_menu ? ` · ${sensor.machine.current_menu}` : ''}`
+                    : sensor.machine.status === 'idle' ? '머신 대기' : '영업 전',
+                activeColor: sensor.machine.status === 'extracting' ? '#D97706' : colors.mochaBrown,
+              },
+              {
+                metric: 'milk' as const,
+                icon: 'water-outline',
+                alert: sensor.milk.percent <= 25,
+                text: `우유 ${(sensor.milk.remaining_ml / 1000).toFixed(1)}L`,
+                activeColor: colors.mochaBrown,
+              },
+              {
+                metric: 'water' as const,
+                icon: 'filter-outline',
+                alert: !sensor.water.ok,
+                text: `정수 ${sensor.water.percent}%`,
+                activeColor: colors.mochaBrown,
+              },
+              {
+                metric: 'fridge' as const,
+                icon: 'thermometer-outline',
+                alert: !sensor.fridge.ok,
+                text: `냉장 ${sensor.fridge.temp_c}℃`,
+                activeColor: colors.mochaBrown,
+              },
+            ]).map((chip) => {
+              const isLive = !!sensor.live_metrics?.[chip.metric];
+              const color = chip.alert ? '#C0392B' : isLive ? chip.activeColor : '#A8A29E';
+              return (
+                <TouchableOpacity
+                  key={chip.metric}
+                  style={[liveComponentStyles.equipChip, !isLive && liveComponentStyles.equipChipDemo]}
+                  onPress={() => openSensorSetup(METRIC_TO_DEVICE[chip.metric])}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name={chip.icon as any} size={11} color={color} />
+                  <Text
+                    style={[
+                      liveComponentStyles.equipChipText,
+                      chip.alert && liveComponentStyles.equipAlertText,
+                      !isLive && !chip.alert && liveComponentStyles.equipChipTextDemo,
+                    ]}
+                  >
+                    {chip.text}
+                  </Text>
+                  {!isLive && (
+                    <Ionicons name="add-circle-outline" size={10} color="#A8A29E" />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
           </View>
         ) : null}
 
@@ -1326,6 +1452,15 @@ export default function BeanNotepad() {
           </View>
         </View>
       </Modal>
+
+      {/* ━━━ 센서 스테이션 페어링 마법사 모달 ━━━ */}
+      <SensorSetupModal
+        visible={showSensorSetup}
+        token={authToken}
+        initialDeviceId={setupInitialDevice}
+        onClose={() => setShowSensorSetup(false)}
+        onPairingChanged={refreshAfterPairing}
+      />
 
     </View>
   );
@@ -1916,6 +2051,99 @@ const liveComponentStyles = StyleSheet.create({
     color: '#78716C',
   },
 
+  // 데모 모드(주황) 배지 상태 — 센서 0개 연결
+  pulseBadgeContainerDemo: {
+    backgroundColor: '#FEF3E2',
+    borderColor: '#FDE4C0',
+  },
+  pulseDotDemo: {
+    backgroundColor: '#B45309',
+  },
+  pulseTextDemo: {
+    color: '#B45309',
+  },
+
+  // 🔌 데모 모드 센서 연동 유도 배너
+  demoBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#FEF7EC',
+    borderWidth: 1,
+    borderColor: '#FDE4C0',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  demoBannerTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#92400E',
+  },
+  demoBannerDesc: {
+    fontSize: 10,
+    color: '#B45309',
+    marginTop: 1,
+    lineHeight: 14,
+  },
+  demoBannerCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: '#B45309',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  demoBannerCtaText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.white,
+  },
+
+  // 부분 연결 시 얇은 진행 줄
+  partialRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(140, 111, 86, 0.05)',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginBottom: 10,
+  },
+  partialRowText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.mochaBrown,
+    flex: 1,
+  },
+
+  // 게이지 옆 실측/데모 미니 태그
+  liveTag: {
+    backgroundColor: '#E8F5E9',
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  liveTagText: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: '#2E7D32',
+  },
+  demoTag: {
+    backgroundColor: 'rgba(120, 113, 108, 0.10)',
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  demoTagText: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: '#78716C',
+  },
+
   // RFID 태그 · 소진 예상 보조 텍스트
   rfidTagText: {
     fontSize: 8,
@@ -1957,6 +2185,16 @@ const liveComponentStyles = StyleSheet.create({
   },
   equipAlertText: {
     color: '#C0392B',
+  },
+  // 미연결 센서 칩 (점선 테두리 + 회색 텍스트, 탭하면 페어링 가이드로)
+  equipChipDemo: {
+    backgroundColor: 'transparent',
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    borderColor: 'rgba(120, 113, 108, 0.35)',
+  },
+  equipChipTextDemo: {
+    color: '#A8A29E',
   },
 });
 

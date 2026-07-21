@@ -4,11 +4,14 @@
 - GET  /sensor/live             : 폴링용 전체 센서 스냅샷 (5초 주기 호출 가정)
 - GET  /sensor/recommendations  : AI 발주 코치 추천 (규칙 기반, LLM 쿼터 소모 없음)
 - POST /sensor/beans            : RFID 태그 원두명 재지정 (수정 모달 저장 시)
+- GET  /sensor/devices          : 센서 스테이션 마법사 — 기기 카탈로그 + 페어링 상태
+- POST /sensor/devices/{id}/pair   : 기기 페어링 (허브 핸드셰이크 시뮬레이션)
+- POST /sensor/devices/{id}/unpair : 기기 연결 해제
 """
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.core.auth import get_current_user
@@ -40,3 +43,24 @@ def set_beans(payload: BeanTagUpdate, current_user: User = Depends(get_current_u
     """[한글 주석] 수정 모달에서 저장한 원두명을 호퍼 RFID 태그에 반영"""
     tags = sensor_service.set_bean_tags(current_user.email, payload.caffeine, payload.decaf)
     return {"ok": True, "tags": tags}
+
+
+@router.get("/devices")
+def get_devices(current_user: User = Depends(get_current_user)):
+    """[한글 주석] 센서 스테이션 마법사 — 기기 카탈로그·설치 가이드·페어링 상태"""
+    return sensor_service.get_devices(current_user.email)
+
+
+@router.post("/devices/{device_id}/pair")
+def pair_device(device_id: str, current_user: User = Depends(get_current_user)):
+    """[한글 주석] 기기 페어링 — 성공 시 해당 지표가 데모→실측으로 승격"""
+    try:
+        return sensor_service.pair_device(current_user.email, device_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/devices/{device_id}/unpair")
+def unpair_device(device_id: str, current_user: User = Depends(get_current_user)):
+    """[한글 주석] 기기 연결 해제"""
+    return sensor_service.unpair_device(current_user.email, device_id)
