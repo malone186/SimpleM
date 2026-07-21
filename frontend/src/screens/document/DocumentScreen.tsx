@@ -269,7 +269,7 @@ function buildPrintHtml(d: GeneratedDocument, autoPrint = true): string {
   .print-hint { text-align: center; margin-top: 24px; color: #aaa; font-size: 11px; }
   @media print { .print-hint { display: none; } }
 </style></head><body>
-<header><h1>${esc(d.title)}</h1><div class="meta">${d.period ? `대상 기간: ${esc(d.period)} · ` : ''}작성일: ${created} · SimpleM 자동 생성 초안</div></header>
+<header><h1>${esc(d.title)}</h1><div class="meta">${d.period ? `대상 기간: ${esc(d.period)} · ` : ''}작성일: ${created} · 브루노트 자동 생성 초안</div></header>
 ${contentToHtml(d.content)}
 ${autoPrint ? `<div class="print-hint">인쇄 창이 닫혔으면 Ctrl+P로 다시 열 수 있어요 · 'PDF로 저장'을 선택하면 파일로 보관됩니다</div>
 <script>window.onload = () => setTimeout(() => window.print(), 300);</script>` : ''}
