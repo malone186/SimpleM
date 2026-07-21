@@ -2,7 +2,11 @@
 import { useCallback, useEffect, useState, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View, LayoutAnimation, UIManager } from 'react-native';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 import { useNavigation } from '@react-navigation/native';
 
@@ -57,6 +61,19 @@ export default function InventoryScreen() {
   const [editingDocId, setEditingDocId] = useState<string | null>(null); // 현재 수정 중인 영수증 초안의 ID
   const [editingRows, setEditingRows] = useState<EditRow[]>([]); // 편집 중인 품목들 (기존 품목도 값 수정 가능)
   const [isSavingDraft, setIsSavingDraft] = useState(false); // 수정 사항 저장 중 로딩 여부
+
+  // [한글 주석: 카테고리 드롭다운 아코디언 창의 열림/닫힘 상태]
+  const [isCategoryOpen, setIsCategoryOpen] = useState(false);
+
+  // [한글 주석: 드롭다운이 쫀득하게 톡 펼쳐지도록 도와주는 스프링 트랜지션]
+  const springTransition = () => {
+    LayoutAnimation.configureNext({
+      duration: 320,
+      create: { type: LayoutAnimation.Types.spring, property: LayoutAnimation.Properties.opacity, springDamping: 0.8 },
+      update: { type: LayoutAnimation.Types.spring, springDamping: 0.8 },
+      delete: { type: LayoutAnimation.Types.spring, property: LayoutAnimation.Properties.opacity, springDamping: 0.8 }
+    });
+  };
 
   // [한글 주석] 새 품목 수동 추가를 위한 인풋 상태 관리 변수들
   const [newItemName, setNewItemName] = useState(''); // 추가할 품목명
@@ -557,28 +574,57 @@ export default function InventoryScreen() {
           </PressableScale>
         </View>
 
-        {/* [한글 주석] 재고 카테고리 필터 칩 바 */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoryBar}
-        >
-          {CATEGORIES.map((cat) => {
-            const active = selectedCategory === cat.id;
-            return (
-              <PressableScale
-                key={cat.id}
-                onPress={() => setSelectedCategory(cat.id)}
-                style={[styles.categoryChip, active && styles.categoryChipActive]}
-                to={0.93}
-              >
-                <Text style={[styles.categoryChipText, active && styles.categoryChipTextActive]}>
-                  {cat.label}
-                </Text>
-              </PressableScale>
-            );
-          })}
-        </ScrollView>
+        {/* [한글 주석: 가로 스크롤 대신 한눈에 들어오는 세련된 아코디언 드롭다운 카테고리 셀렉터] */}
+        <View style={styles.dropdownContainer}>
+          <PressableScale
+            style={styles.dropdownTrigger}
+            onPress={() => {
+              springTransition();
+              setIsCategoryOpen(!isCategoryOpen);
+            }}
+            to={0.97}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name="filter-outline" size={15} color={colors.mochaBrown} />
+              <Text style={styles.dropdownTriggerText}>
+                카테고리: {CATEGORIES.find((c) => c.id === selectedCategory)?.label || '전체'}
+              </Text>
+            </View>
+            <Ionicons 
+              name={isCategoryOpen ? 'chevron-up' : 'chevron-down'} 
+              size={16} 
+              color={colors.mochaBrown} 
+            />
+          </PressableScale>
+
+          {/* 드롭다운 리스트 (isCategoryOpen이 true일 때 부드럽게 하단으로 노출) */}
+          {isCategoryOpen && (
+            <View style={styles.dropdownList}>
+              {CATEGORIES.map((cat) => {
+                const active = selectedCategory === cat.id;
+                return (
+                  <PressableScale
+                    key={cat.id}
+                    style={[styles.dropdownItem, active && styles.dropdownItemActive]}
+                    onPress={() => {
+                      springTransition();
+                      setSelectedCategory(cat.id);
+                      setIsCategoryOpen(false);
+                    }}
+                    to={0.98}
+                  >
+                    <Text style={[styles.dropdownItemText, active && styles.dropdownItemTextActive]}>
+                      {cat.label}
+                    </Text>
+                    {active && (
+                      <Ionicons name="checkmark" size={16} color={colors.pointOrange} />
+                    )}
+                  </PressableScale>
+                );
+              })}
+            </View>
+          )}
+        </View>
 
         {/* 직접 등록 폼 */}
         {formOpen && (
@@ -820,6 +866,71 @@ const styles = StyleSheet.create({
   },
   categoryChipTextActive: {
     color: colors.white,
+    fontWeight: '800',
+  },
+
+  // [한글 주석: 세련된 카테고리 드롭다운 스타일 리스트]
+  dropdownContainer: {
+    position: 'relative',
+    zIndex: 50,
+    width: '100%',
+    marginBottom: 4,
+  },
+  dropdownTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: colors.white,
+    borderWidth: 1.2,
+    borderColor: 'rgba(140, 111, 86, 0.18)',
+    shadowColor: '#4E3629',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  dropdownTriggerText: {
+    ...typography.L4,
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: colors.espressoBrown,
+  },
+  dropdownList: {
+    marginTop: 6,
+    borderRadius: 12,
+    backgroundColor: colors.white,
+    borderWidth: 1.2,
+    borderColor: 'rgba(140, 111, 86, 0.18)',
+    padding: 6,
+    shadowColor: '#4E3629',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+    gap: 2,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  dropdownItemActive: {
+    backgroundColor: 'rgba(140, 111, 86, 0.06)',
+  },
+  dropdownItemText: {
+    ...typography.L4,
+    fontSize: 13,
+    color: colors.mochaBrown,
+    fontWeight: '600',
+  },
+  dropdownItemTextActive: {
+    color: colors.espressoBrown,
     fontWeight: '800',
   },
 });

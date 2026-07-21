@@ -1055,10 +1055,11 @@ const styles = StyleSheet.create({
   },
 
   todoWrapper: {
-    paddingVertical: 12,
+    paddingTop: 28,
+    paddingBottom: 12,
     paddingHorizontal: 4,
     minHeight: 180,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
   },
   toggleTrack: {
     width: 200, // [가독성 개선] 위치 칩이 있던 자리까지 가로로 확장
