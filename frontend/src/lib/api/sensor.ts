@@ -121,6 +121,10 @@ export const unpairSensorDevice = (token: string, deviceId: string) =>
     { method: 'POST', headers: auth(token) },
   );
 
+// 센서 기능 ON/OFF 현재 상태 조회 — 설정 화면 스위치 초기값용
+export const getSensorFeature = (token: string) =>
+  apiFetch<{ enabled: boolean }>('/api/v1/sensor/feature', { headers: auth(token) });
+
 // 센서 기능 매장별 ON/OFF — 센서 없는 카페는 끄면 라이브·배너·코치 알림 전부 사라짐
 export const setSensorFeature = (token: string, enabled: boolean) =>
   apiFetch<{ ok: boolean; enabled: boolean }>('/api/v1/sensor/feature', {

@@ -70,6 +70,12 @@ def unpair_device(device_id: str, current_user: User = Depends(get_current_user)
     return sensor_service.unpair_device(current_user.email, device_id)
 
 
+@router.get("/feature")
+def get_feature(current_user: User = Depends(get_current_user)):
+    """[한글 주석] 센서 기능 ON/OFF 현재 상태 — 설정 화면 스위치 초기값용 경량 조회"""
+    return {"enabled": sensor_service.is_feature_enabled(current_user.email)}
+
+
 @router.post("/feature")
 def set_feature(payload: FeatureToggle, current_user: User = Depends(get_current_user)):
     """[한글 주석] 센서 기능 매장별 ON/OFF — 끄면 라이브·데모 배너·발주 코치 알림 전부 중단"""

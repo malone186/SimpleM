@@ -24,6 +24,7 @@ import { Segmented } from '../../components/ui/Segmented';
 import { PressableScale } from '../../components/motion';
 import { confirmDialog, toast } from '../../components/toast';
 import { API_BASE_URL } from '../../lib/api/client';
+import { getSensorFeature, setSensorFeature } from '../../lib/api/sensor';
 import { colors, typography } from '../../theme';
 
 const wonFmt = (n: number) => '₩' + Math.round(n || 0).toLocaleString('ko-KR');
@@ -99,6 +100,33 @@ export default function SettingsScreen() {
   const [inquiryTab, setInquiryTab] = useState<'write' | 'list' | 'faq'>('write');
   // [한글 주석: 자주 묻는 질문(FAQ)의 아코디언 펼침 인덱스 관리]
   const [faqExpandedId, setFaqExpandedId] = useState<number | null>(null);
+
+  // [한글 주석] 매장 센서 연동 기능 ON/OFF — null이면 서버에서 현재 상태 로딩 전 (스위치 잠금)
+  const [sensorOn, setSensorOn] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    getSensorFeature(token)
+      .then((r) => setSensorOn(r.enabled))
+      .catch(() => {});
+  }, [token]);
+
+  const toggleSensor = async (next: boolean) => {
+    if (!token) return;
+    setSensorOn(next); // 낙관적 반영 — 실패 시 아래에서 원복
+    try {
+      await setSensorFeature(token, next);
+      toast(
+        next ? '센서 연동 켜짐' : '센서 연동 꺼짐',
+        next
+          ? '발주 화면에 실시간 라이브·AI 발주 코치가 다시 표시돼요.'
+          : '라이브·배너·AI 코치 알림이 모두 숨겨져요. 언제든 다시 켤 수 있어요.'
+      );
+    } catch {
+      setSensorOn(!next);
+      toast('변경 실패', '서버 연결을 확인하고 잠시 후 다시 시도해 주세요.');
+    }
+  };
 
   // [한글 주석: 1대1 CS 탭 슬라이더 너비 및 슬라이드 애니메이션 상태]
   const [csTrackWidth, setCsTrackWidth] = useState(300);
@@ -375,7 +403,7 @@ export default function SettingsScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.menuItemTitle}>가게 & 계정 설정</Text>
-                <Text style={styles.menuItemDesc}>매장명, 사장님 이름, 비밀번호 변경, 로그아웃</Text>
+                <Text style={styles.menuItemDesc}>매장명, 사장님 이름, 센서 연동, 비밀번호 변경</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
             </View>
@@ -606,6 +634,21 @@ export default function SettingsScreen() {
             ]}
           />
         )}
+
+        <Divider />
+        <Row
+          label="매장 센서 연동"
+          hint="센서가 없는 매장은 꺼 두세요 — 발주 화면의 라이브·배너·AI 코치 알림이 모두 숨겨져요"
+          right={
+            <Switch
+              value={sensorOn === true}
+              disabled={sensorOn === null}
+              onValueChange={toggleSensor}
+              trackColor={{ false: '#D6CFC7', true: colors.espressoBrown }}
+              thumbColor={colors.white}
+            />
+          }
+        />
 
         <Divider />
         <Text style={[styles.fieldLabel, { marginTop: 4 }]}>비밀번호 변경</Text>
