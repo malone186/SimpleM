@@ -123,14 +123,8 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         if not cert_str:
             raise jwt.PyJWTError("Corresponding Google public key not found")
 
-        # 인증서 PEM 파일 규격으로 공개키 오브젝트 생성
-        from jwt.algorithms import RSAAlgorithm
-        public_key = RSAAlgorithm.from_jwk(
-            jwt.algorithms.RSAAlgorithm.to_jwk(cert_str) if hasattr(RSAAlgorithm, "to_jwk") else cert_str
-        )
-        if not hasattr(RSAAlgorithm, "from_jwk"):
-            # 구버전 PyJWT 호환 처리 (PEM String 직접 decode 허용)
-            public_key = cert_str
+        # [한글 주석: 구글 x509 인증서는 PyJWT가 직접 검증 시 수용할 수 있으므로, PEM 스트링을 그대로 대입합니다]
+        public_key = cert_str
 
         # 비대칭 서명, 만료일, 수신자(Project ID) 및 발급처 검증을 일괄 처리합니다.
         payload = jwt.decode(
@@ -143,7 +137,8 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         email = payload.get("email")
         name = payload.get("name", email.split("@")[0] if email else "사장님")
 
-    except jwt.PyJWTError:
+    except jwt.PyJWTError as e:
+        print(f"[DEBUG] Firebase token verification failed: {e}")
         # [2단계: 디버그 폴백 모드] Firebase 검증 실패 시, 로컬 HS256 토큰 해독을 자동 시도합니다.
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
