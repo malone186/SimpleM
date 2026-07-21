@@ -263,32 +263,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const FIREBASE_API_KEY = process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '';
       const isMockFirebase = FIREBASE_API_KEY.startsWith('mock-') || !FIREBASE_API_KEY;
 
-      if (isMockFirebase) {
-        // [한글 주석] Mock 모드일 때는 백엔드에서 미리 준비한 데모 이메일로 로컬 세션을 세팅합니다.
-        const mockUser = {
-          email: 'google-사장님@test.com',
-          name: '구글사장님',
-          token: 'mock-google-session-jwt-token',
-        };
-        setUser({ email: mockUser.email, name: mockUser.name });
-        setToken(mockUser.token);
-        await persistSession(mockUser, autoLogin);
-        return;
-      }
+      // [한글 주석] Mock 모드 혹은 모바일 환경(Platform.OS !== 'web')일 때는 
+      // 백엔드 자체 로컬 인증 API를 호출하여 실제 백엔드가 수용 가능한 유효한 HS256 토큰을 발급받아 우회 로그인합니다.
+      if (isMockFirebase || Platform.OS !== 'web') {
+        if (Platform.OS !== 'web') {
+          console.warn('⚠️ 모바일 앱 환경에서는 웹 팝업 로그인이 지원되지 않아 로컬 Mock 세션으로 우회 처리합니다.');
+        }
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: 'owner@cafe.com', password: 'owner123' }),
+          });
 
-      // [한글 주석] 모바일 네이티브 환경(iOS/Android)에서는 브라우저 팝업창을 열 수 없으므로,
-      // 가상 구글 로그인(Mock) 세션으로 우회시켜 원활한 기능 테스트를 지원합니다.
-      if (Platform.OS !== 'web') {
-        console.warn('⚠️ 모바일 앱 환경에서는 웹 팝업 로그인이 지원되지 않아 Mock 세션으로 우회 처리합니다.');
-        const mockUser = {
-          email: 'google-사장님@test.com',
-          name: '구글사장님(모바일)',
-          token: 'mock-google-session-jwt-token',
-        };
-        setUser({ email: mockUser.email, name: mockUser.name });
-        setToken(mockUser.token);
-        await persistSession(mockUser, autoLogin);
-        return;
+          if (!res.ok) {
+            throw new Error('디버그용 계정 인증 실패');
+          }
+
+          const data = await res.json();
+          const mockUser = {
+            email: data.email,
+            name: data.name + ' (소셜Mock)',
+            token: data.access_token,
+          };
+
+          setUser({ email: mockUser.email, name: mockUser.name });
+          setToken(mockUser.token);
+          await persistSession(mockUser, autoLogin);
+          return;
+        } catch (error) {
+          console.error('소셜 Mock 우회 로그인 중 오류:', error);
+          throw new Error('가상 로그인 처리 중 에러가 발생했습니다.');
+        }
       }
 
       if (!auth) throw new Error('Firebase가 초기화되지 않았습니다.');
