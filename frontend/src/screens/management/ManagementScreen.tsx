@@ -23,6 +23,7 @@ type Item = {
 
 // 지정 팔레트 — 에스프레소 → 모카 → 토프 → 스톤 베이지 → 페일 아이보리
 const ITEMS: Item[] = [
+  { label: '디저트 관리', en: 'DESSERT', desc: '소비기한 · 폐기 손실 · 마진 순위', color: '#6B4A32', route: 'Dessert' },
   { label: '스케줄·급여', en: 'PAYROLL', desc: '알바 스케줄 · 손익 정산', color: '#5B514C', route: 'Operation' },
   { label: '서류·세금', en: 'DOCUMENTS', desc: '문서 초안 · 세금 관리', color: '#9A8E82', route: 'Document' },
   { label: '판매 입력', en: 'SALES', desc: 'POS 연동 · 수동 입력', color: '#D1C6B9', route: 'SalesInput' },
@@ -37,6 +38,7 @@ const LAYOUT = [
   { rotate: '-3deg', tx: -14, mt: -20 },
   { rotate: '5deg', tx: 10, mt: -18 },
   { rotate: '-4deg', tx: -6, mt: -20 },
+  { rotate: '3deg', tx: 12, mt: -20 },
 ];
 
 // 배경색 밝기로 텍스트 명암 결정

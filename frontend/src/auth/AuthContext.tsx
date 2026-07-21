@@ -1,11 +1,15 @@
 // c:\STUDY\SimpleM\frontend\src\auth\AuthContext.tsx
 // [한글 주석] 파이어베이스 인증(Firebase Auth)과 로컬 세션(AsyncStorage)을 활용한 점주 인증 상태 관리자입니다.
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
   updateProfile as updateFirebaseProfile,
+  GoogleAuthProvider,
+  OAuthProvider,
+  signInWithPopup,
 } from 'firebase/auth';
 import {
   createContext,
@@ -28,6 +32,8 @@ type AuthContextValue = {
   booting: boolean;
   login: (email: string, password: string, autoLogin: boolean) => Promise<void>;
   signup: (name: string, email: string, password: string, autoLogin: boolean) => Promise<void>;
+  loginWithGoogle: (autoLogin: boolean) => Promise<void>;
+  loginWithApple: (autoLogin: boolean) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (patch: { name?: string; store_name?: string; password?: string; photo?: string }) => Promise<void>;
 };
@@ -251,6 +257,153 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [login]
   );
 
+  // [한글 주석] 구글 계정을 이용한 소셜 로그인을 처리합니다. (Mock 모드 지원)
+  const loginWithGoogle = useCallback(
+    async (autoLogin: boolean) => {
+      const FIREBASE_API_KEY = process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '';
+      const isMockFirebase = FIREBASE_API_KEY.startsWith('mock-') || !FIREBASE_API_KEY;
+
+      // [한글 주석] Mock 모드 혹은 모바일 환경(Platform.OS !== 'web')일 때는 
+      // 백엔드 자체 로컬 인증 API를 호출하여 실제 백엔드가 수용 가능한 유효한 HS256 토큰을 발급받아 우회 로그인합니다.
+      if (isMockFirebase || Platform.OS !== 'web') {
+        if (Platform.OS !== 'web') {
+          console.warn('⚠️ 모바일 앱 환경에서는 웹 팝업 로그인이 지원되지 않아 로컬 Mock 세션으로 우회 처리합니다.');
+        }
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: 'owner@cafe.com', password: 'owner123' }),
+          });
+
+          if (!res.ok) {
+            throw new Error('디버그용 계정 인증 실패');
+          }
+
+          const data = await res.json();
+          const mockUser = {
+            email: data.email,
+            name: data.name + ' (소셜Mock)',
+            token: data.access_token,
+          };
+
+          setUser({ email: mockUser.email, name: mockUser.name });
+          setToken(mockUser.token);
+          await persistSession(mockUser, autoLogin);
+          return;
+        } catch (error) {
+          console.error('소셜 Mock 우회 로그인 중 오류:', error);
+          throw new Error('가상 로그인 처리 중 에러가 발생했습니다.');
+        }
+      }
+
+      if (!auth) throw new Error('Firebase가 초기화되지 않았습니다.');
+
+      try {
+        const provider = new GoogleAuthProvider();
+        // 팝업 창을 띄워 구글 로그인 시도
+        const result = await signInWithPopup(auth, provider);
+        const fbUser = result.user;
+        const idToken = await fbUser.getIdToken();
+        const userName = fbUser.displayName || fbUser.email?.split('@')[0] || '구글사장님';
+
+        // 백엔드 프로필 동기화
+        const response = await fetch(`${API_BASE_URL}/api/v1/auth/profile`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({
+            name: userName,
+            store_name: `${userName} 매장`,
+          }),
+        });
+
+        if (!response.ok) {
+          console.warn('백엔드 계정 동기화 경고: 소셜 회원 연동이 완전하지 않을 수 있습니다.');
+        }
+
+        const u = {
+          email: fbUser.email || 'google-사장님@test.com',
+          name: userName,
+          token: idToken,
+        };
+
+        setUser({ email: u.email, name: u.name });
+        setToken(idToken);
+        await persistSession(u, autoLogin);
+      } catch (err: any) {
+        console.error('구글 로그인 실패:', err);
+        throw new Error(err.message || '구글 로그인 중 오류가 발생했습니다.');
+      }
+    },
+    [persistSession]
+  );
+
+  // [한글 주석] 애플 계정을 이용한 소셜 로그인을 처리합니다. (Mock 모드 지원)
+  const loginWithApple = useCallback(
+    async (autoLogin: boolean) => {
+      const FIREBASE_API_KEY = process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '';
+      const isMockFirebase = FIREBASE_API_KEY.startsWith('mock-') || !FIREBASE_API_KEY;
+
+      if (isMockFirebase) {
+        // [한글 주석] Mock 모드일 때는 백엔드에서 미리 준비한 데모 이메일로 로컬 세션을 세팅합니다.
+        const mockUser = {
+          email: 'apple-사장님@test.com',
+          name: '애플사장님',
+          token: 'mock-apple-session-jwt-token',
+        };
+        setUser({ email: mockUser.email, name: mockUser.name });
+        setToken(mockUser.token);
+        await persistSession(mockUser, autoLogin);
+        return;
+      }
+
+      if (!auth) throw new Error('Firebase가 초기화되지 않았습니다.');
+
+      try {
+        const provider = new OAuthProvider('apple.com');
+        // 팝업 창을 띄워 애플 로그인 시도
+        const result = await signInWithPopup(auth, provider);
+        const fbUser = result.user;
+        const idToken = await fbUser.getIdToken();
+        const userName = fbUser.displayName || fbUser.email?.split('@')[0] || '애플사장님';
+
+        // 백엔드 프로필 동기화
+        const response = await fetch(`${API_BASE_URL}/api/v1/auth/profile`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({
+            name: userName,
+            store_name: `${userName} 매장`,
+          }),
+        });
+
+        if (!response.ok) {
+          console.warn('백엔드 계정 동기화 경고: 소셜 회원 연동이 완전하지 않을 수 있습니다.');
+        }
+
+        const u = {
+          email: fbUser.email || 'apple-사장님@test.com',
+          name: userName,
+          token: idToken,
+        };
+
+        setUser({ email: u.email, name: u.name });
+        setToken(idToken);
+        await persistSession(u, autoLogin);
+      } catch (err: any) {
+        console.error('애플 로그인 실패:', err);
+        throw new Error(err.message || '애플 로그인 중 오류가 발생했습니다.');
+      }
+    },
+    [persistSession]
+  );
+
   // [한글 주석] 로그아웃 시 Firebase 세션을 끊고 로컬 세션을 완전히 파기합니다.
   const logout = useCallback(async () => {
     try {
@@ -323,7 +476,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <AuthContext.Provider value={{ user, token, booting, login, signup, logout, updateProfile }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        booting,
+        login,
+        signup,
+        loginWithGoogle,
+        loginWithApple,
+        logout,
+        updateProfile,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

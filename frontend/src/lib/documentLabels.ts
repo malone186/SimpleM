@@ -160,5 +160,9 @@ export function formatValue(key: string, v: unknown): string {
     return n;
   }
   if (typeof v === 'string') return VALUE_LABELS[key]?.[v] ?? v;
+  // 배열·객체는 원래 DocumentCard가 섹션으로 펼쳐 렌더링한다. 여기까지 오면(인쇄 HTML 등
+  // 재귀하지 않는 경로) "[object Object]" 대신 최소한 읽을 수 있는 요약으로 대체한다.
+  if (Array.isArray(v)) return v.length ? `${v.length}건` : '—';
+  if (typeof v === 'object') return '—';
   return String(v);
 }

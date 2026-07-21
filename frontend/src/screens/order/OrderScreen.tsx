@@ -22,12 +22,20 @@ import { listRoasteryBeans, RoasteryBean } from '../../lib/api/inventory';
 import BeanDetailModal from '../../components/order/BeanDetailModal';
 import BeanNotepad from '../../components/order/BeanNotepad';
 
-// [한글 주석: 부족한 부자재 재고 발주 추천 목록 데이터 정의]
+// [한글 주석: 부족한 부자재 및 원두 재고 발주 추천 목록 데이터 정의]
 const DEFICIENT_ITEMS = [
-  { id: 'milk', name: '서울우유 1L', status: '잔여 3팩 (안전재고 8팩)', query: '서울우유 1L' },
-  { id: 'cup', name: '종이컵 14oz', status: '잔여 150개 (안전재고 500개)', query: '카페 종이컵 14oz' },
-  { id: 'holder', name: '컵 홀더 (크라프트)', status: '잔여 80개 (안전재고 300개)', query: '카페 컵홀더 크라프트' },
-  { id: 'straw', name: '종이 빨대', status: '소진 임박 (안전재고 미달)', query: '카페 종이 빨대' },
+  { id: 'milk', name: '서울우유 1L', status: '잔여 3팩 (안전재고 8팩)', query: '서울우유 1L', is_bean: false },
+  { 
+    id: 'bean_gadello', 
+    name: '가델로 에스프레소 블렌드 원두 500g', 
+    status: '잔여 1봉 (안전재고 5봉)', 
+    query: '가델로 에스프레소 블렌드', 
+    is_bean: true, 
+    product_url: 'https://mungmung.site/?q=%EA%B0%80%EB%8D%B8%EB%A1%9C%20%EC%97%90%EC%8A%A4%ED%94%84%EB%A0%88%EC%86%8C%20%EB%B8%94%EB%A0%8C%EB%93%9C' 
+  },
+  { id: 'cup', name: '종이컵 14oz', status: '잔여 150개 (안전재고 500개)', query: '카페 종이컵 14oz', is_bean: false },
+  { id: 'holder', name: '컵 홀더 (크라프트)', status: '잔여 80개 (안전재고 300개)', query: '카페 컵홀더 크라프트', is_bean: false },
+  { id: 'straw', name: '종이 빨대', status: '소진 임박 (안전재고 미달)', query: '카페 종이 빨대', is_bean: false },
 ];
 
 export default function OrderScreen() {
@@ -80,11 +88,16 @@ export default function OrderScreen() {
     loadBeans();
   }, []);
 
-  // 상품 카드를 누르면 네이버 스마트스토어로 이동
+  // [한글 주석: 만료된 네이버 스마트스토어 대신 mungmung.site 의 검색 쿼리를 결합해 상세 페이지 링크를 구성합니다]
+  const getNoLoginProductUrl = (bean: RoasteryBean): string => {
+    const keyword = bean.name;
+    return `https://mungmung.site/?q=${encodeURIComponent(keyword)}`;
+  };
+
+  // 로그인 창 없이 원두 상품 구매 상세 페이지로 직행
   const handleBeanPress = (bean: RoasteryBean) => {
-    if (bean.product_url) {
-      Linking.openURL(bean.product_url);
-    }
+    const targetUrl = getNoLoginProductUrl(bean);
+    Linking.openURL(targetUrl);
   };
 
   // 가격 포맷: 예) 32000 → "32,000원"
@@ -158,7 +171,12 @@ export default function OrderScreen() {
                 key={item.id}
                 style={styles.defCard}
                 onPress={() => {
-                  Linking.openURL(`https://search.shopping.naver.com/search/all?query=${encodeURIComponent(item.query)}`);
+                  // [한글 주석: 원두 상품은 데이터베이스(DB)에 지정된 오리지널 mungmung.site 검색 링크로 연결하고, 그 외 일반 부자재는 네이버 쇼핑에서 검색합니다]
+                  if (item.is_bean && item.product_url) {
+                    Linking.openURL(item.product_url);
+                  } else {
+                    Linking.openURL(`https://search.shopping.naver.com/search/all?query=${encodeURIComponent(item.query)}`);
+                  }
                 }}
                 activeOpacity={0.8}
               >
@@ -225,8 +243,8 @@ export default function OrderScreen() {
               {/* 원두 정보 영역 */}
               <View style={styles.infoBox}>
                 {/* 로스터리 이름 */}
-                {bean.roastery?.name && (
-                  <Text style={styles.roasteryName}>{bean.roastery.name}</Text>
+                {Boolean(bean.roastery?.name) && (
+                  <Text style={styles.roasteryName}>{bean.roastery?.name}</Text>
                 )}
 
                 {/* 원두 이름 */}
@@ -235,15 +253,15 @@ export default function OrderScreen() {
                 </Text>
 
                 {/* 원산지 · 가공방식 정보 줄 */}
-                {(bean.country || bean.process) && (
+                {Boolean(bean.country || bean.process) && (
                   <View style={styles.metaRow}>
-                    {bean.country && (
+                    {Boolean(bean.country) && (
                       <View style={styles.metaChip}>
                         <Ionicons name="globe-outline" size={10} color={colors.mochaBrown} />
                         <Text style={styles.metaText}>{bean.country}</Text>
                       </View>
                     )}
-                    {bean.process && (
+                    {Boolean(bean.process) && (
                       <View style={styles.metaChip}>
                         <Ionicons name="options-outline" size={10} color={colors.mochaBrown} />
                         <Text style={styles.metaText}>{bean.process}</Text>
@@ -270,13 +288,13 @@ export default function OrderScreen() {
                   <Text style={[styles.price, bean.sold_out && styles.priceSoldOut]}>
                     {formatPrice(bean.price)}
                   </Text>
-                  {bean.price_per_gram && (
+                  {Boolean(bean.price_per_gram) && (
                     <Text style={styles.perGram}>
-                      ({bean.price_per_gram.toFixed(1)}원/g)
+                      ({bean.price_per_gram?.toFixed(1)}원/g)
                     </Text>
                   )}
-                  {/* 외부 링크 아이콘 — 상품 페이지로 이동한다는 단서 */}
-                  {!bean.sold_out && bean.product_url && (
+                  {/* 외부 링크 아이콘 — 로그인 필요 없는 직통 상품 페이지 이동 버튼 */}
+                  {!bean.sold_out && (
                     <Ionicons
                       name="open-outline"
                       size={14}

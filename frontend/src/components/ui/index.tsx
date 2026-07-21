@@ -154,8 +154,8 @@ export function Button({
   );
 }
 
-export function Divider() {
-  return <View style={styles.divider} />;
+export function Divider({ style }: { style?: StyleProp<ViewStyle> }) {
+  return <View style={[styles.divider, style]} />;
 }
 
 // 진행 바 (재고 수준 등)

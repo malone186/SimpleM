@@ -310,10 +310,14 @@ export default function BeanDetailModal({ bean, visible, onClose }: Props) {
           {bean.product_url && !bean.sold_out && (
             <TouchableOpacity
               style={styles.buyBtn}
-              onPress={() => Linking.openURL(bean.product_url!)}
+              onPress={() => {
+                let url = bean.product_url!.replace(/https?:\/\/(m\.)+/g, 'https://');
+                url = url.replace('/main/products/', '/products/');
+                Linking.openURL(url);
+              }}
             >
               <Ionicons name="cart-outline" size={16} color={colors.white} />
-              <Text style={styles.buyText}>스마트스토어에서 구매</Text>
+              <Text style={styles.buyText}>웹사이트에서 원두 구매하기</Text>
               <Ionicons name="open-outline" size={13} color={colors.white} />
             </TouchableOpacity>
           )}

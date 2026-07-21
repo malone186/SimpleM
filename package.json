@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "SimpleM 루트 단축 패키지 설정",
   "scripts": {
-    "dev": "npm --prefix frontend run dev",
+    "dev": "npm --prefix frontend run web",
     "build": "npm --prefix frontend run build",
     "start": "npm --prefix frontend run start"
   }

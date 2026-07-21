@@ -12,6 +12,7 @@ import AuthScreen from '../screens/auth/AuthScreen';
 import ChatbotScreen from '../screens/chatbot/ChatbotScreen';
 import CostScreen from '../screens/cost/CostScreen';
 import DashboardScreen from '../screens/dashboard/DashboardScreen';
+import DessertScreen from '../screens/dessert/DessertScreen';
 import DocumentScreen from '../screens/document/DocumentScreen';
 import IngredientScreen from '../screens/ingredient/IngredientScreen';
 import InventoryScreen from '../screens/inventory/InventoryScreen';
@@ -31,7 +32,9 @@ export type RootTabParamList = {
   Dashboard: undefined;
   Inventory: undefined;
   Order: undefined;
-  Chatbot: undefined;
+  // prefill: 다른 화면(경영 리포트 등)에서 버튼으로 넘어올 때 입력창에 미리 채울 질문
+  //   ts: 같은 질문을 다시 눌러도 파라미터가 바뀌어 재입력되도록 하는 클릭 시각
+  Chatbot: { prefill?: string; ts?: number } | undefined;
   Management: undefined;
 };
 
@@ -51,6 +54,7 @@ export type RootStackParamList = {
   TaxDraftDetail: { tax: TaxEstimate };
   Operation: undefined;
   Settings: undefined;
+  Dessert: undefined;
 };
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -123,6 +127,7 @@ export default function RootNavigator() {
         <Stack.Screen name="TaxDraftDetail" component={TaxDraftDetailScreen} options={erpHeader('세금 신고 초안')} />
         <Stack.Screen name="Operation" component={OperationScreen} options={erpHeader('운영')} />
         <Stack.Screen name="Settings" component={SettingsScreen} options={erpHeader('설정')} />
+        <Stack.Screen name="Dessert" component={DessertScreen} options={erpHeader('디저트 관리')} />
       </Stack.Navigator>
     </NavigationContainer>
   );
