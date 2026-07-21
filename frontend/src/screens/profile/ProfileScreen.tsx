@@ -19,7 +19,14 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../auth/AuthContext';
 import StoreLocationMap from '../../components/dashboard/StoreLocationMap';
 import { FadeInUp, PressableScale } from '../../components/motion';
-import { getDevicePosition, getSalesForecast, type SalesForecast } from '../../lib/api/forecast';
+import {
+  cacheStoreLocation,
+  getDevicePosition,
+  getSalesForecast,
+  getStoredStoreLocation,
+  type SalesForecast,
+  type StoredStoreLocation,
+} from '../../lib/api/forecast';
 import { colors, spacing, typography } from '../../theme';
 
 export default function ProfileScreen() {
@@ -31,8 +38,21 @@ export default function ProfileScreen() {
   const [photo, setPhoto] = useState<string | undefined>(user?.photo);
   const [saved, setSaved] = useState(false);
 
-  // [한글 주석] 매장 위치·주변 행사 — 대시보드와 같은 예측 API에서 좌표와 지역명을 받아 네이버 지도에 표시
+  // [한글 주석] 매장 위치·주변 행사 — 로컬 저장 좌표(가입 핀/예측 캐시)로 지도를 먼저 즉시 띄우고,
+  // 무거운 예측 API는 뒤에서 받아 지역명 보정과 인근 행사 마커만 추가한다
+  const [storedLoc, setStoredLoc] = useState<StoredStoreLocation | null>(null);
   const [forecast, setForecast] = useState<SalesForecast | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getStoredStoreLocation().then((loc) => {
+      if (!cancelled && loc) setStoredLoc(loc);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
@@ -40,7 +60,11 @@ export default function ProfileScreen() {
       try {
         const pos = await getDevicePosition();
         const data = await getSalesForecast(token, pos?.lat, pos?.lon);
-        if (!cancelled) setForecast(data);
+        if (!cancelled) {
+          setForecast(data);
+          // 다음 방문부터는 이 좌표로 지도가 즉시 뜨도록 캐시
+          if (data.location) cacheStoreLocation(data.location);
+        }
       } catch (e) {
         console.error('프로필 매장 위치 조회 실패:', e);
       }
@@ -49,6 +73,10 @@ export default function ProfileScreen() {
       cancelled = true;
     };
   }, [token]);
+
+  // 예측 응답이 오면 그것을 우선, 오기 전엔 로컬 저장 좌표로 즉시 렌더
+  const mapLocation = forecast?.location ?? storedLoc;
+  const mapRegion = forecast?.location?.region ?? storedLoc?.region ?? '';
 
   const initial = (user?.name || 'S').charAt(0).toUpperCase();
 
@@ -138,16 +166,16 @@ export default function ProfileScreen() {
         {/* [한글 주석] 매장 위치 네이버 지도 — 위치 칩 대신 프로필 창에서 확인 (브라운 마커=내 매장, 오렌지=인근 행사) */}
         <FadeInUp delay={225}>
           <Text style={styles.label}>
-            매장 위치{forecast?.location?.region ? ` — ${forecast.location.region}` : ''}
+            매장 위치{mapRegion ? ` — ${mapRegion}` : ''}
           </Text>
           <View style={styles.mapCard}>
-            {forecast?.location ? (
+            {mapLocation ? (
               <StoreLocationMap
-                lat={forecast.location.lat}
-                lon={forecast.location.lon}
-                regionName={forecast.location.region}
+                lat={mapLocation.lat}
+                lon={mapLocation.lon}
+                regionName={mapRegion}
                 shopLabel={user?.name ? `내 매장 (${user.name})` : '내 매장'}
-                nearbyEvents={forecast.nearby_events ?? []}
+                nearbyEvents={forecast?.nearby_events ?? []}
                 containerId="profile-store-map"
               />
             ) : (

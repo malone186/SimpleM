@@ -8,6 +8,39 @@ import { apiFetch } from './client';
 // 회원가입 지도 핀으로 설정한 매장 위치 저장 키 (AuthScreen에서 기록)
 export const STORE_LOCATION_KEY = 'simplem:storeLocation';
 
+// 마지막으로 예측 API가 알려준 매장 위치 캐시 키 — 가입 핀이 없는 기기(재로그인 등)에서도
+// 프로필 지도를 API 응답 전에 즉시 그릴 수 있게 한다
+export const STORE_LOCATION_CACHE_KEY = 'simplem:lastStoreLocation';
+
+export type StoredStoreLocation = { lat: number; lon: number; region?: string };
+
+/** 로컬에 저장된 매장 위치를 즉시 반환 (가입 핀 → 예측 캐시 순). 없으면 null.
+ * 네트워크를 전혀 타지 않으므로 지도 첫 렌더에 그대로 써도 된다. */
+export async function getStoredStoreLocation(): Promise<StoredStoreLocation | null> {
+  for (const key of [STORE_LOCATION_KEY, STORE_LOCATION_CACHE_KEY]) {
+    try {
+      const raw = await AsyncStorage.getItem(key);
+      if (!raw) continue;
+      const saved = JSON.parse(raw) as { lat?: number; lon?: number; region?: string };
+      if (typeof saved.lat === 'number' && typeof saved.lon === 'number') {
+        return { lat: saved.lat, lon: saved.lon, region: saved.region };
+      }
+    } catch {
+      // 저장값이 깨졌으면 다음 후보로
+    }
+  }
+  return null;
+}
+
+/** 예측 API가 확정한 위치를 캐시에 기록 — 다음 방문부터 지도가 즉시 뜬다. */
+export async function cacheStoreLocation(loc: StoredStoreLocation): Promise<void> {
+  try {
+    await AsyncStorage.setItem(STORE_LOCATION_CACHE_KEY, JSON.stringify(loc));
+  } catch {
+    // 캐시 실패는 치명적이지 않으므로 무시
+  }
+}
+
 export type ForecastDay = {
   date: string;
   weekday: string;
