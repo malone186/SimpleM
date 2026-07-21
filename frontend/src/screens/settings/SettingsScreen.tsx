@@ -101,19 +101,20 @@ export default function SettingsScreen() {
   // [한글 주석: 자주 묻는 질문(FAQ)의 아코디언 펼침 인덱스 관리]
   const [faqExpandedId, setFaqExpandedId] = useState<number | null>(null);
 
-  // [한글 주석] 매장 센서 연동 기능 ON/OFF — null이면 서버에서 현재 상태 로딩 전 (스위치 잠금)
-  const [sensorOn, setSensorOn] = useState<boolean | null>(null);
+  // [한글 주석] 매장 센서 연동 기능 ON/OFF — 백엔드 기본값과 동일하게 ON으로 시작하고,
+  // 서버 조회가 성공하면 실제 값으로 동기화. 조회가 실패해도 스위치는 항상 누를 수 있다.
+  const [sensorOn, setSensorOn] = useState(true);
 
   useEffect(() => {
     if (!token) return;
     getSensorFeature(token)
       .then((r) => setSensorOn(r.enabled))
-      .catch(() => {});
+      .catch(() => {}); // 구버전 서버(GET 미지원)여도 토글은 정상 동작
   }, [token]);
 
   const toggleSensor = async (next: boolean) => {
-    if (!token) return;
     setSensorOn(next); // 낙관적 반영 — 실패 시 아래에서 원복
+    if (!token) return;
     try {
       await setSensorFeature(token, next);
       toast(
@@ -641,8 +642,7 @@ export default function SettingsScreen() {
           hint="센서가 없는 매장은 꺼 두세요 — 발주 화면의 라이브·배너·AI 코치 알림이 모두 숨겨져요"
           right={
             <Switch
-              value={sensorOn === true}
-              disabled={sensorOn === null}
+              value={sensorOn}
               onValueChange={toggleSensor}
               trackColor={{ false: '#D6CFC7', true: colors.espressoBrown }}
               thumbColor={colors.white}
