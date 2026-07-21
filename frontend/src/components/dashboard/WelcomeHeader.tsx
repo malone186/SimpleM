@@ -98,9 +98,10 @@ export default function WelcomeHeader({
       <Animated.View style={[styles.mainRow, { transform: [{ translateY }] }]}>
         {/* [한글 주석: 투데이스 브루 뱃지를 깔끔하게 제거하고 단어 꺾임 없이 한 줄로 배치한 말풍선] */}
         <View style={styles.bubble}>
-          {/* [한글 주석: 1행 사장님 인사말] */}
-          <Text style={styles.greetingLine} numberOfLines={1}>
-            안녕하세요, <Text style={styles.nameHighlight}>{storeName}</Text> 사장님!
+          {/* [한글 주석: 1행 인사말 - 사용자의 요청에 따라 안녕하세요 후 줄바꿈 처리] */}
+          <Text style={[styles.greetingLine, { marginBottom: 1 }]}>안녕하세요,</Text>
+          <Text style={[styles.greetingLine, { marginBottom: 5 }]} numberOfLines={1}>
+            <Text style={styles.nameHighlight}>{storeName}</Text> 사장님!
           </Text>
 
           {/* [한글 주석: 2행 명언 - 단어 가름 없이 폰트를 10.5px로 조절하여 1문장 1줄 정렬] */}
