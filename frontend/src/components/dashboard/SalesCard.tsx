@@ -335,15 +335,15 @@ export default function SalesCard({
       : null;
   const badgeText = deltaPct === null ? '비교 없음' : `${deltaPct >= 0 ? '▲' : '▼'} ${Math.abs(deltaPct).toFixed(1)}%`;
   const isBadgeDown = deltaPct !== null && deltaPct < 0;
-  // [한글 주석] 사장님이 %의 비교 기준을 바로 알 수 있게 배지 아래에 붙이는 설명 문구
+  // [한글 주석] 사장님이 %의 비교 기준을 바로 알 수 있게 배지 아래에 붙이는 설명 문구 (한 줄 가로 배치를 위해 콤팩트화)
   const badgeHint =
     deltaPct === null
       ? isMonthly
         ? '지난달 기록 없음'
-        : '어제 판매 기록 없음'
+        : '어제 기록 없음'
       : isMonthly
-        ? '지난달 같은 기간 대비'
-        : '어제 하루 매출 대비';
+        ? '지난달 대비'
+        : '어제 대비';
 
   // 하단 세부 요약 수치 — 일간은 오늘 실적, 월간은 이번 달 집계 (데이터 없으면 '—')
   const monthCups = calendar?.month_total.cups ?? 0;
@@ -372,22 +372,16 @@ export default function SalesCard({
         <View style={{ flex: 1, alignItems: 'flex-start' }}>
           {/* [한글 주석] 위치 칩은 웰컴 헤더(말풍선 아래)로 이동 — 탭 토글이 그 자리까지 넓게 쓴다 */}
           <SlidingTabToggle value={activeTab} onChange={setActiveTab} />
-          {/* [한글 주석] todo 탭일 때는 상단 비용(매출액) 문구를 표시하지 않음 */}
+          {/* [한글 주석] todo 탭일 때는 매출 문구와 대비 퍼센트를 표시하지 않음 */}
           {activeTab !== 'todo' && (
-            <Text style={[styles.amount, { marginTop: 10 }]}>₩ {amount.toLocaleString()}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 10 }}>
+              <Text style={styles.amount}>₩ {amount.toLocaleString()}</Text>
+              <Text style={{ ...typography.L5, fontSize: 11.5, fontWeight: '800', color: isBadgeDown ? '#B23B2E' : colors.trendGreenText }}>
+                {badgeHint} {badgeText}
+              </Text>
+            </View>
           )}
         </View>
-
-        {/* [한글 주석] todo 탭일 때는 성장폭 뱃지도 표시하지 않음 */}
-        {activeTab !== 'todo' && (
-          <View style={{ alignItems: 'flex-end', gap: 3 }}>
-            <View style={[styles.badge, isBadgeDown && styles.badgeDown]}>
-              <Text style={[styles.badgeText, isBadgeDown && styles.badgeTextDown]}>{badgeText}</Text>
-            </View>
-            {/* [한글 주석] % 비교 기준 안내 — 예: "어제 하루 매출 대비" */}
-            <Text style={styles.badgeHint}>{badgeHint}</Text>
-          </View>
-        )}
       </View>
 
       {/* 실시간 차트 / 토스 달력 / 할 일 목록 전환 영역 */}
@@ -482,7 +476,7 @@ export default function SalesCard({
             style={styles.chartWrap}
             onLayout={(e) => setLayoutWidth(e.nativeEvent.layout.width)}
           >
-            <Svg width="100%" height="120" viewBox="0 0 300 130" preserveAspectRatio="none">
+            <Svg width="100%" height={120} viewBox="0 0 300 120" preserveAspectRatio="none">
               <Defs>
                 <LinearGradient id="todayFill" x1="0" y1="0" x2="0" y2="1">
                   <Stop offset="0" stopColor={colors.espressoBrown} stopOpacity="0.14" />
@@ -1075,6 +1069,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 0.8,
     borderColor: 'rgba(140, 111, 86, 0.04)',
+    // [한글 주석: 사용자의 시각적 요청에 맞춰 왼쪽과 위로 8px씩 살짝 오프셋 조정]
+    marginLeft: -8,
+    marginTop: -8,
   },
   toggleCapsule: {
     position: 'absolute',
@@ -1214,13 +1211,13 @@ const styles = StyleSheet.create({
     color: colors.mochaBrown,
     opacity: 0.75,
   },
-  chartWrap: { marginTop: 8, height: 140, position: 'relative' }, // [여백 비율 재조정] 범례와 밀착
+  chartWrap: { marginTop: 8, position: 'relative' }, // [정렬 보정] 고정 높이를 없애 유연하게 배치
   xAxis: {
-    position: 'absolute',
-    bottom: -10,
-    left: 0,
-    right: 0,
-    height: 16,
+    flexDirection: 'row',
+    width: '100%', // [정렬 보정] 너비를 명시적으로 100% 부여하여 absolute 자식들의 좌표 붕괴 예방
+    height: 18,
+    marginTop: 6,
+    position: 'relative',
   },
   // [정렬 보정] 폭 0 앵커 + 넘치는 텍스트 중앙 정렬 트릭 — 라벨 중심이 차트 원 좌표와 일치
   xAxisTickWrap: {

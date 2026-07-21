@@ -151,7 +151,7 @@ export default function OrderScreen() {
       {/* 상단 타이틀 */}
       <ScreenTitle
         title="발주"
-        subtitle="부자재 부족 재고 쇼핑 및 로스터리 원두 탐색"
+        subtitle="부자재 부족 재고 쇼핑"
       />
 
       {/* 원두 메모장 — 현재 사용 원두 및 체험 노트 */}
@@ -193,126 +193,7 @@ export default function OrderScreen() {
           </View>
         </View>
 
-        {/* 섹션 구분 라벨 */}
-        <View style={styles.sectionLabel}>
-          <View style={styles.sectionLine} />
-          <Text style={styles.sectionLabelText}>로스터리 원두 탐색</Text>
-          <View style={styles.sectionLine} />
-        </View>
 
-        {beans.map((bean) => {
-          const badges = getBadges(bean);
-          return (
-            <TouchableOpacity
-              key={bean.id}
-              style={[styles.card, bean.sold_out && styles.cardSoldOut]}
-              onPress={() => handleBeanPress(bean)}
-              activeOpacity={0.85}
-            >
-              {/* 우상단 상세정보 버튼 — 스마트스토어 이동과 분리 */}
-              <TouchableOpacity
-                style={styles.infoBtn}
-                onPress={(e) => { e.stopPropagation(); openDetail(bean); }}
-                hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
-              >
-                <Ionicons name="information-circle-outline" size={20} color={colors.mochaBrown} />
-              </TouchableOpacity>
-              {/* 썸네일 이미지 */}
-              <View style={styles.imageBox}>
-                {bean.thumbnail_url ? (
-                  <Image
-                    source={{ uri: bean.thumbnail_url }}
-                    style={styles.thumbnail}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View style={styles.noImageBox}>
-                    {/* 이미지 없을 경우 대체 아이콘 */}
-                    <Ionicons name="cafe-outline" size={32} color={colors.mochaBrown} />
-                  </View>
-                )}
-
-                {/* 품절 오버레이 */}
-                {bean.sold_out && (
-                  <View style={styles.soldOutOverlay}>
-                    <Text style={styles.soldOutOverlayText}>품절</Text>
-                  </View>
-                )}
-              </View>
-
-              {/* 원두 정보 영역 */}
-              <View style={styles.infoBox}>
-                {/* 로스터리 이름 */}
-                {Boolean(bean.roastery?.name) && (
-                  <Text style={styles.roasteryName}>{bean.roastery?.name}</Text>
-                )}
-
-                {/* 원두 이름 */}
-                <Text style={styles.beanName} numberOfLines={2}>
-                  {bean.name}
-                </Text>
-
-                {/* 원산지 · 가공방식 정보 줄 */}
-                {Boolean(bean.country || bean.process) && (
-                  <View style={styles.metaRow}>
-                    {Boolean(bean.country) && (
-                      <View style={styles.metaChip}>
-                        <Ionicons name="globe-outline" size={10} color={colors.mochaBrown} />
-                        <Text style={styles.metaText}>{bean.country}</Text>
-                      </View>
-                    )}
-                    {Boolean(bean.process) && (
-                      <View style={styles.metaChip}>
-                        <Ionicons name="options-outline" size={10} color={colors.mochaBrown} />
-                        <Text style={styles.metaText}>{bean.process}</Text>
-                      </View>
-                    )}
-                  </View>
-                )}
-
-                {/* 배지 줄 (BEST, NEW, GESHA, DECAF...) */}
-                {badges.length > 0 && (
-                  <View style={styles.badgeRow}>
-                    {badges.map((b) => (
-                      <View key={b.label} style={[styles.badge, styles[`badge_${b.style}`]]}>
-                        <Text style={[styles.badgeText, styles[`badgeText_${b.style}`]]}>
-                          {b.label}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-
-                {/* 가격 줄 */}
-                <View style={styles.priceRow}>
-                  <Text style={[styles.price, bean.sold_out && styles.priceSoldOut]}>
-                    {formatPrice(bean.price)}
-                  </Text>
-                  {Boolean(bean.price_per_gram) && (
-                    <Text style={styles.perGram}>
-                      ({bean.price_per_gram?.toFixed(1)}원/g)
-                    </Text>
-                  )}
-                  {/* 외부 링크 아이콘 — 로그인 필요 없는 직통 상품 페이지 이동 버튼 */}
-                  {!bean.sold_out && (
-                    <Ionicons
-                      name="open-outline"
-                      size={14}
-                      color={colors.mochaBrown}
-                      style={styles.linkIcon}
-                    />
-                  )}
-                </View>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-
-        {/* 하단 안내 문구 */}
-        <Text style={styles.footNote}>
-          카드를 누르면 해당 로스터리 스마트스토어 상품 페이지로 이동해요.{`\n`}
-          ℹ️ 아이콘을 누르면 원두 상세 정보와 커피 가이드를 볼 수 있습니다.
-        </Text>
       </ScrollView>
 
       {/* 원두 상세 정보 모달 */}

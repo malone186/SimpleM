@@ -27,22 +27,39 @@ export function PressableScale({
   to?: number;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
+  const opacity = useRef(new Animated.Value(1)).current; // [한글 주석: 투박함을 없애기 위해 꾹 누를 때의 알파 투명도 상태 추가]
 
-  const pressIn = () =>
-    Animated.spring(scale, {
-      toValue: to,
-      useNativeDriver: true,
-      speed: 50,
-      bounciness: 0,
-    }).start();
+  const pressIn = () => {
+    Animated.parallel([
+      Animated.spring(scale, {
+        toValue: to,
+        useNativeDriver: true,
+        speed: 50,
+        bounciness: 0,
+      }),
+      Animated.timing(opacity, {
+        toValue: 0.76, // 꾹 눌렸을 때 투명도를 76%로 낮추어 부드러운 하이라이트 효과 연출
+        duration: 100,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
 
-  const pressOut = () =>
-    Animated.spring(scale, {
-      toValue: 1,
-      useNativeDriver: true,
-      speed: 12,
-      bounciness: 12, // 놓을 때 통통 튀는 오버슛
-    }).start();
+  const pressOut = () => {
+    Animated.parallel([
+      Animated.spring(scale, {
+        toValue: 1,
+        useNativeDriver: true,
+        speed: 12,
+        bounciness: 12, // 놓을 때 통통 튀는 오버슛
+      }),
+      Animated.timing(opacity, {
+        toValue: 1, // 떼면 다시 신속하게 100% 투명도로 조용히 복원
+        duration: 100,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
 
   return (
     <AnimatedPressable
@@ -50,7 +67,7 @@ export function PressableScale({
       onPressIn={pressIn}
       onPressOut={pressOut}
       disabled={disabled}
-      style={[style, { transform: [{ scale }] }]}
+      style={[style, { transform: [{ scale }], opacity }]}
     >
       {children}
     </AnimatedPressable>

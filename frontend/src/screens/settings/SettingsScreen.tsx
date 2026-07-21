@@ -1,9 +1,14 @@
 // 설정 화면 — 관리 허브에서 진입. (P0)
 // ① 계정/가게 정보  ② 구독/결제(ROI 해지방지)  ③ 알림 설정  ④ 화면 표시/접근성
 // 계정은 백엔드 /auth 실연동, 나머지 환경설정은 PreferencesContext(AsyncStorage)에 저장.
-import { useEffect, useState } from 'react';
-import { Modal, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { useEffect, useState, useRef } from 'react';
+import { Modal, ScrollView, StyleSheet, Switch, Text, TextInput, View, LayoutAnimation, Platform, UIManager, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+
+// [한글 주석: Android 기기에서 레이아웃 애니메이션이 부드럽게 동작하도록 허용하는 전처리]
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 import { useNavigation } from '@react-navigation/native';
 
 import { useAuth } from '../../auth/AuthContext';
@@ -88,6 +93,36 @@ export default function SettingsScreen() {
   const [savedSuccess, setSavedSuccess] = useState(false);
   // [한글 주석] 운영 시간 변경 모드 활성화 여부 (평소에는 휠 조작이 안 되게 잠금 확정 뷰로 표시)
   const [isEditingTime, setIsEditingTime] = useState(false);
+  // [한글 주석: 계정/가게 기본 정보(이름, 매장명, 업종) 수정 활성화 상태]
+  const [isEditingAccount, setIsEditingAccount] = useState(false);
+  // [한글 주석: 1대1 문의 화면 내 3가지 서브 탭 관리 상태]
+  const [inquiryTab, setInquiryTab] = useState<'write' | 'list' | 'faq'>('write');
+  // [한글 주석: 자주 묻는 질문(FAQ)의 아코디언 펼침 인덱스 관리]
+  const [faqExpandedId, setFaqExpandedId] = useState<number | null>(null);
+
+  // [한글 주석: 1대1 CS 탭 슬라이더 너비 및 슬라이드 애니메이션 상태]
+  const [csTrackWidth, setCsTrackWidth] = useState(300);
+  const csSlideAnim = useRef(new Animated.Value(0)).current;
+
+  // [한글 주석: 화면 subView 전환 시 툭툭 끊기지 않게 쫀득한 반동을 주는 커스텀 스프링 트랜지션]
+  const springTransition = () => {
+    LayoutAnimation.configureNext({
+      duration: 380,
+      create: { type: LayoutAnimation.Types.spring, property: LayoutAnimation.Properties.opacity, springDamping: 0.78 },
+      update: { type: LayoutAnimation.Types.spring, springDamping: 0.78 },
+      delete: { type: LayoutAnimation.Types.spring, property: LayoutAnimation.Properties.opacity, springDamping: 0.78 }
+    });
+  };
+
+  useEffect(() => {
+    const tabIndex = inquiryTab === 'write' ? 0 : inquiryTab === 'list' ? 1 : 2;
+    Animated.spring(csSlideAnim, {
+      toValue: tabIndex,
+      useNativeDriver: true,
+      tension: 110,
+      friction: 12,
+    }).start();
+  }, [inquiryTab]);
 
   // [한글 주석] 사장님 1대1 문의 / 요청사항 데이터 및 작성 모달 상태
   const [showInquiryModal, setShowInquiryModal] = useState(false);
@@ -118,6 +153,43 @@ export default function SettingsScreen() {
 
   const initial = (user?.name || 'S').charAt(0).toUpperCase();
 
+  // [한글 주석: 설정 창 내부 서브 라우팅 뷰 관리 상태 ('main'일 때는 메뉴 목록 노출)]
+  const [subView, setSubView] = useState<'main' | 'account' | 'subscription' | 'notification' | 'appearance' | 'inquiry' | 'legal'>('main');
+
+  // [한글 주석: 현재 진입한 subView 상태에 맞춰 상단 헤더 타이틀과 뒤로가기 동작을 동적으로 변경]
+  useEffect(() => {
+    let title = '설정';
+    if (subView === 'account') title = '가게 & 계정 설정';
+    else if (subView === 'subscription') title = '구독 & 결제 플랜';
+    else if (subView === 'notification') title = '알림 수신 설정';
+    else if (subView === 'appearance') title = '화면 표시 & 접근성';
+    else if (subView === 'inquiry') title = '1대1 CS 문의';
+    else if (subView === 'legal') title = '약관 및 정책';
+
+    navigation.setOptions({
+      title,
+      headerTintColor: colors.creamSand,
+      headerTitleStyle: {
+        fontWeight: '900',
+      },
+      headerLeft: () => (
+        <PressableScale
+          style={{ marginLeft: 12, padding: 6 }}
+          onPress={() => {
+            if (subView !== 'main') {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setSubView('main');
+            } else {
+              navigation.goBack();
+            }
+          }}
+        >
+          <Ionicons name="arrow-back" size={24} color={colors.creamSand} />
+        </PressableScale>
+      ),
+    });
+  }, [subView, navigation]);
+
   // 현재 가게 이름·회원 id는 로그인 응답에 없어 /users에서 이메일로 조회
   useEffect(() => {
     if (!user) return;
@@ -140,6 +212,7 @@ export default function SettingsScreen() {
       prefs.setPref('businessType', businessType);
       setSavedSuccess(true);
       setIsEditingTime(false); // [한글 주석] 저장 성공 시 시간 변경 모드를 닫고 확정 잠금 상태로 전환
+      setIsEditingAccount(false); // [한글 주석] 저장 성공 시 수정 모드를 닫고 정보 고정 상태로 전환
       toast('저장 완료', '계정·가게 정보가 확정 업데이트됐어요.');
       setTimeout(() => setSavedSuccess(false), 2200);
     } catch (e) {
@@ -260,7 +333,8 @@ export default function SettingsScreen() {
 
     setInquiryTitle('');
     setInquiryContent('');
-    setShowInquiryModal(false);
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setInquiryTab('list'); // 문의 완료 후 나의 문의 내역 탭으로 자동 이동
     toast('접수 완료', '1대1 문의 및 요청사항이 관리자에게 전달되었어요.');
   };
 
@@ -290,11 +364,163 @@ export default function SettingsScreen() {
 
   return (
     <Screen>
+      {/* ── [한글 주석: 설정 첫 화면 진입 시 카테고리 6개 항목 메뉴 리스트 노출] ── */}
+      {subView === 'main' && (
+        <View style={{ gap: 12, marginTop: 8 }}>
+          {/* 가게 & 계정 설정 */}
+          <PressableScale
+            style={styles.menuItemCard}
+            onPress={() => {
+              springTransition();
+              setSubView('account');
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={styles.menuIconWrap}>
+                <Ionicons name="storefront-outline" size={20} color={colors.espressoBrown} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.menuItemTitle}>가게 & 계정 설정</Text>
+                <Text style={styles.menuItemDesc}>매장명, 사장님 이름, 비밀번호 변경, 로그아웃</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
+            </View>
+          </PressableScale>
+
+          {/* 구독 & 결제 플랜 */}
+          <PressableScale
+            style={styles.menuItemCard}
+            onPress={() => {
+              springTransition();
+              setSubView('subscription');
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={styles.menuIconWrap}>
+                <Ionicons name="card-outline" size={20} color={colors.espressoBrown} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.menuItemTitle}>구독 & 결제 플랜</Text>
+                <Text style={styles.menuItemDesc}>이용 중인 플랜 확인, 요금제 업그레이드</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
+            </View>
+          </PressableScale>
+
+          {/* 알림 수신 설정 */}
+          <PressableScale
+            style={styles.menuItemCard}
+            onPress={() => {
+              springTransition();
+              setSubView('notification');
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={styles.menuIconWrap}>
+                <Ionicons name="notifications-outline" size={20} color={colors.espressoBrown} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.menuItemTitle}>알림 수신 설정</Text>
+                <Text style={styles.menuItemDesc}>재고 알림, 단가 변동 및 방해금지 시간대</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
+            </View>
+          </PressableScale>
+
+          {/* 화면 표시 & 접근성 */}
+          <PressableScale
+            style={styles.menuItemCard}
+            onPress={() => {
+              springTransition();
+              setSubView('appearance');
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={styles.menuIconWrap}>
+                <Ionicons name="text-outline" size={20} color={colors.espressoBrown} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.menuItemTitle}>화면 표시 & 접근성</Text>
+                <Text style={styles.menuItemDesc}>글자 크기 조절, 실시간 폰트 사이즈 미리보기</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
+            </View>
+          </PressableScale>
+
+          {/* 1대1 문의 & 요청사항 */}
+          <PressableScale
+            style={styles.menuItemCard}
+            onPress={() => {
+              springTransition();
+              setSubView('inquiry');
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={styles.menuIconWrap}>
+                <Ionicons name="chatbubbles-outline" size={20} color={colors.espressoBrown} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.menuItemTitle}>1대1 CS 문의 & 요청</Text>
+                <Text style={styles.menuItemDesc}>건의사항 접수, 실시간 관리자 답변 피드백</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
+            </View>
+          </PressableScale>
+
+          {/* 약관 및 정책 */}
+          <PressableScale
+            style={styles.menuItemCard}
+            onPress={() => {
+              springTransition();
+              setSubView('legal');
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={styles.menuIconWrap}>
+                <Ionicons name="document-text-outline" size={20} color={colors.espressoBrown} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.menuItemTitle}>약관 및 정책</Text>
+                <Text style={styles.menuItemDesc}>이용약관 및 개인정보처리방침 규정 조회</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
+            </View>
+          </PressableScale>
+        </View>
+      )}
+
       {/* ① 계정 / 가게 정보 */}
-      <Card>
+      {subView === 'account' && (
+        <Card>
         <View style={styles.rowBetween}>
           <SectionTitle>계정 · 가게 정보</SectionTitle>
-          {savedSuccess && <Badge label="✓ 설정 확정됨" tone="green" />}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {savedSuccess && <Badge label="✓ 설정 확정됨" tone="green" />}
+            <PressableScale
+              onPress={() => {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setIsEditingAccount(!isEditingAccount);
+              }}
+              style={{
+                backgroundColor: isEditingAccount ? colors.pointOrange + '20' : 'rgba(140, 111, 86, 0.1)',
+                paddingHorizontal: 10,
+                paddingVertical: 5,
+                borderRadius: 8,
+              }}
+              to={0.94}
+            >
+              <Text
+                style={{
+                  ...typography.L5,
+                  fontSize: 12,
+                  fontWeight: '800',
+                  color: isEditingAccount ? colors.pointOrange : colors.espressoBrown,
+                }}
+              >
+                {isEditingAccount ? '취소' : '✏ 정보 수정'}
+              </Text>
+            </PressableScale>
+          </View>
         </View>
         <View style={styles.accountHead}>
           <View style={styles.avatar}>
@@ -306,40 +532,41 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        <Field label="사장님 이름" value={name} onChangeText={setName} placeholder="이름" />
-        <Field label="가게 이름" value={storeName} onChangeText={setStoreName} placeholder="예: 포슬카페" />
-        <Field label="업종" value={businessType} onChangeText={setBusinessType} placeholder="예: 카페 / 베이커리 / 음식점" />
-        
-        {/* [한글 주석] 평소에는 시간이 고정 확정되어 함부로 변경되지 않게 잠금 뷰로 표시하고, '시간 변경' 버튼 클릭 시에만 휠 피커 오픈 */}
-        <View style={{ marginTop: 14, marginBottom: 8, gap: 8 }}>
-          <View style={styles.rowBetween}>
-            <Text style={styles.fieldLabel}>가게 운영 시간</Text>
-            <PressableScale
-              onPress={() => setIsEditingTime(!isEditingTime)}
-              style={{
-                backgroundColor: isEditingTime ? colors.pointOrange + '20' : 'rgba(140, 111, 86, 0.1)',
-                paddingHorizontal: 10,
-                paddingVertical: 4,
-                borderRadius: 8,
-              }}
-              to={0.94}
-            >
-              <Text
-                style={{
-                  ...typography.L5,
-                  fontSize: 12,
-                  fontWeight: '800',
-                  color: isEditingTime ? colors.pointOrange : colors.espressoBrown,
-                }}
-              >
-                {isEditingTime ? '닫기' : '✏ 시간 변경'}
-              </Text>
-            </PressableScale>
+        {isEditingAccount ? (
+          /* [한글 주석] 수정 모드일 때만 활성화되는 입력 인풋 폼 */
+          <View style={{ marginTop: 8 }}>
+            <Field label="사장님 이름" value={name} onChangeText={setName} placeholder="이름" />
+            <Field label="가게 이름" value={storeName} onChangeText={setStoreName} placeholder="예: 포슬카페" />
+            <Field label="업종" value={businessType} onChangeText={setBusinessType} placeholder="예: 카페 / 베이커리 / 음식점" />
           </View>
+        ) : (
+          /* [한글 주석] 평상시: 박스 칸을 완전히 없애고 세련되게 양옆 가로 정렬한 리스트 뷰 */
+          <View style={{ marginTop: 14, paddingHorizontal: 4 }}>
+            <View style={styles.fixedInfoRow}>
+              <Text style={styles.fixedInfoLabel}>사장님 이름</Text>
+              <Text style={styles.fixedInfoValue}>{name || '-'}</Text>
+            </View>
+            <Divider style={{ marginVertical: 2, opacity: 0.4 }} />
+            <View style={styles.fixedInfoRow}>
+              <Text style={styles.fixedInfoLabel}>가게 이름</Text>
+              <Text style={styles.fixedInfoValue}>{storeName || '-'}</Text>
+            </View>
+            <Divider style={{ marginVertical: 2, opacity: 0.4 }} />
+            <View style={styles.fixedInfoRow}>
+              <Text style={styles.fixedInfoLabel}>업종</Text>
+              <Text style={styles.fixedInfoValue}>{businessType || '-'}</Text>
+            </View>
+            <Divider style={{ marginVertical: 2, opacity: 0.4 }} />
+          </View>
+        )}
+        
+        {/* [한글 주석] 가게 운영 시간 섹션: 수정 상태에 따라 인풋과 잠금 카드가 동시 연동됨 */}
+        <View style={{ marginTop: 14, marginBottom: 8, gap: 8 }}>
+          <Text style={styles.fieldLabel}>가게 운영 시간</Text>
 
-          {isEditingTime ? (
-            /* 시간 변경 모드: 드럼 휠 피커 노출 */
-            <View style={{ gap: 8 }}>
+          {isEditingAccount ? (
+            /* [한글 주석] 수정 모드일 때: 다른 정보와 동시에 수정할 수 있도록 휠 피커 즉시 개방 */
+            <View style={{ gap: 8, marginTop: 4 }}>
               <IosTimePicker
                 value={`${(prefs.openHour || '09:00').slice(0, 2)}–${(prefs.closeHour || '21:00').slice(0, 2)}`}
                 startLabel="오픈 시간"
@@ -350,45 +577,26 @@ export default function SettingsScreen() {
                   if (parts[1]) prefs.setPref('closeHour', `${parts[1].trim().padStart(2, '0')}:00`);
                 }}
               />
-              <PressableScale
-                style={{
-                  backgroundColor: colors.coffeeCream,
-                  paddingVertical: 8,
-                  borderRadius: 10,
-                  alignItems: 'center',
-                  borderWidth: 1,
-                  borderColor: 'rgba(140, 111, 86, 0.18)',
-                }}
-                onPress={() => setIsEditingTime(false)}
-                to={0.96}
-              >
-                <Text style={{ ...typography.L4, fontSize: 12, fontWeight: '700', color: colors.espressoBrown }}>
-                  ✓ 시간 수정 완료 (정보 저장 시 최종 반영)
-                </Text>
-              </PressableScale>
             </View>
           ) : (
-            /* 평소 / 저장 후: 함부로 움직이지 않게 딱 고정된 확정 운영시간 카드 뷰 */
+            /* [한글 주석] 평상시: 이모지와 아이콘을 싹 걷어내고 아주 심플하게 텍스트로만 배치한 카드 */
             <View
               style={{
                 flexDirection: 'row',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                backgroundColor: 'rgba(242, 236, 224, 0.55)',
+                backgroundColor: 'rgba(140, 111, 86, 0.04)',
                 paddingHorizontal: 16,
                 paddingVertical: 14,
-                borderRadius: 14,
-                borderWidth: 1.2,
-                borderColor: 'rgba(140, 111, 86, 0.18)',
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: 'rgba(140, 111, 86, 0.08)',
               }}
             >
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Ionicons name="time-outline" size={18} color={colors.pointOrange} />
-                <Text style={{ ...typography.L3, fontSize: 14, fontWeight: '800', color: colors.espressoBrown }}>
-                  🌅 오픈 {prefs.openHour || '09:00'} ~ 🌙 마감 {prefs.closeHour || '21:00'}
-                </Text>
-              </View>
-              <Badge label="확정 고정됨" tone="green" />
+              <Text style={{ ...typography.L3, fontSize: 13.5, fontWeight: '800', color: colors.espressoBrown }}>
+                오픈 {prefs.openHour || '09:00'}    마감 {prefs.closeHour || '21:00'}
+              </Text>
+              <Text style={{ ...typography.L5, fontSize: 11, color: colors.mochaBrown, fontWeight: '700' }}>고정됨</Text>
             </View>
           )}
         </View>
@@ -396,16 +604,18 @@ export default function SettingsScreen() {
         <Text style={styles.fieldLabel}>이메일 (변경 불가)</Text>
         <Text style={styles.readonly}>{user?.email ?? '-'}</Text>
 
-        {/* [한글 주석] 정보 확정 시 초록 체크 효과로 확실한 반응성을 제공하는 버튼 */}
-        <Button
-          label={savingAccount ? '저장 처리 중…' : savedSuccess ? '✓ 정보 변경 확정 완료!' : '정보 저장'}
-          onPress={saveAccount}
-          disabled={savingAccount}
-          style={[
-            { marginTop: 16 },
-            savedSuccess && { backgroundColor: '#3E8E5A', borderColor: '#3E8E5A' },
-          ]}
-        />
+        {/* [한글 주석] 정보 수정 중일 때만 저장 버튼이 세련되게 노출되도록 개선 */}
+        {isEditingAccount && (
+          <Button
+            label={savingAccount ? '저장 처리 중…' : savedSuccess ? '✓ 정보 변경 확정 완료!' : '정보 저장'}
+            onPress={saveAccount}
+            disabled={savingAccount}
+            style={[
+              { marginTop: 16 },
+              savedSuccess && { backgroundColor: '#3E8E5A', borderColor: '#3E8E5A' },
+            ]}
+          />
+        )}
 
         <Divider />
         <Text style={[styles.fieldLabel, { marginTop: 4 }]}>비밀번호 변경</Text>
@@ -431,9 +641,11 @@ export default function SettingsScreen() {
           </PressableScale>
         </View>
       </Card>
+      )}
 
       {/* ② 구독 / 결제 */}
-      <Card tone="cream">
+      {subView === 'subscription' && (
+        <Card tone="cream">
         <View style={styles.rowBetween}>
           <SectionTitle>구독 · 결제</SectionTitle>
           <Badge label={`현재 ${plan.label}`} tone={prefs.plan === 'free' ? 'neutral' : 'green'} />
@@ -482,9 +694,11 @@ export default function SettingsScreen() {
           />
         ) : null}
       </Card>
+      )}
 
       {/* ③ 알림 설정 */}
-      <Card>
+      {subView === 'notification' && (
+        <Card>
         <SectionTitle>알림 설정</SectionTitle>
         <Row
           label="재고 부족 알림"
@@ -558,9 +772,11 @@ export default function SettingsScreen() {
           </View>
         ) : null}
       </Card>
+      )}
 
       {/* ④ 화면 표시 / 접근성 */}
-      <Card>
+      {subView === 'appearance' && (
+        <Card>
         <SectionTitle>화면 표시 · 접근성</SectionTitle>
         <Text style={styles.fieldLabel}>글자 크기</Text>
         <View style={{ marginTop: 8 }}>
@@ -588,121 +804,68 @@ export default function SettingsScreen() {
           </Text>
         </View>
       </Card>
+      )}
 
       {/* ⑤ [한글 주석] 사장님 1대1 문의 & 요청사항 서비스 카드 */}
-      <Card tone="cream">
-        <View style={styles.rowBetween}>
-          <SectionTitle>💬 1대1 문의 · 요청사항</SectionTitle>
-          <Badge label="관리자 실시간 연동" tone="green" />
-        </View>
-        <Text style={[styles.roiCompare, { marginTop: 4, marginBottom: 12 }]}>
-          매장 운영 중 필요한 문의사항이나 AI 기능 개선 요청을 남겨주시면 관리자가 빠른 시일 내 답변해 드려요.
-        </Text>
+      {subView === 'inquiry' && (
+        <Card tone="cream">
+          <View style={styles.rowBetween}>
+            <SectionTitle>💬 1대1 CS 문의 & 요청</SectionTitle>
+            <Badge label="실시간 관리자 연동" tone="green" />
+          </View>
+          <Text style={[styles.roiCompare, { marginTop: 4, marginBottom: 12 }]}>
+            매장 운영 시 필요한 기능 개선 요청이나 불편사항을 해결해 드려요.
+          </Text>
 
-        {/* 1대1 문의 및 요청 내역 리스트 */}
-        <View style={{ gap: 10 }}>
-          {inquiries.map((inq) => (
-            <View
-              key={inq.id}
-              style={{
-                backgroundColor: colors.white,
-                borderRadius: 14,
-                padding: 12,
-                borderWidth: 1,
-                borderColor: 'rgba(140, 111, 86, 0.15)',
-              }}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Badge
-                    label={inq.status === 'answered' ? '답변완료' : '접수완료'}
-                    tone={inq.status === 'answered' ? 'green' : 'orange'}
-                  />
-                  <Text style={{ ...typography.L5, fontSize: 11, fontWeight: '700', color: colors.mochaBrown }}>
-                    {inq.category}
-                  </Text>
-                </View>
-                <Text style={{ ...typography.L5, fontSize: 11, color: colors.mochaBrown + '80' }}>{inq.date}</Text>
-              </View>
-
-              <Text style={{ ...typography.L3, fontSize: 13.5, fontWeight: '800', color: colors.espressoBrown, marginTop: 2 }}>
-                {inq.title}
-              </Text>
-              <Text style={{ ...typography.L4, fontSize: 12, color: colors.mochaBrown, marginTop: 4, lineHeight: 17 }}>
-                {inq.content}
-              </Text>
-
-              {inq.answer && (
-                <View
-                  style={{
-                    backgroundColor: colors.coffeeCream,
-                    borderRadius: 10,
-                    padding: 10,
-                    marginTop: 8,
-                    borderLeftWidth: 3,
-                    borderLeftColor: colors.pointOrange,
+          {/* 3개 세그먼트형 탭 헤더 */}
+          <View
+            style={styles.tabContainer}
+            onLayout={(e) => setCsTrackWidth(e.nativeEvent.layout.width)}
+          >
+            <Animated.View
+              style={[
+                styles.tabCapsule,
+                {
+                  width: (csTrackWidth - 6) / 3,
+                  transform: [
+                    {
+                      translateX: csSlideAnim.interpolate({
+                        inputRange: [0, 1, 2],
+                        outputRange: [3, (csTrackWidth - 6) / 3 + 3, ((csTrackWidth - 6) / 3) * 2 + 3],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            />
+            {[
+              { id: 'write', label: '새 문의 작성' },
+              { id: 'list', label: '나의 문의 내역' },
+              { id: 'faq', label: '자주 묻는 질문' },
+            ].map((tab) => {
+              const active = inquiryTab === tab.id;
+              return (
+                <PressableScale
+                  key={tab.id}
+                  style={styles.tabButton}
+                  onPress={() => {
+                    springTransition();
+                    setInquiryTab(tab.id as any);
                   }}
+                  to={0.96}
                 >
-                  <Text style={{ ...typography.L4, fontSize: 12, fontWeight: '700', color: colors.espressoBrown }}>
-                    💬 관리자 답변
+                  <Text style={[styles.tabButtonText, active && styles.tabButtonTextActive]}>
+                    {tab.label}
                   </Text>
-                  <Text style={{ ...typography.L4, fontSize: 12, color: colors.espressoBrown, marginTop: 2, lineHeight: 17 }}>
-                    {inq.answer}
-                  </Text>
-                </View>
-              )}
-            </View>
-          ))}
-        </View>
+                </PressableScale>
+              );
+            })}
+          </View>
 
-        <Button
-          label="+ 새로운 1대1 문의 / 요청 작성"
-          variant="secondary"
-          style={{ marginTop: 14 }}
-          onPress={() => setShowInquiryModal(true)}
-        />
-      </Card>
-
-      {/* ⑥ 약관 및 정책 */}
-      <Card>
-        <SectionTitle>약관 및 정책</SectionTitle>
-        <PressableScale
-          style={styles.legalRow}
-          onPress={() => navigation.navigate('Legal', { doc: 'terms' })}
-        >
-          <Text style={styles.legalLabel}>이용약관</Text>
-          <Ionicons name="chevron-forward" size={17} color={colors.mochaBrown} />
-        </PressableScale>
-        <Divider />
-        <PressableScale
-          style={styles.legalRow}
-          onPress={() => navigation.navigate('Legal', { doc: 'privacy' })}
-        >
-          <Text style={styles.legalLabel}>개인정보처리방침</Text>
-          <Ionicons name="chevron-forward" size={17} color={colors.mochaBrown} />
-        </PressableScale>
-      </Card>
-
-      <Button label="관리로 돌아가기" variant="secondary" onPress={() => navigation.goBack()} />
-
-      {/* [한글 주석] 1대1 문의 & 요청사항 작성 모달 */}
-      <Modal
-        visible={showInquiryModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowInquiryModal(false)}
-      >
-        <View style={styles.modalBg}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHead}>
-              <Text style={styles.modalTitle}>💬 1대1 문의 / 요청사항 작성</Text>
-              <PressableScale onPress={() => setShowInquiryModal(false)} to={0.9}>
-                <Ionicons name="close" size={20} color={colors.espressoBrown} />
-              </PressableScale>
-            </View>
-
-            <ScrollView style={{ maxHeight: 420, marginVertical: 10 }}>
-              {/* [한글 주석] 문의 유형 선택 칩: 4개 버튼이 한 줄(nowrap)에 쏙 정갈하게 들어가도록 배치 */}
+          {/* 탭 1: 새 문의 작성 (내가 질문하는 칸) */}
+          {inquiryTab === 'write' && (
+            <View style={{ marginTop: 8 }}>
+              {/* 문의 유형 선택 */}
               <Text style={styles.fieldLabel}>문의 유형 선택</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 4, marginVertical: 8 }}>
                 {[
@@ -719,7 +882,7 @@ export default function SettingsScreen() {
                       style={{
                         flex: 1,
                         paddingHorizontal: 2,
-                        paddingVertical: 7,
+                        paddingVertical: 8,
                         borderRadius: 999,
                         backgroundColor: active ? colors.pointOrange : 'rgba(242, 236, 224, 0.6)',
                         borderWidth: 1,
@@ -759,33 +922,212 @@ export default function SettingsScreen() {
               <TextInput
                 style={[
                   styles.input,
-                  { marginTop: 4, height: 100, textAlignVertical: 'top', paddingTop: 10, paddingBottom: 10 },
+                  { marginTop: 4, height: 110, textAlignVertical: 'top', paddingTop: 10, paddingBottom: 10 },
                 ]}
-                placeholder="관리자에게 전달하실 내용이나 개선 요청사항을 상세히 작성해 주세요."
+                placeholder="관리자에게 전달하실 내용을 상세히 작성해 주세요. 소중히 검토하여 빠르게 답변드릴게요."
                 placeholderTextColor="rgba(140,111,86,0.5)"
                 multiline
                 numberOfLines={4}
                 value={inquiryContent}
                 onChangeText={setInquiryContent}
               />
-            </ScrollView>
 
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
-              <Button
-                label="취소"
-                variant="secondary"
-                style={{ flex: 1 }}
-                onPress={() => setShowInquiryModal(false)}
-              />
               <Button
                 label="문의 제출하기"
-                style={{ flex: 1.6 }}
+                style={{ marginTop: 16 }}
                 onPress={handleSubmitInquiry}
               />
             </View>
-          </View>
-        </View>
-      </Modal>
+          )}
+
+          {/* 탭 2: 나의 문의 내역 (내가 질문했던 목록) */}
+          {inquiryTab === 'list' && (
+            <View style={{ marginTop: 8, gap: 10 }}>
+              {inquiries.length === 0 ? (
+                <View style={{ paddingVertical: 30, alignItems: 'center' }}>
+                  <Text style={{ ...typography.L5, color: colors.mochaBrown }}>아직 작성한 문의 내역이 없습니다.</Text>
+                </View>
+              ) : (
+                inquiries.map((inq) => (
+                  <View
+                    key={inq.id}
+                    style={{
+                      backgroundColor: colors.white,
+                      borderRadius: 14,
+                      padding: 14,
+                      borderWidth: 1,
+                      borderColor: 'rgba(140, 111, 86, 0.1)',
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.05,
+                      shadowRadius: 4,
+                      elevation: 1,
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Badge
+                          label={inq.status === 'answered' ? '답변완료' : '접수완료'}
+                          tone={inq.status === 'answered' ? 'green' : 'orange'}
+                        />
+                        <Text style={{ ...typography.L5, fontSize: 11.5, fontWeight: '700', color: colors.mochaBrown }}>
+                          {inq.category}
+                        </Text>
+                      </View>
+                      <Text style={{ ...typography.L5, fontSize: 11, color: colors.mochaBrown + '80' }}>{inq.date}</Text>
+                    </View>
+
+                    <Text style={{ ...typography.L3, fontSize: 14, fontWeight: '800', color: colors.espressoBrown }}>
+                      {inq.title}
+                    </Text>
+                    <Text style={{ ...typography.L4, fontSize: 12.5, color: colors.mochaBrown, marginTop: 4, lineHeight: 18 }}>
+                      {inq.content}
+                    </Text>
+
+                    {inq.answer && (
+                      <View
+                        style={{
+                          backgroundColor: colors.coffeeCream,
+                          borderRadius: 10,
+                          padding: 10,
+                          marginTop: 10,
+                          borderLeftWidth: 3,
+                          borderLeftColor: colors.pointOrange,
+                        }}
+                      >
+                        <Text style={{ ...typography.L4, fontSize: 12, fontWeight: '700', color: colors.espressoBrown }}>
+                          💬 관리자 답변
+                        </Text>
+                        <Text style={{ ...typography.L4, fontSize: 12, color: colors.espressoBrown, marginTop: 2, lineHeight: 17 }}>
+                          {inq.answer}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                ))
+              )}
+            </View>
+          )}
+
+          {/* 탭 3: 자주 묻는 질문 (다른 사람들이 많이 물어보는 질문) */}
+          {inquiryTab === 'faq' && (
+            <View style={{ marginTop: 8, gap: 8 }}>
+              {[
+                {
+                  id: 1,
+                  q: '원가율은 언제 업데이트되나요?',
+                  a: '거래처로부터 매입 영수증이나 세금계산서가 OCR/자동 스크래핑을 통해 등록될 때마다, 원재료 단가 변동이 실시간 추적되어 메뉴 원가율에 자동 반영됩니다.'
+                },
+                {
+                  id: 2,
+                  q: '알바 스케줄 추천 시 주휴수당도 자동 반영되나요?',
+                  a: '네! 주휴수당이 발생하는 기준 시간(주 15시간)을 초과하지 않도록 각 파트타이머의 근무 일정을 분할 최적화하는 주휴수당 최소화 알고리즘이 내장되어 있습니다.'
+                },
+                {
+                  id: 3,
+                  q: 'AI 발주량 추천의 정확도는 어느 정도인가요?',
+                  a: '요일별 매출 흐름, 날씨 예보, 매장 주변 행사 데이터를 결합 분석합니다. 통상 재고 과부족으로 인한 유실 비용을 평균 22% 절감시키는 정밀도를 제공합니다.'
+                },
+                {
+                  id: 4,
+                  q: '무료 플랜과 Pro 플랜의 차이가 무엇인가요?',
+                  a: 'Pro 플랜부터는 주간 경영 분석 보고서와 매입단가 폭등 사전 경고, 무제한 재고 매칭 엔진이 제공되어 매장 원가 관리가 한층 입체적으로 자동화됩니다.'
+                }
+              ].map((faq) => {
+                const expanded = faqExpandedId === faq.id;
+                return (
+                  <View
+                    key={faq.id}
+                    style={{
+                      backgroundColor: colors.white,
+                      borderRadius: 14,
+                      borderWidth: 1,
+                      borderColor: 'rgba(140, 111, 86, 0.1)',
+                      overflow: 'hidden'
+                    }}
+                  >
+                    <PressableScale
+                      onPress={() => {
+                        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                        setFaqExpandedId(expanded ? null : faq.id);
+                      }}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        paddingHorizontal: 16,
+                        paddingVertical: 14,
+                        backgroundColor: expanded ? colors.coffeeCream + '50' : colors.white
+                      }}
+                      to={0.98}
+                    >
+                      <Text style={{ ...typography.L4, fontSize: 13, fontWeight: '800', color: colors.espressoBrown, flex: 1, paddingRight: 8 }}>
+                        Q. {faq.q}
+                      </Text>
+                      <Ionicons
+                        name={expanded ? 'chevron-up' : 'chevron-down'}
+                        size={16}
+                        color={colors.mochaBrown}
+                      />
+                    </PressableScale>
+                    
+                    {expanded && (
+                      <View style={{ paddingHorizontal: 16, paddingVertical: 14, borderTopWidth: 0.5, borderTopColor: 'rgba(140, 111, 86, 0.08)', backgroundColor: colors.white }}>
+                        <Text style={{ ...typography.L4, fontSize: 12.5, color: colors.mochaBrown, lineHeight: 18 }}>
+                          {faq.a}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          )}
+        </Card>
+      )}
+
+      {/* ⑥ 약관 및 정책 */}
+      {subView === 'legal' && (
+        <Card>
+        <SectionTitle>약관 및 정책</SectionTitle>
+        <PressableScale
+          style={styles.legalRow}
+          onPress={() => navigation.navigate('Legal', { doc: 'terms' })}
+        >
+          <Text style={styles.legalLabel}>이용약관</Text>
+          <Ionicons name="chevron-forward" size={17} color={colors.mochaBrown} />
+        </PressableScale>
+        <Divider />
+        <PressableScale
+          style={styles.legalRow}
+          onPress={() => navigation.navigate('Legal', { doc: 'privacy' })}
+        >
+          <Text style={styles.legalLabel}>개인정보처리방침</Text>
+          <Ionicons name="chevron-forward" size={17} color={colors.mochaBrown} />
+        </PressableScale>
+      </Card>
+      )}
+
+      {subView !== 'main' && (
+        <Button
+          label="설정 홈으로 돌아가기"
+          variant="secondary"
+          style={{ marginTop: 14 }}
+          onPress={() => {
+            springTransition();
+            setSubView('main');
+          }}
+        />
+      )}
+
+      {subView === 'main' && (
+        <Button
+          label="관리로 돌아가기"
+          variant="secondary"
+          style={{ marginTop: 14 }}
+          onPress={() => navigation.goBack()}
+        />
+      )}
     </Screen>
   );
 }
@@ -902,5 +1244,101 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.espressoBrown,
     fontWeight: '900',
+  },
+  // [한글 주석: 카테고리별 정렬 설정 메뉴 카드 및 아이콘 래퍼 디자인 스타일]
+  menuItemCard: {
+    backgroundColor: colors.white,
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: 'rgba(140, 111, 86, 0.15)',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  menuIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: colors.coffeeCream,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuItemTitle: {
+    ...typography.L4,
+    fontSize: 14.5,
+    color: colors.espressoBrown,
+    fontWeight: '800',
+  },
+  menuItemDesc: {
+    ...typography.L5,
+    fontSize: 11.5,
+    color: colors.mochaBrown,
+    marginTop: 4,
+    lineHeight: 14,
+  },
+  // [한글 주석: 1대1 CS 탭 컴포넌트 스타일군 추가]
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(140, 111, 86, 0.08)',
+    borderRadius: 10,
+    padding: 3,
+    marginBottom: 12,
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+  },
+  tabButtonActive: {
+    backgroundColor: colors.white,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  tabButtonText: {
+    ...typography.L5,
+    fontSize: 12,
+    color: colors.mochaBrown,
+    fontWeight: '700',
+  },
+  tabButtonTextActive: {
+    color: colors.espressoBrown,
+    fontWeight: '900',
+  },
+  tabCapsule: {
+    position: 'absolute',
+    top: 3,
+    bottom: 3,
+    borderRadius: 8,
+    backgroundColor: colors.white,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  // [한글 주석: 수정 불가능하게 고정된 확정 텍스트 정보 가로 행 스타일 추가]
+  fixedInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  fixedInfoLabel: {
+    ...typography.L4,
+    fontSize: 13.5,
+    color: colors.mochaBrown,
+    fontWeight: '700',
+  },
+  fixedInfoValue: {
+    ...typography.L3,
+    fontSize: 14.5,
+    color: colors.espressoBrown,
+    fontWeight: '800',
   },
 });
