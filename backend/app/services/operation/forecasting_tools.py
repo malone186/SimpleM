@@ -14,26 +14,30 @@ except ImportError:
             return func
 
 
+import json
+
 @tool
 def forecast_sales_tool(
     target_date: str,
-    sales_data: Optional[List[Any]] = None,
+    sales_data: Optional[str] = None,
     has_event: bool = False
 ) -> dict:
     """최근 일별 판매/매출 데이터를 기반으로 지정일의 예상 매출액과 판매량을 예측합니다.
     - target_date: 예측 대상 날짜 (포맷: YYYY-MM-DD)
-    - sales_data: 최근 일별 판매 데이터 리스트 (예: [{'date': '2026-07-01', 'revenue': 500000, 'quantity': 100}, ...])
+    - sales_data: 최근 일별 판매 데이터 JSON 문자열 (선택)
     - has_event: 이벤트/행사 적용 여부 (기본 False)
     """
     try:
-        # [한글 주석] 데이터가 부족하거나 비어있는 경우 억지로 예측하지 않고 실패 응답 처리
-        if not sales_data or len(sales_data) == 0:
-            raise ValueError("판매 예측에 필요한 최근 일별 매출 데이터(sales_data)가 없거나 부족합니다.")
+        parsed_sales = None
+        if sales_data:
+            try:
+                parsed_sales = json.loads(sales_data) if isinstance(sales_data, str) else sales_data
+            except Exception:
+                parsed_sales = None
 
-        # [한글 주석] 시계열/이동평균 기반 예측 서비스 호출
         result = ForecastingService.forecast_sales(
             target_date=target_date,
-            sales_data=sales_data,
+            sales_data=parsed_sales,
             has_event=has_event
         )
 
@@ -63,23 +67,25 @@ def forecast_sales_tool(
 @tool
 def build_forecast_rag_documents_tool(
     target_date: str,
-    sales_data: Optional[List[Any]] = None,
+    sales_data: Optional[str] = None,
     has_event: bool = False
 ) -> dict:
     """판매 예측 결과를 AI 챗봇 참조용 RAG 문서 형태로 변환합니다.
     - target_date: 예측 대상 날짜 (포맷: YYYY-MM-DD)
-    - sales_data: 최근 일별 판매 데이터 리스트
+    - sales_data: 최근 일별 판매 데이터 JSON 문자열 (선택)
     - has_event: 이벤트/행사 적용 여부
     """
     try:
-        # 1. [한글 주석] 판매 데이터 유효성 검증
-        if not sales_data or len(sales_data) == 0:
-            raise ValueError("판매 예측 RAG 생성에 필요한 일별 매출 데이터(sales_data)가 부족합니다.")
+        parsed_sales = None
+        if sales_data:
+            try:
+                parsed_sales = json.loads(sales_data) if isinstance(sales_data, str) else sales_data
+            except Exception:
+                parsed_sales = None
 
-        # 2. [한글 주석] 판매 예측 연산 수행
         forecast_result = ForecastingService.forecast_sales(
             target_date=target_date,
-            sales_data=sales_data,
+            sales_data=parsed_sales,
             has_event=has_event
         )
 

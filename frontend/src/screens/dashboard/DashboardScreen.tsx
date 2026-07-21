@@ -7,6 +7,7 @@ import Svg, { Defs, LinearGradient, Stop, Path, Circle, Filter, FeGaussianBlur }
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../auth/AuthContext';
 import ManagementReportCard from '../../components/dashboard/ManagementReportCard';
+import MenuOptimizationCard from '../../components/dashboard/MenuOptimizationCard';
 import QuickOrderModal from '../../components/dashboard/QuickOrderModal';
 import SalesCard from '../../components/dashboard/SalesCard';
 import TodoList, { type Todo } from '../../components/dashboard/TodoList';
@@ -97,6 +98,30 @@ export default function DashboardScreen() {
       setRefreshing(false);
     }, 650);
   }, []);
+
+  const handleAddTodo = (title: string) => {
+    if (!title.trim()) return;
+    const newTodo: Todo = {
+      id: `custom-${Date.now()}`,
+      title: title.trim(),
+      subtitle: '사장님 직접 추가',
+      actionable: false,
+      done: false,
+    };
+    setTodos((prev) => [newTodo, ...prev]);
+  };
+
+  const handleEditTodo = (id: string, newTitle: string) => {
+    setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, title: newTitle } : t)));
+  };
+
+  const handleDeleteTodo = (id: string) => {
+    setTodos((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const toggleDone = (id: string) => {
+    setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
+  };
 
   const openOrder = (todo: Todo) => {
     if (!todo.actionable || todo.done) return;
@@ -200,13 +225,21 @@ export default function DashboardScreen() {
               key={`salescard-${runId}`}
               todos={todos}
               onPressTodo={openOrder}
+              onToggleDone={toggleDone}
+              onAddTodo={handleAddTodo}
+              onEditTodo={handleEditTodo}
+              onDeleteTodo={handleDeleteTodo}
             />
           </FadeInUp>
 
-          {/* AI 경영 리포트 — 일간/주간/월간 탭을 누르면 홈에서 바로 보인다
-              (runId 키로 당겨서 새로고침 시 리마운트 → 최신 수치 재조회) */}
+          {/* AI 경영 리포트 — 일간/주간/월간 탭을 누르면 홈에서 바로 보인다 */}
           <FadeInUp key={`report-${runId}`} delay={140}>
             <ManagementReportCard key={`reportcard-${runId}`} />
+          </FadeInUp>
+
+          {/* [멘토 피드백 반영] AI 전체 메뉴 재구성 & 원가·원재료 최적화 카드 */}
+          <FadeInUp key={`menuopt-${runId}`} delay={180}>
+            <MenuOptimizationCard key={`menuoptcard-${runId}`} />
           </FadeInUp>
         </View>
       </Animated.ScrollView>

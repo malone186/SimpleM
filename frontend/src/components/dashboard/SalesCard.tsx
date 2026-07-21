@@ -113,15 +113,23 @@ function SlidingTabToggle({
   );
 }
 
-// [한글 주석] onPressReport 콜백, todos 리스트, onPressTodo 핸들러를 바인딩합니다.
+// [한글 주석] onPressReport 콜백, todos 리스트, onPressTodo, onToggleDone, onAddTodo, onEditTodo, onDeleteTodo 핸들러를 바인딩합니다.
 export default function SalesCard({
   onPressReport,
   todos = [],
   onPressTodo,
+  onToggleDone,
+  onAddTodo,
+  onEditTodo,
+  onDeleteTodo,
 }: {
   onPressReport?: () => void;
   todos?: Todo[];
   onPressTodo?: (todo: Todo) => void;
+  onToggleDone?: (id: string) => void;
+  onAddTodo?: (title: string) => void;
+  onEditTodo?: (id: string, newTitle: string) => void;
+  onDeleteTodo?: (id: string) => void;
 }) {
   const { token, user } = useAuth();
   const [forecast, setForecast] = useState<SalesForecast | null>(null);
@@ -212,9 +220,12 @@ export default function SalesCard({
     return () => clearInterval(timer);
   }, []);
 
-  // X축 4개 시간대: 현재 시각을 마지막 점으로 3시간 간격 (새벽에는 09시를 하한으로 고정)
-  const anchorHour = Math.min(23, Math.max(9, now.getHours()));
-  const axisHours = [anchorHour - 9, anchorHour - 6, anchorHour - 3, anchorHour];
+  // [한글 주석] 각 가게가 설정한 오픈 시간(기본값 09시)에 맞춰 그래프 X축 시작점이 맞춰집니다
+  // (6시, 7시 등 매출이 0원인 쓸데없는 아침 시간대 그래프 노출 방지)
+  const storeOpenHour = 9; // 매장 오픈 시간 (09:00)
+  const currentHour = now.getHours();
+  const startHour = Math.max(storeOpenHour, Math.min(14, currentHour < storeOpenHour ? storeOpenHour : currentHour - 9));
+  const axisHours = [startHour, startHour + 3, startHour + 6, Math.min(23, startHour + 9)];
 
   // 실제 오늘 날짜 기준 캘린더 좌표
   const year = now.getFullYear();
@@ -554,7 +565,8 @@ export default function SalesCard({
         <View style={{ flex: 1, alignItems: 'flex-start' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <SlidingTabToggle value={activeTab} onChange={setActiveTab} />
-            {forecast?.location && (
+            {/* [한글 주석] todo 탭이 아닐 때(일/월 탭)는 위치 태그 칩을 표시합니다 */}
+            {activeTab !== 'todo' && forecast?.location && (
               <PressableScale 
                 onPress={() => setLocationModalVisible(true)} 
                 style={styles.locationTag}
@@ -567,13 +579,18 @@ export default function SalesCard({
               </PressableScale>
             )}
           </View>
-          <Text style={[styles.amount, { marginTop: 6 }]}>₩ {amount.toLocaleString()}</Text>
+          {/* [한글 주석] todo 탭일 때는 상단 비용(매출액) 문구를 표시하지 않음 */}
+          {activeTab !== 'todo' && (
+            <Text style={[styles.amount, { marginTop: 6 }]}>₩ {amount.toLocaleString()}</Text>
+          )}
         </View>
 
-        {/* 성장폭 뱃지 */}
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>{badgeText}</Text>
-        </View>
+        {/* [한글 주석] todo 탭일 때는 성장폭 뱃지도 표시하지 않음 */}
+        {activeTab !== 'todo' && (
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{badgeText}</Text>
+          </View>
+        )}
       </View>
 
       {/* 실시간 차트 / 토스 달력 / 할 일 목록 전환 영역 */}
@@ -633,8 +650,16 @@ export default function SalesCard({
         </View>
       ) : activeTab === 'todo' ? (
         <View style={styles.todoWrapper}>
-          {/* [한글 주석: todo 탭 선택 시 카드 스타일이 없는 맑은 리스트를 렌더링합니다] */}
-          <TodoList todos={todos} onPressAction={onPressTodo || (() => {})} hideCard={true} />
+          {/* [한글 주석: todo 탭 선택 시 완료/추가/수정/삭제 핸들러를 전달합니다] */}
+          <TodoList
+            todos={todos}
+            onPressAction={onPressTodo || (() => {})}
+            onToggleDone={onToggleDone}
+            onAddTodo={onAddTodo}
+            onEditTodo={onEditTodo}
+            onDeleteTodo={onDeleteTodo}
+            hideCard={true}
+          />
         </View>
       ) : (
         <View>

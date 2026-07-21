@@ -125,36 +125,36 @@ export default function ManagementScreen() {
           {/* 기울여 겹쳐 흩뿌린 카드 덱 */}
           <View style={styles.deck}>
             {ITEMS.map((it, i) => {
-            const lay = LAYOUT[i % LAYOUT.length];
-            const s = scheme(it.color);
-            return (
-              <PressableScale
-                key={it.route}
-                style={[
-                  styles.card,
-                  {
-                    backgroundColor: it.color,
-                    borderColor: s.border,
-                    borderWidth: s.border === 'transparent' ? 0 : 1.5,
-                    marginTop: lay.mt,
-                    zIndex: i + 1,
-                    transform: [{ rotate: lay.rotate }, { translateX: lay.tx }],
-                  },
-                ]}
-                onPress={() => navigation.navigate(it.route, it.params)}
-                to={0.97}
-              >
-                <Text style={[styles.cardGhost, { color: s.ghost }]}>{String(i + 1).padStart(2, '0')}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.cardLabel, { color: s.label }]}>{it.label}</Text>
-                  <Text style={[styles.cardDesc, { color: s.desc }]}>{it.desc}</Text>
-                </View>
-                <View style={[styles.cardArrow, { backgroundColor: s.arrowBg }]}>
-                  <Ionicons name="arrow-forward" size={18} color={s.arrowFg} />
-                </View>
-              </PressableScale>
-            );
-          })}
+              const lay = LAYOUT[i % LAYOUT.length];
+              const s = scheme(it.color);
+              return (
+                <PressableScale
+                  key={it.route}
+                  style={[
+                    styles.card,
+                    {
+                      backgroundColor: it.color,
+                      borderColor: s.border,
+                      borderWidth: s.border === 'transparent' ? 0 : 1.5,
+                      marginTop: lay.mt,
+                      zIndex: i + 1,
+                      transform: [{ rotate: lay.rotate }, { translateX: lay.tx }],
+                    },
+                  ]}
+                  onPress={() => navigation.navigate(it.route, it.params)}
+                  to={0.97}
+                >
+                  <Text style={[styles.cardGhost, { color: s.ghost }]}>{String(i + 1).padStart(2, '0')}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.cardLabel, { color: s.label }]}>{it.label}</Text>
+                    <Text style={[styles.cardDesc, { color: s.desc }]}>{it.desc}</Text>
+                  </View>
+                  <View style={[styles.cardArrow, { backgroundColor: s.arrowBg }]}>
+                    <Ionicons name="arrow-forward" size={18} color={s.arrowFg} />
+                  </View>
+                </PressableScale>
+              );
+            })}
           </View>
         </View>
       </ScrollView>

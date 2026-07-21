@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-import { Badge, Button, Card, Divider, Screen, ScreenTitle, SectionTitle, DayOfWeekPicker, IosTimePicker } from '../../components/ui';
+import { Badge, Button, Card, Divider, Screen, ScreenTitle, SectionTitle, WeekdayButtonGroup, IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
 import { PressableScale } from '../../components/motion';
 import { toast } from '../../components/toast';
@@ -692,11 +692,14 @@ function ScheduleTab() {
       notify('직원 정보 없음', '등록된 직원이 없어 스케줄을 추가할 수 없어요. 급여 관리에서 직원을 먼저 등록해 주세요.');
       return;
     }
-    setEditingShift({ id: null, employeeId: employeeEntries[0].id, date: null, days: [], slot: '09–18' });
+    const defaultEmp = employeeEntries[0];
+    setEditingShift({ id: null, employeeId: defaultEmp.id, inputName: defaultEmp.name, date: null, days: [], slot: '09–18' });
   };
 
   const handleEditPress = (s: Schedule) => {
-    setEditingShift({ id: s.id, employeeId: s.employee_id, date: s.date, days: [], slot: slotOf(s) });
+    const wd = WEEK_KO[new Date(s.date + 'T00:00:00').getDay()];
+    const empName = names[s.employee_id] || '';
+    setEditingShift({ id: s.id, employeeId: s.employee_id, inputName: empName, date: s.date, days: [wd], slot: slotOf(s) });
   };
 
   const handleDelete = async (id: number) => {
@@ -857,45 +860,34 @@ function ScheduleTab() {
       <Modal visible={editingShift !== null} transparent animationType="slide" onRequestClose={() => setEditingShift(null)}>
         <View style={styles.modalRoot}>
           <Pressable style={styles.modalBackdrop} onPress={() => setEditingShift(null)} />
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>
+          <View style={[styles.modalSheet, { padding: 16, paddingBottom: 24 }]}>
+            <View style={[styles.modalHandle, { marginBottom: 10 }]} />
+            <Text style={[styles.modalTitle, { fontSize: 16, marginBottom: 12 }]}>
               {editingShift?.id === null ? '근무 스케줄 추가' : '근무 스케줄 수정'}
             </Text>
 
             {editingShift && (
-              <View style={{ gap: 14, marginBottom: 20 }}>
+              <View style={{ gap: 10, marginBottom: 14 }}>
+                {/* [한글 주석] 근무자 입력 칸: 이름을 선택하는 버튼 대신 직접 타이핑하여 입력할 수 있는 텍스트 입력창으로 전환 */}
                 {editingShift.id === null ? (
-                  <>
-                    {/* 근무자 선택 — 급여 명부에 등록된 실제 직원 중에서 */}
-                    <View style={styles.formGroup}>
-                      <Text style={styles.formLabel}>근무자 선택</Text>
-                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                        {employeeEntries.map((emp) => {
-                          const active = editingShift.employeeId === emp.id;
-                          return (
-                            <PressableScale
-                              key={emp.id}
-                              style={[styles.peakSegmentBtn, { flex: 0, paddingHorizontal: 14 }, active && styles.segmentBtnActiveNormal]}
-                              onPress={() => setEditingShift({ ...editingShift, employeeId: emp.id })}
-                              to={0.94}
-                            >
-                              <Text style={[styles.peakSegmentText, active && styles.segmentTextActiveNormal]}>{emp.name}</Text>
-                            </PressableScale>
-                          );
-                        })}
-                      </View>
-                    </View>
-
-                    {/* [한글 주석] 요일 칩 선택기: 이번 주의 해당 요일마다 스케줄이 생성됩니다 */}
-                    <View style={styles.formGroup}>
-                      <Text style={styles.formLabel}>요일 선택 (이번 주)</Text>
-                      <DayOfWeekPicker
-                        selectedDays={editingShift.days}
-                        onChange={(days) => setEditingShift({ ...editingShift, days })}
-                      />
-                    </View>
-                  </>
+                  <View style={styles.formGroup}>
+                    <Text style={styles.formLabel}>근무자 이름</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="근무자 이름 입력 (예: 김하늘)"
+                      placeholderTextColor={colors.mochaBrown + '80'}
+                      value={editingShift.inputName ?? ''}
+                      onChangeText={(text) => {
+                        // 입력한 이름과 일치하는 직원이 있으면 그 ID를 매칭하고, 없으면 입력 텍스트를 기억
+                        const matched = employeeEntries.find((e) => e.name === text.trim());
+                        setEditingShift({
+                          ...editingShift,
+                          inputName: text,
+                          employeeId: matched ? matched.id : (editingShift.employeeId || employeeEntries[0]?.id || 1),
+                        });
+                      }}
+                    />
+                  </View>
                 ) : (
                   <View style={styles.formGroup}>
                     <Text style={styles.formLabel}>근무자 · 일자</Text>
@@ -905,7 +897,16 @@ function ScheduleTab() {
                   </View>
                 )}
 
-                {/* [한글 주석] iOS 스타일 휠 시간 선택기: 스크롤 드래그를 통해 스무스하게 작동 */}
+                {/* [한글 주석] 요일 칩 선택기: 이번 주의 선택한 요일들을 기억하여 한눈에 표시 */}
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel}>요일 선택 (이번 주)</Text>
+                  <WeekdayButtonGroup
+                    selectedDays={editingShift.days}
+                    onChange={(days) => setEditingShift({ ...editingShift, days })}
+                  />
+                </View>
+
+                {/* [한글 주석] 슬림해진 시간 설정 드럼 휠 피커 (피크/일반 칩 제거) */}
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel}>근무 시간 설정</Text>
                   <IosTimePicker

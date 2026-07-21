@@ -618,6 +618,117 @@ def calculate_settlement_api(payload: SettlementCalculateRequest, db: Session = 
         raise HTTPException(status_code=500, detail=f"서버 오류가 발생했습니다: {str(e)}")
 
 
+# --- [7. 법령 검색 RAG (Law RAG) 실서비스 API] ---
+
+@router.get("/law-rag/search", response_model=CommonResponse, summary="법령 RAG 의미 기반 하이브리드 검색 API")
+def search_law_rag_api(
+    keyword: str = Query(..., description="검색 키워드 또는 사용자 질문 (예: '알바 휴게시간 몇 분 줘야 해?')"),
+    category: Optional[str] = Query(None, description="법령 카테고리 필터 (예: '근로기준', '최저임금', '임대차')"),
+    top_k: int = Query(5, description="반환할 조문 최대 개수")
+):
+    """
+    [법령 RAG 하이브리드 검색 API]
+    - 키워드 단어 매칭 및 ChromaDB 벡터 유사도를 융합한 RRF(Reciprocal Rank Fusion) 리랭킹 검색 수행
+    - 반환 항목: 법령명, 조문번호, 본문, 요약, 출처, 시행일, 유사도 점수(score)
+    - 환각 방지: 관련성 미달 시 빈 목록과 함께 정보 부족 안내 리턴
+    """
+    try:
+        from app.services.operation.law_rag_service import LawRAGService
+        results = LawRAGService.search_law_documents(
+            query=keyword,
+            category=category,
+            top_k=top_k
+        )
+        message = f"'{keyword}' 관련 법령 조문 {len(results)}건 조회가 완료되었습니다." if results else f"'{keyword}'에 대한 관련 법령 정보가 부족합니다."
+        return CommonResponse(
+            success=True,
+            data=results,
+            message=message
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"법령 RAG 검색 중 오류 발생: {str(e)}")
+
+
+@router.post("/law-rag/index", response_model=CommonResponse, summary="법령 원문 조문 정제 및 ChromaDB 인덱싱/동기화 API")
+def index_law_rag_api(raw_data: Optional[List[dict]] = None):
+    """
+    [법령 데이터 적재 및 동기화 API]
+    - 전달된 법령 raw 데이터를 조문 단위 문서로 정제하고 ChromaDB(law_documents)에 인덱싱합니다.
+    - raw_data가 생략되면 샘플 법령 4건을 기본 적재합니다.
+    """
+    try:
+        from app.services.operation.law_rag_service import LawRAGService
+        
+        # 입력 데이터가 없으면 샘플 데이터 활용
+        if not raw_data:
+            raw_data = [
+                {
+                    "law_name": "근로기준법",
+                    "article_no": "제54조(휴게)",
+                    "category": "근로기준",
+                    "content": "사용자는 근로시간이 4시간인 경우에는 30분 이상, 8시간인 경우에는 1시간 이상의 휴게시간을 근로시간 도중에 주어야 한다.",
+                    "summary": "근로시간 4시간당 30분, 8시간당 1시간 휴게시간 부여 의무",
+                    "source": "국가법령정보센터 (https://www.law.go.kr)",
+                    "effective_date": "2026-01-01"
+                },
+                {
+                    "law_name": "근로기준법",
+                    "article_no": "제56조(연장·야간 및 휴일 가산수당)",
+                    "category": "근로기준",
+                    "content": "사용자는 야간근로(오후 10시부터 다음 날 오전 6시 사이의 근로)에 대하여는 통상임금의 100분의 50 이상을 가산하여 근로자에게 지급하여야 한다.",
+                    "summary": "오후 10시~오전 6시 야간근로 시 50% 가산수당 지급",
+                    "source": "국가법령정보센터 (https://www.law.go.kr)",
+                    "effective_date": "2026-01-01"
+                },
+                {
+                    "law_name": "최저임금법",
+                    "article_no": "제6조(최저임금의 효력)",
+                    "category": "최저임금",
+                    "content": "사용자는 최저임금의 적용을 받는 근로자에게 최저임금액 이상의 임금을 지급하여야 한다.",
+                    "summary": "최저임금액 이상 지급 의무 및 미달 계약 부분 무효",
+                    "source": "국가법령정보센터 (https://www.law.go.kr)",
+                    "effective_date": "2026-01-01"
+                },
+                {
+                    "law_name": "상가건물 임대차보호법",
+                    "article_no": "제10조(계약갱신 요구 등)",
+                    "category": "임대차",
+                    "content": "임대인은 임차인이 임대차기간 만료 6개월 전부터 1개월 전까지 사이에 계약갱신을 요구할 경우 정당한 사유 없이 거절하지 못한다. 계약갱신요구권은 10년을 초과하지 아니하는 범위에서 행사할 수 있다.",
+                    "summary": "상가 임차인의 10년 범위 내 계약갱신요구권 보장",
+                    "source": "국가법령정보센터 (https://www.law.go.kr)",
+                    "effective_date": "2026-01-01"
+                }
+            ]
+
+        result = LawRAGService.sync_law_documents(raw_data)
+        return CommonResponse(
+            success=True,
+            data=result,
+            message="법령 데이터 적재 및 ChromaDB 동기화가 완료되었습니다."
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"법령 데이터 적재 중 오류 발생: {str(e)}")
+
+
+@router.get("/law-rag/status", response_model=CommonResponse, summary="ChromaDB 법령 컬렉션 상태 및 통계 조회 API")
+def get_law_rag_status_api():
+    """
+    [ChromaDB 컬렉션 상태 조회 API]
+    - 저장소 물리적 경로 및 현재 적재된 법령 조문 전체 문서 수를 반환합니다.
+    """
+    try:
+        from app.services.operation.law_rag_service import LawRAGService
+        stats = LawRAGService.get_collection_stats()
+        return CommonResponse(
+            success=True,
+            data=stats,
+            message="법령 RAG 컬렉션 상태 조회가 완료되었습니다."
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"컬렉션 상태 조회 중 오류 발생: {str(e)}")
+
+
+
 
 
 

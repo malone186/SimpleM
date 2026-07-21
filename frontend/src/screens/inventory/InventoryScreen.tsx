@@ -1,8 +1,8 @@
 // 재고 (프론트 A) — PRD ERP-4/7, AI-2: 재고 조회 + 직접 등록 + 안전재고 알림 + OCR 입고 확인
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { Alert, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { useNavigation } from '@react-navigation/native';
 
@@ -23,6 +23,25 @@ const TARGET_LABEL: Record<string, string> = {
 
 const notify = (title: string, message: string) => toast(title, message);
 
+// [한글 주석] 재고 카테고리 정의
+const CATEGORIES = [
+  { id: 'all', label: '전체' },
+  { id: 'bean', label: '☕ 원두·커피' },
+  { id: 'milk', label: '🥛 우유·유제품' },
+  { id: 'syrup', label: '🍯 시럽·파우더' },
+  { id: 'cup', label: '🥤 컵·부자재' },
+  { id: 'etc', label: '📦 기타' },
+];
+
+function getCategory(name: string): string {
+  const n = name.toLowerCase();
+  if (n.includes('원두') || n.includes('커피') || n.includes('에스프레소') || n.includes('콜롬비아') || n.includes('에티오피아') || n.includes('디카페인') || n.includes('예가체프')) return 'bean';
+  if (n.includes('우유') || n.includes('유제품') || n.includes('크림') || n.includes('치즈') || n.includes('연유') || n.includes('버터') || n.includes('아이스크림')) return 'milk';
+  if (n.includes('시럽') || n.includes('파우더') || n.includes('초코') || n.includes('카라멜') || n.includes('바닐라') || n.includes('소스') || n.includes('퓨레') || n.includes('녹차') || n.includes('홍차') || n.includes('베이스')) return 'syrup';
+  if (n.includes('컵') || n.includes('종이컵') || n.includes('아이스컵') || n.includes('빨대') || n.includes('홀더') || n.includes('뚜껑') || n.includes('캐리어') || n.includes('휴지') || n.includes('비닐') || n.includes('포장') || n.includes('용기') || n.includes('소모품')) return 'cup';
+  return 'etc';
+}
+
 // 초안 편집용 행 — 타이핑 중간 상태("1." 등)를 허용하려고 문자열로 들고 저장 시 숫자로 변환
 type EditRow = { name: string; qty: string; unit: string; price: string };
 
@@ -30,6 +49,7 @@ export default function InventoryScreen() {
   const { token } = useAuth();
   const navigation = useNavigation<any>();
   const [stocks, setStocks] = useState<StockItem[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>('all'); // [한글 주석] 카테고리 필터 상태
   const [drafts, setDrafts] = useState<OcrDocument[]>([]);
   const [scanning, setScanning] = useState(false);
 
@@ -293,6 +313,12 @@ export default function InventoryScreen() {
     });
   };
 
+  // [한글 주석] 선택된 카테고리에 해당하는 재고 항목만 필터링합니다.
+  const filteredStocks = useMemo(() => {
+    if (selectedCategory === 'all') return stocks;
+    return stocks.filter((s) => getCategory(s.name) === selectedCategory);
+  }, [stocks, selectedCategory]);
+
   return (
     <Screen>
       <ScreenTitle title="재고" subtitle="현재 재고와 안전재고 상태" />
@@ -522,12 +548,37 @@ export default function InventoryScreen() {
       {/* 재고 현황 (실데이터) */}
       <View style={{ gap: 12 }}>
         <View style={styles.rowBetween}>
-          <SectionTitle>재고 현황 ({stocks.length})</SectionTitle>
+          <SectionTitle>
+            재고 현황 ({selectedCategory === 'all' ? stocks.length : `${filteredStocks.length}/${stocks.length}`})
+          </SectionTitle>
           <PressableScale style={styles.addBtn} onPress={() => setFormOpen((v) => !v)} to={0.92}>
             <Ionicons name={formOpen ? 'remove' : 'add'} size={16} color={colors.white} />
             <Text style={styles.confirmText}>{formOpen ? '닫기' : '재료 직접 등록'}</Text>
           </PressableScale>
         </View>
+
+        {/* [한글 주석] 재고 카테고리 필터 칩 바 */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.categoryBar}
+        >
+          {CATEGORIES.map((cat) => {
+            const active = selectedCategory === cat.id;
+            return (
+              <PressableScale
+                key={cat.id}
+                onPress={() => setSelectedCategory(cat.id)}
+                style={[styles.categoryChip, active && styles.categoryChipActive]}
+                to={0.93}
+              >
+                <Text style={[styles.categoryChipText, active && styles.categoryChipTextActive]}>
+                  {cat.label}
+                </Text>
+              </PressableScale>
+            );
+          })}
+        </ScrollView>
 
         {/* 직접 등록 폼 */}
         {formOpen && (
@@ -558,14 +609,16 @@ export default function InventoryScreen() {
           <Card>
             <Text style={styles.hint}>로그인하면 내 매장의 재고 현황이 표시됩니다.</Text>
           </Card>
-        ) : stocks.length === 0 ? (
+        ) : filteredStocks.length === 0 ? (
           <Card>
             <Text style={styles.hint}>
-              아직 등록된 재고가 없어요. 영수증을 촬영해 입고하거나 "재료 직접 등록"으로 시작해 보세요.
+              {selectedCategory === 'all'
+                ? '아직 등록된 재고가 없어요. 영수증을 촬영해 입고하거나 "재료 직접 등록"으로 시작해 보세요.'
+                : '해당 카테고리에 속하는 재고가 없어요.'}
             </Text>
           </Card>
         ) : (
-          stocks.map((s) => {
+          filteredStocks.map((s) => {
             const low = s.safety_quantity > 0 && s.current_quantity < s.safety_quantity;
             const denominator = Math.max(s.current_quantity, s.safety_quantity * 2, 1);
             return (
@@ -740,4 +793,33 @@ const styles = StyleSheet.create({
   stockValue: { ...typography.L2, color: colors.espressoBrown },
   stockUnit: { ...typography.L4, color: colors.mochaBrown },
   safetyText: { ...typography.L5, color: colors.mochaBrown },
+
+  // [한글 주석] 재고 카테고리 필터 칩 바 스타일
+  categoryBar: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingVertical: 4,
+    marginBottom: 4,
+  },
+  categoryChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(242, 236, 224, 0.6)',
+    borderWidth: 1,
+    borderColor: 'rgba(140, 111, 86, 0.15)',
+  },
+  categoryChipActive: {
+    backgroundColor: colors.espressoBrown,
+    borderColor: colors.espressoBrown,
+  },
+  categoryChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.mochaBrown,
+  },
+  categoryChipTextActive: {
+    color: colors.white,
+    fontWeight: '800',
+  },
 });

@@ -1,9 +1,10 @@
-// 로그인 / 회원가입 화면 — 미로그인 시 이 화면만 노출 (탭 앱은 숨김)
+// 로그인 / 회원가입 화면 — 미로그인 시 이 화면만 노출 (2단계 가게 상세 설정 폼 추가)
 import { useState } from 'react';
 import {
   Alert,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -15,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../../auth/AuthContext';
 import { FadeInUp, PressableScale } from '../../components/motion';
+import { IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
 import { colors, spacing, typography } from '../../theme';
 
@@ -22,37 +24,163 @@ const LOGO = require('../../../assets/logo_transparent.png');
 
 type Mode = 'login' | 'signup';
 
+// 상권 유형 옵션 (이모지 전면 제거 및 텍스트 정돈)
+const BIZ_TYPES = ['오피스 상권', '주택가 상권', '대학가 상권', '복합 상권'];
+
+// [한글 주석] 알바생 근무 시간대 설정 UI 스타일 세그먼트 시간 피커 (오픈/마감 카드 선택 폼)
+function ShiftTimePicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+}) {
+  const currentHour = parseInt(value.split(':')[0], 10) || 9;
+  const currentMinute = parseInt(value.split(':')[1], 10) || 0;
+
+  const hours = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];
+  const minutes = [0, 15, 30, 45];
+
+  const selectHour = (h: number) => {
+    const hh = String(h).padStart(2, '0');
+    const mm = String(currentMinute).padStart(2, '0');
+    onChange(`${hh}:${mm}`);
+  };
+
+  const selectMinute = (m: number) => {
+    const hh = String(currentHour).padStart(2, '0');
+    const mm = String(m).padStart(2, '0');
+    onChange(`${hh}:${mm}`);
+  };
+
+  return (
+    <View style={styles.shiftPickerPanel}>
+      <Text style={styles.shiftSubLabel}>시간 선택</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+        {hours.map((h) => {
+          const active = currentHour === h;
+          return (
+            <PressableScale
+              key={h}
+              onPress={() => selectHour(h)}
+              style={[styles.chip, active && styles.chipActive]}
+              to={0.94}
+            >
+              <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                {String(h).padStart(2, '0')}시
+              </Text>
+            </PressableScale>
+          );
+        })}
+      </ScrollView>
+
+      <Text style={[styles.shiftSubLabel, { marginTop: 8 }]}>분 선택</Text>
+      <View style={styles.chipRow}>
+        {minutes.map((m) => {
+          const active = currentMinute === m;
+          return (
+            <PressableScale
+              key={m}
+              onPress={() => selectMinute(m)}
+              style={[styles.chip, active && styles.chipActive]}
+              to={0.94}
+            >
+              <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                {String(m).padStart(2, '0')}분
+              </Text>
+            </PressableScale>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 export default function AuthScreen() {
   const { login, signup, loginWithGoogle, loginWithApple } = useAuth();
   const [mode, setMode] = useState<Mode>('login');
+  const [step, setStep] = useState<1 | 2>(1); // [한글 주석] 회원가입 1단계/2단계 구분 상태
 
+  // 1단계 기본 정보
   const [name, setName] = useState('');
-  // 데모 계정 기본값 — 바로 로그인 버튼만 누르면 됨
   const [email, setEmail] = useState('test@test.com');
   const [password, setPassword] = useState('1234');
   const [autoLogin, setAutoLogin] = useState(true);
 
+  // 2단계 가게 상세 설정 정보
+  const [region, setRegion] = useState('서울특별시 중구 명동');
+  const [openHour, setOpenHour] = useState('09:00');
+  const [closeHour, setCloseHour] = useState('21:00');
+  const [bizType, setBizType] = useState('오피스 상권');
+  // [한글 주석] 네이버 지도 위치 선택 모달 표시 여부 상태 복원
+  const [showMapModal, setShowMapModal] = useState(false);
+  // [한글 주석] 약관 동의 상태 및 상세보기 모달 상태
+  const [termService, setTermService] = useState(false);
+  const [termPrivacy, setTermPrivacy] = useState(false);
+  const [termMarketing, setTermMarketing] = useState(false);
+  const [termsModal, setTermsModal] = useState<{ visible: boolean; title: string; content: string }>({
+    visible: false,
+    title: '',
+    content: '',
+  });
+
+  const allTermsChecked = termService && termPrivacy && termMarketing;
+
+  const toggleAllTerms = () => {
+    const next = !allTermsChecked;
+    setTermService(next);
+    setTermPrivacy(next);
+    setTermMarketing(next);
+  }; // 네이버 지도 위치 선택 모달
+  const [activeTimePicker, setActiveTimePicker] = useState<'open' | 'close' | null>(null); // [한글 주석] 알바생 스케줄 스타일 시간대 선택 활성화 상태
+
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const submit = async () => {
+  // 1단계 ➡️ 2단계 이동 검증
+  const goToNextStep = () => {
     setError('');
+    if (!name.trim()) {
+      setError('이름(상호)을 입력해 주세요.');
+      return;
+    }
     if (!email.trim() || !password) {
       setError('이메일과 비밀번호를 입력해 주세요.');
       return;
     }
-    if (mode === 'signup' && !name.trim()) {
-      setError('이름(상호)을 입력해 주세요.');
-      return;
-    }
-    setBusy(true);
-    try {
-      if (mode === 'login') await login(email, password, autoLogin);
-      else await signup(name, email, password, autoLogin);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '문제가 발생했어요.');
-    } finally {
-      setBusy(false);
+    setStep(2);
+  };
+
+  const submit = async () => {
+    setError('');
+    if (mode === 'login') {
+      if (!email.trim() || !password) {
+        setError('이메일과 비밀번호를 입력해 주세요.');
+        return;
+      }
+      setBusy(true);
+      try {
+        await login(email, password, autoLogin);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '문제가 발생했어요.');
+      } finally {
+        setBusy(false);
+      }
+    } else {
+      // 회원가입 제출 (약관 동의 검증)
+      if (!termService || !termPrivacy) {
+        setError('필수 약관(서비스 이용약관 및 개인정보 수집 이용)에 동의해 주세요.');
+        return;
+      }
+      setBusy(true);
+      try {
+        await signup(name, email, password, autoLogin);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setError(msg || '가입 처리 중 문제가 발생했어요.');
+      } finally {
+        setBusy(false);
+      }
     }
   };
 
@@ -82,6 +210,7 @@ export default function AuthScreen() {
 
   const switchMode = (m: Mode) => {
     setMode(m);
+    setStep(1);
     setError('');
   };
 
@@ -115,77 +244,256 @@ export default function AuthScreen() {
           />
         </FadeInUp>
 
-        <FadeInUp delay={160}>
+        <FadeInUp delay={160} key={mode}>
           <View style={styles.form}>
-            {mode === 'signup' && (
-              <Field
-                icon="storefront-outline"
-                placeholder="상호 / 이름"
-                value={name}
-                onChangeText={setName}
-              />
+            {/* 로그인 모드 폼 */}
+            {mode === 'login' ? (
+              <>
+                <Field
+                  icon="mail-outline"
+                  placeholder="이메일"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+                <Field
+                  icon="lock-closed-outline"
+                  placeholder="비밀번호"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                />
+
+                {/* 자동 로그인 체크박스 */}
+                <PressableScale style={styles.checkRow} onPress={() => setAutoLogin((v) => !v)} to={0.98}>
+                  <View style={[styles.checkbox, autoLogin && styles.checkboxOn]}>
+                    {autoLogin && <Ionicons name="checkmark" size={14} color={colors.white} />}
+                  </View>
+                  <Text style={styles.checkLabel}>자동 로그인</Text>
+                </PressableScale>
+
+                {error ? <Text style={styles.error}>{error}</Text> : null}
+
+                <PressableScale style={styles.submitBtn} onPress={submit} disabled={busy}>
+                  <Text style={styles.submitText}>{busy ? '처리 중…' : '로그인'}</Text>
+                </PressableScale>
+              </>
+            ) : (
+              /* 회원가입 모드: 이메일/비밀번호는 기본 표시되고, 상호명을 입력하면 가게 상세 설정 UI가 토스처럼 밑에 등장 */
+              <>
+                <Field
+                  icon="storefront-outline"
+                  placeholder="상호 / 이름"
+                  value={name}
+                  onChangeText={setName}
+                />
+                <Field
+                  icon="mail-outline"
+                  placeholder="이메일"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+                <Field
+                  icon="lock-closed-outline"
+                  placeholder="비밀번호"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                />
+
+                {/* [한글 주석: 토스 스타일 인터랙션] 상호명을 입력하면 가게 설정 UI와 완료 버튼이 부드럽게 스르륵 밑에 떠오릅니다 */}
+                {name.trim().length > 0 && (
+                  <FadeInUp key="toss-store-reveal" delay={50} style={{ gap: 14, marginTop: 6 }}>
+                    {/* 1. 가게 위치 설정 */}
+                    <View style={styles.group}>
+                      <Text style={styles.groupLabel}>가게 위치 설정</Text>
+                      <View style={styles.locationInputRow}>
+                        <TextInput
+                          style={[styles.input, { flex: 1 }]}
+                          value={region}
+                          onChangeText={setRegion}
+                          placeholder="가게 주소 / 지역명 입력"
+                        />
+                        <PressableScale
+                          style={styles.mapPinBtn}
+                          onPress={() => setShowMapModal(true)}
+                          to={0.93}
+                        >
+                          <Ionicons name="map-outline" size={14} color={colors.white} />
+                          <Text style={styles.mapPinBtnText}>네이버 지도 핀</Text>
+                        </PressableScale>
+                      </View>
+                    </View>
+
+                    {/* 2. 오픈 시간 & 마감 시간 설정 (알바생 스케줄 시간 피커 IosTimePicker UI 그대로 적용) */}
+                    <View style={styles.group}>
+                      <Text style={styles.groupLabel}>가게 운영 시간</Text>
+                      <IosTimePicker
+                        value={`${openHour.slice(0, 2)}–${closeHour.slice(0, 2)}`}
+                        startLabel="오픈 시간"
+                        endLabel="마감 시간"
+                        onChange={(val) => {
+                          const parts = val.split(/[–-]/);
+                          if (parts[0]) setOpenHour(`${parts[0].trim().padStart(2, '0')}:00`);
+                          if (parts[1]) setCloseHour(`${parts[1].trim().padStart(2, '0')}:00`);
+                        }}
+                      />
+                    </View>
+
+                    {/* 3. 상권 유형 선택 (한 줄에 전부 들어가도록 레이아웃 정렬) */}
+                    <View style={styles.group}>
+                      <Text style={styles.groupLabel}>상권 유형</Text>
+                      <View style={styles.chipRow}>
+                        {BIZ_TYPES.map((bt) => (
+                          <PressableScale
+                            key={bt}
+                            onPress={() => setBizType(bt)}
+                            style={[styles.chip, bizType === bt && styles.chipActive]}
+                          >
+                            <Text style={[styles.chipText, bizType === bt && styles.chipTextActive]}>{bt}</Text>
+                          </PressableScale>
+                        ))}
+                      </View>
+                    </View>
+
+                    {/* 4. [한글 주석] 약관 동의 세부 UI 영역 */}
+                    <View style={styles.termsBox}>
+                      {/* 전체 동의 버튼 */}
+                      <PressableScale style={styles.termRowAll} onPress={toggleAllTerms} to={0.98}>
+                        <View style={[styles.checkbox, allTermsChecked && styles.checkboxOn]}>
+                          {allTermsChecked && <Ionicons name="checkmark" size={14} color={colors.white} />}
+                        </View>
+                        <Text style={styles.termTextAll}>약관 전체 동의</Text>
+                      </PressableScale>
+
+                      <View style={styles.termDivider} />
+
+                      {/* (필수) 서비스 이용약관 */}
+                      <View style={styles.termRowItem}>
+                        <PressableScale style={styles.termCheckLeft} onPress={() => setTermService(!termService)} to={0.98}>
+                          <View style={[styles.checkbox, termService && styles.checkboxOn]}>
+                            {termService && <Ionicons name="checkmark" size={14} color={colors.white} />}
+                          </View>
+                          <Text style={styles.termItemText}>
+                            <Text style={styles.requiredBadge}>(필수)</Text> 서비스 이용약관 동의
+                          </Text>
+                        </PressableScale>
+                        <PressableScale
+                          onPress={() =>
+                            setTermsModal({
+                              visible: true,
+                              title: '서비스 이용약관',
+                              content:
+                                '제1조 (목적)\n본 약관은 SimpleM 서비스(이하 "서비스") 이용 조건 및 절차, 이용자와 당사의 권리·의무 및 책임사항을 규정함을 목적으로 합니다.\n\n제2조 (회원의 의무)\n회원은 본 서비스 이용 시 관련 법령 및 본 약관을 준수하여야 하며, 타인의 정보를 도용해서는 안 됩니다.\n\n제3조 (서비스의 제공)\n당사는 365일 24시간 안정적인 경영 분석 및 가맹 관리 서비스를 제공하도록 최선을 다합니다.',
+                            })
+                          }
+                          to={0.94}
+                        >
+                          <Text style={styles.termDetailLink}>보기</Text>
+                        </PressableScale>
+                      </View>
+
+                      {/* (필수) 개인정보 수집 및 이용 */}
+                      <View style={styles.termRowItem}>
+                        <PressableScale style={styles.termCheckLeft} onPress={() => setTermPrivacy(!termPrivacy)} to={0.98}>
+                          <View style={[styles.checkbox, termPrivacy && styles.checkboxOn]}>
+                            {termPrivacy && <Ionicons name="checkmark" size={14} color={colors.white} />}
+                          </View>
+                          <Text style={styles.termItemText}>
+                            <Text style={styles.requiredBadge}>(필수)</Text> 개인정보 수집 및 이용 동의
+                          </Text>
+                        </PressableScale>
+                        <PressableScale
+                          onPress={() =>
+                            setTermsModal({
+                              visible: true,
+                              title: '개인정보 수집 및 이용 동의',
+                              content:
+                                '1. 수집 항목: 상호명, 이메일 주소, 비밀번호, 매장 위치 정보, 운영 시간대\n2. 수집 및 이용 목적: 회원 식별, 카페 맞춤형 경영 분석 리포트 제공, 서비스 장애 안내\n3. 보유 및 이용 기간: 회원 탈퇴 시 즉시 파기 (단, 관계 법령에 따라 5년간 보관)',
+                            })
+                          }
+                          to={0.94}
+                        >
+                          <Text style={styles.termDetailLink}>보기</Text>
+                        </PressableScale>
+                      </View>
+
+                      {/* (선택) 마케팅 정보 수신 */}
+                      <View style={styles.termRowItem}>
+                        <PressableScale style={styles.termCheckLeft} onPress={() => setTermMarketing(!termMarketing)} to={0.98}>
+                          <View style={[styles.checkbox, termMarketing && styles.checkboxOn]}>
+                            {termMarketing && <Ionicons name="checkmark" size={14} color={colors.white} />}
+                          </View>
+                          <Text style={styles.termItemText}>
+                            <Text style={styles.optionalBadge}>(선택)</Text> 마케팅 정보 수신 동의
+                          </Text>
+                        </PressableScale>
+                        <PressableScale
+                          onPress={() =>
+                            setTermsModal({
+                              visible: true,
+                              title: '마케팅 정보 수신 동의',
+                              content:
+                                '1. 수집 목적: 신규 원가절감 리포트 기능 안내, 맞춤 프로모션 및 혜택 알림\n2. 수집 항목: 이메일, 매장명\n3. 동의를 거부하시더라도 기본 서비스 이용에 아무런 제한이 없습니다.',
+                            })
+                          }
+                          to={0.94}
+                        >
+                          <Text style={styles.termDetailLink}>보기</Text>
+                        </PressableScale>
+                      </View>
+                    </View>
+
+                    {error ? <Text style={styles.error}>{error}</Text> : null}
+
+                    {/* 회원가입 완료 버튼 */}
+                    <PressableScale
+                      style={[styles.submitBtn, { marginTop: 6 }]}
+                      onPress={submit}
+                      disabled={busy}
+                    >
+                      <Text style={styles.submitText}>
+                        {busy ? '가입 처리 중…' : '가입 완료하고 시작하기'}
+                      </Text>
+                    </PressableScale>
+                  </FadeInUp>
+                )}
+              </>
             )}
-            <Field
-              icon="mail-outline"
-              placeholder="이메일"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-            <Field
-              icon="lock-closed-outline"
-              placeholder="비밀번호"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-            />
 
-            {/* 자동 로그인 체크박스 */}
-            <PressableScale style={styles.checkRow} onPress={() => setAutoLogin((v) => !v)} to={0.98}>
-              <View style={[styles.checkbox, autoLogin && styles.checkboxOn]}>
-                {autoLogin && <Ionicons name="checkmark" size={14} color={colors.white} />}
-              </View>
-              <Text style={styles.checkLabel}>자동 로그인</Text>
-              <Text style={styles.checkHint}>다음부터 바로 로그인돼요</Text>
-            </PressableScale>
+            {/* 소셜 로그인 구분선 및 버튼 영역 */}
+            {mode === 'login' && (
+              <>
+                <View style={styles.socialSeparator}>
+                  <View style={styles.separatorLine} />
+                  <Text style={styles.separatorText}>또는 소셜 계정으로 로그인</Text>
+                  <View style={styles.separatorLine} />
+                </View>
 
-            {error ? <Text style={styles.error}>{error}</Text> : null}
+                <View style={styles.socialButtonsRow}>
+                  <PressableScale
+                    style={[styles.socialBtn, styles.googleBtn]}
+                    onPress={handleGoogleLogin}
+                    disabled={busy}
+                  >
+                    <Ionicons name="logo-google" size={18} color={colors.espressoBrown} />
+                    <Text style={[styles.socialBtnText, styles.googleBtnText]}>Google</Text>
+                  </PressableScale>
 
-            <PressableScale style={styles.submitBtn} onPress={submit} disabled={busy}>
-              <Text style={styles.submitText}>
-                {busy ? '처리 중…' : mode === 'login' ? '로그인' : '가입하고 시작하기'}
-              </Text>
-            </PressableScale>
-
-            {/* [한글 주석] 소셜 로그인 구분선 및 버튼 영역을 추가합니다. */}
-            <View style={styles.socialSeparator}>
-              <View style={styles.separatorLine} />
-              <Text style={styles.separatorText}>또는 소셜 계정으로 로그인</Text>
-              <View style={styles.separatorLine} />
-            </View>
-
-            <View style={styles.socialButtonsRow}>
-              {/* [한글 주석] 구글 로그인 버튼 (실제 연동 및 로딩 가드) */}
-              <PressableScale
-                style={[styles.socialBtn, styles.googleBtn]}
-                onPress={handleGoogleLogin}
-                disabled={busy}
-              >
-                <Ionicons name="logo-google" size={18} color={colors.espressoBrown} />
-                <Text style={[styles.socialBtnText, styles.googleBtnText]}>Google</Text>
-              </PressableScale>
-
-              {/* [한글 주석] 애플 로그인 버튼 (실제 연동 및 로딩 가드) */}
-              <PressableScale
-                style={[styles.socialBtn, styles.appleBtn]}
-                onPress={handleAppleLogin}
-                disabled={busy}
-              >
-                <Ionicons name="logo-apple" size={18} color={colors.white} />
-                <Text style={[styles.socialBtnText, styles.appleBtnText]}>Apple</Text>
-              </PressableScale>
-            </View>
+                  <PressableScale
+                    style={[styles.socialBtn, styles.appleBtn]}
+                    onPress={handleAppleLogin}
+                    disabled={busy}
+                  >
+                    <Ionicons name="logo-apple" size={18} color={colors.white} />
+                    <Text style={[styles.socialBtnText, styles.appleBtnText]}>Apple</Text>
+                  </PressableScale>
+                </View>
+              </>
+            )}
 
             <Text style={styles.switchText}>
               {mode === 'login' ? '아직 계정이 없으신가요? ' : '이미 계정이 있으신가요? '}
@@ -199,6 +507,75 @@ export default function AuthScreen() {
           </View>
         </FadeInUp>
       </ScrollView>
+
+      {/* [한글 주석] 네이버 지도 위치 선택 모달 (네이버 지도 API 뷰 전면 배치) */}
+      <Modal visible={showMapModal} transparent animationType="fade">
+        <View style={styles.modalBg}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHead}>
+              <Text style={styles.modalTitle}>📍 네이버 지도 위치 설정</Text>
+              <PressableScale onPress={() => setShowMapModal(false)}>
+                <Ionicons name="close" size={20} color={colors.mochaBrown} />
+              </PressableScale>
+            </View>
+
+            {/* [한글 주석] 네이버 지도 API 타일/웹 뷰가 그려지는 영역 */}
+            <View style={{ marginVertical: 10, borderRadius: 14, overflow: 'hidden', height: 260, backgroundColor: colors.creamSand }}>
+              {Platform.OS === 'web' ? (
+                <iframe
+                  title="naver-map-api"
+                  src={`https://m.map.naver.com/search2/search.naver?query=${encodeURIComponent(region || '서울특별시 중구 명동')}`}
+                  style={{ width: '100%', height: '100%', border: 'none' }}
+                />
+              ) : (
+                <View style={styles.mapContainerBox}>
+                  <Ionicons name="location" size={36} color={colors.pointOrange} />
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: colors.espressoBrown, marginTop: 6, textAlign: 'center' }}>
+                    {region}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            <PressableScale
+              style={[styles.submitBtn, { marginTop: 4 }]}
+              onPress={() => setShowMapModal(false)}
+            >
+              <Text style={styles.submitText}>이 위치로 설정 완료</Text>
+            </PressableScale>
+          </View>
+        </View>
+      </Modal>
+
+      {/* [한글 주석] 약관 상세 내용 팝업 모달 */}
+      <Modal
+        visible={termsModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTermsModal({ ...termsModal, visible: false })}
+      >
+        <View style={styles.modalBg}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHead}>
+              <Text style={styles.modalTitle}>{termsModal.title}</Text>
+              <PressableScale onPress={() => setTermsModal({ ...termsModal, visible: false })} to={0.9}>
+                <Ionicons name="close" size={20} color={colors.espressoBrown} />
+              </PressableScale>
+            </View>
+            <ScrollView style={{ maxHeight: 280, marginVertical: 10 }}>
+              <Text style={{ ...typography.L4, fontSize: 13, color: colors.mochaBrown, lineHeight: 20 }}>
+                {termsModal.content}
+              </Text>
+            </ScrollView>
+            <PressableScale
+              style={[styles.submitBtn, { marginTop: 10 }]}
+              onPress={() => setTermsModal({ ...termsModal, visible: false })}
+            >
+              <Text style={styles.submitText}>확인</Text>
+            </PressableScale>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -221,7 +598,7 @@ function Field({
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.creamSand },
-  content: { padding: spacing.globalPadding, paddingTop: 80, gap: spacing.verticalGap },
+  content: { padding: spacing.globalPadding, paddingTop: 60, gap: spacing.verticalGap },
   brand: { alignItems: 'center', marginBottom: 8 },
   logo: { width: 216, height: 175 },
   brandSub: { ...typography.L4, color: colors.mochaBrown, marginTop: 10 },
@@ -261,14 +638,154 @@ const styles = StyleSheet.create({
   submitBtn: {
     backgroundColor: colors.pointOrange,
     borderRadius: 14,
-    paddingVertical: 15,
+    paddingVertical: 14,
     alignItems: 'center',
     marginTop: 4,
   },
-  submitText: { ...typography.L3, color: colors.white },
+  submitText: { ...typography.L3, color: colors.white, fontWeight: '800' },
   switchText: { ...typography.L5, color: colors.mochaBrown, textAlign: 'center', marginTop: 4 },
   switchLink: { color: colors.pointOrange, fontWeight: '700' },
-  // [한글 주석] 소셜 로그인 구분선 및 버튼 레이아웃 스타일
+
+  // Step 2 가게 설정 스타일 (이모지 제거, 폰트 위계 정돈, 간격 조율)
+  step2Container: {
+    backgroundColor: colors.white,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(140, 111, 86, 0.12)',
+    padding: 16,
+    gap: 14,
+  },
+  stepTitleRow: { marginBottom: 2 },
+  stepTitle: { fontSize: 17, fontWeight: '900', color: colors.espressoBrown },
+  stepSub: { fontSize: 11.5, color: colors.mochaBrown, marginTop: 2, fontWeight: '500' },
+  
+  // 그룹 레이아웃 — 라벨과 힌트는 가깝게(gap: 3), 주요 텍스트 크기 확대
+  group: { gap: 4 },
+  groupLabel: { fontSize: 14, fontWeight: '800', color: colors.espressoBrown },
+  groupHint: { fontSize: 10.5, color: colors.mochaBrown, fontWeight: '500', marginTop: 1, marginBottom: 4 },
+  subLabel: { fontSize: 11.5, fontWeight: '700', color: colors.espressoBrown, marginBottom: 2 },
+  
+  locationInputRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  mapPinBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.espressoBrown,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  mapPinBtnText: { color: colors.white, fontSize: 12, fontWeight: '700' },
+
+  // 알바생 스케줄 스타일 시간대 피커 카드
+  shiftTimeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 4,
+  },
+  shiftTimeCard: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: 'rgba(140, 111, 86, 0.2)',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: colors.coffeeCream,
+  },
+  shiftTimeCardActive: {
+    backgroundColor: '#F6DED8', // 연한 포인트 오렌지 틴트 (OperationScreen 동일)
+    borderColor: colors.pointOrange,
+  },
+  shiftTimeTitle: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: colors.mochaBrown,
+  },
+  shiftTimeValue: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: colors.espressoBrown,
+  },
+  shiftTimeValueActive: {
+    color: colors.pointOrange,
+  },
+  shiftPickerPanel: {
+    backgroundColor: colors.coffeeCream,
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(140, 111, 86, 0.15)',
+  },
+  shiftSubLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.mochaBrown,
+    marginBottom: 4,
+  },
+
+  chipRow: { flexDirection: 'row', flexWrap: 'nowrap', gap: 4, marginTop: 2 },
+  chip: {
+    flex: 1,
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(242, 236, 224, 0.6)',
+    borderWidth: 1,
+    borderColor: 'rgba(140, 111, 86, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipActive: {
+    backgroundColor: colors.pointOrange,
+    borderColor: colors.pointOrange,
+  },
+  chipText: { fontSize: 11, fontWeight: '700', color: colors.mochaBrown, textAlign: 'center' },
+  chipTextActive: { color: colors.white, fontWeight: '800' },
+  backBtn: {
+    backgroundColor: 'rgba(140, 111, 86, 0.1)',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backBtnText: { fontSize: 13, color: colors.espressoBrown, fontWeight: '700' },
+
+  // 네이버 지도 모달 (핸드폰 프레임에 맞춰 maxWidth 380px 설정)
+  modalBg: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  modalContent: {
+    backgroundColor: colors.white,
+    borderRadius: 20,
+    padding: 20,
+    width: '100%',
+    maxWidth: 380,
+    alignSelf: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  modalHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  modalTitle: { fontSize: 15, fontWeight: '900', color: colors.espressoBrown },
+  mapContainerBox: {
+    height: 140,
+    backgroundColor: colors.creamSand,
+    borderRadius: 14,
+    marginVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
   socialSeparator: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -279,7 +796,7 @@ const styles = StyleSheet.create({
   separatorLine: {
     flex: 1,
     height: 1,
-    backgroundColor: 'rgba(78, 54, 41, 0.15)', // 연한 에스프레소 브라운 구분선
+    backgroundColor: 'rgba(78, 54, 41, 0.15)',
   },
   separatorText: {
     ...typography.L5,
@@ -309,7 +826,7 @@ const styles = StyleSheet.create({
     color: colors.espressoBrown,
   },
   appleBtn: {
-    backgroundColor: colors.pointOrange, // 테마 컬러에 맞춘 다크 브라운 블랙
+    backgroundColor: colors.pointOrange,
     borderColor: colors.pointOrange,
   },
   appleBtnText: {
@@ -318,5 +835,64 @@ const styles = StyleSheet.create({
   socialBtnText: {
     ...typography.L4,
     fontWeight: '700',
+  },
+
+  // [한글 주석] 약관 동의 세부 전용 스타일
+  termsBox: {
+    backgroundColor: 'rgba(242, 236, 224, 0.45)',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(140, 111, 86, 0.15)',
+    marginTop: 4,
+  },
+  termRowAll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 2,
+  },
+  termTextAll: {
+    ...typography.L3,
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: colors.espressoBrown,
+  },
+  termDivider: {
+    height: 1,
+    backgroundColor: 'rgba(140, 111, 86, 0.12)',
+    marginVertical: 8,
+  },
+  termRowItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+  },
+  termCheckLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  termItemText: {
+    ...typography.L4,
+    fontSize: 12,
+    color: colors.espressoBrown,
+  },
+  requiredBadge: {
+    color: colors.pointOrange,
+    fontWeight: '800',
+  },
+  optionalBadge: {
+    color: colors.mochaBrown,
+    fontWeight: '700',
+  },
+  termDetailLink: {
+    ...typography.L5,
+    fontSize: 11,
+    color: colors.mochaBrown,
+    textDecorationLine: 'underline',
+    paddingLeft: 8,
   },
 });
