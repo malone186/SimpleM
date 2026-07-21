@@ -86,9 +86,7 @@ export default function DashboardScreen() {
   const brewMood = 'top';
   const scrollY = useRef(new Animated.Value(0)).current;
 
-  useEffect(() => {
-    if (isFocused) setRunId((x) => x + 1); // 탭 돌아올 때 재생
-  }, [isFocused]);
+
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -208,9 +206,8 @@ export default function DashboardScreen() {
         >
           <WelcomeHeader
             storeName={user?.name || '포자카페'}
-            photo={user?.photo}
             mood={brewMood}
-            onOpenProfile={() => navigation.navigate('Profile')}
+            onOpenMap={() => navigation.navigate('StoreMap')}
           />
         </Animated.View>
 

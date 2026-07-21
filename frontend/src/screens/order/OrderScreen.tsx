@@ -39,6 +39,7 @@ const DEFICIENT_ITEMS = [
 ];
 
 export default function OrderScreen() {
+
   // [상태] 원두 목록, 로딩 중 여부, 오류 여부, 상세 모달 대상 원두
   const [beans, setBeans] = useState<RoasteryBean[]>([]);
   const [loading, setLoading] = useState(true);

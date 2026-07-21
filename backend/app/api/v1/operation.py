@@ -14,7 +14,8 @@ from app.schemas.operation import (
     SettlementCalculateRequest, SettlementCalculateResponse,
     ScheduleRecommendationRequest, ScheduleRecommendationResponse,
     ExpenseCreate, ExpenseResponse,
-    EmployeeUnavailabilityCreate, EmployeeUnavailabilityResponse
+    EmployeeUnavailabilityCreate, EmployeeUnavailabilityResponse,
+    EmployeeCreate, EmployeeUpdate, EmployeeResponse
 )
 from app.schemas.bean_rag import BeanRAGChatRequest, BeanSearchRequest, BeanRAGChatResponse, BeanSearchResponse, ReindexResponse
 from app.services.operation.operation_service import OperationService, EmployeeUnavailabilityService
@@ -25,6 +26,7 @@ from app.models.user import User
 
 router = APIRouter(prefix="/operation", tags=["Operation"])
 
+<<<<<<< Updated upstream
 
 @router.post("/beans/curate", response_model=CommonResponse)
 def curate_beans_api(payload: CurationFilterRequest, limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db)):
@@ -42,6 +44,75 @@ def curate_beans_api(payload: CurationFilterRequest, limit: int = Query(20, ge=1
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"큐레이터 추천 서버 오류: {str(e)}")
+=======
+# ----------------------------------------------------
+# [한글 주석] 전체 알바생(근무자) 관리 REST API (CRUD)
+# ----------------------------------------------------
+
+@router.get("/employees", response_model=CommonResponse)
+def list_employees_api(db: Session = Depends(get_db)):
+    """전체 알바생(근무자) 목록을 조회합니다."""
+    try:
+        employees = OperationService.get_employees(db)
+        data = [EmployeeResponse.model_validate(emp) for emp in employees]
+        return CommonResponse(success=True, data=data, message="알바생 목록 조회가 완료되었습니다.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/employees", response_model=CommonResponse)
+def create_employee_api(payload: EmployeeCreate, db: Session = Depends(get_db)):
+    """신규 알바생을 새로 등록합니다."""
+    try:
+        emp = OperationService.create_employee(
+            db=db,
+            name=payload.name,
+            hourly_rate=payload.hourly_rate,
+            role=payload.role
+        )
+        return CommonResponse(
+            success=True,
+            data=EmployeeResponse.model_validate(emp),
+            message="알바생 등록이 완료되었습니다."
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
+
+@router.patch("/employees/{employee_id}", response_model=CommonResponse)
+def update_employee_api(employee_id: int, payload: EmployeeUpdate, db: Session = Depends(get_db)):
+    """알바생 정보(이름, 시급, 직책)를 수정합니다."""
+    try:
+        emp = OperationService.update_employee(
+            db=db,
+            employee_id=employee_id,
+            name=payload.name,
+            hourly_rate=payload.hourly_rate,
+            role=payload.role
+        )
+        if not emp:
+            raise HTTPException(status_code=404, detail="수정할 알바생 정보를 찾을 수 없습니다.")
+        return CommonResponse(
+            success=True,
+            data=EmployeeResponse.model_validate(emp),
+            message="알바생 정보 수정이 완료되었습니다."
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
+
+@router.delete("/employees/{employee_id}", response_model=CommonResponse)
+def delete_employee_api(employee_id: int, db: Session = Depends(get_db)):
+    """알바생 퇴사/삭제 처리를 진행합니다."""
+    try:
+        success = OperationService.delete_employee(db, employee_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="삭제할 알바생 정보를 찾을 수 없습니다.")
+        return CommonResponse(success=True, data=None, message="알바생이 성공적으로 퇴사/삭제 처리되었습니다.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+>>>>>>> Stashed changes
 
 
 @router.post("/schedules", response_model=CommonResponse)

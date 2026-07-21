@@ -23,18 +23,66 @@ class OperationService:
         """데이터베이스에서 직원 정보 조회"""
         return db.query(Employee).filter(Employee.id == employee_id).first()
 
+    # [한글 주석] 전체 알바생(근무자) 목록을 ID순으로 조회합니다.
+    @staticmethod
+    def get_employees(db: Session) -> List[Employee]:
+        """전체 직원 목록 조회"""
+        return db.query(Employee).order_by(Employee.id.asc()).all()
+
+    # [한글 주석] 신규 알바생 정보(이름, 시급, 직책)를 DB에 새로 등록합니다.
+    @staticmethod
+    def create_employee(db: Session, name: str, hourly_rate: int, role: str = "바리스타") -> Employee:
+        """신규 직원 등록"""
+        if not name or not name.strip():
+            raise ValueError("직원 이름은 필수 입력 항목입니다.")
+        if hourly_rate <= 0:
+            raise ValueError("시급은 0원보다 커야 합니다.")
+        
+        new_emp = Employee(name=name.strip(), hourly_rate=hourly_rate, role=role.strip() if role else "바리스타")
+        db.add(new_emp)
+        db.commit()
+        db.refresh(new_emp)
+        return new_emp
+
+    # [한글 주석] 알바생 정보(이름, 시급, 직책)를 부분 수정(PATCH)합니다.
+    @staticmethod
+    def update_employee(db: Session, employee_id: int, name: Optional[str] = None, hourly_rate: Optional[int] = None, role: Optional[str] = None) -> Optional[Employee]:
+        """직원 정보 수정"""
+        emp = db.query(Employee).filter(Employee.id == employee_id).first()
+        if not emp:
+            return None
+        if name is not None and name.strip():
+            emp.name = name.strip()
+        if hourly_rate is not None:
+            if hourly_rate <= 0:
+                raise ValueError("시급은 0원보다 커야 합니다.")
+            emp.hourly_rate = hourly_rate
+        if role is not None and role.strip():
+            emp.role = role.strip()
+        
+        db.commit()
+        db.refresh(emp)
+        return emp
+
+    # [한글 주석] 퇴사한 알바생 정보 및 연관 스케줄을 삭제(퇴사) 처리합니다.
+    @staticmethod
+    def delete_employee(db: Session, employee_id: int) -> bool:
+        """직원 퇴사/삭제 처리"""
+        emp = db.query(Employee).filter(Employee.id == employee_id).first()
+        if not emp:
+            return False
+        db.delete(emp)
+        db.commit()
+        return True
+
     @staticmethod
     def create_schedule(db: Session, employee_id: int, start_time: datetime, end_time: datetime) -> Schedule:
         """새 근무 스케줄을 데이터베이스에 등록합니다."""
-        # 1. 존재하는 직원인지 유효성 검사
         employee = db.query(Employee).filter(Employee.id == employee_id).first()
         if not employee:
             raise ValueError(f"존재하지 않는 직원 ID입니다: {employee_id}")
-        
-        # 2. 직원의 시급 유효성 검사 (0 이하인 경우 에러 처리)
         if employee.hourly_rate <= 0:
-            raise ValueError(f"해당 직원의 시급 설정이 올바르지 않습니다 (시급: {employee.hourly_rate}원). 시급은 0보다 커야 합니다.")
-        
+            raise ValueError(f"해당 직원의 시급 설정이 올바르지 않습니다.")
         if start_time >= end_time:
             raise ValueError("근무 시작 시간은 종료 시간보다 빨라야 합니다.")
             
