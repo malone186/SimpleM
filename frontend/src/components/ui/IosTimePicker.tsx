@@ -18,17 +18,26 @@ const START_HOURS = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2
 // 종료 시간 후보군 (00시 ~ 24시, 자정 마감 고려)
 const END_HOURS = Array.from({ length: 25 }, (_, i) => i.toString().padStart(2, '0'));
 
-// 휠의 1칸당 세로 높이 (스냅 크기 기준)
-const ITEM_HEIGHT = 42;
+// 휠의 1칸당 세로 높이 (스냅 크기 기준 - 콤팩트 축소)
+const ITEM_HEIGHT = 36;
 
 interface IosTimePickerProps {
   // 시간 값 (형식: "09–15" 혹은 "13–21")
   value: string;
   // 시간 변경 시 호출되는 콜백 함수 (형식: "09–15" 반환)
   onChange: (value: string) => void;
+  // [한글 주석] 시작 시간 컬럼 헤더 라벨 (기본값: '시작 시간', 예: '오픈 시간')
+  startLabel?: string;
+  // [한글 주석] 종료 시간 컬럼 헤더 라벨 (기본값: '종료 시간', 예: '마감 시간')
+  endLabel?: string;
 }
 
-export function IosTimePicker({ value, onChange }: IosTimePickerProps) {
+export function IosTimePicker({
+  value,
+  onChange,
+  startLabel = '시작 시간',
+  endLabel = '종료 시간',
+}: IosTimePickerProps) {
   // [시간 파싱] 기존의 "시작시–종료시" 형식 파싱 (대시 기호 유연성 처리)
   const parseTime = (val: string) => {
     if (!val) return { start: '09', end: '18' };
@@ -50,9 +59,9 @@ export function IosTimePicker({ value, onChange }: IosTimePickerProps) {
 
   return (
     <View style={styles.pickerContainer}>
-      {/* 시작 시간 휠 스피너 */}
+      {/* 시작/오픈 시간 휠 스피너 */}
       <View style={styles.wheelWrapper}>
-        <Text style={styles.wheelTitle}>시작 시간</Text>
+        <Text style={styles.wheelTitle}>{startLabel}</Text>
         <HourWheel
           items={START_HOURS}
           selectedValue={startHour}
@@ -68,9 +77,9 @@ export function IosTimePicker({ value, onChange }: IosTimePickerProps) {
         <Text style={styles.dividerText}>~</Text>
       </View>
 
-      {/* 종료 시간 휠 스피너 */}
+      {/* 종료/마감 시간 휠 스피너 */}
       <View style={styles.wheelWrapper}>
-        <Text style={styles.wheelTitle}>종료 시간</Text>
+        <Text style={styles.wheelTitle}>{endLabel}</Text>
         <HourWheel
           items={END_HOURS}
           selectedValue={endHour}
@@ -222,11 +231,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.coffeeCream + '40',
-    borderRadius: 18,
-    borderWidth: 1.5,
+    borderRadius: 14,
+    borderWidth: 1.2,
     borderColor: colors.mutedSand,
-    paddingVertical: 16,
-    paddingHorizontal: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
   },
   // [개별 휠 블록]
   wheelWrapper: {
@@ -236,9 +245,10 @@ const styles = StyleSheet.create({
   // [휠 윗쪽 소제목]
   wheelTitle: {
     ...typography.L4,
+    fontSize: 12,
     color: colors.espressoBrown,
     fontWeight: '800',
-    marginBottom: 12,
+    marginBottom: 4,
     letterSpacing: 0.5,
   },
   // [휠 바깥 컨테이너] 높이를 딱 5줄 크기(ITEM_HEIGHT * 5 = 210px)로 설정

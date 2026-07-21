@@ -16,11 +16,11 @@ const firebaseConfig = {
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || 'mock-app-id',
 };
 
-// [한글 주석] 유효한 Firebase 키가 있을 때만 초기화한다.
-// 키가 없거나 mock 상태면 getAuth 가 'auth/invalid-api-key' 로 앱 로드 시점에 크래시하므로,
-// 그 경우 초기화를 건너뛰고 auth 를 null 로 둔다. 이때 로그인/가입은 AuthContext 의
-// 백엔드 자체 인증(isMockFirebase 우회) 경로로 처리된다.
-const hasRealKey = !!firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith('mock-');
+// [한글 주석] 유효한 실제 Firebase 키가 있을 때만 초기화합니다. ('mock-', 'demo-' 키는 백엔드 전용 모드로 취급)
+const hasRealKey =
+  !!firebaseConfig.apiKey &&
+  !firebaseConfig.apiKey.startsWith('mock-') &&
+  !firebaseConfig.apiKey.startsWith('demo-');
 
 // 타입은 Auth 로 노출하되(호출부 타입 유지), 키가 없으면 런타임 값은 null 이다.
 // firebase 를 실제로 호출하는 지점(로그인/가입의 비-mock 경로)은 유효 키가 있을 때만 실행되고,

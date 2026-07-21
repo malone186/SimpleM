@@ -205,3 +205,5 @@ const styles = StyleSheet.create({
 
 export * from './DayOfWeekPicker';
 export * from './IosTimePicker';
+// [한글 주석] 신규 복원된 요일 버튼 그룹 컴포넌트를 공용 UI 킷에서 내보냅니다.
+export * from './WeekdayButtonGroup';

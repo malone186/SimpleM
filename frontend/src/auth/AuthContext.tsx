@@ -103,7 +103,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(
     async (email: string, password: string, autoLogin: boolean) => {
       const FIREBASE_API_KEY = process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '';
-      const isMockFirebase = FIREBASE_API_KEY.startsWith('mock-') || !FIREBASE_API_KEY;
+      // [한글 주석] 'mock-' 또는 'demo-' 키일 경우 파이어베이스가 아닌 백엔드 자체 인증으로 우회합니다.
+      const isMockFirebase =
+        FIREBASE_API_KEY.startsWith('mock-') ||
+        FIREBASE_API_KEY.startsWith('demo-') ||
+        !FIREBASE_API_KEY;
 
       if (isMockFirebase) {
         try {
@@ -115,8 +119,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           });
 
           if (!res.ok) {
-            const errData = await res.json();
-            throw new Error(errData.detail || '이메일 또는 비밀번호가 일치하지 않습니다.');
+            const errData = await res.json().catch(() => ({}));
+            let errMsg = '이메일 또는 비밀번호가 일치하지 않습니다.';
+            if (typeof errData.detail === 'string') {
+              errMsg = errData.detail;
+            } else if (Array.isArray(errData.detail) && errData.detail[0]?.msg) {
+              errMsg = errData.detail[0].msg;
+            }
+            throw new Error(errMsg);
           }
 
           const data = await res.json();
@@ -214,8 +224,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           });
 
           if (!res.ok) {
-            const errData = await res.json();
-            throw new Error(errData.detail || '회원가입 요청에 실패했습니다.');
+            const errData = await res.json().catch(() => ({}));
+            let errMsg = '회원가입 요청에 실패했습니다.';
+            if (typeof errData.detail === 'string') {
+              errMsg = errData.detail;
+            } else if (Array.isArray(errData.detail) && errData.detail[0]?.msg) {
+              errMsg = errData.detail[0].msg;
+            }
+            throw new Error(errMsg);
           }
 
           // 가입에 성공했다면 즉시 로컬 연계 로그인 기능 호출
