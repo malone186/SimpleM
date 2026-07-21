@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const titleMap = {
     dashboard: '대시보드 개요',
+    agents: 'AI 에이전트 오케스트레이션',
     users: '전체 사장님 회원 관리',
     cs: '사장님 1:1 CS 및 문의 관리',
     notifications: '사장님 공지 & 알림 발송',
@@ -75,6 +76,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (pageTitle && titleMap[targetTab]) {
       pageTitle.textContent = titleMap[targetTab];
+    }
+
+    // [한글 주석: AI 에이전트 탭 진입 시 최신 편성 자동 조회]
+    if (targetTab === 'agents') {
+      loadAgents();
     }
   };
 
@@ -778,6 +784,152 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // 16. [한글 주석: AI 에이전트 오케스트레이션 편성 조회 및 트리 렌더링]
+  // ---------------------------------------------------------------------------
+  let agentOverview = null;
+  const expandedExperts = new Set(); // 도구 목록이 펼쳐진 전문가 이름 보관
+
+  // 전문가별 대표 아이콘 매핑 (lucide)
+  const AGENT_ICON_MAP = {
+    inventory_expert: 'package',
+    document_expert: 'file-text',
+    ocr_expert: 'scan-line',
+    operation_expert: 'trending-up',
+    report_expert: 'bar-chart-3',
+    law_expert: 'scale',
+    search_expert: 'globe',
+  };
+
+  window.loadAgents = async function (manual = false) {
+    const wrap = document.getElementById('agent-orchestra');
+    if (!wrap) return;
+
+    const refreshBtn = document.querySelector('#tab-agents .health-refresh-btn');
+    if (refreshBtn) refreshBtn.classList.add('spinning');
+
+    try {
+      const res = await fetch(`${API_BASE}/chatbot/agents`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      agentOverview = await res.json();
+      renderAgentMetrics();
+      renderAgentTree();
+    } catch (err) {
+      console.error('에이전트 편성 조회 실패:', err);
+      wrap.innerHTML = `
+        <div class="orchestra-loading error">
+          ⚠️ 백엔드(8000) 연결에 실패해 에이전트 편성을 불러오지 못했습니다.<br>
+          FastAPI 서버가 켜져 있는지 확인한 뒤 새로고침 버튼을 눌러 주세요.
+        </div>`;
+      const liveTag = document.getElementById('agents-live-tag');
+      if (liveTag) { liveTag.textContent = 'OFFLINE'; liveTag.style.background = '#C62828'; }
+    } finally {
+      if (refreshBtn) setTimeout(() => refreshBtn.classList.remove('spinning'), 400);
+    }
+  };
+
+  function renderAgentMetrics() {
+    if (!agentOverview) return;
+    const d = agentOverview;
+
+    document.getElementById('agents-active-count').innerHTML =
+      `${d.active_experts}<span class="unit"> / ${d.total_experts}명</span>`;
+    document.getElementById('agents-tool-count').innerHTML =
+      `${d.total_tools}<span class="unit">개</span>`;
+    document.getElementById('agents-model').textContent = d.main.model || '-';
+    document.getElementById('agents-trace').textContent = d.langsmith_enabled ? 'ON' : 'OFF';
+
+    const keySub = document.getElementById('agents-api-key-sub');
+    if (keySub) {
+      keySub.textContent = d.main.api_key_set ? 'GEMINI API 키 정상 등록됨' : '⚠️ GEMINI API 키 미설정';
+      keySub.className = d.main.api_key_set ? 'metric-sub green-text' : 'metric-sub';
+    }
+
+    const liveTag = document.getElementById('agents-live-tag');
+    if (liveTag) { liveTag.textContent = 'LIVE'; liveTag.style.background = ''; }
+  }
+
+  function renderAgentTree() {
+    const wrap = document.getElementById('agent-orchestra');
+    if (!wrap || !agentOverview) return;
+    const d = agentOverview;
+
+    // 1) 상단: 사용자 → 메인 에이전트 카드
+    const mainCard = `
+      <div class="orchestra-user-node">
+        <i data-lucide="user-round"></i>
+        <span>사장님 질문 (챗봇 화면)</span>
+      </div>
+      <div class="orchestra-connector short"></div>
+      <div class="agent-main-card">
+        <div class="agent-main-left">
+          <div class="agent-main-avatar"><i data-lucide="brain-circuit"></i></div>
+          <div>
+            <div class="agent-main-name">${d.main.name}
+              <span class="agent-role-chip">${d.main.role}</span>
+              <span class="status-badge ${d.main.api_key_set ? 'green-bg' : 'amber-bg pulse'}">${d.main.api_key_set ? '● 가동 중' : '⏸ API 키 필요'}</span>
+            </div>
+            <div class="agent-main-desc">${d.main.description}</div>
+          </div>
+        </div>
+        <div class="agent-main-meta">
+          <div class="agent-meta-item"><span class="meta-label">모델</span><span class="meta-val">${d.main.model}</span></div>
+          <div class="agent-meta-item"><span class="meta-label">메인 스텝 상한</span><span class="meta-val">${d.main.recursion_limit}</span></div>
+          <div class="agent-meta-item"><span class="meta-label">서브 스텝 상한</span><span class="meta-val">${d.sub_recursion_limit}</span></div>
+        </div>
+      </div>
+      <div class="orchestra-connector fan"></div>`;
+
+    // 2) 하단: 서브 에이전트(전문가) 카드 그리드
+    const expertCards = d.experts
+      .map((e) => {
+        const icon = AGENT_ICON_MAP[e.name] || 'bot';
+        const isOpen = expandedExperts.has(e.name);
+        const toolRows = e.tools
+          .map(
+            (t) => `
+            <div class="agent-tool-row">
+              <span class="agent-tool-name"><i data-lucide="wrench"></i>${t.name}</span>
+              <span class="agent-tool-desc">${t.description || ''}</span>
+            </div>`
+          )
+          .join('');
+
+        return `
+        <div class="agent-card ${e.active ? '' : 'inactive'} ${isOpen ? 'open' : ''}" onclick="toggleAgentTools('${e.name}')">
+          <div class="agent-card-head">
+            <div class="agent-card-avatar"><i data-lucide="${icon}"></i></div>
+            <div class="agent-card-titles">
+              <div class="agent-card-title">${e.title}</div>
+              <div class="agent-card-code">${e.name}</div>
+            </div>
+            <span class="status-badge ${e.active ? 'green-bg' : 'brown-bg'}">${e.active ? '활성' : '비활성'}</span>
+          </div>
+          <div class="agent-card-desc">${e.description}</div>
+          <div class="agent-card-foot">
+            <span class="agent-tool-chip"><i data-lucide="wrench"></i> 도구 ${e.tool_count}개</span>
+            <span class="agent-expand-hint">${isOpen ? '▲ 접기' : '▼ 도구 목록 보기'}</span>
+          </div>
+          <div class="agent-tool-list" style="display: ${isOpen ? 'flex' : 'none'};">
+            ${toolRows || '<div class="agent-tool-row"><span class="agent-tool-desc">로드된 도구가 없어 이 전문가는 챗봇 편성에서 제외됩니다.</span></div>'}
+          </div>
+        </div>`;
+      })
+      .join('');
+
+    wrap.innerHTML = mainCard + `<div class="agent-grid">${expertCards}</div>`;
+    if (window.lucide) lucide.createIcons();
+  }
+
+  window.toggleAgentTools = function (expertName) {
+    if (expandedExperts.has(expertName)) {
+      expandedExperts.delete(expertName);
+    } else {
+      expandedExperts.add(expertName);
+    }
+    renderAgentTree();
+  };
+
   // [한글 주석: 초기 구동 시 실시간 데이터 전면 동기화]
   async function initDashboard() {
     await checkBackendHealth();
@@ -786,6 +938,7 @@ document.addEventListener('DOMContentLoaded', () => {
     await loadCSList();
     await loadNotifications();
     await loadPayments();
+    await loadAgents();
   }
 
   initDashboard();

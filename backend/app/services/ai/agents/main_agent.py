@@ -369,6 +369,56 @@ def _make_delegate_tool(domain: dict[str, Any], subagent):
 # 공개 인터페이스 — /chatbot/chat 엔드포인트가 호출한다
 # ---------------------------------------------------------------------------
 
+def get_agent_overview() -> dict[str, Any]:
+    """관리자 콘솔(3000)용 — 메인 에이전트와 서브에이전트 편성을 한눈에 보여준다.
+
+    실제 대화 때와 같은 규칙(_module_tools)으로 도구를 로드해 보기 때문에,
+    여기서 '활성'으로 나오면 챗봇에서도 그 전문가가 실제로 활성화된다.
+    """
+    experts: list[dict[str, Any]] = []
+    total_tools = 0
+    for domain in _DOMAINS:
+        tools = []
+        for module_path in domain["modules"]:
+            for t in _module_tools(module_path):
+                desc = (t.description or "").strip().splitlines()
+                tools.append({
+                    "name": t.name,
+                    "description": desc[0][:120] if desc else "",
+                    "module": module_path,
+                })
+        total_tools += len(tools)
+        experts.append({
+            "name": domain["name"],
+            "title": domain["title"],
+            "description": domain["description"],
+            "modules": domain["modules"],
+            "active": bool(tools),
+            "tool_count": len(tools),
+            "tools": tools,
+        })
+
+    return {
+        "main": {
+            "name": "포슬이",
+            "role": "메인 오케스트레이터 (supervisor)",
+            "model": GEMINI_MODEL,
+            "api_key_set": bool(GEMINI_API_KEY),
+            "recursion_limit": MAIN_RECURSION_LIMIT,
+            "description": (
+                "직접 도구를 만지지 않고 사장님의 요청을 분석해 알맞은 전문가에게 위임하고, "
+                "여러 전문가의 보고를 종합해 최종 답변을 만든다."
+            ),
+        },
+        "sub_recursion_limit": SUB_RECURSION_LIMIT,
+        "langsmith_enabled": bool(os.getenv("LANGSMITH_API_KEY", "").strip()),
+        "active_experts": sum(1 for e in experts if e["active"]),
+        "total_experts": len(experts),
+        "total_tools": total_tools,
+        "experts": experts,
+    }
+
+
 async def generate_response(
     user_message: str,
     store_id: str,
