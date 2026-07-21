@@ -35,6 +35,30 @@ class ScheduleResponse(BaseModel):
     class Config:
         from_attributes = True
 
+# [한글 주석] 알바생 신규 등록, 정보 수정, 조회용 Pydantic 스키마 정의
+class EmployeeCreate(BaseModel):
+    """알바생 신규 등록 요청 스키마"""
+    name: str = Field(..., min_length=1, max_length=50, description="직원 이름", examples=["홍길동"])
+    hourly_rate: int = Field(..., gt=0, description="시급 (KRW)", examples=[10000])
+    role: str = Field("바리스타", min_length=1, max_length=50, description="직책/역할", examples=["바리스타"])
+
+class EmployeeUpdate(BaseModel):
+    """알바생 정보 수정 요청 스키마"""
+    name: Optional[str] = Field(None, min_length=1, max_length=50, description="직원 이름", examples=["홍길동"])
+    hourly_rate: Optional[int] = Field(None, gt=0, description="시급 (KRW)", examples=[10500])
+    role: Optional[str] = Field(None, min_length=1, max_length=50, description="직책/역할", examples=["매니저"])
+
+class EmployeeResponse(BaseModel):
+    """알바생 정보 반환 스키마"""
+    id: int = Field(..., description="직원 고유 ID", examples=[1])
+    name: str = Field(..., description="직원 이름", examples=["홍길동"])
+    hourly_rate: int = Field(..., description="시급 (KRW)", examples=[10000])
+    role: str = Field(..., description="직책/역할", examples=["바리스타"])
+
+    class Config:
+        from_attributes = True
+
+
 class PayrollCalculateRequest(BaseModel):
     """급여 예상 계산 요청 양식 (MVP + 자정넘김 + 주휴수당/세금공제 지원)"""
     employee_name: Optional[str] = Field(None, min_length=1, description="직원 이름 (최소 1글자)", examples=["홍길동"])

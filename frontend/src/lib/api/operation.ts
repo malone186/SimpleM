@@ -348,3 +348,49 @@ export async function recommendSchedule(body: {
     }),
   );
 }
+
+// ---------- 직원 (알바생) 관리 ----------
+export type Employee = {
+  id: number;
+  name: string;
+  hourly_rate: number;
+  role: string;
+};
+
+/** 전체 알바생 목록 조회 API */
+export async function listEmployees(): Promise<Employee[]> {
+  return unwrap(await apiFetch<CommonResponse<Employee[]>>('/api/v1/operation/employees'));
+}
+
+/** 신규 알바생 등록 API */
+export async function createEmployee(body: {
+  name: string;
+  hourly_rate: number;
+  role?: string;
+}): Promise<Employee> {
+  return unwrap(
+    await apiFetch<CommonResponse<Employee>>('/api/v1/operation/employees', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+/** 알바생 정보 수정 API */
+export async function updateEmployee(
+  id: number,
+  body: { name?: string; hourly_rate?: number; role?: string },
+): Promise<Employee> {
+  return unwrap(
+    await apiFetch<CommonResponse<Employee>>(`/api/v1/operation/employees/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+/** 알바생 퇴사/삭제 API */
+export async function deleteEmployee(id: number): Promise<void> {
+  await apiFetch<CommonResponse<null>>(`/api/v1/operation/employees/${id}`, { method: 'DELETE' });
+}
+

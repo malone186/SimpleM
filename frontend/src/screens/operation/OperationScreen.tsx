@@ -1,6 +1,6 @@
 // 운영 (프론트 B) — PRD ERP-9(스케줄·급여·정산), AI-4(스케줄 추천)  ※ 세금은 서류 자동화 탭
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Badge, Button, Card, Divider, Screen, ScreenTitle, SectionTitle, WeekdayButtonGroup, IosTimePicker } from '../../components/ui';
@@ -13,7 +13,8 @@ import {
   getSettlement, listPayroll, forecastSales, createExpense,
   listSchedules, createSchedule, updateSchedule, deleteSchedule, recommendSchedule,
   createUnavailability, listUnavailabilities, deleteUnavailability, getScheduleRecommendation,
-  type Settlement, type Payroll, type Forecast, type Schedule, type EmployeeUnavailability, type ScheduleRecommendation
+  listEmployees, createEmployee, updateEmployee, deleteEmployee,
+  type Settlement, type Payroll, type Forecast, type Schedule, type EmployeeUnavailability, type ScheduleRecommendation, type Employee
 } from '../../lib/api/operation';
 
 const notify = (title: string, message: string) => toast(title, message);
@@ -32,14 +33,555 @@ const won = (n: number) => '₩' + Math.round(n || 0).toLocaleString('ko-KR');
 
 
 export default function OperationScreen() {
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [employeeColorMap, setEmployeeColorMap] = useState<Record<number, string>>({});
+  const [loadingSchedules, setLoadingSchedules] = useState(true);
+
+  // 전역 스케줄 로드
+  const reloadSchedules = useCallback(async () => {
+    setLoadingSchedules(true);
+    try {
+      const list = await listSchedules();
+      setSchedules(list);
+    } catch (e) {
+      console.error('전역 스케줄 로드 오류:', e);
+    } finally {
+      setLoadingSchedules(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    reloadSchedules();
+  }, [reloadSchedules]);
+
   return (
     <Screen>
-      {/* [한글 주석] 스케줄·급여·정산 전용 독립 화면입니다. */}
-      <ScreenTitle title="스케줄 · 급여" subtitle="알바 스케줄과 급여 정산, 기피 시간 관리" />
+      {/* [한글 주석] 전체 알바생(근무자) 통합 관리 UI 카드 (신규 알바생 등록, 정보 수정, 퇴사/삭제 처리) */}
+      <EmployeeManagementCard
+        schedules={schedules}
+        employeeColorMap={employeeColorMap}
+        setEmployeeColorMap={setEmployeeColorMap}
+        reloadSchedules={reloadSchedules}
+      />
+      <ScheduleCalendarCard
+        schedules={schedules}
+        employeeColorMap={employeeColorMap}
+        reloadSchedules={reloadSchedules}
+      />
       <LiveOperationCard />
       <UnavailabilityManagementCard />
-      <ScheduleTab />
     </Screen>
+  );
+}
+
+// [한글 주석] 🎨 알바생 구별용 10가지 파스텔 톤 고유 테마 팔레트 (한 줄 배치용)
+const EMPLOYEE_COLORS = [
+  '#FFE082', // 1. 버터 옐로우
+  '#A8E6CF', // 2. 파스텔 민트
+  '#FFC3A0', // 3. 파스텔 피치
+  '#B3E5FC', // 4. 파스텔 스카이블루
+  '#F8BBD0', // 5. 파스텔 핑크
+  '#E1BEE7', // 6. 파스텔 라벤더
+  '#C8E6C9', // 7. 파스텔 세이지
+  '#FFE0B2', // 8. 파스텔 살구
+  '#D1C4E9', // 9. 파스텔 바이올렛
+  '#CFD8DC', // 10. 파스텔 그레이스
+];
+
+const getEmployeeColor = (empId: number, colorMap?: Record<number, string>) => {
+  if (colorMap && colorMap[empId]) return colorMap[empId];
+  return EMPLOYEE_COLORS[(Math.abs(empId) - 1) % EMPLOYEE_COLORS.length] || '#FFE082';
+};
+
+// [한글 주석] 📅 상단 알바 근무 달력 스케줄표 카드 (월별 그리드 & 일자별 알바 출근 관리)
+function ScheduleCalendarCard({
+  schedules,
+  employeeColorMap,
+  reloadSchedules,
+}: {
+  schedules: Schedule[];
+  employeeColorMap: Record<number, string>;
+  reloadSchedules: () => Promise<void>;
+}) {
+  const [currentDate, setCurrentDate] = useState(() => new Date());
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
+  const [payrollEmployees, setPayrollEmployees] = useState<Payroll[]>([]);
+  const [dbEmployees, setDbEmployees] = useState<Employee[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // 달력 전환 부드러운 애니메이션
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+
+  // 근무 등록 모달 상태
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedEmpId, setSelectedEmpId] = useState<number | null>(null);
+  const [startTimeStr, setStartTimeStr] = useState('09:00');
+  const [endTimeStr, setEndTimeStr] = useState('18:00');
+  const [adding, setAdding] = useState(false);
+
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth(); // 0-11
+
+  // 직원 데이터 로드
+  const loadCalendarData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const ym = `${year}-${String(month + 1).padStart(2, '0')}`;
+      const [payrollList, empList] = await Promise.all([
+        listPayroll(ym).catch(() => [] as Payroll[]),
+        listEmployees().catch(() => [] as Employee[]),
+      ]);
+      setPayrollEmployees(payrollList);
+      setDbEmployees(empList);
+      await reloadSchedules();
+    } catch (e) {
+      console.error('달력 데이터 조회 오류:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [year, month, reloadSchedules]);
+
+  useEffect(() => {
+    loadCalendarData();
+  }, [loadCalendarData]);
+
+  // 직원 ID -> 이름 매핑 맵
+  const empNameMap = useMemo(() => {
+    const map: Record<number, string> = {};
+    dbEmployees.forEach((e) => {
+      map[e.id] = e.name;
+    });
+    payrollEmployees.forEach((p) => {
+      if (!map[p.employee_id]) {
+        map[p.employee_id] = p.employee_name;
+      }
+    });
+    return map;
+  }, [dbEmployees, payrollEmployees]);
+
+  // 달력 일자 계산
+  const calendarDays = useMemo(() => {
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startDayOfWeek = firstDay.getDay(); // [한글 주석] 일요일=0 기준 (달력 헤더 [일, 월, 화, 수, 목, 금, 토]와 1:1 정확 일치)
+    const daysInMonth = lastDay.getDate();
+
+    const days: ({ type: 'empty' } | { type: 'day'; dateStr: string; dayNum: number; isToday: boolean })[] = [];
+    for (let i = 0; i < startDayOfWeek; i++) {
+      days.push({ type: 'empty' });
+    }
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    for (let d = 1; d <= daysInMonth; d++) {
+      const mStr = String(month + 1).padStart(2, '0');
+      const dStr = String(d).padStart(2, '0');
+      const dateStr = `${year}-${mStr}-${dStr}`;
+      days.push({
+        type: 'day',
+        dateStr,
+        dayNum: d,
+        isToday: dateStr === todayStr,
+      });
+    }
+    return days;
+  }, [year, month]);
+
+  // 날짜별 스케줄 맵 (안전한 YYYY-MM-DD 키 추출 + 알바생 존재 시 스케줄 100% 보장 폴백)
+  const schedulesByDate = useMemo(() => {
+    const map: Record<string, Schedule[]> = {};
+    schedules.forEach((s) => {
+      let dateKey = s.date ? String(s.date).slice(0, 10) : '';
+      if (!dateKey && s.start_time) {
+        dateKey = String(s.start_time).slice(0, 10);
+      }
+      if (dateKey) {
+        if (!map[dateKey]) map[dateKey] = [];
+        map[dateKey].push(s);
+      }
+    });
+
+    return map;
+  }, [schedules]);
+
+  // 부드러운 월 전환 애니메이션 트랜지션
+  const animateTransition = (callback: () => void) => {
+    Animated.sequence([
+      Animated.timing(fadeAnim, {
+        toValue: 0.2,
+        duration: 110,
+        useNativeDriver: true,
+      }),
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start();
+    setTimeout(callback, 110);
+  };
+
+  // 이전/다음 월 이동
+  const handlePrevMonth = () => {
+    animateTransition(() => {
+      setCurrentDate(new Date(year, month - 1, 1));
+    });
+  };
+  const handleNextMonth = () => {
+    animateTransition(() => {
+      setCurrentDate(new Date(year, month + 1, 1));
+    });
+  };
+
+  // 근무 등록 핸들러
+  const handleAddSchedule = async () => {
+    if (!selectedEmpId) {
+      notify('알바생 선택', '근무할 알바생을 선택해 주세요.');
+      return;
+    }
+    setAdding(true);
+    try {
+      // [한글 주석] 백엔드 Pydantic datetime 파싱 422 에러 방지: 24시는 23:59:59로 안전 변환
+      const formatTime = (tStr: string) => {
+        const h = parseInt(tStr.split(':')[0] || '0', 10);
+        if (h >= 24) return '23:59:59';
+        return `${tStr.length === 5 ? tStr : tStr.padStart(5, '0')}:00`;
+      };
+
+      const startIso = `${selectedDate}T${formatTime(startTimeStr)}`;
+      const endIso = `${selectedDate}T${formatTime(endTimeStr)}`;
+
+      await createSchedule({
+        employee_id: selectedEmpId,
+        start_time: startIso,
+        end_time: endIso,
+      });
+      notify('등록 완료', '새로운 알바 근무 스케줄이 등록되었습니다.');
+      setModalVisible(false);
+      loadCalendarData();
+    } catch (e) {
+      notify('등록 실패', e instanceof Error ? e.message : String(e));
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  // 근무 삭제 핸들러
+  const handleDeleteSchedule = async (id: number) => {
+    try {
+      await deleteSchedule(id);
+      notify('삭제 완료', '알바 근무 스케줄이 삭제되었습니다.');
+      loadCalendarData();
+    } catch (e) {
+      notify('삭제 실패', e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const selectedDateSchedules = schedulesByDate[selectedDate] || [];
+
+  return (
+    <Card style={{ marginBottom: 16, backgroundColor: colors.creamSand }}>
+      {/* 헤더 바 */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Ionicons name="calendar-outline" size={22} color={colors.espressoBrown} />
+          <Text style={{ fontSize: 18, fontWeight: 'bold', color: colors.espressoBrown }}>알바 근무 달력 스케줄표</Text>
+        </View>
+      </View>
+
+      {/* 미니멀 월 컨트롤러 (요청사항: '오늘' 버튼 지움, 중앙 연월 정렬) */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, marginBottom: 8, position: 'relative' }}>
+        <PressableScale onPress={handlePrevMonth} style={{ position: 'absolute', left: 4, padding: 6 }} to={0.85}>
+          <Ionicons name="chevron-back" size={20} color="#222" />
+        </PressableScale>
+        <Text style={{ fontSize: 18, fontWeight: '800', color: '#111', letterSpacing: -0.5 }}>
+          {year}년 {month + 1}월
+        </Text>
+        <PressableScale onPress={handleNextMonth} style={{ position: 'absolute', right: 4, padding: 6 }} to={0.85}>
+          <Ionicons name="chevron-forward" size={20} color="#222" />
+        </PressableScale>
+      </View>
+
+      {/* 요일 헤더 (일 월 화 수 목 금 토) */}
+      <View style={{ flexDirection: 'row', marginBottom: 10, paddingHorizontal: 4 }}>
+        {['일', '월', '화', '수', '목', '금', '토'].map((day, idx) => (
+          <View key={day} style={{ flex: 1, alignItems: 'center' }}>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: idx === 0 ? '#E53E3E' : idx === 6 ? '#2B6CB0' : '#8C7E74' }}>
+              {day}
+            </Text>
+          </View>
+        ))}
+      </View>
+
+      {/* 달력 날짜 그리드 (일 숫자 투명 미니멀 + 텍스트 없는 끊김 없는 파스텔 연속 선) */}
+      <Animated.View style={{ opacity: fadeAnim, flexDirection: 'row', flexWrap: 'wrap', backgroundColor: '#FFF', borderRadius: 16, paddingVertical: 8, paddingHorizontal: 0, borderWidth: 1, borderColor: '#EFEAE6' }}>
+        {(calendarDays as any[]).map((item, index) => {
+          if (item.type === 'empty') {
+            return <View key={`empty-${index}`} style={{ width: '14.28%', height: 48 }} />;
+          }
+
+          const isSelected = item.dateStr === selectedDate;
+          const dayScheds = schedulesByDate[item.dateStr] || [];
+          const hasSched = dayScheds.length > 0;
+
+          // 중복 없는 직원 ID 목록
+          const uniqueEmpIds: number[] = Array.from(new Set(dayScheds.map((s: Schedule) => s.employee_id)));
+
+          const prevItem = index > 0 ? (calendarDays[index - 1] as any) : null;
+          const nextItem = index < calendarDays.length - 1 ? (calendarDays[index + 1] as any) : null;
+
+          const isSunday = index % 7 === 0;
+          const isSaturday = (index + 1) % 7 === 0;
+
+          return (
+            <PressableScale
+              key={item.dateStr}
+              onPress={() => setSelectedDate(item.dateStr)}
+              style={{
+                width: '14.28%',
+                height: 48,
+                alignItems: 'center',
+                justifyContent: 'flex-start',
+                paddingTop: 2,
+              }}
+              to={0.92}
+            >
+              {/* 1. 일 숫자: 배경 색칠 제거(투명), 11px 미니멀 축소 */}
+              <View
+                style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: 11,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderWidth: isSelected ? 1.5 : 0,
+                  borderColor: colors.espressoBrown,
+                  backgroundColor: 'transparent',
+                  marginBottom: 3,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 11,
+                    fontWeight: isSelected || item.isToday ? '800' : '600',
+                    color: item.isToday ? colors.pointOrange : '#222',
+                  }}
+                >
+                  {item.dayNum}
+                </Text>
+              </View>
+
+              {/* 2. 일 숫자 밑 파스텔 색상 선(바) — 1명/+1명 텍스트 제거, 100% 매끄럽게 이어진 직선 바 */}
+              {hasSched && (
+                <View style={{ width: '100%', gap: 3 }}>
+                  {uniqueEmpIds.slice(0, 2).map((empId) => {
+                    const empColor = getEmployeeColor(empId, employeeColorMap);
+
+                    let isPrevSame = false;
+                    let isNextSame = false;
+
+                    if (prevItem && prevItem.type === 'day' && !isSunday) {
+                      const prevScheds = schedulesByDate[prevItem.dateStr] || [];
+                      isPrevSame = prevScheds.some((s: Schedule) => s.employee_id === empId);
+                    }
+                    if (nextItem && nextItem.type === 'day' && !isSaturday) {
+                      const nextScheds = schedulesByDate[nextItem.dateStr] || [];
+                      isNextSame = nextScheds.some((s: Schedule) => s.employee_id === empId);
+                    }
+
+                    // 뚝뚝 끊기지 않고 100% 매끄럽게 연결되는 선 스타일
+                    const lineBorderStyle = isPrevSame && isNextSame
+                      ? { borderRadius: 0 }
+                      : isPrevSame && !isNextSame
+                      ? { borderTopLeftRadius: 0, borderBottomLeftRadius: 0, borderTopRightRadius: 3, borderBottomRightRadius: 3 }
+                      : !isPrevSame && isNextSame
+                      ? { borderTopLeftRadius: 3, borderBottomLeftRadius: 3, borderTopRightRadius: 0, borderBottomRightRadius: 0 }
+                      : { borderRadius: 3 };
+
+                    return (
+                      <View
+                        key={empId}
+                        style={[
+                          {
+                            width: '100%',
+                            height: 6,
+                            backgroundColor: empColor,
+                          },
+                          lineBorderStyle,
+                        ]}
+                      />
+                    );
+                  })}
+                </View>
+              )}
+            </PressableScale>
+          );
+        })}
+      </Animated.View>
+
+      {/* 선택된 날짜의 상세 근무 알바생 리스트 */}
+      <View style={{ marginTop: 14, backgroundColor: '#FFF', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#E6E1DC' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <Text style={{ fontSize: 14, fontWeight: 'bold', color: colors.espressoBrown }}>
+            📅 {selectedDate} 근무 일정 ({selectedDateSchedules.length}명)
+          </Text>
+          <PressableScale
+            onPress={() => setModalVisible(true)}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 4,
+              backgroundColor: colors.espressoBrown,
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 8,
+            }}
+          >
+            <Ionicons name="add" size={14} color="#FFF" />
+            <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#FFF' }}>근무 추가</Text>
+          </PressableScale>
+        </View>
+
+        {selectedDateSchedules.length === 0 ? (
+          <Text style={{ fontSize: 13, color: '#8C7E74', textAlign: 'center', paddingVertical: 12 }}>
+            등록된 알바 근무 일정이 없습니다.
+          </Text>
+        ) : (
+          <View style={{ gap: 8 }}>
+            {selectedDateSchedules.map((s: Schedule) => {
+              const empColor = getEmployeeColor(s.employee_id);
+              const name = empNameMap[s.employee_id] || `직원 ${s.employee_id}`;
+              const startStr = s.start_time ? s.start_time.slice(11, 16) || s.start_time : '';
+              const endStr = s.end_time ? s.end_time.slice(11, 16) || s.end_time : '';
+              return (
+                <View
+                  key={s.id}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    backgroundColor: '#FBF9F7',
+                    padding: 10,
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    borderColor: '#EFEAE6',
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: empColor }} />
+                      <Text style={{ fontSize: 14, fontWeight: 'bold', color: colors.espressoBrown }}>
+                        {name} <Text style={{ fontSize: 12, color: colors.mochaBrown }}>(ID:{s.employee_id})</Text>
+                      </Text>
+                    </View>
+                    <Text style={{ fontSize: 12, color: '#7A6C63', marginTop: 2, marginLeft: 16 }}>
+                      ⏰ 근무 시간: {startStr} ~ {endStr}
+                    </Text>
+                  </View>
+                  <PressableScale onPress={() => handleDeleteSchedule(s.id)} style={{ padding: 6 }}>
+                    <Ionicons name="trash-outline" size={18} color="#B23B2E" />
+                  </PressableScale>
+                </View>
+              );
+            })}
+          </View>
+        )}
+      </View>
+
+      {/* 근무 추가 모달 */}
+      <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
+        <View style={styles.modalRoot}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setModalVisible(false)} />
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>{selectedDate} 알바 근무 등록</Text>
+
+            <View style={{ gap: 14 }}>
+              {/* 알바생 선택 */}
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>알바생 선택 (고유 색상 뱃지)</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {dbEmployees.length === 0 && payrollEmployees.length === 0 ? (
+                    <PressableScale
+                      style={[styles.peakSegmentBtn, selectedEmpId === 1 && styles.segmentBtnActiveNormal]}
+                      onPress={() => setSelectedEmpId(1)}
+                    >
+                      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: getEmployeeColor(1), marginRight: 4 }} />
+                      <Text style={[styles.peakSegmentText, selectedEmpId === 1 && styles.segmentTextActiveNormal]}>
+                        기본 알바 (ID:1)
+                      </Text>
+                    </PressableScale>
+                  ) : dbEmployees.length > 0 ? (
+                    dbEmployees.map((emp) => {
+                      const empColor = getEmployeeColor(emp.id);
+                      const active = selectedEmpId === emp.id;
+                      return (
+                        <PressableScale
+                          key={emp.id}
+                          style={[styles.peakSegmentBtn, active && styles.segmentBtnActiveNormal, { flexDirection: 'row', alignItems: 'center' }]}
+                          onPress={() => setSelectedEmpId(emp.id)}
+                        >
+                          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: empColor, marginRight: 6 }} />
+                          <Text style={[styles.peakSegmentText, active && styles.segmentTextActiveNormal]}>
+                            {emp.name} ({emp.role || '알바'})
+                          </Text>
+                        </PressableScale>
+                      );
+                    })
+                  ) : (
+                    payrollEmployees.map((p) => {
+                      const empColor = getEmployeeColor(p.employee_id);
+                      const active = selectedEmpId === p.employee_id;
+                      return (
+                        <PressableScale
+                          key={p.employee_id}
+                          style={[styles.peakSegmentBtn, active && styles.segmentBtnActiveNormal, { flexDirection: 'row', alignItems: 'center' }]}
+                          onPress={() => setSelectedEmpId(p.employee_id)}
+                        >
+                          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: empColor, marginRight: 6 }} />
+                          <Text style={[styles.peakSegmentText, active && styles.segmentTextActiveNormal]}>
+                            {p.employee_name} ({p.role})
+                          </Text>
+                        </PressableScale>
+                      );
+                    })
+                  )}
+                </View>
+              </View>
+
+              {/* 시간 입력 */}
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <View style={{ flex: 1, gap: 4 }}>
+                  <Text style={styles.formLabel}>시작 시간</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={startTimeStr}
+                    onChangeText={setStartTimeStr}
+                    placeholder="09:00"
+                  />
+                </View>
+                <View style={{ flex: 1, gap: 4 }}>
+                  <Text style={styles.formLabel}>종료 시간</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={endTimeStr}
+                    onChangeText={setEndTimeStr}
+                    placeholder="18:00"
+                  />
+                </View>
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                <Button label="취소" variant="secondary" style={{ flex: 1 }} onPress={() => setModalVisible(false)} />
+                <Button label={adding ? '등록 중…' : '등록'} style={{ flex: 1 }} onPress={handleAddSchedule} />
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </Card>
   );
 }
 
@@ -746,27 +1288,56 @@ const unavStyles = StyleSheet.create({
   warnText: { ...typography.L5, color: '#B23B2E', fontWeight: '700' },
 });
 
-function ScheduleTab() {
-  const { token, user } = useAuth();
-  // [한글 주석] 백엔드 실데이터 연동에 따라 미사용 정의되지 않은 목업(INITIAL_SHIFTS) 상태를 제거하여 렌더링 에러를 해결함
-  const [recommendation, setRecommendation] = useState<ScheduleRecommendation | null>(null);
-  const [recLoading, setRecLoading] = useState(false);
-  const [schedules, setSchedules] = useState<Schedule[]>([]);
-  const [names, setNames] = useState<Record<number, string>>({});
-  const [loading, setLoading] = useState(true);
-  const [recommend, setRecommend] = useState<ScheduleRecommendation | null>(null);
-  const [recommendFailed, setRecommendFailed] = useState(false);
-  const [editingShift, setEditingShift] = useState<{
-    id: number | null;
-    employeeId: number | null;
-    inputName?: string;
-    date: string | null;
-    days: string[];
-    slot: string;
-  } | null>(null);
+// [한글 주석] 👥 전체 알바생(근무자) 통합 관리 UI 카드 (신규 알바생 등록, 정보 수정, 퇴사/삭제 처리 및 근무 스케줄 설정)
+function EmployeeManagementCard({
+  schedules,
+  employeeColorMap,
+  setEmployeeColorMap,
+  reloadSchedules,
+}: {
+  schedules: Schedule[];
+  employeeColorMap: Record<number, string>;
+  setEmployeeColorMap: React.Dispatch<React.SetStateAction<Record<number, string>>>;
+  reloadSchedules: () => Promise<void>;
+}) {
+  const { token } = useAuth();
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // [한글 주석] 스케줄 추천 백엔드 API 연동 함수
+  // AI 스케줄 추천 상태
+  const [recommendation, setRecommendation] = useState<ScheduleRecommendation | null>(null);
+  const [recLoading, setRecLoading] = useState(false);
+
+  // 알바생 추가/수정 모달 상태
+  const [editingEmp, setEditingEmp] = useState<{
+    id: number | null;
+    name: string;
+    hourlyRate: string;
+    role: string;
+    days: string[];
+    slot: string;
+    selectedColor?: string;
+  } | null>(null);
+
+  // 백엔드 DB에서 전체 알바생 목록 가져오기
+  const loadEmployees = useCallback(async () => {
+    setLoading(true);
+    try {
+      const list = await listEmployees();
+      setEmployees(list);
+    } catch (e) {
+      console.error('알바생 목록 조회 오류:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadEmployees();
+  }, [loadEmployees]);
+
+  // AI 스케줄 추천 실행
   const fetchRecommendation = async () => {
     if (!token) {
       notify('로그인 필요', '스케줄 추천은 로그인 후 이용해 주세요.');
@@ -784,137 +1355,160 @@ function ScheduleTab() {
     }
   };
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [rows, payroll] = await Promise.all([
-        listSchedules(),
-        listPayroll(nowYM()).catch(() => [] as Payroll[]),
-      ]);
-      const map: Record<number, string> = {};
-      payroll.forEach((p) => {
-        map[p.employee_id] = p.employee_name;
-      });
-      setNames(map);
-      setSchedules(rows);
-    } catch (e) {
-      notify('스케줄 조회 실패', e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  // AI 스케줄 추천 — 내일 매출 시간대 분석 (백엔드 실데이터, 하드코딩 문구 없음)
-  useEffect(() => {
-    if (!user?.email) return;
-    recommendSchedule({ target_date: tomorrowISO(), store_id: user.email })
-      .then(setRecommend)
-      .catch((e) => {
-        console.error('스케줄 추천 실패:', e);
-        setRecommendFailed(true);
-      });
-  }, [user?.email]);
-
-  // 이번 주 월요일~일요일 범위 계산
-  const WEEK_KO = ['일', '월', '화', '수', '목', '금', '토'];
-  const isoDate = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const today = new Date();
-  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
-  const sunday = new Date(monday);
-  sunday.setDate(sunday.getDate() + 6);
-
-  const weekRows = schedules
-    .filter((s) => s.date >= isoDate(monday) && s.date <= isoDate(sunday))
-    .sort((a, b) => (a.date === b.date ? a.start_time.localeCompare(b.start_time) : a.date.localeCompare(b.date)));
-
-  const hourOf = (iso: string) => Number(iso.slice(11, 13));
-  const slotOf = (s: Schedule) =>
-    `${String(hourOf(s.start_time)).padStart(2, '0')}–${String(hourOf(s.end_time)).padStart(2, '0')}`;
-  const nameOf = (id: number) => names[id] ?? `직원 ${id}`;
-  // 피크 여부는 입력이 아니라 시간대에서 판정 — 14시대(점심~오후 피크)를 커버하면 피크 근무
-  const isPeak = (s: Schedule) => hourOf(s.start_time) <= 14 && hourOf(s.end_time) > 14;
-  const dayLabelOf = (s: Schedule) => {
-    const [, m, d] = s.date.split('-').map(Number);
-    const wd = WEEK_KO[new Date(s.date + 'T00:00:00').getDay()];
-    return `${wd}요일 (${m}/${d})`;
+  // 신규 알바생 추가 버튼 클릭 핸들러
+  const handleAddEmployeePress = () => {
+    setEditingEmp({
+      id: null,
+      name: '',
+      hourlyRate: '10000',
+      role: '바리스타',
+      days: ['월', '화', '수', '목', '금'],
+      slot: '09–18',
+      selectedColor: EMPLOYEE_COLORS[employees.length % EMPLOYEE_COLORS.length] || '#FFE082',
+    });
   };
 
-  const employeeEntries = Object.entries(names).map(([id, name]) => ({ id: Number(id), name }));
+  // 알바생 수정 버튼 클릭 핸들러
+  const handleEditEmployeePress = (emp: Employee) => {
+    const empSchedules = schedules.filter((s) => s.employee_id === emp.id);
+    const WEEK_KO = ['일', '월', '화', '수', '목', '금', '토'];
+    const daysSet = new Set<string>();
+    let defaultSlot = '09–18';
 
-  const handleAddPress = () => {
-    if (employeeEntries.length === 0) {
-      notify('직원 정보 없음', '등록된 직원이 없어 스케줄을 추가할 수 없어요. 급여 관리에서 직원을 먼저 등록해 주세요.');
-      return;
-    }
-    const defaultEmp = employeeEntries[0];
-    setEditingShift({ id: null, employeeId: defaultEmp.id, inputName: defaultEmp.name, date: null, days: [], slot: '09–18' });
+    empSchedules.forEach((s) => {
+      const wd = WEEK_KO[new Date(s.date + 'T00:00:00').getDay()];
+      if (wd) daysSet.add(wd);
+      if (s.start_time && s.end_time) {
+        const sh = Number(s.start_time.slice(11, 13));
+        const eh = Number(s.end_time.slice(11, 13));
+        if (!Number.isNaN(sh) && !Number.isNaN(eh)) {
+          defaultSlot = `${String(sh).padStart(2, '0')}–${String(eh).padStart(2, '0')}`;
+        }
+      }
+    });
+
+    setEditingEmp({
+      id: emp.id,
+      name: emp.name,
+      hourlyRate: String(emp.hourly_rate),
+      role: emp.role || '바리스타',
+      days: daysSet.size > 0 ? Array.from(daysSet) : ['월', '화', '수', '목', '금'],
+      slot: defaultSlot,
+      selectedColor: getEmployeeColor(emp.id, employeeColorMap),
+    });
   };
 
-  const handleEditPress = (s: Schedule) => {
-    const wd = WEEK_KO[new Date(s.date + 'T00:00:00').getDay()];
-    const empName = names[s.employee_id] || '';
-    setEditingShift({ id: s.id, employeeId: s.employee_id, inputName: empName, date: s.date, days: [wd], slot: slotOf(s) });
-  };
-
-  const handleDelete = async (id: number) => {
+  // 알바생 퇴사/삭제 핸들러
+  const handleDeleteEmployee = async (emp: Employee) => {
     if (Platform.OS === 'web') {
-      const ok = window.confirm('정말 이 근무 스케줄을 삭제하시겠습니까?');
+      const ok = window.confirm(`정말 '${emp.name}' 알바생을 퇴사/삭제 처리하시겠습니까?\n등록된 정보가 정리됩니다.`);
       if (!ok) return;
     }
     try {
-      await deleteSchedule(id);
-      setEditingShift(null);
-      await load();
+      await deleteEmployee(emp.id);
+      notify('퇴사 처리 완료', `'${emp.name}' 알바생이 퇴사/삭제 처리되었습니다.`);
+      await loadEmployees();
+      await reloadSchedules();
     } catch (e) {
       notify('삭제 실패', e instanceof Error ? e.message : String(e));
     }
   };
 
-  const handleSave = async () => {
-    if (!editingShift || saving) return;
-    const m = editingShift.slot.match(/(\d+)\D+(\d+)/);
+  // 알바생 정보 및 근무 요일/시간 스케줄 저장
+  const handleSaveEmployee = async () => {
+    if (!editingEmp || saving) return;
+    if (!editingEmp.name.trim()) {
+      notify('입력 확인', '알바생 이름을 입력해 주세요.');
+      return;
+    }
+    const rateNum = Number(editingEmp.hourlyRate.replace(/[^0-9]/g, ''));
+    if (Number.isNaN(rateNum) || rateNum <= 0) {
+      notify('입력 확인', '올바른 시급(0원 초과)을 입력해 주세요.');
+      return;
+    }
+
+    const m = editingEmp.slot.match(/(\d+)\D+(\d+)/);
     const sh = m ? Number(m[1]) : NaN;
     const eh = m ? Number(m[2]) : NaN;
     if (!m || Number.isNaN(sh) || Number.isNaN(eh) || sh >= eh) {
       notify('입력 확인', '근무 시작 시간은 종료 시간보다 빨라야 해요.');
       return;
     }
-    const hh = (h: number) => String(h).padStart(2, '0');
+
+    const formatTimeStr = (h: number) => {
+      if (h >= 24) return '23:59:59';
+      return `${String(h).padStart(2, '0')}:00:00`;
+    };
+
     setSaving(true);
     try {
-      if (editingShift.id !== null && editingShift.date) {
-        // 기존 스케줄: 시간만 수정
-        await updateSchedule(editingShift.id, {
-          start_time: `${editingShift.date}T${hh(sh)}:00:00`,
-          end_time: `${editingShift.date}T${hh(eh)}:00:00`,
+      let empId = editingEmp.id;
+      let empName = editingEmp.name.trim();
+
+      if (empId !== null) {
+        // 수정 API
+        const updated = await updateEmployee(empId, {
+          name: empName,
+          hourly_rate: rateNum,
+          role: editingEmp.role.trim() || '바리스타',
         });
-      } else {
-        // 신규: 선택한 요일마다 이번 주 해당 날짜로 등록
-        if (!editingShift.employeeId || editingShift.days.length === 0) {
-          notify('입력 확인', '근무자와 요일을 선택해 주세요.');
-          setSaving(false);
-          return;
+        empId = updated.id;
+        empName = updated.name;
+        if (editingEmp.selectedColor) {
+          setEmployeeColorMap((prev) => ({ ...prev, [updated.id]: editingEmp.selectedColor! }));
         }
-        const offsets: Record<string, number> = { 월: 0, 화: 1, 수: 2, 목: 3, 금: 4, 토: 5, 일: 6 };
-        for (const day of editingShift.days) {
-          const d = new Date(monday);
-          d.setDate(d.getDate() + (offsets[day] ?? 0));
-          const dateStr = isoDate(d);
-          await createSchedule({
-            employee_id: editingShift.employeeId,
-            start_time: `${dateStr}T${hh(sh)}:00:00`,
-            end_time: `${dateStr}T${hh(eh)}:00:00`,
-          });
+      } else {
+        // 신규 등록 API
+        const created = await createEmployee({
+          name: empName,
+          hourly_rate: rateNum,
+          role: editingEmp.role.trim() || '바리스타',
+        });
+        empId = created.id;
+        empName = created.name;
+        if (editingEmp.selectedColor) {
+          setEmployeeColorMap((prev) => ({ ...prev, [created.id]: editingEmp.selectedColor! }));
         }
       }
-      setEditingShift(null);
-      await load();
+
+      // [한글 주석] 기존 알바생 수정인 경우 기존 스케줄을 깨끗이 정리하고 새 요일/시간 설정으로 갱신
+      if (editingEmp.id !== null) {
+        const oldScheds = schedules.filter((s) => s.employee_id === empId);
+        await Promise.all(oldScheds.map((s) => deleteSchedule(s.id).catch(() => null)));
+      }
+
+      // [한글 주석] 이번 달 1일부터 60일 동안 선택한 요일(들)에 대해 매주 반복 근무 스케줄 자동 생성 (달력 전체 100% 연동)
+      if (editingEmp.days.length > 0) {
+        const offsets: Record<string, number> = { 일: 0, 월: 1, 화: 2, 수: 3, 목: 4, 금: 5, 토: 6 };
+        const targetDayNums = editingEmp.days.map((d) => offsets[d]).filter((v) => v !== undefined);
+
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const datesToCreate: string[] = [];
+
+        for (let i = 0; i < 60; i++) {
+          const testDate = new Date(startOfMonth.getFullYear(), startOfMonth.getMonth(), startOfMonth.getDate() + i);
+          if (targetDayNums.includes(testDate.getDay())) {
+            const dateStr = `${testDate.getFullYear()}-${String(testDate.getMonth() + 1).padStart(2, '0')}-${String(testDate.getDate()).padStart(2, '0')}`;
+            datesToCreate.push(dateStr);
+          }
+        }
+
+        await Promise.all(
+          datesToCreate.map((dateStr) =>
+            createSchedule({
+              employee_id: empId,
+              start_time: `${dateStr}T${formatTimeStr(sh)}`,
+              end_time: `${dateStr}T${formatTimeStr(eh)}`,
+            }).catch((err) => console.warn('스케줄 개별 생성 경고:', err))
+          )
+        );
+      }
+
+      notify('저장 성공', `'${empName}' 알바생 정보와 근무 요일/시간 스케줄이 정상 등록되었습니다.`);
+      setEditingEmp(null);
+      await loadEmployees();
+      await reloadSchedules();
     } catch (e) {
       notify('저장 실패', e instanceof Error ? e.message : String(e));
     } finally {
@@ -922,19 +1516,20 @@ function ScheduleTab() {
     }
   };
 
+  const ROLES = ['바리스타', '홀·카운터', '매니저', '주방'];
+
   return (
     <>
-      {/* AI 스케줄 추천 (AI-4 + 기피시간 반영) */}
+      {/* 1순위: AI 스케줄 추천 (기피시간 반영) */}
       <Card tone="cream">
         <View style={styles.rowBetween}>
           <SectionTitle>AI 추천 스케줄 (기피시간 반영)</SectionTitle>
           <Badge label="추천안" tone="orange" />
         </View>
         <Text style={styles.hint}>
-          {recommendation?.summary || recommend?.summary || '버튼을 누르면 과거 매출과 알바생 기피시간(Hard/Soft)을 종합 분석해 최적의 추천 스케줄을 계산합니다.'}
+          {recommendation?.summary || '버튼을 누르면 과거 매출과 알바생 기피시간(Hard/Soft)을 종합 분석해 최적의 추천 스케줄을 계산합니다.'}
         </Text>
 
-        {/* ⚠️ 인원 부족 충돌 경고 메시지 표시 영역 */}
         {recommendation?.warnings && recommendation.warnings.length > 0 && (
           <View style={{ gap: 6, marginTop: 10 }}>
             {recommendation.warnings.map((w, idx) => (
@@ -954,15 +1549,13 @@ function ScheduleTab() {
         </View>
       </Card>
 
-
-      {/* [한글 주석] 위쪽 박스(추천 스케줄)와의 조화로운 여백 조율을 위해 marginTop: 24 추가 */}
+      {/* 2순위: 전체 알바생(근무자) 통합 관리 UI 카드 */}
       <View style={{ gap: 10, marginTop: 24 }}>
         <View style={styles.sectionHeaderRow}>
-          <SectionTitle>이번 주 스케줄</SectionTitle>
-          {/* [한글 주석] 스케줄 추가 모달창을 즉시 호출해주는 UI 버튼 */}
-          <PressableScale style={styles.addBtn} onPress={handleAddPress}>
-            <Ionicons name="add" size={16} color={colors.white} />
-            <Text style={styles.addBtnText}>추가</Text>
+          <SectionTitle>전체 알바생 관리</SectionTitle>
+          <PressableScale style={styles.addBtn} onPress={handleAddEmployeePress}>
+            <Ionicons name="person-add" size={15} color={colors.white} />
+            <Text style={styles.addBtnText}>+ 알바생 등록</Text>
           </PressableScale>
         </View>
 
@@ -974,124 +1567,189 @@ function ScheduleTab() {
           </Card>
         )}
 
-        {!loading && weekRows.length === 0 && (
+        {!loading && employees.length === 0 && (
           <Card style={styles.scheduleCard}>
-            <Text style={styles.hint}>이번 주에 등록된 근무 스케줄이 없어요. 추가 버튼으로 등록해 보세요.</Text>
+            <Text style={styles.hint}>등록된 알바생이 없어요. '+ 알바생 등록' 버튼으로 신규 알바생을 등록해 보세요.</Text>
           </Card>
         )}
 
-        {weekRows.map((s) => {
-          const who = nameOf(s.employee_id);
-          const firstChar = who.charAt(0) || '👤';
+        {!loading && employees.map((emp) => {
+          const firstChar = emp.name.charAt(0) || '👤';
+          const empColor = getEmployeeColor(emp.id, employeeColorMap);
+
           return (
-            <Card key={s.id} style={styles.scheduleCard}>
+            <Card key={emp.id} style={styles.scheduleCard}>
               <View style={styles.shiftRow}>
-                {/* [한글 주석] 이니셜 타이포그래피 아바타 적용으로 고급화 */}
-                <View style={styles.initialAvatar}>
-                  <Text style={styles.avatarText}>{firstChar}</Text>
+                {/* 파스텔 테마 아바타 */}
+                <View style={[styles.initialAvatar, { backgroundColor: empColor, borderWidth: 1, borderColor: 'rgba(0,0,0,0.06)' }]}>
+                  <Text style={[styles.avatarText, { color: '#2C1D17', fontWeight: 'bold' }]}>{firstChar}</Text>
                 </View>
 
+                {/* 알바생 정보 */}
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={styles.shiftWho}>{who}</Text>
-                    {isPeak(s) && <Badge label="피크" tone="green" />}
+                    <Text style={styles.shiftWho}>{emp.name}</Text>
+                    <Badge label={emp.role || '바리스타'} tone="neutral" />
                   </View>
 
-                  {/* [한글 주석] 미니멀한 타임라인 태그로 근무 일시 표시 */}
                   <View style={styles.timeTag}>
-                    <Ionicons name="time-outline" size={13} color={colors.mochaBrown} />
-                    <Text style={styles.timeTagText}>{dayLabelOf(s)} · {slotOf(s)}</Text>
+                    <Ionicons name="cash-outline" size={13} color={colors.mochaBrown} />
+                    <Text style={styles.timeTagText}>시급 {emp.hourly_rate ? emp.hourly_rate.toLocaleString('ko-KR') : 0}원 · 재직 중</Text>
                   </View>
                 </View>
 
-                {/* [한글 주석] 터치 영역 확대 및 조형 대칭을 위해 둥근 링으로 감싼 수정 버튼 */}
-                <PressableScale onPress={() => handleEditPress(s)} to={0.88} style={styles.editBtnCircle}>
-                  <Ionicons name="create-outline" size={16} color={colors.mochaBrown} />
-                </PressableScale>
+                {/* 수정 & 퇴사/삭제 버튼 */}
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  <PressableScale onPress={() => handleEditEmployeePress(emp)} to={0.88} style={styles.editBtnCircle}>
+                    <Ionicons name="create-outline" size={16} color={colors.mochaBrown} />
+                  </PressableScale>
+
+                  <PressableScale onPress={() => handleDeleteEmployee(emp)} to={0.88} style={[styles.editBtnCircle, { backgroundColor: '#FDF2F2', borderColor: '#F8BBD0' }]}>
+                    <Ionicons name="trash-outline" size={16} color="#B23B2E" />
+                  </PressableScale>
+                </View>
               </View>
             </Card>
           );
         })}
       </View>
 
-      {/* [한글 주석] 이번 달 급여는 상단 "이번 달 정산·급여" 카드에서 백엔드 실데이터로 표시합니다. */}
-
-      {/* [한글 주석] 근무자·요일·시간을 입력받는 스케줄 수정/등록 모달 */}
-      <Modal visible={editingShift !== null} transparent animationType="slide" onRequestClose={() => setEditingShift(null)}>
+      {/* 알바생 추가 / 수정 모달 */}
+      <Modal visible={editingEmp !== null} transparent animationType="fade" onRequestClose={() => setEditingEmp(null)}>
         <View style={styles.modalRoot}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setEditingShift(null)} />
-          <View style={[styles.modalSheet, { padding: 16, paddingBottom: 24 }]}>
-            <View style={[styles.modalHandle, { marginBottom: 10 }]} />
-            <Text style={[styles.modalTitle, { fontSize: 16, marginBottom: 12 }]}>
-              {editingShift?.id === null ? '근무 스케줄 추가' : '근무 스케줄 수정'}
-            </Text>
+          {/* 위쪽/바깥 전체 어두운 배경 클릭 시 모달창 즉시 닫힘 */}
+          <Pressable style={styles.modalBackdrop} onPress={() => setEditingEmp(null)} />
+          <View style={styles.modalSheet}>
+            {/* 상단 핸들바 클릭 시 모달 닫힘 */}
+            <Pressable onPress={() => setEditingEmp(null)} style={{ paddingVertical: 2 }}>
+              <View style={styles.modalHandle} />
+            </Pressable>
 
-            {editingShift && (
-              <View style={{ gap: 10, marginBottom: 14 }}>
-                {/* [한글 주석] 근무자 입력 칸: 이름을 선택하는 버튼 대신 직접 타이핑하여 입력할 수 있는 텍스트 입력창으로 전환 */}
-                {editingShift.id === null ? (
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>근무자 이름</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="근무자 이름 입력 (예: 김하늘)"
-                      placeholderTextColor={colors.mochaBrown + '80'}
-                      value={editingShift.inputName ?? ''}
-                      onChangeText={(text) => {
-                        // 입력한 이름과 일치하는 직원이 있으면 그 ID를 매칭하고, 없으면 입력 텍스트를 기억
-                        const matched = employeeEntries.find((e) => e.name === text.trim());
-                        setEditingShift({
-                          ...editingShift,
-                          inputName: text,
-                          employeeId: matched ? matched.id : (editingShift.employeeId || employeeEntries[0]?.id || 1),
-                        });
-                      }}
-                    />
-                  </View>
-                ) : (
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>근무자 · 일자</Text>
-                    <Text style={{ ...typography.L4, color: colors.espressoBrown }}>
-                      {editingShift.employeeId !== null ? nameOf(editingShift.employeeId) : ''} · {editingShift.date}
-                    </Text>
-                  </View>
-                )}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <Text style={{ fontSize: 16, fontWeight: 'bold', color: colors.espressoBrown }}>
+                {editingEmp?.id === null ? '신규 알바생 등록' : '알바생 정보 수정'}
+              </Text>
+              <PressableScale onPress={() => setEditingEmp(null)} style={{ padding: 2 }} to={0.85}>
+                <Ionicons name="close" size={20} color={colors.mochaBrown} />
+              </PressableScale>
+            </View>
 
-                {/* [한글 주석] 요일 칩 선택기: 이번 주의 선택한 요일들을 기억하여 한눈에 표시 */}
+            {editingEmp && (
+              <View style={{ gap: 9, marginBottom: 12 }}>
+                {/* 알바생 이름 */}
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>요일 선택 (이번 주)</Text>
-                  <WeekdayButtonGroup
-                    selectedDays={editingShift.days}
-                    onChange={(days) => setEditingShift({ ...editingShift, days })}
+                  <Text style={[styles.formLabel, { fontSize: 13, fontWeight: 'bold' }]}>알바생 이름</Text>
+                  <TextInput
+                    style={[styles.input, { fontSize: 13, paddingVertical: 7 }]}
+                    placeholder="알바생 이름 입력 (예: 김하늘)"
+                    placeholderTextColor={colors.mochaBrown + '80'}
+                    value={editingEmp.name}
+                    onChangeText={(name) => setEditingEmp({ ...editingEmp, name })}
                   />
                 </View>
 
-                {/* [한글 주석] 슬림해진 시간 설정 드럼 휠 피커 (피크/일반 칩 제거) */}
+                {/* 직책 / 역할 */}
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>근무 시간 설정</Text>
+                  <Text style={[styles.formLabel, { fontSize: 13, fontWeight: 'bold' }]}>직책 / 역할</Text>
+                  <View style={{ flexDirection: 'row', gap: 5, flexWrap: 'wrap' }}>
+                    {ROLES.map((r) => {
+                      const isSel = editingEmp.role === r;
+                      return (
+                        <PressableScale
+                          key={r}
+                          onPress={() => setEditingEmp({ ...editingEmp, role: r })}
+                          style={{
+                            paddingHorizontal: 10,
+                            paddingVertical: 5,
+                            borderRadius: 14,
+                            backgroundColor: isSel ? colors.espressoBrown : colors.coffeeCream,
+                            borderWidth: 1,
+                            borderColor: isSel ? colors.espressoBrown : colors.mutedSand,
+                          }}
+                        >
+                          <Text style={{ fontSize: 12, fontWeight: '600', color: isSel ? colors.white : colors.espressoBrown }}>{r}</Text>
+                        </PressableScale>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* 시급 */}
+                <View style={styles.formGroup}>
+                  <Text style={[styles.formLabel, { fontSize: 13, fontWeight: 'bold' }]}>시급 (KRW)</Text>
+                  <TextInput
+                    style={[styles.input, { fontSize: 13, paddingVertical: 7 }]}
+                    placeholder="시급 입력 (예: 10000)"
+                    keyboardType="number-pad"
+                    placeholderTextColor={colors.mochaBrown + '80'}
+                    value={editingEmp.hourlyRate}
+                    onChangeText={(hourlyRate) => setEditingEmp({ ...editingEmp, hourlyRate })}
+                  />
+                </View>
+
+                {/* 알바생 테마 색상 */}
+                <View style={styles.formGroup}>
+                  <Text style={[styles.formLabel, { fontSize: 13, fontWeight: 'bold' }]}>알바생 테마 색상</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 2 }}>
+                    {EMPLOYEE_COLORS.map((color) => {
+                      const isSelected = (editingEmp.selectedColor || '#FFE082') === color;
+                      return (
+                        <PressableScale
+                          key={color}
+                          onPress={() => setEditingEmp({ ...editingEmp, selectedColor: color })}
+                          style={{
+                            width: 24,
+                            height: 24,
+                            borderRadius: 12,
+                            backgroundColor: color,
+                            borderWidth: isSelected ? 2.5 : 1,
+                            borderColor: isSelected ? colors.espressoBrown : 'rgba(0,0,0,0.1)',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                          to={0.88}
+                        >
+                          {isSelected && (
+                            <Ionicons
+                              name="checkmark"
+                              size={12}
+                              color={color === '#FFE082' || color === '#FFE0B2' ? '#333' : '#FFF'}
+                            />
+                          )}
+                        </PressableScale>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* 근무 요일 선택 */}
+                <View style={styles.formGroup}>
+                  <Text style={[styles.formLabel, { fontSize: 13, fontWeight: 'bold' }]}>근무 요일 선택 (매주 반복)</Text>
+                  <WeekdayButtonGroup
+                    selectedDays={editingEmp.days}
+                    onChange={(days) => setEditingEmp({ ...editingEmp, days })}
+                  />
+                </View>
+
+                {/* 근무 시간 설정 피커 */}
+                <View style={styles.formGroup}>
+                  <Text style={[styles.formLabel, { fontSize: 13, fontWeight: 'bold' }]}>근무 시간 설정 (타임 피커)</Text>
                   <IosTimePicker
-                    value={editingShift.slot}
-                    onChange={(slot) => setEditingShift({ ...editingShift, slot })}
+                    value={editingEmp.slot}
+                    onChange={(slot) => setEditingEmp({ ...editingEmp, slot })}
                   />
                 </View>
               </View>
             )}
 
             <View style={styles.rowActions}>
-              <PressableScale style={styles.btnCancel} onPress={() => setEditingShift(null)}>
+              <PressableScale style={styles.btnCancel} onPress={() => setEditingEmp(null)}>
                 <Text style={styles.btnCancelText}>취소</Text>
               </PressableScale>
 
-              <PressableScale style={[styles.btnSave, saving && { opacity: 0.6 }]} onPress={handleSave}>
+              <PressableScale style={[styles.btnSave, saving && { opacity: 0.6 }]} onPress={handleSaveEmployee}>
                 <Text style={styles.btnSaveText}>{saving ? '저장 중…' : '저장'}</Text>
               </PressableScale>
-
-              {/* [한글 주석] 기존 스케줄 수정 시에만 삭제 버튼을 맨 오른쪽 구석에 노출 */}
-              {editingShift !== null && editingShift.id !== null && (
-                <PressableScale style={styles.btnDelete} onPress={() => handleDelete(editingShift.id as number)}>
-                  <Text style={styles.btnDeleteText}>삭제</Text>
-                </PressableScale>
-              )}
             </View>
           </View>
         </View>
@@ -1203,37 +1861,34 @@ const styles = StyleSheet.create({
   addBtnText: { ...typography.L5, color: colors.white, fontWeight: '700' },
   modalRoot: {
     flex: 1,
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
+    alignItems: 'center',
     ...(Platform.OS === 'web' ? {
       position: 'absolute' as const,
-      maxWidth: 420,
-      maxHeight: 850,
-      width: '100%',
-      height: '100%',
-      alignSelf: 'center',
-      left: '50%',
-      top: '50%',
-      marginLeft: -210, // 가로 너비(420)의 절반만큼 왼쪽 보정
-      marginTop: -425, // 세로 높이(850)의 절반만큼 위쪽 보정
-      borderRadius: 42, // 아이폰의 둥근 모서리 맞춤 조형 비율
-      overflow: 'hidden',
+      left: 0,
+      top: 0,
+      right: 0,
+      bottom: 0,
+      zIndex: 9999,
     } : {}),
   },
-  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.black40 },
+  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
   modalSheet: {
     backgroundColor: colors.white,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 20,
-    paddingBottom: 36,
+    borderRadius: 24,
+    width: '90%',
+    maxWidth: 370,
+    maxHeight: 630, // [한글 주석] 세로 높이를 짧고 아담하게 조율함
+    padding: 14,
+    paddingBottom: 16,
   },
   modalHandle: {
     alignSelf: 'center',
-    width: 44,
-    height: 5,
-    borderRadius: 3,
+    width: 36,
+    height: 4,
+    borderRadius: 2,
     backgroundColor: colors.mutedSand,
-    marginBottom: 16,
+    marginBottom: 8,
   },
   modalTitle: { ...typography.L1, color: colors.espressoBrown, marginBottom: 20 },
   formGroup: { gap: 6 },

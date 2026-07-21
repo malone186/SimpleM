@@ -1,51 +1,64 @@
-# c:\Users\USER\Documents\본 프로젝트\SimpleM\backend\app\core\database.py
-"""
-[한글 주석] 팀 공용 PostgreSQL 데이터베이스 연결 및 simplem 전용 스키마 설정 모듈
-"""
-
 import os
+import logging
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, MetaData
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# .env 환경 변수를 로드합니다.
 load_dotenv()
+logger = logging.getLogger(__name__)
 
-# [한글 주석] 팀 공용 PostgreSQL DATABASE_URL 환경변수 처리
-# 예시: postgresql+psycopg://user:pw@host:5432/dbname (또는 postgresql://)
-DATABASE_URL = os.getenv(
+RAW_DB_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://postgres:simplem@localhost:5432/simpleM"
 )
 
-# [한글 주석] 공용 DB 커넥션 고갈 방지 및 보수적 풀링 옵션 적용
-# - pool_pre_ping=True : 끊어진 DB 커넥션을 자동 감지하고 재연결
-# - pool_size=5        : 기본 유지 커넥션 수 제한 (보수적 상한)
-# - max_overflow=10    : 급증 시 추가 허용 최대 커넥션 수
-# - pool_recycle=1800  : 30분마다 오래된 커넥션 자동 폐기/재생성
-if DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(
-        DATABASE_URL,
-        connect_args={"check_same_thread": False}
-    )
-else:
-    engine = create_engine(
-        DATABASE_URL,
-        pool_pre_ping=True,
-        pool_size=5,
-        max_overflow=10,
-        pool_recycle=1800
-    )
+# [한글 주석] 원격 공유 PostgreSQL 연결 불가 시 로컬 SQLite(sqlite:///./simplem.db)로 자동 안전 전환
+def _create_db_engine():
+    if RAW_DB_URL.startswith("sqlite"):
+        return create_engine(RAW_DB_URL, connect_args={"check_same_thread": False})
+    
+    try:
+        eng = create_engine(
+            RAW_DB_URL,
+            pool_pre_ping=True,
+            pool_size=5,
+            max_overflow=10,
+            pool_recycle=1800,
+            connect_args={"connect_timeout": 3}
+        )
+        with eng.connect() as conn:
+            pass
+        logger.info("[DB 연결 성공] 공유 PostgreSQL 데이터베이스에 정상 연결되었습니다.")
+        return eng
+    except Exception as e:
+        logger.warning(f"[DB 폴백] 공유 PostgreSQL DB 연결 실패 ({e}) -> 로컬 SQLite(sqlite:///./simplem.db)로 자동 전환합니다.")
+        sqlite_url = "sqlite:///./simplem.db"
+        return create_engine(sqlite_url, connect_args={"check_same_thread": False})
+
+engine = _create_db_engine()
+
+# [한글 주석] SQLite 사용 시 기존 DB에 부족한 컬럼(actual_start_time, actual_end_time 등) 자동 생성 보완
+def _ensure_sqlite_schema():
+    if str(engine.url).startswith("sqlite"):
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            for col in ["actual_start_time", "actual_end_time"]:
+                try:
+                    conn.execute(text(f"ALTER TABLE schedules ADD COLUMN {col} DATETIME"))
+                    conn.commit()
+                except Exception:
+                    pass
+
+_ensure_sqlite_schema()
 
 # 손님 요청마다 통신할 세션 생성 공장
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# [한글 주석] 전용 스키마 지정 (DB_SCHEMA 환경변수 지정 시 적용, 미지정 시 기본 public)
+# [한글 주석] 전용 스키마 지정 (SQLite 폴백 시에는 schema 미사용)
 DB_SCHEMA = os.getenv("DB_SCHEMA", None)
-metadata = MetaData(schema=DB_SCHEMA) if DB_SCHEMA else MetaData()
+is_sqlite = str(engine.url).startswith("sqlite")
+metadata = MetaData(schema=DB_SCHEMA) if (DB_SCHEMA and not is_sqlite) else MetaData()
 Base = declarative_base(metadata=metadata)
-
-
 
 # [한글 주석] FastAPI 의존성 게이트웨이 (자동 세션 닫기 보장)
 def get_db():
@@ -54,3 +67,4 @@ def get_db():
         yield db
     finally:
         db.close()
+
