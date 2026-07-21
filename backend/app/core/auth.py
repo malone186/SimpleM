@@ -123,8 +123,10 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         if not cert_str:
             raise jwt.PyJWTError("Corresponding Google public key not found")
 
-        # [한글 주석: 구글 x509 인증서는 PyJWT가 직접 검증 시 수용할 수 있으므로, PEM 스트링을 그대로 대입합니다]
-        public_key = cert_str
+        # [한글 주석: 구글 x509 인증서로부터 실제 검증에 사용될 공개키(Public Key) 오브젝트를 추출하여 검증에 활용합니다]
+        from cryptography.x509 import load_pem_x509_certificate
+        cert_obj = load_pem_x509_certificate(cert_str.encode("utf-8"))
+        public_key = cert_obj.public_key()
 
         # 비대칭 서명, 만료일, 수신자(Project ID) 및 발급처 검증을 일괄 처리합니다.
         payload = jwt.decode(
