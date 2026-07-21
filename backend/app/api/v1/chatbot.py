@@ -290,6 +290,18 @@ def get_sales_forecast_api(
         raise HTTPException(409, str(e))
 
 
+@router.get("/geocode")
+def geocode_address(query: str):
+    """주소/상호 → 좌표 (회원가입 매장 위치 검색용 — 가입 전 화면이라 인증 불필요).
+
+    네이버 지역 검색(도로명주소·상호에 강함) → Nominatim 폴백 순으로 조회한다.
+    """
+    result = forecast_service.geocode(query)
+    if not result:
+        raise HTTPException(404, "주소를 찾지 못했습니다. 도로명주소나 상호를 좀 더 구체적으로 입력해 주세요.")
+    return result
+
+
 class SaleItemIn(BaseModel):
     menu_id: int
     quantity: int = Field(1, ge=1)

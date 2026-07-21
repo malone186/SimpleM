@@ -16,6 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../../auth/AuthContext';
+import { API_BASE_URL } from '../../lib/api/client';
 import { FadeInUp, PressableScale } from '../../components/motion';
 import { IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
@@ -120,6 +121,8 @@ export default function AuthScreen() {
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   // 모달의 "주소 검색" 버튼이 지도 초기화 이후 생성되는 검색 함수를 호출할 수 있게 ref로 연결
   const mapSearchRef = useRef<((query: string) => void) | null>(null);
+  // 지도 모달 안내 문구 (검색 중 / 결과 없음 피드백)
+  const [mapNotice, setMapNotice] = useState('');
   // [한글 주석] 약관 동의 상태 및 상세보기 모달 상태
   const [termService, setTermService] = useState(false);
   const [termPrivacy, setTermPrivacy] = useState(false);
@@ -183,7 +186,19 @@ export default function AuthScreen() {
     const searchGeocode = async (query: string): Promise<{ lat: number; lon: number; label?: string } | null> => {
       const q = query.trim();
       if (!q) return null;
-      // 1순위: 네이버 JS SDK 지오코더 (submodules=geocoder 로드 + NCP Geocoding 사용 신청이 되어 있을 때)
+      // 1순위: 백엔드 지오코딩 프록시 — 광역 지명 축약 재시도까지 해줘서 한국 주소 적중률이 가장 높다
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/chatbot/geocode?query=${encodeURIComponent(q)}`);
+        if (res.ok) {
+          const d = await res.json();
+          if (typeof d?.lat === 'number' && typeof d?.lon === 'number') {
+            return { lat: d.lat, lon: d.lon, label: d.address || undefined };
+          }
+        }
+      } catch {
+        // 백엔드 미기동 시 아래 폴백으로 진행
+      }
+      // 2순위: 네이버 JS SDK 지오코더 (NCP Geocoding 사용 신청이 되어 있을 때만 동작)
       const naverObj = (window as any).naver;
       if (naverObj?.maps?.Service?.geocode) {
         const viaNaver = await new Promise<{ lat: number; lon: number; label?: string } | null>((resolve) => {
@@ -243,6 +258,7 @@ export default function AuthScreen() {
         });
 
         const pick = async (latlng: any) => {
+          setMapNotice('');
           marker.setPosition(latlng);
           const lat = latlng.lat();
           const lon = latlng.lng();
@@ -255,18 +271,24 @@ export default function AuthScreen() {
         naverObj.maps.Event.addListener(marker, 'dragend', () => pick(marker.getPosition()));
 
         mapSearchRef.current = async (query: string) => {
+          setMapNotice('🔍 주소를 찾는 중…');
           const found = await searchGeocode(query);
-          if (!found) return;
+          if (disposed) return;
+          if (!found) {
+            setMapNotice('주소를 찾지 못했어요. 도로명주소를 좀 더 구체적으로 입력해 주세요.');
+            return;
+          }
           const latlng = new naverObj.maps.LatLng(found.lat, found.lon);
           map.setCenter(latlng);
           map.setZoom(16);
           marker.setPosition(latlng);
-          applyPick(found.lat, found.lon, found.label);
-          if (!found.label) {
-            const addr = await reverseGeocode(found.lat, found.lon);
-            if (addr) applyPick(found.lat, found.lon, addr);
-          }
+          // 검색 시엔 사용자가 입력한 주소 문구를 유지하고 핀 좌표만 확정한다 (주소 덮어쓰기 없음)
+          applyPick(found.lat, found.lon);
+          setMapNotice(found.label ? `📍 ${found.label}` : '📍 위치로 이동했어요. 핀을 눌러 미세 조정할 수 있어요.');
         };
+
+        // 모달을 열 때 이미 주소가 입력되어 있으면 그 위치로 자동 이동 (핀 미확정 상태일 때만)
+        if (!coords && region.trim()) mapSearchRef.current(region);
       } catch (err) {
         console.error('네이버 지도 핀 초기화 실패, Leaflet 폴백:', err);
         initLeafletPicker();
@@ -300,6 +322,7 @@ export default function AuthScreen() {
         }).addTo(map);
 
         const pick = async (lat: number, lon: number) => {
+          setMapNotice('');
           marker.setLatLng([lat, lon]);
           applyPick(lat, lon);
           const addr = await reverseGeocode(lat, lon);
@@ -309,11 +332,22 @@ export default function AuthScreen() {
         map.on('click', (e: any) => pick(e.latlng.lat, e.latlng.lng));
 
         mapSearchRef.current = async (query: string) => {
+          setMapNotice('🔍 주소를 찾는 중…');
           const found = await searchGeocode(query);
-          if (!found) return;
+          if (disposed) return;
+          if (!found) {
+            setMapNotice('주소를 찾지 못했어요. 도로명주소를 좀 더 구체적으로 입력해 주세요.');
+            return;
+          }
           map.setView([found.lat, found.lon], 16);
-          pick(found.lat, found.lon);
+          marker.setLatLng([found.lat, found.lon]);
+          // 검색 시엔 사용자가 입력한 주소 문구를 유지하고 핀 좌표만 확정한다
+          applyPick(found.lat, found.lon);
+          setMapNotice(found.label ? `📍 ${found.label}` : '📍 위치로 이동했어요. 핀을 눌러 미세 조정할 수 있어요.');
         };
+
+        // 모달을 열 때 이미 주소가 입력되어 있으면 그 위치로 자동 이동 (핀 미확정 상태일 때만)
+        if (!coords && region.trim()) mapSearchRef.current(region);
       };
 
       const existingScript = document.getElementById('leaflet-js-direct');
@@ -791,11 +825,13 @@ export default function AuthScreen() {
               )}
             </View>
 
-            {/* 현재 선택 상태 안내 */}
+            {/* 현재 선택 상태 안내 — 검색 진행/실패 피드백이 있으면 그것을 우선 표시 */}
             <Text style={styles.mapPickedText}>
-              {coords
-                ? `📍 ${region}  (${coords.lat.toFixed(5)}, ${coords.lon.toFixed(5)})`
-                : '지도를 클릭하거나 주소를 검색해 핀을 놓아 주세요'}
+              {mapNotice
+                ? mapNotice
+                : coords
+                  ? `📍 ${region}  (${coords.lat.toFixed(5)}, ${coords.lon.toFixed(5)})`
+                  : '지도를 클릭하거나 주소를 검색해 핀을 놓아 주세요'}
             </Text>
 
             <PressableScale
