@@ -51,7 +51,21 @@ function BeanOperationCard() {
   const [keyword, setKeyword] = useState('');
 
   // 599개 실데이터 샘플 카탈로그 리스트
-  const sampleBeans = [
+  // product_url은 백엔드 응답(schemas/product_search.py)에는 있지만 아래 샘플엔 없어서
+  // 명시 타입으로 옵셔널 선언한다 — 없을 때는 네이버 쇼핑 검색 URL로 폴백한다.
+  const sampleBeans: {
+    id: number;
+    name: string;
+    roastery: string;
+    price: number;
+    lowest_price: number;
+    country: string;
+    rating: number;
+    review_count: number;
+    positive_ratio: number;
+    keywords: string[];
+    product_url?: string;
+  }[] = [
     { id: 1, name: 'BG블렌드 (500g)', roastery: '타이커피', price: 15000, lowest_price: 13500, country: '에티오피아', rating: 4.8, review_count: 25, positive_ratio: 92, keywords: ['#고소함', '#라떼강추', '#가성비'] },
     { id: 2, name: '에티오피아 예가체프 (200g)', roastery: '가델로 커피', price: 14000, lowest_price: 13800, country: '에티오피아', rating: 4.9, review_count: 150, positive_ratio: 96, keywords: ['#상큼한산미', '#꽃향기', '#드립전용'] },
     { id: 3, name: '콜롬비아 수프리모 (500g)', roastery: '모카 팩토리', price: 16500, lowest_price: 15000, country: '콜롬비아', rating: 4.7, review_count: 88, positive_ratio: 90, keywords: ['#밸런스좋음', '#견과류풍미', '#데일리'] },
@@ -71,7 +85,7 @@ function BeanOperationCard() {
           <Ionicons name="cafe" size={22} color={colors.espressoBrown} />
           <Text style={{ fontSize: 18, fontWeight: 'bold', color: colors.espressoBrown }}>수집 원두 시세 & 실리뷰 통계</Text>
         </View>
-        <Badge label="DB 599개 적재완료" variant="success" />
+        <Badge label="DB 599개 적재완료" tone="green" />
       </View>
 
       {/* 검색어 입력창 */}

@@ -34,7 +34,7 @@ export default function BeanOperationScreen() {
             <Ionicons name="cafe" size={22} color={colors.espressoBrown} />
             <Text style={{ fontSize: 18, fontWeight: 'bold', color: colors.espressoBrown }}>수집 원두 카탈로그 & 시세</Text>
           </View>
-          <Badge label="DB 599개 적재완료" variant="success" />
+          <Badge label="DB 599개 적재완료" tone="green" />
         </View>
 
         {/* 검색어 입력창 */}
