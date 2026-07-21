@@ -104,6 +104,13 @@ class ForecastingService:
                 raise ValueError("sales_data 또는 DB 세션(db) 중 하나는 반드시 필요합니다.")
             from app.services.operation.operation_service import OperationService
             sales_data = OperationService.get_daily_sales_series(db, store_id=store_id)
+            # 오늘은 영업이 끝나지 않은 미완성 집계 — 학습에 넣으면 마지막 관측치가
+            # '급감한 날'이 되어 예측을 끌어내리므로 자동집계 경로에서는 제외한다
+            today_iso = datetime.now().strftime("%Y-%m-%d")
+            sales_data = [
+                s for s in sales_data
+                if str(s.get("date") if isinstance(s, dict) else getattr(s, "date", "")) != today_iso
+            ]
 
         if not sales_data:
             raise ValueError("예측에 사용할 판매 데이터가 없습니다.")

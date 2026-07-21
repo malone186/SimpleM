@@ -1,5 +1,6 @@
 // 로그인 / 회원가입 화면 — 미로그인 시 이 화면만 노출 (2단계 가게 상세 설정 폼 추가)
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Alert,
   Image,
@@ -114,6 +115,10 @@ export default function AuthScreen() {
   const [bizType, setBizType] = useState('오피스 상권');
   // [한글 주석] 네이버 지도 위치 선택 모달 표시 여부 상태 복원
   const [showMapModal, setShowMapModal] = useState(false);
+  // 지도 핀으로 확정한 매장 좌표 — 가입 완료 시 저장되어 대시보드 예측(날씨·행사)에 그대로 쓰인다
+  const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
+  // 모달의 "주소 검색" 버튼이 지도 초기화 이후 생성되는 검색 함수를 호출할 수 있게 ref로 연결
+  const mapSearchRef = useRef<((query: string) => void) | null>(null);
   // [한글 주석] 약관 동의 상태 및 상세보기 모달 상태
   const [termService, setTermService] = useState(false);
   const [termPrivacy, setTermPrivacy] = useState(false);
@@ -136,6 +141,226 @@ export default function AuthScreen() {
 
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // [회원가입 지도 핀 훅] SalesCard와 동일한 '직접 스크립트 로드' 방식.
+  // 이전 iframe(m.map.naver.com) 방식은 네이버가 외부 삽입을 차단(X-Frame-Options)해 빈 화면이 됐다.
+  // 지도 클릭 → 핀 이동 + 역지오코딩으로 주소 자동 입력, 주소 검색 → 지오코딩으로 핀 이동.
+  // 네이버 인증 실패 시 Leaflet 오픈맵 + Nominatim 지오코딩으로 폴백해 기능이 죽지 않는다.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !showMapModal) return;
+    const NAVER_CLIENT_ID = process.env.EXPO_PUBLIC_NAVER_CLIENT_ID || '6amak4awt7';
+    let disposed = false;
+
+    const startLat = coords?.lat ?? 37.5665;
+    const startLon = coords?.lon ?? 126.978;
+
+    const applyPick = (lat: number, lon: number, address?: string) => {
+      if (disposed) return;
+      setCoords({ lat, lon });
+      if (address) setRegion(address);
+    };
+
+    // 역지오코딩은 Nominatim 사용 — 네이버 Geocoding API는 NCP에서 별도 신청이 필요해
+    // 미신청 상태에서도 주소가 항상 채워지도록 공개 API로 통일한다
+    const reverseGeocode = async (lat: number, lon: number): Promise<string | undefined> => {
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=ko&zoom=17`,
+        );
+        const data = await res.json();
+        const a = data?.address;
+        if (!a) return undefined;
+        // 한국 주소 위계: 시/도 → 구/군 → 동/읍/면 → 도로명
+        const parts = [a.province || a.city, a.borough || a.county || a.city_district, a.suburb || a.quarter || a.town || a.village, a.road]
+          .filter(Boolean);
+        return parts.length ? Array.from(new Set(parts)).join(' ') : (data.display_name as string);
+      } catch {
+        return undefined;
+      }
+    };
+
+    const searchGeocode = async (query: string): Promise<{ lat: number; lon: number; label?: string } | null> => {
+      const q = query.trim();
+      if (!q) return null;
+      // 1순위: 네이버 JS SDK 지오코더 (submodules=geocoder 로드 + NCP Geocoding 사용 신청이 되어 있을 때)
+      const naverObj = (window as any).naver;
+      if (naverObj?.maps?.Service?.geocode) {
+        const viaNaver = await new Promise<{ lat: number; lon: number; label?: string } | null>((resolve) => {
+          try {
+            naverObj.maps.Service.geocode({ query: q }, (status: any, response: any) => {
+              const item = response?.v2?.addresses?.[0];
+              if (status === naverObj.maps.Service.Status.OK && item) {
+                resolve({ lat: parseFloat(item.y), lon: parseFloat(item.x), label: item.roadAddress || item.jibunAddress });
+              } else {
+                resolve(null);
+              }
+            });
+          } catch {
+            resolve(null);
+          }
+        });
+        if (viaNaver) return viaNaver;
+      }
+      // 2순위: Nominatim 검색
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&accept-language=ko&countrycodes=kr&limit=1`,
+        );
+        const data = await res.json();
+        if (data?.[0]) return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+      } catch {
+        // 검색 실패 시 null — 버튼 쪽에서 안내
+      }
+      return null;
+    };
+
+    const initNaverPicker = () => {
+      try {
+        const container = document.getElementById('signup-map-container');
+        if (!container) return;
+        container.innerHTML = '';
+        const naverObj = (window as any).naver;
+        if (!naverObj?.maps) {
+          initLeafletPicker();
+          return;
+        }
+
+        const map = new naverObj.maps.Map(container, {
+          center: new naverObj.maps.LatLng(startLat, startLon),
+          zoom: 15,
+          zoomControl: false,
+        });
+        const marker = new naverObj.maps.Marker({
+          position: new naverObj.maps.LatLng(startLat, startLon),
+          map,
+          draggable: true,
+          icon: {
+            content:
+              '<div style="width:18px;height:18px;background:#E28257;border:3px solid #FFFFFF;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.35)"></div>',
+            anchor: new naverObj.maps.Point(9, 9),
+          },
+        });
+
+        const pick = async (latlng: any) => {
+          marker.setPosition(latlng);
+          const lat = latlng.lat();
+          const lon = latlng.lng();
+          applyPick(lat, lon);
+          const addr = await reverseGeocode(lat, lon);
+          if (addr) applyPick(lat, lon, addr);
+        };
+
+        naverObj.maps.Event.addListener(map, 'click', (e: any) => pick(e.coord));
+        naverObj.maps.Event.addListener(marker, 'dragend', () => pick(marker.getPosition()));
+
+        mapSearchRef.current = async (query: string) => {
+          const found = await searchGeocode(query);
+          if (!found) return;
+          const latlng = new naverObj.maps.LatLng(found.lat, found.lon);
+          map.setCenter(latlng);
+          map.setZoom(16);
+          marker.setPosition(latlng);
+          applyPick(found.lat, found.lon, found.label);
+          if (!found.label) {
+            const addr = await reverseGeocode(found.lat, found.lon);
+            if (addr) applyPick(found.lat, found.lon, addr);
+          }
+        };
+      } catch (err) {
+        console.error('네이버 지도 핀 초기화 실패, Leaflet 폴백:', err);
+        initLeafletPicker();
+      }
+    };
+
+    const initLeafletPicker = () => {
+      const container = document.getElementById('signup-map-container');
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (!document.getElementById('leaflet-css-direct')) {
+        const link = document.createElement('link');
+        link.id = 'leaflet-css-direct';
+        link.rel = 'stylesheet';
+        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+        document.head.appendChild(link);
+      }
+
+      const startLeaflet = () => {
+        const L = (window as any).L;
+        if (!L || disposed) return;
+        const map = L.map(container, { zoomControl: false }).setView([startLat, startLon], 15);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
+        const marker = L.circleMarker([startLat, startLon], {
+          color: '#E28257',
+          fillColor: '#FFFFFF',
+          fillOpacity: 1,
+          radius: 9,
+          weight: 4,
+        }).addTo(map);
+
+        const pick = async (lat: number, lon: number) => {
+          marker.setLatLng([lat, lon]);
+          applyPick(lat, lon);
+          const addr = await reverseGeocode(lat, lon);
+          if (addr) applyPick(lat, lon, addr);
+        };
+
+        map.on('click', (e: any) => pick(e.latlng.lat, e.latlng.lng));
+
+        mapSearchRef.current = async (query: string) => {
+          const found = await searchGeocode(query);
+          if (!found) return;
+          map.setView([found.lat, found.lon], 16);
+          pick(found.lat, found.lon);
+        };
+      };
+
+      const existingScript = document.getElementById('leaflet-js-direct');
+      if (existingScript) {
+        if ((window as any).L) startLeaflet();
+        else existingScript.addEventListener('load', startLeaflet, { once: true });
+      } else {
+        const script = document.createElement('script');
+        script.id = 'leaflet-js-direct';
+        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+        script.onload = startLeaflet;
+        document.head.appendChild(script);
+      }
+    };
+
+    (window as any).navermap_authFailure = () => {
+      console.warn('네이버 지도 인증 실패: Leaflet 오픈 지도로 전환합니다.');
+      initLeafletPicker();
+    };
+
+    const loadNaverScript = () => {
+      const existing = document.getElementById('naver-map-script-geocoder');
+      if (existing) {
+        if ((window as any).naver?.maps) initNaverPicker();
+        else existing.addEventListener('load', initNaverPicker, { once: true });
+        return;
+      }
+      const script = document.createElement('script');
+      script.id = 'naver-map-script-geocoder';
+      script.type = 'text/javascript';
+      // 신규 NCP Maps API는 oapi 도메인 + ncpKeyId 파라미터로만 인증됨. geocoder 서브모듈로 주소 검색까지 지원.
+      script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${NAVER_CLIENT_ID}&submodules=geocoder`;
+      script.onload = initNaverPicker;
+      script.onerror = () => {
+        console.error('네이버 지도 로딩 실패: Leaflet으로 전환');
+        initLeafletPicker();
+      };
+      document.head.appendChild(script);
+    };
+
+    const timer = setTimeout(loadNaverScript, 50);
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+      mapSearchRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showMapModal]);
 
   // 1단계 ➡️ 2단계 이동 검증
   const goToNextStep = () => {
@@ -175,6 +400,15 @@ export default function AuthScreen() {
       setBusy(true);
       try {
         await signup(name, email, password, autoLogin);
+        // 가입 성공 시 매장 위치를 로컬에 저장 — 대시보드/발주 예측이 기기 GPS보다 이 좌표를 우선 사용한다
+        try {
+          await AsyncStorage.setItem(
+            'simplem:storeLocation',
+            JSON.stringify({ region: region.trim(), lat: coords?.lat, lon: coords?.lon, bizType }),
+          );
+        } catch {
+          // 위치 저장 실패는 가입 자체를 막지 않는다 (예측은 GPS로 폴백)
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         setError(msg || '가입 처리 중 문제가 발생했어요.');
@@ -519,23 +753,49 @@ export default function AuthScreen() {
               </PressableScale>
             </View>
 
-            {/* [한글 주석] 네이버 지도 API 타일/웹 뷰가 그려지는 영역 */}
+            {/* 주소 검색 줄 — 입력한 주소로 지도와 핀을 이동 (지도 핀 클릭과 양방향 동기화) */}
+            <View style={[styles.locationInputRow, { marginTop: 6 }]}>
+              <TextInput
+                style={[styles.input, styles.mapSearchInput]}
+                value={region}
+                onChangeText={setRegion}
+                placeholder="가게 주소 입력 (예: 서울 중구 명동길 26)"
+                placeholderTextColor={colors.mochaBrown}
+                onSubmitEditing={() => mapSearchRef.current?.(region)}
+              />
+              <PressableScale
+                style={styles.mapPinBtn}
+                onPress={() => mapSearchRef.current?.(region)}
+                to={0.93}
+              >
+                <Ionicons name="search" size={14} color={colors.white} />
+                <Text style={styles.mapPinBtnText}>검색</Text>
+              </PressableScale>
+            </View>
+
+            {/* [한글 주석] 지도가 그려지는 영역 — 클릭/핀 드래그로 위치 지정 (웹 전용, 앱은 주소 입력으로 설정) */}
             <View style={{ marginVertical: 10, borderRadius: 14, overflow: 'hidden', height: 260, backgroundColor: colors.creamSand }}>
               {Platform.OS === 'web' ? (
-                <iframe
-                  title="naver-map-api"
-                  src={`https://m.map.naver.com/search2/search.naver?query=${encodeURIComponent(region || '서울특별시 중구 명동')}`}
-                  style={{ width: '100%', height: '100%', border: 'none' }}
-                />
+                <View id="signup-map-container" style={{ width: '100%', height: '100%' }} />
               ) : (
                 <View style={styles.mapContainerBox}>
                   <Ionicons name="location" size={36} color={colors.pointOrange} />
                   <Text style={{ fontSize: 13, fontWeight: '800', color: colors.espressoBrown, marginTop: 6, textAlign: 'center' }}>
                     {region}
                   </Text>
+                  <Text style={{ fontSize: 11, color: colors.mochaBrown, marginTop: 4, textAlign: 'center' }}>
+                    앱에서는 위 주소 입력으로 위치를 설정해 주세요
+                  </Text>
                 </View>
               )}
             </View>
+
+            {/* 현재 선택 상태 안내 */}
+            <Text style={styles.mapPickedText}>
+              {coords
+                ? `📍 ${region}  (${coords.lat.toFixed(5)}, ${coords.lon.toFixed(5)})`
+                : '지도를 클릭하거나 주소를 검색해 핀을 놓아 주세요'}
+            </Text>
 
             <PressableScale
               style={[styles.submitBtn, { marginTop: 4 }]}
@@ -676,6 +936,19 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   mapPinBtnText: { color: colors.white, fontSize: 12, fontWeight: '700' },
+  mapSearchInput: {
+    flex: 1,
+    backgroundColor: colors.creamSand,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+  },
+  mapPickedText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: colors.mochaBrown,
+    textAlign: 'center',
+    marginBottom: 2,
+  },
 
   // 알바생 스케줄 스타일 시간대 피커 카드
   shiftTimeContainer: {

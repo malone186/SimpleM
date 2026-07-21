@@ -1,8 +1,12 @@
 // AI 판매량 예측 API (백엔드 B의 /chatbot/forecast 연동)
 // GPS 좌표를 보내면 그 지역 날씨·요일·공휴일 + POS 시계열로 익일/금주 판매량과 발주 추천을 준다.
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { apiFetch } from './client';
+
+// 회원가입 지도 핀으로 설정한 매장 위치 저장 키 (AuthScreen에서 기록)
+export const STORE_LOCATION_KEY = 'simplem:storeLocation';
 
 export type ForecastDay = {
   date: string;
@@ -119,12 +123,25 @@ export const getSalesForecast = (token: string, lat?: number, lon?: number, days
   });
 };
 
-/** 기기 GPS 좌표 — 웹은 브라우저 API, 폰은 expo-location. 거부/실패 시 null (서울 기준 예측).
+/** 매장 위치 좌표 — 회원가입 지도 핀으로 저장한 좌표가 있으면 최우선, 없으면 기기 GPS.
+ * 웹은 브라우저 API, 폰은 expo-location. 거부/실패 시 null (서울 기준 예측).
  *
  * 실패는 null로 삼키되 이유는 반드시 한 줄 남긴다 — 예전엔 조용히 null이라
  * "위치가 안 나온다"가 권한 거부인지 차단인지 구분할 수 없었다.
  */
 export async function getDevicePosition(): Promise<{ lat: number; lon: number } | null> {
+  // 0. 가입 때 핀으로 확정한 매장 좌표가 있으면 그것이 곧 매장 위치다 (기기 GPS보다 정확)
+  try {
+    const raw = await AsyncStorage.getItem(STORE_LOCATION_KEY);
+    if (raw) {
+      const saved = JSON.parse(raw) as { lat?: number; lon?: number };
+      if (typeof saved.lat === 'number' && typeof saved.lon === 'number') {
+        return { lat: saved.lat, lon: saved.lon };
+      }
+    }
+  } catch {
+    // 저장값이 깨졌으면 무시하고 GPS로 진행
+  }
   if (Platform.OS === 'web') {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
       console.warn('[위치] 이 브라우저는 geolocation을 지원하지 않습니다 → 서울 기준으로 예측합니다');

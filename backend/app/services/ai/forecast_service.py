@@ -88,6 +88,11 @@ def _load_daily_series(db, store_id: str):
     df["day"] = pd.to_datetime(df["sold_at"]).dt.date
     daily = df.groupby("day").agg(cups=("quantity", "sum"), revenue=("total_price", "sum"))
     daily.index = pd.to_datetime(daily.index)
+    # 오늘은 하루가 끝나지 않아 미완성 집계다 — 학습에 넣으면 '판매가 급감한 날'로 오인해
+    # 내일 예측을 끌어내리므로 시계열에서 제외한다 (오늘 실적은 _today_actuals가 따로 담당)
+    daily = daily[daily.index.date < date.today()]
+    if daily.empty:
+        return None
     # 첫 판매일~마지막 판매일 사이 비는 날을 0으로 — 시계열 연속성 확보
     full = pd.date_range(daily.index.min(), daily.index.max(), freq="D")
     return daily.reindex(full, fill_value=0)
