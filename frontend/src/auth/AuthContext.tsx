@@ -1,6 +1,7 @@
 // c:\STUDY\SimpleM\frontend\src\auth\AuthContext.tsx
 // [한글 주석] 파이어베이스 인증(Firebase Auth)과 로컬 세션(AsyncStorage)을 활용한 점주 인증 상태 관리자입니다.
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -267,6 +268,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const mockUser = {
           email: 'google-사장님@test.com',
           name: '구글사장님',
+          token: 'mock-google-session-jwt-token',
+        };
+        setUser({ email: mockUser.email, name: mockUser.name });
+        setToken(mockUser.token);
+        await persistSession(mockUser, autoLogin);
+        return;
+      }
+
+      // [한글 주석] 모바일 네이티브 환경(iOS/Android)에서는 브라우저 팝업창을 열 수 없으므로,
+      // 가상 구글 로그인(Mock) 세션으로 우회시켜 원활한 기능 테스트를 지원합니다.
+      if (Platform.OS !== 'web') {
+        console.warn('⚠️ 모바일 앱 환경에서는 웹 팝업 로그인이 지원되지 않아 Mock 세션으로 우회 처리합니다.');
+        const mockUser = {
+          email: 'google-사장님@test.com',
+          name: '구글사장님(모바일)',
           token: 'mock-google-session-jwt-token',
         };
         setUser({ email: mockUser.email, name: mockUser.name });
