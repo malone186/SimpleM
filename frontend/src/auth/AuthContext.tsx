@@ -1,6 +1,7 @@
 // c:\STUDY\SimpleM\frontend\src\auth\AuthContext.tsx
 // [한글 주석] 파이어베이스 인증(Firebase Auth)과 로컬 세션(AsyncStorage)을 활용한 점주 인증 상태 관리자입니다.
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -297,9 +298,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const FIREBASE_API_KEY = process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '';
       const isMockFirebase = FIREBASE_API_KEY.startsWith('mock-') || !FIREBASE_API_KEY;
 
-      if (isMockFirebase) {
-        // [한글 주석] Mock 모드일 때는 백엔드 로컬 인증으로 데모 계정에 진짜 토큰을 발급받습니다.
-        // (이메일은 백엔드 EmailStr 검증을 통과해야 하므로 ASCII만 사용)
+      // [한글 주석] Mock 모드 혹은 모바일 환경(웹 팝업 로그인 미지원)일 때는
+      // 백엔드 로컬 인증으로 전용 데모 계정에 진짜 토큰을 발급받아 우회 로그인합니다.
+      // (이메일은 백엔드 EmailStr 검증을 통과해야 하므로 ASCII만 사용)
+      if (isMockFirebase || Platform.OS !== 'web') {
+        if (Platform.OS !== 'web') {
+          console.warn('⚠️ 모바일 앱 환경에서는 웹 팝업 로그인이 지원되지 않아 데모 계정으로 우회 처리합니다.');
+        }
         await loginWithBackendDemo('google-demo@test.com', '구글사장님', 'demo-social-1234', autoLogin);
         return;
       }

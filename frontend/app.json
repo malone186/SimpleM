@@ -18,9 +18,6 @@
     },
     "web": {
       "favicon": "./assets/logo.png"
-    },
-    "plugins": [
-      "expo-sharing"
-    ]
+    }
   }
 }
