@@ -217,7 +217,37 @@ export default function AuthScreen() {
         });
         if (viaNaver) return viaNaver;
       }
-      // 2순위: Nominatim 검색
+      // 3순위: Photon(OSM) — 접두어 매칭이 되어 '협성대'→'협성대학교' 같은 명칭 검색에 강하다.
+      // 네이버 지오코더는 도로명주소 전용이라, 백엔드가 꺼져 있을 때 명칭 검색은 여기서 잡는다.
+      try {
+        const res = await fetch(
+          `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=5&bbox=124,33,132,39`,
+        );
+        const feats: any[] = (await res.json())?.features ?? [];
+        const minor = ['bicycle_rental', 'vending_machine', 'parking'];
+        const best = feats
+          .map((f) => {
+            const p = f?.properties ?? {};
+            const name: string = p.name ?? '';
+            const score = (name === q ? 4 : 0) + (name.startsWith(q) ? 2 : 0) + (minor.includes(p.osm_value) ? 0 : 1);
+            return { f, p, name, score };
+          })
+          .sort((a, b) => b.score - a.score)[0];
+        if (best?.f?.geometry?.coordinates) {
+          const [lonP, latP] = best.f.geometry.coordinates;
+          const region = [best.p.state, best.p.city, best.p.county, best.p.district]
+            .filter((v, i, arr) => v && arr.indexOf(v) === i)
+            .join(' ');
+          return {
+            lat: parseFloat(latP),
+            lon: parseFloat(lonP),
+            label: [region, best.name].filter(Boolean).join(' ') || undefined,
+          };
+        }
+      } catch {
+        // Photon 실패 시 아래 Nominatim으로
+      }
+      // 4순위: Nominatim 검색 (도로명주소·정식 지명)
       try {
         const res = await fetch(
           `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&accept-language=ko&countrycodes=kr&limit=1`,
