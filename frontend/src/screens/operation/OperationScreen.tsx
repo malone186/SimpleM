@@ -600,6 +600,7 @@ function ScheduleTab() {
   const [editingShift, setEditingShift] = useState<{
     id: number | null;
     employeeId: number | null;
+    inputName?: string;
     date: string | null;
     days: string[];
     slot: string;

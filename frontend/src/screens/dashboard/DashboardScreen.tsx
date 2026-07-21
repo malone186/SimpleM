@@ -7,7 +7,6 @@ import Svg, { Defs, LinearGradient, Stop, Path, Circle, Filter, FeGaussianBlur }
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../auth/AuthContext';
 import ManagementReportCard from '../../components/dashboard/ManagementReportCard';
-import MenuOptimizationCard from '../../components/dashboard/MenuOptimizationCard';
 import QuickOrderModal from '../../components/dashboard/QuickOrderModal';
 import SalesCard from '../../components/dashboard/SalesCard';
 import TodoList, { type Todo } from '../../components/dashboard/TodoList';
@@ -237,10 +236,7 @@ export default function DashboardScreen() {
             <ManagementReportCard key={`reportcard-${runId}`} />
           </FadeInUp>
 
-          {/* [멘토 피드백 반영] AI 전체 메뉴 재구성 & 원가·원재료 최적화 카드 */}
-          <FadeInUp key={`menuopt-${runId}`} delay={180}>
-            <MenuOptimizationCard key={`menuoptcard-${runId}`} />
-          </FadeInUp>
+
         </View>
       </Animated.ScrollView>
 

@@ -117,8 +117,10 @@ const MENU_DATA: MenuItemAnalysis[] = [
 const won = (n: number) => `₩${Math.round(n).toLocaleString('ko-KR')}`;
 
 export default function MenuOptimizationCard() {
-  // [한글 주석: 특정 메뉴 클릭 시 세부 원재료 가이드 모달 표출 상태]
-  const [selectedMenu, setSelectedMenu] = useState<MenuItemAnalysis | null>(null);
+  // [한글 주석: 아코디언 형태로 펼쳐진 메뉴의 ID를 보관 (아무것도 안 펼쳐졌을 때는 null)]
+  const [expandedMenuId, setExpandedMenuId] = useState<string | null>(null);
+  // [한글 주석: 상단 AI 가이드 가독성을 위해 요약/상세 보기를 조절하는 상태]
+  const [isGuideExpanded, setIsGuideExpanded] = useState<boolean>(false);
   // [한글 주석: 메뉴 상태별 필터 칩 (전체 / 조율 필요 메뉴만 / 효자 메뉴)]
   const [filter, setFilter] = useState<'all' | 'need_action' | 'keep'>('all');
 
@@ -146,17 +148,35 @@ export default function MenuOptimizationCard() {
         </View>
       </View>
 
-      {/* 2. AI 경영 가이드 멘트 박스 — ManagementReportCard의 highlightWrap과 동일 감각 */}
-      <View style={styles.aiAdviceBox}>
+      {/* 2. AI 경영 가이드 멘트 박스 — 접이식(Collapsible) 구조로 세로 영역 최적화 */}
+      <PressableScale
+        style={styles.aiAdviceBox}
+        onPress={() => setIsGuideExpanded(!isGuideExpanded)}
+        to={0.99}
+      >
         <View style={styles.adviceHeaderRow}>
           <Ionicons name="bulb" size={16} color={colors.pointOrange} />
           <Text style={styles.adviceHeaderTitle}>AI 원가 분석 & 라인업 조정 가이드</Text>
+          <Ionicons 
+            name={isGuideExpanded ? 'chevron-up' : 'chevron-down'} 
+            size={16} 
+            color={colors.mochaBrown} 
+            style={{ marginLeft: 'auto' }}
+          />
         </View>
-        <Text style={styles.adviceText}>
-          ✦ <Text style={{ fontWeight: '700', color: colors.espressoBrown }}>[아몬드 시럽] 단가 인상 (+14.2%)</Text>으로 '아몬드 크림라떼' 원가율이 38.1%로 상승했어요.{'\n'}
-          ✦ 단독 사용 원재료(민트 파우더 등) 메뉴를 정리하고 효자 라인업으로 슬림화 시, <Text style={{ fontWeight: '800', color: colors.pointOrange }}>월 +₩480,000 추가 순이익</Text>이 예상됩니다.
-        </Text>
-      </View>
+        
+        {/* 기본 상태에서는 요약 1줄만 노출, 펼쳤을 때 전체 팁 상세 노출 */}
+        {!isGuideExpanded ? (
+          <Text style={styles.adviceTextSummary}>
+            💡 터치하여 AI의 '추가 순이익 +₩480,000' 조정 가이드 전문 확인하기
+          </Text>
+        ) : (
+          <Text style={styles.adviceText}>
+            ✦ <Text style={{ fontWeight: '700', color: colors.espressoBrown }}>[아몬드 시럽] 단가 인상 (+14.2%)</Text>으로 '아몬드 크림라떼' 원가율이 38.1%로 상승했어요.{'\n'}
+            ✦ 단독 사용 원재료(민트 파우더 등) 메뉴를 정리하고 효자 라인업으로 슬림화 시, <Text style={{ fontWeight: '800', color: colors.pointOrange }}>월 +₩480,000 추가 순이익</Text>이 예상됩니다.
+          </Text>
+        )}
+      </PressableScale>
 
       {/* 3. 메뉴 최적화 스탯 KPI 요약 칩 */}
       <View style={styles.kpiRow}>
@@ -196,142 +216,103 @@ export default function MenuOptimizationCard() {
         </PressableScale>
       </View>
 
-      {/* 5. 메뉴별 판매량 · 원가 · 원재료 상세 카드 리스트 */}
-      <View style={{ gap: 10 }}>
-        {filteredMenus.map((menu) => (
-          <PressableScale
-            key={menu.id}
-            style={styles.menuItemCard}
-            onPress={() => setSelectedMenu(menu)}
-          >
-            <View style={styles.menuCardHeader}>
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+      {/* 5. 메뉴별 판매량 · 원가 · 원재료 상세 아코디언 카드 리스트 */}
+      <View style={{ gap: 8 }}>
+        {filteredMenus.map((menu) => {
+          const isExpanded = expandedMenuId === menu.id;
+          return (
+            <View key={menu.id} style={styles.menuItemCard}>
+              {/* 기본 요약 한 줄 뷰 (클릭 시 아코디언 토글) */}
+              <PressableScale
+                style={styles.menuCardHeaderCompact}
+                onPress={() => setExpandedMenuId(isExpanded ? null : menu.id)}
+                to={0.98}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
                   <Text style={styles.menuName}>{menu.name}</Text>
                   <Badge label={menu.statusLabel} tone={menu.badgeTone} />
                 </View>
-                <Text style={styles.menuSubInfo}>
-                  월 {menu.salesCount}잔 판매 · 잔당 {won(menu.price)}
-                </Text>
-              </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={styles.costRatioText}>원가율 {menu.costRatio}%</Text>
-                <Text style={styles.costDetailText}>원가 {won(menu.cost)} / 마진 {won(menu.price - menu.cost)}</Text>
-              </View>
-            </View>
+                
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Text style={styles.costRatioTextCompact}>원가율 {menu.costRatio}%</Text>
+                  <Ionicons 
+                    name={isExpanded ? 'chevron-up' : 'chevron-down'} 
+                    size={16} 
+                    color={colors.mochaBrown} 
+                  />
+                </View>
+              </PressableScale>
 
-            {/* 원재료 구성 태그 및 AI 처방 요약 */}
-            <View style={styles.ingredientRow}>
-              <Text style={styles.ingredientLabel}>사용 원재료:</Text>
-              <Text style={styles.ingredientListText} numberOfLines={1}>
-                {menu.ingredients.join(', ')}
-              </Text>
-            </View>
+              {/* 아코디언 활성화 시 펼쳐지는 상세 뷰 */}
+              {isExpanded && (
+                <View style={styles.menuDetailExpanded}>
+                  {/* 구분선 */}
+                  <View style={styles.detailDivider} />
 
-            {/* 대체 추천 가이드 팁 (있을 경우) */}
-            {menu.alternativeSuggestion && (
-              <View style={styles.altBox}>
-                <Ionicons name="swap-horizontal-outline" size={13} color="#D97706" />
-                <Text style={styles.altText} numberOfLines={1}>
-                  <Text style={{ fontWeight: '700' }}>[대체재 추천]</Text> {menu.alternativeSuggestion.expectedCostSavings}
-                </Text>
-              </View>
-            )}
-          </PressableScale>
-        ))}
-      </View>
-
-      {/* 6. 상세 메뉴 원재료 & 대체재 조율 팝업 모달 */}
-      <Modal
-        visible={selectedMenu !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSelectedMenu(null)}
-      >
-        <Pressable style={styles.modalOverlay} onPress={() => setSelectedMenu(null)}>
-          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation?.()}>
-            {selectedMenu && (
-              <>
-                <View style={styles.modalHeader}>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Text style={styles.modalTitle}>{selectedMenu.name}</Text>
-                      <Badge label={selectedMenu.statusLabel} tone={selectedMenu.badgeTone} />
+                  {/* 📊 상세 수익 구조 요약 그리드 */}
+                  <View style={styles.statsGrid}>
+                    <View style={styles.statBox}>
+                      <Text style={styles.statLabel}>월 판매량</Text>
+                      <Text style={styles.statValue}>{menu.salesCount}잔</Text>
                     </View>
-                    <Text style={styles.modalSubtitle}>원가 구조 및 AI 원재료 대체 가이드</Text>
+                    <View style={styles.statBox}>
+                      <Text style={styles.statLabel}>잔당 판매가</Text>
+                      <Text style={styles.statValue}>{won(menu.price)}</Text>
+                    </View>
+                    <View style={styles.statBox}>
+                      <Text style={styles.statLabel}>잔당 원가</Text>
+                      <Text style={styles.statValue}>{won(menu.cost)}</Text>
+                    </View>
+                    <View style={styles.statBox}>
+                      <Text style={styles.statLabel}>마진액</Text>
+                      <Text style={[styles.statValue, { color: colors.trendGreenText }]}>
+                        {won(menu.price - menu.cost)}
+                      </Text>
+                    </View>
                   </View>
-                  <Pressable onPress={() => setSelectedMenu(null)}>
-                    <Ionicons name="close" size={22} color={colors.mochaBrown} />
-                  </Pressable>
-                </View>
 
-                {/* 지표 리스트 */}
-                <View style={styles.modalStatsGrid}>
-                  <View style={styles.modalStatItem}>
-                    <Text style={styles.modalStatLabel}>월 판매량</Text>
-                    <Text style={styles.modalStatValue}>{selectedMenu.salesCount}잔</Text>
+                  {/* 🧪 사용 원재료 목록 칩 */}
+                  <View style={styles.detailSection}>
+                    <Text style={styles.sectionLabel}>🧪 사용 원재료</Text>
+                    <View style={styles.ingChipWrapCompact}>
+                      {menu.ingredients.map((ing, idx) => (
+                        <View key={idx} style={styles.ingChipCompact}>
+                          <Text style={styles.ingChipTextCompact}>{ing}</Text>
+                        </View>
+                      ))}
+                    </View>
                   </View>
-                  <View style={styles.modalStatItem}>
-                    <Text style={styles.modalStatLabel}>판매가</Text>
-                    <Text style={styles.modalStatValue}>{won(selectedMenu.price)}</Text>
-                  </View>
-                  <View style={styles.modalStatItem}>
-                    <Text style={styles.modalStatLabel}>잔당 원가</Text>
-                    <Text style={styles.modalStatValue}>{won(selectedMenu.cost)}</Text>
-                  </View>
-                  <View style={styles.modalStatItem}>
-                    <Text style={styles.modalStatLabel}>원가율 / 마진</Text>
-                    <Text style={[styles.modalStatValue, { color: colors.pointOrange }]}>
-                      {selectedMenu.costRatio}% ({won(selectedMenu.price - selectedMenu.cost)})
-                    </Text>
-                  </View>
-                </View>
 
-                {/* 원재료 구성 목록 */}
-                <View style={styles.sectionBox}>
-                  <Text style={styles.sectionTitle}>🧪 사용 원재료 구성</Text>
-                  <View style={styles.ingChipWrap}>
-                    {selectedMenu.ingredients.map((ing, idx) => (
-                      <View key={idx} style={styles.ingChip}>
-                        <Text style={styles.ingChipText}>{ing}</Text>
+                  {/* 💡 AI 원가 진단 및 피드백 */}
+                  <View style={styles.detailSection}>
+                    <Text style={styles.sectionLabel}>💡 AI 진단 및 가이드</Text>
+                    <Text style={styles.aiAdviceTextCompact}>{menu.aiAdvice}</Text>
+                  </View>
+
+                  {/* 🔄 원재료 대체 제안 (해당 메뉴에 존재하는 경우) */}
+                  {menu.alternativeSuggestion && (
+                    <View style={styles.altAdviceCardCompact}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                        <Ionicons name="swap-horizontal" size={13} color="#D97706" />
+                        <Text style={styles.altAdviceTitleCompact}>AI 원재료 대체 제안</Text>
                       </View>
-                    ))}
-                  </View>
-                </View>
-
-                {/* AI 코멘트 */}
-                <View style={styles.sectionBox}>
-                  <Text style={styles.sectionTitle}>💡 AI 진단 분석</Text>
-                  <Text style={styles.modalAiText}>{selectedMenu.aiAdvice}</Text>
-                </View>
-
-                {/* 대체재 추천 정보 (해당시) */}
-                {selectedMenu.alternativeSuggestion && (
-                  <View style={styles.altDetailCard}>
-                    <Text style={styles.altDetailTitle}>🔄 AI 원재료 대체 제안</Text>
-                    <Text style={styles.altDetailItem}>
-                      • 기존: <Text style={{ textDecorationLine: 'line-through' }}>{selectedMenu.alternativeSuggestion.originalIngredient}</Text>
-                    </Text>
-                    <Text style={styles.altDetailItem}>
-                      • 추천: <Text style={{ fontWeight: '700', color: colors.pointOrange }}>{selectedMenu.alternativeSuggestion.suggestedIngredient}</Text>
-                    </Text>
-                    <View style={styles.altSavingsBadge}>
-                      <Text style={styles.altSavingsText}>✨ {selectedMenu.alternativeSuggestion.expectedCostSavings}</Text>
+                      <Text style={styles.altAdviceItemCompact}>
+                        • 기존: <Text style={{ textDecorationLine: 'line-through', color: 'rgba(140, 111, 86, 0.7)' }}>{menu.alternativeSuggestion.originalIngredient}</Text>
+                      </Text>
+                      <Text style={styles.altAdviceItemCompact}>
+                        • 추천: <Text style={{ fontWeight: '700', color: colors.espressoBrown }}>{menu.alternativeSuggestion.suggestedIngredient}</Text>
+                      </Text>
+                      <View style={styles.altSavingsBadgeCompact}>
+                        <Text style={styles.altSavingsTextCompact}>✨ {menu.alternativeSuggestion.expectedCostSavings}</Text>
+                      </View>
                     </View>
-                  </View>
-                )}
-
-                <PressableScale
-                  style={styles.modalConfirmBtn}
-                  onPress={() => setSelectedMenu(null)}
-                >
-                  <Text style={styles.modalConfirmText}>확인</Text>
-                </PressableScale>
-              </>
-            )}
-          </Pressable>
-        </Pressable>
-      </Modal>
+                  )}
+                </View>
+              )}
+            </View>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -381,7 +362,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     lineHeight: 16,
   },
-  // AI 가이드 멘트 박스 — ManagementReportCard highlightWrap과 동일
+  // AI 가이드 멘트 박스
   aiAdviceBox: {
     backgroundColor: colors.creamSand,
     borderRadius: 14,
@@ -407,6 +388,14 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: colors.espressoBrown,
     lineHeight: 17,
+    marginTop: 4,
+  },
+  adviceTextSummary: {
+    ...typography.L5,
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.pointOrange,
+    marginTop: 2,
   },
   // KPI 지표
   kpiRow: {
@@ -471,7 +460,7 @@ const styles = StyleSheet.create({
     color: '#B23B2E',
     fontWeight: '700',
   },
-  // 메뉴 카드
+  // 아코디언 메뉴 아이템 카드
   menuItemCard: {
     backgroundColor: colors.white,
     borderRadius: 14,
@@ -479,10 +468,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(140,111,86,0.18)',
   },
-  menuCardHeader: {
+  menuCardHeaderCompact: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    paddingVertical: 2,
   },
   menuName: {
     ...typography.L3,
@@ -490,190 +480,112 @@ const styles = StyleSheet.create({
     color: colors.espressoBrown,
     fontWeight: '800',
   },
-  menuSubInfo: {
-    ...typography.L5,
-    fontSize: 11,
-    color: colors.mochaBrown,
-    marginTop: 2,
+  costRatioTextCompact: {
+    ...typography.L4,
+    fontSize: 13,
+    color: colors.espressoBrown,
+    fontWeight: '800',
   },
-  costRatioText: {
+  // 펼침 상세 영역
+  menuDetailExpanded: {
+    marginTop: 10,
+  },
+  detailDivider: {
+    height: 1,
+    backgroundColor: 'rgba(140, 111, 86, 0.1)',
+    marginBottom: 10,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    backgroundColor: colors.coffeeCream,
+    borderRadius: 10,
+    padding: 10,
+    gap: 8,
+    marginBottom: 10,
+  },
+  statBox: {
+    width: '47%',
+    marginVertical: 2,
+  },
+  statLabel: {
+    ...typography.L5,
+    fontSize: 10.5,
+    color: colors.mochaBrown,
+  },
+  statValue: {
     ...typography.L4,
     fontSize: 12,
     color: colors.espressoBrown,
     fontWeight: '800',
-  },
-  costDetailText: {
-    ...typography.L5,
-    color: colors.mochaBrown,
-    fontSize: 10,
     marginTop: 1,
   },
-  ingredientRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: colors.coffeeCream,
+  detailSection: {
+    marginBottom: 10,
   },
-  ingredientLabel: {
-    ...typography.L5,
-    color: colors.mochaBrown,
-    fontWeight: '700',
-    fontSize: 11,
-  },
-  ingredientListText: {
-    ...typography.L5,
-    color: colors.espressoBrown,
-    fontSize: 11,
-    flex: 1,
-  },
-  altBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 8,
-    marginTop: 6,
-  },
-  altText: {
-    ...typography.L5,
-    color: '#B45309',
-    fontSize: 11,
-    flex: 1,
-  },
-  // 모달 스타일
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  modalCard: {
-    backgroundColor: colors.white,
-    borderRadius: 24,
-    padding: 20,
-    width: '100%',
-    maxWidth: 400,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 16,
-  },
-  modalTitle: {
-    ...typography.L2,
-    color: colors.espressoBrown,
-    fontWeight: '800',
-  },
-  modalSubtitle: {
-    ...typography.L5,
-    color: colors.mochaBrown,
-    marginTop: 2,
-  },
-  modalStatsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    backgroundColor: colors.coffeeCream,
-    borderRadius: 14,
-    padding: 12,
-    gap: 10,
-    marginBottom: 14,
-  },
-  modalStatItem: {
-    width: '46%',
-  },
-  modalStatLabel: {
-    ...typography.L5,
-    color: colors.mochaBrown,
-    fontSize: 11,
-  },
-  modalStatValue: {
+  sectionLabel: {
     ...typography.L4,
-    color: colors.espressoBrown,
+    fontSize: 11,
     fontWeight: '800',
-    marginTop: 2,
-  },
-  sectionBox: {
-    marginBottom: 14,
-  },
-  sectionTitle: {
-    ...typography.L4,
     color: colors.espressoBrown,
-    fontWeight: '800',
     marginBottom: 6,
   },
-  ingChipWrap: {
+  ingChipWrapCompact: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: 5,
   },
-  ingChip: {
+  ingChipCompact: {
     backgroundColor: colors.coffeeCream,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.mutedSand,
   },
-  ingChipText: {
+  ingChipTextCompact: {
     ...typography.L5,
+    fontSize: 10.5,
     color: colors.espressoBrown,
-    fontSize: 12,
   },
-  modalAiText: {
+  aiAdviceTextCompact: {
     ...typography.L5,
-    color: colors.espressoBrown,
-    lineHeight: 18,
+    fontSize: 11,
+    color: colors.mochaBrown,
+    lineHeight: 16,
   },
-  altDetailCard: {
+  altAdviceCardCompact: {
     backgroundColor: '#FEF3C7',
-    borderRadius: 14,
-    padding: 12,
+    borderRadius: 10,
+    padding: 10,
     borderWidth: 1,
     borderColor: '#FDE68A',
-    marginBottom: 16,
+    marginTop: 4,
   },
-  altDetailTitle: {
+  altAdviceTitleCompact: {
     ...typography.L4,
+    fontSize: 11.5,
     color: '#B45309',
     fontWeight: '800',
-    marginBottom: 6,
   },
-  altDetailItem: {
+  altAdviceItemCompact: {
     ...typography.L5,
+    fontSize: 11,
     color: colors.espressoBrown,
-    fontSize: 12,
-    marginBottom: 4,
+    marginBottom: 2,
   },
-  altSavingsBadge: {
+  altSavingsBadgeCompact: {
     backgroundColor: '#F59E0B',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    marginTop: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    marginTop: 4,
     alignSelf: 'flex-start',
   },
-  altSavingsText: {
+  altSavingsTextCompact: {
     ...typography.L5,
+    fontSize: 10,
     color: colors.white,
     fontWeight: '800',
-    fontSize: 11,
-  },
-  modalConfirmBtn: {
-    backgroundColor: colors.espressoBrown,
-    borderRadius: 14,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  modalConfirmText: {
-    ...typography.L3,
-    color: colors.white,
-    fontWeight: '700',
   },
 });

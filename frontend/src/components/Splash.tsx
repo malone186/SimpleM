@@ -4,7 +4,7 @@ import { Animated, StyleSheet } from 'react-native';
 
 import { colors } from '../theme';
 
-const LOGO = require('../../assets/logo_mark.png'); // 카드 배경 제거한 로고 마크
+const LOGO = require('../../assets/mascot/brew_resting.png'); // [한글 주석] 기존 로고 대신 번트시엔나 배경색을 제거한 투명한 강아지 마스코트 적용
 
 export default function Splash() {
   const opacity = useRef(new Animated.Value(1)).current;

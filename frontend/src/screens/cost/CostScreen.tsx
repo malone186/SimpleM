@@ -1,8 +1,13 @@
 // 원가 분석 (ERP-6) — 메뉴별 원가·원가율. 정확한 숫자 화면 → 브루 미노출(금지구역)
 // 데이터: GET /api/v1/inventory/menus (백엔드가 레시피×재료 단가로 원가·원가율을 실시간 계산)
 import { useEffect, useState, useRef } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View, Pressable, ScrollView, Linking, Animated } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View, Pressable, ScrollView, Linking, Animated, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+
+// [한글 주석: Android 기기에서 레이아웃 애니메이션(LayoutAnimation)이 부드럽게 동작하도록 허용하는 설정]
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 import { useAuth } from '../../auth/AuthContext';
 import { Card, Divider, ProgressBar, Screen, ScreenTitle, SectionTitle, Badge } from '../../components/ui';
@@ -10,6 +15,7 @@ import { PressableScale } from '../../components/motion'; // [한글 주석: 터
 import { apiFetch } from '../../lib/api/client';
 import { toast } from '../../components/toast';
 import { colors, typography } from '../../theme';
+import MenuOptimizationCard from '../../components/dashboard/MenuOptimizationCard'; // [한글 주석: AI 메뉴 최적화 진단 카드 컴포넌트 이관 임포트]
 
 // /inventory/menus 응답 중 원가 분석에 쓰는 필드만
 type MenuRow = {
@@ -20,10 +26,67 @@ type MenuRow = {
   cost_ratio?: number; // 백엔드가 실시간 계산해 준 최종 원가율 (%)
 };
 
+// [한글 주석: 메뉴 이름을 분석하여 카테고리별로 자동 매칭해주는 헬퍼 함수]
+const getCategoryOfMenu = (name: string): string => {
+  const lowerName = name.toLowerCase();
+  
+  if (lowerName.includes('디카페인') || lowerName.includes('decaf')) {
+    return '디카페인';
+  }
+  
+  const isLatte = lowerName.includes('라떼') || lowerName.includes('latte');
+  
+  // 커피가 함유된 라떼인지 판별 (카페라떼, 바닐라라떼, 돌체라떼 등)
+  const isCoffeeLatte = isLatte && (
+    lowerName.includes('카페') || 
+    lowerName.includes('바닐라') || 
+    lowerName.includes('돌체') || 
+    lowerName.includes('카라멜') || 
+    lowerName.includes('시그니처') ||
+    lowerName.includes('아몬드') ||
+    lowerName.includes('헤이즐넛') ||
+    lowerName.includes('에스프레소') ||
+    lowerName.includes('블랙') ||
+    (!lowerName.includes('녹차') && !lowerName.includes('초코') && !lowerName.includes('딸기') && !lowerName.includes('고구마') && !lowerName.includes('말차') && !lowerName.includes('티') && !lowerName.includes('홍차') && !lowerName.includes('밀크티'))
+  );
+  
+  if (isCoffeeLatte) {
+    return '라떼';
+  }
+  
+  if (isLatte) {
+    return '논커피 라떼';
+  }
+  
+  const isCoffee = 
+    lowerName.includes('아메리카노') || 
+    lowerName.includes('에스프레소') || 
+    lowerName.includes('콜드브루') || 
+    lowerName.includes('콜드 브루') || 
+    lowerName.includes('카푸치노') || 
+    lowerName.includes('마키아토') || 
+    lowerName.includes('마끼아또') || 
+    lowerName.includes('비엔나') || 
+    lowerName.includes('플랫화이트') || 
+    lowerName.includes('아인슈페너') || 
+    lowerName.includes('더치') || 
+    lowerName.includes('드립');
+    
+  if (isCoffee) {
+    return '커피';
+  }
+  
+  return '기타 음료';
+};
+
 export default function CostScreen() {
   const { token } = useAuth();
   const [menus, setMenus] = useState<MenuRow[] | null>(null);
   const [failed, setFailed] = useState(false);
+  // [한글 주석: 사용자가 선택한 조회용 카테고리 필터 상태]
+  const [selectedCategory, setSelectedCategory] = useState<string>('전체');
+  // [한글 주석: 카테고리 드롭다운 리스트의 노출 여부 상태]
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState<boolean>(false);
 
   // [한글 주석: AI 원가 절감 추천 팝업 관리를 위한 상태값 정의]
   const [selectedMenuName, setSelectedMenuName] = useState<string | null>(null);
@@ -78,6 +141,12 @@ export default function CostScreen() {
 
   const rows = (menus ?? []).filter((m) => m.selling_price > 0);
 
+  // [한글 주석: 선택한 카테고리에 해당하는 메뉴들만 실시간 필터링]
+  const filteredRows = rows.filter((m) => {
+    if (selectedCategory === '전체') return true;
+    return getCategoryOfMenu(m.name) === selectedCategory;
+  });
+
   // 평균 원가율 — 백엔드 계산값(cost_ratio) 우선, 없으면 cost_price/판매가로 산출
   const rateOf = (m: MenuRow) =>
     m.cost_ratio !== undefined ? m.cost_ratio : ((m.cost_price ?? 0) / m.selling_price) * 100;
@@ -118,7 +187,57 @@ export default function CostScreen() {
           <Text style={styles.summaryHint}>일반적으로 30~35% 이하를 권장해요</Text>
         </Card>
 
+        {/* [한글 주석] 대시보드에서 이관 배치한 AI 메뉴 최적화 아코디언 카드 */}
+        <MenuOptimizationCard />
+
         <SectionTitle>메뉴별 원가율</SectionTitle>
+
+        {/* [한글 주석] 공간 효율성과 확장성을 극대화한 부드러운 드롭다운 필터 버튼 */}
+        {menus !== null && rows.length > 0 && (
+          <View style={{ zIndex: 50, marginBottom: 12 }}>
+            <PressableScale
+              style={styles.dropdownButton}
+              onPress={() => {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setShowCategoryDropdown(!showCategoryDropdown);
+              }}
+            >
+              <Text style={styles.dropdownButtonText}>
+                카테고리 필터: {selectedCategory}
+              </Text>
+              <Ionicons 
+                name={showCategoryDropdown ? 'chevron-up' : 'chevron-down'} 
+                size={16} 
+                color={colors.espressoBrown} 
+              />
+            </PressableScale>
+
+            {/* 드롭다운 카테고리 펼침 목록 */}
+            {showCategoryDropdown && (
+              <View style={styles.dropdownContent}>
+                {['전체', '커피', '디카페인', '라떼', '논커피 라떼', '기타 음료'].map((cat) => {
+                  const active = selectedCategory === cat;
+                  return (
+                    <PressableScale
+                      key={cat}
+                      style={[styles.dropdownItem, active && styles.dropdownItemActive]}
+                      onPress={() => {
+                        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                        setSelectedCategory(cat);
+                        setShowCategoryDropdown(false); // 선택 후 자동으로 접어줌
+                      }}
+                    >
+                      <Text style={[styles.dropdownItemText, active && styles.dropdownItemTextActive]}>
+                        {cat}
+                      </Text>
+                      {active && <Ionicons name="checkmark" size={16} color={colors.espressoBrown} />}
+                    </PressableScale>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        )}
 
         {menus === null && !failed && (
           <Card>
@@ -141,7 +260,14 @@ export default function CostScreen() {
           </Card>
         )}
 
-        {rows.map((m) => {
+        {/* [한글 주석] 필터링된 결과가 없을 경우 보여줄 빈 상태 카드 */}
+        {menus !== null && rows.length > 0 && filteredRows.length === 0 && (
+          <Card>
+            <Text style={styles.stateText}>해당 카테고리에 해당하는 메뉴가 없습니다.</Text>
+          </Card>
+        )}
+
+        {filteredRows.map((m) => {
           const cost = m.cost_price ?? 0;
           const rate = Math.round(rateOf(m));
           const margin = m.selling_price - cost;
@@ -476,6 +602,63 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.mochaBrown,
     fontWeight: '600',
+  },
+  // [한글 주석: 세련되고 확장성 높은 카테고리 필터용 드롭다운 버튼 스타일]
+  dropdownButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.coffeeCream,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginTop: 8,
+    shadowColor: 'rgba(140, 111, 86, 0.25)',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  dropdownButtonText: {
+    ...typography.L4,
+    fontSize: 13.5,
+    color: colors.espressoBrown,
+    fontWeight: '800',
+  },
+  // [한글 주석: 드롭다운 활성화 시 노출되는 옵션 선택 박스 컨테이너]
+  dropdownContent: {
+    backgroundColor: colors.white,
+    borderRadius: 16,
+    marginTop: 6,
+    paddingVertical: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 5,
+    overflow: 'hidden', // 둥근 모서리에 맞춰 내부 아이템 잘림 방지
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(140, 111, 86, 0.04)',
+  },
+  dropdownItemActive: {
+    backgroundColor: 'rgba(140, 111, 86, 0.07)', // 부드러운 틴트 배경색
+  },
+  dropdownItemText: {
+    ...typography.L5,
+    fontSize: 12.5,
+    color: colors.mochaBrown,
+    fontWeight: '600',
+  },
+  dropdownItemTextActive: {
+    color: colors.espressoBrown,
+    fontWeight: '900',
   },
 });
 
