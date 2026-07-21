@@ -2,7 +2,7 @@
 //  ① 소비기한 임박 알림  ② 이번 달 폐기 손실 금액화  ③ 디저트 마진 순위
 // 데이터는 DessertContext(로컬 영구저장). 입고 시 소비기한만 입력하면 임박 알림이 뜬다.
 import { useMemo, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, TextInput, View, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Badge, Button, Card, Divider, ProgressBar, Screen, SectionTitle } from '../../components/ui';
@@ -266,11 +266,19 @@ export default function DessertScreen() {
         }}
         desserts={desserts}
         onRemove={(id, name) =>
-          confirmDialog(`‘${name}’를 삭제할까요? 재고 배치도 함께 삭제돼요. (폐기 집계는 유지)`, {
-            confirmLabel: '삭제',
-            destructive: true,
-            onConfirm: () => removeDessert(id),
-          })
+          Alert.alert(
+            '디저트 삭제',
+            `‘${name}’를 삭제할까요?\n재고 배치도 함께 삭제돼요. (폐기 집계는 유지)`,
+            [
+              { text: '취소', style: 'cancel' },
+              {
+                text: '삭제',
+                style: 'destructive',
+                onPress: () => removeDessert(id),
+              },
+            ],
+            { cancelable: true }
+          )
         }
       />
     </Screen>
@@ -494,7 +502,15 @@ const styles = StyleSheet.create({
 
   // 모달/입력
   modalOverlay: { flex: 1, backgroundColor: colors.black40, justifyContent: 'center', paddingHorizontal: 24 },
-  modalCard: { backgroundColor: colors.creamSand, borderRadius: 20, padding: 18, maxHeight: '84%' },
+  modalCard: {
+    backgroundColor: colors.creamSand,
+    borderRadius: 20,
+    padding: 18,
+    maxHeight: '84%',
+    width: '84%',
+    maxWidth: 340,
+    alignSelf: 'center',
+  },
   modalHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   modalTitle: { ...typography.L1, color: colors.espressoBrown },
   fieldLabel: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700', marginTop: 12 },

@@ -29,8 +29,10 @@ const ITEMS: Item[] = [
   { label: '판매 입력', en: 'SALES', desc: 'POS 연동 · 수동 입력', color: '#D1C6B9', route: 'SalesInput' },
   { label: '원가 분석', en: 'COST', desc: '메뉴별 원가율 진단', color: '#E1DCD7', route: 'Cost' },
   { label: '법령 검색', en: 'LAW', desc: '노무 · 위생 법령', color: '#F4F1EF', route: 'LawSearch' },
+  { label: '운영·원두 분석', en: 'OPERATION', desc: '원두 최저가 시세 · 실리뷰 분석', color: '#463C34', route: 'BeanOperation' },
   // 설정은 원래 헤더의 톱니 칩으로만 들어갈 수 있었다 — 헤더를 없앴으므로 카드로 내려 진입 경로를 유지한다.
-  { label: '설정', en: 'SETTINGS', desc: '계정 · 알림 · 약관', color: '#463C34', route: 'Settings' },
+  // 바로 위 카드와 같은 #463C34를 쓰면 두 장이 한 덩어리로 보여, 한 단계 더 어두운 톤으로 구분한다.
+  { label: '설정', en: 'SETTINGS', desc: '계정 · 알림 · 약관', color: '#2E2521', route: 'Settings' },
 ];
 
 // 기울여 흩뿌리는 배치값 (회전 · 좌우 이동). 겹침(marginTop)은 높이에서 역산한다.
@@ -44,7 +46,8 @@ const LAYOUT = [
   { deg: 2, tx: 5 },
   { deg: -1.6, tx: -4 },
   { deg: 1.2, tx: 6 },
-  { deg: -1.6, tx: -5 },
+  { deg: -2, tx: -6 },
+  { deg: 1.4, tx: 5 },
 ];
 
 // 카드 높이 대비 겹치는 비율 — 원본의 122px 카드에 -20px 겹침과 같은 밀도

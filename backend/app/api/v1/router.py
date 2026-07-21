@@ -30,4 +30,6 @@ api_router.include_router(law_router)
 # O (operation)
 api_router.include_router(operation_router)
 
-
+# R (roastery_search)
+from app.api.v1.roastery_search import router as roastery_search_router
+api_router.include_router(roastery_search_router)

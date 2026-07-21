@@ -9,6 +9,9 @@ httpx>=0.28
 pillow>=12.0
 langchain>=1.3
 langchain-core>=1.4
+# core/database.py가 import 시점에 요구 — 없으면 CI 등 새 환경에서 앱 전체가 즉시 죽는다
+python-dotenv>=1.0
+psycopg2-binary>=2.9
 statsmodels>=0.14  # AI-3 판매 예측 (SARIMAX)
 
 # 운영/예측 (백엔드 B 인수) — 판매예측 시계열·집계
@@ -17,4 +20,7 @@ pandas>=2.2
 # 가격 비교 크롤링 (백엔드 B)
 beautifulsoup4>=4.12.0
 lxml>=4.9.0
+
+# 법령 RAG 벡터 검색 (백엔드 C law_rag_service — CI 평가도 사용)
+chromadb>=0.5
 

@@ -7,6 +7,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { useAuth } from '../../auth/AuthContext';
+import { usePreferences } from '../../preferences/PreferencesContext';
 import type { RootTabParamList } from '../../navigation/RootNavigator';
 import {
   getManagementReport,
@@ -45,7 +46,9 @@ const won = (n: number) => `${n < 0 ? '-' : ''}₩${Math.abs(n).toLocaleString('
 export default function ManagementReportCard() {
   const { token } = useAuth();
   const navigation = useNavigation<NativeStackNavigationProp<RootTabParamList>>();
-  const [period, setPeriod] = useState<ReportPeriodType>('daily');
+  const { reportFrequency } = usePreferences();
+  // 설정의 'AI 경영 리포트 수신 주기'(매일/매주)를 첫 화면 기간으로 반영
+  const [period, setPeriod] = useState<ReportPeriodType>(reportFrequency === 'daily' ? 'daily' : 'weekly');
   // 기간별 응답 캐시 — 탭을 오가도 다시 로딩하지 않는다 (카드 리마운트 시 초기화 = 당겨서 새로고침)
   const [reports, setReports] = useState<Partial<Record<ReportPeriodType, GeneratedDocument>>>({});
   const [loading, setLoading] = useState(false);
