@@ -2,14 +2,14 @@
 
 AI-2: 거래명세서/영수증 사진 → {상품, 단가, 수량} 구조화 → 등록 초안.
 
-세 가지 백엔드를 지원한다 (OCR_BACKEND 환경변수로 선택, 폴백 없음):
-  - clova_gemini (기본): OCR+LLM 2단계 (PRD §5.2 ②) — CLOVA OCR로 텍스트 추출 후 Gemini가 구조화.
-    가장 빠르고(3~5초) 한국어 정확도가 높다. CLOVA 무료 한도(월 100건)를 파일로 집계해
-    매 호출마다 사용 횟수를 응답에 담아 알려준다.
-  - qwen_vlm: 파인튜닝 VLM 단독 (PRD §5.2 ①) — 영수증 데이터로 LoRA 파인튜닝한
+두 가지 VLM 백엔드를 지원한다 (OCR_BACKEND 환경변수로 선택, 폴백 없음):
+  - qwen_vlm (기본): 파인튜닝 VLM 단독 (PRD §5.2 ①) — 영수증 데이터로 LoRA 파인튜닝한
     Qwen3-VL-2B가 이미지에서 OCR+구조화를 한 번에. 외부 API 불필요, 무료 한도 없음.
     학습은 backend/vlm_finetune/ 참고 (어댑터가 없으면 베이스 모델로 동작).
   - ollama_vlm: VLM 단독 — 로컬 gemma4가 이미지에서 바로 추출. 완전 오프라인용.
+
+(CLOVA OCR + Gemini 2단계 경로는 파인튜닝 VLM 전환으로 삭제됨 — 외부 API 의존과
+ 월 100건 무료 한도 관리가 사라졌다)
 
 흐름: analyze_image(초안 생성) → update_draft(사용자 수정) → confirm_draft(사람 승인, 자동 확정 금지)
 """
@@ -60,17 +60,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 
 # LLM 호출부는 이 모듈 상수/환경변수로만 제어한다 (모델 교체 시 한 곳 수정 — PRD §7)
-OCR_BACKEND = os.getenv("OCR_BACKEND", "clova_gemini")
-
-CLOVA_OCR_INVOKE_URL = os.getenv("CLOVA_OCR_INVOKE_URL", "")
-CLOVA_OCR_SECRET = os.getenv("CLOVA_OCR_SECRET", "")
-# CLOVA 무료 한도(월 100건) — 성공 호출마다 파일에 집계해 사용자에게 n/100회를 알린다
-CLOVA_FREE_LIMIT = int(os.getenv("CLOVA_FREE_LIMIT", "100"))
-CLOVA_USAGE_FILE = Path(
-    os.getenv("CLOVA_USAGE_FILE", Path(__file__).resolve().parents[3] / "uploads" / "clova_usage.json")
-)
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+OCR_BACKEND = os.getenv("OCR_BACKEND", "qwen_vlm")
 
 # 파인튜닝 Qwen VLM (backend/vlm_finetune/train.py가 만든 LoRA 어댑터)
 QWEN_VLM_BASE = os.getenv("QWEN_VLM_BASE", "Qwen/Qwen3-VL-2B-Instruct")
@@ -115,53 +105,6 @@ AMOUNT_TOLERANCE_ABS = 10  # 절대 10원
 _EXTRACTION_SCHEMA = EXTRACTION_SCHEMA
 _RULES = RULES
 _PROMPT = VLM_PROMPT
-
-_GEMINI_PROMPT = f"""당신은 한국어 거래 서류 구조화 전문가입니다.
-아래는 영수증/거래명세서를 OCR한 원문 텍스트입니다 (줄바꿈은 문서의 실제 줄, OCR 오탈자가 있을 수 있음).
-정보를 추출해 JSON으로 반환하세요. 명백한 OCR 오탈자는 문맥으로 바로잡으세요.
-
-{_RULES}
-"""
-
-# Gemini responseSchema (OpenAPI 스타일 — nullable 사용)
-_GEMINI_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "doc_type": {
-            "type": "string",
-            "enum": ["purchase_statement", "tax_invoice", "receipt", "sales_summary", "unknown"],
-        },
-        "vendor": {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string", "nullable": True},
-                "biz_no": {"type": "string", "nullable": True},
-                "phone": {"type": "string", "nullable": True},
-            },
-        },
-        "issued_date": {"type": "string", "nullable": True},
-        "items": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "spec": {"type": "string", "nullable": True},
-                    "quantity": {"type": "number", "nullable": True},
-                    "unit": {"type": "string", "nullable": True},
-                    "unit_price": {"type": "number", "nullable": True},
-                    "amount": {"type": "number", "nullable": True},
-                },
-                "required": ["name"],
-            },
-        },
-        "discount": {"type": "number", "nullable": True},
-        "subtotal": {"type": "number", "nullable": True},
-        "tax": {"type": "number", "nullable": True},
-        "total": {"type": "number", "nullable": True},
-    },
-    "required": ["doc_type", "items"],
-}
 
 # 문서 종류 → 등록 대상 추천 (사용자가 확정 전 변경 가능)
 # receipt는 원래 expense(지출)였으나 지출 기능이 미구현이라 확정해도 보관만 되므로,
@@ -230,7 +173,6 @@ def _row_to_draft(row) -> dict[str, Any]:
         "status": row.status,
         "filename": None,
         "image_path": None,  # 원본은 uploads/ocr/{id}.* 규칙으로 디스크에만 보관
-        "ocr_text": None,
         "result": result,
         "suggested_target": row.target,
         "warnings": warnings,
@@ -238,7 +180,6 @@ def _row_to_draft(row) -> dict[str, Any]:
         "applied": row.applied,
         "elapsed_sec": None,
         "ocr_backend": None,
-        "clova_usage": None,  # 호출 시점 스냅샷이므로 저장/복원하지 않는다
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
@@ -294,17 +235,6 @@ def _save_draft(draft: dict[str, Any]) -> None:
         ]
         session.add(row)
         session.commit()
-
-
-# CLOVA·Gemini 호출에 연결을 재사용한다 — 매번 새 클라이언트를 만들면 TLS 수립에 수백 ms 낭비
-_http_client: Optional[httpx.AsyncClient] = None
-
-
-def _get_http() -> httpx.AsyncClient:
-    global _http_client
-    if _http_client is None or _http_client.is_closed:
-        _http_client = httpx.AsyncClient(timeout=60)
-    return _http_client
 
 
 class OcrError(Exception):
@@ -373,118 +303,6 @@ def _parse_model_json(content: str) -> dict[str, Any]:
         if match:
             return json.loads(match.group())
         raise
-
-
-async def _call_clova_ocr(image_bytes: bytes) -> str:
-    """CLOVA OCR(General) 호출 — 이미지에서 줄 단위 텍스트 추출.
-
-    주의: 무료 한도 월 100건. 호출 전 설정을 모두 검증해 헛 호출을 막는다.
-    """
-    if not CLOVA_OCR_INVOKE_URL or not CLOVA_OCR_SECRET:
-        raise OcrError("CLOVA OCR 설정 누락 — backend/.env의 CLOVA_OCR_INVOKE_URL/CLOVA_OCR_SECRET을 확인하세요")
-
-    payload = {
-        "version": "V2",
-        "requestId": uuid.uuid4().hex,
-        "timestamp": int(time.time() * 1000),
-        "lang": "ko",
-        "images": [{"format": "jpg", "name": "document", "data": base64.b64encode(image_bytes).decode()}],
-    }
-    try:
-        resp = await _get_http().post(
-            CLOVA_OCR_INVOKE_URL,
-            json=payload,
-            headers={"X-OCR-SECRET": CLOVA_OCR_SECRET},
-        )
-        resp.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        raise OcrError(f"CLOVA OCR 호출 실패 (HTTP {e.response.status_code}): {e.response.text[:300]}") from e
-    except httpx.HTTPError as e:
-        raise OcrError(f"CLOVA OCR 호출 실패: {e}") from e
-
-    images = resp.json().get("images", [])
-    if not images:
-        raise OcrError("CLOVA OCR 응답에 결과가 없습니다")
-    image_result = images[0]
-    if image_result.get("inferResult") == "ERROR":
-        raise OcrError(f"CLOVA OCR 인식 실패: {image_result.get('message', '')}")
-
-    # lineBreak 플래그로 문서의 실제 줄을 복원한다 — LLM 구조화 정확도에 중요
-    parts: list[str] = []
-    for field in image_result.get("fields", []):
-        parts.append(field.get("inferText", ""))
-        parts.append("\n" if field.get("lineBreak") else " ")
-    text = "".join(parts).strip()
-    if not text:
-        raise OcrError("CLOVA OCR가 텍스트를 찾지 못했습니다 — 이미지 상태를 확인하세요")
-    # NCP는 인식 성공 건만 과금/한도에 집계하므로 성공한 뒤에만 센다
-    _record_clova_usage()
-    return text
-
-
-# CLOVA 사용량 집계 — 파일 기반이라 서버를 재시작해도 이번 달 횟수가 유지된다
-_clova_usage_lock = threading.Lock()
-
-
-def get_clova_usage() -> dict[str, Any]:
-    """이번 달 CLOVA OCR 사용량. 파일이 없거나 달이 바뀌면 0부터 센다 (한도 월은 KST 기준)."""
-    month = datetime.now().strftime("%Y-%m")
-    try:
-        data = json.loads(CLOVA_USAGE_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        data = {}
-    used = int(data.get("count", 0)) if data.get("month") == month else 0
-    return {"month": month, "used": used, "limit": CLOVA_FREE_LIMIT, "remaining": max(CLOVA_FREE_LIMIT - used, 0)}
-
-
-def _record_clova_usage() -> dict[str, Any]:
-    """CLOVA 호출 1건을 기록하고 갱신된 사용량을 반환한다 (월이 바뀌면 자동 리셋)."""
-    with _clova_usage_lock:
-        usage = get_clova_usage()
-        used = usage["used"] + 1
-        CLOVA_USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        CLOVA_USAGE_FILE.write_text(
-            json.dumps({"month": usage["month"], "count": used}, ensure_ascii=False), encoding="utf-8"
-        )
-        usage["used"] = used
-        usage["remaining"] = max(CLOVA_FREE_LIMIT - used, 0)
-    if used >= CLOVA_FREE_LIMIT:
-        logger.warning("CLOVA OCR 무료 한도 도달 — 이번 달 %d/%d회", used, CLOVA_FREE_LIMIT)
-    else:
-        logger.info("CLOVA OCR 사용 — 이번 달 %d/%d회", used, CLOVA_FREE_LIMIT)
-    return usage
-
-
-async def _call_gemini_structurer(ocr_text: str) -> dict[str, Any]:
-    """Gemini 호출 — OCR 원문 텍스트를 구조화 JSON으로."""
-    if not GEMINI_API_KEY:
-        raise OcrError("GEMINI_API_KEY 누락 — backend/.env를 확인하세요")
-
-    body = {
-        "contents": [{"parts": [{"text": f"{_GEMINI_PROMPT}\n--- OCR 원문 ---\n{ocr_text}"}]}],
-        "generationConfig": {
-            "temperature": 0,
-            "responseMimeType": "application/json",
-            "responseSchema": _GEMINI_SCHEMA,
-        },
-    }
-    try:
-        resp = await _get_http().post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
-            json=body,
-            headers={"x-goog-api-key": GEMINI_API_KEY},
-        )
-        resp.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        raise OcrError(f"Gemini 호출 실패 (HTTP {e.response.status_code}): {e.response.text[:300]}") from e
-    except httpx.HTTPError as e:
-        raise OcrError(f"Gemini 호출 실패: {e}") from e
-
-    try:
-        content = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-        return _parse_model_json(content)
-    except (KeyError, IndexError, json.JSONDecodeError) as e:
-        raise OcrError(f"Gemini 응답 파싱 실패: {e}") from e
 
 
 # 파인튜닝 Qwen VLM — 프로세스당 1회 로드해 상주시킨다 (로드 ~17초, 이후 호출 10초대)
@@ -731,17 +549,13 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-async def _run_backend(backend: str, image_bytes: bytes) -> tuple[dict[str, Any], Optional[str]]:
-    """지정한 백엔드로 (구조화 결과, OCR 원문)을 얻는다. 폴백 없이 실패는 그대로 올린다."""
-    if backend == "clova_gemini":
-        # CLOVA는 고해상도일수록 정확 — VLM보다 크게 보낸다 (무료 한도는 건수 기준)
-        text = await _call_clova_ocr(_preprocess_image(image_bytes, max_side=1920))
-        return await _call_gemini_structurer(text), text
+async def _run_backend(backend: str, image_bytes: bytes) -> dict[str, Any]:
+    """지정한 백엔드로 구조화 결과를 얻는다. 폴백 없이 실패는 그대로 올린다."""
     if backend == "qwen_vlm":
         # 학습과 같은 해상도(기본 1024)로 — train/serve skew 방지 + vision 토큰 축소
-        return await _call_qwen_vlm(_preprocess_image(image_bytes, max_side=QWEN_VLM_MAX_IMAGE_SIDE)), None
+        return await _call_qwen_vlm(_preprocess_image(image_bytes, max_side=QWEN_VLM_MAX_IMAGE_SIDE))
     if backend == "ollama_vlm":
-        return await _call_vlm(_preprocess_image(image_bytes)), None
+        return await _call_vlm(_preprocess_image(image_bytes))
     raise OcrError(f"알 수 없는 OCR 백엔드: {backend}")
 
 
@@ -755,7 +569,7 @@ async def analyze_image(image_bytes: bytes, filename: Optional[str] = None) -> d
     image_path.write_bytes(image_bytes)
 
     started = time.perf_counter()
-    raw, ocr_text = await _run_backend(OCR_BACKEND, image_bytes)
+    raw = await _run_backend(OCR_BACKEND, image_bytes)
     elapsed = round(time.perf_counter() - started, 1)
     logger.info("OCR %s 완료 — %.1fs (%s)", doc_id, elapsed, OCR_BACKEND)
 
@@ -769,7 +583,6 @@ async def analyze_image(image_bytes: bytes, filename: Optional[str] = None) -> d
         "status": "draft",
         "filename": filename,
         "image_path": str(image_path),
-        "ocr_text": ocr_text,  # CLOVA 원문 (디버깅용, ollama_vlm 경로에서는 None)
         "result": result,
         "suggested_target": _TARGET_BY_DOC_TYPE.get(result.doc_type),
         "warnings": doc_warnings,
@@ -777,8 +590,6 @@ async def analyze_image(image_bytes: bytes, filename: Optional[str] = None) -> d
         "applied": False,
         "elapsed_sec": elapsed,
         "ocr_backend": OCR_BACKEND,
-        # 방금 호출로 갱신된 사용량 — 프론트가 "이번 달 n/100회"를 표시한다
-        "clova_usage": get_clova_usage() if OCR_BACKEND == "clova_gemini" else None,
         "created_at": now,
         "updated_at": now,
     }

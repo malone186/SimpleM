@@ -51,15 +51,6 @@ class OcrResult(BaseModel):
     total: Optional[float] = Field(None, description="합계 금액")
 
 
-class ClovaUsage(BaseModel):
-    """CLOVA OCR 무료 한도 사용량 — 매 분석마다 갱신해 사용자에게 알린다 (월 단위 리셋)"""
-
-    month: str = Field(description="집계 월 (YYYY-MM)")
-    used: int = Field(description="이번 달 사용 횟수")
-    limit: int = Field(description="무료 한도 (기본 100회/월)")
-    remaining: int = Field(description="남은 무료 횟수")
-
-
 class OcrDocumentResponse(BaseModel):
     """OCR 초안 문서 — 사용자가 수정·확인 후 확정하는 단위"""
 
@@ -72,8 +63,7 @@ class OcrDocumentResponse(BaseModel):
     confirmed_target: Optional[RegisterTarget] = None
     applied: bool = Field(False, description="확정 후 대상 시스템 반영 여부")
     elapsed_sec: Optional[float] = Field(None, description="OCR 처리 소요 시간(초)")
-    ocr_backend: Optional[str] = Field(None, description="사용된 OCR 백엔드 (clova_gemini/ollama_vlm)")
-    clova_usage: Optional[ClovaUsage] = Field(None, description="분석 직후의 CLOVA 사용량 (clova_gemini일 때만)")
+    ocr_backend: Optional[str] = Field(None, description="사용된 OCR 백엔드 (qwen_vlm/ollama_vlm)")
     created_at: datetime
     updated_at: datetime
 

@@ -144,10 +144,7 @@ $("analyze").addEventListener("click", async () => {
     const total = ((performance.now() - t0) / 1000).toFixed(1);
     const ocr = doc.elapsed_sec != null ? `분석 ${doc.elapsed_sec}초` : "";
     const engine = doc.ocr_backend ? ` · 엔진 ${doc.ocr_backend}` : "";
-    const usage = doc.clova_usage
-      ? ` · CLOVA ${doc.clova_usage.used}/${doc.clova_usage.limit}회 사용 (남은 무료 ${doc.clova_usage.remaining}회)`
-      : "";
-    $("status").textContent = `✅ 분석 완료 — ${ocr} (전체 ${total}초)${engine}${usage}. 내용을 확인하고 필요하면 수정하세요.`;
+    $("status").textContent = `✅ 분석 완료 — ${ocr} (전체 ${total}초)${engine}. 내용을 확인하고 필요하면 수정하세요.`;
     loadList();
   } catch (e) {
     $("status").textContent = "실패: " + e.message;
