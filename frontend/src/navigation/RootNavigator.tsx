@@ -43,6 +43,8 @@ const ADMIN_EMAILS = ['admin@simplem.com'];
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
+import BeanOperationScreen from '../screens/operation/BeanOperationScreen';
+
 export type RootStackParamList = {
   Tabs: undefined;
   Profile: undefined;
@@ -55,10 +57,12 @@ export type RootStackParamList = {
   Document: undefined;
   TaxDraftDetail: { tax: TaxEstimate };
   Operation: undefined;
+  BeanOperation: undefined;
   Settings: undefined;
   Dessert: undefined;
 };
 const Stack = createNativeStackNavigator<RootStackParamList>();
+
 
 const ICONS: Record<keyof RootTabParamList, keyof typeof Ionicons.glyphMap> = {
   Dashboard: 'home',
@@ -128,7 +132,9 @@ export default function RootNavigator() {
         <Stack.Screen name="Legal" component={LegalScreen} options={erpHeader('약관 및 정책')} />
         <Stack.Screen name="Document" component={DocumentScreen} options={erpHeader('서류 자동화')} />
         <Stack.Screen name="TaxDraftDetail" component={TaxDraftDetailScreen} options={erpHeader('세금 신고 초안')} />
-        <Stack.Screen name="Operation" component={OperationScreen} options={erpHeader('운영')} />
+        <Stack.Screen name="Operation" component={OperationScreen} options={erpHeader('스케줄 · 급여')} />
+        <Stack.Screen name="BeanOperation" component={BeanOperationScreen} options={erpHeader('운영 · 원두 실리뷰 분석')} />
+
         <Stack.Screen name="Settings" component={SettingsScreen} options={erpHeader('설정')} />
         <Stack.Screen name="Dessert" component={DessertScreen} options={erpHeader('디저트 관리')} />
       </Stack.Navigator>
