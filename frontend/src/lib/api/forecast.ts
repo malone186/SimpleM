@@ -119,25 +119,50 @@ export const getSalesForecast = (token: string, lat?: number, lon?: number, days
   });
 };
 
-/** 기기 GPS 좌표 — 웹은 브라우저 API, 폰은 expo-location. 거부/실패 시 null (서울 기준 예측). */
+/** 기기 GPS 좌표 — 웹은 브라우저 API, 폰은 expo-location. 거부/실패 시 null (서울 기준 예측).
+ *
+ * 실패는 null로 삼키되 이유는 반드시 한 줄 남긴다 — 예전엔 조용히 null이라
+ * "위치가 안 나온다"가 권한 거부인지 차단인지 구분할 수 없었다.
+ */
 export async function getDevicePosition(): Promise<{ lat: number; lon: number } | null> {
   if (Platform.OS === 'web') {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      console.warn('[위치] 이 브라우저는 geolocation을 지원하지 않습니다 → 서울 기준으로 예측합니다');
+      return null;
+    }
+    // 브라우저는 https 또는 localhost에서만 위치를 준다. LAN IP(192.168.x.x)로 열면
+    // 권한 팝업조차 안 뜨고 조용히 실패하므로, 원인을 명시해 준다.
+    if (typeof window !== 'undefined' && !window.isSecureContext) {
+      console.warn(
+        `[위치] 보안 컨텍스트가 아니라 브라우저가 위치를 차단했습니다 (${window.location.origin}). ` +
+          'http://localhost 로 접속하거나 https를 쓰세요 → 지금은 서울 기준으로 예측합니다',
+      );
+      return null;
+    }
     return new Promise((resolve) => {
-      if (typeof navigator === 'undefined' || !navigator.geolocation) return resolve(null);
       navigator.geolocation.getCurrentPosition(
         (p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
-        () => resolve(null),
-        { timeout: 5000, maximumAge: 600000 },
+        (err) => {
+          // 1=PERMISSION_DENIED, 2=POSITION_UNAVAILABLE, 3=TIMEOUT
+          console.warn(`[위치] 좌표를 못 받았습니다 (code=${err.code}: ${err.message}) → 서울 기준으로 예측합니다`);
+          resolve(null);
+        },
+        // 첫 측위는 5초를 넘기는 경우가 흔해 10초로 둔다 (초과해도 앱은 서울 기준으로 계속 동작)
+        { timeout: 10000, maximumAge: 600000 },
       );
     });
   }
   try {
     const Location = await import('expo-location');
     const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') return null;
+    if (status !== 'granted') {
+      console.warn(`[위치] 권한이 없습니다 (status=${status}) → 서울 기준으로 예측합니다`);
+      return null;
+    }
     const p = await Location.getCurrentPositionAsync({});
     return { lat: p.coords.latitude, lon: p.coords.longitude };
-  } catch {
+  } catch (e) {
+    console.warn(`[위치] 측위 실패: ${e instanceof Error ? e.message : e} → 서울 기준으로 예측합니다`);
     return null;
   }
 }

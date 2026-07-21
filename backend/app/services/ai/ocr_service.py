@@ -84,6 +84,9 @@ QWEN_VLM_MAX_NEW_TOKENS = int(os.getenv("QWEN_VLM_MAX_NEW_TOKENS", "1024"))
 QWEN_VLM_LOAD_4BIT = os.getenv("QWEN_VLM_LOAD_4BIT", "0") == "1"
 # LoRA 어댑터를 베이스 가중치에 합쳐 매 토큰 추가 행렬곱을 없앤다 (4bit일 땐 합칠 수 없어 자동 무시).
 QWEN_VLM_MERGE_ADAPTER = os.getenv("QWEN_VLM_MERGE_ADAPTER", "1") == "1"
+# 서버 기동 시 모델 미리 로드 (첫 요청의 ~25초 지연 제거). GPU를 다른 작업(학습·벤치)에
+# 쓰는 중이면 0으로 꺼서 VRAM 경합을 피한다.
+QWEN_VLM_WARMUP = os.getenv("QWEN_VLM_WARMUP", "1") == "1"
 # 추론 해상도는 학습(train.py --max-side, 기본 1024)과 반드시 일치시킨다.
 # 1280(기본 전처리)으로 넣으면 학습 때 안 본 해상도라 정확도가 떨어지고,
 # vision 토큰이 (1280/1024)^2≈1.56배로 늘어 prefill이 그만큼 느려진다.
@@ -570,7 +573,7 @@ def warmup_ocr_backend() -> None:
     앱 시작을 막지 않도록 백그라운드 스레드에서 돌린다. 실패해도 첫 요청 때 다시
     시도하므로 로그만 남기고 넘어간다.
     """
-    if OCR_BACKEND != "qwen_vlm":
+    if OCR_BACKEND != "qwen_vlm" or not QWEN_VLM_WARMUP:
         return
 
     def _warm() -> None:

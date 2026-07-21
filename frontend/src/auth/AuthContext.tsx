@@ -97,6 +97,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // [한글 주석] Mock 모드 소셜 로그인용: 백엔드 데모 계정으로 진짜 JWT를 발급받는다.
+  // 예전엔 'mock-google-session-jwt-token' 같은 가짜 문자열을 토큰으로 저장했는데,
+  // 백엔드가 검증하지 못해 로그인 직후 모든 API가 401로 죽었다. 반드시 진짜 토큰을 받아야 한다.
+  const loginWithBackendDemo = useCallback(
+    async (email: string, name: string, password: string, autoLogin: boolean) => {
+      // 1) 데모 계정이 없으면 가입시킨다 (이미 있으면 400 — 무시하고 로그인으로 진행)
+      try {
+        await fetch(`${API_BASE_URL}/api/v1/auth/signup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, name, store_name: `${name} 매장` }),
+        });
+      } catch {
+        // 네트워크 오류는 아래 로그인에서 다시 드러나므로 여기선 무시
+      }
+
+      // 2) 로그인해서 백엔드가 서명한 진짜 토큰을 받는다
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.detail || '데모 소셜 로그인에 실패했습니다. 백엔드 서버가 켜져 있는지 확인해 주세요.');
+      }
+      const data = await res.json();
+      const u = { email: data.email, name: data.name, token: data.access_token };
+      setUser({ email: u.email, name: u.name });
+      setToken(u.token);
+      await persistSession(u, autoLogin);
+    },
+    [persistSession]
+  );
+
   // [한글 주석] Firebase Auth를 통해 사용자를 인증하고 ID Token을 획득하여 백엔드와 동기화합니다.
   // 가짜 Firebase 키 상황일 경우 백엔드 자체 로컬 인증 API로 즉시 우회합니다.
   const login = useCallback(
@@ -263,15 +298,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const isMockFirebase = FIREBASE_API_KEY.startsWith('mock-') || !FIREBASE_API_KEY;
 
       if (isMockFirebase) {
-        // [한글 주석] Mock 모드일 때는 백엔드에서 미리 준비한 데모 이메일로 로컬 세션을 세팅합니다.
-        const mockUser = {
-          email: 'google-사장님@test.com',
-          name: '구글사장님',
-          token: 'mock-google-session-jwt-token',
-        };
-        setUser({ email: mockUser.email, name: mockUser.name });
-        setToken(mockUser.token);
-        await persistSession(mockUser, autoLogin);
+        // [한글 주석] Mock 모드일 때는 백엔드 로컬 인증으로 데모 계정에 진짜 토큰을 발급받습니다.
+        // (이메일은 백엔드 EmailStr 검증을 통과해야 하므로 ASCII만 사용)
+        await loginWithBackendDemo('google-demo@test.com', '구글사장님', 'demo-social-1234', autoLogin);
         return;
       }
 
@@ -316,7 +345,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(err.message || '구글 로그인 중 오류가 발생했습니다.');
       }
     },
-    [persistSession]
+    [persistSession, loginWithBackendDemo]
   );
 
   // [한글 주석] 애플 계정을 이용한 소셜 로그인을 처리합니다. (Mock 모드 지원)
@@ -326,15 +355,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const isMockFirebase = FIREBASE_API_KEY.startsWith('mock-') || !FIREBASE_API_KEY;
 
       if (isMockFirebase) {
-        // [한글 주석] Mock 모드일 때는 백엔드에서 미리 준비한 데모 이메일로 로컬 세션을 세팅합니다.
-        const mockUser = {
-          email: 'apple-사장님@test.com',
-          name: '애플사장님',
-          token: 'mock-apple-session-jwt-token',
-        };
-        setUser({ email: mockUser.email, name: mockUser.name });
-        setToken(mockUser.token);
-        await persistSession(mockUser, autoLogin);
+        // [한글 주석] Mock 모드일 때는 백엔드 로컬 인증으로 데모 계정에 진짜 토큰을 발급받습니다.
+        await loginWithBackendDemo('apple-demo@test.com', '애플사장님', 'demo-social-1234', autoLogin);
         return;
       }
 
@@ -379,7 +401,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(err.message || '애플 로그인 중 오류가 발생했습니다.');
       }
     },
-    [persistSession]
+    [persistSession, loginWithBackendDemo]
   );
 
   // [한글 주석] 로그아웃 시 Firebase 세션을 끊고 로컬 세션을 완전히 파기합니다.
