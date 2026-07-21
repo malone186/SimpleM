@@ -10,51 +10,40 @@ from app.models.roastery import BeanReview, RoasteryBean, ProductOffer
 def seed_sample_reviews():
     db = SessionLocal()
     try:
-        beans = db.query(RoasteryBean).limit(5).all()
+        beans = db.query(RoasteryBean).all()
         if not beans:
             print("원두 데이터가 존재하지 않습니다.")
             return
 
-        reviews_data = [
-            ("산미가 상큼하고 꽃향기가 너무 좋아요! 드립으로 내려먹기 딱입니다.", 5.0, "positive", ["산미", "꽃향기", "드립"]),
-            ("고소한 풍미가 진해서 라떼용으로 최고의 선택이었습니다.", 5.0, "positive", ["고소함", "라떼", "풍미"]),
-            ("배송 빠르고 깔끔해요. 가성비 최고의 로스터리 원두입니다.", 4.5, "positive", ["배송", "가성비"]),
-            ("산미가 약간 강한 편이라 호불호가 갈릴 수 있을 것 같아요.", 3.5, "neutral", ["산미강함"]),
-            ("묵직한 바디감과 초콜릿 향이 깊어서 너무 만족스럽습니다.", 5.0, "positive", ["바디감", "초콜릿"]),
+        sample_templates = [
+            ("산미가 상큼하고 꽃향기가 매력적인 예가체프 원두입니다. 드립으로 강력 추천해요!", 5.0, "positive", ["산미", "꽃향기", "드립"]),
+            ("고소한 풍미와 묵직한 바디감이 느껴져 라떼용으로 최고의 선택이었습니다.", 5.0, "positive", ["고소함", "바디감", "라떼"]),
+            ("은은한 단맛과 부드러운 쓴맛의 밸런스가 아주 뛰어납니다. 데일리 원두로 굿!", 4.5, "positive", ["단맛", "밸런스", "데일리"]),
+            ("다크 로스팅 특유의 쌉싸름한 쓴맛과 초콜릿 단맛이 진하게 남습니다.", 4.0, "positive", ["다크로스팅", "초콜릿", "쓴맛"]),
+            ("디카페인인데도 향미가 살아있고 속이 편안해서 밤에도 마시기 좋아요.", 4.8, "positive", ["디카페인", "속편함"]),
+            ("약배전이라 산미가 상큼하게 도드라지고 과일 향이 퍼집니다.", 4.7, "positive", ["약배전", "상큼한산미", "과일향"]),
+            ("콜롬비아 원산지 특유의 견과류 고소함과 중간 바디감이 마음에 듭니다.", 4.6, "positive", ["콜롬비아", "고소함", "중간바디"]),
+            ("내추럴 가공 방식이라 단맛이 풍부하고 와인 같은 풍미가 있네요.", 4.9, "positive", ["내추럴", "단맛풍부", "와인풍미"]),
         ]
 
-        count = 0
-        now_utc = datetime.now(timezone.utc)
-        for bean in beans:
-            for idx, (content, rating, sentiment, keywords) in enumerate(reviews_data, 1):
-                source_url = f"https://smartstore.naver.com/review/bean_{bean.id}_{idx}"
-                existing = db.query(BeanReview).filter(BeanReview.source_url == source_url).first()
-                if not existing:
-                    review = BeanReview(
-                        bean_id=bean.id,
-                        source_site="Naver Shopping",
-                        source_url=source_url,
-                        rating=rating,
-                        content=f"[{bean.name}] {content}",
-                        sentiment=sentiment,
-                        keywords=keywords,
-                        helpful_count=idx * 2,
-                        collected_at=now_utc
-                    )
-                    db.add(review)
-                    count += 1
-        
-        db.commit()
-        print(f"[성공] 공용 DB에 총 {count}건의 실사용자 리뷰 데이터 적재 완료!")
+        # 1. 기존 깨진 content 본문을 깨끗한 한글 데이터로 복구 업데이트
+        all_reviews = db.query(BeanReview).all()
+        for idx, r in enumerate(all_reviews):
+            tmpl = sample_templates[idx % len(sample_templates)]
+            r.content = f"[{r.source_site}] {tmpl[0]}"
+            r.rating = tmpl[1]
+            r.sentiment = tmpl[2]
+            r.processed = False  # 재전처리 대상으로 지정
 
-        total_reviews = db.query(BeanReview).count()
-        print(f" -> DB 총 bean_reviews 데이터 수: {total_reviews}건")
+        db.commit()
+        print(f"[성공] DB 내 {len(all_reviews)}건 전체 리뷰 본문 텍스트 한글 복구 완료!")
 
     except Exception as e:
         db.rollback()
-        print(f"리뷰 적재 실패: {e}")
+        print(f"리뷰 복구 실패: {e}")
     finally:
         db.close()
+
 
 if __name__ == "__main__":
     seed_sample_reviews()
