@@ -626,26 +626,24 @@ export default function BeanNotepad() {
       console.warn('큐레이터 API 연동 실패 (로컬 계산 폴백 적용):', err);
     }
 
-    // [폴백 백업] 백엔드 연결 불가능 시 로컬 클라이언트 계산
+    // [폴백 백업] 백엔드 연결 불가능 시 로컬 클라이언트 계산 (설문 조건별 가중치 스코어링)
     const sourceBeans = roasteryBeans.length > 0 ? roasteryBeans : MOCK_FALLBACK_BEANS;
     const scoredList: SurveyResultItem[] = [];
 
     sourceBeans.forEach(bean => {
-      let score = 85;
-      const reasons: string[] = ['취향 조건 종합 부합 원두'];
-      scoredList.push({ bean, matchRate: score, matchedReasons: reasons });
-    });
-
-    setSurveyResult(scoredList.slice(0, 10));
-    setHasSearchedSurvey(true);
-    setTimeout(() => {
-      surveyScrollRef.current?.scrollToEnd({ animated: true });
-    }, 100);
-
-
-    sourceBeans.forEach(bean => {
-      let score = 50;
+      let score = 0;
+      let maxPossibleScore = 0;
       const reasons: string[] = [];
+
+      // 1. 카페인 함량 매칭
+      if (surveyDecaf !== 'any') {
+        maxPossibleScore += 15;
+        const isDecafTarget = surveyDecaf === 'decaf';
+        if (bean.decaf === isDecafTarget) {
+          score += 15;
+          reasons.push(isDecafTarget ? '디카페인' : '일반 카페인');
+        }
+      }
 
       // 2. 원산지 매칭
       if (surveyOrigin !== 'any') {
@@ -771,6 +769,10 @@ export default function BeanNotepad() {
     const topMatches = scoredList.filter(item => item.score >= 0).slice(0, 3);
     setSurveyResult(topMatches);
     setHasSearchedSurvey(true);
+    // API 경로와 동일하게 결과 영역으로 스크롤
+    setTimeout(() => {
+      surveyScrollRef.current?.scrollToEnd({ animated: true });
+    }, 100);
   };
 
 

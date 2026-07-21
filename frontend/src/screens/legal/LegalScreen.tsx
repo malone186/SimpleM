@@ -99,7 +99,7 @@ export default function LegalScreen() {
       <Text style={styles.webLink} onPress={openWeb}>
         웹에서 원문 보기 ↗
       </Text>
-      <Text style={styles.footer}>© 브루노트 (SimpleM) · 시행일 {doc.effectiveDate}</Text>
+      <Text style={styles.footer}>© 브루노트 · 시행일 {doc.effectiveDate}</Text>
     </ScrollView>
   );
 }

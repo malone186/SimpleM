@@ -29,7 +29,7 @@ import { colors, typography } from '../../theme';
 
 const wonFmt = (n: number) => '₩' + Math.round(n || 0).toLocaleString('ko-KR');
 
-// [데모] 이번 달 SimpleM이 아껴준 것으로 추정되는 금액 — 실제 절감 지표 연동 전 대표값
+// [데모] 이번 달 브루노트가 아껴준 것으로 추정되는 금액 — 실제 절감 지표 연동 전 대표값
 const SAVED_THIS_MONTH = 342_000;
 
 // 설정 항목 한 줄 (라벨 + 우측 컨트롤)
@@ -686,7 +686,7 @@ export default function SettingsScreen() {
 
         {/* ROI — 해지 방지 소구 */}
         <View style={styles.roiBox}>
-          <Text style={styles.roiCaption}>이번 달 SimpleM이 아껴준 돈 (추정)</Text>
+          <Text style={styles.roiCaption}>이번 달 브루노트가 아껴준 돈 (추정)</Text>
           <Text style={styles.roiValue}>{wonFmt(SAVED_THIS_MONTH)}</Text>
           {roi > 0 ? (
             <Text style={styles.roiCompare}>
