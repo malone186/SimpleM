@@ -1,9 +1,11 @@
 """FastAPI 엔트리포인트 (공동 소유) — 라우터 추가는 알파벳순"""
 
 import logging
+from pathlib import Path
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -74,6 +76,13 @@ def _warmup_local_models() -> None:
     from app.services.ai.ocr_service import warmup_ocr_backend
 
     warmup_ocr_backend()
+
+
+# [공개 정책 페이지] 개인정보처리방침·이용약관을 인증 없이 접근 가능한 공개 URL로 게시합니다.
+# Play Console 등록 및 앱 내 링크에 사용합니다. (예: https://<도메인>/legal/privacy.html)
+# html=True → /legal/ 요청 시 index.html을 자동 제공.
+_LEGAL_DIR = Path(__file__).parent / "static" / "legal"
+app.mount("/legal", StaticFiles(directory=str(_LEGAL_DIR), html=True), name="legal")
 
 
 # 1. 서버 작동 테스트용 첫 API (기본 주소로 들어왔을 때 환영 인사)
