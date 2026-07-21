@@ -22,7 +22,7 @@ import { IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
 import { colors, spacing, typography } from '../../theme';
 
-const LOGO = require('../../../assets/logo_transparent.png');
+const LOGO = require('../../../assets/brew_icon_cutout.png');
 
 type Mode = 'login' | 'signup';
 
@@ -927,7 +927,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.creamSand },
   content: { padding: spacing.globalPadding, paddingTop: 60, gap: spacing.verticalGap },
   brand: { alignItems: 'center', marginBottom: 8 },
-  logo: { width: 216, height: 175 },
+  logo: { width: 248, height: 218 },
   brandSub: { ...typography.L4, color: colors.mochaBrown, marginTop: 10 },
   form: { gap: 12 },
   field: {
