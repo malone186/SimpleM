@@ -29,6 +29,8 @@ const ITEMS: Item[] = [
   { label: '판매 입력', en: 'SALES', desc: 'POS 연동 · 수동 입력', color: '#D1C6B9', route: 'SalesInput' },
   { label: '원가 분석', en: 'COST', desc: '메뉴별 원가율 진단', color: '#E1DCD7', route: 'Cost' },
   { label: '법령 검색', en: 'LAW', desc: '노무 · 위생 법령', color: '#F4F1EF', route: 'LawSearch' },
+  { label: '운영·원두 분석', en: 'OPERATION', desc: '원두 최저가 시세 · 실리뷰 분석', color: '#463C34', route: 'BeanOperation' },
+
 ];
 
 // 사진처럼 기울여 겹쳐 흩뿌리는 배치값 (회전 · 좌우 이동 · 겹침)
@@ -39,7 +41,9 @@ const LAYOUT = [
   { rotate: '5deg', tx: 10, mt: -18 },
   { rotate: '-4deg', tx: -6, mt: -20 },
   { rotate: '3deg', tx: 12, mt: -20 },
+  { rotate: '-2deg', tx: -8, mt: -20 },
 ];
+
 
 // 배경색 밝기로 텍스트 명암 결정
 const isDark = (hex: string) => {
