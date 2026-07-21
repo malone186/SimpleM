@@ -27,10 +27,11 @@ interface Props {
   initialDeviceId?: string | null; // 설비 칩에서 특정 센서로 바로 진입할 때
   onClose: () => void;
   onPairingChanged: () => void;    // 페어링 변경 → 부모가 라이브 스냅샷 즉시 갱신
+  onDisableFeature?: () => void;   // '우리 매장엔 센서가 없어요' — 기능 전체 끄기
 }
 
 export default function SensorSetupModal({
-  visible, token, initialDeviceId, onClose, onPairingChanged,
+  visible, token, initialDeviceId, onClose, onPairingChanged, onDisableFeature,
 }: Props) {
   const [devices, setDevices] = useState<SensorDevice[]>([]);
   const [loading, setLoading] = useState(false);
@@ -251,6 +252,16 @@ export default function SensorSetupModal({
                   </Text>
                 </View>
               )}
+
+              {/* 센서가 아예 없는 매장을 위한 기능 전체 끄기 (배너·알림도 함께 사라짐) */}
+              {onDisableFeature && (
+                <TouchableOpacity style={s.disableRow} onPress={onDisableFeature} activeOpacity={0.7}>
+                  <Ionicons name="power-outline" size={12} color={colors.stone300} />
+                  <Text style={s.disableRowText}>
+                    우리 매장엔 센서가 없어요 — 센서 기능 끄기
+                  </Text>
+                </TouchableOpacity>
+              )}
             </ScrollView>
           )}
         </View>
@@ -384,4 +395,19 @@ const s = StyleSheet.create({
 
   offlineBox: { alignItems: 'center', gap: 8, paddingVertical: 24 },
   offlineText: { fontSize: 11, color: colors.stone300, textAlign: 'center', lineHeight: 16 },
+
+  disableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 10,
+    marginTop: 4,
+  },
+  disableRowText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.stone300,
+    textDecorationLine: 'underline',
+  },
 });

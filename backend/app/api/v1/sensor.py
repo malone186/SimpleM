@@ -26,6 +26,10 @@ class BeanTagUpdate(BaseModel):
     decaf: Optional[str] = None      # 디카페인 호퍼 RFID에 기록할 원두명
 
 
+class FeatureToggle(BaseModel):
+    enabled: bool                    # 센서 기능 사용 여부 (센서 없는 매장은 False)
+
+
 @router.get("/live")
 def get_live(current_user: User = Depends(get_current_user)):
     """[한글 주석] 실시간 센서 스냅샷 — store_id는 로그인 계정 이메일 기준"""
@@ -64,3 +68,9 @@ def pair_device(device_id: str, current_user: User = Depends(get_current_user)):
 def unpair_device(device_id: str, current_user: User = Depends(get_current_user)):
     """[한글 주석] 기기 연결 해제"""
     return sensor_service.unpair_device(current_user.email, device_id)
+
+
+@router.post("/feature")
+def set_feature(payload: FeatureToggle, current_user: User = Depends(get_current_user)):
+    """[한글 주석] 센서 기능 매장별 ON/OFF — 끄면 라이브·데모 배너·발주 코치 알림 전부 중단"""
+    return sensor_service.set_feature_enabled(current_user.email, payload.enabled)

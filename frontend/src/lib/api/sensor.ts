@@ -36,6 +36,7 @@ export interface LiveMetrics {
 export interface SensorLive {
   updated_at: string;
   store_id: string;
+  feature_enabled?: boolean; // false면 매장이 센서 기능을 껐음 (다른 필드 없음)
   simulated: boolean;   // true면 DB 폴백(시뮬레이션) 모드
   in_business: boolean;
   pairing: SensorPairing;
@@ -64,6 +65,7 @@ export interface SensorRecommendation {
 
 export interface SensorRecommendations {
   generated_at: string;
+  feature_enabled?: boolean; // false면 매장이 센서 기능을 꺼서 추천도 비어 있음
   simulated: boolean;
   items: SensorRecommendation[];
 }
@@ -118,3 +120,11 @@ export const unpairSensorDevice = (token: string, deviceId: string) =>
     `/api/v1/sensor/devices/${deviceId}/unpair`,
     { method: 'POST', headers: auth(token) },
   );
+
+// 센서 기능 매장별 ON/OFF — 센서 없는 카페는 끄면 라이브·배너·코치 알림 전부 사라짐
+export const setSensorFeature = (token: string, enabled: boolean) =>
+  apiFetch<{ ok: boolean; enabled: boolean }>('/api/v1/sensor/feature', {
+    method: 'POST',
+    body: JSON.stringify({ enabled }),
+    headers: auth(token),
+  });

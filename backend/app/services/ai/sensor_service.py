@@ -122,27 +122,52 @@ SENSOR_DEVICES: list[dict[str, Any]] = [
 
 _DEVICE_IDS = {d["id"] for d in SENSOR_DEVICES}
 
-# 페어링 상태는 서버 재시작에도 유지되도록 backend/sensor_pairing.json에 저장
+# 페어링·설정 상태는 서버 재시작에도 유지되도록 backend/sensor_pairing.json에 저장
+# 파일 구조: {"pairings": {store: {device_id: paired_at}}, "settings": {store: {"enabled": bool}}}
 _PAIRING_FILE = Path(__file__).resolve().parents[3] / "sensor_pairing.json"
-_pairing_cache: dict[str, dict[str, str]] | None = None  # store_id -> {device_id: paired_at ISO}
+_state_cache: dict[str, Any] | None = None
+
+
+def _load_state() -> dict[str, Any]:
+    global _state_cache
+    if _state_cache is None:
+        try:
+            raw = json.loads(_PAIRING_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            raw = {}
+        # 구버전(평평한 {store: {device: ts}}) 파일 마이그레이션
+        if "pairings" not in raw and "settings" not in raw:
+            raw = {"pairings": raw, "settings": {}}
+        raw.setdefault("pairings", {})
+        raw.setdefault("settings", {})
+        _state_cache = raw
+    return _state_cache
 
 
 def _load_pairing() -> dict[str, dict[str, str]]:
-    global _pairing_cache
-    if _pairing_cache is None:
-        try:
-            _pairing_cache = json.loads(_PAIRING_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            _pairing_cache = {}
-    return _pairing_cache
+    return _load_state()["pairings"]
 
 
 def _save_pairing() -> None:
     try:
         _PAIRING_FILE.write_text(
-            json.dumps(_load_pairing(), ensure_ascii=False, indent=2), encoding="utf-8")
+            json.dumps(_load_state(), ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception:
-        logger.warning("센서 페어링 상태 저장 실패", exc_info=True)
+        logger.warning("센서 상태 저장 실패", exc_info=True)
+
+
+# ─── 센서 기능 매장별 ON/OFF (센서 없는 카페용) ───────────────────────────
+
+def is_feature_enabled(store_id: str) -> bool:
+    """센서 연동 기능 사용 여부 — 기본값 ON (끄면 라이브·데모·추천 알림 전부 중단)"""
+    return bool(_load_state()["settings"].get(store_id, {}).get("enabled", True))
+
+
+def set_feature_enabled(store_id: str, enabled: bool) -> dict[str, Any]:
+    """센서 기능 켜기/끄기 — 센서가 없는 매장은 꺼서 화면을 수기 입력 모드로 되돌린다"""
+    _load_state()["settings"].setdefault(store_id, {})["enabled"] = bool(enabled)
+    _save_pairing()
+    return {"ok": True, "enabled": bool(enabled)}
 
 
 def _device_serial(store_id: str, device_id: str) -> str:
@@ -175,7 +200,9 @@ def get_devices(store_id: str) -> dict[str, Any]:
             "paired_at": paired.get(d["id"]),
             "serial": _device_serial(store_id, d["id"]) if d["id"] in paired else None,
         })
-    return {**get_pairing_summary(store_id), "devices": devices}
+    return {**get_pairing_summary(store_id),
+            "feature_enabled": is_feature_enabled(store_id),
+            "devices": devices}
 
 
 def pair_device(store_id: str, device_id: str) -> dict[str, Any]:
@@ -319,6 +346,11 @@ def _query_daily_history(store_id: str, days: int = 7) -> list[dict[str, Any]]:
 def get_live_snapshot(store_id: str) -> dict[str, Any]:
     """센서 대시보드 한 번의 폴링에 필요한 전체 상태를 반환한다."""
     now = _now()
+
+    # 센서 기능을 끈 매장: 라이브·데모 연출 없이 최소 응답만 (알림 전부 중단)
+    if not is_feature_enabled(store_id):
+        return {"updated_at": now.isoformat(), "store_id": store_id, "feature_enabled": False}
+
     in_business = OPEN_HOUR <= now.hour < CLOSE_HOUR
 
     sales = _query_today_sales(store_id)
@@ -441,6 +473,7 @@ def get_live_snapshot(store_id: str) -> dict[str, Any]:
     return {
         "updated_at": now.isoformat(),
         "store_id": store_id,
+        "feature_enabled": True,
         "simulated": simulated,          # True면 DB 폴백(시뮬레이션) 모드
         "in_business": in_business,
         "pairing": pairing,              # 센서 연동 진행 상태 (데모/부분/완전)
@@ -479,6 +512,11 @@ def get_recommendations(store_id: str) -> dict[str, Any]:
     """센서 상태 + 최근 7일 판매 데이터를 근거로 사장님이 바로 실행할 수 있는
     발주·운영 추천을 만든다. 각 항목은 [근거 수치 → 제안 액션] 구조."""
     now = _now()
+
+    # 센서 기능을 끈 매장: 추천(알림)도 내지 않는다
+    if not is_feature_enabled(store_id):
+        return {"generated_at": now.isoformat(), "feature_enabled": False,
+                "simulated": False, "items": []}
     snap = get_live_snapshot(store_id)
     history = _query_daily_history(store_id, days=8)
     today_key = now.strftime("%Y-%m-%d")
@@ -588,6 +626,7 @@ def get_recommendations(store_id: str) -> dict[str, Any]:
     items.sort(key=lambda x: order.get(x["priority"], 3))
     return {
         "generated_at": now.isoformat(),
+        "feature_enabled": True,
         "simulated": snap["simulated"],
         "items": items[:4],
     }

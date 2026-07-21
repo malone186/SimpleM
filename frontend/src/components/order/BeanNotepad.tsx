@@ -10,6 +10,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -24,6 +25,7 @@ import {
   getSensorLive,
   getSensorRecommendations,
   setSensorBeans,
+  setSensorFeature,
   LiveMetrics,
   SensorLive,
   SensorRecommendation,
@@ -340,6 +342,27 @@ export default function BeanNotepad() {
   const [showSensorSetup, setShowSensorSetup] = useState(false);
   const [setupInitialDevice, setSetupInitialDevice] = useState<string | null>(null);
 
+  // 🎛️ 센서 기능 매장별 ON/OFF — false면 라이브·데모 배너·코치 알림 전부 숨김 (센서 없는 카페용)
+  // null = 서버 응답 전 (이때는 조용히 '연결 중' 상태만 표시)
+  const [sensorFeatureOn, setSensorFeatureOn] = useState<boolean | null>(null);
+
+  const toggleSensorFeature = (next: boolean) => {
+    setSensorFeatureOn(next);
+    if (!next) {
+      // 즉시 화면에서 라이브 요소·알림 제거
+      setSensor(null);
+      setCoachItems([]);
+      setShowSensorSetup(false);
+    }
+    if (authToken) {
+      setSensorFeature(authToken, next)
+        .then(() => {
+          if (next) refreshAfterPairing();
+        })
+        .catch(() => {});
+    }
+  };
+
   const openSensorSetup = (deviceId: string | null = null) => {
     setSetupInitialDevice(deviceId);
     setShowSensorSetup(true);
@@ -432,7 +455,15 @@ export default function BeanNotepad() {
     const pollLive = async () => {
       try {
         const snap = await getSensorLive(authToken);
-        if (alive) setSensor(snap);
+        if (!alive) return;
+        if (snap.feature_enabled === false) {
+          // 매장이 센서 기능을 꺼둔 상태 — 라이브 요소 전부 숨김
+          setSensorFeatureOn(false);
+          setSensor(null);
+        } else {
+          setSensorFeatureOn(true);
+          setSensor(snap);
+        }
       } catch {
         // 백엔드 미기동/네트워크 단절 시 '센서 연결 중' 상태로 강등
         if (alive) setSensor(null);
@@ -442,7 +473,7 @@ export default function BeanNotepad() {
       try {
         const res = await getSensorRecommendations(authToken);
         if (alive) {
-          setCoachItems(res.items);
+          setCoachItems(res.feature_enabled === false ? [] : res.items);
           setCoachUpdatedAt(res.generated_at);
         }
       } catch {
@@ -845,21 +876,23 @@ export default function BeanNotepad() {
 
       {/* ━━━ 현재 사용 중인 원두 카드 (실시간 라이브 대시보드) ━━━ */}
       <View style={styles.card}>
-        {/* [한글 주석: /sensor/live events 피드를 롤링하는 실시간 틱커] */}
-        <LiveTickerBanner messages={sensor?.events} />
+        {/* [한글 주석: /sensor/live events 피드를 롤링하는 실시간 틱커 — 기능 OFF 매장은 숨김] */}
+        {sensorFeatureOn !== false && <LiveTickerBanner messages={sensor?.events} />}
 
         <View style={styles.cardHeader}>
           <View style={styles.cardTitleRow}>
             <Text style={styles.cardTitle}>현재 사용 중인 원두</Text>
-            {/* [한글 주석: 회색=서버 미응답 / 주황=센서 0개(데모) / 초록=LIVE(부분 연결 시 진행도 표기)] */}
-            <LivePulseBadge
-              variant={!sensor ? 'connecting' : sensor.pairing?.demo_mode ? 'demo' : 'live'}
-              label={
-                sensor?.pairing && !sensor.pairing.demo_mode && sensor.pairing.paired_count < sensor.pairing.total
-                  ? `LIVE · 센서 ${sensor.pairing.paired_count}/${sensor.pairing.total}`
-                  : undefined
-              }
-            />
+            {/* [한글 주석: 회색=서버 미응답 / 주황=센서 0개(데모) / 초록=LIVE — 기능 OFF면 배지 자체를 숨김] */}
+            {sensorFeatureOn !== false && (
+              <LivePulseBadge
+                variant={!sensor ? 'connecting' : sensor.pairing?.demo_mode ? 'demo' : 'live'}
+                label={
+                  sensor?.pairing && !sensor.pairing.demo_mode && sensor.pairing.paired_count < sensor.pairing.total
+                    ? `LIVE · 센서 ${sensor.pairing.paired_count}/${sensor.pairing.total}`
+                    : undefined
+                }
+              />
+            )}
           </View>
           <TouchableOpacity style={styles.editBtn} onPress={openCurrentEdit}>
             <Ionicons name="pencil-outline" size={14} color={colors.mochaBrown} />
@@ -1179,6 +1212,24 @@ export default function BeanNotepad() {
               placeholderTextColor={colors.stone300}
             />
 
+            {/* 🎛️ 매장 센서 연동 ON/OFF — 센서 없는 카페는 끄면 라이브·데모 안내·코치 알림이 모두 사라짐 */}
+            <View style={modalStyles.featureToggleRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={[modalStyles.label, { marginBottom: 2 }]}>매장 센서 연동</Text>
+                <Text style={modalStyles.featureToggleDesc}>
+                  {sensorFeatureOn === false
+                    ? '꺼짐 — 실시간 게이지·연동 안내가 표시되지 않아요'
+                    : '켜짐 — 센서 실시간 게이지와 AI 발주 코치를 사용해요'}
+                </Text>
+              </View>
+              <Switch
+                value={sensorFeatureOn !== false}
+                onValueChange={toggleSensorFeature}
+                trackColor={{ false: '#D6D3D1', true: colors.mochaBrown }}
+                thumbColor={colors.white}
+              />
+            </View>
+
             <TouchableOpacity
               style={[modalStyles.saveBtn, !tempCaffeine.trim() && !tempDecaf.trim() && { opacity: 0.5 }]}
               onPress={saveCurrentBeans}
@@ -1460,6 +1511,7 @@ export default function BeanNotepad() {
         initialDeviceId={setupInitialDevice}
         onClose={() => setShowSensorSetup(false)}
         onPairingChanged={refreshAfterPairing}
+        onDisableFeature={() => toggleSensorFeature(false)}
       />
 
     </View>
@@ -1949,6 +2001,25 @@ const modalStyles = StyleSheet.create({
     alignItems: 'center',
   },
   saveBtnText: { ...typography.L3, color: colors.white },
+
+  // 🎛️ 매장 센서 연동 토글 행
+  featureToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginTop: 16,
+  },
+  featureToggleDesc: {
+    fontSize: 10,
+    color: colors.stone300,
+    lineHeight: 14,
+  },
 });
 
 // 🟢 [한글 주석: 실시간(LIVE) 대시보드 컴포넌트 전용 스타일 시트]
