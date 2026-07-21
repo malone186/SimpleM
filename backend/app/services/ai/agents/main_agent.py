@@ -64,6 +64,20 @@ SUB_RECURSION_LIMIT = 12   # 서브에이전트: 도구 몇 번 쓰고 답하기
 MAIN_RECURSION_LIMIT = 16  # 메인: 전문가 여러 명에게 순차 위임 가능
 
 # ---------------------------------------------------------------------------
+# 메인 에이전트(오케스트레이터) 정의 — 이름·역할·설명의 단일 출처.
+# 시스템 프롬프트와 관리자 콘솔 API(get_agent_overview)가 모두 여기서 읽는다.
+# ---------------------------------------------------------------------------
+
+_MAIN_AGENT: dict[str, str] = {
+    "name": "포슬이",
+    "role": "메인 오케스트레이터 (supervisor)",
+    "description": (
+        "직접 도구를 만지지 않고 사장님의 요청을 분석해 알맞은 전문가에게 위임하고, "
+        "여러 전문가의 보고를 종합해 최종 답변을 만든다."
+    ),
+}
+
+# ---------------------------------------------------------------------------
 # 도메인(서브에이전트) 정의 — 모듈에 도구가 생기면 자동으로 전문가가 활성화된다
 # ---------------------------------------------------------------------------
 
@@ -197,7 +211,7 @@ _DOMAINS: list[dict[str, Any]] = [
     },
 ]
 
-_MAIN_PROMPT = """당신은 카페 사장님들을 위한 AI 비서 '포슬이'입니다.
+_MAIN_PROMPT = """당신은 카페 사장님들을 위한 AI 비서 '{agent_name}'입니다.
 어려운 전문 용어 없이, 누구나 바로 이해할 수 있게 한국어 구어체로 대답합니다.
 
 [말투 — 사장님은 당신의 상사입니다]
@@ -400,15 +414,10 @@ def get_agent_overview() -> dict[str, Any]:
 
     return {
         "main": {
-            "name": "포슬이",
-            "role": "메인 오케스트레이터 (supervisor)",
+            **_MAIN_AGENT,
             "model": GEMINI_MODEL,
             "api_key_set": bool(GEMINI_API_KEY),
             "recursion_limit": MAIN_RECURSION_LIMIT,
-            "description": (
-                "직접 도구를 만지지 않고 사장님의 요청을 분석해 알맞은 전문가에게 위임하고, "
-                "여러 전문가의 보고를 종합해 최종 답변을 만든다."
-            ),
         },
         "sub_recursion_limit": SUB_RECURSION_LIMIT,
         "langsmith_enabled": bool(os.getenv("LANGSMITH_API_KEY", "").strip()),
@@ -468,6 +477,7 @@ async def generate_response(
             _get_model(model_name),
             delegate_tools,
             system_prompt=_MAIN_PROMPT.format(
+                agent_name=_MAIN_AGENT["name"],
                 experts="\n".join(expert_lines),
                 today=date.today().isoformat(),
                 store_id=store_id,
