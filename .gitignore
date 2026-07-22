@@ -30,3 +30,7 @@ frontend/.env*
 Thumbs.db
 backend/simplem.db
 sensor_pairing.json
+
+# APK 배포물은 서버 static에만 둔다 (git에 105MB 바이너리 금지)
+*.apk
+backend/uvicorn_restart.log

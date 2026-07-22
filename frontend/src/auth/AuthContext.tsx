@@ -127,6 +127,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // [로그인 속도] 백엔드 프로필 동기화(Lazy Signup 유도)는 로그인 완료를 막지 않는다.
+  // Neon DB 콜드스타트 탓에 이 요청이 수 초 걸릴 수 있는데, 예전엔 이걸 await로 기다려
+  // 로그인 버튼이 몇 초씩 멈춰 있었다. 실패해도 다음 API 호출의 get_current_user가
+  // 어차피 Lazy Signup을 다시 수행하므로 백그라운드 전송으로 충분하다.
+  const syncProfileInBackground = useCallback((idToken: string, name: string) => {
+    fetch(`${API_BASE_URL}/api/v1/auth/profile`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({
+        name,
+        store_name: `${name} 매장`,
+      }),
+    })
+      .then((res) => {
+        if (!res.ok) {
+          console.warn('백엔드 계정 동기화 경고: 회원 정보가 완전하게 연동되지 않았을 수 있습니다.');
+        }
+      })
+      .catch(() => {
+        console.warn('백엔드 계정 동기화 경고: 회원 정보가 완전하게 연동되지 않았을 수 있습니다.');
+      });
+  }, []);
+
   // [토큰 자동 갱신] Firebase는 ID 토큰(약 1시간 만료)을 백그라운드에서 자동 갱신한다.
   // 그 변경을 구독해 앱이 들고 있는 토큰과 저장된 세션을 항상 최신으로 유지 → 한 시간 뒤 401 방지.
   useEffect(() => {
@@ -162,38 +188,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const idToken = await fbUser.getIdToken();
           const userName = fbUser.displayName || fbUser.email?.split('@')[0] || '구글사장님';
 
-          // 백엔드 프로필 동기화
-          const res = await fetch(`${API_BASE_URL}/api/v1/auth/profile`, {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${idToken}`,
-            },
-            body: JSON.stringify({
-              name: userName,
-              store_name: `${userName} 매장`,
-            }),
-          });
-
-          if (!res.ok) {
-            console.warn('백엔드 계정 동기화 경고: 소셜 회원 연동이 완전하지 않을 수 있습니다.');
-          }
-
           const u = {
             email: fbUser.email || 'google-사장님@test.com',
             name: userName,
             token: idToken,
           };
 
+          // 즉시 로그인 완료 — 백엔드 프로필 동기화는 백그라운드로
           setUser({ email: u.email, name: u.name });
           setToken(idToken);
           await persistSession(u, socialAutoLogin);
+          syncProfileInBackground(idToken, userName);
         } catch (err) {
           console.error('모바일 구글 로그인 후 처리 실패:', err);
         }
       })();
     }
-  }, [response, persistSession, socialAutoLogin]);
+  }, [response, persistSession, socialAutoLogin, syncProfileInBackground]);
 
   // [한글 주석] 앱 구동 시 로컬 저장소에서 세션을 읽어 자동 로그인을 복원합니다.
   useEffect(() => {
@@ -224,23 +235,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // 백엔드가 검증하지 못해 로그인 직후 모든 API가 401로 죽었다. 반드시 진짜 토큰을 받아야 한다.
   const loginWithBackendDemo = useCallback(
     async (email: string, name: string, password: string, autoLogin: boolean) => {
-      // 1) 데모 계정이 없으면 가입시킨다 (이미 있으면 400 — 무시하고 로그인으로 진행)
-      try {
-        await fetch(`${API_BASE_URL}/api/v1/auth/signup`, {
+      // [로그인 속도] 로그인부터 먼저 시도한다 — 데모 계정은 최초 1회 이후엔 항상 존재하므로
+      // 매번 signup→login 2회 왕복하던 것을 보통 1회 왕복으로 줄인다.
+      const tryLogin = () =>
+        fetch(`${API_BASE_URL}/api/v1/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, name, store_name: `${name} 매장` }),
+          body: JSON.stringify({ email, password }),
         });
-      } catch {
-        // 네트워크 오류는 아래 로그인에서 다시 드러나므로 여기선 무시
+
+      let res = await tryLogin();
+
+      // 401(계정 없음)일 때만 가입 후 한 번 더 로그인한다
+      if (res.status === 401) {
+        try {
+          await fetch(`${API_BASE_URL}/api/v1/auth/signup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, name, store_name: `${name} 매장` }),
+          });
+        } catch {
+          // 네트워크 오류는 아래 재로그인에서 다시 드러나므로 여기선 무시
+        }
+        res = await tryLogin();
       }
 
-      // 2) 로그인해서 백엔드가 서명한 진짜 토큰을 받는다
-      const res = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
       if (!res.ok) {
         const errData = await res.json().catch(() => null);
         throw new Error(errData?.detail || '데모 소셜 로그인에 실패했습니다. 백엔드 서버가 켜져 있는지 확인해 주세요.');
@@ -315,34 +334,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const idToken = await fbUser.getIdToken();
         const userName = fbUser.displayName || fbUser.email?.split('@')[0] || '사장님';
 
-        // 3. 백엔드 DB와 회원 연동(Lazy Signup 유도)을 위해 백엔드 API 호출
-        // 빈 패치(PATCH) 정보를 보내 사용자 정보를 백엔드와 동기화시킵니다.
-        const response = await fetch(`${API_BASE_URL}/api/v1/auth/profile`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${idToken}`,
-          },
-          body: JSON.stringify({
-            name: userName,
-            store_name: `${userName} 매장`,
-          }),
-        });
-
-        if (!response.ok) {
-          console.warn('백엔드 계정 동기화 경고: 회원 정보가 완전하게 연동되지 않았을 수 있습니다.');
-        }
-
         const u = {
           email: fbUser.email || email,
           name: userName,
           token: idToken,
         };
 
-        // 4. 로컬 상태 값 업데이트 및 영구 보관 설정
+        // 3. 즉시 로그인 완료 처리 — 백엔드 동기화를 기다리지 않아 화면 전환이 바로 일어난다
         setUser({ email: u.email, name: u.name });
         setToken(idToken);
         await persistSession(u, autoLogin);
+
+        // 4. 백엔드 DB 회원 연동(Lazy Signup 유도)은 백그라운드에서 진행
+        syncProfileInBackground(idToken, userName);
 
       } catch (error: any) {
         // Firebase 에러 코드를 한글 메시지로 친절하게 반환합니다.
@@ -355,7 +359,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(msg);
       }
     },
-    [persistSession]
+    [persistSession, syncProfileInBackground]
   );
 
   // [한글 주석] Firebase Auth로 계정을 최초 생성하고 닉네임을 설정합니다.
@@ -469,38 +473,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const idToken = await fbUser.getIdToken();
         const userName = fbUser.displayName || fbUser.email?.split('@')[0] || '구글사장님';
 
-        // 백엔드 프로필 동기화
-        const response = await fetch(`${API_BASE_URL}/api/v1/auth/profile`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${idToken}`,
-          },
-          body: JSON.stringify({
-            name: userName,
-            store_name: `${userName} 매장`,
-          }),
-        });
-
-        if (!response.ok) {
-          console.warn('백엔드 계정 동기화 경고: 소셜 회원 연동이 완전하지 않을 수 있습니다.');
-        }
-
         const u = {
           email: fbUser.email || 'google-사장님@test.com',
           name: userName,
           token: idToken,
         };
 
+        // 즉시 로그인 완료 — 백엔드 프로필 동기화는 백그라운드로
         setUser({ email: u.email, name: u.name });
         setToken(idToken);
         await persistSession(u, autoLogin);
+        syncProfileInBackground(idToken, userName);
       } catch (err: any) {
         console.error('구글 로그인 실패:', err);
         throw new Error(err.message || '구글 로그인 중 오류가 발생했습니다.');
       }
     },
-    [persistSession, loginWithBackendDemo, request, promptAsync]
+    [persistSession, loginWithBackendDemo, request, promptAsync, syncProfileInBackground]
   );
 
   // [한글 주석] 애플 계정을 이용한 소셜 로그인을 처리합니다. (Mock 모드 지원)
@@ -546,32 +535,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const fullName = [familyName, givenName].filter(Boolean).join('') || fbUser.displayName || '애플사장님';
           const email = appleCredential.email || fbUser.email || 'apple-사장님@test.com';
 
-          // [한글 주석] 로그인에 성공했으므로 백엔드 서버의 데이터베이스와 회원 프로필 정보를 동기화합니다.
-          const response = await fetch(`${API_BASE_URL}/api/v1/auth/profile`, {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${idToken}`,
-            },
-            body: JSON.stringify({
-              name: fullName,
-              store_name: `${fullName} 매장`,
-            }),
-          });
-
-          if (!response.ok) {
-            console.warn('백엔드 계정 동기화 경고: 소셜 회원 연동이 완전하지 않을 수 있습니다.');
-          }
-
           const u = {
             email,
             name: fullName,
             token: idToken,
           };
 
+          // 즉시 로그인 완료 — 백엔드 프로필 동기화는 백그라운드로
           setUser({ email: u.email, name: u.name });
           setToken(idToken);
           await persistSession(u, autoLogin);
+          syncProfileInBackground(idToken, fullName);
           return;
         } catch (err: any) {
           // 사용자가 취소한 경우는 단순 경고/에러 처리만 하고 넘어갑니다.
@@ -594,38 +568,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const idToken = await fbUser.getIdToken();
         const userName = fbUser.displayName || fbUser.email?.split('@')[0] || '애플사장님';
 
-        // 백엔드 프로필 동기화
-        const response = await fetch(`${API_BASE_URL}/api/v1/auth/profile`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${idToken}`,
-          },
-          body: JSON.stringify({
-            name: userName,
-            store_name: `${userName} 매장`,
-          }),
-        });
-
-        if (!response.ok) {
-          console.warn('백엔드 계정 동기화 경고: 소셜 회원 연동이 완전하지 않을 수 있습니다.');
-        }
-
         const u = {
           email: fbUser.email || 'apple-사장님@test.com',
           name: userName,
           token: idToken,
         };
 
+        // 즉시 로그인 완료 — 백엔드 프로필 동기화는 백그라운드로
         setUser({ email: u.email, name: u.name });
         setToken(idToken);
         await persistSession(u, autoLogin);
+        syncProfileInBackground(idToken, userName);
       } catch (err: any) {
         console.error('애플 로그인 실패:', err);
         throw new Error(err.message || '애플 로그인 중 오류가 발생했습니다.');
       }
     },
-    [persistSession, loginWithBackendDemo]
+    [persistSession, loginWithBackendDemo, syncProfileInBackground]
   );
 
   // [한글 주석] 로그아웃 시 Firebase 세션을 끊고 로컬 세션을 완전히 파기합니다.

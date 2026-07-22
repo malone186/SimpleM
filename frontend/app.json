@@ -17,7 +17,12 @@
         "backgroundColor": "#FBEFDD",
         "foregroundImage": "./assets/brew_icon_cutout.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT"
+      ]
     },
     "web": {
       "favicon": "./assets/brew_icon_cutout.png"
@@ -31,6 +36,11 @@
           "bluetoothAlwaysPermission": "매장 센서(무게·온도·RFID 허브)를 찾기 위해 블루투스를 사용합니다."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "c52a42c6-f4ce-40d9-8f65-ace86953424b"
+      }
+    }
   }
 }

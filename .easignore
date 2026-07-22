@@ -1,0 +1,37 @@
+# EAS Build 업로드 제외 목록 — 안드로이드 빌드에는 frontend만 필요하다.
+# 주의: 이 파일이 있으면 .gitignore 대신 이 목록이 적용되므로 필요한 제외를 전부 나열할 것.
+
+# 백엔드·기타 (모델 GGUF, chroma_db 등 수 GB — 빌드와 무관)
+backend/
+admin_web/
+hardware/
+docs/
+
+# 루트 데이터/문서 파일 (루트 고정 경로만 — frontend의 json은 건드리지 않는다)
+/mungmung_beans.json
+/mungmung_roasteries.json
+/package.json
+/package-lock.json
+/requirements.txt
+/*.md
+/PRD*.md
+
+# frontend 빌드 산출물·캐시 (EAS가 의존성은 직접 설치한다)
+node_modules/
+**/node_modules/
+frontend/dist/
+frontend/web-build/
+frontend/.expo/
+
+# 환경·보안 파일 (빌드 env는 eas.json의 env 블록이 공급)
+.env
+.env.*
+**/.env
+**/.env.*
+!frontend/.env.example
+
+# 잡동사니
+.git/
+.claude/
+.pytest_cache/
+**/__pycache__/

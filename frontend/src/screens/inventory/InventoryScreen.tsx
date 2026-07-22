@@ -56,6 +56,7 @@ export default function InventoryScreen() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all'); // [한글 주석] 카테고리 필터 상태
   const [drafts, setDrafts] = useState<OcrDocument[]>([]);
   const [scanning, setScanning] = useState(false);
+  const [actingDocId, setActingDocId] = useState<string | null>(null); // 반려/확정 요청 진행 중인 초안 ID
 
   // [한글 주석] 영수증(명세서) 초안 수정 상태 관리 변수들
   const [editingDocId, setEditingDocId] = useState<string | null>(null); // 현재 수정 중인 영수증 초안의 ID
@@ -177,6 +178,8 @@ export default function InventoryScreen() {
 
   // OCR 확정 → 재고 입고 → 재고 현황 즉시 갱신 (실시간 연동)
   const confirm = async (doc: OcrDocument) => {
+    if (actingDocId) return; // 처리 중 중복 탭 방지 (이중 재고 반영·409 예방)
+    setActingDocId(doc.id);
     try {
       // 이 버튼의 의미가 '재고 반영'이므로 서버 추천값과 무관하게 항상 재고 입고로 확정한다
       // (expense/sales는 미구현이라 추천값을 따르면 보관만 되고 재고에 안 들어간다)
@@ -186,15 +189,21 @@ export default function InventoryScreen() {
       notify('확정 완료', res.message);
     } catch (e) {
       notify('확정 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+    } finally {
+      setActingDocId(null);
     }
   };
 
   const reject = async (doc: OcrDocument) => {
+    if (actingDocId) return; // 처리 중 중복 탭 방지
+    setActingDocId(doc.id);
     try {
       await rejectOcrDocument(doc.id);
       setDrafts((prev) => prev.filter((d) => d.id !== doc.id));
     } catch (e) {
       notify('반려 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+    } finally {
+      setActingDocId(null);
     }
   };
 
@@ -545,13 +554,13 @@ export default function InventoryScreen() {
                     </PressableScale>
                     
                     <View style={styles.actionRow}>
-                      <PressableScale style={styles.rejectBtn} onPress={() => reject(doc)} to={0.9}>
+                      <PressableScale style={styles.rejectBtn} onPress={() => reject(doc)} disabled={actingDocId != null} to={0.9}>
                         <Ionicons name="close" size={16} color={colors.mochaBrown} />
-                        <Text style={styles.rejectText}>반려</Text>
+                        <Text style={styles.rejectText}>{actingDocId === doc.id ? '처리 중…' : '반려'}</Text>
                       </PressableScale>
-                      <PressableScale style={styles.confirmBtn} onPress={() => confirm(doc)} to={0.9}>
+                      <PressableScale style={styles.confirmBtn} onPress={() => confirm(doc)} disabled={actingDocId != null} to={0.9}>
                         <Ionicons name="checkmark" size={16} color={colors.white} />
-                        <Text style={styles.confirmText}>확인했어요 · 재고 반영</Text>
+                        <Text style={styles.confirmText}>{actingDocId === doc.id ? '처리 중…' : '확인했어요 · 재고 반영'}</Text>
                       </PressableScale>
                     </View>
                   </View>

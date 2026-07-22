@@ -26,6 +26,34 @@ const LOGO = require('../../../assets/brew_icon_cutout.png');
 
 type Mode = 'login' | 'signup';
 
+// [비밀번호 유출 경고 차단] 크롬·구글 비밀번호 관리자는 type="password" 필드로 로그인하면
+// 입력값을 유출 DB와 대조해 "비밀번호가 유출되었습니다" 팝업을 띄운다(사이트가 끌 수 있는 공식 API 없음).
+// - 웹: 필드를 일반 텍스트 입력으로 두고 CSS(-webkit-text-security)로만 가림표시 → 크롬이
+//   비밀번호 필드로 인식하지 못해 유출 검사·저장 팝업이 아예 발생하지 않는다.
+//   (해당 CSS 미지원 브라우저는 평문 노출을 막기 위해 기존 secureTextEntry 유지 — 유출 팝업은 크롬 전용이라 무방)
+// - 앱: 자동완성·자동저장을 꺼서 구글 비밀번호 관리자가 개입하지 않게 한다.
+const webSupportsTextSecurity =
+  Platform.OS === 'web' &&
+  typeof CSS !== 'undefined' &&
+  typeof CSS.supports === 'function' &&
+  CSS.supports('-webkit-text-security', 'disc');
+
+const passwordFieldProps: Partial<React.ComponentProps<typeof TextInput>> =
+  Platform.OS === 'web'
+    ? webSupportsTextSecurity
+      ? {
+          secureTextEntry: false,
+          autoComplete: 'off',
+          style: { WebkitTextSecurity: 'disc' } as any,
+        }
+      : { secureTextEntry: true, autoComplete: 'off' }
+    : {
+        secureTextEntry: true,
+        autoComplete: 'off',
+        importantForAutofill: 'no',
+        textContentType: 'oneTimeCode',
+      };
+
 // 상권 유형 옵션 (이모지 전면 제거 및 텍스트 정돈)
 const BIZ_TYPES = ['오피스 상권', '주택가 상권', '대학가 상권', '복합 상권'];
 
@@ -573,7 +601,7 @@ export default function AuthScreen() {
                   placeholder="비밀번호"
                   value={password}
                   onChangeText={setPassword}
-                  secureTextEntry
+                  {...passwordFieldProps}
                 />
 
                 {/* 자동 로그인 체크박스 */}
@@ -612,7 +640,7 @@ export default function AuthScreen() {
                   placeholder="비밀번호"
                   value={password}
                   onChangeText={setPassword}
-                  secureTextEntry
+                  {...passwordFieldProps}
                 />
 
                 {/* [한글 주석: 토스 스타일 인터랙션] 상호명을 입력하면 가게 설정 UI와 완료 버튼이 부드럽게 스르륵 밑에 떠오릅니다 */}
@@ -943,13 +971,14 @@ export default function AuthScreen() {
 
 function Field({
   icon,
+  style,
   ...props
 }: { icon: keyof typeof Ionicons.glyphMap } & React.ComponentProps<typeof TextInput>) {
   return (
     <View style={styles.field}>
       <Ionicons name={icon} size={18} color={colors.mochaBrown} />
       <TextInput
-        style={styles.input}
+        style={[styles.input, style]}
         placeholderTextColor={colors.mochaBrown}
         {...props}
       />

@@ -15,10 +15,30 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://brewnote.tailc1719a.ts.net",
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyBOiKu27M13SnpWmbHDtP0AVSU_yXSI3R4",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "simplem-72f8d.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "simplem-72f8d",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "simplem-72f8d.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "1064063561776",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:1064063561776:web:05f122dd85dec690997df5",
+        "EXPO_PUBLIC_NAVER_CLIENT_ID": "6amak4awt7"
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://brewnote.tailc1719a.ts.net",
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyBOiKu27M13SnpWmbHDtP0AVSU_yXSI3R4",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "simplem-72f8d.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "simplem-72f8d",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "simplem-72f8d.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "1064063561776",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:1064063561776:web:05f122dd85dec690997df5",
+        "EXPO_PUBLIC_NAVER_CLIENT_ID": "6amak4awt7"
+      }
     }
   },
   "submit": {

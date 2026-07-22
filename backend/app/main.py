@@ -146,16 +146,7 @@ _LEGAL_DIR = Path(__file__).parent / "static" / "legal"
 app.mount("/legal", StaticFiles(directory=str(_LEGAL_DIR), html=True), name="legal")
 
 
-# 1. 서버 작동 테스트용 첫 API (기본 주소로 들어왔을 때 환영 인사)
-@app.get("/")
-def read_root():
-    return {
-        "message": "SimpleM 카페 통합 플랫폼 백엔드 서버에 오신 것을 환영합니다!",
-        "status": "online",
-    }
-
-
-# 2. 데이터베이스 접속이 실제로 잘 되는지 테스트해보는 맛보기 API
+# 1. 데이터베이스 접속이 실제로 잘 되는지 테스트해보는 맛보기 API
 @app.get("/db-test")
 def test_database_connection(db: Session = Depends(get_db)):
     try:
@@ -176,3 +167,18 @@ def test_database_connection(db: Session = Depends(get_db)):
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+# [웹 앱 서빙 — 반드시 파일 맨 끝에 둘 것] frontend/dist(expo export --platform web 산출물)가
+# 있으면 루트에서 SPA로 제공한다 — 아이폰 등 앱 미설치 사용자용 웹 버전.
+# Mount("/")는 모든 경로를 삼키므로, 위의 /api/v1·/legal·/health가 먼저 등록된 뒤에 와야 한다.
+_WEB_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+if _WEB_DIST.exists():
+    app.mount("/", StaticFiles(directory=str(_WEB_DIST), html=True), name="webapp")
+else:
+    @app.get("/")
+    def read_root():
+        return {
+            "message": "SimpleM 카페 통합 플랫폼 백엔드 서버에 오신 것을 환영합니다!",
+            "status": "online",
+        }
