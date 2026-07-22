@@ -453,18 +453,6 @@ def get_notification_feed(
         or (n.target_type == "specific" and n.target_email == current_user.email)
     ]
     return [_notif_to_dict(n) for n in visible[:20]]
-=======
-    new_notif = {
-        "id": len(mock_notif_history) + 1,
-        "title": payload.title,
-        "body": payload.body if hasattr(payload, 'body') and payload.body else "상세 공지 내용이 없습니다.", # [한글 주석: 상세 본문 내용 포함 저장]
-        "target": payload.target,
-        "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "author": "최고 관리자"
-    }
-    mock_notif_history.insert(0, new_notif)
-    return {"success": True, "item": new_notif}
->>>>>>> Stashed changes
 
 
 # ---------------------------------------------------------------------------
