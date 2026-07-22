@@ -464,7 +464,7 @@ export default function SettingsScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.menuItemTitle}>알림 수신 설정</Text>
-                <Text style={styles.menuItemDesc}>재고 알림, 단가 변동 및 방해금지 시간대</Text>
+                <Text style={styles.menuItemDesc}>재고·단가 알림, 음성 읽어주기, 방해금지 시간대</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
             </View>
@@ -773,6 +773,19 @@ export default function SettingsScreen() {
             <Switch
               value={prefs.priceSurgeAlert}
               onValueChange={(v) => prefs.setPref('priceSurgeAlert', v)}
+              trackColor={{ false: '#D6CFC7', true: colors.espressoBrown }}
+              thumbColor={colors.white}
+            />
+          }
+        />
+        <Divider />
+        <Row
+          label="알림 음성 읽어주기"
+          hint="이어폰·에어팟(블루투스) 연결 시 완료 알림을 음성으로 읽어드려요"
+          right={
+            <Switch
+              value={prefs.voiceAlertEnabled}
+              onValueChange={(v) => prefs.setPref('voiceAlertEnabled', v)}
               trackColor={{ false: '#D6CFC7', true: colors.espressoBrown }}
               thumbColor={colors.white}
             />

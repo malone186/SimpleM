@@ -14,28 +14,83 @@ import type {
 } from './speechTypes';
 
 // ═══════════════════════════════════════════════════
-// [한글 주석] 이어폰 감지 — 네이티브에서는 불가능합니다.
-// iOS/안드로이드의 오디오 라우팅을 읽으려면 플랫폼별 네이티브 모듈이 필요한데
-// 지금은 붙어 있지 않으므로 "모른다"고 정직하게 답합니다.
+// [한글 주석] 이어폰 감지 — react-native-device-info의 오디오 출력 조회를 사용합니다.
+// 유선 헤드셋뿐 아니라 에어팟 같은 블루투스 이어폰(A2DP/HFP)도 감지됩니다.
+// Expo Go처럼 네이티브 모듈이 없는 환경에서는 감지가 불가능하므로
+// 예전 동작(항상 재생 허용)으로 폴백합니다 → 개발 빌드에서만 이어폰 정책이 적용됩니다.
 // ═══════════════════════════════════════════════════
 
+// 네이티브 모듈이 없으면 import 시점이 아니라 "메서드 호출 시점"에 throw하므로
+// require와 호출 양쪽 모두 try/catch로 감쌉니다.
+let DeviceInfo: any = null;
+try {
+  const mod = require('react-native-device-info');
+  DeviceInfo = mod?.default ?? mod;
+} catch {
+  DeviceInfo = null;
+}
+
+/** 감지 결과 — supported=false면 이 빌드에서는 출력 장치를 알 수 없다는 뜻 */
+type EarphoneDetection =
+  | { supported: false; reason: string }
+  | { supported: true; connected: boolean; via: 'bluetooth' | 'wired' | null };
+
+async function detectEarphone(): Promise<EarphoneDetection> {
+  if (!DeviceInfo?.isHeadphonesConnected) {
+    return {
+      supported: false,
+      reason: '이 빌드에는 오디오 장치 감지 모듈이 없습니다. (Expo Go — 개발 빌드에서 감지돼요)',
+    };
+  }
+  try {
+    const [bluetooth, wired] = await Promise.all([
+      DeviceInfo.isBluetoothHeadphonesConnected?.() ?? Promise.resolve(false),
+      DeviceInfo.isWiredHeadphonesConnected?.() ?? Promise.resolve(false),
+    ]);
+    // 개별 조회가 둘 다 false여도 통합 조회를 한 번 더 확인 (플랫폼별 커버리지 차이 대비)
+    const connected = bluetooth || wired || (await DeviceInfo.isHeadphonesConnected());
+    return {
+      supported: true,
+      connected,
+      via: bluetooth ? 'bluetooth' : wired ? 'wired' : null,
+    };
+  } catch (err) {
+    return {
+      supported: false,
+      reason: `오디오 장치 감지 실패: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
 async function isEarphoneConnected(): Promise<EarphoneStatus> {
+  const d = await detectEarphone();
+  if (!d.supported) return { connected: false, reason: d.reason };
   return {
-    connected: false,
-    reason: '앱에서는 오디오 출력 장치를 감지할 수 없습니다.',
+    connected: d.connected,
+    reason: d.connected ? null : '이어폰(블루투스 포함)이 연결되어 있지 않습니다.',
   };
 }
 
 /** 지금 소리를 내도 되는가 — 네이티브 정책
  *
- * [한글 주석] 감지가 불가능한데 "이어폰 확인 안 되면 무음"으로 두면
- * 앱에서는 TTS가 영원히 동작하지 않습니다. 그래서 재생을 허용합니다.
- * 대신 주변에 들릴 수 있다는 점을 reason에 남겨 화면에서 안내합니다.
+ * [한글 주석] 감지가 되는 빌드에서는 웹과 동일하게 "이어폰 착용 시에만 재생"을 지킵니다
+ * (에어팟 등 블루투스 이어폰 포함 — 매장 스피커로 직원 정보가 흘러나가지 않게).
+ * 감지가 불가능한 환경(Expo Go 등)에서는 TTS가 영원히 침묵하지 않도록
+ * 예전처럼 재생을 허용하고, 주변에 들릴 수 있다는 점을 reason으로 남깁니다.
  */
 async function canPlayAudio(): Promise<AudioPlaybackPermission> {
+  const d = await detectEarphone();
+  if (!d.supported) {
+    return {
+      allowed: true,
+      reason: '이 환경에서는 출력 장치를 감지할 수 없어 항상 재생합니다. 주변에 들릴 수 있습니다.',
+    };
+  }
   return {
-    allowed: true,
-    reason: '앱에서는 출력 장치를 감지할 수 없어 항상 재생합니다. 주변에 들릴 수 있습니다.',
+    allowed: d.connected,
+    reason: d.connected
+      ? null
+      : '이어폰이 연결되어 있지 않아 음성은 재생하지 않았습니다. (에어팟 등 블루투스 이어폰도 인식돼요)',
   };
 }
 
