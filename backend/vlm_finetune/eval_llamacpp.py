@@ -22,6 +22,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 from app.services.ai.vlm_prompt import VLM_PROMPT  # noqa: E402
 from eval35 import load_rows, parse_json, score_one  # noqa: E402  (동일 채점 로직 재사용)
+from train35 import resize_pixel_budget  # noqa: E402  (학습 v2와 동일 리사이즈)
 
 URL = "http://localhost:8089/v1/chat/completions"
 MAX_SIDE = 1024
@@ -35,8 +36,7 @@ def main():
     report, agg, times = [], {}, []
     for i, (img_path, gt) in enumerate(rows):
         img = Image.open(img_path).convert("RGB")
-        if max(img.size) > MAX_SIDE:
-            img.thumbnail((MAX_SIDE, MAX_SIDE), Image.LANCZOS)
+        img = resize_pixel_budget(img, MAX_SIDE)
         buf = io.BytesIO()
         img.save(buf, "JPEG", quality=88)
         b64 = base64.b64encode(buf.getvalue()).decode()
