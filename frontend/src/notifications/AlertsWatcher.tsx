@@ -16,7 +16,7 @@ import { usePreferences } from '../preferences/PreferencesContext';
 import { listMyInquiries } from '../lib/api/inquiry';
 import { listStocks, type StockItem } from '../lib/api/inventory';
 import { fetchNotifications } from '../lib/api/assistant';
-import { enqueue as speechEnqueue, canPlayAudio } from '../lib/speech/speechPlayer';
+import { enqueue as speechEnqueue, canPlayAudio, cancelAll as speechCancelAll } from '../lib/speech/speechPlayer';
 import { toast } from '../components/toast';
 
 const POLL_MS = 60_000;           // 감시 주기 (1분)
@@ -237,6 +237,12 @@ export default function AlertsWatcher() {
     prefs.dndStart,
     prefs.dndEnd,
   ]);
+
+  // 로그아웃하거나 '알림 음성 읽어주기'를 끄면 재생 중·대기 중인 음성을 즉시 중단한다.
+  // (끊지 않으면 큐에 쌓인 TTS가 로그인 화면까지 이어져 흘러나온다)
+  useEffect(() => {
+    if (!token || !prefs.voiceAlertEnabled) speechCancelAll();
+  }, [token, prefs.voiceAlertEnabled]);
 
   // ⑥ 음성 비서 알림 — 30초 주기로 새 완료 이벤트를 폴링하고, 이어폰 착용 시 음성 재생
   useEffect(() => {

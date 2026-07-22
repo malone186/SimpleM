@@ -24,6 +24,7 @@ export type Preferences = {
   dndStart: string;         // 'HH:MM'
   dndEnd: string;           // 'HH:MM'
   voiceAlertEnabled: boolean; // 알림 음성 읽어주기(TTS) — 이어폰 연결 시 완료 알림을 읽어줌
+  voiceAssistantEnabled: boolean; // 음성 비서 버튼 표시 — 우하단 브리핑(📋)·음성 명령(🎤) 버튼
   // 화면 표시 / 접근성
   fontSize: FontSize;
   // 계정 부가정보 (백엔드 User에 필드가 없어 로컬 보관)
@@ -42,6 +43,7 @@ const DEFAULTS: Preferences = {
   dndStart: '22:00',
   dndEnd: '08:00',
   voiceAlertEnabled: true,
+  voiceAssistantEnabled: true,
   fontSize: 'normal',
   businessType: '카페',
   openHour: '09:00',

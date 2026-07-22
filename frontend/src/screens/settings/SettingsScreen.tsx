@@ -792,6 +792,19 @@ export default function SettingsScreen() {
           }
         />
         <Divider />
+        <Row
+          label="음성 비서 버튼 표시"
+          hint="화면 우하단 브리핑(📋)·음성 명령(🎤) 버튼을 껐다 켤 수 있어요"
+          right={
+            <Switch
+              value={prefs.voiceAssistantEnabled}
+              onValueChange={(v) => prefs.setPref('voiceAssistantEnabled', v)}
+              trackColor={{ false: '#D6CFC7', true: colors.espressoBrown }}
+              thumbColor={colors.white}
+            />
+          }
+        />
+        <Divider />
         <Text style={styles.fieldLabel}>AI 경영 리포트 수신 주기</Text>
         <View style={{ marginTop: 8 }}>
           <Segmented

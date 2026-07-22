@@ -5,18 +5,21 @@
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '../../auth/AuthContext';
+import { usePreferences } from '../../preferences/PreferencesContext';
 import { useBriefing } from '../../lib/speech/useBriefing';
 import { colors, shadows, typography } from '../../theme';
 import { toast } from '../toast';
 
 export default function BriefingButton() {
   const { token } = useAuth();
+  const prefs = usePreferences();
   const briefing = useBriefing({
     onError: (message) => toast('📋 브리핑', message),
   });
 
-  // 로그인 전에는 숨깁니다 (브리핑은 인증된 사용자의 오늘 일정 기준)
-  if (!token) return null;
+  // 로그인 전에는 숨깁니다 (브리핑은 인증된 사용자의 오늘 일정 기준).
+  // 설정 > 알림 수신 설정의 '음성 비서 버튼 표시'를 꺼도 숨깁니다.
+  if (!token || !prefs.ready || !prefs.voiceAssistantEnabled) return null;
 
   const { data, loading, spoken, permission } = briefing;
 

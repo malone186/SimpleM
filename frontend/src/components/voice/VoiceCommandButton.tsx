@@ -7,18 +7,21 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '../../auth/AuthContext';
+import { usePreferences } from '../../preferences/PreferencesContext';
 import { useVoiceCommand } from '../../lib/speech/useVoiceCommand';
 import { colors, shadows, typography } from '../../theme';
 import { toast } from '../toast';
 
 export default function VoiceCommandButton() {
   const { token } = useAuth();
+  const prefs = usePreferences();
   const vc = useVoiceCommand({
     onError: (message) => toast('🎤 음성 명령', message),
   });
 
   // 로그인 상태가 아니거나 음성 인식을 못 쓰는 환경(네이티브·미지원 브라우저)이면 숨깁니다.
-  if (!token || !vc.support.supported) return null;
+  // 설정 > 알림 수신 설정의 '음성 비서 버튼 표시'를 꺼도 숨깁니다.
+  if (!token || !vc.support.supported || !prefs.ready || !prefs.voiceAssistantEnabled) return null;
 
   const listening = vc.phase === 'listening';
   const processing = vc.phase === 'processing';
