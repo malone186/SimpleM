@@ -3,20 +3,26 @@
 // ② 단가 급등 알림: 재료 매입 단가가 직전 기준가 대비 10% 이상 오르면 발송
 // ③ AI 경영 리포트 수신 주기: 매일 / 매주(월요일) 오전에 리포트 도착 알림
 // ④ 방해 금지 시간대: 설정 구간(자정 넘김 포함)에는 위 알림을 전부 보류하고, 구간이 끝나면 발송
+// ⑤ 문의 답변 도착: 내 1대1 문의에 관리자 답변이 달리면 어느 화면에 있든 즉시 알림
+// (관리자 공지는 홈 화면 강아지 말풍선(WelcomeHeader)이 단독으로 전하므로 여기선 토스트를 띄우지 않는다)
 // 같은 품목·같은 날 중복 알림은 AsyncStorage에 발송 이력을 남겨 1회로 제한한다.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useRef } from 'react';
 
 import { useAuth } from '../auth/AuthContext';
 import { usePreferences } from '../preferences/PreferencesContext';
+import { listMyInquiries } from '../lib/api/inquiry';
 import { listStocks, type StockItem } from '../lib/api/inventory';
 import { toast } from '../components/toast';
 
 const POLL_MS = 60_000;           // 감시 주기 (1분)
+const NOTICE_POLL_MS = 15_000;    // 문의 답변 감시 주기 (15초 — 답변 후 빠른 도착 체감)
 const SURGE_RATIO = 1.1;          // 단가 급등 기준: 기준가 대비 +10% 이상
 const REPORT_HOUR = 9;            // 리포트 도착 알림은 오전 9시 이후에만
 
 const STORE_KEY = 'simplem:alerts:state';
+// 이미 알림을 보낸 '답변 완료' 문의 id 목록 (중복 토스트 방지)
+const INQUIRY_KEY = 'simplem:alerts:inquiry-answered-ids';
 
 type AlertState = {
   lowStockDate?: string;          // 재고 부족 알림을 마지막으로 보낸 날짜 (YYYY-MM-DD)
@@ -58,9 +64,57 @@ function weekKey(d: Date): string {
 }
 
 export default function AlertsWatcher() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const prefs = usePreferences();
   const running = useRef(false); // 폴링 중복 실행 방지
+  const noticeRunning = useRef(false); // 공지·답변 폴링 중복 실행 방지
+
+  // ⑤ 문의 답변 도착 — 15초 주기로 감시 (관리자 공지는 홈 말풍선이 담당하므로 제외)
+  useEffect(() => {
+    if (!token || !prefs.ready) return;
+
+    // ⑤ 내 문의에 관리자 답변이 새로 달렸는지 감시 — 답변 완료 id 목록 비교 방식
+    const checkInquiryAnswers = async () => {
+      if (!user?.email) return;
+      const raw = await AsyncStorage.getItem(INQUIRY_KEY);
+      const seen: number[] | null = raw ? JSON.parse(raw) : null;
+
+      const list = await listMyInquiries(user.email);
+      const answeredIds = list.filter((i) => i.status === 'answered').map((i) => i.id);
+
+      // 첫 실행에는 기존 답변을 쏟아내지 않도록 현재 상태를 기준선으로만 저장
+      if (seen === null) {
+        await AsyncStorage.setItem(INQUIRY_KEY, JSON.stringify(answeredIds));
+        return;
+      }
+
+      const fresh = list.filter((i) => i.status === 'answered' && !seen.includes(i.id));
+      if (fresh.length === 0) return;
+      for (const inq of fresh.slice(0, 3)) {
+        toast('💬 문의 답변 도착', `"${inq.title}" 문의에 관리자 답변이 등록됐어요. 설정 > 1대1 문의에서 확인하세요.`);
+      }
+      if (fresh.length > 3) {
+        toast('💬 문의 답변 도착', `답변이 등록된 문의가 ${fresh.length - 3}건 더 있어요.`);
+      }
+      await AsyncStorage.setItem(INQUIRY_KEY, JSON.stringify(answeredIds));
+    };
+
+    const runOnce = async () => {
+      if (noticeRunning.current) return;
+      noticeRunning.current = true;
+      try {
+        // 방해 금지 구간에는 커서를 옮기지 않고 보류 → 구간이 끝나면 밀린 알림이 발송된다.
+        if (prefs.dndEnabled && isInDndWindow(new Date(), prefs.dndStart, prefs.dndEnd)) return;
+        await checkInquiryAnswers().catch(() => {});
+      } finally {
+        noticeRunning.current = false;
+      }
+    };
+
+    runOnce();
+    const timer = setInterval(runOnce, NOTICE_POLL_MS);
+    return () => clearInterval(timer);
+  }, [token, user?.email, prefs.ready, prefs.dndEnabled, prefs.dndStart, prefs.dndEnd]);
 
   useEffect(() => {
     if (!token || !prefs.ready) return;

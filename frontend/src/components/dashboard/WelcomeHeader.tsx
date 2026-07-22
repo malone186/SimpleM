@@ -7,7 +7,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing } from '../../theme';
 import Brew, { type BrewMood } from '../brew/Brew';
 import MarqueeText from '../MarqueeText';
-import { getAnnouncements } from '../../lib/api/announcements';
+import { useAuth } from '../../auth/AuthContext';
+import { fetchNoticeFeed } from '../../lib/api/notice';
 
 // [시간대별 인사말] "~사장님!" 아래 줄에 현재 시각에 맞춰 자동으로 바뀌는 문구.
 // 각 구간에 여러 후보를 두고 10분 단위로 회전해 같은 시간대라도 조금씩 달라진다.
@@ -43,14 +44,21 @@ const announceSig = (n: { id: number; title?: string; date?: string }) =>
   `${n.id}|${n.title ?? ''}|${n.date ?? ''}`;
 
 // 관리자 공지를 폴링해 아직 닫지 않은 가장 최근 공지를 반환. 닫으면(dismiss) 다음부턴 숨긴다.
+// 소스는 로그인 매장 몫만 골라 주는 타겟 피드(/admin/notifications/feed) — 다른 매장 공지는 안 온다.
 function useAdminAnnouncement() {
+  const { token } = useAuth();
   const [announce, setAnnounce] = useState<{ sig: string; title: string } | null>(null);
 
   useEffect(() => {
+    if (!token) {
+      setAnnounce(null);
+      return;
+    }
     let alive = true;
     const check = async () => {
       try {
-        const list = await getAnnouncements();
+        // after_id=0 → 내 매장에 온 공지 전체를 받아 아직 안 닫은 최신 것을 고른다
+        const list = await fetchNoticeFeed(token, 0);
         const raw = await AsyncStorage.getItem(DISMISSED_KEY);
         const seen: string[] = raw ? JSON.parse(raw) : [];
         const fresh = (list || [])
@@ -58,7 +66,7 @@ function useAdminAnnouncement() {
           .sort((a, b) => b.id - a.id);
         if (alive) setAnnounce(fresh[0] ? { sig: announceSig(fresh[0]), title: fresh[0].title } : null);
       } catch {
-        // 서버 오프라인 — 다음 주기에 재시도, 말풍선은 시간대 인사말로 유지
+        // 서버 오프라인/미로그인 — 다음 주기에 재시도, 말풍선은 시간대 인사말로 유지
       }
     };
     check();
@@ -67,7 +75,7 @@ function useAdminAnnouncement() {
       alive = false;
       clearInterval(timer);
     };
-  }, []);
+  }, [token]);
 
   const dismiss = async () => {
     if (!announce) return;

@@ -13,6 +13,7 @@
     "expo-apple-authentication": "~8.0.8",
     "expo-auth-session": "~7.0.11",
     "expo-crypto": "~15.0.9",
+    "expo-dev-client": "~6.0.21",
     "expo-image-picker": "~17.0.11",
     "expo-location": "~19.0.8",
     "expo-print": "~15.0.8",
@@ -23,6 +24,7 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
+    "react-native-ble-plx": "^3.5.1",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",
     "react-native-svg": "15.12.1",
@@ -36,9 +38,11 @@
   },
   "scripts": {
     "start": "expo start",
+    "start:go": "expo start --go",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "build:dev-apk": "eas build --platform android --profile development"
   },
   "private": true
 }

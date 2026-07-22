@@ -5,11 +5,12 @@
 - GET  /sensor/recommendations  : AI 발주 코치 추천 (규칙 기반, LLM 쿼터 소모 없음)
 - POST /sensor/beans            : RFID 태그 원두명 재지정 (수정 모달 저장 시)
 - GET  /sensor/devices          : 센서 스테이션 마법사 — 기기 카탈로그 + 페어링 상태
-- POST /sensor/devices/{id}/pair   : 기기 페어링 (허브 핸드셰이크 시뮬레이션)
+- POST /sensor/devices/{id}/pair   : 기기 페어링 (BLE 스캔 결과 실기기 등록 / 데모 등록)
 - POST /sensor/devices/{id}/unpair : 기기 연결 해제
+- POST /sensor/ingest           : ESP32 허브·브라우저 BLE 리더의 측정값 업링크 (JWT 없음)
 """
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -28,6 +29,13 @@ class BeanTagUpdate(BaseModel):
 
 class FeatureToggle(BaseModel):
     enabled: bool                    # 센서 기능 사용 여부 (센서 없는 매장은 False)
+
+
+class PairRequest(BaseModel):
+    """앱이 실제 BLE 스캔으로 찾은 기기 정보 — 비우면 데모 페어링"""
+    ble_id: Optional[str] = None     # BLE MAC(안드로이드) 또는 브라우저 발급 기기 ID(웹)
+    ble_name: Optional[str] = None   # BLE 광고 이름 (예: SM-TEMP-3F2A, LYWSD03MMC)
+    rssi: Optional[int] = None       # 스캔 당시 신호 세기 (dBm)
 
 
 @router.get("/live")
@@ -56,10 +64,15 @@ def get_devices(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/devices/{device_id}/pair")
-def pair_device(device_id: str, current_user: User = Depends(get_current_user)):
-    """[한글 주석] 기기 페어링 — 성공 시 해당 지표가 데모→실측으로 승격"""
+def pair_device(
+    device_id: str,
+    payload: Optional[PairRequest] = None,
+    current_user: User = Depends(get_current_user),
+):
+    """[한글 주석] 기기 페어링 — BLE 스캔 결과(payload)가 있으면 실기기, 없으면 데모 등록"""
     try:
-        return sensor_service.pair_device(current_user.email, device_id)
+        ble = payload.model_dump() if payload else None
+        return sensor_service.pair_device(current_user.email, device_id, ble)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -68,6 +81,29 @@ def pair_device(device_id: str, current_user: User = Depends(get_current_user)):
 def unpair_device(device_id: str, current_user: User = Depends(get_current_user)):
     """[한글 주석] 기기 연결 해제"""
     return sensor_service.unpair_device(current_user.email, device_id)
+
+
+class IngestPayload(BaseModel):
+    """센서 하드웨어 업링크 — 예:
+    {"store": "s@gmail.com", "readings": {
+        "bean_scale": {"caffeine_g": 923.4, "decaf_g": 1210.0},
+        "fridge_temp": {"temp_c": 3.2},
+        "water_level": {"low": false},
+        "smart_plug": {"power_w": 1240.5},
+        "milk_scale": {"remaining_ml": 2400},
+        "rfid_reader": {"caffeine_tag": "브라질 산토스", "decaf_tag": "디카페인 콜롬비아"}}}"""
+    store: str
+    readings: Dict[str, Dict[str, Any]]
+
+
+@router.post("/ingest")
+def ingest(payload: IngestPayload):
+    """[한글 주석] ESP32 허브/브라우저 BLE 리더 측정값 수신 — 페어링된 기기의 값만 반영.
+    임베디드 기기가 JWT를 못 쓰므로 인증 대신 '해당 매장에 페어링 존재' 검증으로 제한한다."""
+    try:
+        return sensor_service.ingest_readings(payload.store, payload.readings)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.get("/feature")

@@ -486,8 +486,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // 알림 발송 시 특정 사장님 선택 드롭다운 채우기
   function updateSpecificUserSelect() {
     if (!specificSelect) return;
-    specificSelect.innerHTML = '<option value="">-- 수신 점포 선택 --</option>' + 
-      mockUsers.map(u => `<option value="${u.store}">${u.store} (${u.name})</option>`).join('');
+    // value에 이메일을 담아야 백엔드가 특정 사장님 계정으로 정확히 매칭해 전달할 수 있다.
+    specificSelect.innerHTML = '<option value="">-- 수신 점포 선택 --</option>' +
+      mockUsers.map(u => `<option value="${u.email}">${u.store} (${u.name})</option>`).join('');
   }
 
   const notifForm = document.getElementById('notif-form');
@@ -499,9 +500,16 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!title || !body) return;
 
       let targetLabel = '전체 사장님';
+      let targetEmail = null;
       if (currentNotifTarget === 'premium') targetLabel = '프리미엄 회원만';
       else if (currentNotifTarget === 'specific' && specificSelect) {
-        targetLabel = `특정 매장 (${specificSelect.value})`;
+        targetEmail = specificSelect.value;
+        if (!targetEmail) {
+          alert('수신할 점포를 먼저 선택해 주세요.');
+          return;
+        }
+        const opt = specificSelect.options[specificSelect.selectedIndex];
+        targetLabel = `특정 매장 (${opt ? opt.textContent : targetEmail})`;
       }
 
       try {
@@ -510,7 +518,10 @@ document.addEventListener('DOMContentLoaded', () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             title: title,
-            target: targetLabel
+            body: body,
+            target: targetLabel,
+            target_type: currentNotifTarget,
+            target_email: targetEmail
           })
         });
         if (res.ok) {
