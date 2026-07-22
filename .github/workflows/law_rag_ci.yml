@@ -12,18 +12,26 @@ jobs:
 
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Set up Python 3.11
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.11"
+        cache: "pip"
+        cache-dependency-path: backend/requirements.txt
 
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r backend/requirements.txt || pip install fastapi uvicorn chromadb sqlalchemy pydantic httpx pytest
+        pip install -r backend/requirements.txt || pip install fastapi uvicorn chromadb sqlalchemy pydantic httpx pytest python-dotenv
 
     - name: Run Law RAG Golden Set Evaluation
+      env:
+        # CI 러너에는 공유 PostgreSQL이 없으므로 로컬 SQLite로 실행한다.
+        # core/database.py는 DB 연결 실패 시 즉시 중단하도록 설계돼 있어
+        # 이 env 없이는 import 시점에 RuntimeError로 잡이 실패한다.
+        DATABASE_URL: "sqlite:///./ci_eval.db"
+        ALLOW_SQLITE_FALLBACK: "1"
       run: |
         python backend/app/services/operation/eval_law_rag.py

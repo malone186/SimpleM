@@ -2,10 +2,13 @@
 
 AI-2: 거래명세서/영수증 사진 → {상품, 단가, 수량} 구조화 → 등록 초안.
 
-두 가지 VLM 백엔드를 지원한다 (OCR_BACKEND 환경변수로 선택, 폴백 없음):
-  - qwen_vlm (기본): 파인튜닝 VLM 단독 (PRD §5.2 ①) — 영수증 데이터로 LoRA 파인튜닝한
-    Qwen3-VL-2B가 이미지에서 OCR+구조화를 한 번에. 외부 API 불필요, 무료 한도 없음.
-    학습은 backend/vlm_finetune/ 참고 (어댑터가 없으면 베이스 모델로 동작).
+세 가지 VLM 백엔드를 지원한다 (OCR_BACKEND 환경변수로 선택, 폴백 없음):
+  - llamacpp_vlm (기본): 파인튜닝 Qwen3.5-0.8B를 GGUF(Q8)로 변환해 llama.cpp 서버로
+    서빙 — RTX 5060 실측 웜 3.3초/장 (transformers 13초 대비 4배). 서버가 없으면
+    warmup 때 tools_bin/llama-server.exe를 자동 기동한다.
+    변환/벤치는 backend/vlm_finetune/ (export_merged35.py → convert → gguf 메타 패치).
+  - qwen_vlm: 같은 파인튜닝 모델을 transformers로 직접 로드 (PRD §5.2 ①).
+    외부 프로세스가 없어 단순하지만 느리다. 학습은 backend/vlm_finetune/train35.py.
   - ollama_vlm: VLM 단독 — 로컬 gemma4가 이미지에서 바로 추출. 완전 오프라인용.
 
 (CLOVA OCR + Gemini 2단계 경로는 파인튜닝 VLM 전환으로 삭제됨 — 외부 API 의존과
@@ -60,12 +63,22 @@ def _load_dotenv() -> None:
 _load_dotenv()
 
 # LLM 호출부는 이 모듈 상수/환경변수로만 제어한다 (모델 교체 시 한 곳 수정 — PRD §7)
-OCR_BACKEND = os.getenv("OCR_BACKEND", "qwen_vlm")
+OCR_BACKEND = os.getenv("OCR_BACKEND", "llamacpp_vlm")
 
-# 파인튜닝 Qwen VLM (backend/vlm_finetune/train.py가 만든 LoRA 어댑터)
-QWEN_VLM_BASE = os.getenv("QWEN_VLM_BASE", "Qwen/Qwen3-VL-2B-Instruct")
+_VLM_FINETUNE_DIR = Path(__file__).resolve().parents[3] / "vlm_finetune"
+
+# llama.cpp 서버 (파인튜닝 Qwen3.5-0.8B GGUF Q8 — vlm_finetune/output에서 변환)
+LLAMACPP_BASE_URL = os.getenv("LLAMACPP_BASE_URL", "http://localhost:8089")
+LLAMACPP_TIMEOUT = float(os.getenv("LLAMACPP_TIMEOUT", "120"))
+LLAMACPP_AUTOSTART = os.getenv("LLAMACPP_AUTOSTART", "1") == "1"
+LLAMACPP_SERVER_EXE = Path(os.getenv("LLAMACPP_SERVER_EXE", _VLM_FINETUNE_DIR / "tools_bin" / "llama-server.exe"))
+LLAMACPP_MODEL_GGUF = Path(os.getenv("LLAMACPP_MODEL_GGUF", _VLM_FINETUNE_DIR / "output" / "qwen35-08b-ocr-q8.gguf"))
+LLAMACPP_MMPROJ_GGUF = Path(os.getenv("LLAMACPP_MMPROJ_GGUF", _VLM_FINETUNE_DIR / "output" / "mmproj-qwen35-08b.gguf"))
+
+# 파인튜닝 Qwen VLM (backend/vlm_finetune/train35.py가 만든 LoRA 어댑터)
+QWEN_VLM_BASE = os.getenv("QWEN_VLM_BASE", "Qwen/Qwen3.5-0.8B")
 QWEN_VLM_ADAPTER_DIR = Path(
-    os.getenv("QWEN_VLM_ADAPTER_DIR", Path(__file__).resolve().parents[3] / "vlm_finetune" / "output" / "adapter")
+    os.getenv("QWEN_VLM_ADAPTER_DIR", _VLM_FINETUNE_DIR / "output" / "adapter35")
 )
 QWEN_VLM_MAX_NEW_TOKENS = int(os.getenv("QWEN_VLM_MAX_NEW_TOKENS", "1024"))
 # 4bit(bnb nf4)는 VRAM을 아끼는 대신 매 토큰마다 역양자화가 들어가 오히려 2배 느리다.
@@ -318,7 +331,9 @@ def _load_qwen_vlm() -> tuple[Any, Any]:
     with _qwen_vlm_lock:
         if _qwen_vlm is None:
             import torch
-            from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
+            # AutoModelForImageTextToText가 config로 클래스를 찾으므로 Qwen3-VL과
+            # Qwen3.5(early-fusion) 모두 이 한 줄로 로드된다.
+            from transformers import AutoModelForImageTextToText, AutoProcessor
 
             device = "cuda:0" if torch.cuda.is_available() else "cpu"
             dtype = torch.bfloat16 if device.startswith("cuda") else torch.float32
@@ -332,7 +347,7 @@ def _load_qwen_vlm() -> tuple[Any, Any]:
                     load_in_4bit=True, bnb_4bit_quant_type="nf4",
                     bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.bfloat16,
                 )
-            model = Qwen3VLForConditionalGeneration.from_pretrained(
+            model = AutoModelForImageTextToText.from_pretrained(
                 QWEN_VLM_BASE, dtype=dtype, attn_implementation=QWEN_VLM_ATTN, device_map=device,
                 quantization_config=quant,
             )
@@ -385,12 +400,86 @@ async def _call_qwen_vlm(image_bytes: bytes) -> dict[str, Any]:
         raise OcrError(f"Qwen VLM 추론 실패: {e}") from e
 
 
-def warmup_ocr_backend() -> None:
-    """qwen_vlm 백엔드일 때 모델을 미리 로드해 둔다 (첫 요청의 ~17초 로드 지연 제거).
+# ---------------------------------------------------------------------------
+# llama.cpp 백엔드 — 파인튜닝 GGUF를 상주 서버로 서빙 (웜 3.3초/장, transformers의 4배)
+# ---------------------------------------------------------------------------
+_llamacpp_proc: Optional[Any] = None  # 우리가 직접 띄운 경우에만 핸들 보관
 
+
+def _llamacpp_healthy() -> bool:
+    try:
+        return httpx.get(f"{LLAMACPP_BASE_URL}/health", timeout=2).status_code == 200
+    except httpx.HTTPError:
+        return False
+
+
+def _start_llamacpp_server() -> None:
+    """llama-server를 백그라운드 프로세스로 기동한다 (이미 떠 있으면 아무것도 안 함).
+
+    모델 로드까지 수 초 걸리므로 기동 직후 요청은 _call_llamacpp_vlm의 재시도가 흡수한다.
+    """
+    global _llamacpp_proc
+    if _llamacpp_healthy():
+        logger.info("llama.cpp 서버 이미 실행 중 — %s", LLAMACPP_BASE_URL)
+        return
+    if not (LLAMACPP_SERVER_EXE.exists() and LLAMACPP_MODEL_GGUF.exists() and LLAMACPP_MMPROJ_GGUF.exists()):
+        logger.warning("llama.cpp 자동 기동 불가 — 실행파일/GGUF 없음 (%s). "
+                       "vlm_finetune/README의 GGUF 변환 절차를 확인하세요", LLAMACPP_SERVER_EXE)
+        return
+    import subprocess
+
+    port = LLAMACPP_BASE_URL.rsplit(":", 1)[-1]
+    _llamacpp_proc = subprocess.Popen(
+        [str(LLAMACPP_SERVER_EXE), "-m", str(LLAMACPP_MODEL_GGUF), "--mmproj", str(LLAMACPP_MMPROJ_GGUF),
+         "-ngl", "99", "--port", port, "--ctx-size", "8192"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    logger.info("llama.cpp 서버 기동 — %s (pid %s)", LLAMACPP_BASE_URL, _llamacpp_proc.pid)
+
+
+async def _call_llamacpp_vlm(image_bytes: bytes) -> dict[str, Any]:
+    """llama-server(OpenAI 호환) 호출 — 이미지 1장을 구조화 JSON으로.
+
+    enable_thinking=False가 필수: 기본 챗 템플릿이 thinking 모드를 켜서
+    토큰 한도를 추론으로 전부 태우고 content가 빈 채로 끝난다 (실측).
+    """
+    payload = {
+        "messages": [{"role": "user", "content": [
+            {"type": "image_url",
+             "image_url": {"url": f"data:image/jpeg;base64,{base64.b64encode(image_bytes).decode()}"}},
+            {"type": "text", "text": _PROMPT},
+        ]}],
+        "max_tokens": QWEN_VLM_MAX_NEW_TOKENS,
+        "temperature": 0,
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+    last_error: Exception | None = None
+    for attempt in (1, 2, 3):  # 서버 자동 기동 직후의 로드 지연(수 초)을 재시도로 흡수
+        try:
+            async with httpx.AsyncClient(timeout=LLAMACPP_TIMEOUT) as client:
+                resp = await client.post(f"{LLAMACPP_BASE_URL}/v1/chat/completions", json=payload)
+                resp.raise_for_status()
+            content = resp.json()["choices"][0]["message"]["content"] or ""
+            return _parse_model_json(content)
+        except (httpx.HTTPError, json.JSONDecodeError, KeyError) as e:
+            last_error = e
+            if attempt < 3:
+                await asyncio.sleep(3 * attempt)
+    raise OcrError(f"llama.cpp OCR 실패 (3회 시도, {LLAMACPP_BASE_URL}): {last_error}")
+
+
+def warmup_ocr_backend() -> None:
+    """서버 기동 시 백엔드를 예열한다 — 첫 요청의 로드 지연 제거.
+
+    - llamacpp_vlm: llama-server가 없으면 자동 기동 (LLAMACPP_AUTOSTART=0으로 끌 수 있음)
+    - qwen_vlm: transformers 모델을 미리 로드 (~17초)
     앱 시작을 막지 않도록 백그라운드 스레드에서 돌린다. 실패해도 첫 요청 때 다시
     시도하므로 로그만 남기고 넘어간다.
     """
+    if OCR_BACKEND == "llamacpp_vlm" and LLAMACPP_AUTOSTART:
+        threading.Thread(target=_start_llamacpp_server, name="llamacpp-warmup", daemon=True).start()
+        return
     if OCR_BACKEND != "qwen_vlm" or not QWEN_VLM_WARMUP:
         return
 
@@ -551,8 +640,10 @@ def _now() -> datetime:
 
 async def _run_backend(backend: str, image_bytes: bytes) -> dict[str, Any]:
     """지정한 백엔드로 구조화 결과를 얻는다. 폴백 없이 실패는 그대로 올린다."""
-    if backend == "qwen_vlm":
+    if backend == "llamacpp_vlm":
         # 학습과 같은 해상도(기본 1024)로 — train/serve skew 방지 + vision 토큰 축소
+        return await _call_llamacpp_vlm(_preprocess_image(image_bytes, max_side=QWEN_VLM_MAX_IMAGE_SIDE))
+    if backend == "qwen_vlm":
         return await _call_qwen_vlm(_preprocess_image(image_bytes, max_side=QWEN_VLM_MAX_IMAGE_SIDE))
     if backend == "ollama_vlm":
         return await _call_vlm(_preprocess_image(image_bytes))

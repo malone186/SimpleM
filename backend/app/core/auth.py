@@ -15,7 +15,15 @@ from app.models.user import User
 from app.schemas.user import TokenData
 
 # 1. 환경변수 및 인증 설정
-SECRET_KEY = os.getenv("SECRET_KEY", "simplem-secret-key-super-secure-key-1234567890")
+_INSECURE_DEFAULT_SECRET = "simplem-secret-key-super-secure-key-1234567890"
+SECRET_KEY = os.getenv("SECRET_KEY", _INSECURE_DEFAULT_SECRET)
+if SECRET_KEY == _INSECURE_DEFAULT_SECRET:
+    # 소스에 공개된 기본 키로는 누구나 토큰을 위조할 수 있다 — .env에 SECRET_KEY를 반드시 설정할 것.
+    import logging as _logging
+    _logging.getLogger(__name__).error(
+        "[보안 경고] SECRET_KEY 환경변수가 없어 공개된 기본 키로 폴백했습니다. "
+        ".env에 SECRET_KEY를 설정하세요 (python -c \"import secrets; print(secrets.token_urlsafe(48))\")."
+    )
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 하루 유효한 로컬 토큰
 FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "simplem-app")

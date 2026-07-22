@@ -1,11 +1,14 @@
-// 📡 [한글 주석: 매장 센서 스테이션 — 스마트홈 기기 페어링 컨셉의 센서 연동 마법사]
-// 기기별 설치 가이드 → '기기 스캔'(신호 감지 애니메이션) → 시리얼 발급·페어링 완료.
+// 📡 [한글 주석: 매장 센서 스테이션 — 실제 BLE 스캔 기반 센서 연동 마법사]
+// 기기별 설치 가이드 → '기기 스캔'(진짜 블루투스 스캔) → 발견 기기 선택 → 페어링.
+// 웹(Chrome)은 Web Bluetooth 선택창, 네이티브(개발 빌드)는 ble-plx 스캔을 쓴다.
+// 실물 센서가 없는 매장을 위해 '데모로 연결' 폴백도 남겨둔다.
 // 센서를 하나씩 연결할 때마다 발주 화면의 해당 지표가 데모→실측(LIVE)으로 승격된다.
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -20,6 +23,9 @@ import {
   unpairSensorDevice,
   SensorDevice,
 } from '../../lib/api/sensor';
+import { getBleAvailability, scanForBleDevices } from '../../lib/ble/bleScanner';
+import { startBleLiveReader, stopBleLiveReader } from '../../lib/ble/bleLiveReader';
+import { FoundBleDevice } from '../../lib/ble/bleTypes';
 
 interface Props {
   visible: boolean;
@@ -38,6 +44,10 @@ export default function SensorSetupModal({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [scanningId, setScanningId] = useState<string | null>(null);
   const [justPairedId, setJustPairedId] = useState<string | null>(null);
+  const [foundDevices, setFoundDevices] = useState<FoundBleDevice[]>([]); // BLE 스캔 결과
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [pairingBleId, setPairingBleId] = useState<string | null>(null);  // 페어링 진행 중인 BLE 기기
+  const [storeId, setStoreId] = useState<string | null>(null);            // 실측 업링크용 매장 식별자
 
   // 진행 게이지 애니메이션
   const progressAnim = useRef(new Animated.Value(0)).current;
@@ -52,6 +62,7 @@ export default function SensorSetupModal({
       setLoading(true);
       const res = await getSensorDevices(token);
       setDevices(res.devices);
+      setStoreId(res.store_id);
     } catch {
       // 백엔드 미기동 시 목록 없이 안내만 노출
     } finally {
@@ -64,6 +75,8 @@ export default function SensorSetupModal({
       loadDevices();
       setExpandedId(initialDeviceId ?? null);
       setJustPairedId(null);
+      setFoundDevices([]);
+      setScanError(null);
     }
   }, [visible, initialDeviceId]);
 
@@ -75,26 +88,90 @@ export default function SensorSetupModal({
     }).start();
   }, [pairedCount, total]);
 
-  // '기기 스캔' — 1.8초 신호 감지 연출 후 실제 페어링 API 호출
+  // '기기 스캔' — 진짜 블루투스 스캔.
+  // 웹: 크롬 Web Bluetooth 선택창에서 실기기를 고르면 바로 페어링.
+  // 네이티브(개발 빌드): 8초간 주변 BLE 광고를 수집해 목록으로 보여주고 탭해서 페어링.
   const handleScan = async (device: SensorDevice) => {
     if (!token || scanningId) return;
     setScanningId(device.id);
-    await new Promise((r) => setTimeout(r, 1800));
+    setScanError(null);
+    setFoundDevices([]);
+
+    const avail = getBleAvailability();
+    if (!avail.available) {
+      setScanError(avail.reason);
+      setScanningId(null);
+      return;
+    }
     try {
-      await pairSensorDevice(token, device.id);
-      setJustPairedId(device.id);
-      await loadDevices();
-      onPairingChanged();
-    } catch {
-      // 실패 시 조용히 스캔 상태만 해제 (재시도 가능)
+      const list = await scanForBleDevices({
+        hints: device.ble_names ?? [],
+        timeoutMs: 8000,
+        onDevice: (d) =>
+          setFoundDevices((prev) => (prev.some((p) => p.id === d.id) ? prev : [...prev, d])),
+      });
+      if (list.length === 0) {
+        setScanError(
+          Platform.OS === 'web'
+            ? '기기를 선택하지 않았어요. 다시 스캔하거나, 실물 센서가 없다면 아래 데모 연결을 눌러주세요.'
+            : '주변에서 블루투스 기기를 찾지 못했어요. 센서 허브 전원과 거리(3m 이내)를 확인해 주세요.',
+        );
+      } else if (Platform.OS === 'web') {
+        // 웹은 브라우저 선택창에서 이미 기기를 골랐으므로 바로 페어링
+        await handlePairBle(device, list[0]);
+      } else {
+        setFoundDevices(list);
+      }
+    } catch (e: any) {
+      setScanError(e?.message || '스캔 중 오류가 발생했어요.');
     } finally {
       setScanningId(null);
     }
   };
 
+  // 스캔으로 찾은 실기기를 서버에 등록 (실측 페어링)
+  const handlePairBle = async (device: SensorDevice, ble: FoundBleDevice) => {
+    if (!token || pairingBleId) return;
+    setPairingBleId(ble.id);
+    try {
+      await pairSensorDevice(token, device.id, {
+        ble_id: ble.id,
+        ble_name: ble.name,
+        ...(ble.rssi != null ? { rssi: ble.rssi } : {}),
+      });
+      // 기기가 측정값 GATT(자체 허브 JSON·샤오미 온도계)를 지원하면 즉시 실측 수신 시작
+      if (storeId) {
+        startBleLiveReader({ store: storeId, catalogId: device.id, bleId: ble.id, bleName: ble.name });
+      }
+      setJustPairedId(device.id);
+      setFoundDevices([]);
+      setScanError(null);
+      await loadDevices();
+      onPairingChanged();
+    } catch {
+      setScanError('페어링에 실패했어요. 잠시 후 다시 시도해 주세요.');
+    } finally {
+      setPairingBleId(null);
+    }
+  };
+
+  // 실물 센서가 없는 매장용 폴백 — 데모 데이터로 등록
+  const handlePairDemo = async (device: SensorDevice) => {
+    if (!token || scanningId || pairingBleId) return;
+    try {
+      await pairSensorDevice(token, device.id);
+      setJustPairedId(device.id);
+      setFoundDevices([]);
+      setScanError(null);
+      await loadDevices();
+      onPairingChanged();
+    } catch { }
+  };
+
   const handleUnpair = async (device: SensorDevice) => {
     if (!token) return;
     try {
+      stopBleLiveReader(device.id); // 실측 수신 중이면 GATT 연결부터 끊는다
       await unpairSensorDevice(token, device.id);
       setJustPairedId(null);
       await loadDevices();
@@ -170,7 +247,9 @@ export default function SensorSetupModal({
                       <View style={{ flex: 1 }}>
                         <Text style={s.deviceName}>{device.name}</Text>
                         <Text style={s.deviceWhere} numberOfLines={1}>
-                          {device.paired && device.serial ? `${device.serial} · 연결됨` : device.where}
+                          {device.paired && device.serial
+                            ? `${device.serial} · ${device.source === 'ble' ? (device.ble_name ?? '실기기') : '데모'} 연결됨`
+                            : device.where}
                         </Text>
                       </View>
                       {device.paired ? (
@@ -210,7 +289,9 @@ export default function SensorSetupModal({
                               <View style={s.successBanner}>
                                 <Ionicons name="checkmark-circle" size={14} color="#2E7D32" />
                                 <Text style={s.successBannerText}>
-                                  {device.serial} 페어링 완료 — 지금부터 실측값이에요!
+                                  {device.source === 'ble'
+                                    ? `${device.ble_name ?? '실기기'} (${device.serial}) 페어링 완료 — 지금부터 실측값이에요!`
+                                    : `${device.serial} 데모 페어링 완료 — 실물 센서 연결 시 실측으로 전환돼요.`}
                                 </Text>
                               </View>
                             )}
@@ -219,24 +300,83 @@ export default function SensorSetupModal({
                             </TouchableOpacity>
                           </View>
                         ) : (
-                          <TouchableOpacity
-                            style={[s.scanBtn, isScanning && { opacity: 0.85 }]}
-                            onPress={() => handleScan(device)}
-                            disabled={isScanning}
-                            activeOpacity={0.8}
-                          >
-                            {isScanning ? (
-                              <>
-                                <ActivityIndicator size="small" color={colors.white} />
-                                <Text style={s.scanBtnText}>신호 감지 중… 허브 주변 기기를 찾고 있어요</Text>
-                              </>
-                            ) : (
-                              <>
-                                <Ionicons name="bluetooth-outline" size={14} color={colors.white} />
-                                <Text style={s.scanBtnText}>기기 스캔</Text>
-                              </>
+                          <>
+                            <TouchableOpacity
+                              style={[s.scanBtn, isScanning && { opacity: 0.85 }]}
+                              onPress={() => handleScan(device)}
+                              disabled={isScanning || !!pairingBleId}
+                              activeOpacity={0.8}
+                            >
+                              {isScanning ? (
+                                <>
+                                  <ActivityIndicator size="small" color={colors.white} />
+                                  <Text style={s.scanBtnText}>
+                                    {Platform.OS === 'web'
+                                      ? '브라우저 창에서 기기를 선택해 주세요…'
+                                      : '주변 블루투스 기기 검색 중… (8초)'}
+                                  </Text>
+                                </>
+                              ) : (
+                                <>
+                                  <Ionicons name="bluetooth-outline" size={14} color={colors.white} />
+                                  <Text style={s.scanBtnText}>블루투스 기기 스캔</Text>
+                                </>
+                              )}
+                            </TouchableOpacity>
+
+                            {/* 스캔으로 발견한 실기기 목록 (네이티브) — 탭해서 페어링 */}
+                            {isExpanded && foundDevices.length > 0 && (
+                              <View style={s.foundList}>
+                                <Text style={s.foundListTitle}>
+                                  발견된 기기 {foundDevices.length}대 — 탭해서 연결
+                                </Text>
+                                {foundDevices.map((f) => (
+                                  <TouchableOpacity
+                                    key={f.id}
+                                    style={[s.foundRow, f.hintMatch && s.foundRowHint]}
+                                    onPress={() => handlePairBle(device, f)}
+                                    disabled={!!pairingBleId}
+                                    activeOpacity={0.7}
+                                  >
+                                    <Ionicons
+                                      name="bluetooth"
+                                      size={13}
+                                      color={f.hintMatch ? '#2E7D32' : colors.mochaBrown}
+                                    />
+                                    <View style={{ flex: 1 }}>
+                                      <Text style={s.foundName}>{f.name}</Text>
+                                      <Text style={s.foundMeta} numberOfLines={1}>
+                                        {f.id}{f.rssi != null ? ` · ${f.rssi}dBm` : ''}
+                                      </Text>
+                                    </View>
+                                    {f.hintMatch && (
+                                      <View style={s.hintChip}>
+                                        <Text style={s.hintChipText}>권장 기기</Text>
+                                      </View>
+                                    )}
+                                    {pairingBleId === f.id && (
+                                      <ActivityIndicator size="small" color={colors.mochaBrown} />
+                                    )}
+                                  </TouchableOpacity>
+                                ))}
+                              </View>
                             )}
-                          </TouchableOpacity>
+
+                            {isExpanded && scanError && (
+                              <Text style={s.scanErrorText}>{scanError}</Text>
+                            )}
+
+                            {/* 실물 센서 미보유 매장용 폴백 */}
+                            <TouchableOpacity
+                              style={s.demoLink}
+                              onPress={() => handlePairDemo(device)}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={s.demoLinkText}>
+                                실물 센서가 아직 없어요 — 데모 데이터로 연결
+                              </Text>
+                            </TouchableOpacity>
+                          </>
                         )}
                       </View>
                     )}
@@ -383,6 +523,35 @@ const s = StyleSheet.create({
     borderRadius: 10, paddingVertical: 11, marginTop: 4,
   },
   scanBtnText: { fontSize: 12, fontWeight: '800', color: colors.white },
+
+  // BLE 스캔 결과 목록
+  foundList: {
+    backgroundColor: 'rgba(140, 111, 86, 0.05)',
+    borderRadius: 10, padding: 8, gap: 6, marginTop: 6,
+  },
+  foundListTitle: { fontSize: 10, fontWeight: '800', color: colors.mochaBrown },
+  foundRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: colors.white, borderRadius: 8,
+    borderWidth: 1, borderColor: colors.mutedSand,
+    paddingHorizontal: 10, paddingVertical: 8,
+  },
+  foundRowHint: { borderColor: '#C8E6C9', backgroundColor: '#FBFEFB' },
+  foundName: { fontSize: 12, fontWeight: '800', color: colors.espressoBrown },
+  foundMeta: { fontSize: 9, color: colors.stone300, marginTop: 1 },
+  hintChip: {
+    backgroundColor: '#E8F5E9', borderRadius: 999,
+    paddingHorizontal: 7, paddingVertical: 3,
+  },
+  hintChipText: { fontSize: 9, fontWeight: '800', color: '#2E7D32' },
+  scanErrorText: {
+    fontSize: 10, color: '#C62828', lineHeight: 14, marginTop: 6,
+  },
+  demoLink: { alignItems: 'center', paddingVertical: 8, marginTop: 2 },
+  demoLinkText: {
+    fontSize: 10, fontWeight: '600', color: colors.stone300,
+    textDecorationLine: 'underline',
+  },
 
   pairedActions: { gap: 8, marginTop: 2 },
   successBanner: {

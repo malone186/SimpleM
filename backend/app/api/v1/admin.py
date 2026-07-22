@@ -8,10 +8,11 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.auth import get_current_user
 from app.core.database import get_db
 from app.models.user import User
 from app.models.inventory import Ingredient
-from app.models.ai import GeneratedDocument
+from app.models.ai import AdminNotification, GeneratedDocument
 from app.models.tracking import TrackingEvent
 
 logger = logging.getLogger(__name__)
@@ -24,9 +25,11 @@ router = APIRouter(prefix="/admin", tags=["관리자 콘솔(Admin)"])
 # ---------------------------------------------------------------------------
 
 # 1. 1:1 CS 문의 모의 데이터베이스
+# 시드 id는 9000번대 — DB inquiries의 실제 id(1부터 증가)와 겹치면 시드 문의에 단
+# 답변이 엉뚱한 실제 문의(DB의 같은 id)에 기록되므로 반드시 분리해 둔다.
 mock_cs_list = [
     {
-        "id": 1,
+        "id": 9001,
         "name": "포슬이",
         "store": "포슬카페",
         "title": "영수증 OCR 인식 속도가 조금 느린 것 같아요",
@@ -37,7 +40,7 @@ mock_cs_list = [
         "reply": None
     },
     {
-        "id": 2,
+        "id": 9002,
         "name": "김철수",
         "store": "블루보틀 강남",
         "title": "이번 주 세무 리포트 발행일 변경 문의",
@@ -48,7 +51,7 @@ mock_cs_list = [
         "reply": "안녕하세요 사장님, 운영 정보 분석 주기는 본점 정책상 주말 집계 후 월요일 오전 9시로 고정되어 있습니다. 주말 데이터의 오차를 최소화하기 위한 조치이오니 양해 부탁드립니다!"
     },
     {
-        "id": 3,
+        "id": 9003,
         "name": "이영희",
         "store": "성수 로스터스",
         "title": "프리미엄 결제 영수증 출력",
@@ -60,23 +63,8 @@ mock_cs_list = [
     }
 ]
 
-# 2. 공지 및 알림 발송 모의 데이터베이스
-mock_notif_history = [
-    {
-        "id": 1,
-        "title": "[공지] 7/25 새벽 2시~4시 정기 데이터베이스 보안 점검 안내",
-        "target": "전체 사장님",
-        "date": "2026-07-19 18:00",
-        "author": "최고 관리자"
-    },
-    {
-        "id": 2,
-        "title": "[안내] 이번 주 원두 시세 폭등에 따른 긴급 대체 매입 단가 리포트 분석 완료",
-        "target": "프리미엄 회원",
-        "date": "2026-07-18 11:30",
-        "author": "운영 시스템팀"
-    }
-]
+# 2. 공지 및 알림 발송 이력 — 관리자가 실제로 발송한 공지만 담긴다 (더미 시드 제거)
+mock_notif_history = []
 
 # 3. 프리미엄 결제 매출 모의 데이터베이스
 mock_payments = [
@@ -119,7 +107,10 @@ class CSReplyPayload(BaseModel):
 
 class NotificationCreate(BaseModel):
     title: str
-    target: str = "전체 사장님"
+    body: str = ""
+    target: str = "전체 사장님"          # 관리자 웹 표시용 라벨
+    target_type: str = "all"             # all | premium | specific
+    target_email: str | None = None      # target_type == specific일 때 수신 사장님 이메일
 
 
 # ---------------------------------------------------------------------------
@@ -254,33 +245,33 @@ from app.models.inquiry import Inquiry
 @router.get("/cs")
 def get_cs_list(db: Session = Depends(get_db)):
     """
-    [CS 문의 조회] 사장님들이 남긴 1:1 문의사항 리스트를 DB에서 실시간 조회합니다.
+    [CS 문의 조회] 사장님들이 남긴 1:1 문의사항 리스트를 실시간 최신순 조회합니다.
     """
+    res = list(mock_cs_list) # 메모리 상 최신 등록 항목 우선 보관
+    seen_ids = set(m["id"] for m in mock_cs_list)
+
     try:
         db_items = db.query(Inquiry).order_by(Inquiry.id.desc()).all()
-        res = []
         for item in db_items:
-            res.append({
-                "id": item.id,
-                "name": "포슬이",
-                "store": item.store_name or "포슬카페",
-                "category": item.category or "💡 기능 요청",
-                "title": item.title,
-                "date": item.created_at.strftime("%Y-%m-%d %H:%M") if item.created_at else "2026-07-21 12:00",
-                "status": "처리 완료" if item.status == "answered" else "답변 대기",
-                "email": item.user_email,
-                "content": item.content,
-                "question": item.content,
-                "reply": item.answer or None
-            })
-        # DB 기록과 mock_cs_list 중 중복 없이 합쳐서 반환
-        for m in mock_cs_list:
-            if not any(r["id"] == m["id"] for r in res):
-                res.append(m)
-        return res
+            if item.id not in seen_ids:
+                seen_ids.add(item.id)
+                res.append({
+                    "id": item.id,
+                    "name": "포슬이",
+                    "store": item.store_name or "포슬카페",
+                    "category": item.category or "💡 기능 요청",
+                    "title": item.title,
+                    "date": item.created_at.strftime("%Y-%m-%d %H:%M") if item.created_at else "2026-07-21 12:00",
+                    "status": "처리 완료" if item.status == "answered" else "답변 대기",
+                    "email": item.user_email,
+                    "content": item.content,
+                    "question": item.content,
+                    "reply": item.answer or None
+                })
     except Exception as e:
         logger.error(f"get_cs_list DB 조회 오류: {e}")
-        return mock_cs_list
+
+    return res
 
 
 @router.post("/cs")
@@ -294,7 +285,8 @@ def create_cs_from_app(req: dict, db: Session = Depends(get_db)):
     store_name = req.get("store_name", "포슬카페")
     user_email = req.get("user_email", "owner@cafe.com")
 
-    new_inq_id = len(mock_cs_list) + 100
+    # 폴백 id도 9000번대에서 발급 — DB 실제 id와의 충돌 방지 (시드 id 정책과 동일)
+    new_inq_id = max([m["id"] for m in mock_cs_list], default=9000) + 1
     try:
         db_inq = Inquiry(
             user_email=user_email,
@@ -333,7 +325,12 @@ def create_cs_from_app(req: dict, db: Session = Depends(get_db)):
 def reply_to_cs(cs_id: int, payload: CSReplyPayload, db: Session = Depends(get_db)):
     """
     [CS 답변 등록] 관리자가 사장님의 문의에 답변을 남기며, DB 상태를 '처리 완료'로 갱신합니다.
+    DB 성공·실패와 무관하게 메모리 폴백 리스트 양쪽도 동기화해 앱 폴링에서 답변이 유실되지 않게 한다.
     """
+    # 순환 import 방지: inquiry.py가 admin.py의 mock_cs_list를 모듈 로드 시점에 가져가므로
+    # 반대 방향 참조는 함수 안에서 지연 import 한다.
+    from app.api.v1.inquiry import sync_reply_to_memory
+
     try:
         inq = db.query(Inquiry).filter(Inquiry.id == cs_id).first()
         if inq:
@@ -342,6 +339,7 @@ def reply_to_cs(cs_id: int, payload: CSReplyPayload, db: Session = Depends(get_d
             inq.answered_at = datetime.utcnow()
             db.commit()
             db.refresh(inq)
+            sync_reply_to_memory(cs_id, payload.reply)
             return {"success": True, "item": {
                 "id": inq.id,
                 "store": inq.store_name,
@@ -356,12 +354,12 @@ def reply_to_cs(cs_id: int, payload: CSReplyPayload, db: Session = Depends(get_d
     except Exception as e:
         logger.error(f"CS 답변 등록 중 오류: {e}")
 
+    # DB에 없는 문의(메모리 폴백 접수분·시드) — 앱이 읽는 GLOBAL_INQUIRIES까지 함께 갱신
+    sync_reply_to_memory(cs_id, payload.reply)
     for item in mock_cs_list:
         if item["id"] == cs_id:
-            item["status"] = "처리 완료"
-            item["reply"] = payload.reply
             return {"success": True, "item": item}
-            
+
     return {"success": True}
 
 
@@ -369,28 +367,95 @@ def reply_to_cs(cs_id: int, payload: CSReplyPayload, db: Session = Depends(get_d
 # 4. 공지 & 알림 발송 모의 API
 # ---------------------------------------------------------------------------
 
+def _notif_to_dict(n: AdminNotification) -> dict:
+    return {
+        "id": n.id,
+        "title": n.title,
+        "body": n.body or "",
+        "target": n.target_label,
+        "target_type": n.target_type,
+        "date": n.created_at.strftime("%Y-%m-%d %H:%M") if n.created_at else "",
+        "author": n.author,
+    }
+
+
 @router.get("/notifications")
-def get_notifications():
+def get_notifications(db: Session = Depends(get_db)):
     """
     [공지사항 이력 조회] 과거에 사장님들께 발송했던 모든 공지 알림 이력을 반환합니다.
+    DB 기록을 최신순으로 반환하고, 뒤에 데모용 시드 이력을 덧붙입니다.
     """
-    return mock_notif_history
+    try:
+        rows = db.query(AdminNotification).order_by(AdminNotification.id.desc()).all()
+        return [_notif_to_dict(n) for n in rows] + mock_notif_history
+    except Exception as e:
+        logger.error(f"공지 이력 DB 조회 오류: {e}")
+        return mock_notif_history
 
 
 @router.post("/notifications")
-def create_notification(payload: NotificationCreate):
+def create_notification(payload: NotificationCreate, db: Session = Depends(get_db)):
     """
-    [공지사항 발송 등록] 사장님들에게 보낼 새로운 긴급 공지 또는 알림을 시스템에 등록합니다.
+    [공지사항 발송 등록] 사장님들에게 보낼 새로운 긴급 공지 또는 알림을 DB에 영구 등록합니다.
+    등록된 공지는 각 사장님 앱이 /notifications/feed 폴링으로 즉시 수신해 갑니다.
     """
-    new_notif = {
-        "id": len(mock_notif_history) + 1,
-        "title": payload.title,
-        "target": payload.target,
-        "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "author": "최고 관리자"
-    }
-    mock_notif_history.insert(0, new_notif)
-    return {"success": True, "item": new_notif}
+    try:
+        notif = AdminNotification(
+            title=payload.title,
+            body=payload.body,
+            target_type=payload.target_type,
+            target_email=payload.target_email if payload.target_type == "specific" else None,
+            target_label=payload.target,
+            author="최고 관리자",
+        )
+        db.add(notif)
+        db.commit()
+        db.refresh(notif)
+        return {"success": True, "item": _notif_to_dict(notif)}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"공지 DB 저장 오류: {e}")
+        # DB가 꺼져 있어도 관리자 웹 데모는 계속되도록 메모리 이력에라도 남긴다.
+        new_notif = {
+            "id": len(mock_notif_history) + 1,
+            "title": payload.title,
+            "body": payload.body,
+            "target": payload.target,
+            "target_type": payload.target_type,
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "author": "최고 관리자",
+        }
+        mock_notif_history.insert(0, new_notif)
+        return {"success": True, "item": new_notif}
+
+
+@router.get("/notifications/feed")
+def get_notification_feed(
+    after_id: int = 0,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    [사장님 앱 수신 피드] 로그인한 사장님 본인에게 온 공지만 골라 반환합니다.
+    - 전체(all) 공지는 모두에게
+    - 프리미엄(premium) 공지는 프리미엄 회원(id <= 3 정책)에게만
+    - 특정 매장(specific) 공지는 target_email이 본인 이메일과 일치할 때만
+    앱은 마지막으로 받은 id를 after_id로 넘겨 새 공지만 증분 수신합니다.
+    """
+    is_premium = current_user.id <= 3  # get_admin_users의 프리미엄 등급 정책과 동일 기준
+    rows = (
+        db.query(AdminNotification)
+        .filter(AdminNotification.id > after_id)
+        .order_by(AdminNotification.id.asc())
+        .all()
+    )
+    visible = [
+        n for n in rows
+        if n.target_type == "all"
+        or (n.target_type == "premium" and is_premium)
+        or (n.target_type == "specific" and n.target_email == current_user.email)
+    ]
+    return [_notif_to_dict(n) for n in visible[:20]]
 
 
 # ---------------------------------------------------------------------------

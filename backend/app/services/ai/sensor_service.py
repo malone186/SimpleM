@@ -48,13 +48,57 @@ _DECAF_KEYWORDS = ("디카페인", "디카프", "decaf")
 # 매장별 RFID 태그 상태 (실물에선 리더기가 채워줌) — 서버 메모리 보관
 _rfid_state: dict[str, dict[str, str]] = {}
 
+# ─── 실측 수신값 (ESP32 허브 / 브라우저 BLE 리더 업링크) ──────────────────
+# {store: {device_id: {"at": iso, ...측정값}}} — 신선도(TTL) 지나면 자동 무시되므로 메모리만 사용
+_readings: dict[str, dict[str, dict[str, Any]]] = {}
+
+# 지표별 실측 신선도 한계 (초) — 이 시간 안에 수신된 값만 실측으로 인정
+_READING_TTL_S: dict[str, int] = {
+    "bean_scale": 300, "rfid_reader": 600, "milk_scale": 300,
+    "fridge_temp": 300, "water_level": 300, "smart_plug": 60,
+}
+
+
+def ingest_readings(store_id: str, readings: dict[str, Any]) -> dict[str, Any]:
+    """ESP32 허브·브라우저 BLE 리더가 올린 측정값 수신.
+    페어링된 기기의 값만 받는다 (미페어링·미등록 기기는 ignored로 반환)."""
+    paired = _load_pairing().get(store_id)
+    if paired is None:
+        raise ValueError(f"페어링된 센서가 없는 매장: {store_id}")
+    accepted, ignored = [], []
+    now_iso = _now().isoformat()
+    for device_id, values in (readings or {}).items():
+        if device_id in _DEVICE_IDS and device_id in paired and isinstance(values, dict):
+            _readings.setdefault(store_id, {})[device_id] = {**values, "at": now_iso}
+            accepted.append(device_id)
+        else:
+            ignored.append(device_id)
+    return {"ok": True, "accepted": accepted, "ignored": ignored, "at": now_iso}
+
+
+def _fresh_reading(store_id: str, device_id: str) -> dict[str, Any] | None:
+    """TTL 이내에 수신된 실측값 — 없거나 오래됐으면 None (호출부가 판매 환산/시뮬레이션 폴백)"""
+    entry = _readings.get(store_id, {}).get(device_id)
+    if not entry:
+        return None
+    try:
+        age = (_now() - datetime.fromisoformat(entry["at"])).total_seconds()
+    except Exception:
+        return None
+    if age > _READING_TTL_S.get(device_id, 180):
+        return None
+    return entry
+
 # ─── 센서 기기 카탈로그 & 페어링 (연동 온보딩) ────────────────────────────
 # 프론트 '센서 스테이션' 마법사가 이 카탈로그를 그대로 렌더링한다.
 # metric: 이 기기가 페어링되면 실측(live)으로 승격되는 대시보드 지표.
+# ble_names: 실제 BLE 스캔 시 이 기기로 인정할 광고 이름 접두어.
+#   "SM-*"는 자체 ESP32 허브 펌웨어의 광고 이름 규칙, 나머지는 시판 BLE 기기.
 SENSOR_DEVICES: list[dict[str, Any]] = [
     {
         "id": "bean_scale", "metric": "hoppers", "icon": "scale-outline",
-        "name": "원두 호퍼 무게센서", "model": "로드셀 패드 ×2",
+        "name": "원두 호퍼 무게센서", "model": "로드셀+ESP32 허브 (또는 Acaia·타임모어 BLE 저울)",
+        "ble_names": ["SM-HUB", "SM-SCALE", "ACAIA", "PEARL", "LUNAR", "PYXIS", "TIMEMORE", "BOOKOO"],
         "where": "카페인·디카페인 호퍼 받침 아래",
         "benefit": "잔량이 g 단위 실측으로 바뀌고 소진 예상 시각이 정확해져요",
         "steps": [
@@ -65,7 +109,8 @@ SENSOR_DEVICES: list[dict[str, Any]] = [
     },
     {
         "id": "rfid_reader", "metric": "rfid", "icon": "pricetag-outline",
-        "name": "원두 RFID 리더", "model": "13.56MHz 리더 + 태그 스티커",
+        "name": "원두 RFID 리더", "model": "RC522(13.56MHz)+ESP32 허브 + 태그 스티커",
+        "ble_names": ["SM-HUB", "SM-RFID"],
         "where": "호퍼 거치대 안쪽",
         "benefit": "원두통을 갈아끼우면 원두명이 자동으로 바뀌어요 (수기 입력 불필요)",
         "steps": [
@@ -76,7 +121,8 @@ SENSOR_DEVICES: list[dict[str, Any]] = [
     },
     {
         "id": "milk_scale", "metric": "milk", "icon": "water-outline",
-        "name": "우유 무게센서", "model": "로드셀 받침",
+        "name": "우유 무게센서", "model": "로드셀 받침+ESP32 허브 (BLE 주방저울 호환)",
+        "ble_names": ["SM-HUB", "SM-MILK", "ACAIA", "TIMEMORE", "BOOKOO"],
         "where": "우유 디스펜서(또는 우유팩 보관 선반) 아래",
         "benefit": "우유 잔량이 실측되어 '우유 부족' 알림이 정확해져요",
         "steps": [
@@ -87,7 +133,8 @@ SENSOR_DEVICES: list[dict[str, Any]] = [
     },
     {
         "id": "fridge_temp", "metric": "fridge", "icon": "thermometer-outline",
-        "name": "냉장고 온도센서", "model": "방수 프로브(DS18B20)",
+        "name": "냉장고 온도센서", "model": "샤오미 LYWSD03MMC·SwitchBot 온도계 (또는 DS18B20+ESP32)",
+        "ble_names": ["SM-HUB", "SM-TEMP", "LYWSD03MMC", "MJ_HT", "GVH5", "WOSENSORTH", "TPS", "SPS"],
         "where": "우유 보관 냉장고 안쪽 벽",
         "benefit": "보관 온도 7℃ 초과 시 즉시 경고를 받아요",
         "steps": [
@@ -98,7 +145,8 @@ SENSOR_DEVICES: list[dict[str, Any]] = [
     },
     {
         "id": "water_level", "metric": "water", "icon": "filter-outline",
-        "name": "정수 탱크 수위센서", "model": "플로트 스위치",
+        "name": "정수 탱크 수위센서", "model": "플로트 스위치+ESP32 허브",
+        "ble_names": ["SM-HUB", "SM-WATER"],
         "where": "머신 급수 탱크(또는 정수 라인)",
         "benefit": "물 부족으로 추출이 멈추기 전에 미리 알려줘요",
         "steps": [
@@ -109,7 +157,8 @@ SENSOR_DEVICES: list[dict[str, Any]] = [
     },
     {
         "id": "smart_plug", "metric": "machine", "icon": "flash-outline",
-        "name": "머신 스마트 플러그", "model": "전류 감지형 16A",
+        "name": "머신 스마트 플러그", "model": "전류 감지형 16A (SwitchBot 플러그·Shelly 또는 SCT-013+ESP32)",
+        "ble_names": ["SM-HUB", "SM-PLUG", "WOPLUG", "SHELLY"],
         "where": "에스프레소 머신 전원 콘센트",
         "benefit": "추출 시작·완료가 자동 감지돼요 (전류 패턴 분석)",
         "steps": [
@@ -123,7 +172,9 @@ SENSOR_DEVICES: list[dict[str, Any]] = [
 _DEVICE_IDS = {d["id"] for d in SENSOR_DEVICES}
 
 # 페어링·설정 상태는 서버 재시작에도 유지되도록 backend/sensor_pairing.json에 저장
-# 파일 구조: {"pairings": {store: {device_id: paired_at}}, "settings": {store: {"enabled": bool}}}
+# 파일 구조: {"pairings": {store: {device_id: entry}}, "settings": {store: {"enabled": bool}}}
+# entry: {"paired_at": iso, "source": "ble"|"demo", "ble_id"?, "ble_name"?, "rssi"?}
+# (구버전 파일은 entry 자리에 ISO 문자열만 있음 — _pair_entry가 흡수)
 _PAIRING_FILE = Path(__file__).resolve().parents[3] / "sensor_pairing.json"
 _state_cache: dict[str, Any] | None = None
 
@@ -170,9 +221,24 @@ def set_feature_enabled(store_id: str, enabled: bool) -> dict[str, Any]:
     return {"ok": True, "enabled": bool(enabled)}
 
 
-def _device_serial(store_id: str, device_id: str) -> str:
-    """페어링 시 발급되는 기기 시리얼 (매장+기기 조합으로 결정론적 생성)"""
-    tag = hashlib.md5(f"{store_id}:{device_id}".encode()).hexdigest()[:4].upper()
+def _pair_entry(paired: dict[str, Any], device_id: str) -> dict[str, Any] | None:
+    """페어링 엔트리 조회 — 구버전(ISO 문자열만 저장) 파일도 dict로 승격해서 반환"""
+    entry = paired.get(device_id)
+    if entry is None:
+        return None
+    if isinstance(entry, str):
+        return {"paired_at": entry, "source": "demo"}
+    return entry
+
+
+def _device_serial(store_id: str, device_id: str, ble_id: str | None = None) -> str:
+    """기기 시리얼 — BLE 실기기는 MAC/기기ID 끝 4자리, 데모는 매장+기기 해시"""
+    if ble_id:
+        alnum = "".join(c for c in ble_id if c.isalnum())
+        tag = (alnum[-4:] if len(alnum) >= 4
+               else hashlib.md5(ble_id.encode()).hexdigest()[:4]).upper()
+    else:
+        tag = hashlib.md5(f"{store_id}:{device_id}".encode()).hexdigest()[:4].upper()
     prefix = {"bean_scale": "LC", "rfid_reader": "RF", "milk_scale": "LC",
               "fridge_temp": "TH", "water_level": "WL", "smart_plug": "SP"}.get(device_id, "SM")
     return f"SM-{prefix}-{tag}"
@@ -194,27 +260,41 @@ def get_devices(store_id: str) -> dict[str, Any]:
     paired = _load_pairing().get(store_id, {})
     devices = []
     for d in SENSOR_DEVICES:
+        entry = _pair_entry(paired, d["id"])
         devices.append({
             **d,
-            "paired": d["id"] in paired,
-            "paired_at": paired.get(d["id"]),
-            "serial": _device_serial(store_id, d["id"]) if d["id"] in paired else None,
+            "paired": entry is not None,
+            "paired_at": entry.get("paired_at") if entry else None,
+            "serial": _device_serial(store_id, d["id"], entry.get("ble_id")) if entry else None,
+            "source": entry.get("source", "demo") if entry else None,
+            "ble_name": entry.get("ble_name") if entry else None,
         })
     return {**get_pairing_summary(store_id),
             "feature_enabled": is_feature_enabled(store_id),
+            "store_id": store_id,   # 브라우저 BLE 리더가 ingest 업링크에 쓸 매장 식별자
             "devices": devices}
 
 
-def pair_device(store_id: str, device_id: str) -> dict[str, Any]:
-    """기기 페어링 (실물에선 허브가 BLE/WiFi 핸드셰이크 — 지금은 즉시 성공 시뮬레이션)"""
+def pair_device(store_id: str, device_id: str, ble: dict[str, Any] | None = None) -> dict[str, Any]:
+    """기기 페어링 — 앱이 실제 BLE 스캔으로 찾은 기기 정보(ble)를 넘기면 실기기 등록,
+    없으면 센서 미보유 매장을 위한 데모 페어링으로 기록한다."""
     if device_id not in _DEVICE_IDS:
         raise ValueError(f"알 수 없는 기기: {device_id}")
+    entry: dict[str, Any] = {"paired_at": _now().isoformat(), "source": "demo"}
+    if ble and (ble.get("ble_id") or ble.get("ble_name")):
+        entry.update({
+            "source": "ble",
+            "ble_id": ble.get("ble_id"),
+            "ble_name": ble.get("ble_name"),
+            "rssi": ble.get("rssi"),
+        })
     store = _load_pairing().setdefault(store_id, {})
-    store[device_id] = _now().isoformat()
+    store[device_id] = entry
     _save_pairing()
     name = next(d["name"] for d in SENSOR_DEVICES if d["id"] == device_id)
     return {"ok": True, "device_id": device_id, "name": name,
-            "serial": _device_serial(store_id, device_id)}
+            "serial": _device_serial(store_id, device_id, entry.get("ble_id")),
+            "source": entry["source"], "ble_name": entry.get("ble_name")}
 
 
 def unpair_device(store_id: str, device_id: str) -> dict[str, Any]:
@@ -366,12 +446,23 @@ def get_live_snapshot(store_id: str) -> dict[str, Any]:
         milk_drinks = sales["milk_drinks"]
         last_menu, last_at = sales["last_menu"], sales["last_at"]
 
-    def hopper(shots: int, grams_per_shot: float, day_start_fill: float, kind: str) -> dict[str, Any]:
+    # 실측 수신값 (ESP32 허브/브라우저 BLE 리더가 TTL 이내에 올린 값) — 있으면 최우선
+    m_scale = _fresh_reading(store_id, "bean_scale")
+    m_rfid = _fresh_reading(store_id, "rfid_reader")
+    m_milk = _fresh_reading(store_id, "milk_scale")
+    m_fridge = _fresh_reading(store_id, "fridge_temp")
+    m_water = _fresh_reading(store_id, "water_level")
+    m_plug = _fresh_reading(store_id, "smart_plug")
+
+    def hopper(shots: int, grams_per_shot: float, day_start_fill: float, kind: str,
+               real_g: Any = None) -> dict[str, Any]:
         used = shots * grams_per_shot
         refill_cycle = HOPPER_CAPACITY_G * 0.9  # 10% 남으면 직원이 재장전했다고 간주
         refills = int(used // refill_cycle) if day_start_fill <= used else 0
         remaining = max(120.0, day_start_fill - (used - refills * refill_cycle))
         remaining = min(remaining, HOPPER_CAPACITY_G)
+        if isinstance(real_g, (int, float)):  # 로드셀 실측이 오면 판매 환산치를 덮어씀
+            remaining = min(max(float(real_g), 0.0), HOPPER_CAPACITY_G)
         percent = round(remaining / HOPPER_CAPACITY_G * 100)
         # 최근 2시간 소진 속도로 소진 예상 시각 계산 (판매 페이스 = 오늘 누적/영업경과시간 근사)
         elapsed_h = max(0.5, (now.hour + now.minute / 60) - OPEN_HOUR) if in_business else None
@@ -394,13 +485,17 @@ def get_live_snapshot(store_id: str) -> dict[str, Any]:
             "depletion_at": depletion_at,   # 오늘 안에 소진 예상 시 "HH:MM", 아니면 None
         }
 
-    caf_hopper = hopper(caf_shots, GRAMS_PER_SHOT_CAF, HOPPER_CAPACITY_G, "caffeine")
-    decaf_hopper = hopper(decaf_shots, GRAMS_PER_SHOT_DECAF, HOPPER_CAPACITY_G * 0.7, "decaf")
+    caf_hopper = hopper(caf_shots, GRAMS_PER_SHOT_CAF, HOPPER_CAPACITY_G, "caffeine",
+                        real_g=(m_scale or {}).get("caffeine_g"))
+    decaf_hopper = hopper(decaf_shots, GRAMS_PER_SHOT_DECAF, HOPPER_CAPACITY_G * 0.7, "decaf",
+                          real_g=(m_scale or {}).get("decaf_g"))
 
-    # 우유 (라떼류 잔 수 기반 소모, 소진되면 새 팩 보충 사이클)
+    # 우유 (라떼류 잔 수 기반 소모, 소진되면 새 팩 보충 사이클) — 로드셀 실측 우선
     milk_used = milk_drinks * MILK_PER_DRINK_ML
     milk_cycle = MILK_CAPACITY_ML * 0.92
     milk_remaining = max(300.0, MILK_CAPACITY_ML - (milk_used % milk_cycle))
+    if isinstance((m_milk or {}).get("remaining_ml"), (int, float)):
+        milk_remaining = min(max(float(m_milk["remaining_ml"]), 0.0), MILK_CAPACITY_ML)
     milk = {
         "remaining_ml": round(milk_remaining),
         "capacity_ml": int(MILK_CAPACITY_ML),
@@ -408,30 +503,51 @@ def get_live_snapshot(store_id: str) -> dict[str, Any]:
         "drinks_today": milk_drinks,
     }
 
-    # 냉장고 온도: 2~5℃ 사이 완만한 사인파 + 매장별 결정론적 노이즈
+    # 냉장고 온도: 온도센서 실측 우선, 없으면 2~5℃ 사인파 시뮬레이션
     minute_of_day = now.hour * 60 + now.minute
-    temp = 3.2 + 1.0 * math.sin(minute_of_day / 47.0) + _stable_noise(f"{store_id}:{now.hour}", 0.4)
+    if isinstance((m_fridge or {}).get("temp_c"), (int, float)):
+        temp = float(m_fridge["temp_c"])
+    else:
+        temp = 3.2 + 1.0 * math.sin(minute_of_day / 47.0) + _stable_noise(f"{store_id}:{now.hour}", 0.4)
     fridge = {"temp_c": round(temp, 1), "ok": temp < 7.0}
 
-    # 정수 탱크: 3시간 주기 보충 사이클
-    cycle_min = (minute_of_day % 180)
-    water_percent = max(15, round(100 - cycle_min / 180 * 70))
+    # 정수 탱크: 수위센서 실측(percent 또는 플로트 스위치 low) 우선, 없으면 3시간 주기 시뮬레이션
+    if isinstance((m_water or {}).get("percent"), (int, float)):
+        water_percent = int(min(max(float(m_water["percent"]), 0.0), 100.0))
+    elif isinstance((m_water or {}).get("low"), bool):
+        water_percent = 12 if m_water["low"] else 85  # 플로트 스위치는 부족/정상 2값만 앎
+    else:
+        cycle_min = (minute_of_day % 180)
+        water_percent = max(15, round(100 - cycle_min / 180 * 70))
     water = {"percent": water_percent, "ok": water_percent > 20}
 
-    # 머신 상태: 최근 판매가 5분 이내면 주기적으로 '추출 중' 연출
-    extracting = False
-    if in_business and last_at is not None:
-        last = last_at.astimezone(KST) if getattr(last_at, "tzinfo", None) else last_at
-        recent = (now - last) < timedelta(minutes=30)
-        extracting = recent and (int(now.timestamp()) % 37) < 9
-    machine = {
-        "status": "extracting" if extracting else ("idle" if in_business else "off"),
-        "current_menu": last_menu if extracting else None,
-        "last_menu": last_menu,
-    }
+    # 머신 상태: 스마트 플러그 전력(W) 실측 우선 — 없으면 최근 판매 기반 연출
+    if isinstance((m_plug or {}).get("power_w"), (int, float)):
+        power_w = float(m_plug["power_w"])
+        # 에스프레소 머신 전류 패턴: 추출/스팀 시 순간 부하가 크게 뜀
+        status = "extracting" if power_w >= 800 else ("idle" if power_w >= 20 else "off")
+        extracting = status == "extracting"
+        machine = {"status": status,
+                   "current_menu": last_menu if extracting else None,
+                   "last_menu": last_menu}
+    else:
+        extracting = False
+        if in_business and last_at is not None:
+            last = last_at.astimezone(KST) if getattr(last_at, "tzinfo", None) else last_at
+            recent = (now - last) < timedelta(minutes=30)
+            extracting = recent and (int(now.timestamp()) % 37) < 9
+        machine = {
+            "status": "extracting" if extracting else ("idle" if in_business else "off"),
+            "current_menu": last_menu if extracting else None,
+            "last_menu": last_menu,
+        }
 
-    # RFID 태그 (수정 모달에서 재지정된 원두명)
-    tags = _rfid_state.get(store_id, {})
+    # RFID 태그 — 리더 실측(원두통 태그 자동 인식) 우선, 없으면 수정 모달 저장값
+    tags = dict(_rfid_state.get(store_id, {}))
+    if isinstance((m_rfid or {}).get("caffeine_tag"), str):
+        tags["caffeine"] = m_rfid["caffeine_tag"]
+    if isinstance((m_rfid or {}).get("decaf_tag"), str):
+        tags["decaf"] = m_rfid["decaf_tag"]
 
     # 센서 연동(페어링) 상태 — 지표별 실측/데모 구분
     pairing = get_pairing_summary(store_id)
@@ -445,12 +561,27 @@ def get_live_snapshot(store_id: str) -> dict[str, Any]:
         "machine": p["smart_plug"],
     }
 
+    # 지표별 '진짜 하드웨어 측정값 수신 중' 여부 (페어링 여부와 별개 — TTL 이내 수신 기준)
+    measured_metrics = {
+        "hoppers": m_scale is not None,
+        "rfid": m_rfid is not None,
+        "milk": m_milk is not None,
+        "fridge": m_fridge is not None,
+        "water": m_water is not None,
+        "machine": m_plug is not None,
+    }
+
     def src(metric: str) -> str:
-        """이벤트 문구용 출처 라벨 — 페어링 전엔 '데모'로 정직하게 표기"""
-        return "" if live_metrics[metric] else " (데모)"
+        """이벤트 문구용 출처 라벨 — 실측 수신 중이면 표기 없음, 페어링만 됐으면 (환산), 아니면 (데모)"""
+        if measured_metrics[metric]:
+            return ""
+        return " (환산)" if live_metrics[metric] else " (데모)"
 
     # 틱커 이벤트 피드 (프론트 전광판용)
     events: list[str] = []
+    measured_count = sum(measured_metrics.values())
+    if measured_count:
+        events.append(f"📡 센서 실측 수신 중 — {measured_count}개 지표가 실시간 하드웨어 값이에요")
     if pairing["demo_mode"]:
         events.append("🔌 데모 모드 — 센서를 연결하면 아래 수치가 실측으로 바뀌어요")
     elif pairing["paired_count"] < pairing["total"]:
@@ -477,7 +608,8 @@ def get_live_snapshot(store_id: str) -> dict[str, Any]:
         "simulated": simulated,          # True면 DB 폴백(시뮬레이션) 모드
         "in_business": in_business,
         "pairing": pairing,              # 센서 연동 진행 상태 (데모/부분/완전)
-        "live_metrics": live_metrics,    # 지표별 실측 여부 (True=페어링된 센서 실측)
+        "live_metrics": live_metrics,    # 지표별 페어링 여부 (True=센서 연동됨)
+        "measured_metrics": measured_metrics,  # 지표별 실측 수신 여부 (True=TTL 이내 하드웨어 값 수신)
         "hoppers": {"caffeine": caf_hopper, "decaf": decaf_hopper},
         "machine": machine,
         "milk": milk,

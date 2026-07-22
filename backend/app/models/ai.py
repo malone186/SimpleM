@@ -101,6 +101,25 @@ class ChatSession(Base):
     updated_at_ms: Mapped[int] = mapped_column(BigInteger, index=True)
 
 
+class AdminNotification(Base):
+    """관리자 공지·알림 — 관리자 콘솔에서 발송해 사장님 앱이 폴링으로 수신한다
+
+    target_type: all(전체) | premium(프리미엄 회원) | specific(특정 매장 1곳)
+    specific일 때만 target_email에 수신 사장님 이메일이 들어간다.
+    """
+
+    __tablename__ = "admin_notifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str] = mapped_column(Text, default="")
+    target_type: Mapped[str] = mapped_column(String(16), default="all", index=True)
+    target_email: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    target_label: Mapped[str] = mapped_column(String(100), default="전체 사장님")  # 관리자 웹 표시용
+    author: Mapped[str] = mapped_column(String(50), default="최고 관리자")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class ComplianceItem(Base):
     """정기 갱신 서류 만료 추적 — 위생교육 수료증·보건증·임대차/공급 계약 등
 
