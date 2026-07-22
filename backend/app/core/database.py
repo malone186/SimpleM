@@ -21,18 +21,30 @@ def _create_db_engine():
     if RAW_DB_URL.startswith("sqlite"):
         return create_engine(RAW_DB_URL, connect_args={"check_same_thread": False})
 
+    # [Neon 등 서버리스 Postgres 대응]
+    # - connect_timeout: 유휴 후 첫 연결(cold start)에 수 초 걸리므로 기본 10초로 넉넉히. env로 조절.
+    # - keepalives: 서버리스가 유휴 연결을 끊어도 풀이 죽지 않게 TCP keepalive 유지.
+    # - SSL: DATABASE_URL 끝에 ?sslmode=require 를 붙이면 psycopg2가 자동 처리 (Neon 필수).
+    #   되도록 Neon의 '-pooler' 엔드포인트를 사용하면 동시 연결 제한에 강하다.
+    connect_timeout = int(os.getenv("DB_CONNECT_TIMEOUT", "10"))
     try:
         eng = create_engine(
             RAW_DB_URL,
             pool_pre_ping=True,
-            pool_size=5,
+            pool_size=int(os.getenv("DB_POOL_SIZE", "5")),
             max_overflow=10,
             pool_recycle=1800,
-            connect_args={"connect_timeout": 3}
+            connect_args={
+                "connect_timeout": connect_timeout,
+                "keepalives": 1,
+                "keepalives_idle": 30,
+                "keepalives_interval": 10,
+                "keepalives_count": 5,
+            },
         )
         with eng.connect() as conn:
             pass
-        logger.info("[DB 연결 성공] 공유 PostgreSQL 데이터베이스에 정상 연결되었습니다.")
+        logger.info("[DB 연결 성공] PostgreSQL 데이터베이스에 정상 연결되었습니다.")
         return eng
     except Exception as e:
         if os.getenv("ALLOW_SQLITE_FALLBACK") == "1":
