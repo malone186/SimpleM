@@ -136,10 +136,11 @@ def main():
     model.eval()
 
     report, agg, times = [], {}, []
+    from train35 import resize_pixel_budget  # 학습과 동일한 리사이즈 (train/serve skew 방지)
+
     for i, (img_path, gt) in enumerate(rows):
         img = Image.open(img_path).convert("RGB")
-        if max(img.size) > args.max_side:
-            img.thumbnail((args.max_side, args.max_side), Image.LANCZOS)
+        img = resize_pixel_budget(img, args.max_side)
         inputs = processor.apply_chat_template(
             [{"role": "user", "content": [{"type": "image", "image": img},
                                           {"type": "text", "text": VLM_PROMPT}]}],

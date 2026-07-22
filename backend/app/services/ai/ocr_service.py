@@ -288,14 +288,26 @@ def _auto_crop_document(img: Image.Image) -> Image.Image:
 
 
 def _preprocess_image(image_bytes: bytes, max_side: int = MAX_IMAGE_SIDE) -> bytes:
-    """폰 사진 대비: EXIF 회전 보정 + 문서 영역 자동 크롭 + 축소 + JPEG 재인코딩."""
+    """폰 사진 대비: EXIF 회전 보정 + 문서 영역 자동 크롭 + 크기 정규화 + JPEG 재인코딩.
+
+    크기 정규화는 두 방향:
+    - 큰 사진: 총 픽셀이 max_side² 이하가 되도록 종횡비 유지 축소. '긴 변 고정'은
+      세로로 긴 영수증(700×3000)을 239×1024로 뭉개 글자가 소실된다 — 픽셀 예산
+      방식이면 같은 연산량으로 494×2121을 유지한다 (학습 v2와 동일 방식).
+    - 아주 작은 사진(웹 축소본 등, 실측 387×516 업로드): 2배 업스케일. 정보가 늘진
+      않지만 글자 픽셀 크기를 학습 분포에 근접시켜 인식률이 오른다.
+    """
     try:
         img = Image.open(io.BytesIO(image_bytes))
         img = ImageOps.exif_transpose(img)
         img = img.convert("RGB")
         img = _auto_crop_document(img)
-        if max(img.size) > max_side:
-            img.thumbnail((max_side, max_side), Image.LANCZOS)
+        if max(img.size) < 900:  # 저해상도 구제 업스케일
+            img = img.resize((img.width * 2, img.height * 2), Image.LANCZOS)
+        budget = max_side * max_side
+        if img.width * img.height > budget:
+            scale = (budget / (img.width * img.height)) ** 0.5
+            img = img.resize((max(1, int(img.width * scale)), max(1, int(img.height * scale))), Image.LANCZOS)
         buf = io.BytesIO()
         img.save(buf, "JPEG", quality=88)
         return buf.getvalue()
