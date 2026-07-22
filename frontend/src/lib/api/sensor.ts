@@ -41,6 +41,7 @@ export interface SensorLive {
   in_business: boolean;
   pairing: SensorPairing;
   live_metrics: LiveMetrics;
+  measured_metrics?: LiveMetrics; // 지표별 진짜 하드웨어 값 수신 여부 (TTL 이내 업링크 기준)
   hoppers: { caffeine: HopperState; decaf: HopperState };
   machine: { status: 'extracting' | 'idle' | 'off'; current_menu: string | null; last_menu: string | null };
   milk: { remaining_ml: number; capacity_ml: number; percent: number; drinks_today: number };
@@ -94,25 +95,48 @@ export interface SensorDevice {
   icon: string;          // Ionicons 이름
   name: string;
   model: string;
+  ble_names: string[];   // 실제 BLE 스캔 시 이 기기로 인정할 광고 이름 접두어
   where: string;         // 설치 위치 한 줄
   benefit: string;       // 연결하면 좋아지는 점
   steps: string[];       // 설치 가이드 3단계
   paired: boolean;
   paired_at: string | null;
-  serial: string | null; // 페어링 완료 시 발급된 기기 시리얼
+  serial: string | null;          // 페어링 완료 시 발급된 기기 시리얼
+  source: 'ble' | 'demo' | null;  // 실기기(BLE) 페어링인지 데모 등록인지
+  ble_name: string | null;        // 실기기 페어링 시 BLE 광고 이름
 }
 
 export interface SensorDevicesResponse extends SensorPairing {
+  store_id: string;      // 브라우저 BLE 리더가 측정값 업링크에 쓰는 매장 식별자
   devices: SensorDevice[];
 }
+
+// 센서 측정값 업링크 (ESP32 허브와 같은 엔드포인트 — 브라우저 BLE 리더도 사용)
+// readings 예: { fridge_temp: { temp_c: 3.2 }, bean_scale: { caffeine_g: 923 } }
+export const postSensorReadings = (store: string, readings: Record<string, Record<string, unknown>>) =>
+  apiFetch<{ ok: boolean; accepted: string[]; ignored: string[] }>('/api/v1/sensor/ingest', {
+    method: 'POST',
+    body: JSON.stringify({ store, readings }),
+  });
 
 export const getSensorDevices = (token: string) =>
   apiFetch<SensorDevicesResponse>('/api/v1/sensor/devices', { headers: auth(token) });
 
-export const pairSensorDevice = (token: string, deviceId: string) =>
-  apiFetch<{ ok: boolean; device_id: string; name: string; serial: string }>(
+// BLE 스캔으로 찾은 실기기 정보 — 생략하면 데모 페어링(센서 미보유 매장용)
+export interface PairBlePayload {
+  ble_id: string;
+  ble_name: string;
+  rssi?: number;
+}
+
+export const pairSensorDevice = (token: string, deviceId: string, ble?: PairBlePayload) =>
+  apiFetch<{ ok: boolean; device_id: string; name: string; serial: string; source: 'ble' | 'demo' }>(
     `/api/v1/sensor/devices/${deviceId}/pair`,
-    { method: 'POST', headers: auth(token) },
+    {
+      method: 'POST',
+      headers: auth(token),
+      ...(ble ? { body: JSON.stringify(ble) } : {}),
+    },
   );
 
 export const unpairSensorDevice = (token: string, deviceId: string) =>

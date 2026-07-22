@@ -8,9 +8,11 @@
     "icon": "./assets/logo.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.simplem.brewnote"
     },
     "android": {
+      "package": "com.simplem.brewnote",
       "adaptiveIcon": {
         "backgroundColor": "#FBEFDD",
         "foregroundImage": "./assets/logo.png"
@@ -21,7 +23,14 @@
       "favicon": "./assets/logo.png"
     },
     "plugins": [
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": false,
+          "bluetoothAlwaysPermission": "매장 센서(무게·온도·RFID 허브)를 찾기 위해 블루투스를 사용합니다."
+        }
+      ]
     ]
   }
 }
