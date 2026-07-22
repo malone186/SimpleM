@@ -45,7 +45,7 @@ const announceSig = (n: { id: number; title?: string; date?: string }) =>
 
 // 관리자 공지를 폴링해 아직 닫지 않은 가장 최근 공지를 반환. 닫으면(dismiss) 다음부턴 숨긴다.
 // 소스는 로그인 매장 몫만 골라 주는 타겟 피드(/admin/notifications/feed) — 다른 매장 공지는 안 온다.
-function useAdminAnnouncement() {
+function useAdminAnnouncement(refreshTrigger = 0) {
   const { token } = useAuth();
   const [announce, setAnnounce] = useState<{ sig: string; title: string } | null>(null);
 
@@ -75,7 +75,8 @@ function useAdminAnnouncement() {
       alive = false;
       clearInterval(timer);
     };
-  }, [token]);
+    // refreshTrigger: 홈 당겨서 새로고침 시 공지도 즉시 재확인
+  }, [token, refreshTrigger]);
 
   const dismiss = async () => {
     if (!announce) return;
@@ -96,14 +97,16 @@ export default function WelcomeHeader({
   storeName = '포자카페',
   mood = 'welcome',
   onOpenMap,
+  refreshTrigger = 0,
 }: {
   storeName?: string;
   photo?: string;
+  refreshTrigger?: number;
   mood?: BrewMood;
   onOpenMap?: () => void;
 }) {
   const greeting = useTimeGreeting();
-  const { announce, dismiss } = useAdminAnnouncement();
+  const { announce, dismiss } = useAdminAnnouncement(refreshTrigger);
 
   // [한글 주석: 강아지와 말풍선을 묶어 위아래로 둥둥 띄우기 위한 애니메이션 상태변수 정의]
   const floatAnim = useRef(new Animated.Value(0)).current;

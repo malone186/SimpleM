@@ -220,12 +220,18 @@ export default function SalesCard({
     return () => clearInterval(timer);
   }, []);
 
-  // [한글 주석] 각 가게가 설정한 오픈 시간(기본값 09시)에 맞춰 그래프 X축 시작점이 맞춰집니다
-  // (6시, 7시 등 매출이 0원인 쓸데없는 아침 시간대 그래프 노출 방지)
-  const storeOpenHour = 9; // 매장 오픈 시간 (09:00)
-  const currentHour = now.getHours();
-  const startHour = Math.max(storeOpenHour, Math.min(14, currentHour < storeOpenHour ? storeOpenHour : currentHour - 9));
-  const axisHours = [startHour, startHour + 3, startHour + 6, Math.min(23, startHour + 9)];
+  // [한글 주석] 카페 대표 운영 시간대(09시, 13시, 17시, 21시)를 X축 표준 4지점으로 설정합니다
+  const axisHours = [9, 13, 17, 21];
+  const currentHour = now.getHours(); // [한글 주석] 실제 로컬 현재 시각 (예: 오전 9시)
+
+  // [한글 주석] 현재 시간(currentHour)에 가장 근접한 X축 시간대 지점 인덱스를 실시간 연산합니다
+  let currentAxisIndex = 0;
+  for (let i = axisHours.length - 1; i >= 0; i--) {
+    if (currentHour >= axisHours[i]) {
+      currentAxisIndex = i;
+      break;
+    }
+  }
 
   // 실제 오늘 날짜 기준 캘린더 좌표
   const year = now.getFullYear();
@@ -505,14 +511,14 @@ export default function SalesCard({
               <Path d={realtimeFillPath} fill="url(#todayFill)" />
               <Path d={realtimeLinePath} stroke={colors.espressoBrown} strokeWidth={2.0} fill="none" strokeLinecap="round" />
 
-              {/* 오늘 실시간 펄스 링 & 현재 시각 지점 */}
-              <Circle cx={275} cy={todayY[3]} r={2.0} fill={colors.espressoBrown} />
+              {/* 오늘 실시간 펄스 링 & 현재 시각 지점 — 하드코딩 275px 제거 및 currentAxisIndex 동적 연동 */}
+              <Circle cx={CHART_X[currentAxisIndex]} cy={todayY[currentAxisIndex]} r={2.5} fill={colors.pointOrange} />
               <Circle
-                cx={275}
-                cy={todayY[3]}
+                cx={CHART_X[currentAxisIndex]}
+                cy={todayY[currentAxisIndex]}
                 r={pulseRadius * 0.7}
-                fill={colors.espressoBrown}
-                opacity={pulseOpacity * 0.5}
+                fill={colors.pointOrange}
+                opacity={pulseOpacity * 0.6}
               />
 
               {/* 2. 내일 그래프 드로잉 — 예측 API가 성공했을 때만 (폴백 가짜 예측 없음) */}
@@ -522,10 +528,10 @@ export default function SalesCard({
                   <Path d={forecastLinePath} stroke={colors.mochaBrown} strokeWidth={1.2} strokeOpacity={0.38} strokeDasharray="1.2,2.0" fill="none" strokeLinecap="round" />
 
                   {/* 내일 펄스 링 & 최종 예측 피크 점 */}
-                  <Circle cx={275} cy={tomorrowY[3]} r={2.0} fill={colors.mochaBrown} opacity={0.4} />
+                  <Circle cx={CHART_X[currentAxisIndex]} cy={tomorrowY[currentAxisIndex]} r={2.0} fill={colors.mochaBrown} opacity={0.4} />
                   <Circle
-                    cx={275}
-                    cy={tomorrowY[3]}
+                    cx={CHART_X[currentAxisIndex]}
+                    cy={tomorrowY[currentAxisIndex]}
                     r={pulseRadius * 0.6}
                     fill={colors.mochaBrown}
                     opacity={pulseOpacity * 0.3}
@@ -536,7 +542,7 @@ export default function SalesCard({
               {/* 3. 오늘 데이터 포인트 (터치용 보이지 않는 큰 Circle 영역 포함, Y좌표 꺾은선 일치) */}
               {CHART_X.map((x, i) => (
                 <G key={`today-pt-${i}`}>
-                  <Circle cx={x} cy={todayY[i]} r={i === 3 ? 2.5 : 2.2} fill={colors.espressoBrown} />
+                  <Circle cx={x} cy={todayY[i]} r={i === currentAxisIndex ? 3.0 : 2.2} fill={i === currentAxisIndex ? colors.pointOrange : colors.espressoBrown} />
                   <Circle
                     cx={x}
                     cy={todayY[i]}
@@ -545,7 +551,7 @@ export default function SalesCard({
                     {...svgPress(() => setActiveTooltip({
                       x,
                       y: todayY[i],
-                      title: i === 3 ? `오늘 ${hourLabel(axisHours[i])} 실시간` : `오늘 ${hourLabel(axisHours[i])}`,
+                      title: i === currentAxisIndex ? `오늘 ${hourLabel(axisHours[i])} 실시간` : `오늘 ${hourLabel(axisHours[i])}`,
                       value: `실제 ${todayCupsCum[i]}잔`,
                     }))}
                   />
@@ -609,23 +615,29 @@ export default function SalesCard({
 
 
             {/* X축 — 현재 시각이 마지막 점, 시간이 지나면 자동으로 밀린다 */}
-            {/* [정렬 보정] 라벨을 균등 분배하지 않고 차트 원(CHART_X) 좌표 비율에 맞춰 배치 —
-                원에서 세로 점선을 따라 내려오면 시간 라벨 한가운데에 딱 떨어진다 */}
+            {/* [한글 주석] 레이아웃 붕괴 방지를 위해 60px 영역 중앙 정렬 트릭 적용 — 차트 점(CHART_X) 바로 아래에 시간이 딱 들어맞습니다 */}
             <View style={styles.xAxis}>
               {axisHours.map((h, i) => (
                 <View
                   key={`axis-${h}`}
-                  style={[styles.xAxisTickWrap, { left: `${(CHART_X[i] / 300) * 100}%` }]}
+                  style={{
+                    position: 'absolute',
+                    left: `${(CHART_X[i] / 300) * 100}%`,
+                    transform: [{ translateX: -30 }],
+                    width: 60,
+                    alignItems: 'center',
+                  }}
                 >
                   <Text
                     numberOfLines={1}
-                    style={
-                      i === 3
-                        ? [styles.xAxisText, { color: colors.mochaBrown, fontWeight: '700' as const, opacity: 0.95 }]
-                        : styles.xAxisText
-                    }
+                    style={{
+                      fontSize: 11,
+                      fontWeight: '800',
+                      color: i === currentAxisIndex ? colors.pointOrange : colors.espressoBrown,
+                      textAlign: 'center',
+                    }}
                   >
-                    {i === 3 ? `${hourLabel(h)} (지금)` : hourLabel(h)}
+                    {i === currentAxisIndex ? `${hourLabel(h)} (지금)` : hourLabel(h)}
                   </Text>
                 </View>
               ))}

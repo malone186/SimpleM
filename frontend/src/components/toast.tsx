@@ -112,13 +112,16 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingVertical: 12,
     paddingHorizontal: 18,
+    alignItems: 'center', // [한글 주석] 토스트 팝업 텍스트 및 요소를 정가운데로 정렬
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.3,
     shadowRadius: 12,
   },
-  toastTitle: { ...typography.L4, color: colors.creamSand, fontWeight: '700' },
-  toastMsg: { ...typography.L5, color: colors.mutedSand, marginTop: 3, lineHeight: 16 },
+  // [한글 주석] 알림 제목 — 또렷한 하얀색 볼드 서체 및 중앙 배치
+  toastTitle: { ...typography.L4, color: colors.white, fontWeight: '800', textAlign: 'center' },
+  // [한글 주석] 알림 상세 메시지 — 어두운 배경과 대비되는 선명한 하얀색 텍스트 적용
+  toastMsg: { ...typography.L5, color: 'rgba(255, 255, 255, 0.92)', marginTop: 4, lineHeight: 18, textAlign: 'center' },
   // 확인 다이얼로그
   confirmRoot: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', zIndex: 1100 },
   confirmBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: colors.black40 },

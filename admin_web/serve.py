@@ -8,6 +8,8 @@ import http.server
 import os
 import webbrowser
 
+import sys
+
 PORT = 3000
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -21,10 +23,14 @@ class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
 
 
 def main() -> None:
+    # [한글 주석] 윈도우 콘솔에서 유니코드 출력 시 cp949 인코딩 에러가 발생하지 않도록 UTF-8로 지정
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+
     handler = functools.partial(NoCacheHandler, directory=ROOT)
     server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), handler)
     url = f"http://localhost:{PORT}"
-    print(f"✅ SimpleM 관리자 콘솔 실행 중: {url}  (종료: Ctrl+C)")
+    print(f"[SimpleM] 관리자 콘솔 실행 중: {url}  (종료: Ctrl+C)")
     try:
         webbrowser.open(url)
     except Exception:

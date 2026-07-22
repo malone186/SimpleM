@@ -1947,11 +1947,12 @@ const styles = StyleSheet.create({
     bottom: 0,
     alignItems: 'center',
   },
+  // [한글 주석] 4개 가이드 점 하단 라벨 그리드 — 점의 오프셋(left/right 10px)과 1:1 수평 칼정렬
   sliderLabelsGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginHorizontal: -20,
-    marginTop: -2,
+    paddingHorizontal: 0,
+    marginTop: 4,
   },
   sliderNodeTouch: {
     width: 60,
@@ -1983,16 +1984,18 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 3,
   },
+  // [한글 주석] 4개 점 아래 단계/시간 라벨 — 옅은 회색에서 또렷한 모카 브라운으로 상향 조정
   sliderNodeLabel: {
-    fontSize: 9,
-    color: colors.stone300,
-    fontWeight: '600',
+    fontSize: 11,
+    color: colors.mochaBrown,
+    fontWeight: '700',
     width: 60,
     textAlign: 'center',
   },
   sliderNodeLabelSelected: {
     color: colors.espressoBrown,
-    fontWeight: '800',
+    fontWeight: '900',
+    fontSize: 12,
   },
   sliderNodeThumbAbsolute: {
     width: 18,

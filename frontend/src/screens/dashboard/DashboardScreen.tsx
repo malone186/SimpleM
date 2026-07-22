@@ -221,6 +221,7 @@ export default function DashboardScreen() {
             storeName={user?.name || '포자카페'}
             mood={brewMood}
             onOpenMap={() => navigation.navigate('StoreMap')}
+            refreshTrigger={runId}
           />
         </Animated.View>
 

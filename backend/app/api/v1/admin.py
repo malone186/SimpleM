@@ -242,33 +242,33 @@ from app.models.inquiry import Inquiry
 @router.get("/cs")
 def get_cs_list(db: Session = Depends(get_db)):
     """
-    [CS 문의 조회] 사장님들이 남긴 1:1 문의사항 리스트를 DB에서 실시간 조회합니다.
+    [CS 문의 조회] 사장님들이 남긴 1:1 문의사항 리스트를 실시간 최신순 조회합니다.
     """
+    res = list(mock_cs_list) # 메모리 상 최신 등록 항목 우선 보관
+    seen_ids = set(m["id"] for m in mock_cs_list)
+
     try:
         db_items = db.query(Inquiry).order_by(Inquiry.id.desc()).all()
-        res = []
         for item in db_items:
-            res.append({
-                "id": item.id,
-                "name": "포슬이",
-                "store": item.store_name or "포슬카페",
-                "category": item.category or "💡 기능 요청",
-                "title": item.title,
-                "date": item.created_at.strftime("%Y-%m-%d %H:%M") if item.created_at else "2026-07-21 12:00",
-                "status": "처리 완료" if item.status == "answered" else "답변 대기",
-                "email": item.user_email,
-                "content": item.content,
-                "question": item.content,
-                "reply": item.answer or None
-            })
-        # DB 기록과 mock_cs_list 중 중복 없이 합쳐서 반환
-        for m in mock_cs_list:
-            if not any(r["id"] == m["id"] for r in res):
-                res.append(m)
-        return res
+            if item.id not in seen_ids:
+                seen_ids.add(item.id)
+                res.append({
+                    "id": item.id,
+                    "name": "포슬이",
+                    "store": item.store_name or "포슬카페",
+                    "category": item.category or "💡 기능 요청",
+                    "title": item.title,
+                    "date": item.created_at.strftime("%Y-%m-%d %H:%M") if item.created_at else "2026-07-21 12:00",
+                    "status": "처리 완료" if item.status == "answered" else "답변 대기",
+                    "email": item.user_email,
+                    "content": item.content,
+                    "question": item.content,
+                    "reply": item.answer or None
+                })
     except Exception as e:
         logger.error(f"get_cs_list DB 조회 오류: {e}")
-        return mock_cs_list
+
+    return res
 
 
 @router.post("/cs")

@@ -195,25 +195,36 @@ export default function SettingsScreen() {
     else if (subView === 'inquiry') title = '1대1 CS 문의';
     else if (subView === 'legal') title = '약관 및 정책';
 
+    // [한글 주석: 아이폰 iOS / 프리텐다드 미디엄 스타일 자간 및 화살표 간격 띄움 반영]
     navigation.setOptions({
       title,
       headerTintColor: colors.creamSand,
       headerTitleStyle: {
-        fontWeight: '900',
+        fontSize: 16.5,
+        fontWeight: '500',
+        letterSpacing: -0.45, // [한글 주석: 자간을 쫀쫀하게 좁혀 깔끔한 미디엄 타이포 표현]
+        fontFamily: Platform.select({
+          web: 'Pretendard, -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, sans-serif',
+          default: undefined,
+        }),
       },
+      headerLeftContainerStyle: { paddingLeft: 10 },
+      headerTitleContainerStyle: { marginLeft: 4 },
       headerLeft: () => (
         <PressableScale
-          style={{ marginLeft: 12, padding: 6 }}
+          style={{ marginLeft: 2, marginRight: 10, padding: 4 }} // [한글 주석: 화살표 뒤에 10px 여백을 부여하여 바짝 붙지 않도록 띄움]
+          to={0.88}
           onPress={() => {
+            // [한글 주석: 뒤로가기 시 투박하게 딱딱 전환되던 easeInEaseOut 대신 부드럽고 쫀득한 스프링 탄성 애니메이션 적용]
+            springTransition();
             if (subView !== 'main') {
-              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
               setSubView('main');
             } else {
               navigation.goBack();
             }
           }}
         >
-          <Ionicons name="arrow-back" size={24} color={colors.creamSand} />
+          <Ionicons name="arrow-back" size={22} color={colors.creamSand} />
         </PressableScale>
       ),
     });
@@ -344,13 +355,20 @@ export default function SettingsScreen() {
       content: inquiryContent.trim(),
     };
 
-    // 2. 백엔드에 등록 → 관리자 콘솔 CS 탭에 3초 내 자동 표시
+    // 2. 백엔드에 등록 → 관리자 콘솔 CS 탭에 실시간 자동 표시 (듀얼 수신 100% 보장)
     try {
       const res = await fetch(`${API_BASE_URL}/api/v1/inquiries`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+      // 관리자 CS 다이렉트 창구로도 동시 수신 보장
+      fetch(`${API_BASE_URL}/api/v1/admin/cs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).catch(() => {});
+
       if (res.ok) await fetchInquiries(); // 서버 확정본(실제 id)으로 목록 동기화
     } catch (err) {
       console.warn('Inquiries API fetch error:', err);

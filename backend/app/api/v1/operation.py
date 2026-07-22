@@ -58,6 +58,7 @@ def list_employees_api(db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.post("/employees", response_model=CommonResponse)
 def create_employee_api(payload: EmployeeCreate, db: Session = Depends(get_db)):
     """신규 알바생을 새로 등록합니다."""
