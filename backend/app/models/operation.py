@@ -1,8 +1,11 @@
 # c:\STUDY\SimpleM\backend\app\models\operation.py
 """운영/예측 모델 (백엔드 C) - 백엔드 A가 SQLAlchemy 표준 ORM 규격으로 수정"""
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Date, Float
+import logging
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Date, Float, inspect, text
 from sqlalchemy.sql import func
 from app.core.database import Base
+
+logger = logging.getLogger(__name__)
 
 # 1. 직원 정보를 저장할 데이터베이스 테이블 설계도입니다.
 class Employee(Base):
@@ -10,9 +13,34 @@ class Employee(Base):
     __tablename__ = "employees"  # 데이터베이스 내의 실제 테이블 명
 
     id = Column(Integer, primary_key=True, index=True)
+    store_id = Column(String(100), nullable=True, index=True)  # 소속 매장(점주 이메일). 정산·급여 매장별 스코핑용
     name = Column(String(50), nullable=False)      # 직원 이름
     hourly_rate = Column(Integer, nullable=False)   # 시급 (KRW)
     role = Column(String(50), nullable=False)       # 직책/역할 (예: 바리스타)
+
+
+def ensure_employee_store_column(engine) -> None:
+    """[자가치유 스키마] 기존 employees 테이블에 store_id 컬럼이 없으면 멱등하게 추가한다.
+    create_all은 기존 테이블을 ALTER하지 않으므로 배포 시 무중단으로 보강.
+    기존(매장 미지정) 직원은 데모 기본 매장(owner@cafe.com)으로 백필해 정산 누락을 막는다."""
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("employees"):
+            return
+        existing = {c["name"] for c in insp.get_columns("employees")}
+    except Exception as e:
+        logger.warning(f"[직원 스키마] employees 점검 실패 — 건너뜁니다: {e}")
+        return
+    if "store_id" in existing:
+        return
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE employees ADD COLUMN store_id VARCHAR(100)"))
+            # 기존 직원은 데모 기본 매장으로 귀속 (매장별 정산에서 누락되지 않게)
+            conn.execute(text("UPDATE employees SET store_id = 'owner@cafe.com' WHERE store_id IS NULL"))
+        logger.info("[직원 스키마] employees.store_id 컬럼 추가 + 기존 직원 백필 완료")
+    except Exception as e:
+        logger.warning(f"[직원 스키마] store_id 보강 실패: {e}")
 
 
 # 2. 알바생들의 스케줄을 저장할 데이터베이스 테이블 설계도입니다.

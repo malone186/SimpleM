@@ -763,7 +763,7 @@ function LiveOperationCard() {
     setErr(null);
     try {
       const [s, p, f] = await Promise.all([
-        getSettlement(period),
+        getSettlement(period, token ?? undefined),
         listPayroll(period),
         forecastSales({ target_date: tomorrowISO(), engine: 'arima' }),
       ]);
@@ -1324,7 +1324,7 @@ function EmployeeManagementCard({
   const loadEmployees = useCallback(async () => {
     setLoading(true);
     try {
-      const list = await listEmployees();
+      const list = await listEmployees(token ?? undefined);
       setEmployees(list);
     } catch (e) {
       console.error('알바생 목록 조회 오류:', e);
@@ -1463,7 +1463,7 @@ function EmployeeManagementCard({
           name: empName,
           hourly_rate: rateNum,
           role: editingEmp.role.trim() || '바리스타',
-        });
+        }, token ?? undefined);
         empId = created.id;
         empName = created.name;
         if (editingEmp.selectedColor) {

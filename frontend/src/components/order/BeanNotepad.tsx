@@ -575,15 +575,19 @@ export default function BeanNotepad() {
         decaf: '디카페인'
       };
 
+      // 백엔드는 척도를 정수로 받는다 (0=상관없음, 1=낮음, 2=중간, 3=높음).
+      // 프론트 상태는 문자열이라 그대로 보내면 422가 나므로 정수로 변환한다.
+      const scaleMap: Record<string, number> = { any: 0, low: 1, medium: 2, high: 3 };
+
       const payload = {
         caffeine: decafMap[surveyDecaf] || '상관없음',
         origin: originMap[surveyOrigin] || '전체',
         process: processMap[surveyProcess] || '전체',
         roast_level: roastMap[surveyRoast] || '전체',
-        acidity: surveyAcidity,
-        body: surveyBody,
-        sweetness: surveySweetness,
-        bitterness: surveyBitterness
+        acidity: scaleMap[surveyAcidity] ?? 0,
+        body: scaleMap[surveyBody] ?? 0,
+        sweetness: scaleMap[surveySweetness] ?? 0,
+        bitterness: scaleMap[surveyBitterness] ?? 0,
       };
 
       // 백엔드 API 호출 (공용 DB 599개 원두 curation_snapshot 실시간 매칭)
