@@ -12,11 +12,15 @@ RAW_DB_URL = os.getenv(
     "postgresql://postgres:simplem@localhost:5432/simpleM"
 )
 
-# [한글 주석] 원격 공유 PostgreSQL 연결 불가 시 로컬 SQLite(sqlite:///./simplem.db)로 자동 안전 전환
+# [한글 주석] PostgreSQL 연결 불가 시 처리 정책.
+# 기존에는 조용히 로컬 SQLite로 전환했는데, 이 경우 운영 DB 장애가 감춰지고
+# 모든 쓰기가 재배포 때 사라지는 임시 파일로 흘러가는 심각한 사고로 이어진다.
+# 그래서 기본값은 "명확한 에러로 중단"이며, 개발 편의상 폴백이 필요하면
+# 환경변수 ALLOW_SQLITE_FALLBACK=1 을 명시적으로 설정해야만 SQLite로 전환한다.
 def _create_db_engine():
     if RAW_DB_URL.startswith("sqlite"):
         return create_engine(RAW_DB_URL, connect_args={"check_same_thread": False})
-    
+
     try:
         eng = create_engine(
             RAW_DB_URL,
@@ -31,9 +35,18 @@ def _create_db_engine():
         logger.info("[DB 연결 성공] 공유 PostgreSQL 데이터베이스에 정상 연결되었습니다.")
         return eng
     except Exception as e:
-        logger.warning(f"[DB 폴백] 공유 PostgreSQL DB 연결 실패 ({e}) -> 로컬 SQLite(sqlite:///./simplem.db)로 자동 전환합니다.")
-        sqlite_url = "sqlite:///./simplem.db"
-        return create_engine(sqlite_url, connect_args={"check_same_thread": False})
+        if os.getenv("ALLOW_SQLITE_FALLBACK") == "1":
+            logger.error(
+                f"[DB 폴백] PostgreSQL 연결 실패 ({e}) -> ALLOW_SQLITE_FALLBACK=1 이므로 로컬 SQLite로 전환합니다. "
+                "이 모드의 쓰기 데이터는 공유 DB에 반영되지 않습니다."
+            )
+            return create_engine("sqlite:///./simplem.db", connect_args={"check_same_thread": False})
+        # 폴백 미허용(기본값): 장애를 감추지 않고 즉시 중단시켜 운영자가 인지하게 한다.
+        raise RuntimeError(
+            f"PostgreSQL 연결에 실패했습니다: {e}\n"
+            "DATABASE_URL과 DB 서버 상태를 확인하세요. "
+            "개발 중 로컬 SQLite 폴백이 필요하면 환경변수 ALLOW_SQLITE_FALLBACK=1 을 설정하세요."
+        ) from e
 
 engine = _create_db_engine()
 
