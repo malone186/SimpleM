@@ -648,9 +648,13 @@ def _merge_duplicate_items(result: OcrResult) -> None:
         return
 
     merged: dict[tuple[str, str], OcrItem] = {}
-    
+
     for item in result.items:
         if not item.name:
+            continue
+        # 이름이 숫자·기호뿐이면 품목이 아니라 바코드/상품코드 줄이다
+        # (코스트코 영수증의 '652125' 같은 줄을 모델이 품목으로 뽑는 실측 사례 차단)
+        if re.fullmatch(r"[\d\-*#. ]{5,}", item.name.strip()):
             continue
             
         # 이름과 단위를 기준으로 묶어줍니다.

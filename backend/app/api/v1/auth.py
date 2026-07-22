@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.auth import get_password_hash, verify_password, create_access_token, get_current_user
+from app.core.auth import get_password_hash, verify_password, create_access_token, get_current_user, get_current_admin
 from app.models.user import User
 from app.schemas.user import UserCreate, UserLogin, UserResponse, Token, UserUpdate
 
@@ -88,7 +88,7 @@ def login(user_in: UserLogin, db: Session = Depends(get_db)):
 
 # [관리자 전용] 3. [전체 회원 목록 조회 API 창구]
 @router.get("/users", response_model=list[UserResponse])
-def get_all_users(db: Session = Depends(get_db)):
+def get_all_users(db: Session = Depends(get_db), _admin: User = Depends(get_current_admin)):
     """
     [관리자용] 현재 DB에 가입된 모든 사장님(회원)의 정보를 조회합니다.
     """
@@ -97,7 +97,7 @@ def get_all_users(db: Session = Depends(get_db)):
 
 # [관리자 전용] 4. [특정 회원 강제 탈퇴 처리 API 창구]
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_user(user_id: int, db: Session = Depends(get_db)):
+def delete_user(user_id: int, db: Session = Depends(get_db), _admin: User = Depends(get_current_admin)):
     """
     [관리자용] 특정 ID의 회원을 강제 탈퇴 처리하고 관련 정보를 데이터베이스에서 삭제합니다.
     """

@@ -3,7 +3,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Query, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.core.auth import get_current_user
+from app.core.auth import get_current_user, get_current_user_optional
 from app.models.user import User
 from app.models.operation import Employee, Schedule, EstimatedPayroll, EstimatedSettlement
 from app.schemas.operation import (
@@ -50,10 +50,14 @@ def curate_beans_api(payload: CurationFilterRequest, limit: int = Query(20, ge=1
 # ----------------------------------------------------
 
 @router.get("/employees", response_model=CommonResponse)
-def list_employees_api(db: Session = Depends(get_db)):
-    """전체 알바생(근무자) 목록을 조회합니다."""
+def list_employees_api(
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """알바생(근무자) 목록을 조회합니다. 토큰이 오면 로그인 매장 직원만 반환합니다."""
     try:
-        employees = OperationService.get_employees(db)
+        store_id = current_user.email if current_user else None
+        employees = OperationService.get_employees(db, store_id=store_id)
         data = [EmployeeResponse.model_validate(emp) for emp in employees]
         return CommonResponse(success=True, data=data, message="알바생 목록 조회가 완료되었습니다.")
     except Exception as e:
@@ -61,14 +65,19 @@ def list_employees_api(db: Session = Depends(get_db)):
 
 
 @router.post("/employees", response_model=CommonResponse)
-def create_employee_api(payload: EmployeeCreate, db: Session = Depends(get_db)):
-    """신규 알바생을 새로 등록합니다."""
+def create_employee_api(
+    payload: EmployeeCreate,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """신규 알바생을 새로 등록합니다. 토큰이 오면 로그인 매장 소속으로 등록합니다."""
     try:
         emp = OperationService.create_employee(
             db=db,
             name=payload.name,
             hourly_rate=payload.hourly_rate,
-            role=payload.role
+            role=payload.role,
+            store_id=current_user.email if current_user else None,
         )
         return CommonResponse(
             success=True,
@@ -557,8 +566,14 @@ def list_all_payroll_api(
 
 
 @router.post("/settlements/calculate", response_model=CommonResponse, summary="예상 손익 정산 계산 (MVP)")
-def calculate_settlement_api(payload: SettlementCalculateRequest, db: Session = Depends(get_db)):
+def calculate_settlement_api(
+    payload: SettlementCalculateRequest,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     # [예상 손익 정산 계산 API]
+    # 토큰이 오면 로그인 매장 몫만 집계(매장별 격리), 없으면 기존 전체 집계(하위호환).
+    store_id = current_user.email if current_user else None
 
     try:
         revenue = payload.revenue
@@ -580,24 +595,27 @@ def calculate_settlement_api(payload: SettlementCalculateRequest, db: Session = 
             except ValueError:
                 raise HTTPException(status_code=400, detail="날짜 포맷은 YYYY-MM-DD 형식이어야 합니다.")
 
-            # 2. 지정 기간 총 매출(Sale) 자동 집계
-            sales_sum = db.query(func.sum(Sale.total_price)).filter(
+            # 2. 지정 기간 총 매출(Sale) 자동 집계 — 토큰 있으면 로그인 매장 몫만
+            sales_q = db.query(func.sum(Sale.total_price)).filter(
                 Sale.sold_at >= p_start_dt,
                 Sale.sold_at < p_end_dt
-            ).scalar()
-            revenue = int(sales_sum or 0)
+            )
+            if store_id:
+                sales_q = sales_q.filter(Sale.store_id == store_id)
+            revenue = int(sales_q.scalar() or 0)
 
-            # 3. 지정 기간 총 지출 비용(Expense) 자동 집계
-            expense_sum = db.query(func.sum(Expense.amount)).filter(
+            # 3. 지정 기간 총 지출 비용(Expense) 자동 집계 — 매장별 스코핑
+            expense_q = db.query(func.sum(Expense.amount)).filter(
                 Expense.expense_date >= payload.period_start,
                 Expense.expense_date <= payload.period_end
-            ).scalar()
-            cost = int(expense_sum or 0)
+            )
+            if store_id:
+                expense_q = expense_q.filter(Expense.store_id == store_id)
+            cost = int(expense_q.scalar() or 0)
 
-            # 4. 지정 월 총 인건비(labor_cost) 자동 집계 (소속 직원들의 예상 급여 연산액 합산)
-            # period_start 문자열로부터 해당 연월(YYYY-MM)을 추출하여 급여 집계를 돌립니다.
+            # 4. 지정 월 총 인건비(labor_cost) 자동 집계 — 해당 매장 직원 급여만 합산
             year_month = payload.period_start[:7]
-            employees_payroll = OperationService.list_employees_payroll(db, year_month)
+            employees_payroll = OperationService.list_employees_payroll(db, year_month, store_id=store_id)
             labor_cost = sum(payroll.get("estimated_salary", 0) for payroll in employees_payroll)
 
         # [한글 주석: 두 경로 모두 유효 데이터가 확보되지 않았다면 에러를 리턴합니다]

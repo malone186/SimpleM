@@ -4,6 +4,7 @@ import os
 import json
 import time
 import urllib.request
+from typing import Optional
 from datetime import datetime, timedelta, timezone
 import jwt
 import bcrypt
@@ -30,11 +31,19 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 하루 유효한 로컬 토큰
 FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "simplem-app")
 
+# 관리자 이메일 허용목록 — 프론트 RootNavigator의 ADMIN_EMAILS와 동일하게 맞춘다.
+# 콤마로 여러 명 지정 가능: ADMIN_EMAILS=a@x.com,b@y.com
+ADMIN_EMAILS = [e.strip() for e in os.getenv("ADMIN_EMAILS", "admin@simplem.com").split(",") if e.strip()]
+# 관리자 웹 콘솔 로그인용 비밀번호 (env 필수). 없으면 관리자 로그인이 비활성화된다.
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+
 # 구글 공개 키 캐싱을 위한 전역 변수들
 _GOOGLE_PUBLIC_KEYS = {}
 _KEYS_EXPIRE_AT = 0.0
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
+# 선택적 인증용 — 토큰이 없어도 401을 던지지 않고 그냥 통과시킨다.
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login", auto_error=False)
 
 
 # --- [비밀번호 암호화 관련 함수 (로컬 DB 레거시 유지용)] ---
@@ -179,3 +188,33 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         db.refresh(user)
 
     return user
+
+
+def get_current_user_optional(
+    token: Optional[str] = Depends(oauth2_scheme_optional),
+    db: Session = Depends(get_db),
+) -> Optional[User]:
+    """
+    [선택적 인증] 토큰이 있으면 사용자를 반환하고, 없거나 무효면 None을 반환한다(401 없음).
+    기존에 인증 없이 열려 있던 엔드포인트를 깨지 않고 '토큰이 오면 매장별로 스코핑'하는 용도.
+    """
+    if not token:
+        return None
+    try:
+        return get_current_user(token=token, db=db)
+    except HTTPException:
+        return None
+
+
+def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
+    """
+    [관리자 전용 통문] 로그인 사용자가 관리자 허용목록(ADMIN_EMAILS)에 속하는지 확인한다.
+    - 1단계: get_current_user가 토큰(Firebase RS256 또는 로컬 HS256)을 검증
+    - 2단계: 그 이메일이 관리자인지 확인 — 아니면 403
+    """
+    if current_user.email not in ADMIN_EMAILS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="관리자 권한이 필요합니다.",
+        )
+    return current_user

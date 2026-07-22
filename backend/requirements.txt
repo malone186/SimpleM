@@ -9,6 +9,10 @@ httpx>=0.28
 pillow>=12.0
 langchain>=1.3
 langchain-core>=1.4
+langchain-google-genai>=4.2  # 챗봇 두뇌·리포트 조언 (Gemini)
+# core/auth.py가 import 시점에 요구 — 로그인/JWT 발급
+PyJWT>=2.13
+bcrypt>=5.0
 # core/database.py가 import 시점에 요구 — 없으면 CI 등 새 환경에서 앱 전체가 즉시 죽는다
 python-dotenv>=1.0
 psycopg2-binary>=2.9

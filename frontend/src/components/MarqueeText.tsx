@@ -41,14 +41,15 @@ export default function MarqueeText({
 
   return (
     <View style={[styles.clip, style]} onLayout={(e) => setContainerW(e.nativeEvent.layout.width)}>
-      {/* 자연 너비 측정용 숨은 사본 — 절대배치라 폭 제약 없이 한 줄 자연 너비로 잰다 */}
-      <View style={styles.measure} onLayout={(e) => setContentW(e.nativeEvent.layout.width)} pointerEvents="none">
+      {/* [한글 주석: 자연 너비 측정용 숨은 사본 - 줄바꿈(nowrap) 없이 무조건 1줄 자연 너비로 측정] */}
+      <View style={[styles.measure, { whiteSpace: 'nowrap' } as any]} onLayout={(e) => setContentW(e.nativeEvent.layout.width)} pointerEvents="none">
         {children}
       </View>
-      {/* 실제 표시 — 넘칠 때만 translateX로 스크롤, 아니면 제자리 */}
+      {/* [한글 주석: 실제 표시 - 넘칠 때만 translateX로 1줄 좌우 스크롤] */}
       <Animated.View
         style={[
           styles.visibleRow,
+          { whiteSpace: 'nowrap' } as any,
           overflow && contentW ? { width: contentW } : null,
           { transform: [{ translateX: overflow ? x : 0 }] },
         ]}
@@ -61,6 +62,18 @@ export default function MarqueeText({
 
 const styles = StyleSheet.create({
   clip: { overflow: 'hidden' },
-  measure: { position: 'absolute', opacity: 0, left: 0, top: 0, alignSelf: 'flex-start' },
-  visibleRow: { flexDirection: 'row', alignSelf: 'flex-start' },
+  measure: {
+    position: 'absolute',
+    opacity: 0,
+    left: 0,
+    top: 0,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  visibleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+  },
 });

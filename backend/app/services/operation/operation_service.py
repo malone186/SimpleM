@@ -25,20 +25,23 @@ class OperationService:
 
     # [한글 주석] 전체 알바생(근무자) 목록을 ID순으로 조회합니다.
     @staticmethod
-    def get_employees(db: Session) -> List[Employee]:
-        """전체 직원 목록 조회"""
-        return db.query(Employee).order_by(Employee.id.asc()).all()
+    def get_employees(db: Session, store_id: Optional[str] = None) -> List[Employee]:
+        """직원 목록 조회. store_id를 주면 해당 매장 직원만 반환한다(선택적 스코핑)."""
+        q = db.query(Employee)
+        if store_id:
+            q = q.filter(Employee.store_id == store_id)
+        return q.order_by(Employee.id.asc()).all()
 
     # [한글 주석] 신규 알바생 정보(이름, 시급, 직책)를 DB에 새로 등록합니다.
     @staticmethod
-    def create_employee(db: Session, name: str, hourly_rate: int, role: str = "바리스타") -> Employee:
-        """신규 직원 등록"""
+    def create_employee(db: Session, name: str, hourly_rate: int, role: str = "바리스타", store_id: Optional[str] = None) -> Employee:
+        """신규 직원 등록. store_id를 주면 해당 매장 소속으로 등록한다."""
         if not name or not name.strip():
             raise ValueError("직원 이름은 필수 입력 항목입니다.")
         if hourly_rate <= 0:
             raise ValueError("시급은 0원보다 커야 합니다.")
-        
-        new_emp = Employee(name=name.strip(), hourly_rate=hourly_rate, role=role.strip() if role else "바리스타")
+
+        new_emp = Employee(name=name.strip(), hourly_rate=hourly_rate, role=role.strip() if role else "바리스타", store_id=store_id)
         db.add(new_emp)
         db.commit()
         db.refresh(new_emp)
@@ -330,12 +333,15 @@ class OperationService:
         }
 
     @classmethod
-    def list_employees_payroll(cls, db: Session, year_month: str) -> List[dict]:
-        """[하위 호환 헬퍼] 등록된 모든 직원의 해당 월 예상 급여 목록을 반환합니다."""
+    def list_employees_payroll(cls, db: Session, year_month: str, store_id: Optional[str] = None) -> List[dict]:
+        """등록된 직원의 해당 월 예상 급여 목록. store_id를 주면 해당 매장 직원만 집계한다."""
         results = []
         p_start = f"{year_month}-01"
         p_end = f"{year_month}-31"
-        for emp in db.query(Employee).all():
+        emp_q = db.query(Employee)
+        if store_id:
+            emp_q = emp_q.filter(Employee.store_id == store_id)
+        for emp in emp_q.all():
             try:
                 results.append(cls.calculate_payroll_from_db(db, emp.id, p_start, p_end))
             except ValueError:

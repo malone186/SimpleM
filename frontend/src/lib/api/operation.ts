@@ -117,7 +117,7 @@ export async function estimateTaxManual(body: {
 
 // ---------- 정산 ----------
 /** 월별 손익 정산 (매출−비용−인건비). 연월을 기간으로 변환해 계산 API 호출 */
-export async function getSettlement(yearMonth: string): Promise<Settlement> {
+export async function getSettlement(yearMonth: string, token?: string): Promise<Settlement> {
   const [y, m] = yearMonth.split('-').map(Number);
   const lastDay = new Date(y, m, 0).getDate();
   const data = unwrap(
@@ -129,6 +129,7 @@ export async function getSettlement(yearMonth: string): Promise<Settlement> {
           period_start: `${yearMonth}-01`,
           period_end: `${yearMonth}-${String(lastDay).padStart(2, '0')}`,
         }),
+        headers: token ? auth(token) : undefined, // 토큰 있으면 매장별 정산으로 스코핑
       },
     ),
   );
@@ -357,21 +358,30 @@ export type Employee = {
   role: string;
 };
 
-/** 전체 알바생 목록 조회 API */
-export async function listEmployees(): Promise<Employee[]> {
-  return unwrap(await apiFetch<CommonResponse<Employee[]>>('/api/v1/operation/employees'));
+/** 알바생 목록 조회 API — 토큰이 있으면 로그인 매장 직원만 반환 */
+export async function listEmployees(token?: string): Promise<Employee[]> {
+  return unwrap(
+    await apiFetch<CommonResponse<Employee[]>>(
+      '/api/v1/operation/employees',
+      token ? { headers: auth(token) } : undefined,
+    ),
+  );
 }
 
-/** 신규 알바생 등록 API */
-export async function createEmployee(body: {
-  name: string;
-  hourly_rate: number;
-  role?: string;
-}): Promise<Employee> {
+/** 신규 알바생 등록 API — 토큰이 있으면 로그인 매장 소속으로 등록 */
+export async function createEmployee(
+  body: {
+    name: string;
+    hourly_rate: number;
+    role?: string;
+  },
+  token?: string,
+): Promise<Employee> {
   return unwrap(
     await apiFetch<CommonResponse<Employee>>('/api/v1/operation/employees', {
       method: 'POST',
       body: JSON.stringify(body),
+      headers: token ? auth(token) : undefined,
     }),
   );
 }
