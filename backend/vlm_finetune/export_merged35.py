@@ -25,14 +25,21 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--adapter", default=str(HERE / "output" / "adapter35"))
     ap.add_argument("--out", default=str(HERE / "output" / "merged35"))
+    ap.add_argument("--base", default=None,
+                    help="베이스 모델 (기본: 어댑터 config의 base_model_name_or_path, 없으면 0.8B)")
     args = ap.parse_args()
 
-    if not (Path(args.adapter) / "adapter_config.json").exists():
+    cfg_path = Path(args.adapter) / "adapter_config.json"
+    if not cfg_path.exists():
         raise SystemExit(f"어댑터가 없습니다: {args.adapter} — 먼저 train35.py로 학습하세요")
 
+    # 베이스는 어댑터가 기억하는 학습 당시 모델을 따른다 — 0.8B/2B를 같은 스크립트로 병합.
+    import json
+    base = args.base or json.loads(cfg_path.read_text(encoding="utf-8")).get("base_model_name_or_path") or BASE
+
     # 병합은 CPU에서 해도 된다(가중치 덧셈뿐). GPU가 평가 중이어도 안전하도록 CPU 고정.
-    print(f"베이스 로드: {BASE} (bf16, CPU)")
-    model = Qwen3_5ForConditionalGeneration.from_pretrained(BASE, dtype=torch.bfloat16, device_map="cpu")
+    print(f"베이스 로드: {base} (bf16, CPU)")
+    model = Qwen3_5ForConditionalGeneration.from_pretrained(base, dtype=torch.bfloat16, device_map="cpu")
     print(f"어댑터 적용: {args.adapter}")
     model = PeftModel.from_pretrained(model, args.adapter)
     model = model.merge_and_unload()
@@ -40,7 +47,7 @@ def main() -> None:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(out, safe_serialization=True)
-    AutoProcessor.from_pretrained(BASE).save_pretrained(out)
+    AutoProcessor.from_pretrained(base).save_pretrained(out)
     print(f"저장 완료: {out}")
 
 
