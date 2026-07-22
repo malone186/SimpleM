@@ -296,6 +296,12 @@ def _preprocess_image(image_bytes: bytes, max_side: int = MAX_IMAGE_SIDE) -> byt
         img = _auto_crop_document(img)
         if max(img.size) > max_side:
             img.thumbnail((max_side, max_side), Image.LANCZOS)
+        elif max(img.size) < max_side:
+            # 저해상도 업로드(카톡 전송본 등)는 학습 해상도(1024)에 맞춰 업스케일한다.
+            # 파인튜닝 모델이 학습 때 본 스케일보다 작은 이미지는 분포 밖이라 품목을
+            # 헛읽고 반복 루프에 빠진다 — 387px 영수증 실측: 업스케일 전 전멸, 후 9/9 정확.
+            scale = max_side / max(img.size)
+            img = img.resize((round(img.width * scale), round(img.height * scale)), Image.LANCZOS)
         buf = io.BytesIO()
         img.save(buf, "JPEG", quality=88)
         return buf.getvalue()
