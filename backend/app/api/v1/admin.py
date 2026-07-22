@@ -22,9 +22,11 @@ router = APIRouter(prefix="/admin", tags=["관리자 콘솔(Admin)"])
 # ---------------------------------------------------------------------------
 
 # 1. 1:1 CS 문의 모의 데이터베이스
+# 시드 id는 9000번대 — DB inquiries의 실제 id(1부터 증가)와 겹치면 시드 문의에 단
+# 답변이 엉뚱한 실제 문의(DB의 같은 id)에 기록되므로 반드시 분리해 둔다.
 mock_cs_list = [
     {
-        "id": 1,
+        "id": 9001,
         "name": "포슬이",
         "store": "포슬카페",
         "title": "영수증 OCR 인식 속도가 조금 느린 것 같아요",
@@ -35,7 +37,7 @@ mock_cs_list = [
         "reply": None
     },
     {
-        "id": 2,
+        "id": 9002,
         "name": "김철수",
         "store": "블루보틀 강남",
         "title": "이번 주 세무 리포트 발행일 변경 문의",
@@ -46,7 +48,7 @@ mock_cs_list = [
         "reply": "안녕하세요 사장님, 운영 정보 분석 주기는 본점 정책상 주말 집계 후 월요일 오전 9시로 고정되어 있습니다. 주말 데이터의 오차를 최소화하기 위한 조치이오니 양해 부탁드립니다!"
     },
     {
-        "id": 3,
+        "id": 9003,
         "name": "이영희",
         "store": "성수 로스터스",
         "title": "프리미엄 결제 영수증 출력",
@@ -295,7 +297,8 @@ def create_cs_from_app(req: dict, db: Session = Depends(get_db)):
     store_name = req.get("store_name", "포슬카페")
     user_email = req.get("user_email", "owner@cafe.com")
 
-    new_inq_id = len(mock_cs_list) + 100
+    # 폴백 id도 9000번대에서 발급 — DB 실제 id와의 충돌 방지 (시드 id 정책과 동일)
+    new_inq_id = max([m["id"] for m in mock_cs_list], default=9000) + 1
     try:
         db_inq = Inquiry(
             user_email=user_email,
@@ -334,7 +337,12 @@ def create_cs_from_app(req: dict, db: Session = Depends(get_db)):
 def reply_to_cs(cs_id: int, payload: CSReplyPayload, db: Session = Depends(get_db)):
     """
     [CS 답변 등록] 관리자가 사장님의 문의에 답변을 남기며, DB 상태를 '처리 완료'로 갱신합니다.
+    DB 성공·실패와 무관하게 메모리 폴백 리스트 양쪽도 동기화해 앱 폴링에서 답변이 유실되지 않게 한다.
     """
+    # 순환 import 방지: inquiry.py가 admin.py의 mock_cs_list를 모듈 로드 시점에 가져가므로
+    # 반대 방향 참조는 함수 안에서 지연 import 한다.
+    from app.api.v1.inquiry import sync_reply_to_memory
+
     try:
         inq = db.query(Inquiry).filter(Inquiry.id == cs_id).first()
         if inq:
@@ -343,6 +351,7 @@ def reply_to_cs(cs_id: int, payload: CSReplyPayload, db: Session = Depends(get_d
             inq.answered_at = datetime.utcnow()
             db.commit()
             db.refresh(inq)
+            sync_reply_to_memory(cs_id, payload.reply)
             return {"success": True, "item": {
                 "id": inq.id,
                 "store": inq.store_name,
@@ -357,12 +366,12 @@ def reply_to_cs(cs_id: int, payload: CSReplyPayload, db: Session = Depends(get_d
     except Exception as e:
         logger.error(f"CS 답변 등록 중 오류: {e}")
 
+    # DB에 없는 문의(메모리 폴백 접수분·시드) — 앱이 읽는 GLOBAL_INQUIRIES까지 함께 갱신
+    sync_reply_to_memory(cs_id, payload.reply)
     for item in mock_cs_list:
         if item["id"] == cs_id:
-            item["status"] = "처리 완료"
-            item["reply"] = payload.reply
             return {"success": True, "item": item}
-            
+
     return {"success": True}
 
 

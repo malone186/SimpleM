@@ -24,9 +24,10 @@ class InquiryReply(BaseModel):
     answer: str
 
 # 글로벌 공유 메모리 리스트 (DB 미생성 또는 세션 에러 대비 100% 수신 보장)
+# 시드 id는 9100번대 — DB inquiries의 실제 id(1부터 증가)와 절대 겹치지 않게 분리
 GLOBAL_INQUIRIES = [
     {
-        "id": 1,
+        "id": 9101,
         "user_email": "owner@cafe.com",
         "store_name": "포슬카페",
         "category": "💡 기능 요청",
@@ -44,13 +45,36 @@ def _normalize_status(raw: Optional[str]) -> str:
     return "answered" if raw in ("answered", "처리 완료", "done") else "pending"
 
 
+def sync_reply_to_memory(inquiry_id: int, answer: str) -> None:
+    """[한글 주석] 답변을 메모리 폴백 리스트 양쪽(GLOBAL_INQUIRIES·mock_cs_list)에 동기화
+
+    관리자 웹은 mock_cs_list를, 사장님 앱은 GLOBAL_INQUIRIES를 읽는다.
+    DB가 꺼진 상태에서 어느 경로로 답변하든 두 리스트가 같이 갱신돼야
+    앱 폴링에서 답변이 유실되지 않는다.
+    """
+    for m in GLOBAL_INQUIRIES:
+        if m["id"] == inquiry_id:
+            m["answer"] = answer
+            m["status"] = "answered"
+    for c in mock_cs_list:
+        if c["id"] == inquiry_id:
+            c["reply"] = answer
+            c["status"] = "처리 완료"
+
+
 @router.get("")
-def get_inquiries(db: Session = Depends(get_db)):
-    """[한글 주석] 사장님 문의 및 관리자 웹 공용 1대1 문의 내역 전체 최신순 조회"""
+def get_inquiries(user_email: Optional[str] = None, db: Session = Depends(get_db)):
+    """[한글 주석] 1대1 문의 내역 최신순 조회
+    user_email을 넘기면 그 사장님 본인 문의만 반환한다 (앱의 '나의 문의 내역'용).
+    파라미터가 없으면 전체를 반환한다 (관리자 웹 호환).
+    """
     res = []
     seen_ids = set()
     try:
-        items = db.query(Inquiry).order_by(Inquiry.id.desc()).all()
+        query = db.query(Inquiry)
+        if user_email:
+            query = query.filter(Inquiry.user_email == user_email)
+        items = query.order_by(Inquiry.id.desc()).all()
         for item in items:
             seen_ids.add(item.id)
             res.append({
@@ -68,8 +92,11 @@ def get_inquiries(db: Session = Depends(get_db)):
         pass
     # DB에 없는 메모리 항목만 뒤에 붙인다 (서버 재시작·DB 오프라인 대비)
     for m in GLOBAL_INQUIRIES:
-        if m["id"] not in seen_ids:
-            res.append({**m, "status": _normalize_status(m.get("status"))})
+        if m["id"] in seen_ids:
+            continue
+        if user_email and m.get("user_email") != user_email:
+            continue
+        res.append({**m, "status": _normalize_status(m.get("status"))})
     return res
 
 
@@ -148,6 +175,7 @@ def reply_inquiry(inquiry_id: int, req: InquiryReply, db: Session = Depends(get_
         inq.answered_at = datetime.utcnow()
         db.commit()
         db.refresh(inq)
+        sync_reply_to_memory(inquiry_id, req.answer)  # 메모리 사본도 함께 갱신 (표시 불일치 방지)
         return {
             "id": inq.id,
             "user_email": inq.user_email,
@@ -163,7 +191,6 @@ def reply_inquiry(inquiry_id: int, req: InquiryReply, db: Session = Depends(get_
     # DB에 없으면 메모리 리스트에서 답변 처리 (DB 오프라인 대비)
     for m in GLOBAL_INQUIRIES:
         if m["id"] == inquiry_id:
-            m["answer"] = req.answer
-            m["status"] = "answered"
+            sync_reply_to_memory(inquiry_id, req.answer)
             return m
     raise HTTPException(status_code=404, detail="해당 문의글을 찾을 수 없습니다.")

@@ -289,15 +289,17 @@ export default function SettingsScreen() {
     });
   };
 
-  // [한글 주석] 백엔드에서 1대1 문의 실시간 내역 불러오기
+  // [한글 주석] 백엔드에서 1대1 문의 실시간 내역 불러오기 — 내 이메일 것만 (다른 사장님 문의 미노출)
   const fetchInquiries = async () => {
+    if (!user?.email) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/api/v1/inquiries`);
+      const res = await fetch(
+        `${API_BASE_URL}/api/v1/inquiries?user_email=${encodeURIComponent(user.email)}`,
+      );
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data) && data.length > 0) {
-          setInquiries(data);
-        }
+        // 빈 배열도 그대로 반영 — 신규 계정에 데모 시드가 남아 보이지 않게
+        if (Array.isArray(data)) setInquiries(data);
       }
     } catch {
       /* 서버 오프라인 시 기본 내역 유지 */
@@ -309,7 +311,7 @@ export default function SettingsScreen() {
     fetchInquiries();
     const timer = setInterval(fetchInquiries, 8000);
     return () => clearInterval(timer);
-  }, []);
+  }, [user?.email]);
 
   // [한글 주석] 1대1 문의 제출 — 백엔드 /inquiries 한 곳에만 등록 (백엔드가 관리자 CS 리스트에 동일 id로 자동 연동)
   const handleSubmitInquiry = async () => {
