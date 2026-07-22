@@ -16,5 +16,8 @@ from app.models.operation import Employee, EstimatedPayroll, EstimatedSettlement
 # R (roastery.py)
 from app.models.roastery import Roastery, RoasteryBean
 
+# T (tracking.py)
+from app.models.tracking import TrackingEvent
+
 # U (user.py)
 from app.models.user import User

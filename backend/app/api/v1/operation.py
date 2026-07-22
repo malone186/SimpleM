@@ -44,6 +44,7 @@ def curate_beans_api(payload: CurationFilterRequest, limit: int = Query(20, ge=1
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"큐레이터 추천 서버 오류: {str(e)}")
 
+
 # ----------------------------------------------------
 # [한글 주석] 전체 알바생(근무자) 관리 REST API (CRUD)
 # ----------------------------------------------------

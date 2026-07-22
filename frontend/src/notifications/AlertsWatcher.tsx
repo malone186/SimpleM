@@ -3,27 +3,24 @@
 // ② 단가 급등 알림: 재료 매입 단가가 직전 기준가 대비 10% 이상 오르면 발송
 // ③ AI 경영 리포트 수신 주기: 매일 / 매주(월요일) 오전에 리포트 도착 알림
 // ④ 방해 금지 시간대: 설정 구간(자정 넘김 포함)에는 위 알림을 전부 보류하고, 구간이 끝나면 발송
-// ⑤ 관리자 공지: 관리자 콘솔에서 발송한 공지를 15초 주기로 증분 수신해 푸시(토스트) 발송
-// ⑥ 문의 답변 도착: 내 1대1 문의에 관리자 답변이 달리면 어느 화면에 있든 즉시 알림
+// ⑤ 문의 답변 도착: 내 1대1 문의에 관리자 답변이 달리면 어느 화면에 있든 즉시 알림
+// (관리자 공지는 홈 화면 강아지 말풍선(WelcomeHeader)이 단독으로 전하므로 여기선 토스트를 띄우지 않는다)
 // 같은 품목·같은 날 중복 알림은 AsyncStorage에 발송 이력을 남겨 1회로 제한한다.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useRef } from 'react';
 
 import { useAuth } from '../auth/AuthContext';
 import { usePreferences } from '../preferences/PreferencesContext';
-import { fetchNoticeFeed } from '../lib/api/notice';
 import { listMyInquiries } from '../lib/api/inquiry';
 import { listStocks, type StockItem } from '../lib/api/inventory';
 import { toast } from '../components/toast';
 
 const POLL_MS = 60_000;           // 감시 주기 (1분)
-const NOTICE_POLL_MS = 15_000;    // 관리자 공지 감시 주기 (15초 — 발송 후 빠른 도착 체감)
+const NOTICE_POLL_MS = 15_000;    // 문의 답변 감시 주기 (15초 — 답변 후 빠른 도착 체감)
 const SURGE_RATIO = 1.1;          // 단가 급등 기준: 기준가 대비 +10% 이상
 const REPORT_HOUR = 9;            // 리포트 도착 알림은 오전 9시 이후에만
 
 const STORE_KEY = 'simplem:alerts:state';
-// 관리자 공지 수신 커서는 별도 키 — 본 감시 루프의 state 읽기·쓰기와 경합하지 않게 분리
-const NOTICE_KEY = 'simplem:alerts:notice-last-id';
 // 이미 알림을 보낸 '답변 완료' 문의 id 목록 (중복 토스트 방지)
 const INQUIRY_KEY = 'simplem:alerts:inquiry-answered-ids';
 
@@ -72,33 +69,11 @@ export default function AlertsWatcher() {
   const running = useRef(false); // 폴링 중복 실행 방지
   const noticeRunning = useRef(false); // 공지·답변 폴링 중복 실행 방지
 
-  // ⑤ 관리자 공지 수신 + ⑥ 문의 답변 도착 — 15초 주기로 함께 감시
+  // ⑤ 문의 답변 도착 — 15초 주기로 감시 (관리자 공지는 홈 말풍선이 담당하므로 제외)
   useEffect(() => {
     if (!token || !prefs.ready) return;
 
-    // ⑤ 관리자 콘솔 발송분을 증분(after_id) 폴링해 토스트로 전달
-    const checkNotices = async () => {
-      const raw = await AsyncStorage.getItem(NOTICE_KEY);
-      const lastId = raw === null ? null : Number(raw);
-
-      // 첫 실행(로그인 직후)에는 지난 공지를 쏟아내지 않도록 최신 id까지 읽음 처리만 한다.
-      const notices = await fetchNoticeFeed(token, lastId ?? 0);
-      if (notices.length === 0) return;
-      const maxId = Math.max(...notices.map((n) => n.id));
-
-      if (lastId !== null) {
-        const shown = notices.slice(0, 3);
-        for (const n of shown) {
-          toast(`📢 ${n.title}`, n.body || `${n.author}이(가) 보낸 공지가 도착했어요.`);
-        }
-        if (notices.length > shown.length) {
-          toast('📢 관리자 공지', `읽지 않은 공지가 ${notices.length - shown.length}건 더 있어요.`);
-        }
-      }
-      await AsyncStorage.setItem(NOTICE_KEY, String(maxId));
-    };
-
-    // ⑥ 내 문의에 관리자 답변이 새로 달렸는지 감시 — 답변 완료 id 목록 비교 방식
+    // ⑤ 내 문의에 관리자 답변이 새로 달렸는지 감시 — 답변 완료 id 목록 비교 방식
     const checkInquiryAnswers = async () => {
       if (!user?.email) return;
       const raw = await AsyncStorage.getItem(INQUIRY_KEY);
@@ -130,8 +105,6 @@ export default function AlertsWatcher() {
       try {
         // 방해 금지 구간에는 커서를 옮기지 않고 보류 → 구간이 끝나면 밀린 알림이 발송된다.
         if (prefs.dndEnabled && isInDndWindow(new Date(), prefs.dndStart, prefs.dndEnd)) return;
-        // 한쪽이 실패해도 다른 쪽 감시는 계속되도록 각각 독립 실행
-        await checkNotices().catch(() => {});
         await checkInquiryAnswers().catch(() => {});
       } finally {
         noticeRunning.current = false;

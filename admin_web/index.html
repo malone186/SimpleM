@@ -198,6 +198,76 @@
 
         </div>
 
+        <!-- 유입 경로 분석 -->
+        <div class="content-box full-width" style="margin-top: 20px;">
+          <div class="box-header">
+            <h3 class="box-title"><i data-lucide="git-branch-plus"></i> 사장님 유입 경로 분석</h3>
+            <span class="live-tag" id="acq-live-tag">LIVE</span>
+          </div>
+          <div class="acq-layout">
+            <!-- 좌: 도넛 -->
+            <div class="acq-donut-wrap">
+              <svg class="acq-donut" viewBox="0 0 42 42" id="acq-donut">
+                <!-- JS 동적 생성 -->
+              </svg>
+              <div class="acq-donut-center">
+                <div class="acq-donut-total" id="acq-total">0</div>
+                <div class="acq-donut-label">전체 회원</div>
+              </div>
+            </div>
+            <!-- 우: 채널 막대 범례 -->
+            <div class="acq-legend" id="acq-legend">
+              <!-- JS 동적 생성 -->
+            </div>
+          </div>
+          <div class="acq-note" id="acq-note"></div>
+        </div>
+
+        <!-- 활동·리텐션 분석 -->
+        <div class="content-box full-width" style="margin-top: 20px;">
+          <div class="box-header">
+            <h3 class="box-title"><i data-lucide="activity-square"></i> 활동 · 리텐션 분석</h3>
+            <span class="live-tag" id="act-live-tag">LIVE</span>
+          </div>
+
+          <!-- 상단 활동 지표 타일 -->
+          <div class="act-stat-row">
+            <div class="act-stat">
+              <div class="act-stat-label">오늘 활성 회원</div>
+              <div class="act-stat-value" id="act-today">0<span class="unit">명</span></div>
+            </div>
+            <div class="act-stat">
+              <div class="act-stat-label">이번 주 활성</div>
+              <div class="act-stat-value" id="act-week">0<span class="unit">명</span></div>
+            </div>
+            <div class="act-stat">
+              <div class="act-stat-label">이번 달 활성</div>
+              <div class="act-stat-value" id="act-month">0<span class="unit">명</span></div>
+            </div>
+            <div class="act-stat">
+              <div class="act-stat-label">누적 활동 이벤트</div>
+              <div class="act-stat-value" id="act-events">0<span class="unit">건</span></div>
+            </div>
+            <div class="act-stat danger">
+              <div class="act-stat-label">이탈 위험 회원</div>
+              <div class="act-stat-value" id="act-risk-count">0<span class="unit">명</span></div>
+            </div>
+          </div>
+
+          <div class="act-layout">
+            <!-- 좌: 기능별 사용량 -->
+            <div class="act-col">
+              <div class="act-col-title"><i data-lucide="bar-chart-2"></i> 기능별 사용량</div>
+              <div class="act-feature-list" id="act-feature-list"><!-- JS 동적 생성 --></div>
+            </div>
+            <!-- 우: 이탈 위험 회원 -->
+            <div class="act-col">
+              <div class="act-col-title"><i data-lucide="user-x"></i> 이탈 위험 회원 <span id="act-risk-sub" class="act-col-sub"></span></div>
+              <div class="act-risk-list" id="act-risk-list"><!-- JS 동적 생성 --></div>
+            </div>
+          </div>
+        </div>
+
       </section>
 
       <!-- ━━━ 탭: AI 에이전트 오케스트레이션 뷰 ━━━ -->

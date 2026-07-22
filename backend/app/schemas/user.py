@@ -13,6 +13,10 @@ class UserCreate(BaseModel):
     name: str = Field(..., description="점주(사용자)의 실명")
     store_name: str = Field(..., description="운영 중인 매장/카페 이름")
 
+    # [유입 경로] 가입 시점 first-touch. 모두 선택값 — 안 보내도 기존과 동일하게 가입 성공한다.
+    acquisition_source: str | None = Field(None, description="유입 채널 키(referral/web_search/instagram/app_store/youtube/naver_blog/etc)")
+    acquisition_detail: str | None = Field(None, description="추천코드·캠페인명 등 보조값")
+
 # 2. 로그인 요청 시 프론트엔드가 보내는 '로그인 신청서' 규격입니다.
 class UserLogin(BaseModel):
     email: EmailStr = Field(..., description="로그인용 이메일 아이디")
@@ -25,6 +29,7 @@ class UserResponse(BaseModel):
     name: str
     store_name: str
     created_at: datetime
+    acquisition_source: str | None = None
 
     # SQLAlchemy 모델 객체(데이터베이스 데이터)를 Pydantic JSON 형식으로 자동으로 변환해 주는 옵션입니다.
     model_config = ConfigDict(from_attributes=True)

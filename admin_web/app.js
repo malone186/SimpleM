@@ -798,6 +798,161 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ---------------------------------------------------------------------------
+  // 15-b. [유입 경로 분석] 채널별 분포를 도넛 + 막대 범례로 렌더
+  // ---------------------------------------------------------------------------
+  // 채널 키 → 색상 팔레트 (브랜드 톤에 맞춘 커피 계열 + 포인트)
+  const ACQ_COLORS = {
+    referral:   '#7A5C4D', // 모카
+    web_search: '#4E7D3A', // 그린
+    instagram:  '#C07030', // 오렌지
+    app_store:  '#3E291F', // 에스프레소
+    youtube:    '#B0413E', // 레드브라운
+    naver_blog: '#A89F91', // 스톤
+    etc:        '#D8CBBB', // 샌드
+  };
+
+  async function loadAcquisition() {
+    const liveTag = document.getElementById('acq-live-tag');
+    try {
+      const res = await fetch(`${API_BASE}/admin/dashboard/acquisition`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      renderAcquisition(data);
+      if (liveTag) { liveTag.textContent = 'LIVE'; liveTag.style.background = ''; }
+    } catch (err) {
+      console.error('유입 경로 집계 실패:', err);
+      if (liveTag) { liveTag.textContent = 'OFFLINE'; liveTag.style.background = '#C62828'; }
+      const legend = document.getElementById('acq-legend');
+      if (legend) legend.innerHTML = '<div class="acq-note">⚠️ 백엔드(8000) 연결에 실패해 유입 경로를 불러오지 못했습니다.</div>';
+    }
+  }
+
+  function renderAcquisition(data) {
+    const total = data.total || 0;
+    const channels = (data.channels || []).filter(c => c.count > 0);
+
+    // 총계 카운터
+    const totalEl = document.getElementById('acq-total');
+    if (totalEl) totalEl.textContent = total;
+
+    // 도넛(SVG stroke-dasharray 방식) — 둘레 100 기준으로 채널별 호를 이어붙인다
+    const donut = document.getElementById('acq-donut');
+    if (donut) {
+      const R = 15.9155; // 둘레 ≈ 100이 되는 반지름
+      let offset = 0;
+      const segs = channels.map(c => {
+        const color = ACQ_COLORS[c.key] || '#D8CBBB';
+        const pct = total > 0 ? (c.count / total * 100) : 0;
+        const seg = `<circle class="acq-seg" cx="21" cy="21" r="${R}" stroke="${color}"
+          stroke-dasharray="${pct.toFixed(2)} ${(100 - pct).toFixed(2)}"
+          stroke-dashoffset="${(-offset).toFixed(2)}"></circle>`;
+        offset += pct;
+        return seg;
+      }).join('');
+      // 데이터가 없을 때는 회색 링만
+      donut.innerHTML = segs || `<circle class="acq-seg" cx="21" cy="21" r="${R}" stroke="var(--muted-sand)" stroke-dasharray="100 0"></circle>`;
+    }
+
+    // 우측 막대 범례
+    const legend = document.getElementById('acq-legend');
+    if (legend) {
+      const maxRatio = Math.max(...channels.map(c => c.ratio), 1);
+      legend.innerHTML = channels.map(c => {
+        const color = ACQ_COLORS[c.key] || '#D8CBBB';
+        const width = (c.ratio / maxRatio * 100).toFixed(1);
+        return `
+          <div class="acq-row">
+            <span class="acq-dot" style="background:${color}"></span>
+            <span class="acq-row-name">${c.label}</span>
+            <span class="acq-bar-track"><span class="acq-bar-fill" style="width:${width}%;background:${color}"></span></span>
+            <span class="acq-row-val">${c.count}명 · ${c.ratio}%</span>
+          </div>`;
+      }).join('') || '<div class="acq-note">아직 집계할 회원이 없습니다.</div>';
+    }
+
+    // 하단 안내 — 시딩 투명성 문구
+    const note = document.getElementById('acq-note');
+    if (note) {
+      const seeded = data.seeded_count || 0;
+      if (seeded > 0) {
+        note.innerHTML = `ℹ️ 전체 ${total}명 중 <b>${seeded}명</b>은 유입 채널 실수집 데이터가 없어 데모용 추정값으로 배정되었습니다. 실제 가입 데이터가 쌓이면 자동으로 실측값으로 대체됩니다.`;
+      } else {
+        note.textContent = `✅ 전체 ${total}명 모두 실수집된 유입 채널 데이터입니다.`;
+      }
+    }
+
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  // ---------------------------------------------------------------------------
+  // 15-c. [활동·리텐션 분석] 접속 활성도·기능별 사용량·이탈 위험 회원 렌더
+  // ---------------------------------------------------------------------------
+  async function loadActivity() {
+    const liveTag = document.getElementById('act-live-tag');
+    try {
+      const res = await fetch(`${API_BASE}/admin/dashboard/activity`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      renderActivity(data);
+      if (liveTag) { liveTag.textContent = 'LIVE'; liveTag.style.background = ''; }
+    } catch (err) {
+      console.error('활동 분석 집계 실패:', err);
+      if (liveTag) { liveTag.textContent = 'OFFLINE'; liveTag.style.background = '#C62828'; }
+    }
+  }
+
+  function renderActivity(data) {
+    const setVal = (id, v, unit) => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = `${v}<span class="unit">${unit}</span>`;
+    };
+    setVal('act-today', data.activeToday || 0, '명');
+    setVal('act-week', data.activeThisWeek || 0, '명');
+    setVal('act-month', data.activeThisMonth || 0, '명');
+    setVal('act-events', (data.totalEvents || 0).toLocaleString(), '건');
+    setVal('act-risk-count', data.atRiskCount || 0, '명');
+
+    // 기능별 사용량 막대
+    const fl = document.getElementById('act-feature-list');
+    if (fl) {
+      const feats = data.featureUsage || [];
+      const max = Math.max(...feats.map(f => f.count), 1);
+      fl.innerHTML = feats.map(f => {
+        const w = (f.count / max * 100).toFixed(1);
+        return `
+          <div class="act-feature-row">
+            <span class="act-feature-name">${f.feature}</span>
+            <span class="act-feature-track"><span class="act-feature-fill" style="width:${w}%"></span></span>
+            <span class="act-feature-val">${f.count.toLocaleString()}건</span>
+          </div>`;
+      }).join('') || '<div class="act-empty">아직 집계된 활동 이벤트가 없습니다.</div>';
+    }
+
+    // 이탈 위험 회원 리스트
+    const rl = document.getElementById('act-risk-list');
+    const sub = document.getElementById('act-risk-sub');
+    if (sub) sub.textContent = `(${data.atRiskDays || 7}일+ 미접속)`;
+    if (rl) {
+      const risk = data.atRisk || [];
+      rl.innerHTML = risk.map(r => {
+        const badge = r.days_inactive == null
+          ? '접속 이력 없음'
+          : `${r.days_inactive}일 미접속`;
+        return `
+          <div class="act-risk-item">
+            <div class="act-risk-info">
+              <div class="act-risk-name">${r.name} · ${r.store}</div>
+              <div class="act-risk-store">${r.email}${r.last_active ? ' · 마지막 ' + r.last_active : ''}</div>
+            </div>
+            <span class="act-risk-badge">${badge}</span>
+          </div>`;
+      }).join('') || '<div class="act-empty">✅ 이탈 위험 회원이 없습니다. 모두 최근 접속했습니다.</div>';
+    }
+
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  // ---------------------------------------------------------------------------
   // 16. [한글 주석: AI 에이전트 오케스트레이션 편성 조회 및 트리 렌더링]
   // ---------------------------------------------------------------------------
   let agentOverview = null;
@@ -951,6 +1106,8 @@ document.addEventListener('DOMContentLoaded', () => {
     await loadCSList();
     await loadNotifications();
     await loadPayments();
+    await loadAcquisition();
+    await loadActivity();
     await loadAgents();
 
     // 4초 주기 폴링 — 사장님이 앱에서 1대1 문의를 접수하면 관리자 웹페이지를 안 새로고침해도 4초 내에 실시간 노출

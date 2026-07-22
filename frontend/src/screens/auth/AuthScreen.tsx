@@ -29,6 +29,17 @@ type Mode = 'login' | 'signup';
 // 상권 유형 옵션 (이모지 전면 제거 및 텍스트 정돈)
 const BIZ_TYPES = ['오피스 상권', '주택가 상권', '대학가 상권', '복합 상권'];
 
+// 유입 경로 옵션 — key는 백엔드 정규 채널 키, label은 화면 표시용 (관리자 콘솔 분류와 1:1)
+const ACQUISITION_OPTIONS: { key: string; label: string }[] = [
+  { key: 'referral', label: '지인 추천' },
+  { key: 'web_search', label: '포털/검색' },
+  { key: 'instagram', label: '인스타그램' },
+  { key: 'app_store', label: '앱스토어' },
+  { key: 'youtube', label: '유튜브' },
+  { key: 'naver_blog', label: '블로그' },
+  { key: 'etc', label: '기타' },
+];
+
 // [한글 주석] 알바생 근무 시간대 설정 UI 스타일 세그먼트 시간 피커 (오픈/마감 카드 선택 폼)
 function ShiftTimePicker({
   value,
@@ -115,6 +126,7 @@ export default function AuthScreen() {
   const [openHour, setOpenHour] = useState('09:00');
   const [closeHour, setCloseHour] = useState('21:00');
   const [bizType, setBizType] = useState('오피스 상권');
+  const [acquisition, setAcquisition] = useState<string>(''); // [유입 경로] 선택값(미선택 허용)
   // [한글 주석] 네이버 지도 위치 선택 모달 표시 여부 상태 복원
   const [showMapModal, setShowMapModal] = useState(false);
   // 지도 핀으로 확정한 매장 좌표 — 가입 완료 시 저장되어 대시보드 예측(날씨·행사)에 그대로 쓰인다
@@ -464,7 +476,7 @@ export default function AuthScreen() {
       }
       setBusy(true);
       try {
-        await signup(name, email, password, autoLogin);
+        await signup(name, email, password, autoLogin, acquisition || undefined);
         // 가입 성공 시 매장 위치를 로컬에 저장 — 대시보드/발주 예측이 기기 GPS보다 이 좌표를 우선 사용한다
         try {
           await AsyncStorage.setItem(
@@ -653,6 +665,28 @@ export default function AuthScreen() {
                             style={[styles.chip, bizType === bt && styles.chipActive]}
                           >
                             <Text style={[styles.chipText, bizType === bt && styles.chipTextActive]}>{bt}</Text>
+                          </PressableScale>
+                        ))}
+                      </View>
+                    </View>
+
+                    {/* 3-b. 유입 경로 선택 (선택 사항) — 어떻게 알게 되셨는지 */}
+                    <View style={styles.group}>
+                      <Text style={styles.groupLabel}>어떻게 알게 되셨나요? (선택)</Text>
+                      <View style={styles.chipRow}>
+                        {ACQUISITION_OPTIONS.map((opt) => (
+                          <PressableScale
+                            key={opt.key}
+                            onPress={() => setAcquisition((prev) => (prev === opt.key ? '' : opt.key))}
+                            style={[styles.chip, styles.acqChip, acquisition === opt.key && styles.chipActive]}
+                          >
+                            <Text
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                              style={[styles.chipText, styles.acqChipText, acquisition === opt.key && styles.chipTextActive]}
+                            >
+                              {opt.label}
+                            </Text>
                           </PressableScale>
                         ))}
                       </View>
@@ -1084,6 +1118,9 @@ const styles = StyleSheet.create({
   },
   chipText: { fontSize: 11, fontWeight: '700', color: colors.mochaBrown, textAlign: 'center' },
   chipTextActive: { color: colors.white, fontWeight: '800' },
+  // 유입경로 칩 전용 — 7개가 한 줄에 들어가도록 폰트/여백 축소 (한 칩당 한 줄 고정)
+  acqChip: { paddingHorizontal: 2 },
+  acqChipText: { fontSize: 9 },
   backBtn: {
     backgroundColor: 'rgba(140, 111, 86, 0.1)',
     borderRadius: 14,
