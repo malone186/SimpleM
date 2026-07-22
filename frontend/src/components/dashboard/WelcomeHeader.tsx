@@ -1,14 +1,14 @@
 // [상단 웰컴 블록 - 미니멀 말풍선 카드 적용 (투데이스 브루 뱃지 제거 및 1줄 피트 정렬)]
 import { useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Animated, Easing, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { colors, spacing } from '../../theme';
 import Brew, { type BrewMood } from '../brew/Brew';
 import MarqueeText from '../MarqueeText';
 import { useAuth } from '../../auth/AuthContext';
-import { fetchNoticeFeed } from '../../lib/api/notice';
+import { fetchNoticeFeed, type AdminNotice } from '../../lib/api/notice';
 
 // [시간대별 인사말] "~사장님!" 아래 줄에 현재 시각에 맞춰 자동으로 바뀌는 문구.
 // 각 구간에 여러 후보를 두고 10분 단위로 회전해 같은 시간대라도 조금씩 달라진다.
@@ -93,6 +93,59 @@ function useAdminAnnouncement(refreshTrigger = 0) {
   return { announce, dismiss };
 }
 
+const READ_MAX_KEY = 'simplem:notice:read-max-id';
+
+// 알림함 — 내 매장에 온 관리자 공지 전체를 최신순으로 들고, 안 읽은 개수(배지)를 계산한다.
+// 열면 현재 최신 id까지 '읽음' 처리한다.
+function useNoticeInbox(refreshTrigger = 0) {
+  const { token } = useAuth();
+  const [notices, setNotices] = useState<AdminNotice[]>([]);
+  const [readMaxId, setReadMaxId] = useState(0);
+
+  useEffect(() => {
+    AsyncStorage.getItem(READ_MAX_KEY)
+      .then((v) => setReadMaxId(v ? Number(v) : 0))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!token) {
+      setNotices([]);
+      return;
+    }
+    let alive = true;
+    const load = async () => {
+      try {
+        const list = await fetchNoticeFeed(token, 0);
+        if (alive) setNotices((list || []).slice().sort((a, b) => b.id - a.id));
+      } catch {
+        // 서버 오프라인/미로그인 — 다음 주기에 재시도
+      }
+    };
+    load();
+    const timer = setInterval(load, 20_000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [token, refreshTrigger]);
+
+  const unreadCount = notices.filter((n) => n.id > readMaxId).length;
+
+  // 열람 시 호출 — 현재 최신 id까지 읽음 처리 (배지 사라짐)
+  const markAllRead = async () => {
+    const maxId = notices.reduce((m, n) => Math.max(m, n.id), readMaxId);
+    setReadMaxId(maxId);
+    try {
+      await AsyncStorage.setItem(READ_MAX_KEY, String(maxId));
+    } catch {
+      // 저장 실패해도 이번 세션 동안은 읽음 처리 유지
+    }
+  };
+
+  return { notices, unreadCount, readMaxId, markAllRead };
+}
+
 export default function WelcomeHeader({
   storeName = '포자카페',
   mood = 'welcome',
@@ -107,6 +160,18 @@ export default function WelcomeHeader({
 }) {
   const greeting = useTimeGreeting();
   const { announce, dismiss } = useAdminAnnouncement(refreshTrigger);
+
+  // 알림함 (지도 아이콘 옆 벨) — 지난 공지를 스택형으로 모아 본다
+  const { notices, unreadCount, readMaxId, markAllRead } = useNoticeInbox(refreshTrigger);
+  const [inboxOpen, setInboxOpen] = useState(false);
+  // 모달을 열 때의 읽음 기준선을 스냅샷 — 그 이후 id는 목록에서 'NEW'로 표시
+  const [newBaseline, setNewBaseline] = useState(0);
+
+  const openInbox = () => {
+    setNewBaseline(readMaxId);
+    setInboxOpen(true);
+    markAllRead();
+  };
 
   // [한글 주석: 강아지와 말풍선을 묶어 위아래로 둥둥 띄우기 위한 애니메이션 상태변수 정의]
   const floatAnim = useRef(new Animated.Value(0)).current;
@@ -141,8 +206,18 @@ export default function WelcomeHeader({
   return (
     <View style={styles.header}>
       <View style={styles.topBar}>
-        <TouchableOpacity style={styles.mapBtn} onPress={onOpenMap} hitSlop={10} activeOpacity={0.85}>
-          <Ionicons name="map-outline" size={15} color={colors.creamSand} />
+        <TouchableOpacity style={styles.iconBtn} onPress={onOpenMap} hitSlop={10} activeOpacity={0.85}>
+          <Ionicons name="map-outline" size={19} color={colors.creamSand} />
+        </TouchableOpacity>
+
+        {/* 알림함 — 지난 관리자 공지를 스택형으로 모아 본다 */}
+        <TouchableOpacity style={styles.iconBtn} onPress={openInbox} hitSlop={10} activeOpacity={0.85}>
+          <Ionicons name="notifications-outline" size={19} color={colors.creamSand} />
+          {unreadCount > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+            </View>
+          )}
         </TouchableOpacity>
       </View>
 
@@ -180,6 +255,48 @@ export default function WelcomeHeader({
         {/* [한글 주석: 우측 마스코트 강아지 캐릭터] */}
         <Brew mood={mood} size={150} style={styles.mascot} disableMotion={true} />
       </Animated.View>
+
+      {/* 알림함 모달 — 지난 공지를 스택 카드로 쌓아 보여준다 */}
+      <Modal visible={inboxOpen} transparent animationType="fade" onRequestClose={() => setInboxOpen(false)}>
+        <Pressable style={styles.inboxBackdrop} onPress={() => setInboxOpen(false)}>
+          <Pressable style={styles.inboxPanel} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.inboxHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="notifications" size={16} color={colors.espressoBrown} />
+                <Text style={styles.inboxTitle}>알림</Text>
+              </View>
+              <TouchableOpacity onPress={() => setInboxOpen(false)} hitSlop={8}>
+                <Ionicons name="close" size={20} color={colors.mochaBrown} />
+              </TouchableOpacity>
+            </View>
+
+            {notices.length === 0 ? (
+              <View style={styles.inboxEmpty}>
+                <Ionicons name="mail-open-outline" size={28} color="#C7BBB0" />
+                <Text style={styles.inboxEmptyText}>받은 알림이 없어요.</Text>
+              </View>
+            ) : (
+              <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
+                {notices.map((n) => (
+                  <View key={n.id} style={styles.noticeCard}>
+                    <View style={styles.noticeCardTop}>
+                      <Ionicons name="megaphone" size={13} color={colors.pointOrange} style={{ marginRight: 5, marginTop: 1 }} />
+                      <Text style={styles.noticeCardTitle}>{n.title}</Text>
+                      {n.id > newBaseline && (
+                        <View style={styles.newDot}>
+                          <Text style={styles.newDotText}>N</Text>
+                        </View>
+                      )}
+                    </View>
+                    {!!n.body && <Text style={styles.noticeCardBody}>{n.body}</Text>}
+                    <Text style={styles.noticeCardMeta}>{n.author} · {n.date}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -191,17 +308,34 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     paddingHorizontal: spacing.globalPadding,
   },
-  topBar: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  mapBtn: {
+  // marginTop으로 아이콘 줄을 아주 조금 아래로 내린다
+  topBar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, marginBottom: 8 },
+  iconBtn: {
     alignItems: 'center',
     justifyContent: 'center',
-    width: 28,
-    height: 28,
+    width: 36,
+    height: 36,
     backgroundColor: 'rgba(255,255,255,0.12)',
-    borderRadius: 14,
+    borderRadius: 18,
     borderWidth: 0.8,
     borderColor: 'rgba(255,255,255,0.18)',
   },
+  // 안 읽은 알림 개수 배지
+  badge: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    backgroundColor: colors.pointOrange,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.2,
+    borderColor: '#1E1612',
+  },
+  badgeText: { color: colors.white, fontSize: 9, fontWeight: '900' },
   mainRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -291,4 +425,59 @@ const styles = StyleSheet.create({
     borderLeftColor: 'rgba(140, 111, 86, 0.15)',
   },
   mascot: { marginRight: 2 },
+
+  // 알림함 모달
+  inboxBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  inboxPanel: {
+    backgroundColor: colors.creamSand,
+    borderRadius: 22,
+    padding: 16,
+    maxWidth: 420,
+    width: '100%',
+    alignSelf: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  inboxHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  inboxTitle: { fontSize: 16, fontWeight: '900', color: colors.espressoBrown, letterSpacing: -0.3 },
+  inboxEmpty: { alignItems: 'center', gap: 8, paddingVertical: 34 },
+  inboxEmptyText: { fontSize: 12, color: '#9C8E82', fontWeight: '600' },
+  // 스택형 공지 카드
+  noticeCard: {
+    backgroundColor: colors.white,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(140,111,86,0.14)',
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+  },
+  noticeCardTop: { flexDirection: 'row', alignItems: 'flex-start' },
+  noticeCardTitle: { flex: 1, fontSize: 13, fontWeight: '800', color: colors.espressoBrown, lineHeight: 18 },
+  noticeCardBody: { fontSize: 11.5, color: '#6B5D53', lineHeight: 16, marginTop: 5 },
+  noticeCardMeta: { fontSize: 10, color: '#A99C90', fontWeight: '600', marginTop: 7 },
+  // 새 공지 'N' 뱃지
+  newDot: {
+    minWidth: 15,
+    height: 15,
+    borderRadius: 7.5,
+    backgroundColor: colors.pointOrange,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 6,
+    marginTop: 1,
+  },
+  newDotText: { color: colors.white, fontSize: 8.5, fontWeight: '900' },
 });
