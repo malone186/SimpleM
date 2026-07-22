@@ -9,21 +9,21 @@ from pydantic import BaseModel, Field
 
 class LawSearchRequest(BaseModel):
     """법령 검색 요청 스키마"""
-    query: str = Field(..., description="법률 질의 키워드 또는 사용자 문장", example="알바생 주휴수당 조건이 뭐야?")
-    category: Optional[str] = Field(None, description="법령 카테고리 (예: 노무/근로, 임대차, 위생/보건)", example="노무/근로")
+    query: str = Field(..., description="법률 질의 키워드 또는 사용자 문장", json_schema_extra={"example": "알바생 주휴수당 조건이 뭐야?"})
+    category: Optional[str] = Field(None, description="법령 카테고리 (예: 노무/근로, 임대차, 위생/보건)", json_schema_extra={"example": "노무/근로"})
     top_k: int = Field(5, description="최대 추출 조문 건수", ge=1, le=20)
     min_score: float = Field(0.55, description="최소 유사도 임계값 스코어 (0.0~1.0)", ge=0.0, le=1.0)
 
 
 class LawSource(BaseModel):
     """법령 검색 결과 조문 근거 스키마"""
-    law_name: str = Field(..., description="법령명", example="근로기준법")
-    article_no: str = Field(..., description="조문번호", example="제55조(휴일)")
-    category: str = Field(..., description="카테고리", example="노무/근로")
+    law_name: str = Field(..., description="법령명", json_schema_extra={"example": "근로기준법"})
+    article_no: str = Field(..., description="조문번호", json_schema_extra={"example": "제55조(휴일)"})
+    category: str = Field(..., description="카테고리", json_schema_extra={"example": "노무/근로"})
     content: str = Field(..., description="조문 원문 내용")
-    source: str = Field(..., description="출처", example="국가법령정보센터")
-    effective_date: str = Field(..., description="시행일자", example="2026-01-01")
-    score: float = Field(..., description="하이브리드 RRF 스코어", example=0.82)
+    source: str = Field(..., description="출처", json_schema_extra={"example": "국가법령정보센터"})
+    effective_date: str = Field(..., description="시행일자", json_schema_extra={"example": "2026-01-01"})
+    score: float = Field(..., description="하이브리드 RRF 스코어", json_schema_extra={"example": 0.82})
 
 
 class LawSearchResponse(BaseModel):
@@ -36,7 +36,7 @@ class LawSearchResponse(BaseModel):
 
 class LawSyncRequest(BaseModel):
     """법령 데이터 동기화 요청 스키마"""
-    law_name: Optional[str] = Field("전체", description="수집/동기화할 법령 명칭", example="근로기준법")
+    law_name: Optional[str] = Field("전체", description="수집/동기화할 법령 명칭", json_schema_extra={"example": "근로기준법"})
     admin_secret: Optional[str] = Field(None, description="관리자 인증 시크릿 키")
 
 

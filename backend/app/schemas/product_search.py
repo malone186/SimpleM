@@ -5,7 +5,7 @@
 
 from typing import List, Optional
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # [한글 주석] 1. 개별 판매처 오퍼(ProductOffer) 스펙
@@ -23,8 +23,7 @@ class ProductOfferItem(BaseModel):
     review_count: Optional[int] = Field(0, description="판매처 리뷰 수")
     updated_at: Optional[datetime] = Field(None, description="오퍼 최종 갱신(시세 캐시) 시각")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # [한글 주석] 2. 품절/검색결과 결여 시 대안 추천(Alternatives) 원두 스펙
@@ -40,8 +39,7 @@ class ProductAlternativeItem(BaseModel):
     review_count: int = Field(0, description="리뷰 수")
     reason: str = Field("맛과 가격대가 유사한 재고 보유 원두 추천", description="추천 사유")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # [한글 주석] 3. 상품 검색 요청Query 파라미터 스펙

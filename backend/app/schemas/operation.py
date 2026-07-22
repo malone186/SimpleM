@@ -32,8 +32,7 @@ class ScheduleResponse(BaseModel):
     actual_start_time: Optional[datetime] = Field(None, description="실제 출근 일시", examples=["2026-07-16T08:55:00"])
     actual_end_time: Optional[datetime] = Field(None, description="실제 퇴근 일시", examples=["2026-07-16T18:05:00"])
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # [한글 주석] 알바생 신규 등록, 정보 수정, 조회용 Pydantic 스키마 정의
 class EmployeeCreate(BaseModel):
@@ -55,8 +54,7 @@ class EmployeeResponse(BaseModel):
     hourly_rate: int = Field(..., description="시급 (KRW)", examples=[10000])
     role: str = Field(..., description="직책/역할", examples=["바리스타"])
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PayrollCalculateRequest(BaseModel):
@@ -200,8 +198,7 @@ class ExpenseResponse(BaseModel):
     expense_date: date = Field(..., description="지출 일자")
     created_at: datetime = Field(..., description="등록 일시")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class PayrollResponse(BaseModel):
     """예상 급여 응답 스키마"""
@@ -220,8 +217,7 @@ class PayrollResponse(BaseModel):
         description="급여 면책 고지"
     )
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class PayrollListItem(BaseModel):
     """급여 목록 조회 항목 스키마"""
@@ -249,8 +245,7 @@ class SettlementResponse(BaseModel):
         description="정산 면책 고지"
     )
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class SettlementListItem(BaseModel):
     """정산 내역 목록 조회 항목 스키마"""
@@ -400,8 +395,7 @@ class EmployeeUnavailabilityResponse(BaseModel):
     reason: Optional[str] = Field(None, description="기피 사유")
     created_at: datetime = Field(..., description="등록 일시")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 

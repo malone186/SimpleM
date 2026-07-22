@@ -22,7 +22,7 @@ class GroundingInfo(BaseModel):
 
 class BeanRAGChatRequest(BaseModel):
     """[한글 주석] POST /beans/chat 요청 데이터"""
-    question: str = Field(..., description="자연어 질문 (예: '산미 적고 고소한 1만원대 원두 추천해줘')", example="산미 적고 고소한 1만원대 원두 추천해줘")
+    question: str = Field(..., description="자연어 질문 (예: '산미 적고 고소한 1만원대 원두 추천해줘')", json_schema_extra={"example": "산미 적고 고소한 1만원대 원두 추천해줘"})
     top_k: int = Field(default=5, ge=1, le=20, description="참조할 최대 원두/리뷰 개수")
     bean_id: Optional[int] = Field(None, description="특정 원두 ID로 필터링 시 지정")
 
@@ -43,7 +43,7 @@ class BeanRAGChatResponse(BaseModel):
 
 class BeanSearchRequest(BaseModel):
     """[한글 주석] POST /beans/search 요청 데이터"""
-    query: str = Field(..., description="검색 키워드 (예: '에티오피아 내추럴')", example="에티오피아 내추럴")
+    query: str = Field(..., description="검색 키워드 (예: '에티오피아 내추럴')", json_schema_extra={"example": "에티오피아 내추럴"})
     min_price: Optional[int] = Field(None, ge=0, description="최소 가격 (원)")
     max_price: Optional[int] = Field(None, ge=0, description="최대 가격 (원)")
     country: Optional[str] = Field(None, description="원산지 국가 필터 (예: '에티오피아')")

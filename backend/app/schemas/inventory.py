@@ -1,5 +1,5 @@
 # c:\STUDY\SimpleM\backend\app\schemas\inventory.py
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 
 # --- [재재료(Ingredient) 관련 규격] ---
@@ -20,8 +20,7 @@ class IngredientResponse(BaseModel):
     created_at: datetime
     updated_at: datetime | None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # 2-2. 재료 단가 변동 이력 응답 양식 (백엔드 -> 프론트엔드)
@@ -31,8 +30,7 @@ class IngredientPriceHistoryResponse(BaseModel):
     price: int
     changed_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 
@@ -60,8 +58,7 @@ class StockDetailResponse(BaseModel):
     safety_quantity: float
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # 4. 실시간 재고 정보 응답 양식
@@ -72,8 +69,7 @@ class StockResponse(BaseModel):
     safety_quantity: float
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- [레시피(Recipe) 및 메뉴(Menu) 관련 규격] ---
@@ -98,8 +94,7 @@ class MenuResponse(BaseModel):
     is_active: bool
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # 8. 메뉴 상세 조회 시 반환할 레시피 한 줄의 세부 정보 규격
 class RecipeDetail(BaseModel):
@@ -126,8 +121,7 @@ class OrderItemResponse(BaseModel):
     quantity: float                                                    # 발주 신청 수량
     price_at_order: int                                                # 발주 신청 당시의 단가
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # 11. 발주서 전체 정보 응답 규격 (공급처 카드 UI 대응을 위한 가상 필드 포함)
@@ -145,8 +139,7 @@ class OrderResponse(BaseModel):
     source: str = Field("AI 예측 추천", description="발주 생성 출처")
     items: list[OrderItemResponse] = Field(..., description="발주서에 묶여 있는 상세 품목 리스트")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # 12. 발주 상태 업데이트 신청서 (프론트엔드 -> 백엔드, 승인/반려용)
@@ -164,8 +157,7 @@ class RoasteryResponse(BaseModel):
     roastery_info: str | None = None
     file_path: str | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # 14. 로스터리 원두 상품 정보 응답 규격 (로스터리 정보 조인 포함)
@@ -190,7 +182,6 @@ class RoasteryBeanResponse(BaseModel):
     naver_product_id: str | None = None
     roastery: RoasteryResponse | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 

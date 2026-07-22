@@ -1,6 +1,7 @@
 """FastAPI 엔트리포인트 (공동 소유) — 라우터 추가는 알파벳순"""
 
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
@@ -46,10 +47,23 @@ try:
 except Exception:
     logger.exception("DB 테이블 자동 생성 실패 — DB 연결을 확인하세요. DB 없이 서버를 계속 띄웁니다.")
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """로컬 VLM(OCR_BACKEND=qwen_vlm)을 미리 로드 — 첫 OCR 요청의 모델 로드 지연 제거.
+
+    백그라운드 스레드로 돌아가므로 서버 기동을 막지 않고, 다른 백엔드에서는 즉시 반환한다.
+    """
+    from app.services.ai.ocr_service import warmup_ocr_backend
+
+    warmup_ocr_backend()
+    yield
+
+
 app = FastAPI(
     title="SimpleM 카페 통합 플랫폼 API",
     description="재고·발주·운영·AI(챗봇/OCR/리포트) 기능을 제공하는 SimpleM 백엔드 API",
     version="1.0.0",
+    lifespan=_lifespan,
 )
 
 # [CORS 설정] 
@@ -65,17 +79,6 @@ app.add_middleware(
 
 
 app.include_router(api_router, prefix="/api/v1")
-
-
-@app.on_event("startup")
-def _warmup_local_models() -> None:
-    """로컬 VLM(OCR_BACKEND=qwen_vlm)을 미리 로드 — 첫 OCR 요청의 모델 로드 지연 제거.
-
-    백그라운드 스레드로 돌아가므로 서버 기동을 막지 않고, 다른 백엔드에서는 즉시 반환한다.
-    """
-    from app.services.ai.ocr_service import warmup_ocr_backend
-
-    warmup_ocr_backend()
 
 
 # [공개 정책 페이지] 개인정보처리방침·이용약관을 인증 없이 접근 가능한 공개 URL로 게시합니다.

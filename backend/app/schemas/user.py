@@ -1,5 +1,5 @@
 # c:\STUDY\SimpleM\backend\app\schemas\user.py
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 from datetime import datetime
 
 # 1. 회원가입 요청 시 프론트엔드가 백엔드로 보내는 '회원가입 신청서' 규격입니다.
@@ -27,8 +27,7 @@ class UserResponse(BaseModel):
     created_at: datetime
 
     # SQLAlchemy 모델 객체(데이터베이스 데이터)를 Pydantic JSON 형식으로 자동으로 변환해 주는 옵션입니다.
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # 4. 로그인 성공 시 발급해 주는 '출입증(JWT 토큰)'의 규격입니다.
 class Token(BaseModel):
