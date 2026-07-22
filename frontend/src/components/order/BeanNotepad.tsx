@@ -1575,16 +1575,22 @@ export default function BeanNotepad() {
                             </Text>
                           )}
 
-                          {bean.product_url ? (
-                            <TouchableOpacity
-                              style={styles.resultGoBtn}
-                              onPress={() => Linking.openURL(bean.product_url!)}
-                              activeOpacity={0.7}
-                            >
-                              <Text style={styles.resultGoText}>원두 보러가기</Text>
-                              <Ionicons name="arrow-forward-outline" size={10} color={colors.white} />
-                            </TouchableOpacity>
-                          ) : null}
+                          <TouchableOpacity
+                            style={styles.resultGoBtn}
+                            // 네이버(스마트스토어/쇼핑)는 로그인을 요구하므로, 로그인 없이 볼 수 있는
+                            // mungmung.site 검색으로 대체한다. 네이버가 아닌 직접 상품 링크는 그대로 사용.
+                            onPress={() =>
+                              Linking.openURL(
+                                bean.product_url && !/naver\.com/i.test(bean.product_url)
+                                  ? bean.product_url
+                                  : `https://mungmung.site/?q=${encodeURIComponent(bean.name)}`,
+                              )
+                            }
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.resultGoText}>원두 보러가기</Text>
+                            <Ionicons name="arrow-forward-outline" size={10} color={colors.white} />
+                          </TouchableOpacity>
                         </View>
                       ))}
                     </View>
