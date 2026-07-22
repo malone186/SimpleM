@@ -6,10 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core.auth import get_current_user
 from app.core.database import get_db
 from app.models.user import User
 from app.models.inventory import Ingredient
-from app.models.ai import GeneratedDocument
+from app.models.ai import AdminNotification, GeneratedDocument
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +117,10 @@ class CSReplyPayload(BaseModel):
 
 class NotificationCreate(BaseModel):
     title: str
-    target: str = "전체 사장님"
+    body: str = ""
+    target: str = "전체 사장님"          # 관리자 웹 표시용 라벨
+    target_type: str = "all"             # all | premium | specific
+    target_email: str | None = None      # target_type == specific일 때 수신 사장님 이메일
 
 
 # ---------------------------------------------------------------------------
@@ -366,28 +370,95 @@ def reply_to_cs(cs_id: int, payload: CSReplyPayload, db: Session = Depends(get_d
 # 4. 공지 & 알림 발송 모의 API
 # ---------------------------------------------------------------------------
 
+def _notif_to_dict(n: AdminNotification) -> dict:
+    return {
+        "id": n.id,
+        "title": n.title,
+        "body": n.body or "",
+        "target": n.target_label,
+        "target_type": n.target_type,
+        "date": n.created_at.strftime("%Y-%m-%d %H:%M") if n.created_at else "",
+        "author": n.author,
+    }
+
+
 @router.get("/notifications")
-def get_notifications():
+def get_notifications(db: Session = Depends(get_db)):
     """
     [공지사항 이력 조회] 과거에 사장님들께 발송했던 모든 공지 알림 이력을 반환합니다.
+    DB 기록을 최신순으로 반환하고, 뒤에 데모용 시드 이력을 덧붙입니다.
     """
-    return mock_notif_history
+    try:
+        rows = db.query(AdminNotification).order_by(AdminNotification.id.desc()).all()
+        return [_notif_to_dict(n) for n in rows] + mock_notif_history
+    except Exception as e:
+        logger.error(f"공지 이력 DB 조회 오류: {e}")
+        return mock_notif_history
 
 
 @router.post("/notifications")
-def create_notification(payload: NotificationCreate):
+def create_notification(payload: NotificationCreate, db: Session = Depends(get_db)):
     """
-    [공지사항 발송 등록] 사장님들에게 보낼 새로운 긴급 공지 또는 알림을 시스템에 등록합니다.
+    [공지사항 발송 등록] 사장님들에게 보낼 새로운 긴급 공지 또는 알림을 DB에 영구 등록합니다.
+    등록된 공지는 각 사장님 앱이 /notifications/feed 폴링으로 즉시 수신해 갑니다.
     """
-    new_notif = {
-        "id": len(mock_notif_history) + 1,
-        "title": payload.title,
-        "target": payload.target,
-        "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "author": "최고 관리자"
-    }
-    mock_notif_history.insert(0, new_notif)
-    return {"success": True, "item": new_notif}
+    try:
+        notif = AdminNotification(
+            title=payload.title,
+            body=payload.body,
+            target_type=payload.target_type,
+            target_email=payload.target_email if payload.target_type == "specific" else None,
+            target_label=payload.target,
+            author="최고 관리자",
+        )
+        db.add(notif)
+        db.commit()
+        db.refresh(notif)
+        return {"success": True, "item": _notif_to_dict(notif)}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"공지 DB 저장 오류: {e}")
+        # DB가 꺼져 있어도 관리자 웹 데모는 계속되도록 메모리 이력에라도 남긴다.
+        new_notif = {
+            "id": len(mock_notif_history) + 1,
+            "title": payload.title,
+            "body": payload.body,
+            "target": payload.target,
+            "target_type": payload.target_type,
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "author": "최고 관리자",
+        }
+        mock_notif_history.insert(0, new_notif)
+        return {"success": True, "item": new_notif}
+
+
+@router.get("/notifications/feed")
+def get_notification_feed(
+    after_id: int = 0,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    [사장님 앱 수신 피드] 로그인한 사장님 본인에게 온 공지만 골라 반환합니다.
+    - 전체(all) 공지는 모두에게
+    - 프리미엄(premium) 공지는 프리미엄 회원(id <= 3 정책)에게만
+    - 특정 매장(specific) 공지는 target_email이 본인 이메일과 일치할 때만
+    앱은 마지막으로 받은 id를 after_id로 넘겨 새 공지만 증분 수신합니다.
+    """
+    is_premium = current_user.id <= 3  # get_admin_users의 프리미엄 등급 정책과 동일 기준
+    rows = (
+        db.query(AdminNotification)
+        .filter(AdminNotification.id > after_id)
+        .order_by(AdminNotification.id.asc())
+        .all()
+    )
+    visible = [
+        n for n in rows
+        if n.target_type == "all"
+        or (n.target_type == "premium" and is_premium)
+        or (n.target_type == "specific" and n.target_email == current_user.email)
+    ]
+    return [_notif_to_dict(n) for n in visible[:20]]
 
 
 # ---------------------------------------------------------------------------
