@@ -5,7 +5,8 @@ import { Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, Touch
 import { Ionicons } from '@expo/vector-icons';
 
 import { colors, spacing } from '../../theme';
-import Brew, { type BrewMood } from '../brew/Brew';
+import { type BrewMood } from '../brew/Brew';
+import MascotEasterEgg from './MascotEasterEgg';
 import MarqueeText from '../MarqueeText';
 import { useAuth } from '../../auth/AuthContext';
 import { fetchNoticeFeed, type AdminNotice } from '../../lib/api/notice';
@@ -269,7 +270,8 @@ export default function WelcomeHeader({
         </View>
 
         {/* [한글 주석: 우측 마스코트 강아지 캐릭터] */}
-        <Brew mood={mood} size={150} style={styles.mascot} disableMotion={true} />
+        {/* 강아지 탭 이스터에그: 한 번 = 쓰다듬기+한마디/간식 랜덤, 빠른 두 번 = 시크릿 */}
+        <MascotEasterEgg mood={mood} size={150} style={styles.mascot} />
       </Animated.View>
 
       {/* 알림함 모달 — 지난 공지를 스택 카드로 쌓아 보여준다 */}
