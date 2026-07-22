@@ -229,17 +229,17 @@ export default function WelcomeHeader({
       </View>
 
       <Animated.View style={[styles.mainRow, { transform: [{ translateY }] }]}>
-        {/* [한글 주석: 투데이스 브루 뱃지를 깔끔하게 제거하고 단어 꺾임 없이 한 줄로 배치한 말풍선] */}
+        {/* [한글 주석: 말풍선 카드 - 글씨가 커져도 마퀴(Marquee)가 한 줄로 예쁘게 흐르도록 maxFontSizeMultiplier=1.3 부여] */}
         <View style={styles.bubble}>
-          {/* 1행 인사말 — 상호명이 길어도 잘리지 않게 마퀴로 흘려 준다 */}
-          <Text style={[styles.greetingLine, { marginBottom: 1 }]}>안녕하세요,</Text>
+          {/* 1행 인사말 — 상호명이 길거나 글자 크기가 커져도 8글자까지 1줄로 단정하게 피트 */}
+          <Text style={[styles.greetingLine, { marginBottom: 1 }]} maxFontSizeMultiplier={1.2}>안녕하세요,</Text>
           <MarqueeText style={{ marginBottom: 5 }}>
-            <Text style={styles.greetingLine}>
-              <Text style={styles.nameHighlight}>{storeName}</Text> 사장님!
+            <Text style={styles.greetingLine} maxFontSizeMultiplier={1.2}>
+              <Text style={styles.nameHighlight} maxFontSizeMultiplier={1.2}>{storeName}</Text> 사장님!
             </Text>
           </MarqueeText>
 
-          {/* 2행 — 관리자 공지가 있으면 강아지가 전하는 공지, 없으면 시간대별 인사말 (둘 다 길면 흐른다) */}
+          {/* 2행 — 관리자 공지가 있으면 강아지가 전하는 공지(탭하면 알림함 열림), 없으면 시간대별 인사말 */}
           {announce ? (
             <View style={styles.announceRow}>
               {/* 본문 탭 → 알림함이 열려 전체 내용 확인 (동시에 말풍선에서 사라짐) */}
@@ -250,7 +250,7 @@ export default function WelcomeHeader({
               >
                 <Ionicons name="megaphone" size={11} color={colors.pointOrange} style={{ marginRight: 4 }} />
                 <MarqueeText style={{ flex: 1 }}>
-                  <Text style={styles.announceLine}>{announce.title}</Text>
+                  <Text style={styles.announceLine} maxFontSizeMultiplier={1.2}>{announce.title}</Text>
                 </MarqueeText>
               </TouchableOpacity>
               {/* X → 알림함을 열지 않고 말풍선에서 닫기만 */}
@@ -260,7 +260,7 @@ export default function WelcomeHeader({
             </View>
           ) : (
             <MarqueeText>
-              <Text style={styles.quoteLine}>{greeting}</Text>
+              <Text style={styles.quoteLine} maxFontSizeMultiplier={1.2} numberOfLines={1}>{greeting}</Text>
             </MarqueeText>
           )}
 
@@ -269,9 +269,9 @@ export default function WelcomeHeader({
           <View style={styles.bubbleTail} />
         </View>
 
-        {/* [한글 주석: 우측 마스코트 강아지 캐릭터] */}
-        {/* 강아지 탭 이스터에그: 한 번 = 쓰다듬기+한마디/간식 랜덤, 빠른 두 번 = 시크릿 */}
-        <MascotEasterEgg mood={mood} size={150} style={styles.mascot} />
+        {/* 강아지 탭 이스터에그: 한 번=쓰다듬기+한마디/간식, 빠른 두 번=시크릿, 꾹 누르기=풍선 터짐.
+            크기는 말풍선 카드 가로 폭을 넓히려 115px로 조율. */}
+        <MascotEasterEgg mood={mood} size={115} style={styles.mascot} />
       </Animated.View>
 
       {/* 알림함 모달 — 지난 공지를 스택 카드로 쌓아 보여준다 */}
@@ -376,19 +376,19 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 3,
   },
-  // [한글 주석: 인사말 라인 (1줄 피트)]
+  // [한글 주석: 인사말 라인 - 8글자 상호명도 1줄 피트되도록 12px로 살짝 조율]
   greetingLine: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     color: '#2C1D17',
-    marginBottom: 3,
+    marginBottom: 2,
   },
-  // [한글 주석: 사장님 성함 하이라이트 - 붉은 주황색에서 차분하고 감성적인 로컬 모카 브라운 톤으로 변경]
+  // [한글 주석: 사장님 상호명 하이라이트 - 8글자("스타벅스스타벅스")까지 1줄에 피트되도록 13.5px 및 자간 -0.6px로 조율]
   nameHighlight: {
-    fontSize: 15.5,
+    fontSize: 13.5,
     fontWeight: '900',
-    color: colors.mochaBrown, // 로컬 모카 브라운 톤 (기존 빨강 #D9531E에서 변경)
-    letterSpacing: -0.4,
+    color: colors.mochaBrown,
+    letterSpacing: -0.6,
   },
   // [한글 주석: 명언 라인 (어색한 단어 꺾임 방지 10.5px 및 1줄 피트)]
   quoteLine: {
@@ -444,19 +444,20 @@ const styles = StyleSheet.create({
   },
   mascot: { marginRight: 2 },
 
-  // 알림함 모달
+  // [한글 주석: 알림함 모달 배경 - 좌우 여백을 넓혀 모달 폭이 화면에 꽉 차지 않도록 조절]
   inboxBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: 'rgba(0,0,0,0.45)',
     justifyContent: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: 40,
   },
+  // [한글 주석: 알림 모달 패널 - 최대 폭을 320px로 컴팩트하게 축소하여 아기자기한 팝업 비율 형성]
   inboxPanel: {
     backgroundColor: colors.creamSand,
-    borderRadius: 22,
-    padding: 16,
-    maxWidth: 420,
-    width: '100%',
+    borderRadius: 24,
+    padding: 20,
+    maxWidth: 320,
+    width: '84%',
     alignSelf: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
@@ -468,10 +469,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    marginBottom: 8,
   },
-  inboxTitle: { fontSize: 16, fontWeight: '900', color: colors.espressoBrown, letterSpacing: -0.3 },
-  inboxEmpty: { alignItems: 'center', gap: 8, paddingVertical: 34 },
+  inboxTitle: { fontSize: 15, fontWeight: '900', color: colors.espressoBrown, letterSpacing: -0.3 },
+  // [한글 주석: 빈 알림 안내 영역 - 패널 크기 축소에 맞춰 상하 여백을 24px로 슬림하게 맞춤]
+  inboxEmpty: { alignItems: 'center', gap: 6, paddingVertical: 24 },
   inboxEmptyText: { fontSize: 12, color: '#9C8E82', fontWeight: '600' },
   // 스택형 공지 카드
   noticeCard: {

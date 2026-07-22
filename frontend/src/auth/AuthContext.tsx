@@ -11,6 +11,7 @@ import {
   OAuthProvider,
   signInWithPopup,
   signInWithCredential,
+  onIdTokenChanged,
 } from 'firebase/auth';
 import {
   createContext,
@@ -124,6 +125,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } else {
       await AsyncStorage.removeItem(SESSION_KEY);
     }
+  }, []);
+
+  // [토큰 자동 갱신] Firebase는 ID 토큰(약 1시간 만료)을 백그라운드에서 자동 갱신한다.
+  // 그 변경을 구독해 앱이 들고 있는 토큰과 저장된 세션을 항상 최신으로 유지 → 한 시간 뒤 401 방지.
+  useEffect(() => {
+    if (!auth) return;
+    const unsub = onIdTokenChanged(auth, async (fbUser) => {
+      if (!fbUser) return; // Firebase 사용자 없음(로그아웃/백엔드 데모 로그인)엔 관여하지 않는다
+      try {
+        const fresh = await fbUser.getIdToken(); // 만료 임박이면 갱신된 새 토큰을 돌려준다
+        setToken(fresh);
+        const raw = await AsyncStorage.getItem(SESSION_KEY);
+        if (raw) {
+          const saved = JSON.parse(raw);
+          saved.token = fresh;
+          await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(saved));
+        }
+      } catch {
+        // 갱신 실패는 무시 — 다음 변경 이벤트에 재시도
+      }
+    });
+    return unsub;
   }, []);
 
   // [한글 주석] 모바일 Google 로그인 성공 시 웹뷰로부터 인증 정보(id_token)를 받아와 처리합니다.

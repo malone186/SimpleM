@@ -28,7 +28,7 @@ from transformers import (
     Trainer,
     TrainingArguments,
 )
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
@@ -175,6 +175,9 @@ def make_collate(processor):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--model", type=str, default=MODEL_ID, help="베이스 모델 (예: Qwen/Qwen3.5-2B)")
+    ap.add_argument("--use-4bit", action="store_true",
+                    help="QLoRA: 베이스 4bit 양자화 — 2B는 bf16이 8GB VRAM을 넘쳐 필수 (0.8B는 불필요)")
     ap.add_argument("--epochs", type=float, default=2.0)
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--max-side", type=int, default=1024,
@@ -183,6 +186,8 @@ def main():
     ap.add_argument("--grad-accum", type=int, default=8)
     ap.add_argument("--out", type=str, default=str(HERE / "output" / "adapter35"))
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--resume", type=str, default=None,
+                    help="중단된 학습 재개: output/ckpt35/checkpoint-N 경로 (OOM 등으로 죽었을 때)")
     args = ap.parse_args()
 
     assert torch.cuda.is_available(), "CUDA GPU가 필요합니다"
@@ -192,11 +197,21 @@ def main():
         ds.rows = ds.rows[: args.limit]
     print(f"train samples: {len(ds)}")
 
-    processor = AutoProcessor.from_pretrained(MODEL_ID)
+    processor = AutoProcessor.from_pretrained(args.model)
+    quant = None
+    if args.use_4bit:
+        from transformers import BitsAndBytesConfig
+        quant = BitsAndBytesConfig(
+            load_in_4bit=True, bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.bfloat16,
+        )
     model = Qwen3_5ForConditionalGeneration.from_pretrained(
-        MODEL_ID, dtype=torch.bfloat16, attn_implementation="sdpa", device_map="cuda:0",
+        args.model, dtype=torch.bfloat16, attn_implementation="sdpa", device_map="cuda:0",
+        quantization_config=quant,
     )
     model.config.use_cache = False
+    if args.use_4bit:
+        model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
 
     lora = LoraConfig(
         r=16, lora_alpha=32, lora_dropout=0.05, bias="none",
@@ -225,7 +240,7 @@ def main():
         dataloader_num_workers=0,
     )
     trainer = Trainer(model=model, args=targs, train_dataset=ds, data_collator=make_collate(processor))
-    trainer.train()
+    trainer.train(resume_from_checkpoint=args.resume or None)
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

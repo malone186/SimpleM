@@ -4,6 +4,7 @@ import os
 import json
 import time
 import urllib.request
+from typing import Optional
 from datetime import datetime, timedelta, timezone
 import jwt
 import bcrypt
@@ -41,6 +42,8 @@ _GOOGLE_PUBLIC_KEYS = {}
 _KEYS_EXPIRE_AT = 0.0
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
+# 선택적 인증용 — 토큰이 없어도 401을 던지지 않고 그냥 통과시킨다.
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login", auto_error=False)
 
 
 # --- [비밀번호 암호화 관련 함수 (로컬 DB 레거시 유지용)] ---
@@ -185,6 +188,22 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         db.refresh(user)
 
     return user
+
+
+def get_current_user_optional(
+    token: Optional[str] = Depends(oauth2_scheme_optional),
+    db: Session = Depends(get_db),
+) -> Optional[User]:
+    """
+    [선택적 인증] 토큰이 있으면 사용자를 반환하고, 없거나 무효면 None을 반환한다(401 없음).
+    기존에 인증 없이 열려 있던 엔드포인트를 깨지 않고 '토큰이 오면 매장별로 스코핑'하는 용도.
+    """
+    if not token:
+        return None
+    try:
+        return get_current_user(token=token, db=db)
+    except HTTPException:
+        return None
 
 
 def get_current_admin(current_user: User = Depends(get_current_user)) -> User:

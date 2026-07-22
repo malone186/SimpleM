@@ -109,6 +109,7 @@ def score_one(pred: dict | None, gt: dict) -> dict:
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--model", type=str, default=MODEL_ID, help="베이스 모델 (예: Qwen/Qwen3.5-2B)")
     ap.add_argument("--base", action="store_true", help="어댑터 없이 베이스 모델 평가")
     ap.add_argument("--adapter", type=str, default=str(HERE / "output" / "adapter35"))
     ap.add_argument("--split", type=str, default="test")
@@ -122,9 +123,9 @@ def main():
     rows = load_rows(args.split, args.limit)
     print(f"eval samples: {len(rows)} ({args.split})")
 
-    processor = AutoProcessor.from_pretrained(MODEL_ID)
+    processor = AutoProcessor.from_pretrained(args.model)
     model = Qwen3_5ForConditionalGeneration.from_pretrained(
-        MODEL_ID, dtype=torch.bfloat16, attn_implementation="sdpa", device_map="cuda:0",
+        args.model, dtype=torch.bfloat16, attn_implementation="sdpa", device_map="cuda:0",
     )
     if not args.base:
         from peft import PeftModel

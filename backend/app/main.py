@@ -27,6 +27,10 @@ try:
     from app.models.user import ensure_acquisition_columns
     ensure_acquisition_columns(engine)
 
+    # [자가치유] 기존 employees 테이블에 store_id(매장 스코핑용) 컬럼이 없으면 보강한다.
+    from app.models.operation import ensure_employee_store_column
+    ensure_employee_store_column(engine)
+
     # [한글 주석] 로그인 데모를 즉시 하실 수 있게 테스트용 사장님 계정을 자동으로 생성(시딩)해 둡니다.
     db_session = SessionLocal()
     try:

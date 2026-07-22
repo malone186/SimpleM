@@ -575,15 +575,19 @@ export default function BeanNotepad() {
         decaf: '디카페인'
       };
 
+      // 백엔드는 척도를 정수로 받는다 (0=상관없음, 1=낮음, 2=중간, 3=높음).
+      // 프론트 상태는 문자열이라 그대로 보내면 422가 나므로 정수로 변환한다.
+      const scaleMap: Record<string, number> = { any: 0, low: 1, medium: 2, high: 3 };
+
       const payload = {
         caffeine: decafMap[surveyDecaf] || '상관없음',
         origin: originMap[surveyOrigin] || '전체',
         process: processMap[surveyProcess] || '전체',
         roast_level: roastMap[surveyRoast] || '전체',
-        acidity: surveyAcidity,
-        body: surveyBody,
-        sweetness: surveySweetness,
-        bitterness: surveyBitterness
+        acidity: scaleMap[surveyAcidity] ?? 0,
+        body: scaleMap[surveyBody] ?? 0,
+        sweetness: scaleMap[surveySweetness] ?? 0,
+        bitterness: scaleMap[surveyBitterness] ?? 0,
       };
 
       // 백엔드 API 호출 (공용 DB 599개 원두 curation_snapshot 실시간 매칭)
@@ -903,7 +907,8 @@ export default function BeanNotepad() {
         <Text style={styles.currentLabelText}>{label}</Text>
       </View>
       <View style={{ flex: 1, gap: 4 }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        {/* [한글 주석: 시스템 글씨 크기 확대 시 텍스트와 뱃지가 겹치지 않고 안으로 줄바꿈되도록 flexWrap 적용] */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
           <Text style={[styles.currentValue, !name && styles.currentEmpty]} numberOfLines={1}>
             {name || (hopperState ? '원두명 미지정 — 수정에서 입력' : '아직 입력하지 않았어요')}
           </Text>
@@ -914,7 +919,7 @@ export default function BeanNotepad() {
           ) : null}
         </View>
 
-        {/* [한글 주석: 무게센서(로드셀) 실측 기반 호퍼 잔량 게이지] */}
+        {/* [한글 주석: 무게센서(로드셀) 실측 기반 호퍼 잔량 게이지 - 폰트 확대 시 우측 태그 잘림 방지] */}
         {hopperState ? (
           <>
             <View style={liveComponentStyles.gaugeRow}>
@@ -1633,14 +1638,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 14,
+    flexWrap: 'wrap',
+    gap: 8,
   },
-  cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', flex: 1 },
   cardTitle: { ...typography.L3, color: colors.espressoBrown },
 
   editBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: colors.coffeeCream,
     borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5,
+    flexShrink: 0,
   },
   editBtnText: { ...typography.L5, fontWeight: '700', color: colors.mochaBrown },
 
@@ -1648,14 +1656,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: colors.espressoBrown,
     borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5,
+    flexShrink: 0,
   },
   addBtnText: { ...typography.L5, fontWeight: '700', color: colors.white },
 
   // 현재 사용 원두
-  currentRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
-  currentLabel: { flexDirection: 'row', alignItems: 'center', gap: 5, width: 64 },
+  currentRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingVertical: 6 },
+  currentLabel: { flexDirection: 'row', alignItems: 'center', gap: 5, width: 64, paddingTop: 2 },
   currentLabelText: { ...typography.L5, fontWeight: '700', color: colors.mochaBrown },
-  currentValue: { ...typography.L5, color: colors.espressoBrown, flex: 1, fontWeight: '600' },
+  currentValue: { ...typography.L5, color: colors.espressoBrown, flexShrink: 1, fontWeight: '600' },
   currentEmpty: { color: colors.stone300, fontWeight: '400', fontStyle: 'italic' },
   divider: { height: 1, backgroundColor: colors.coffeeCream, marginVertical: 2 },
 
@@ -2191,11 +2200,13 @@ const liveComponentStyles = StyleSheet.create({
   gaugeRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 8,
     marginTop: 2,
   },
   gaugeTrack: {
     flex: 1,
+    minWidth: 50,
     height: 5,
     backgroundColor: colors.coffeeCream,
     borderRadius: 3,
@@ -2235,10 +2246,11 @@ const liveComponentStyles = StyleSheet.create({
     color: '#B45309',
   },
 
-  // 🔌 데모 모드 센서 연동 유도 배너
+  // 🔌 데모 모드 센서 연동 유도 배너 (글씨 최대화 시 우측 버튼 잘림 방지 반응형 개편)
   demoBanner: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 10,
     backgroundColor: '#FEF7EC',
     borderWidth: 1,
@@ -2267,6 +2279,8 @@ const liveComponentStyles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
+    flexShrink: 0,
+    alignSelf: 'flex-start',
   },
   demoBannerCtaText: {
     fontSize: 10,
