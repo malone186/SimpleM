@@ -1,7 +1,8 @@
 // 홈 강아지(브루) 이스터에그.
 //  - 한 번 탭: 랜덤으로 [쓰다듬기 + 한마디] 또는 [간식 주기 미니 연출]
 //  - 빠르게 두 번 탭: 시크릿(하트 뿅뿅 + 오늘의 행운 원두)
-// 모두 RN 내장 Animated로 처리 (추가 패키지/에셋 없음, 간식·하트는 이모지).
+//  - 꾹 누르기(롱프레스): 풍선처럼 점점 부풀다가 끝까지 부풀면 펑! 터짐 (중간에 떼면 바람 빠지듯 복귀)
+// 모두 RN 내장 Animated + 이모지로 처리 (추가 이미지 에셋 없음), 진동은 expo-haptics.
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import * as Haptics from 'expo-haptics';
@@ -42,38 +43,39 @@ const secretLine = () => {
 
 const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
 
-function HeartsBurst() {
-  const items = useRef([...Array(5)].map(() => new Animated.Value(0))).current;
+// 이모지가 사방으로 퍼지며 떠오르는 버스트 연출 (하트/펑 공용)
+function Burst({ emojis, spread = 42, rise = 72 }: { emojis: string[]; spread?: number; rise?: number }) {
+  const items = useRef(emojis.map(() => new Animated.Value(0))).current;
   useEffect(() => {
     Animated.stagger(
-      55,
-      items.map((v) =>
-        Animated.timing(v, { toValue: 1, duration: 900, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-      ),
+      45,
+      items.map((v) => Animated.timing(v, { toValue: 1, duration: 850, easing: Easing.out(Easing.quad), useNativeDriver: true })),
     ).start();
   }, [items]);
 
-  const X = [-42, -20, 0, 20, 42];
-  const EMOJI = ['❤️', '💛', '✨', '🧡', '⭐'];
+  const n = emojis.length;
   return (
     <View pointerEvents="none" style={styles.burstWrap}>
-      {items.map((v, i) => (
-        <Animated.Text
-          key={i}
-          style={{
-            position: 'absolute',
-            fontSize: 18,
-            opacity: v.interpolate({ inputRange: [0, 0.7, 1], outputRange: [0, 1, 0] }),
-            transform: [
-              { translateX: v.interpolate({ inputRange: [0, 1], outputRange: [0, X[i]] }) },
-              { translateY: v.interpolate({ inputRange: [0, 1], outputRange: [0, -72] }) },
-              { scale: v.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.4, 1.15, 0.8] }) },
-            ],
-          }}
-        >
-          {EMOJI[i]}
-        </Animated.Text>
-      ))}
+      {items.map((v, i) => {
+        const x = n > 1 ? (i / (n - 1) - 0.5) * spread * 2 : 0;
+        return (
+          <Animated.Text
+            key={i}
+            style={{
+              position: 'absolute',
+              fontSize: 20,
+              opacity: v.interpolate({ inputRange: [0, 0.7, 1], outputRange: [0, 1, 0] }),
+              transform: [
+                { translateX: v.interpolate({ inputRange: [0, 1], outputRange: [0, x] }) },
+                { translateY: v.interpolate({ inputRange: [0, 1], outputRange: [0, -rise] }) },
+                { scale: v.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.4, 1.2, 0.7] }) },
+              ],
+            }}
+          >
+            {emojis[i]}
+          </Animated.Text>
+        );
+      })}
     </View>
   );
 }
@@ -90,9 +92,13 @@ export default function MascotEasterEgg({
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
 
-  // 강아지 반동(모든 탭 공통)
+  // 강아지 반동(탭 공통) + 풍선 부풀기(롱프레스) — 최종 스케일은 둘의 곱
   const scale = useRef(new Animated.Value(1)).current;
+  const balloon = useRef(new Animated.Value(1)).current;
   const rot = useRef(new Animated.Value(0)).current;
+  const combinedScale = Animated.multiply(scale, balloon);
+  const rotate = rot.interpolate({ inputRange: [-1, 1], outputRange: ['-8deg', '8deg'] });
+
   const wiggle = () => {
     scale.setValue(1);
     rot.setValue(0);
@@ -108,9 +114,8 @@ export default function MascotEasterEgg({
       ]),
     ]).start();
   };
-  const rotate = rot.interpolate({ inputRange: [-1, 1], outputRange: ['-8deg', '8deg'] });
 
-  // 말풍선(한마디/시크릿)
+  // 말풍선(한마디/시크릿/펑)
   const [bubble, setBubble] = useState<{ text: string; color: string } | null>(null);
   const bubbleAnim = useRef(new Animated.Value(0)).current;
   const showBubble = (text: string, color: string, hold = 1400) => {
@@ -133,7 +138,7 @@ export default function MascotEasterEgg({
     setTreat(pick(TREATS));
     treatAnim.setValue(0);
     Animated.timing(treatAnim, { toValue: 1, duration: 720, easing: Easing.in(Easing.quad), useNativeDriver: true }).start(() => {
-      wiggle(); // 받아먹고 신남
+      wiggle();
       if (alive.current) setTimeout(() => { if (alive.current) setTreat(null); }, 180);
     });
   };
@@ -141,10 +146,11 @@ export default function MascotEasterEgg({
   const treatScale = treatAnim.interpolate({ inputRange: [0, 0.8, 1], outputRange: [1, 1, 0.3] });
   const treatOpacity = treatAnim.interpolate({ inputRange: [0, 0.85, 1], outputRange: [1, 1, 0] });
 
-  // 하트 버스트(시크릿)
-  const [burstKey, setBurstKey] = useState(0);
+  // 버스트: 하트(시크릿) / 펑(풍선)
+  const [heartKey, setHeartKey] = useState(0);
+  const [popKey, setPopKey] = useState(0);
 
-  // 단일 vs 더블 탭 판별
+  // ── 탭 (단일/더블) ──────────────────────────────────────────
   const lastTap = useRef(0);
   const singleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const DOUBLE_MS = 280;
@@ -152,28 +158,23 @@ export default function MascotEasterEgg({
   const triggerSingle = () => {
     wiggle();
     if (Math.random() < 0.5) {
-      buzz(Haptics.ImpactFeedbackStyle.Light); // 쓰다듬기 = 가벼운 진동
-      showBubble(pick(PAT_LINES), '#C05A24'); // 쓰다듬기 + 한마디
+      buzz(Haptics.ImpactFeedbackStyle.Light);
+      showBubble(pick(PAT_LINES), '#C05A24');
     } else {
-      buzz(Haptics.ImpactFeedbackStyle.Medium); // 간식 = 중간 진동(툭)
-      showTreat(); // 간식 주기
+      buzz(Haptics.ImpactFeedbackStyle.Medium);
+      showTreat();
     }
   };
-
   const triggerSecret = () => {
     wiggle();
-    buzzSuccess(); // 시크릿 = 성공 진동 패턴
-    setBurstKey((k) => k + 1);
+    buzzSuccess();
+    setHeartKey((k) => k + 1);
     showBubble(secretLine(), '#B8860B', 2000);
   };
-
   const handleTap = () => {
     const now = Date.now();
     if (now - lastTap.current < DOUBLE_MS) {
-      if (singleTimer.current) {
-        clearTimeout(singleTimer.current);
-        singleTimer.current = null;
-      }
+      if (singleTimer.current) { clearTimeout(singleTimer.current); singleTimer.current = null; }
       lastTap.current = 0;
       triggerSecret();
     } else {
@@ -185,12 +186,76 @@ export default function MascotEasterEgg({
     }
   };
 
-  useEffect(() => () => { if (singleTimer.current) clearTimeout(singleTimer.current); }, []);
+  // ── 롱프레스 (풍선 부풀기 → 펑) ─────────────────────────────
+  const growStartTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const growAnim = useRef<Animated.CompositeAnimation | null>(null);
+  const longPressing = useRef(false);
+  const popped = useRef(false);
+  const suppressTap = useRef(false);
+
+  const pop = () => {
+    popped.current = true;
+    suppressTap.current = true;
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+    Animated.sequence([
+      Animated.timing(balloon, { toValue: 2.7, duration: 90, useNativeDriver: true }),
+      Animated.timing(balloon, { toValue: 0, duration: 130, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+    ]).start(() => {
+      if (!alive.current) return;
+      setPopKey((k) => k + 1); // 💥 터짐 연출
+      showBubble('펑! 🎈', '#C0392B', 1100);
+      // 잠깐 사라졌다 통통 튀며 다시 등장
+      setTimeout(() => {
+        if (!alive.current) return;
+        balloon.setValue(0);
+        Animated.spring(balloon, { toValue: 1, useNativeDriver: true, speed: 12, bounciness: 16 }).start();
+        popped.current = false;
+      }, 380);
+    });
+  };
+
+  const startGrow = () => {
+    longPressing.current = true;
+    popped.current = false;
+    buzz(Haptics.ImpactFeedbackStyle.Light); // 부풀기 시작 틱
+    balloon.setValue(1);
+    growAnim.current = Animated.timing(balloon, { toValue: 2.3, duration: 1000, easing: Easing.linear, useNativeDriver: true });
+    growAnim.current.start(({ finished }) => {
+      if (finished) pop(); // 끝까지 부풀면 터짐
+    });
+  };
+
+  const onPressIn = () => {
+    // 잠깐 이상 누르고 있을 때만 부풀기 시작 → 빠른 탭과 구분
+    growStartTimer.current = setTimeout(startGrow, 180);
+  };
+  const onPressOut = () => {
+    if (growStartTimer.current) { clearTimeout(growStartTimer.current); growStartTimer.current = null; }
+    if (longPressing.current && !popped.current) {
+      // 끝까지 안 부풀고 뗌 → 바람 빠지듯 복귀, 탭 이벤트는 무시
+      growAnim.current?.stop();
+      suppressTap.current = true;
+      Animated.spring(balloon, { toValue: 1, useNativeDriver: true, speed: 14, bounciness: 8 }).start();
+    }
+    longPressing.current = false;
+  };
+  const onPress = () => {
+    if (suppressTap.current) { suppressTap.current = false; return; }
+    handleTap();
+  };
+
+  useEffect(
+    () => () => {
+      if (singleTimer.current) clearTimeout(singleTimer.current);
+      if (growStartTimer.current) clearTimeout(growStartTimer.current);
+    },
+    [],
+  );
 
   return (
     <View style={[{ position: 'relative', alignItems: 'center' }, style]}>
-      <Pressable onPress={handleTap} hitSlop={6}>
-        <Animated.View style={{ transform: [{ scale }, { rotate }] }}>
+      <Pressable onPress={onPress} onPressIn={onPressIn} onPressOut={onPressOut} hitSlop={6}>
+        <Animated.View style={{ transform: [{ scale: combinedScale }, { rotate }] }}>
           <Brew mood={mood} size={size} disableMotion />
         </Animated.View>
       </Pressable>
@@ -213,7 +278,8 @@ export default function MascotEasterEgg({
         </Animated.Text>
       )}
 
-      {burstKey > 0 && <HeartsBurst key={burstKey} />}
+      {heartKey > 0 && <Burst key={`h${heartKey}`} emojis={['❤️', '💛', '✨', '🧡', '⭐']} />}
+      {popKey > 0 && <Burst key={`p${popKey}`} emojis={['💥', '🎈', '✨', '💥', '🎉', '✨']} spread={62} rise={92} />}
     </View>
   );
 }
