@@ -78,9 +78,11 @@ document.addEventListener('DOMContentLoaded', () => {
       pageTitle.textContent = titleMap[targetTab];
     }
 
-    // [한글 주석: AI 에이전트 탭 진입 시 최신 편성 자동 조회]
+    // [한글 주석: AI 에이전트 탭 진입 시 최신 편성 자동 조회, CS 탭 진입 시 최신 문의 자동 동기화]
     if (targetTab === 'agents') {
       loadAgents();
+    } else if (targetTab === 'cs') {
+      loadCSList();
     }
   };
 
@@ -518,10 +520,15 @@ document.addEventListener('DOMContentLoaded', () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             title: title,
+<<<<<<< Updated upstream
             body: body,
             target: targetLabel,
             target_type: currentNotifTarget,
             target_email: targetEmail
+=======
+            body: body, // [한글 주석: 사장님 공지사항 상세 본문 내용 포함 전송]
+            target: targetLabel
+>>>>>>> Stashed changes
           })
         });
         if (res.ok) {
@@ -941,7 +948,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderAgentTree();
   };
 
-  // [한글 주석: 초기 구동 시 실시간 데이터 전면 동기화]
+  // [한글 주석: 초기 구동 시 실시간 데이터 전면 동기화 및 4초 주기 사장님 CS 문의 실시간 자동 수신 설정]
   async function initDashboard() {
     await checkBackendHealth();
     await loadDashboardStats();
@@ -950,6 +957,11 @@ document.addEventListener('DOMContentLoaded', () => {
     await loadNotifications();
     await loadPayments();
     await loadAgents();
+
+    // 4초 주기 폴링 — 사장님이 앱에서 1대1 문의를 접수하면 관리자 웹페이지를 안 새로고침해도 4초 내에 실시간 노출
+    setInterval(() => {
+      loadCSList();
+    }, 4000);
   }
 
   initDashboard();

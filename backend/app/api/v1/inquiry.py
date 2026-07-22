@@ -102,7 +102,7 @@ def get_inquiries(user_email: Optional[str] = None, db: Session = Depends(get_db
 
 @router.post("")
 def create_inquiry(req: InquiryCreate, db: Session = Depends(get_db)):
-    """[한글 주석] 사장님 앱에서 1대1 문의 등록 — DB 저장 후 같은 id로 관리자 CS 리스트에도 즉시 노출"""
+    """[한글 주석] 사장님 앱에서 1대1 문의 등록 — DB 저장 후 관리자 CS 리스트 상단에 100% 실시간 연동"""
     now = datetime.now()
     inq_id = None
     try:
@@ -124,8 +124,13 @@ def create_inquiry(req: InquiryCreate, db: Session = Depends(get_db)):
         except Exception:
             pass
 
+    # [한글 주석] ID 중복 충돌을 방지하기 위한 안전한 고유 ID 생성
+    existing_ids = [m.get("id", 0) for m in GLOBAL_INQUIRIES] + [m.get("id", 0) for m in mock_cs_list]
+    max_id = max(existing_ids, default=100) + 1
+    final_id = inq_id if (inq_id is not None and inq_id not in existing_ids) else max_id
+
     item_dict = {
-        "id": inq_id if inq_id is not None else 0,
+        "id": final_id,
         "user_email": req.user_email or "owner@cafe.com",
         "store_name": req.store_name or "포슬카페",
         "category": req.category,
@@ -135,17 +140,11 @@ def create_inquiry(req: InquiryCreate, db: Session = Depends(get_db)):
         "answer": None,
         "date": now.strftime("%Y.%m.%d"),
     }
+    GLOBAL_INQUIRIES.insert(0, item_dict)
 
-    if inq_id is None:
-        # DB 저장 실패 시에만 메모리 리스트로 대체 보관 (id 충돌 방지용 임시 id 발급)
-        existing = [m["id"] for m in GLOBAL_INQUIRIES] + [m["id"] for m in mock_cs_list]
-        inq_id = max(existing, default=0) + 1
-        item_dict["id"] = inq_id
-        GLOBAL_INQUIRIES.insert(0, item_dict)
-
-    # [한글 주석] 관리자 웹 CS 리스트에 DB와 동일한 id로 등록 → 관리자 답변이 정확히 이 문의에 연결됨
-    mock_cs_list.insert(0, {
-        "id": inq_id,
+    # [한글 주석] 관리자 웹 CS 리스트 최상단(0번 인덱스)에 즉시 등록
+    cs_item = {
+        "id": final_id,
         "name": "포슬이",
         "store": req.store_name or "포슬카페",
         "category": req.category,
@@ -156,7 +155,8 @@ def create_inquiry(req: InquiryCreate, db: Session = Depends(get_db)):
         "content": req.content,
         "question": req.content,
         "reply": None,
-    })
+    }
+    mock_cs_list.insert(0, cs_item)
 
     return item_dict
 

@@ -1,7 +1,7 @@
 // 공동 소유 — 탭 추가 시 알파벳순 정렬, 팀 공지
 // PRD §6 화면 5개: 대시보드 / 재고 / 발주 / 챗봇 / 운영
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator, Platform, View } from 'react-native';
+import { ActivityIndicator, LayoutAnimation, Platform, View } from 'react-native';
 import { PressableScale } from '../components/motion';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -83,8 +83,7 @@ const LABELS: Record<keyof RootTabParamList, string> = {
   Management: '관리',
 };
 
-// ERP 스택 화면 공통 헤더 옵션 (테마)
-// ERP 스택 화면 공통 헤더 옵션 (테마)
+// [한글 주석: 아이폰 iOS / 프리텐다드 미디엄 스타일 ERP 스택 화면 공통 헤더 옵션]
 const erpHeader = (title: string, navigation: any) =>
   ({
     headerShown: true,
@@ -92,18 +91,33 @@ const erpHeader = (title: string, navigation: any) =>
     headerTitleAlign: 'left' as const, // 웹 프레임 노치와 겹치지 않게
     headerStyle: { backgroundColor: colors.espressoBrown },
     headerTintColor: colors.creamSand,
-    headerTitleStyle: { fontWeight: '900' as const },
-    headerStatusBarHeight: 35, // [한글 주석] 아이폰 노치(머리부분)와 타이틀 텍스트가 겹치지 않도록 여백을 확보합니다.
-    headerBackVisible: false, // 기존 네이티브 백버튼 강제 비활성화!
-    headerLeftContainerStyle: { paddingLeft: 12 }, // [한글 주석] 화면 좌측 곡면 테두리에서 화살표가 너무 바짝 붙지 않도록 좌측 여백 확보
-    headerTitleContainerStyle: { marginLeft: -4 }, // [한글 주석] 화살표와 제목 글씨가 너무 겹치거나 멀어지지 않도록 중간 비율(-4px)로 조절
+    headerTitleStyle: {
+      fontSize: 16.5,
+      fontWeight: '500' as const, // [한글 주석: 투박한 900 굵기를 지우고 세련된 프리텐다드 미디엄 500 굵기 적용]
+      letterSpacing: -0.45, // [한글 주석: 자간을 쫀쫀하게 좁혀 가독성을 높임]
+      fontFamily: Platform.select({
+        web: 'Pretendard, -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, sans-serif',
+        default: undefined,
+      }),
+    },
+    headerStatusBarHeight: 35, // 아이폰 노치 안전 높이
+    headerBackVisible: false, // 네이티브 백버튼 비활성화
+    headerLeftContainerStyle: { paddingLeft: 10 },
+    headerTitleContainerStyle: { marginLeft: 4 }, // [한글 주석: 화살표와 제목이 어색하게 붙지 않게 4px 여백 확보]
     headerLeft: () => (
       <PressableScale
-        onPress={() => navigation.goBack()}
-        style={{ marginLeft: 4, marginRight: 4, padding: 6 }} // [한글 주석] 화살표와 글씨 사이 밸런스 마진(4px) 지정
-        to={0.8}
+        onPress={() => {
+          // [한글 주석: 뒤로가기 클릭 시 레이아웃 축소 및 화면 이탈 동작을 쫀득한 탄성 감도로 연출]
+          LayoutAnimation.configureNext({
+            duration: 350,
+            update: { type: LayoutAnimation.Types.spring, springDamping: 0.8 },
+          });
+          navigation.goBack();
+        }}
+        style={{ marginLeft: 2, marginRight: 10, padding: 4 }} // [한글 주석: 화살표와 제목 글자 사이에 10px 띄움 간격 조절]
+        to={0.88}
       >
-        <Ionicons name="arrow-back" size={24} color={colors.creamSand} />
+        <Ionicons name="arrow-back" size={22} color={colors.creamSand} />
       </PressableScale>
     ),
     animation: 'slide_from_right' as const,

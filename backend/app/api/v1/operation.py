@@ -26,7 +26,10 @@ from app.models.user import User
 
 router = APIRouter(prefix="/operation", tags=["Operation"])
 
+<<<<<<< Updated upstream
 
+=======
+>>>>>>> Stashed changes
 @router.post("/beans/curate", response_model=CommonResponse)
 def curate_beans_api(payload: CurationFilterRequest, limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db)):
     """
@@ -57,6 +60,7 @@ def list_employees_api(db: Session = Depends(get_db)):
         return CommonResponse(success=True, data=data, message="알바생 목록 조회가 완료되었습니다.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/employees", response_model=CommonResponse)
 def create_employee_api(payload: EmployeeCreate, db: Session = Depends(get_db)):
