@@ -80,8 +80,9 @@ QWEN_VLM_BASE = os.getenv("QWEN_VLM_BASE", "Qwen/Qwen3.5-0.8B")
 QWEN_VLM_ADAPTER_DIR = Path(
     os.getenv("QWEN_VLM_ADAPTER_DIR", _VLM_FINETUNE_DIR / "output" / "adapter35")
 )
-# 1024로는 품목 20개 이상 영수증에서 JSON이 중간에 잘린다 (실측: char 2195에서 절단)
-QWEN_VLM_MAX_NEW_TOKENS = int(os.getenv("QWEN_VLM_MAX_NEW_TOKENS", "1536"))
+# 1024는 품목 20개+에서, 1536도 24품목+할인줄에서 JSON이 잘린다 (실측 2건).
+# ctx 8192 기준 vision ~1200 + 프롬프트 ~400 + 2048 생성 = 여유 있음.
+QWEN_VLM_MAX_NEW_TOKENS = int(os.getenv("QWEN_VLM_MAX_NEW_TOKENS", "2048"))
 # 4bit(bnb nf4)는 VRAM을 아끼는 대신 매 토큰마다 역양자화가 들어가 오히려 2배 느리다.
 # RTX 5060(8GB) 실측: 4bit 10 tok/s·25초 vs bf16+어댑터병합 20 tok/s·14초, 피크 VRAM 4.5GB.
 # 2B 모델은 bf16으로도 8GB에 충분히 들어가므로 기본은 bf16. VRAM이 더 좁은 GPU에서만 1로 켤 것.
@@ -270,13 +271,24 @@ def _auto_crop_document(img: Image.Image) -> Image.Image:
     """
     small = img.copy()
     small.thumbnail((400, 400), Image.BILINEAR)
-    mask = small.convert("L").point(lambda p: 255 if p > 200 else 0)
+    gray = small.convert("L")
+    mask = gray.point(lambda p: 255 if p > 200 else 0)
     mask = mask.filter(ImageFilter.MinFilter(5))  # 배경의 작은 밝은 점 제거
     bbox = mask.getbbox()
     if not bbox:
         return img
     area_ratio = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) / (small.width * small.height)
     if not (0.10 <= area_ratio <= 0.95):  # 전체가 밝거나(이미 문서 전체 사진) 못 찾은 경우
+        return img
+    # 안전장치: bbox 안팎의 밝기 차이가 작으면 배경도 밝은 장면(나무 탁자 등)이라
+    # 탐지가 불안정하다 — 크롭하면 영수증 하단이 잘려나가는 실측 사고(590×680→448×502,
+    # 품목 3개+합계 유실)가 있었다. 확실할 때만 자른다.
+    import numpy as np
+    arr = np.asarray(gray, dtype=np.float32)
+    inside = arr[bbox[1]:bbox[3], bbox[0]:bbox[2]].mean()
+    outside_mask = np.ones(arr.shape, dtype=bool)
+    outside_mask[bbox[1]:bbox[3], bbox[0]:bbox[2]] = False
+    if not outside_mask.any() or inside - arr[outside_mask].mean() < 40:
         return img
     sx, sy = img.width / small.width, img.height / small.height
     pad = 8
@@ -671,6 +683,9 @@ def _merge_duplicate_items(result: OcrResult) -> None:
         # (코스트코 영수증의 '652125' 같은 줄을 모델이 품목으로 뽑는 실측 사례 차단)
         if re.fullmatch(r"[\d\-*#. ]{5,}", item.name.strip()):
             continue
+        # '@CJ_1만원1천원' 같은 할인/프로모션 설명 줄 — 수량·단가·금액이 전부 비면 품목이 아니다
+        if item.name.strip().startswith("@") and item.quantity is None and item.amount is None:
+            continue
             
         # 이름과 단위를 기준으로 묶어줍니다.
         name_clean = item.name.strip()
@@ -841,6 +856,8 @@ def confirm_draft(
 
 def reject_draft(doc_id: str) -> dict[str, Any]:
     draft = get_draft(doc_id)
+    if draft["status"] == "rejected":  # 중복 반려 요청은 에러 없이 그대로 성공 처리 (멱등)
+        return draft
     if draft["status"] != "draft":
         raise DraftStateError(f"이미 {draft['status']} 상태입니다")
     draft["status"] = "rejected"
