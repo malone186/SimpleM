@@ -21,7 +21,11 @@ logger = logging.getLogger(__name__)
 # DB가 꺼져 있어도 서버 자체는 뜨도록 한다 — DB와 무관한 기능(OCR 등)은 독립 동작해야 함 (PRD §7)
 try:
     Base.metadata.create_all(bind=engine)
-    
+
+    # [자가치유] 기존 users 테이블에 유입 경로 컬럼이 없으면 무중단으로 보강한다 (create_all은 기존 테이블을 ALTER하지 않음).
+    from app.models.user import ensure_acquisition_columns
+    ensure_acquisition_columns(engine)
+
     # [한글 주석] 로그인 데모를 즉시 하실 수 있게 테스트용 사장님 계정을 자동으로 생성(시딩)해 둡니다.
     db_session = SessionLocal()
     try:
@@ -62,6 +66,56 @@ app.add_middleware(
     allow_methods=["*"],                # 모든 HTTP 메소드 허용
     allow_headers=["*"],                # 모든 커스텀 헤더 허용
 )
+
+
+# [활동 트래킹 수집] 앱의 모든 인증 요청을 tracking_events 테이블에 1건씩 기록한다(서버사이드 → 프론트 무수정).
+#  - 마지막 접속·기능별 사용량·이탈 위험은 이 로그의 집계로 관리자 콘솔에 표시된다.
+#  - 어떤 실패도 원 요청을 막지 않는다(전 구간 try/except). 관리자 콘솔 트래픽(/admin)·문서·헬스는 기록 제외.
+@app.middleware("http")
+async def track_activity(request, call_next):
+    response = await call_next(request)
+    try:
+        path = request.url.path
+        method = request.method
+        # /api/v1 실사용 요청만 기록. 관리자 콘솔·인증 프리플라이트는 노이즈라 제외.
+        if (
+            method != "OPTIONS"
+            and path.startswith("/api/v1")
+            and not path.startswith("/api/v1/admin")
+        ):
+            from app.models.tracking import TrackingEvent, classify_feature
+
+            # [베스트에포트] Authorization 헤더의 로컬 JWT에서 이메일(sub)만 조용히 추출 — 실패해도 무시.
+            email = None
+            auth_header = request.headers.get("authorization") or ""
+            if auth_header.lower().startswith("bearer "):
+                token = auth_header[7:].strip()
+                try:
+                    import jwt as _jwt
+                    from app.core.auth import SECRET_KEY, ALGORITHM
+                    payload = _jwt.decode(
+                        token, SECRET_KEY, algorithms=[ALGORITHM],
+                        options={"verify_exp": False},
+                    )
+                    email = payload.get("sub")
+                except Exception:
+                    email = None  # Firebase 토큰 등 로컬 해독 불가 시 익명 기록
+
+            db_session = SessionLocal()
+            try:
+                db_session.add(TrackingEvent(
+                    email=email,
+                    method=method,
+                    path=path[:255],
+                    feature=classify_feature(path),
+                    status_code=getattr(response, "status_code", None),
+                ))
+                db_session.commit()
+            finally:
+                db_session.close()
+    except Exception:
+        logger.debug("활동 트래킹 기록 실패(무시)", exc_info=True)
+    return response
 
 
 app.include_router(api_router, prefix="/api/v1")

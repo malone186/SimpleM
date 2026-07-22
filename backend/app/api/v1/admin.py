@@ -1,15 +1,18 @@
 # c:\STUDY\SimpleM\backend\app\api\v1\admin.py
+import hashlib
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, List
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.user import User
 from app.models.inventory import Ingredient
 from app.models.ai import GeneratedDocument
+from app.models.tracking import TrackingEvent
 
 logger = logging.getLogger(__name__)
 
@@ -400,3 +403,185 @@ def get_payments():
     [결제 매출 이력 조회] 프리미엄 멤버십을 구독 중인 사장님들의 월 결제 이력을 반환합니다.
     """
     return mock_payments
+
+
+# ---------------------------------------------------------------------------
+# 6. 유입 경로(Acquisition) 분석 API
+#    - 지금은 회원 유입 채널을 저장하는 컬럼이 없으므로, user.id 기반 '결정적 시딩'으로 배정한다.
+#    - User에 acquisition_source 컬럼이 생기면, 실값 우선 + 미수집분만 시딩으로 폴백하도록
+#      _resolve_channel() 한 곳만 바꾸면 되고 응답 형태/관리자 화면은 그대로 재사용된다. (PRD §6·§8)
+# ---------------------------------------------------------------------------
+
+# 유입 채널 분류 체계 — 저장은 정규 키, 표시는 한글 라벨 (PRD §3)
+ACQUISITION_CHANNELS = [
+    # (canonical key, 한글 라벨, 시딩 가중치)
+    ("referral", "지인 추천", 30),
+    ("web_search", "포털/구글 검색", 20),
+    ("instagram", "인스타그램", 15),
+    ("app_store", "앱스토어 검색", 12),
+    ("youtube", "유튜브", 10),
+    ("naver_blog", "네이버 블로그/카페", 8),
+    ("etc", "기타", 5),
+]
+_ACQ_LABELS = {key: label for key, label, _ in ACQUISITION_CHANNELS}
+ACQUISITION_KEYS = {key for key, _, _ in ACQUISITION_CHANNELS}
+
+
+def normalize_acquisition_source(raw) -> str | None:
+    """가입 시 들어온 유입 채널 원문을 정규 키로 표준화한다.
+    빈 값이면 None(미수집 → 집계 시 시딩 폴백), 분류표에 없으면 'etc'."""
+    if not raw:
+        return None
+    key = str(raw).strip().lower()
+    return key if key in ACQUISITION_KEYS else "etc"
+
+
+def _seed_channel(user_id: int) -> str:
+    """[결정적 시딩] user.id를 해시해 가중치대로 채널 키를 배정한다.
+    같은 id는 항상 같은 채널 → 새로고침해도 값이 흔들리지 않는다."""
+    total_weight = sum(w for _, _, w in ACQUISITION_CHANNELS)
+    # id를 md5로 해시해 0~(total_weight-1) 범위의 안정적인 버킷값을 뽑는다.
+    digest = hashlib.md5(str(user_id).encode()).hexdigest()
+    bucket = int(digest, 16) % total_weight
+    cursor = 0
+    for key, _, weight in ACQUISITION_CHANNELS:
+        cursor += weight
+        if bucket < cursor:
+            return key
+    return ACQUISITION_CHANNELS[-1][0]
+
+
+def _resolve_channel(user: User) -> tuple[str, bool]:
+    """회원의 유입 채널 키와 '시딩 여부'를 반환한다.
+    실제 저장값(향후 acquisition_source 컬럼)이 있으면 그 값을, 없으면 시딩값을 쓴다."""
+    real = getattr(user, "acquisition_source", None)
+    if real:
+        return real, False
+    return _seed_channel(user.id), True
+
+
+@router.get("/dashboard/acquisition")
+def get_acquisition_breakdown(db: Session = Depends(get_db)):
+    """[유입 경로 분석] 회원을 유입 채널별로 집계해 분포·비율을 반환한다.
+    실데이터가 쌓이기 전에는 결정적 시딩으로 채워 대시보드가 비지 않게 한다."""
+    try:
+        users = db.query(User).all()
+        total = len(users)
+
+        counts = {key: 0 for key, _, _ in ACQUISITION_CHANNELS}
+        seeded_count = 0
+        for user in users:
+            channel, seeded = _resolve_channel(user)
+            if channel not in counts:  # 저장값이 분류표에 없으면 '기타'로 정규화
+                channel = "etc"
+            counts[channel] += 1
+            if seeded:
+                seeded_count += 1
+
+        channels = []
+        for key, label, _ in ACQUISITION_CHANNELS:
+            count = counts[key]
+            ratio = round((count / total * 100), 1) if total > 0 else 0.0
+            channels.append({"key": key, "label": label, "count": count, "ratio": ratio})
+
+        # 건수 내림차순 정렬(0건 채널은 뒤로)
+        channels.sort(key=lambda c: c["count"], reverse=True)
+
+        return {
+            "total": total,
+            "seeded_count": seeded_count,
+            "channels": channels,
+        }
+    except Exception as e:
+        logger.exception("유입 경로 집계 중 오류 발생")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"유입 경로 집계 오류: {str(e)}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# 7. 활동/리텐션(Activity) 분석 API
+#    - tracking_events 로그를 집계해 '접속 활성도·기능별 사용량·이탈 위험 회원'을 반환한다.
+#    - last_active / 활성화 지표는 별도 컬럼 없이 이 로그의 집계로 파생된다. (PRD 확장 §13)
+# ---------------------------------------------------------------------------
+
+AT_RISK_DAYS = 7  # 마지막 활동이 이 일수 이상 지나면 '이탈 위험'으로 본다.
+
+
+def _as_utc(dt):
+    """DB에서 온 naive datetime을 UTC aware로 보정(SQLite 대비)."""
+    if dt is None:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+@router.get("/dashboard/activity")
+def get_activity_breakdown(db: Session = Depends(get_db)):
+    """[활동 분석] 접속 활성 회원 수·기능별 사용량·이탈 위험 회원을 집계해 반환한다."""
+    try:
+        now = datetime.now(timezone.utc)
+
+        def active_within(days: int) -> int:
+            since = now - timedelta(days=days)
+            return db.query(func.count(func.distinct(TrackingEvent.email))).filter(
+                TrackingEvent.email.isnot(None),
+                TrackingEvent.created_at >= since,
+            ).scalar() or 0
+
+        total_events = db.query(func.count(TrackingEvent.id)).scalar() or 0
+
+        # 1) 기능별 사용량 (건수 내림차순)
+        fu_rows = (
+            db.query(TrackingEvent.feature, func.count(TrackingEvent.id))
+            .group_by(TrackingEvent.feature)
+            .all()
+        )
+        feature_usage = sorted(
+            [{"feature": (f or "기타"), "count": c} for f, c in fu_rows],
+            key=lambda x: x["count"],
+            reverse=True,
+        )
+
+        # 2) 유저별 마지막 활동 시각
+        la_rows = (
+            db.query(TrackingEvent.email, func.max(TrackingEvent.created_at))
+            .filter(TrackingEvent.email.isnot(None))
+            .group_by(TrackingEvent.email)
+            .all()
+        )
+        last_active = {email: _as_utc(ts) for email, ts in la_rows}
+
+        # 3) 이탈 위험 회원 — 가입은 했으나 최근 활동이 없는 사장님
+        users = db.query(User).order_by(User.id.asc()).all()
+        at_risk = []
+        for u in users:
+            la = last_active.get(u.email)
+            days_inactive = None if la is None else (now - la).days
+            if la is None or (days_inactive is not None and days_inactive >= AT_RISK_DAYS):
+                at_risk.append({
+                    "name": u.name,
+                    "store": u.store_name,
+                    "email": u.email,
+                    "last_active": la.strftime("%Y-%m-%d %H:%M") if la else None,
+                    "days_inactive": days_inactive,  # None = 접속 이력 없음
+                })
+        # 접속 이력 없음(None)을 맨 앞으로, 그 다음 오래 안 온 순
+        at_risk.sort(key=lambda x: (x["days_inactive"] is not None, -(x["days_inactive"] or 0)))
+
+        return {
+            "activeToday": active_within(1),
+            "activeThisWeek": active_within(7),
+            "activeThisMonth": active_within(30),
+            "totalEvents": total_events,
+            "atRiskDays": AT_RISK_DAYS,
+            "atRiskCount": len(at_risk),
+            "featureUsage": feature_usage,
+            "atRisk": at_risk[:20],  # 상위 20명만
+        }
+    except Exception as e:
+        logger.exception("활동 분석 집계 중 오류 발생")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"활동 분석 집계 오류: {str(e)}"
+        )

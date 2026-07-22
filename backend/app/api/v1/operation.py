@@ -26,7 +26,6 @@ from app.models.user import User
 
 router = APIRouter(prefix="/operation", tags=["Operation"])
 
-<<<<<<< Updated upstream
 
 @router.post("/beans/curate", response_model=CommonResponse)
 def curate_beans_api(payload: CurationFilterRequest, limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db)):
@@ -44,7 +43,8 @@ def curate_beans_api(payload: CurationFilterRequest, limit: int = Query(20, ge=1
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"큐레이터 추천 서버 오류: {str(e)}")
-=======
+
+
 # ----------------------------------------------------
 # [한글 주석] 전체 알바생(근무자) 관리 REST API (CRUD)
 # ----------------------------------------------------
@@ -112,7 +112,6 @@ def delete_employee_api(employee_id: int, db: Session = Depends(get_db)):
         return CommonResponse(success=True, data=None, message="알바생이 성공적으로 퇴사/삭제 처리되었습니다.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
->>>>>>> Stashed changes
 
 
 @router.post("/schedules", response_model=CommonResponse)

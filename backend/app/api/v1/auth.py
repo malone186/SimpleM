@@ -30,12 +30,22 @@ def signup(user_in: UserCreate, db: Session = Depends(get_db)):
     # [보안 처리] 사용자가 적어 보낸 날 비밀번호를 암호화된 외계어 해시값으로 변환합니다.
     hashed_pwd = get_password_hash(user_in.password)
 
+    # [유입 경로] 가입 시점 first-touch 채널을 정규화해 저장합니다. 값이 없으면 NULL(집계 시 추정 폴백).
+    from datetime import datetime, timezone
+    from app.api.v1.admin import normalize_acquisition_source
+    acq_source = normalize_acquisition_source(getattr(user_in, "acquisition_source", None))
+    acq_detail = (getattr(user_in, "acquisition_detail", None) or None)
+    acq_at = datetime.now(timezone.utc) if acq_source else None
+
     # [DB 저장] 새로운 User 객체를 조립해서 데이터베이스에 밀어 넣습니다.
     new_user = User(
         email=user_in.email,
         hashed_password=hashed_pwd,
         name=user_in.name,
-        store_name=user_in.store_name
+        store_name=user_in.store_name,
+        acquisition_source=acq_source,
+        acquisition_detail=acq_detail,
+        acquisition_at=acq_at,
     )
     db.add(new_user)
     db.commit()  # 데이터베이스에 최종 변경 내용을 확정(커밋)합니다.
