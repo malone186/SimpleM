@@ -4,6 +4,7 @@
 // ③ AI 경영 리포트 수신 주기: 매일 / 매주(월요일) 오전에 리포트 도착 알림
 // ④ 방해 금지 시간대: 설정 구간(자정 넘김 포함)에는 위 알림을 전부 보류하고, 구간이 끝나면 발송
 // ⑤ 문의 답변 도착: 내 1대1 문의에 관리자 답변이 달리면 어느 화면에 있든 즉시 알림
+// ⑥ 음성 비서 알림: 새 완료 이벤트를 30초 주기로 폴링, 이어폰 착용 시 TTS 음성 재생
 // (관리자 공지는 홈 화면 강아지 말풍선(WelcomeHeader)이 단독으로 전하므로 여기선 토스트를 띄우지 않는다)
 // 같은 품목·같은 날 중복 알림은 AsyncStorage에 발송 이력을 남겨 1회로 제한한다.
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -13,10 +14,13 @@ import { useAuth } from '../auth/AuthContext';
 import { usePreferences } from '../preferences/PreferencesContext';
 import { listMyInquiries } from '../lib/api/inquiry';
 import { listStocks, type StockItem } from '../lib/api/inventory';
+import { fetchNotifications } from '../lib/api/assistant';
+import { enqueue as speechEnqueue, isEarphoneConnected } from '../lib/speech/speechPlayer';
 import { toast } from '../components/toast';
 
 const POLL_MS = 60_000;           // 감시 주기 (1분)
 const NOTICE_POLL_MS = 15_000;    // 문의 답변 감시 주기 (15초 — 답변 후 빠른 도착 체감)
+const VOICE_POLL_MS = 30_000;     // ⑥ 음성 비서 알림 폴링 주기 (30초)
 const SURGE_RATIO = 1.1;          // 단가 급등 기준: 기준가 대비 +10% 이상
 const REPORT_HOUR = 9;            // 리포트 도착 알림은 오전 9시 이후에만
 
@@ -68,6 +72,8 @@ export default function AlertsWatcher() {
   const prefs = usePreferences();
   const running = useRef(false); // 폴링 중복 실행 방지
   const noticeRunning = useRef(false); // 공지·답변 폴링 중복 실행 방지
+  const voiceRunning = useRef(false); // ⑥ 음성 알림 폴링 중복 실행 방지
+  const lastVoiceCheck = useRef<string>(new Date().toISOString()); // 마지막 폴링 시각
 
   // ⑤ 문의 답변 도착 — 15초 주기로 감시 (관리자 공지는 홈 말풍선이 담당하므로 제외)
   useEffect(() => {
@@ -230,6 +236,48 @@ export default function AlertsWatcher() {
     prefs.dndStart,
     prefs.dndEnd,
   ]);
+
+  // ⑥ 음성 비서 알림 — 30초 주기로 새 완료 이벤트를 폴링하고, 이어폰 착용 시 음성 재생
+  useEffect(() => {
+    if (!token || !prefs.ready) return;
+
+    const checkVoiceNotifications = async () => {
+      if (voiceRunning.current) return;
+      voiceRunning.current = true;
+      try {
+        // 방해 금지 구간에는 음성 알림도 보류
+        if (prefs.dndEnabled && isInDndWindow(new Date(), prefs.dndStart, prefs.dndEnd)) return;
+
+        const data = await fetchNotifications(lastVoiceCheck.current);
+
+        // 다음 폴링을 위해 서버 시각으로 갱신
+        lastVoiceCheck.current = data.server_time;
+
+        if (data.notifications.length === 0) return;
+
+        // 이어폰 착용 여부 확인
+        const earphone = await isEarphoneConnected();
+
+        for (const noti of data.notifications) {
+          // 화면용 토스트는 항상 표시
+          toast('✅ ' + noti.title, noti.speech_text);
+
+          // 이어폰 착용 중이면 음성 큐에 추가 (겹침 방지)
+          if (earphone.connected) {
+            speechEnqueue(noti.speech_text, `noti-${noti.id}`);
+          }
+        }
+      } catch {
+        // 서버 오프라인 — 다음 주기에 재시도
+      } finally {
+        voiceRunning.current = false;
+      }
+    };
+
+    checkVoiceNotifications();
+    const timer = setInterval(checkVoiceNotifications, VOICE_POLL_MS);
+    return () => clearInterval(timer);
+  }, [token, prefs.ready, prefs.dndEnabled, prefs.dndStart, prefs.dndEnd]);
 
   return null;
 }
