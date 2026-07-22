@@ -27,7 +27,20 @@
     "web": {
       "favicon": "./assets/brew_icon_cutout.png"
     },
+    "updates": {
+      "url": "https://u.expo.dev/c52a42c6-f4ce-40d9-8f65-ace86953424b"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "plugins": [
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "음성 명령을 듣기 위해 마이크를 사용합니다.",
+          "speechRecognitionPermission": "말씀하신 내용을 텍스트로 바꾸기 위해 음성 인식을 사용합니다."
+        }
+      ],
       "expo-web-browser",
       [
         "react-native-ble-plx",
