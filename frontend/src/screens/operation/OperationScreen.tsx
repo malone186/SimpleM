@@ -1,6 +1,6 @@
 // 운영 (프론트 B) — PRD ERP-9(스케줄·급여·정산), AI-4(스케줄 추천)  ※ 세금은 서류 자동화 탭
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Badge, Button, Card, Divider, Screen, ScreenTitle, SectionTitle, WeekdayButtonGroup, IosTimePicker } from '../../components/ui';
@@ -1402,6 +1402,15 @@ function EmployeeManagementCard({
   const handleDeleteEmployee = async (emp: Employee) => {
     if (Platform.OS === 'web') {
       const ok = window.confirm(`정말 '${emp.name}' 알바생을 퇴사/삭제 처리하시겠습니까?\n등록된 정보가 정리됩니다.`);
+      if (!ok) return;
+    } else {
+      // 앱(Alert.alert)은 콜백 방식이라 Promise로 감싸 확인을 기다린다 — 웹과 동일하게 취소 시 중단
+      const ok = await new Promise<boolean>((resolve) => {
+        Alert.alert('퇴사/삭제', `정말 '${emp.name}' 알바생을 퇴사/삭제 처리하시겠습니까?\n등록된 정보가 정리됩니다.`, [
+          { text: '취소', style: 'cancel', onPress: () => resolve(false) },
+          { text: '퇴사 처리', style: 'destructive', onPress: () => resolve(true) },
+        ]);
+      });
       if (!ok) return;
     }
     try {
