@@ -239,8 +239,7 @@ export default function WelcomeHeader({
             </Text>
           </MarqueeText>
 
-<<<<<<< Updated upstream
-          {/* 2행 — 관리자 공지가 있으면 강아지가 전하는 공지, 없으면 시간대별 인사말 (둘 다 길면 흐른다) */}
+          {/* 2행 — 관리자 공지가 있으면 강아지가 전하는 공지(탭하면 알림함 열림), 없으면 시간대별 인사말 */}
           {announce ? (
             <View style={styles.announceRow}>
               {/* 본문 탭 → 알림함이 열려 전체 내용 확인 (동시에 말풍선에서 사라짐) */}
@@ -251,7 +250,7 @@ export default function WelcomeHeader({
               >
                 <Ionicons name="megaphone" size={11} color={colors.pointOrange} style={{ marginRight: 4 }} />
                 <MarqueeText style={{ flex: 1 }}>
-                  <Text style={styles.announceLine}>{announce.title}</Text>
+                  <Text style={styles.announceLine} maxFontSizeMultiplier={1.2}>{announce.title}</Text>
                 </MarqueeText>
               </TouchableOpacity>
               {/* X → 알림함을 열지 않고 말풍선에서 닫기만 */}
@@ -261,29 +260,18 @@ export default function WelcomeHeader({
             </View>
           ) : (
             <MarqueeText>
-              <Text style={styles.quoteLine}>{greeting}</Text>
+              <Text style={styles.quoteLine} maxFontSizeMultiplier={1.2} numberOfLines={1}>{greeting}</Text>
             </MarqueeText>
           )}
-=======
-          {/* [한글 주석: 2행 - 공지 대신 차분하고 따뜻한 시간대별 인사말을 항상 마퀴로 출력] */}
-          <MarqueeText>
-            <Text style={styles.quoteLine} maxFontSizeMultiplier={1.2} numberOfLines={1}>{greeting}</Text>
-          </MarqueeText>
->>>>>>> Stashed changes
 
           {/* [한글 주석: 말풍선 우측 삼각형 꼬리] */}
           <View style={styles.bubbleTailBorder} />
           <View style={styles.bubbleTail} />
         </View>
 
-<<<<<<< Updated upstream
-        {/* [한글 주석: 우측 마스코트 강아지 캐릭터] */}
-        {/* 강아지 탭 이스터에그: 한 번 = 쓰다듬기+한마디/간식 랜덤, 빠른 두 번 = 시크릿 */}
-        <MascotEasterEgg mood={mood} size={150} style={styles.mascot} />
-=======
-        {/* [한글 주석: 우측 마스코트 강아지 캐릭터 - 150px에서 115px로 비율 조율하여 말풍선 카드의 가로 폭 극대화] */}
-        <Brew mood={mood} size={115} style={styles.mascot} disableMotion={true} />
->>>>>>> Stashed changes
+        {/* 강아지 탭 이스터에그: 한 번=쓰다듬기+한마디/간식, 빠른 두 번=시크릿, 꾹 누르기=풍선 터짐.
+            크기는 말풍선 카드 가로 폭을 넓히려 115px로 조율. */}
+        <MascotEasterEgg mood={mood} size={115} style={styles.mascot} />
       </Animated.View>
 
       {/* 알림함 모달 — 지난 공지를 스택 카드로 쌓아 보여준다 */}
