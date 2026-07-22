@@ -173,6 +173,12 @@ export default function WelcomeHeader({
     markAllRead();
   };
 
+  // 말풍선 공지를 탭하면: 말풍선에서 치우고(dismiss) 알림함을 열어 전체 내용을 보여준다
+  const openAnnounce = () => {
+    openInbox();
+    dismiss();
+  };
+
   // [한글 주석: 강아지와 말풍선을 묶어 위아래로 둥둥 띄우기 위한 애니메이션 상태변수 정의]
   const floatAnim = useRef(new Animated.Value(0)).current;
 
@@ -234,13 +240,23 @@ export default function WelcomeHeader({
 
           {/* 2행 — 관리자 공지가 있으면 강아지가 전하는 공지, 없으면 시간대별 인사말 (둘 다 길면 흐른다) */}
           {announce ? (
-            <TouchableOpacity activeOpacity={0.7} onPress={dismiss} style={styles.announceRow}>
-              <Ionicons name="megaphone" size={11} color={colors.pointOrange} style={{ marginRight: 4 }} />
-              <MarqueeText style={{ flex: 1 }}>
-                <Text style={styles.announceLine}>{announce.title}</Text>
-              </MarqueeText>
-              <Ionicons name="close" size={12} color="#B4A89E" style={{ marginLeft: 4 }} />
-            </TouchableOpacity>
+            <View style={styles.announceRow}>
+              {/* 본문 탭 → 알림함이 열려 전체 내용 확인 (동시에 말풍선에서 사라짐) */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={openAnnounce}
+                style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
+              >
+                <Ionicons name="megaphone" size={11} color={colors.pointOrange} style={{ marginRight: 4 }} />
+                <MarqueeText style={{ flex: 1 }}>
+                  <Text style={styles.announceLine}>{announce.title}</Text>
+                </MarqueeText>
+              </TouchableOpacity>
+              {/* X → 알림함을 열지 않고 말풍선에서 닫기만 */}
+              <TouchableOpacity onPress={dismiss} hitSlop={8} style={{ marginLeft: 4 }}>
+                <Ionicons name="close" size={12} color="#B4A89E" />
+              </TouchableOpacity>
+            </View>
           ) : (
             <MarqueeText>
               <Text style={styles.quoteLine}>{greeting}</Text>
