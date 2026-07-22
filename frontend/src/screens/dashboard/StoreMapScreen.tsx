@@ -83,10 +83,10 @@ export default function StoreMapScreen() {
 }
 
 const styles = StyleSheet.create({
+  // 지도가 헤더 아래 영역을 꽉 채우도록 여백 없이 — 로딩/에러 문구만 center에서 자체 여백을 갖는다
   root: {
     flex: 1,
     backgroundColor: colors.creamSand,
-    padding: 16,
   },
   center: {
     flex: 1,

@@ -31,11 +31,17 @@ function buildMobileMapHtml(
 <script>
 var D = ${DATA};
 
+// [한글 주석] RN 쪽 Metro 콘솔에서 실제 사용 중인 지도 엔진을 확인할 수 있게 알린다
+function reportEngine(name) {
+  if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage(name); }
+}
+
 function initNaver() {
   try {
     if (!window.naver || !window.naver.maps) { initLeaflet(); return; }
     var container = document.getElementById('map');
     container.innerHTML = '';
+    reportEngine('naver');
     var map = new naver.maps.Map(container, {
       center: new naver.maps.LatLng(D.lat, D.lon),
       zoom: 14,
@@ -91,6 +97,7 @@ function initNaver() {
 }
 
 function initLeaflet() {
+  reportEngine('leaflet');
   var link = document.createElement('link');
   link.rel = 'stylesheet';
   link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
@@ -358,10 +365,14 @@ export default function StoreLocationMap({
       <View style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
         <WebView
           originWhitelist={['*']}
-          source={{ html: mobileHtml }}
+          // baseUrl을 웹 개발 서버와 같은 origin으로 지정 — NCP 지도 인증이 referer(웹 서비스 URL)
+          // 기준이라, 이게 없으면 about:blank로 취급돼 인증 실패 → Leaflet 폴백으로 빠진다.
+          // NCP 콘솔에 등록된 URL과 일치해야 하며, 다르면 EXPO_PUBLIC_NAVER_WEB_ORIGIN으로 덮어쓴다.
+          source={{ html: mobileHtml, baseUrl: process.env.EXPO_PUBLIC_NAVER_WEB_ORIGIN || 'http://localhost:8081' }}
           javaScriptEnabled
           domStorageEnabled
           scrollEnabled={false}
+          onMessage={(e) => console.log(`[StoreLocationMap] 모바일 지도 엔진: ${e.nativeEvent.data}`)}
           style={{ flex: 1, backgroundColor: '#F8F6F2' }}
         />
       </View>
