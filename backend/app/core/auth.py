@@ -30,6 +30,12 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 하루 유효한 로컬 토큰
 FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "simplem-app")
 
+# 관리자 이메일 허용목록 — 프론트 RootNavigator의 ADMIN_EMAILS와 동일하게 맞춘다.
+# 콤마로 여러 명 지정 가능: ADMIN_EMAILS=a@x.com,b@y.com
+ADMIN_EMAILS = [e.strip() for e in os.getenv("ADMIN_EMAILS", "admin@simplem.com").split(",") if e.strip()]
+# 관리자 웹 콘솔 로그인용 비밀번호 (env 필수). 없으면 관리자 로그인이 비활성화된다.
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+
 # 구글 공개 키 캐싱을 위한 전역 변수들
 _GOOGLE_PUBLIC_KEYS = {}
 _KEYS_EXPIRE_AT = 0.0
@@ -179,3 +185,17 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         db.refresh(user)
 
     return user
+
+
+def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
+    """
+    [관리자 전용 통문] 로그인 사용자가 관리자 허용목록(ADMIN_EMAILS)에 속하는지 확인한다.
+    - 1단계: get_current_user가 토큰(Firebase RS256 또는 로컬 HS256)을 검증
+    - 2단계: 그 이메일이 관리자인지 확인 — 아니면 403
+    """
+    if current_user.email not in ADMIN_EMAILS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="관리자 권한이 필요합니다.",
+        )
+    return current_user

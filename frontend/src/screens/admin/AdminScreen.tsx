@@ -41,7 +41,7 @@ type Activity = { id: number; name: string; action: 'sub' | 'cancel' | 'change';
 const INITIAL_FEED: Activity[] = [];
 
 export default function AdminScreen() {
-  const { user, logout } = useAuth();
+  const { user, token, logout } = useAuth();
   const [view, setView] = useState<View3>('dash');
   const [members, setMembers] = useState<Member[]>(INITIAL_MEMBERS);
   const [feed, setFeed] = useState<Activity[]>(INITIAL_FEED);
@@ -51,7 +51,10 @@ export default function AdminScreen() {
   // [한글 주석] 백엔드 DB와 연동하여 전체 사장님 목록을 실시간으로 새로 로드합니다.
   const loadMembers = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/v1/auth/users`);
+      // 관리자 전용 API — 로그인 토큰을 실어 보낸다 (백엔드가 관리자 권한 확인)
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/users`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
       if (res.ok) {
         const data = await res.json();
         // [한글 주석] DB에서 읽어온 원본 사용자 객체 리스트를 화면 렌더링에 적합한 Member 구조로 변환
@@ -67,7 +70,7 @@ export default function AdminScreen() {
     } catch (err) {
       console.error("회원 목록 데이터 로딩 실패:", err);
     }
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/`).then((r) => setApiUp(r.ok)).catch(() => setApiUp(false));
@@ -94,6 +97,7 @@ export default function AdminScreen() {
         try {
           const res = await fetch(`${API_BASE_URL}/api/v1/auth/users/${m.id}`, {
             method: 'DELETE',
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
           });
           if (res.ok) {
             setMembers((prev) => prev.filter((x) => x.id !== m.id));

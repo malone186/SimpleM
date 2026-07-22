@@ -8,7 +8,13 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.core.auth import get_current_user
+from app.core.auth import (
+    get_current_user,
+    get_current_admin,
+    create_access_token,
+    ADMIN_EMAILS,
+    ADMIN_PASSWORD,
+)
 from app.core.database import get_db
 from app.models.user import User
 from app.models.inventory import Ingredient
@@ -19,6 +25,30 @@ logger = logging.getLogger(__name__)
 
 # APIRouter를 통해 "/admin"으로 시작하는 관리자 전용 API 창구를 개설합니다.
 router = APIRouter(prefix="/admin", tags=["관리자 콘솔(Admin)"])
+
+
+# ---------------------------------------------------------------------------
+# 0. 관리자 콘솔 로그인 — admin_web(정적 페이지)이 토큰을 발급받는 창구
+# ---------------------------------------------------------------------------
+
+class AdminLogin(BaseModel):
+    email: str
+    password: str
+
+
+@router.post("/login")
+def admin_login(payload: AdminLogin):
+    """
+    [관리자 로그인] 관리자 허용목록 이메일 + 콘솔 비밀번호(env ADMIN_PASSWORD)를 검증해
+    JWT를 발급한다. admin_web은 이 토큰을 Authorization 헤더로 실어 관리자 API를 호출한다.
+    """
+    if not ADMIN_PASSWORD:
+        # 비밀번호 미설정 시 로그인 자체를 막아, 빈 비밀번호로 뚫리는 일을 방지
+        raise HTTPException(status_code=503, detail="관리자 로그인이 설정되지 않았습니다(ADMIN_PASSWORD 미설정).")
+    if payload.email not in ADMIN_EMAILS or payload.password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="관리자 이메일 또는 비밀번호가 올바르지 않습니다.")
+    token = create_access_token({"sub": payload.email})
+    return {"access_token": token, "token_type": "bearer", "email": payload.email}
 
 # ---------------------------------------------------------------------------
 # 메모리 기반 가상 임시 데이터 (CS, 알림, 결제 이력 관리용)
@@ -118,7 +148,7 @@ class NotificationCreate(BaseModel):
 # ---------------------------------------------------------------------------
 
 @router.get("/users")
-def get_admin_users(db: Session = Depends(get_db)):
+def get_admin_users(db: Session = Depends(get_db), _admin: User = Depends(get_current_admin)):
     """
     [사장님 목록 조회] PostgreSQL DB에서 실제 회원 가입한 사장님 리스트를 불러오고,
     재고 개수 및 OCR 자동 생성 이력을 합산하여 반환합니다.
@@ -174,7 +204,7 @@ def get_admin_users(db: Session = Depends(get_db)):
 
 
 @router.delete("/users/{user_id}")
-def delete_admin_user(user_id: int, db: Session = Depends(get_db)):
+def delete_admin_user(user_id: int, db: Session = Depends(get_db), _admin: User = Depends(get_current_admin)):
     """
     [사장님 강제 차단/탈퇴] PostgreSQL DB에서 해당 ID의 회원 정보를 영구 삭제합니다.
     """
@@ -206,7 +236,7 @@ def delete_admin_user(user_id: int, db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.get("/dashboard/stats")
-def get_dashboard_stats(db: Session = Depends(get_db)):
+def get_dashboard_stats(db: Session = Depends(get_db), _admin: User = Depends(get_current_admin)):
     """
     [대시보드 통계] 가입한 총 점포 수와 결제액 비율 등의 실시간 통계를 집계합니다.
     """
@@ -243,7 +273,7 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
 from app.models.inquiry import Inquiry
 
 @router.get("/cs")
-def get_cs_list(db: Session = Depends(get_db)):
+def get_cs_list(db: Session = Depends(get_db), _admin: User = Depends(get_current_admin)):
     """
     [CS 문의 조회] 사장님들이 남긴 1:1 문의사항 리스트를 실시간 최신순 조회합니다.
     """
@@ -322,7 +352,7 @@ def create_cs_from_app(req: dict, db: Session = Depends(get_db)):
 
 
 @router.post("/cs/{cs_id}/reply")
-def reply_to_cs(cs_id: int, payload: CSReplyPayload, db: Session = Depends(get_db)):
+def reply_to_cs(cs_id: int, payload: CSReplyPayload, db: Session = Depends(get_db), _admin: User = Depends(get_current_admin)):
     """
     [CS 답변 등록] 관리자가 사장님의 문의에 답변을 남기며, DB 상태를 '처리 완료'로 갱신합니다.
     DB 성공·실패와 무관하게 메모리 폴백 리스트 양쪽도 동기화해 앱 폴링에서 답변이 유실되지 않게 한다.
@@ -380,7 +410,7 @@ def _notif_to_dict(n: AdminNotification) -> dict:
 
 
 @router.get("/notifications")
-def get_notifications(db: Session = Depends(get_db)):
+def get_notifications(db: Session = Depends(get_db), _admin: User = Depends(get_current_admin)):
     """
     [공지사항 이력 조회] 과거에 사장님들께 발송했던 모든 공지 알림 이력을 반환합니다.
     DB 기록을 최신순으로 반환하고, 뒤에 데모용 시드 이력을 덧붙입니다.
@@ -394,7 +424,7 @@ def get_notifications(db: Session = Depends(get_db)):
 
 
 @router.post("/notifications")
-def create_notification(payload: NotificationCreate, db: Session = Depends(get_db)):
+def create_notification(payload: NotificationCreate, db: Session = Depends(get_db), _admin: User = Depends(get_current_admin)):
     """
     [공지사항 발송 등록] 사장님들에게 보낼 새로운 긴급 공지 또는 알림을 DB에 영구 등록합니다.
     등록된 공지는 각 사장님 앱이 /notifications/feed 폴링으로 즉시 수신해 갑니다.
@@ -463,7 +493,7 @@ def get_notification_feed(
 # ---------------------------------------------------------------------------
 
 @router.get("/payments")
-def get_payments():
+def get_payments(_admin: User = Depends(get_current_admin)):
     """
     [결제 매출 이력 조회] 프리미엄 멤버십을 구독 중인 사장님들의 월 결제 이력을 반환합니다.
     """
@@ -526,7 +556,7 @@ def _resolve_channel(user: User) -> tuple[str, bool]:
 
 
 @router.get("/dashboard/acquisition")
-def get_acquisition_breakdown(db: Session = Depends(get_db)):
+def get_acquisition_breakdown(db: Session = Depends(get_db), _admin: User = Depends(get_current_admin)):
     """[유입 경로 분석] 회원을 유입 채널별로 집계해 분포·비율을 반환한다.
     실데이터가 쌓이기 전에는 결정적 시딩으로 채워 대시보드가 비지 않게 한다."""
     try:
@@ -582,7 +612,7 @@ def _as_utc(dt):
 
 
 @router.get("/dashboard/activity")
-def get_activity_breakdown(db: Session = Depends(get_db)):
+def get_activity_breakdown(db: Session = Depends(get_db), _admin: User = Depends(get_current_admin)):
     """[활동 분석] 접속 활성 회원 수·기능별 사용량·이탈 위험 회원을 집계해 반환한다."""
     try:
         now = datetime.now(timezone.utc)

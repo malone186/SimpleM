@@ -5,6 +5,82 @@ document.addEventListener('DOMContentLoaded', () => {
     lucide.createIcons();
   }
 
+  // ━━━ 관리자 로그인 게이트 (A방안: 로그인 → 토큰 발급 → 모든 관리자 API에 자동 첨부) ━━━
+  const ADMIN_TOKEN_KEY = 'simplem_admin_token';
+  const ADMIN_API = 'http://localhost:8000/api/v1';
+  const getAdminToken = () => localStorage.getItem(ADMIN_TOKEN_KEY) || '';
+
+  // 원본 fetch를 감싸 /admin, /auth/users 호출에 Authorization 헤더를 자동으로 실어 준다 (login 제외)
+  const _origFetch = window.fetch.bind(window);
+  window.fetch = (url, opts = {}) => {
+    try {
+      const u = typeof url === 'string' ? url : (url && url.url) || '';
+      if (/\/api\/v1\/(admin|auth\/users)/.test(u) && !/\/admin\/login/.test(u)) {
+        const t = getAdminToken();
+        if (t) opts = Object.assign({}, opts, { headers: Object.assign({}, opts.headers || {}, { Authorization: 'Bearer ' + t }) });
+      }
+    } catch (e) {}
+    return _origFetch(url, opts).then((res) => {
+      try {
+        const u = typeof url === 'string' ? url : (url && url.url) || '';
+        if ((res.status === 401 || res.status === 403) && /\/api\/v1\/(admin|auth\/users)/.test(u) && !/\/admin\/login/.test(u)) {
+          localStorage.removeItem(ADMIN_TOKEN_KEY);
+          showAdminLogin('세션이 만료되었습니다. 다시 로그인해 주세요.');
+        }
+      } catch (e) {}
+      return res;
+    });
+  };
+
+  function showAdminLogin(message) {
+    if (document.getElementById('admin-login-overlay')) {
+      if (message) { const e = document.getElementById('admin-login-err'); if (e) e.textContent = message; }
+      return;
+    }
+    const ov = document.createElement('div');
+    ov.id = 'admin-login-overlay';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#2b2320;display:flex;align-items:center;justify-content:center;';
+    ov.innerHTML = `
+      <form id="admin-login-form" style="background:#fff;border-radius:16px;padding:32px;width:340px;max-width:90%;box-shadow:0 10px 40px rgba(0,0,0,.3);font-family:Pretendard,sans-serif;">
+        <div style="font-size:18px;font-weight:800;color:#3a2e28;margin-bottom:4px;">SimpleM 관리자 콘솔</div>
+        <div style="font-size:12px;color:#8a7a71;margin-bottom:18px;">관리자 계정으로 로그인하세요.</div>
+        <input id="admin-login-email" type="email" placeholder="관리자 이메일" value="admin@simplem.com" autocomplete="username" style="width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid #e0d8d2;border-radius:10px;margin-bottom:10px;font-size:13px;" />
+        <input id="admin-login-pw" type="password" placeholder="비밀번호" autocomplete="current-password" style="width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid #e0d8d2;border-radius:10px;margin-bottom:6px;font-size:13px;" />
+        <div id="admin-login-err" style="color:#c62828;font-size:11.5px;min-height:16px;margin-bottom:8px;">${message || ''}</div>
+        <button type="submit" style="width:100%;padding:12px;border:none;border-radius:10px;background:#6b4a32;color:#fff;font-weight:700;font-size:14px;cursor:pointer;">로그인</button>
+      </form>`;
+    document.body.appendChild(ov);
+    document.getElementById('admin-login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('admin-login-email').value.trim();
+      const password = document.getElementById('admin-login-pw').value;
+      const errEl = document.getElementById('admin-login-err');
+      errEl.textContent = '로그인 중...';
+      try {
+        const res = await _origFetch(`${ADMIN_API}/admin/login`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        if (!res.ok) {
+          errEl.textContent = res.status === 401 ? '이메일 또는 비밀번호가 올바르지 않습니다.' : ('로그인 실패 (' + res.status + ')');
+          return;
+        }
+        const data = await res.json();
+        localStorage.setItem(ADMIN_TOKEN_KEY, data.access_token);
+        location.reload();
+      } catch (err) {
+        errEl.textContent = '서버에 연결할 수 없습니다.';
+      }
+    });
+  }
+
+  // 로그아웃 버튼 → 토큰 삭제 후 로그인 화면
+  const _logoutBtn = document.getElementById('logout-btn');
+  if (_logoutBtn) _logoutBtn.addEventListener('click', () => { localStorage.removeItem(ADMIN_TOKEN_KEY); location.reload(); });
+
+  // 토큰이 없으면 로그인 화면만 띄우고 나머지 대시보드 초기화는 중단 (로그인 성공 시 reload로 재실행)
+  if (!getAdminToken()) { showAdminLogin(); return; }
+
   // 1. 탭 전환 기능 (2개 간소화: 대시보드 / 회원 관리)
   const navItems = document.querySelectorAll('.nav-item');
   const tabContents = document.querySelectorAll('.tab-content');
