@@ -296,18 +296,35 @@ def _preprocess_image(image_bytes: bytes, max_side: int = MAX_IMAGE_SIDE) -> byt
         img = _auto_crop_document(img)
         if max(img.size) > max_side:
             img.thumbnail((max_side, max_side), Image.LANCZOS)
-        elif max(img.size) < max_side:
-            # 저해상도 업로드(카톡 전송본 등)는 학습 해상도(1024)에 맞춰 업스케일한다.
-            # 파인튜닝 모델이 학습 때 본 스케일보다 작은 이미지는 분포 밖이라 품목을
-            # 헛읽고 반복 루프에 빠진다 — 387px 영수증 실측: 업스케일 전 전멸, 후 9/9 정확.
-            scale = max_side / max(img.size)
-            img = img.resize((round(img.width * scale), round(img.height * scale)), Image.LANCZOS)
         buf = io.BytesIO()
         img.save(buf, "JPEG", quality=88)
         return buf.getvalue()
     except Exception:
         logger.warning("이미지 전처리 실패 — 원본 그대로 사용", exc_info=True)
         return image_bytes
+
+
+def _upscale_for_rescue(image_bytes: bytes, side: int) -> Optional[bytes]:
+    """저해상도 이미지를 학습 해상도(side)로 업스케일한 JPEG를 반환. 이미 크면 None.
+
+    파인튜닝 모델은 학습 때 본 스케일보다 훨씬 작은 이미지(카톡 전송본 등)에서 품목을
+    헛읽고 반복 루프에 빠진다 — 387px 영수증 실측: 원본 전멸, 업스케일 후 9/9 정확.
+    단 중간 해상도(900px대)는 업스케일이 오히려 루프를 유발하므로(실측) 항상 쓰지 않고,
+    1차 시도가 파싱 실패했을 때의 구제용으로만 쓴다.
+    """
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+        if max(img.size) >= side:
+            return None
+        scale = side / max(img.size)
+        img = img.convert("RGB").resize(
+            (round(img.width * scale), round(img.height * scale)), Image.LANCZOS
+        )
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=92)
+        return buf.getvalue()
+    except Exception:
+        return None
 
 
 def _parse_model_json(content: str) -> dict[str, Any]:
@@ -444,35 +461,50 @@ def _start_llamacpp_server() -> None:
     logger.info("llama.cpp 서버 기동 — %s (pid %s)", LLAMACPP_BASE_URL, _llamacpp_proc.pid)
 
 
-async def _call_llamacpp_vlm(image_bytes: bytes) -> dict[str, Any]:
+async def _call_llamacpp_vlm(image_bytes: bytes, rescue_bytes: Optional[bytes] = None) -> dict[str, Any]:
     """llama-server(OpenAI 호환) 호출 — 이미지 1장을 구조화 JSON으로.
 
     enable_thinking=False가 필수: 기본 챗 템플릿이 thinking 모드를 켜서
     토큰 한도를 추론으로 전부 태우고 content가 빈 채로 끝난다 (실측).
+
+    temperature=0이라 같은 이미지 재요청은 같은 출력만 반환한다. 그래서 JSON 파싱
+    실패(저해상도 반복 루프로 출력이 잘린 경우)는 재요청 대신 업스케일본(rescue_bytes)으로
+    한 번 더 시도한다. HTTP 오류만 같은 이미지로 재시도한다(서버 자동 기동 직후 로드 지연).
     """
-    payload = {
-        "messages": [{"role": "user", "content": [
-            {"type": "image_url",
-             "image_url": {"url": f"data:image/jpeg;base64,{base64.b64encode(image_bytes).decode()}"}},
-            {"type": "text", "text": _PROMPT},
-        ]}],
-        "max_tokens": QWEN_VLM_MAX_NEW_TOKENS,
-        "temperature": 0,
-        "chat_template_kwargs": {"enable_thinking": False},
-    }
+    variants = [image_bytes] + ([rescue_bytes] if rescue_bytes is not None else [])
     last_error: Exception | None = None
-    for attempt in (1, 2, 3):  # 서버 자동 기동 직후의 로드 지연(수 초)을 재시도로 흡수
+    for img in variants:
+        payload = {
+            "messages": [{"role": "user", "content": [
+                {"type": "image_url",
+                 "image_url": {"url": f"data:image/jpeg;base64,{base64.b64encode(img).decode()}"}},
+                {"type": "text", "text": _PROMPT},
+            ]}],
+            "max_tokens": QWEN_VLM_MAX_NEW_TOKENS,
+            "temperature": 0,
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+        content: Optional[str] = None
+        for attempt in (1, 2, 3):
+            try:
+                async with httpx.AsyncClient(timeout=LLAMACPP_TIMEOUT) as client:
+                    resp = await client.post(f"{LLAMACPP_BASE_URL}/v1/chat/completions", json=payload)
+                    resp.raise_for_status()
+                content = resp.json()["choices"][0]["message"]["content"] or ""
+                break
+            except (httpx.HTTPError, KeyError) as e:
+                last_error = e
+                if attempt < 3:
+                    await asyncio.sleep(3 * attempt)
+        if content is None:
+            continue
         try:
-            async with httpx.AsyncClient(timeout=LLAMACPP_TIMEOUT) as client:
-                resp = await client.post(f"{LLAMACPP_BASE_URL}/v1/chat/completions", json=payload)
-                resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"] or ""
             return _parse_model_json(content)
-        except (httpx.HTTPError, json.JSONDecodeError, KeyError) as e:
+        except json.JSONDecodeError as e:
             last_error = e
-            if attempt < 3:
-                await asyncio.sleep(3 * attempt)
-    raise OcrError(f"llama.cpp OCR 실패 (3회 시도, {LLAMACPP_BASE_URL}): {last_error}")
+            if img is not variants[-1]:
+                logger.warning("llama.cpp 출력 JSON 파싱 실패 — 업스케일본으로 구제 재시도")
+    raise OcrError(f"llama.cpp OCR 실패 ({LLAMACPP_BASE_URL}): {last_error}")
 
 
 def warmup_ocr_backend() -> None:
@@ -648,7 +680,8 @@ async def _run_backend(backend: str, image_bytes: bytes) -> dict[str, Any]:
     """지정한 백엔드로 구조화 결과를 얻는다. 폴백 없이 실패는 그대로 올린다."""
     if backend == "llamacpp_vlm":
         # 학습과 같은 해상도(기본 1024)로 — train/serve skew 방지 + vision 토큰 축소
-        return await _call_llamacpp_vlm(_preprocess_image(image_bytes, max_side=QWEN_VLM_MAX_IMAGE_SIDE))
+        std = _preprocess_image(image_bytes, max_side=QWEN_VLM_MAX_IMAGE_SIDE)
+        return await _call_llamacpp_vlm(std, rescue_bytes=_upscale_for_rescue(std, QWEN_VLM_MAX_IMAGE_SIDE))
     if backend == "qwen_vlm":
         return await _call_qwen_vlm(_preprocess_image(image_bytes, max_side=QWEN_VLM_MAX_IMAGE_SIDE))
     if backend == "ollama_vlm":
