@@ -37,9 +37,14 @@ function useTimeGreeting() {
 
 const DISMISSED_KEY = 'simplem:announce:dismissed';
 
+// 닫힘 식별용 서명 — 백엔드가 서버 재시작 시 id를 재사용하므로 id만으로 닫으면
+// 같은 번호의 새 공지가 잘못 숨겨진다. id+제목+날짜 조합으로 고유하게 식별한다.
+const announceSig = (n: { id: number; title?: string; date?: string }) =>
+  `${n.id}|${n.title ?? ''}|${n.date ?? ''}`;
+
 // 관리자 공지를 폴링해 아직 닫지 않은 가장 최근 공지를 반환. 닫으면(dismiss) 다음부턴 숨긴다.
 function useAdminAnnouncement() {
-  const [announce, setAnnounce] = useState<{ id: number; title: string } | null>(null);
+  const [announce, setAnnounce] = useState<{ sig: string; title: string } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -47,17 +52,17 @@ function useAdminAnnouncement() {
       try {
         const list = await getAnnouncements();
         const raw = await AsyncStorage.getItem(DISMISSED_KEY);
-        const seen: number[] = raw ? JSON.parse(raw) : [];
+        const seen: string[] = raw ? JSON.parse(raw) : [];
         const fresh = (list || [])
-          .filter((n) => typeof n?.id === 'number' && !seen.includes(n.id))
+          .filter((n) => typeof n?.id === 'number' && !seen.includes(announceSig(n)))
           .sort((a, b) => b.id - a.id);
-        if (alive) setAnnounce(fresh[0] ? { id: fresh[0].id, title: fresh[0].title } : null);
+        if (alive) setAnnounce(fresh[0] ? { sig: announceSig(fresh[0]), title: fresh[0].title } : null);
       } catch {
         // 서버 오프라인 — 다음 주기에 재시도, 말풍선은 시간대 인사말로 유지
       }
     };
     check();
-    const timer = setInterval(check, 60_000);
+    const timer = setInterval(check, 20_000);
     return () => {
       alive = false;
       clearInterval(timer);
@@ -68,8 +73,8 @@ function useAdminAnnouncement() {
     if (!announce) return;
     try {
       const raw = await AsyncStorage.getItem(DISMISSED_KEY);
-      const seen: number[] = raw ? JSON.parse(raw) : [];
-      await AsyncStorage.setItem(DISMISSED_KEY, JSON.stringify([...new Set([...seen, announce.id])]));
+      const seen: string[] = raw ? JSON.parse(raw) : [];
+      await AsyncStorage.setItem(DISMISSED_KEY, JSON.stringify([...new Set([...seen, announce.sig])]));
     } catch {
       // 저장 실패해도 이번 세션에선 숨긴다
     }
