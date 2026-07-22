@@ -19,10 +19,27 @@ export type EarphoneStatus = {
   reason: string | null;
 };
 
+/** 지금 소리를 내도 되는지에 대한 판단 결과
+ *
+ * [한글 주석] 이어폰 연결 여부와 분리한 이유:
+ * 웹은 출력 장치를 셀 수 있어 "이어폰 착용 시에만 재생"이 가능하지만,
+ * 네이티브(앱)는 출력 장치를 감지할 방법이 없습니다.
+ * 그래서 "이어폰이 꽂혔는가"(사실)와 "재생해도 되는가"(정책)를 나누고,
+ * 정책 판단은 플랫폼별 구현이 각자 내리도록 했습니다.
+ */
+export type AudioPlaybackPermission = {
+  /** 지금 음성을 재생해도 되는지 */
+  allowed: boolean;
+  /** 허용/차단 사유 (화면 안내 문구로 사용) */
+  reason: string | null;
+};
+
 /** speechPlayer가 외부에 노출하는 인터페이스 */
 export type SpeechPlayer = {
-  /** 이어폰 착용 여부를 확인합니다 */
+  /** 이어폰 착용 여부를 확인합니다 (사실 확인 — 화면 표시용) */
   isEarphoneConnected: () => Promise<EarphoneStatus>;
+  /** 지금 음성을 재생해도 되는지 판단합니다 (정책 — 호출부는 이것만 보면 됩니다) */
+  canPlayAudio: () => Promise<AudioPlaybackPermission>;
   /** 텍스트를 즉시 음성으로 읽습니다 (이어폰 미착용 시 스킵) */
   speak: (text: string) => Promise<void>;
   /** 큐에 추가하고 순서대로 재생합니다 (겹침 방지) */

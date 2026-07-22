@@ -1,7 +1,12 @@
 // 웹(react-native-web) 전용 TTS + 이어폰 감지 + 음성 큐
 // 브라우저 내장 Web Speech API(window.speechSynthesis)를 사용합니다.
 // (Metro가 웹에서는 .web.ts를 자동 선택)
-import type { EarphoneStatus, SpeechPlayer, SpeechQueueItem } from './speechTypes';
+import type {
+  AudioPlaybackPermission,
+  EarphoneStatus,
+  SpeechPlayer,
+  SpeechQueueItem,
+} from './speechTypes';
 
 // ═══════════════════════════════════════════════════
 // [한글 주석] 이어폰(외부 오디오 출력 장치) 감지
@@ -30,6 +35,22 @@ async function isEarphoneConnected(): Promise<EarphoneStatus> {
       reason: `오디오 장치 감지 실패: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
+}
+
+
+/** 지금 소리를 내도 되는가 — 웹 정책
+ *
+ * [한글 주석] 웹은 출력 장치를 셀 수 있으므로 "이어폰 착용 시에만 재생"을 지킵니다.
+ * 카페에서 직원 이름·근무 정보가 스피커로 흘러나가지 않게 하려는 목적입니다.
+ */
+async function canPlayAudio(): Promise<AudioPlaybackPermission> {
+  const earphone = await isEarphoneConnected();
+  return {
+    allowed: earphone.connected,
+    reason: earphone.connected
+      ? null
+      : (earphone.reason ?? '이어폰이 연결되어 있지 않아 음성은 재생하지 않았습니다.'),
+  };
 }
 
 
@@ -147,6 +168,7 @@ function cancelAll(): void {
 // [한글 주석] SpeechPlayer 인터페이스를 구현하는 객체를 export합니다.
 const speechPlayer: SpeechPlayer = {
   isEarphoneConnected,
+  canPlayAudio,
   speak,
   enqueue,
   cancelAll,
@@ -156,4 +178,4 @@ const speechPlayer: SpeechPlayer = {
 export default speechPlayer;
 
 // 개별 함수도 named export로 제공 (AlertsWatcher 등에서 직접 import 가능)
-export { isEarphoneConnected, speak, enqueue, cancelAll, isSpeaking };
+export { isEarphoneConnected, canPlayAudio, speak, enqueue, cancelAll, isSpeaking };

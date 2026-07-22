@@ -10,8 +10,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { fetchBriefing, type BriefingData } from '../api/assistant';
-import { enqueue as speechEnqueue, isEarphoneConnected } from './speechPlayer';
-import type { EarphoneStatus } from './speechTypes';
+import { enqueue as speechEnqueue, canPlayAudio } from './speechPlayer';
+import type { AudioPlaybackPermission } from './speechTypes';
 
 export type UseBriefingOptions = {
   /** 음성 문단에 나열할 최대 작업 건수 (서버 limit 파라미터) */
@@ -26,8 +26,8 @@ export function useBriefing(options: UseBriefingOptions = {}) {
   const [data, setData] = useState<BriefingData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 이어폰 상태 — 음성이 나갔는지/텍스트만 보여줬는지 화면에 알리기 위해 보관
-  const [earphone, setEarphone] = useState<EarphoneStatus | null>(null);
+  // 재생 허용 여부 — 음성이 나갔는지/텍스트만 보여줬는지 화면에 알리기 위해 보관
+  const [permission, setPermission] = useState<AudioPlaybackPermission | null>(null);
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -48,12 +48,12 @@ export function useBriefing(options: UseBriefingOptions = {}) {
       if (!mountedRef.current) return;
       setData(briefing);
 
-      // 이어폰 여부 확인 — 미착용이면 음성은 생략하고 텍스트만 남깁니다.
-      const status = await isEarphoneConnected();
+      // 재생 허용 여부 확인 — 불허면 음성은 생략하고 텍스트만 남깁니다.
+      const status = await canPlayAudio();
       if (!mountedRef.current) return;
-      setEarphone(status);
+      setPermission(status);
 
-      if (status.connected && briefing.speech_text) {
+      if (status.allowed && briefing.speech_text) {
         // 알림과 같은 큐에 넣어 순서대로 재생 (겹침 방지)
         speechEnqueue(briefing.speech_text, 'briefing');
       }
@@ -82,10 +82,10 @@ export function useBriefing(options: UseBriefingOptions = {}) {
     loading,
     /** 오류 메시지 */
     error,
-    /** 마지막 재생 시점의 이어폰 상태 (null = 아직 확인 전) */
-    earphone,
-    /** 음성이 실제로 재생됐는지 (미착용이면 false → 텍스트만 표시됨) */
-    spoken: !!earphone?.connected,
+    /** 마지막 재생 시점의 재생 허용 여부 (null = 아직 확인 전) */
+    permission,
+    /** 음성이 실제로 재생됐는지 (불허면 false → 텍스트만 표시됨) */
+    spoken: !!permission?.allowed,
     play,
     dismiss,
   };

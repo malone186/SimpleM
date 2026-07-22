@@ -15,7 +15,7 @@ import { usePreferences } from '../preferences/PreferencesContext';
 import { listMyInquiries } from '../lib/api/inquiry';
 import { listStocks, type StockItem } from '../lib/api/inventory';
 import { fetchNotifications } from '../lib/api/assistant';
-import { enqueue as speechEnqueue, isEarphoneConnected } from '../lib/speech/speechPlayer';
+import { enqueue as speechEnqueue, canPlayAudio } from '../lib/speech/speechPlayer';
 import { toast } from '../components/toast';
 
 const POLL_MS = 60_000;           // 감시 주기 (1분)
@@ -255,15 +255,15 @@ export default function AlertsWatcher() {
 
         if (data.notifications.length === 0) return;
 
-        // 이어폰 착용 여부 확인
-        const earphone = await isEarphoneConnected();
+        // 지금 소리를 내도 되는지 확인 (웹=이어폰 착용 시, 앱=항상 허용)
+        const permission = await canPlayAudio();
 
         for (const noti of data.notifications) {
           // 화면용 토스트는 항상 표시
           toast('✅ ' + noti.title, noti.speech_text);
 
-          // 이어폰 착용 중이면 음성 큐에 추가 (겹침 방지)
-          if (earphone.connected) {
+          // 재생이 허용될 때만 음성 큐에 추가 (겹침 방지)
+          if (permission.allowed) {
             speechEnqueue(noti.speech_text, `noti-${noti.id}`);
           }
         }

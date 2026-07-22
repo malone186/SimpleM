@@ -18,7 +18,7 @@ export default function BriefingButton() {
   // 로그인 전에는 숨깁니다 (브리핑은 인증된 사용자의 오늘 일정 기준)
   if (!token) return null;
 
-  const { data, loading, spoken, earphone } = briefing;
+  const { data, loading, spoken, permission } = briefing;
 
   return (
     <View style={styles.wrap} pointerEvents="box-none">
@@ -48,7 +48,7 @@ export default function BriefingButton() {
 
           {!spoken && (
             <Text style={styles.notice}>
-              🔇 {earphone?.reason ?? '이어폰이 연결되어 있지 않아 음성은 재생하지 않았습니다.'}
+              🔇 {permission?.reason ?? '이어폰이 연결되어 있지 않아 음성은 재생하지 않았습니다.'}
             </Text>
           )}
         </View>
