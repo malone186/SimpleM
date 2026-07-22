@@ -18,25 +18,9 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { Screen, ScreenTitle } from '../../components/ui';
 import { colors, shadows, spacing, typography } from '../../theme';
-import { listRoasteryBeans, RoasteryBean } from '../../lib/api/inventory';
+import { listRoasteryBeans, listStocks, RoasteryBean, StockItem } from '../../lib/api/inventory';
 import BeanDetailModal from '../../components/order/BeanDetailModal';
 import BeanNotepad from '../../components/order/BeanNotepad';
-
-// [한글 주석: 부족한 부자재 및 원두 재고 발주 추천 목록 데이터 정의]
-const DEFICIENT_ITEMS = [
-  { id: 'milk', name: '서울우유 1L', status: '잔여 3팩 (안전재고 8팩)', query: '서울우유 1L', is_bean: false },
-  { 
-    id: 'bean_gadello', 
-    name: '가델로 에스프레소 블렌드 원두 500g', 
-    status: '잔여 1봉 (안전재고 5봉)', 
-    query: '가델로 에스프레소 블렌드', 
-    is_bean: true, 
-    product_url: 'https://mungmung.site/?q=%EA%B0%80%EB%8D%B8%EB%A1%9C%20%EC%97%90%EC%8A%A4%ED%94%84%EB%A0%88%EC%86%8C%20%EB%B8%94%EB%A0%8C%EB%93%9C' 
-  },
-  { id: 'cup', name: '종이컵 14oz', status: '잔여 150개 (안전재고 500개)', query: '카페 종이컵 14oz', is_bean: false },
-  { id: 'holder', name: '컵 홀더 (크라프트)', status: '잔여 80개 (안전재고 300개)', query: '카페 컵홀더 크라프트', is_bean: false },
-  { id: 'straw', name: '종이 빨대', status: '소진 임박 (안전재고 미달)', query: '카페 종이 빨대', is_bean: false },
-];
 
 export default function OrderScreen() {
 
@@ -46,6 +30,8 @@ export default function OrderScreen() {
   const [error, setError] = useState(false);
   const [selectedBean, setSelectedBean] = useState<RoasteryBean | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  // 실제 재고 API 기준 안전재고 미달 품목 (더미 데이터 대체)
+  const [lowStocks, setLowStocks] = useState<StockItem[]>([]);
 
   // 상세 정보 모달 열기
   const openDetail = (bean: RoasteryBean) => {
@@ -77,6 +63,13 @@ export default function OrderScreen() {
       if (!token) return;
       const data = await listRoasteryBeans(token, 10);
       setBeans(data);
+      // 실시간 재고에서 안전재고 미달 품목만 추린다 — 하드코딩 더미 목록을 대체
+      try {
+        const stocks = await listStocks(token);
+        setLowStocks(stocks.filter((st) => st.current_quantity < st.safety_quantity));
+      } catch {
+        setLowStocks([]); // 재고 조회 실패 시 추천 섹션만 조용히 비운다
+      }
     } catch (e) {
       console.error('[원두 탐색] 원두 목록 로드 실패:', e);
       setError(true);
@@ -160,39 +153,38 @@ export default function OrderScreen() {
 
       {/* 원두 및 부자재 스크롤 목록 */}
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContainer}>
-        {/* [한글 주석: 부족한 일반 부자재 재고 발주 추천 섹션을 렌더링합니다] */}
-        <View style={styles.defSection}>
-          <View style={styles.sectionHeader}>
-            <Ionicons name="warning-outline" size={16} color={colors.pointOrange} />
-            <Text style={styles.defSectionTitle}>부족한 재고 발주 추천</Text>
+        {/* 실시간 재고 기준 안전재고 미달 품목 발주 추천 — 미달 품목이 없으면 섹션 자체를 감춘다 */}
+        {lowStocks.length > 0 && (
+          <View style={styles.defSection}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="warning-outline" size={16} color={colors.pointOrange} />
+              <Text style={styles.defSectionTitle}>부족한 재고 발주 추천</Text>
+            </View>
+            <View style={styles.defList}>
+              {lowStocks.map((item) => (
+                <TouchableOpacity
+                  key={item.ingredient_id}
+                  style={styles.defCard}
+                  onPress={() => {
+                    Linking.openURL(`https://search.shopping.naver.com/search/all?query=${encodeURIComponent(item.name)}`);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.defInfo}>
+                    <Text style={styles.defName}>{item.name}</Text>
+                    <Text style={styles.defStatus}>
+                      잔여 {item.current_quantity}{item.unit} (안전재고 {item.safety_quantity}{item.unit})
+                    </Text>
+                  </View>
+                  <View style={styles.defBuyBtn}>
+                    <Ionicons name="cart-outline" size={13} color={colors.white} />
+                    <Text style={styles.defBuyText}>구매</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
-          <View style={styles.defList}>
-            {DEFICIENT_ITEMS.map((item) => (
-              <TouchableOpacity
-                key={item.id}
-                style={styles.defCard}
-                onPress={() => {
-                  // [한글 주석: 원두 상품은 데이터베이스(DB)에 지정된 오리지널 mungmung.site 검색 링크로 연결하고, 그 외 일반 부자재는 네이버 쇼핑에서 검색합니다]
-                  if (item.is_bean && item.product_url) {
-                    Linking.openURL(item.product_url);
-                  } else {
-                    Linking.openURL(`https://search.shopping.naver.com/search/all?query=${encodeURIComponent(item.query)}`);
-                  }
-                }}
-                activeOpacity={0.8}
-              >
-                <View style={styles.defInfo}>
-                  <Text style={styles.defName}>{item.name}</Text>
-                  <Text style={styles.defStatus}>{item.status}</Text>
-                </View>
-                <View style={styles.defBuyBtn}>
-                  <Ionicons name="cart-outline" size={13} color={colors.white} />
-                  <Text style={styles.defBuyText}>구매</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
+        )}
 
 
       </ScrollView>
