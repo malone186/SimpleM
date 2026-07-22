@@ -80,7 +80,8 @@ QWEN_VLM_BASE = os.getenv("QWEN_VLM_BASE", "Qwen/Qwen3.5-0.8B")
 QWEN_VLM_ADAPTER_DIR = Path(
     os.getenv("QWEN_VLM_ADAPTER_DIR", _VLM_FINETUNE_DIR / "output" / "adapter35")
 )
-QWEN_VLM_MAX_NEW_TOKENS = int(os.getenv("QWEN_VLM_MAX_NEW_TOKENS", "1024"))
+# 1024로는 품목 20개 이상 영수증에서 JSON이 중간에 잘린다 (실측: char 2195에서 절단)
+QWEN_VLM_MAX_NEW_TOKENS = int(os.getenv("QWEN_VLM_MAX_NEW_TOKENS", "1536"))
 # 4bit(bnb nf4)는 VRAM을 아끼는 대신 매 토큰마다 역양자화가 들어가 오히려 2배 느리다.
 # RTX 5060(8GB) 실측: 4bit 10 tok/s·25초 vs bf16+어댑터병합 20 tok/s·14초, 피크 VRAM 4.5GB.
 # 2B 모델은 bf16으로도 8GB에 충분히 들어가므로 기본은 bf16. VRAM이 더 좁은 GPU에서만 1로 켤 것.
@@ -340,7 +341,7 @@ def _upscale_for_rescue(image_bytes: bytes, side: int) -> Optional[bytes]:
 
 
 def _parse_model_json(content: str) -> dict[str, Any]:
-    """모델 응답에서 JSON을 최대한 회수한다 (코드펜스·앞뒤 잡설 허용)."""
+    """모델 응답에서 JSON을 최대한 회수한다 (코드펜스·앞뒤 잡설·꼬리 절단 허용)."""
     content = content.strip()
     if content.startswith("```"):
         content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content, flags=re.DOTALL)
@@ -349,7 +350,21 @@ def _parse_model_json(content: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         match = re.search(r"\{.*\}", content, re.DOTALL)
         if match:
-            return json.loads(match.group())
+            try:
+                return json.loads(match.group())
+            except json.JSONDecodeError:
+                pass
+        # 생성 한도에 걸려 꼬리가 잘린 경우: 마지막 완전한 품목(`}`)까지 자르고 닫는다.
+        # 품목 일부를 잃더라도 인식 실패보다 낫다 — 유실 가능성은 검증 경고가 알려준다.
+        cut = content.rfind("},")
+        if cut != -1:
+            repaired = content[: cut + 1] + "]}"
+            try:
+                result = json.loads(repaired)
+                logger.warning("모델 응답 꼬리 절단 복구 — 품목 일부 유실 가능 (원본 %d자)", len(content))
+                return result
+            except json.JSONDecodeError:
+                pass
         raise
 
 
