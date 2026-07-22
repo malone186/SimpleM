@@ -882,11 +882,73 @@ def _apply_to_target(draft: dict[str, Any], target: RegisterTarget, store_id: Op
     return False, f"확정 완료. {target} 반영 기능이 아직 없어 확정 상태로 보관합니다."
 
 
+def _normalize_item_name(name: str) -> str:
+    """품목명 매칭용 정규화 — 영수증 표기 잡음을 걷어낸다.
+
+    '01 피코크 초마짬뽕 12' / '▲제주목심구이용' / '논산양촌상추(봉)'처럼 줄번호·마커·
+    공백·괄호가 붙어도 같은 상품으로 묶이게 한다. OCR 자소 오타는 여기서 못 잡고
+    _find_ingredient의 유사도 매칭이 흡수한다.
+    """
+    s = re.sub(r"^\s*\d{1,3}\s*[.*)]?\s*", "", name)  # 줄번호 접두 (01, 03* 등)
+    s = re.sub(r"[▲@*#()\[\]{}]", "", s)              # 마커·괄호류
+    return re.sub(r"\s+", "", s).lower()
+
+
+def _to_jamo(s: str) -> str:
+    """한글 음절을 자소로 분해한다 ('논'→'ㄴㅗㄴ'). 비교 해상도를 자소 단위로 올린다.
+
+    OCR 오타는 '상추→삼후'처럼 자소 하나가 바뀌는 형태라, 음절 단위 비교로는
+    통째로 다른 글자가 되어 유사도가 과소평가된다. 자소로 풀면 눈/논은 2/3 일치.
+    """
+    CHO = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
+    JUNG = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ"
+    JONG = " ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ"
+    out = []
+    for ch in s:
+        code = ord(ch) - 0xAC00
+        if 0 <= code < 11172:
+            out.append(CHO[code // 588])
+            out.append(JUNG[(code % 588) // 28])
+            if code % 28:
+                out.append(JONG[code % 28])
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def _find_ingredient(db, store_id: str, name: str, ingredients: list) -> tuple[Any, Optional[str]]:
+    """OCR 품목명 → 기존 재료 매칭. (재료, 교정메모) 반환. 없으면 (None, None).
+
+    1) 원문 완전 일치 → 2) 정규화 일치 → 3) 자소 유사도 매칭(75% 이상, 최고 1건).
+    3)은 저해상도에서 '상추→삼후' 같은 자소 오타가 나도 재고가 갈라지지 않게 한다.
+    자소 기준이라 '두유/두부'(~0.5)·'딸기우유/초코우유'(~0.5)는 합쳐지지 않는다.
+    """
+    import difflib
+
+    for ing in ingredients:
+        if ing.name == name:
+            return ing, None
+    norm = _normalize_item_name(name)
+    if not norm:
+        return None, None
+    by_norm = {_normalize_item_name(ing.name): ing for ing in ingredients}
+    if norm in by_norm:
+        return by_norm[norm], None
+    jamo = _to_jamo(norm)
+    by_jamo = {_to_jamo(k): v for k, v in by_norm.items()}
+    close = difflib.get_close_matches(jamo, list(by_jamo.keys()), n=1, cutoff=0.75)
+    if close:
+        matched = by_jamo[close[0]]
+        return matched, f"'{name}' → '{matched.name}' 자동 매칭"
+    return None, None
+
+
 def _apply_inventory_inbound(draft: dict[str, Any], store_id: str) -> tuple[bool, str]:
     """OCR 품목을 백엔드 A의 재고 로직으로 입고 처리한다.
 
-    품목명이 등록된 재료와 일치하면 그 재료에 입고하고, 없으면 재료를 새로 등록 후 입고한다.
-    수량을 못 읽은 품목은 건너뛰고 사용자에게 알린다. 모든 변동은 StockTransaction 장부에 남는다.
+    품목명이 등록된 재료와 (유사도 포함) 일치하면 그 재료에 입고하고, 없으면 재료를
+    새로 등록 후 입고한다. 새 재료 이름은 줄번호 접두('01 ')를 뗀 표시용 이름으로
+    저장한다. 수량을 못 읽은 품목은 건너뛰고 사용자에게 알린다.
     """
     from app.core.database import SessionLocal
     from app.models.inventory import Ingredient
@@ -896,27 +958,30 @@ def _apply_inventory_inbound(draft: dict[str, Any], store_id: str) -> tuple[bool
     result: OcrResult = draft["result"]
     applied_names: list[str] = []
     skipped_names: list[str] = []
+    corrections: list[str] = []
 
     with SessionLocal() as db:
+        ingredients = db.query(Ingredient).filter(Ingredient.store_id == store_id).all()
         for item in result.items:
             if not item.name or item.quantity is None or item.quantity <= 0:
                 skipped_names.append(item.name or "(이름 미인식)")
                 continue
 
-            ingredient = (
-                db.query(Ingredient)
-                .filter(Ingredient.store_id == store_id, Ingredient.name == item.name)
-                .first()
-            )
+            ingredient, corrected = _find_ingredient(db, store_id, item.name, ingredients)
+            if corrected:
+                corrections.append(corrected)
             if ingredient is None:
+                # 줄번호 접두를 뗀 표시용 이름으로 등록 ('01 피코크 짬뽕' → '피코크 짬뽕')
+                display_name = re.sub(r"^\s*\d{1,3}\s*[.*)]?\s*", "", item.name).strip() or item.name
                 ingredient = inventory_service.create_ingredient(
                     db, store_id,
                     IngredientCreate(
-                        name=item.name,
+                        name=display_name,
                         unit=item.unit or "개",
                         current_price=int(item.unit_price or 0),
                     ),
                 )
+                ingredients.append(ingredient)  # 같은 문서 내 중복 품목이 새 재료를 또 만들지 않게
             elif item.unit_price:
                 # 최신 매입 단가 반영 및 단가 변동 이력 자동 적재
                 inventory_service.update_ingredient_price(db, store_id, ingredient.id, int(item.unit_price))
@@ -933,6 +998,8 @@ def _apply_inventory_inbound(draft: dict[str, Any], store_id: str) -> tuple[bool
             applied_names.append(item.name)
 
     message = f"재고 반영 완료 — {len(applied_names)}개 품목 입고"
+    if corrections:
+        message += f" · 오타 자동 교정 {len(corrections)}건: {'; '.join(corrections[:3])}"
     if skipped_names:
         message += f" (수량 미인식으로 제외: {', '.join(skipped_names[:3])})"
     return True, message
