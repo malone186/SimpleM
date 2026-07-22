@@ -1,51 +1,77 @@
-# c:\Users\USER\Documents\본 프로젝트\SimpleM\backend\app\core\database.py
-"""
-[한글 주석] 팀 공용 PostgreSQL 데이터베이스 연결 및 simplem 전용 스키마 설정 모듈
-"""
-
 import os
+import logging
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, MetaData
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# .env 환경 변수를 로드합니다.
 load_dotenv()
+logger = logging.getLogger(__name__)
 
-# [한글 주석] 팀 공용 PostgreSQL DATABASE_URL 환경변수 처리
-# 예시: postgresql+psycopg://user:pw@host:5432/dbname (또는 postgresql://)
-DATABASE_URL = os.getenv(
+RAW_DB_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://postgres:simplem@localhost:5432/simpleM"
 )
 
-# [한글 주석] 공용 DB 커넥션 고갈 방지 및 보수적 풀링 옵션 적용
-# - pool_pre_ping=True : 끊어진 DB 커넥션을 자동 감지하고 재연결
-# - pool_size=5        : 기본 유지 커넥션 수 제한 (보수적 상한)
-# - max_overflow=10    : 급증 시 추가 허용 최대 커넥션 수
-# - pool_recycle=1800  : 30분마다 오래된 커넥션 자동 폐기/재생성
-if DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(
-        DATABASE_URL,
-        connect_args={"check_same_thread": False}
-    )
-else:
-    engine = create_engine(
-        DATABASE_URL,
-        pool_pre_ping=True,
-        pool_size=5,
-        max_overflow=10,
-        pool_recycle=1800
-    )
+# [한글 주석] PostgreSQL 연결 불가 시 처리 정책.
+# 기존에는 조용히 로컬 SQLite로 전환했는데, 이 경우 운영 DB 장애가 감춰지고
+# 모든 쓰기가 재배포 때 사라지는 임시 파일로 흘러가는 심각한 사고로 이어진다.
+# 그래서 기본값은 "명확한 에러로 중단"이며, 개발 편의상 폴백이 필요하면
+# 환경변수 ALLOW_SQLITE_FALLBACK=1 을 명시적으로 설정해야만 SQLite로 전환한다.
+def _create_db_engine():
+    if RAW_DB_URL.startswith("sqlite"):
+        return create_engine(RAW_DB_URL, connect_args={"check_same_thread": False})
+
+    try:
+        eng = create_engine(
+            RAW_DB_URL,
+            pool_pre_ping=True,
+            pool_size=5,
+            max_overflow=10,
+            pool_recycle=1800,
+            connect_args={"connect_timeout": 3}
+        )
+        with eng.connect() as conn:
+            pass
+        logger.info("[DB 연결 성공] 공유 PostgreSQL 데이터베이스에 정상 연결되었습니다.")
+        return eng
+    except Exception as e:
+        if os.getenv("ALLOW_SQLITE_FALLBACK") == "1":
+            logger.error(
+                f"[DB 폴백] PostgreSQL 연결 실패 ({e}) -> ALLOW_SQLITE_FALLBACK=1 이므로 로컬 SQLite로 전환합니다. "
+                "이 모드의 쓰기 데이터는 공유 DB에 반영되지 않습니다."
+            )
+            return create_engine("sqlite:///./simplem.db", connect_args={"check_same_thread": False})
+        # 폴백 미허용(기본값): 장애를 감추지 않고 즉시 중단시켜 운영자가 인지하게 한다.
+        raise RuntimeError(
+            f"PostgreSQL 연결에 실패했습니다: {e}\n"
+            "DATABASE_URL과 DB 서버 상태를 확인하세요. "
+            "개발 중 로컬 SQLite 폴백이 필요하면 환경변수 ALLOW_SQLITE_FALLBACK=1 을 설정하세요."
+        ) from e
+
+engine = _create_db_engine()
+
+# [한글 주석] SQLite 사용 시 기존 DB에 부족한 컬럼(actual_start_time, actual_end_time 등) 자동 생성 보완
+def _ensure_sqlite_schema():
+    if str(engine.url).startswith("sqlite"):
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            for col in ["actual_start_time", "actual_end_time"]:
+                try:
+                    conn.execute(text(f"ALTER TABLE schedules ADD COLUMN {col} DATETIME"))
+                    conn.commit()
+                except Exception:
+                    pass
+
+_ensure_sqlite_schema()
 
 # 손님 요청마다 통신할 세션 생성 공장
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# [한글 주석] 전용 스키마 지정 (DB_SCHEMA 환경변수 지정 시 적용, 미지정 시 기본 public)
+# [한글 주석] 전용 스키마 지정 (SQLite 폴백 시에는 schema 미사용)
 DB_SCHEMA = os.getenv("DB_SCHEMA", None)
-metadata = MetaData(schema=DB_SCHEMA) if DB_SCHEMA else MetaData()
+is_sqlite = str(engine.url).startswith("sqlite")
+metadata = MetaData(schema=DB_SCHEMA) if (DB_SCHEMA and not is_sqlite) else MetaData()
 Base = declarative_base(metadata=metadata)
-
-
 
 # [한글 주석] FastAPI 의존성 게이트웨이 (자동 세션 닫기 보장)
 def get_db():
@@ -54,3 +80,4 @@ def get_db():
         yield db
     finally:
         db.close()
+

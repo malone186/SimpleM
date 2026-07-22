@@ -41,6 +41,7 @@ function expiryState(dl: number): { label: string; tone: 'danger' | 'orange' | '
 export default function DessertScreen() {
   const { desserts, batches, wastes, addDessert, addBatch, removeDessert, sell, waste } = useDesserts();
 
+
   const [stockOpen, setStockOpen] = useState(false); // 입고 모달
   const [newOpen, setNewOpen] = useState(false);     // 새 디저트 모달
 

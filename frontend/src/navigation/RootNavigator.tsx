@@ -2,6 +2,7 @@
 // PRD §6 화면 5개: 대시보드 / 재고 / 발주 / 챗봇 / 운영
 import { Ionicons } from '@expo/vector-icons';
 import { ActivityIndicator, Platform, View } from 'react-native';
+import { PressableScale } from '../components/motion';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -44,6 +45,7 @@ const ADMIN_EMAILS = ['admin@simplem.com'];
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
 import BeanOperationScreen from '../screens/operation/BeanOperationScreen';
+import StoreMapScreen from '../screens/dashboard/StoreMapScreen';
 
 export type RootStackParamList = {
   Tabs: undefined;
@@ -60,6 +62,7 @@ export type RootStackParamList = {
   BeanOperation: undefined;
   Settings: undefined;
   Dessert: undefined;
+  StoreMap: undefined;
 };
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -81,7 +84,8 @@ const LABELS: Record<keyof RootTabParamList, string> = {
 };
 
 // ERP 스택 화면 공통 헤더 옵션 (테마)
-const erpHeader = (title: string) =>
+// ERP 스택 화면 공통 헤더 옵션 (테마)
+const erpHeader = (title: string, navigation: any) =>
   ({
     headerShown: true,
     title,
@@ -90,6 +94,18 @@ const erpHeader = (title: string) =>
     headerTintColor: colors.creamSand,
     headerTitleStyle: { fontWeight: '900' as const },
     headerStatusBarHeight: 35, // [한글 주석] 아이폰 노치(머리부분)와 타이틀 텍스트가 겹치지 않도록 여백을 확보합니다.
+    headerBackVisible: false, // 기존 네이티브 백버튼 강제 비활성화!
+    headerLeftContainerStyle: { paddingLeft: 12 }, // [한글 주석] 화면 좌측 곡면 테두리에서 화살표가 너무 바짝 붙지 않도록 좌측 여백 확보
+    headerTitleContainerStyle: { marginLeft: -4 }, // [한글 주석] 화살표와 제목 글씨가 너무 겹치거나 멀어지지 않도록 중간 비율(-4px)로 조절
+    headerLeft: () => (
+      <PressableScale
+        onPress={() => navigation.goBack()}
+        style={{ marginLeft: 4, marginRight: 4, padding: 6 }} // [한글 주석] 화살표와 글씨 사이 밸런스 마진(4px) 지정
+        to={0.8}
+      >
+        <Ionicons name="arrow-back" size={24} color={colors.creamSand} />
+      </PressableScale>
+    ),
     animation: 'slide_from_right' as const,
   });
 
@@ -124,19 +140,20 @@ export default function RootNavigator() {
           component={ProfileScreen}
           options={{ animation: 'slide_from_right' }}
         />
-        <Stack.Screen name="Ingredient" component={IngredientScreen} options={erpHeader('재료 관리')} />
-        <Stack.Screen name="Menu" component={MenuScreen} options={erpHeader('메뉴 관리')} />
-        <Stack.Screen name="SalesInput" component={SalesInputScreen} options={erpHeader('판매 입력')} />
-        <Stack.Screen name="Cost" component={CostScreen} options={erpHeader('원가 분석')} />
-        <Stack.Screen name="LawSearch" component={LawSearchScreen} options={erpHeader('법령 검색')} />
-        <Stack.Screen name="Legal" component={LegalScreen} options={erpHeader('약관 및 정책')} />
-        <Stack.Screen name="Document" component={DocumentScreen} options={erpHeader('서류 자동화')} />
-        <Stack.Screen name="TaxDraftDetail" component={TaxDraftDetailScreen} options={erpHeader('세금 신고 초안')} />
-        <Stack.Screen name="Operation" component={OperationScreen} options={erpHeader('스케줄 · 급여')} />
-        <Stack.Screen name="BeanOperation" component={BeanOperationScreen} options={erpHeader('운영 · 원두 실리뷰 분석')} />
+        <Stack.Screen name="Ingredient" component={IngredientScreen} options={({ navigation }) => erpHeader('재료 관리', navigation)} />
+        <Stack.Screen name="Menu" component={MenuScreen} options={({ navigation }) => erpHeader('메뉴 관리', navigation)} />
+        <Stack.Screen name="SalesInput" component={SalesInputScreen} options={({ navigation }) => erpHeader('판매 입력', navigation)} />
+        <Stack.Screen name="Cost" component={CostScreen} options={({ navigation }) => erpHeader('원가 분석', navigation)} />
+        <Stack.Screen name="LawSearch" component={LawSearchScreen} options={({ navigation }) => erpHeader('법령 검색', navigation)} />
+        <Stack.Screen name="Legal" component={LegalScreen} options={({ navigation }) => erpHeader('약관 및 정책', navigation)} />
+        <Stack.Screen name="Document" component={DocumentScreen} options={({ navigation }) => erpHeader('서류 자동화', navigation)} />
+        <Stack.Screen name="TaxDraftDetail" component={TaxDraftDetailScreen} options={({ navigation }) => erpHeader('세금 신고 초안', navigation)} />
+        <Stack.Screen name="Operation" component={OperationScreen} options={({ navigation }) => erpHeader('스케줄 · 급여', navigation)} />
+        <Stack.Screen name="BeanOperation" component={BeanOperationScreen} options={({ navigation }) => erpHeader('운영 · 원두 실리뷰 분석', navigation)} />
 
-        <Stack.Screen name="Settings" component={SettingsScreen} options={erpHeader('설정')} />
-        <Stack.Screen name="Dessert" component={DessertScreen} options={erpHeader('디저트 관리')} />
+        <Stack.Screen name="Settings" component={SettingsScreen} options={({ navigation }) => erpHeader('설정', navigation)} />
+        <Stack.Screen name="Dessert" component={DessertScreen} options={({ navigation }) => erpHeader('디저트 관리', navigation)} />
+        <Stack.Screen name="StoreMap" component={StoreMapScreen} options={({ navigation }) => erpHeader('매장 위치', navigation)} />
       </Stack.Navigator>
     </NavigationContainer>
   );

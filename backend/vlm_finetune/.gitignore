@@ -1,6 +1,9 @@
 # 생성물은 커밋하지 않는다 — synth_gen.py로 재생성 가능, 어댑터는 학습 산출물
 data/synth/
+# receipt774 jsonl은 prep_receipt774.py로 재생성 — 데스크톱 절대경로가 박혀 기계 종속적
+data/receipt774/
 output/
 data/receipt774/
 tools_llamacpp/
 tools_bin/
+*.gguf

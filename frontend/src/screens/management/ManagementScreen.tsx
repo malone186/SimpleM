@@ -1,7 +1,7 @@
 // 관리 허브 (⑥ 탭) — 딥브라운 오로라 헤더는 고정, 그 아래 크림 시트 안에서 카드만 스크롤.
 // 카드는 좌우로 번갈아 기울인 지그재그 배치이며, 탭에 들어올 때마다 아래에서 순차로 떠오른다.
-import { useEffect, useState } from 'react';
-import { Platform, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, Platform, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import Svg, { Circle, Defs, FeGaussianBlur, Filter, LinearGradient, Path, Stop } from 'react-native-svg';
@@ -36,17 +36,17 @@ const ITEMS: Item[] = [
 
 // 좌우로 번갈아 기울이고 밀어 지그재그를 만든다
 const LAYOUT = [
-  { deg: -4, tx: -10 },
-  { deg: 4, tx: 12 },
-  { deg: -3.5, tx: -12 },
-  { deg: 4, tx: 10 },
-  { deg: -4, tx: -8 },
-  { deg: 3.5, tx: 12 },
-  { deg: -4, tx: -10 },
+  { deg: -2.5, tx: -10 },
+  { deg: 2.5, tx: 12 },
+  { deg: -2, tx: -12 },
+  { deg: 2.5, tx: 10 },
+  { deg: -2.5, tx: -8 },
+  { deg: 2, tx: 12 },
+  { deg: -2.5, tx: -10 },
 ];
 
 const CARD_H = 132; // 카드 높이 (스크롤이 있으므로 넉넉하게)
-const GAP = 12; // 카드 사이 간격 — 겹치지 않을 만큼만 아주 조금
+const GAP = -14; // 음수 간격 — 뒤 카드가 앞 카드 위로 살짝 올라타는 스택 느낌 (zIndex로 아래 카드가 위에 쌓인다)
 
 // 상태바(시계·카메라 노치)에 가리지 않을 만큼만 띄운다.
 const TOP_INSET = Platform.select({
@@ -96,6 +96,14 @@ export default function ManagementScreen() {
     if (isFocused) setRunId((x) => x + 1);
   }, [isFocused]);
 
+  // [월렛 스타일 흡입] 스크롤 위치를 네이티브 드라이버로 추적 — 카드가 시트 상단에 닿으면
+  // 작아지고(scale) 반듯해지며(rotate→0) 뒤처지다(translateY) 다음 카드에 덮여 사라진다(opacity)
+  // 하단 경계(탭 메뉴에 가려지는 지점)에서도 같은 효과가 거울상으로 걸린다.
+  const scrollY = useRef(new Animated.Value(0)).current;
+  // 아래 경계 계산에 필요한 스크롤 뷰포트 높이 — onLayout 전에는 통상치로 대체
+  const [sheetH, setSheetH] = useState(0);
+  const H = Math.max(sheetH, 300);
+
   return (
     <View style={styles.root}>
       {/* [전역 오로라 배경] 홈(대시보드)과 동일 — 상단 딥브라운에서 하단 크림으로 녹아든다 */}
@@ -138,51 +146,94 @@ export default function ManagementScreen() {
 
       {/* [둥근 크림 시트] 시트 자체는 고정, 그 안에서 카드만 스크롤한다 */}
       <View style={styles.body}>
-        <ScrollView
+        <Animated.ScrollView
           style={styles.scroll}
           contentContainerStyle={styles.deck}
           showsVerticalScrollIndicator={false}
+          onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+            useNativeDriver: true,
+          })}
+          scrollEventThrottle={16}
+          onLayout={(e) => setSheetH(e.nativeEvent.layout.height)}
         >
           {ITEMS.map((it, i) => {
             const lay = LAYOUT[i % LAYOUT.length];
             const s = scheme(it.color);
+
+            // 카드 상단의 콘텐츠 좌표 — 높이·간격이 고정이라 정확히 계산된다
+            const STEP = CARD_H + GAP;
+            const ct = i * STEP + 18; // deck paddingTop 포함
+            // 위 경계 구간: 카드가 시트 상단에 닿아 빨려드는 스크롤 범위
+            const t0 = ct;
+            const t1 = ct + CARD_H;
+            // 아래 경계 구간: 카드가 뷰포트 하단(탭 메뉴 라인) 아래 숨어 있다 올라오는 범위
+            const b0 = ct - H;
+            const b1 = ct + CARD_H - H;
+            const suckScale = scrollY.interpolate({
+              inputRange: [b0, b1, t0, t1],
+              outputRange: [0.86, 1, 1, 0.86],
+              extrapolate: 'clamp',
+            });
+            const suckY = scrollY.interpolate({
+              inputRange: [b0, b1, t0, t1],
+              outputRange: [CARD_H * 0.35, 0, 0, CARD_H * 0.35], // 경계 쪽으로 뒤처지며 가려진다
+              extrapolate: 'clamp',
+            });
+            const suckRotate = scrollY.interpolate({
+              inputRange: [b0 + CARD_H * 0.4, b1, t0, t0 + CARD_H * 0.6],
+              outputRange: ['0deg', `${lay.deg}deg`, `${lay.deg}deg`, '0deg'], // 경계에선 반듯, 화면 안에선 지그재그
+              extrapolate: 'clamp',
+            });
+            const suckOpacity = scrollY.interpolate({
+              inputRange: [b0, b0 + CARD_H * 0.65, t0 + CARD_H * 0.35, t1],
+              outputRange: [0, 1, 1, 0],
+              extrapolate: 'clamp',
+            });
+
             return (
               // 아래에서 순차로 떠오르는 진입 모션 — 카드마다 60ms씩 늦춰 물결처럼 들어온다
               <FadeInUp key={`${it.route}-${runId}`} delay={i * 60} distance={20}>
-                <PressableScale
-                  style={[
-                    styles.card,
-                    {
-                      height: CARD_H,
-                      marginTop: i === 0 ? 0 : GAP,
-                      backgroundColor: it.color,
-                      borderColor: s.border,
-                      borderWidth: s.border === 'transparent' ? 0 : 1.5,
-                      zIndex: i + 1,
-                      transform: [{ rotate: `${lay.deg}deg` }, { translateX: lay.tx }],
-                    },
-                  ]}
-                  onPress={() => navigation.navigate(it.route, it.params)}
-                  to={0.97}
+                {/* 스크롤 연동 변형은 별도 래퍼에 — FadeInUp/PressableScale의 자체 애니메이션과 분리 */}
+                <Animated.View
+                  style={{
+                    opacity: suckOpacity,
+                    transform: [{ translateY: suckY }, { rotate: suckRotate }, { translateX: lay.tx }, { scale: suckScale }],
+                  }}
                 >
-                  <Text style={[styles.cardGhost, { color: s.ghost }]}>{String(i + 1).padStart(2, '0')}</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.cardEn, { color: s.en }]}>{it.en}</Text>
-                    <Text style={[styles.cardLabel, { color: s.label }]} numberOfLines={1}>
-                      {it.label}
-                    </Text>
-                    <Text style={[styles.cardDesc, { color: s.desc }]} numberOfLines={1}>
-                      {it.desc}
-                    </Text>
-                  </View>
-                  <View style={[styles.cardArrow, { backgroundColor: s.arrowBg }]}>
-                    <Ionicons name="arrow-forward" size={17} color={s.arrowFg} />
-                  </View>
-                </PressableScale>
+                  <PressableScale
+                    style={[
+                      styles.card,
+                      {
+                        height: CARD_H,
+                        marginTop: i === 0 ? 0 : GAP,
+                        backgroundColor: it.color,
+                        borderColor: s.border,
+                        borderWidth: s.border === 'transparent' ? 0 : 1.5,
+                        zIndex: i + 1,
+                      },
+                    ]}
+                    onPress={() => navigation.navigate(it.route, it.params)}
+                    to={0.97}
+                  >
+                    <Text style={[styles.cardGhost, { color: s.ghost }]}>{String(i + 1).padStart(2, '0')}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.cardEn, { color: s.en }]}>{it.en}</Text>
+                      <Text style={[styles.cardLabel, { color: s.label }]} numberOfLines={1}>
+                        {it.label}
+                      </Text>
+                      <Text style={[styles.cardDesc, { color: s.desc }]} numberOfLines={1}>
+                        {it.desc}
+                      </Text>
+                    </View>
+                    <View style={[styles.cardArrow, { backgroundColor: s.arrowBg }]}>
+                      <Ionicons name="arrow-forward" size={17} color={s.arrowFg} />
+                    </View>
+                  </PressableScale>
+                </Animated.View>
               </FadeInUp>
             );
           })}
-        </ScrollView>
+        </Animated.ScrollView>
       </View>
     </View>
   );

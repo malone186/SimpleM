@@ -38,14 +38,13 @@ function useDailyQuote() {
 
 export default function WelcomeHeader({
   storeName = '포자카페',
-  photo,
   mood = 'welcome',
-  onOpenProfile,
+  onOpenMap,
 }: {
   storeName?: string;
   photo?: string;
   mood?: BrewMood;
-  onOpenProfile?: () => void;
+  onOpenMap?: () => void;
 }) {
   const quote = useDailyQuote();
   const initial = (storeName || 'S').charAt(0).toUpperCase();
@@ -83,15 +82,8 @@ export default function WelcomeHeader({
   return (
     <View style={styles.header}>
       <View style={styles.topBar}>
-        <TouchableOpacity style={styles.profileBtn} onPress={onOpenProfile} hitSlop={8} activeOpacity={0.85}>
-          {photo ? (
-            <Image source={{ uri: photo }} style={styles.avatar} />
-          ) : (
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{initial}</Text>
-            </View>
-          )}
-          <Ionicons name="chevron-down" size={10} color="#D2C8C2" />
+        <TouchableOpacity style={styles.mapBtn} onPress={onOpenMap} hitSlop={10} activeOpacity={0.85}>
+          <Ionicons name="map-outline" size={15} color={colors.creamSand} />
         </TouchableOpacity>
       </View>
 
@@ -129,27 +121,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.globalPadding,
   },
   topBar: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  profileBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 999,
-    paddingLeft: 3,
-    paddingRight: 7,
-    paddingVertical: 3,
-    borderWidth: 0.8,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  avatar: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: colors.pointOrange,
+  mapBtn: {
     alignItems: 'center',
     justifyContent: 'center',
+    width: 28,
+    height: 28,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 14,
+    borderWidth: 0.8,
+    borderColor: 'rgba(255,255,255,0.18)',
   },
-  avatarText: { fontSize: 9.5, color: colors.white, fontWeight: '900' },
   mainRow: {
     flexDirection: 'row',
     alignItems: 'center',

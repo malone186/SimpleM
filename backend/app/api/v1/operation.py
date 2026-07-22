@@ -14,7 +14,8 @@ from app.schemas.operation import (
     SettlementCalculateRequest, SettlementCalculateResponse,
     ScheduleRecommendationRequest, ScheduleRecommendationResponse,
     ExpenseCreate, ExpenseResponse,
-    EmployeeUnavailabilityCreate, EmployeeUnavailabilityResponse
+    EmployeeUnavailabilityCreate, EmployeeUnavailabilityResponse,
+    EmployeeCreate, EmployeeUpdate, EmployeeResponse
 )
 from app.schemas.bean_rag import BeanRAGChatRequest, BeanSearchRequest, BeanRAGChatResponse, BeanSearchResponse, ReindexResponse
 from app.services.operation.operation_service import OperationService, EmployeeUnavailabilityService
@@ -42,6 +43,74 @@ def curate_beans_api(payload: CurationFilterRequest, limit: int = Query(20, ge=1
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"큐레이터 추천 서버 오류: {str(e)}")
+
+# ----------------------------------------------------
+# [한글 주석] 전체 알바생(근무자) 관리 REST API (CRUD)
+# ----------------------------------------------------
+
+@router.get("/employees", response_model=CommonResponse)
+def list_employees_api(db: Session = Depends(get_db)):
+    """전체 알바생(근무자) 목록을 조회합니다."""
+    try:
+        employees = OperationService.get_employees(db)
+        data = [EmployeeResponse.model_validate(emp) for emp in employees]
+        return CommonResponse(success=True, data=data, message="알바생 목록 조회가 완료되었습니다.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/employees", response_model=CommonResponse)
+def create_employee_api(payload: EmployeeCreate, db: Session = Depends(get_db)):
+    """신규 알바생을 새로 등록합니다."""
+    try:
+        emp = OperationService.create_employee(
+            db=db,
+            name=payload.name,
+            hourly_rate=payload.hourly_rate,
+            role=payload.role
+        )
+        return CommonResponse(
+            success=True,
+            data=EmployeeResponse.model_validate(emp),
+            message="알바생 등록이 완료되었습니다."
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
+
+@router.patch("/employees/{employee_id}", response_model=CommonResponse)
+def update_employee_api(employee_id: int, payload: EmployeeUpdate, db: Session = Depends(get_db)):
+    """알바생 정보(이름, 시급, 직책)를 수정합니다."""
+    try:
+        emp = OperationService.update_employee(
+            db=db,
+            employee_id=employee_id,
+            name=payload.name,
+            hourly_rate=payload.hourly_rate,
+            role=payload.role
+        )
+        if not emp:
+            raise HTTPException(status_code=404, detail="수정할 알바생 정보를 찾을 수 없습니다.")
+        return CommonResponse(
+            success=True,
+            data=EmployeeResponse.model_validate(emp),
+            message="알바생 정보 수정이 완료되었습니다."
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
+
+@router.delete("/employees/{employee_id}", response_model=CommonResponse)
+def delete_employee_api(employee_id: int, db: Session = Depends(get_db)):
+    """알바생 퇴사/삭제 처리를 진행합니다."""
+    try:
+        success = OperationService.delete_employee(db, employee_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="삭제할 알바생 정보를 찾을 수 없습니다.")
+        return CommonResponse(success=True, data=None, message="알바생이 성공적으로 퇴사/삭제 처리되었습니다.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/schedules", response_model=CommonResponse)
@@ -383,123 +452,6 @@ def get_rag_documents_api(payload: dict):
             message=f"RAG 문서 가공 실패: {str(e)}"
         )
 
-@router.get("/report-source", response_model=CommonResponse)
-def get_report_source_api(period: str = Query("weekly", description="리포트 기준 기간 (daily, weekly, monthly)")):
-    """백엔드 B 및 챗봇 리포트엔진을 위해 자연어로 작성된 운영 요약 리포트 원천을 조회합니다."""
-    try:
-        report_data = OperationService.build_report_source_documents(period)
-        data = ReportSourceResponse(
-            period=report_data["period"],
-            hourly_rate=payload.hourly_rate,
-            weekly_work_hours=payload.weekly_work_hours,
-            include_weekly_holiday=payload.include_weekly_holiday,
-            deduct_tax=payload.deduct_tax
-        )
-        response_payload = PayrollCalculateResponse(**result)
-        return CommonResponse(
-            success=True,
-            data=response_payload.model_dump(),
-            message="예상 급여 계산이 완료되었습니다."
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        return CommonResponse(success=False, data=None, message=f"서버 오류: {str(e)}")
-
-@router.get("/tax/estimate", response_model=CommonResponse)
-def estimate_tax_api(
-    year_month: str = Query(..., description="대상 연월 (YYYY-MM)"),
-    tax_type: str = Query("general", description="과세유형 (general 일반 | simplified 간이)"),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    # DB의 매출 비용 인건비를 자동집계해 부가세 종소세 원천징수 예상 세금을 계산합니다.
-    try:
-        result = TaxService.estimate_taxes(db, year_month, tax_type=tax_type, store_id=None)
-        return CommonResponse(
-            success=True,
-            data=TaxEstimateResponse(**result),
-            message="세무 예상 계산이 완료되었습니다."
-        )
-    except ValueError as e:
-        return CommonResponse(success=False, data=None, message=str(e))
-    except Exception as e:
-        return CommonResponse(success=False, data=None, message=f"서버 오류: {str(e)}")
-
-@router.post("/tax/estimate", response_model=CommonResponse)
-def estimate_tax_manual_api(payload: TaxEstimateRequest):
-    # 매출 비용을 직접 입력받아 부가세 종소세를 계산합니다.
-
-    try:
-        result = TaxService.estimate_from_amounts(
-            total_revenue=payload.total_revenue,
-            total_expense=payload.total_expense,
-            period=payload.period,
-            tax_type=payload.tax_type,
-        )
-        return CommonResponse(
-            success=True,
-            data=TaxEstimateResponse(**result),
-            message="세무 예상 계산이 완료되었습니다."
-        )
-    except ValueError as e:
-        return CommonResponse(success=False, data=None, message=str(e))
-    except Exception as e:
-        return CommonResponse(success=False, data=None, message=f"서버 오류: {str(e)}")
-
-@router.post("/forecast/sales", response_model=CommonResponse)
-def get_sales_forecast_api(payload: ForecastRequest, db: Session = Depends(get_db)):
-    # 미래 일자의 판매량·매출액을 예측합니다. (sales_data 생략 시 DB 자동집계, ARIMA 기본)
-
-    try:
-        result = ForecastingService.forecast_sales(
-            target_date=payload.target_date,
-            sales_data=payload.sales_data,
-            db=db,
-            store_id=payload.store_id,
-            has_event=payload.has_event,
-            engine=payload.engine or "arima",
-        )
-        data = ForecastResponse(**result)
-        return CommonResponse(
-            success=True,
-            data=data,
-            message="판매 예측 계산이 완료되었습니다."
-        )
-    except ValueError as e:
-        return CommonResponse(success=False, data=None, message=str(e))
-    except Exception as e:
-        return CommonResponse(success=False, data=None, message=f"서버 오류: {str(e)}")
-
-@router.post("/rag/documents", response_model=CommonResponse)
-def get_rag_documents_api(payload: dict):
-    """세무 계산 결과 및 판매 예측 데이터를 RAG 탐색기가 해독하기 쉬운 문서 형식으로 일괄 변환합니다."""
-    try:
-        rag_documents = []
-        
-        # 세무 결과 파싱 및 RAG 문서화
-        tax_data = payload.get("tax_result")
-        if tax_data:
-            tax_doc = OperationService.build_tax_rag_documents(tax_data)
-            rag_documents.append(RAGDocumentResponse(**tax_doc))
-            
-        # 판매 예측 결과 파싱 및 RAG 문서화
-        forecast_data = payload.get("forecast_result")
-        if forecast_data:
-            forecast_doc = OperationService.build_forecast_rag_documents(forecast_data)
-            rag_documents.append(RAGDocumentResponse(**forecast_doc))
-            
-        return CommonResponse(
-            success=True,
-            data=rag_documents,
-            message="RAG 문서 변환이 완료되었습니다."
-        )
-    except Exception as e:
-        return CommonResponse(
-            success=False,
-            data=None,
-            message=f"RAG 문서 가공 실패: {str(e)}"
-        )
 
 @router.get("/report-source", response_model=CommonResponse)
 def get_report_source_api(period: str = Query("weekly", description="리포트 기준 기간 (daily, weekly, monthly)")):

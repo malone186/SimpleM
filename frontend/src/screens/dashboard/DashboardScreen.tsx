@@ -86,9 +86,7 @@ export default function DashboardScreen() {
   const brewMood = 'top';
   const scrollY = useRef(new Animated.Value(0)).current;
 
-  useEffect(() => {
-    if (isFocused) setRunId((x) => x + 1); // 탭 돌아올 때 재생
-  }, [isFocused]);
+
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -170,7 +168,9 @@ export default function DashboardScreen() {
             <LinearGradient id="auroraGrad" x1="0%" y1="0%" x2="0%" y2="100%">
               <Stop offset="0%" stopColor="#1E1612" />
               <Stop offset="35%" stopColor="#251C17" />
-              <Stop offset="70%" stopColor="#6E5544" stopOpacity="0.35" />
+              <Stop offset="60%" stopColor="#6E5544" stopOpacity="0.35" />
+              {/* 하단 25%는 완전 불투명 크림 — 바운스로 배경이 드러나도 갈색이 비치지 않게 */}
+              <Stop offset="75%" stopColor={colors.creamSand} />
               <Stop offset="100%" stopColor={colors.creamSand} />
             </LinearGradient>
             
@@ -203,14 +203,24 @@ export default function DashboardScreen() {
           />
         }
       >
+        {/* [하단 바운스 블리드] 콘텐츠 끝 아래에 크림 블록을 깔아, 끝에서 더 당겨도(오버스크롤) 갈색 배경 대신 크림이 보이게 한다 */}
+        <View
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: -600,
+            height: 600,
+            backgroundColor: colors.creamSand,
+          }}
+        />
         <Animated.View
           style={{ transform: [{ translateY: headerTranslate }], opacity: headerOpacity }}
         >
           <WelcomeHeader
             storeName={user?.name || '포자카페'}
-            photo={user?.photo}
             mood={brewMood}
-            onOpenProfile={() => navigation.navigate('Profile')}
+            onOpenMap={() => navigation.navigate('StoreMap')}
           />
         </Animated.View>
 
@@ -253,8 +263,10 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#1E1612' }, // Svg 로딩 지연 중 어두운 광원을 채우기 위한 딥 브라운 지정
   scroll: { flex: 1 },
-  content: { paddingBottom: 0 }, // [한글 주석: 여백 컬러 단절 버그 패치] content 패딩을 없애고 body 패딩으로 통합하여 갈색 띠 노출 차단
+  // flexGrow: 콘텐츠가 화면보다 짧아도 크림 시트가 바닥까지 늘어나 갈색 배경이 드러나지 않게 한다
+  content: { flexGrow: 1, paddingBottom: 0 },
   body: {
+    flexGrow: 1, // 스크롤 끝(최하단)까지 크림 시트로 채움 — 하단 갈색 여백 노출 차단
     backgroundColor: colors.creamSand, // 원래 100% 불투명 오프화이트로 원복
     borderTopLeftRadius: 36, // [iOS 스타일] 부드럽게 얹어지는 시트
     borderTopRightRadius: 36,
