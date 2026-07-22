@@ -624,9 +624,19 @@ def _validate_result(result: OcrResult) -> list[str]:
         if known == 3:
             expected = q * u
             if abs(expected - a) > max(abs(a) * AMOUNT_TOLERANCE, AMOUNT_TOLERANCE_ABS):
-                item.warnings.append(
-                    f"수량×단가({expected:,.0f})와 금액({a:,.0f})이 다릅니다 — 확인 필요"
-                )
+                # 금액(실제 청구액)을 기준으로 단가를 역산했을 때 차이가 작으면(±20%)
+                # 단가 한 자릿수 오독(실측: 9,800→9,600)이므로 자동 보정한다.
+                # 차이가 크면 수량 오독일 수 있어 보정하지 않고 경고만 남긴다.
+                implied_u = a / q if q else None
+                if implied_u and abs(implied_u - u) <= abs(u) * 0.2:
+                    item.unit_price = round(implied_u, 2)
+                    item.warnings.append(
+                        f"단가 자동 보정: {u:,.0f} → {implied_u:,.0f} (금액 {a:,.0f} 기준)"
+                    )
+                else:
+                    item.warnings.append(
+                        f"수량×단가({expected:,.0f})와 금액({a:,.0f})이 다릅니다 — 확인 필요"
+                    )
         elif known == 2:
             # 두 값으로 나머지 하나를 계산해 채운다
             if a is None:
