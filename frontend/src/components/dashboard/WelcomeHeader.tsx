@@ -175,30 +175,32 @@ export default function WelcomeHeader({
       </View>
 
       <Animated.View style={[styles.mainRow, { transform: [{ translateY }] }]}>
-        {/* [한글 주석: 투데이스 브루 뱃지를 깔끔하게 제거하고 단어 꺾임 없이 한 줄로 배치한 말풍선] */}
-        <View style={styles.bubble}>
-          {/* 1행 인사말 — 상호명이 길어도 잘리지 않게 마퀴로 흘려 준다 */}
-          <Text style={[styles.greetingLine, { marginBottom: 1 }]}>안녕하세요,</Text>
-          <MarqueeText style={{ marginBottom: 5 }}>
-            <Text style={styles.greetingLine}>
-              <Text style={styles.nameHighlight}>{storeName}</Text> 사장님!
-            </Text>
-          </MarqueeText>
-
-          {/* 2행 — 관리자 공지가 있으면 강아지가 전하는 공지, 없으면 시간대별 인사말 (둘 다 길면 흐른다) */}
-          {announce ? (
-            <TouchableOpacity activeOpacity={0.7} onPress={dismiss} style={styles.announceRow}>
-              <Ionicons name="megaphone" size={11} color={colors.pointOrange} style={{ marginRight: 4 }} />
-              <MarqueeText style={{ flex: 1 }}>
-                <Text style={styles.announceLine}>{announce.title}</Text>
-              </MarqueeText>
-              <Ionicons name="close" size={12} color="#B4A89E" style={{ marginLeft: 4 }} />
-            </TouchableOpacity>
-          ) : (
-            <MarqueeText>
-              <Text style={styles.quoteLine}>{greeting}</Text>
+        {/* [한글 주석: 좌측 수직 컬럼 - 말풍선과 공지 바를 세로로 묶어 강아지와 좌우 배치] */}
+        <View style={styles.leftColumn}>
+          {/* [한글 주석: 투데이스 브루 뱃지를 깔끔하게 제거하고 단어 꺾임 없이 한 줄로 배치한 말풍선] */}
+          <View style={styles.bubble}>
+            {/* 1행 인사말 — 상호명이 길어도 잘리지 않게 마퀴로 흘려 준다 */}
+            <Text style={[styles.greetingLine, { marginBottom: 1 }]}>안녕하세요,</Text>
+            <MarqueeText style={{ marginBottom: 5 }}>
+              <Text style={styles.greetingLine}>
+                <Text style={styles.nameHighlight}>{storeName}</Text> 사장님!
+              </Text>
             </MarqueeText>
-          )}
+
+            {/* 2행 — 관리자 공지가 있으면 강아지가 전하는 공지, 없으면 시간대별 인사말 (둘 다 길면 흐른다) */}
+            {announce ? (
+              <TouchableOpacity activeOpacity={0.7} onPress={dismiss} style={styles.announceRow}>
+                <Ionicons name="megaphone" size={11} color={colors.pointOrange} style={{ marginRight: 4 }} />
+                <MarqueeText style={{ flex: 1 }}>
+                  <Text style={styles.announceLine}>{announce.title}</Text>
+                </MarqueeText>
+                <Ionicons name="close" size={12} color="#B4A89E" style={{ marginLeft: 4 }} />
+              </TouchableOpacity>
+            ) : (
+              <MarqueeText>
+                <Text style={styles.quoteLine}>{greeting}</Text>
+              </MarqueeText>
+            )}
 
             {/* [한글 주석: 말풍선 우측 삼각형 꼬리] */}
             <View style={styles.bubbleTailBorder} />
