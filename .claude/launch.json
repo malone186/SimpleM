@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend-web-attach",
+      "url": "http://localhost:8081"
+    },
+    {
+      "name": "frontend-web",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["expo", "start", "--web", "--port", "8081", "--clear"],
+      "cwd": "frontend",
+      "port": 8081
+    }
+  ]
+}
