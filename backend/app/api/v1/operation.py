@@ -26,10 +26,7 @@ from app.models.user import User
 
 router = APIRouter(prefix="/operation", tags=["Operation"])
 
-<<<<<<< Updated upstream
 
-=======
->>>>>>> Stashed changes
 @router.post("/beans/curate", response_model=CommonResponse)
 def curate_beans_api(payload: CurationFilterRequest, limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db)):
     """

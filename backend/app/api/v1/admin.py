@@ -60,30 +60,8 @@ mock_cs_list = [
     }
 ]
 
-<<<<<<< Updated upstream
 # 2. 공지 및 알림 발송 이력 — 관리자가 실제로 발송한 공지만 담긴다 (더미 시드 제거)
 mock_notif_history = []
-=======
-# 2. 공지 및 알림 발송 모의 데이터베이스
-mock_notif_history = [
-    {
-        "id": 1,
-        "title": "[공지] 7/25 새벽 2시~4시 정기 데이터베이스 보안 점검 안내",
-        "body": "안정적인 서비스 제공을 위해 새벽 시간대 데이터베이스 보안 점검 및 시스템 점검이 실시될 예정입니다. 점검 중에는 서비스 접속이 일시 제한될 수 있습니다.",
-        "target": "전체 사장님",
-        "date": "2026-07-19 18:00",
-        "author": "최고 관리자"
-    },
-    {
-        "id": 2,
-        "title": "[안내] 이번 주 원두 시세 폭등에 따른 긴급 대체 매입 단가 리포트 분석 완료",
-        "body": "글로벌 원두 가격 상승에 맞춰 대체 매입처 단가 비교 분석 결과가 도출되었습니다. 대시보드 리포트에서 맞춤 추천 원두를 확인해보세요.",
-        "target": "프리미엄 회원",
-        "date": "2026-07-18 11:30",
-        "author": "운영 시스템팀"
-    }
-]
->>>>>>> Stashed changes
 
 # 3. 프리미엄 결제 매출 모의 데이터베이스
 mock_payments = [
@@ -127,13 +105,9 @@ class CSReplyPayload(BaseModel):
 class NotificationCreate(BaseModel):
     title: str
     body: str = ""
-<<<<<<< Updated upstream
     target: str = "전체 사장님"          # 관리자 웹 표시용 라벨
     target_type: str = "all"             # all | premium | specific
     target_email: str | None = None      # target_type == specific일 때 수신 사장님 이메일
-=======
-    target: str = "전체 사장님"
->>>>>>> Stashed changes
 
 
 # ---------------------------------------------------------------------------
@@ -422,7 +396,6 @@ def create_notification(payload: NotificationCreate, db: Session = Depends(get_d
     [공지사항 발송 등록] 사장님들에게 보낼 새로운 긴급 공지 또는 알림을 DB에 영구 등록합니다.
     등록된 공지는 각 사장님 앱이 /notifications/feed 폴링으로 즉시 수신해 갑니다.
     """
-<<<<<<< Updated upstream
     try:
         notif = AdminNotification(
             title=payload.title,

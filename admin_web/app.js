@@ -520,15 +520,10 @@ document.addEventListener('DOMContentLoaded', () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             title: title,
-<<<<<<< Updated upstream
             body: body,
             target: targetLabel,
             target_type: currentNotifTarget,
             target_email: targetEmail
-=======
-            body: body, // [한글 주석: 사장님 공지사항 상세 본문 내용 포함 전송]
-            target: targetLabel
->>>>>>> Stashed changes
           })
         });
         if (res.ok) {

@@ -1,13 +1,8 @@
 // [상단 웰컴 블록 - 미니멀 말풍선 카드 및 말풍선 하단 반투명 블러 공지 바 적용]
 import { useEffect, useRef, useState } from 'react';
-<<<<<<< Updated upstream
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Animated, Easing, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-=======
 import { Animated, Easing, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
->>>>>>> Stashed changes
-import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Ionicons } from '@expo/vector-icons';
 
 import { colors, spacing } from '../../theme';
 import { AdminNotification, getAdminNotifications } from '../../lib/api/notifications';
@@ -180,7 +175,6 @@ export default function WelcomeHeader({
       </View>
 
       <Animated.View style={[styles.mainRow, { transform: [{ translateY }] }]}>
-<<<<<<< Updated upstream
         {/* [한글 주석: 투데이스 브루 뱃지를 깔끔하게 제거하고 단어 꺾임 없이 한 줄로 배치한 말풍선] */}
         <View style={styles.bubble}>
           {/* 1행 인사말 — 상호명이 길어도 잘리지 않게 마퀴로 흘려 준다 */}
@@ -205,22 +199,6 @@ export default function WelcomeHeader({
               <Text style={styles.quoteLine}>{greeting}</Text>
             </MarqueeText>
           )}
-=======
-        {/* [한글 주석: 좌측 영역 - 말풍선과 말풍선 밑 가로 긴 반투명 블러 공지 바 수직 배치] */}
-        <View style={styles.leftColumn}>
-          {/* [한글 주석: 말풍선 카드] */}
-          <View style={styles.bubble}>
-            {/* [한글 주석: 1행 인사말] */}
-            <Text style={[styles.greetingLine, { marginBottom: 1 }]}>안녕하세요,</Text>
-            <Text style={[styles.greetingLine, { marginBottom: 5 }]} numberOfLines={1}>
-              <Text style={styles.nameHighlight}>{storeName}</Text> 사장님!
-            </Text>
-
-            {/* [한글 주석: 2행 명언] */}
-            <Text style={styles.quoteLine} numberOfLines={1}>
-              {quote}
-            </Text>
->>>>>>> Stashed changes
 
             {/* [한글 주석: 말풍선 우측 삼각형 꼬리] */}
             <View style={styles.bubbleTailBorder} />
