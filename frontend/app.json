@@ -5,7 +5,7 @@
     "scheme": "simplem",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/logo.png",
+    "icon": "./assets/brew_icon_cutout.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
@@ -15,12 +15,12 @@
       "package": "com.simplem.brewnote",
       "adaptiveIcon": {
         "backgroundColor": "#FBEFDD",
-        "foregroundImage": "./assets/logo.png"
+        "foregroundImage": "./assets/brew_icon_cutout.png"
       },
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/logo.png"
+      "favicon": "./assets/brew_icon_cutout.png"
     },
     "plugins": [
       "expo-web-browser",
