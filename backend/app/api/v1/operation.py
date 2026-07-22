@@ -370,7 +370,8 @@ def estimate_tax_api(
 ):
     """DB의 매출·비용·인건비를 자동집계해 부가세+종소세+원천징수 예상 세금을 계산합니다."""
     try:
-        result = TaxService.estimate_taxes(db, year_month, tax_type=tax_type, store_id=None)
+        # 로그인한 매장 몫만 집계 — store_id=None이면 전 매장 합산이라 다른 매장 수치가 섞였다
+        result = TaxService.estimate_taxes(db, year_month, tax_type=tax_type, store_id=current_user.email)
         return CommonResponse(
             success=True,
             data=TaxEstimateResponse(**result),
