@@ -28,7 +28,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -887,9 +887,18 @@ def _apply_to_target(draft: dict[str, Any], target: RegisterTarget, store_id: Op
             logger.exception("OCR %s 재고 반영 실패", draft["id"])
             return False, f"확정은 되었으나 재고 반영에 실패했습니다: {e}"
 
-    # expense/sales는 담당 로직이 아직 없어 확정 상태로만 보관 (백엔드 A/C 구현 시 연동)
-    logger.info("OCR %s 확정 — %s 반영 로직 미구현, 확정 상태로 보관", draft["id"], target)
-    return False, f"확정 완료. {target} 반영 기능이 아직 없어 확정 상태로 보관합니다."
+    if not store_id:
+        return False, "확정 완료. 지출/판매 반영은 로그인 상태에서만 가능합니다 (매장 구분 필요)."
+    try:
+        if target == "expense":
+            return _apply_expense(draft, store_id)
+        if target == "sales":
+            return _apply_sales(draft, store_id)
+    except Exception as e:  # 반영 실패해도 확정 상태는 유지, applied=False로 표시
+        logger.exception("OCR %s %s 반영 실패", draft["id"], target)
+        return False, f"확정은 되었으나 {target} 반영에 실패했습니다: {e}"
+
+    return False, f"확정 완료. 알 수 없는 대상({target})이라 확정 상태로만 보관합니다."
 
 
 def _normalize_item_name(name: str) -> str:
@@ -1012,4 +1021,135 @@ def _apply_inventory_inbound(draft: dict[str, Any], store_id: str) -> tuple[bool
         message += f" · 오타 자동 교정 {len(corrections)}건: {'; '.join(corrections[:3])}"
     if skipped_names:
         message += f" (수량 미인식으로 제외: {', '.join(skipped_names[:3])})"
+    return True, message
+
+
+_KST = timezone(timedelta(hours=9))
+
+
+def _parse_issued_date(raw: Optional[str]) -> Optional[date]:
+    """발행일 문자열 → date. '2026-07-21' 외에 '2026.7.21', '2026년 7월 21일'도 흡수한다."""
+    if not raw:
+        return None
+    m = re.search(r"(\d{4})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})", raw)
+    if not m:
+        return None
+    try:
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError:
+        return None
+
+
+def _document_total(result: OcrResult) -> int:
+    """문서 금액 — 합계가 없으면 품목별 금액(없으면 수량×단가)을 모아 복원."""
+    if result.total and result.total > 0:
+        return int(result.total)
+    item_sum = 0.0
+    for i in result.items:
+        if i.amount and i.amount > 0:
+            item_sum += i.amount
+        elif i.quantity and i.unit_price and i.quantity > 0 and i.unit_price > 0:
+            item_sum += i.quantity * i.unit_price
+    return int(item_sum)
+
+
+def _apply_expense(draft: dict[str, Any], store_id: str) -> tuple[bool, str]:
+    """확정된 영수증을 백엔드 C의 지출(Expense) 장부에 기록한다.
+
+    문서 1건 = 지출 1건. 카테고리는 문서 종류로 구분하고(매입 문서 → 원자재 매입),
+    지출 일자는 발행일, 못 읽었으면 오늘(KST). 정산·세금 추정이 같은 테이블을 읽는다.
+    """
+    from app.core.database import SessionLocal
+    from app.services.operation.operation_service import OperationService
+
+    result: OcrResult = draft["result"]
+    amount = _document_total(result)
+    if amount <= 0:
+        return False, "확정 완료. 금액을 인식하지 못해 지출로 반영하지 못했습니다 — 합계를 수정한 뒤 다시 시도해 주세요."
+
+    expense_date = _parse_issued_date(result.issued_date) or datetime.now(_KST).date()
+    category = "원자재 매입" if result.doc_type in ("purchase_statement", "tax_invoice") else "기타 지출"
+    vendor = result.vendor.name if result.vendor else None
+    description = f"영수증 OCR 지출 (문서 {draft['id']}" + (f", {vendor}" if vendor else "") + ")"
+
+    with SessionLocal() as db:
+        OperationService.create_expense(db, store_id, amount, category, expense_date, description)
+    return True, f"지출 반영 완료 — {category} {amount:,}원 ({expense_date.isoformat()})"
+
+
+def _apply_sales(draft: dict[str, Any], store_id: str) -> tuple[bool, str]:
+    """확정된 매출 일마감표를 판매(Sale) 기록으로 반영한다.
+
+    품목명을 등록된 메뉴와 (유사도 포함) 매칭해 Sale을 만들고, 수동 판매 입력과
+    동일하게 레시피 기준 재고를 차감한다. 금액은 문서의 품목 금액을 우선하고
+    없으면 메뉴 판매가×수량. 판매 시각은 발행일 정오(KST), 없으면 지금.
+    메뉴에 없는 품목은 건너뛰고 알린다 — 임의 메뉴 생성은 하지 않는다.
+    """
+    import difflib
+
+    from app.core.database import SessionLocal
+    from app.models.inventory import Menu, Recipe, Sale, Stock, StockTransaction
+
+    result: OcrResult = draft["result"]
+    issued = _parse_issued_date(result.issued_date)
+    sold_at = (
+        datetime(issued.year, issued.month, issued.day, 12, 0, tzinfo=_KST)
+        if issued else datetime.now(_KST)
+    )
+
+    applied_names: list[str] = []
+    skipped_names: list[str] = []
+    total_applied = 0
+
+    with SessionLocal() as db:
+        menus = db.query(Menu).filter(Menu.store_id == store_id).all()
+        by_norm = {_normalize_item_name(m.name): m for m in menus}
+        by_jamo = {_to_jamo(k): v for k, v in by_norm.items()}
+
+        for item in result.items:
+            qty = int(item.quantity or 0)
+            if not item.name or qty <= 0:
+                skipped_names.append(item.name or "(이름 미인식)")
+                continue
+
+            norm = _normalize_item_name(item.name)
+            menu = next((m for m in menus if m.name == item.name), None)
+            if menu is None:
+                menu = by_norm.get(norm)
+            if menu is None and norm:
+                close = difflib.get_close_matches(_to_jamo(norm), list(by_jamo.keys()), n=1, cutoff=0.75)
+                if close:
+                    menu = by_jamo[close[0]]
+            if menu is None:
+                skipped_names.append(item.name)
+                continue
+
+            total = int(item.amount) if item.amount and item.amount > 0 else menu.selling_price * qty
+            db.add(Sale(menu_id=menu.id, quantity=qty, total_price=total,
+                        store_id=store_id, sold_at=sold_at))
+            total_applied += total
+
+            # 수동 판매 입력(sales_service)과 동일한 레시피 기준 재고 차감 + 이력 기록
+            for recipe in db.query(Recipe).filter(Recipe.menu_id == menu.id).all():
+                use = recipe.quantity * qty
+                stock = db.query(Stock).filter(Stock.ingredient_id == recipe.ingredient_id).first()
+                if stock is not None:
+                    stock.current_quantity = max(0.0, stock.current_quantity - use)
+                db.add(StockTransaction(ingredient_id=recipe.ingredient_id,
+                                        quantity_change=-use, type="OUT",
+                                        description=f"{menu.name} 판매 차감 (OCR 문서 {draft['id']})"))
+            applied_names.append(item.name)
+
+        if not applied_names:
+            db.rollback()
+            return False, (
+                "확정 완료. 문서 품목이 등록된 메뉴와 일치하지 않아 판매로 반영하지 못했습니다"
+                + (f" (미매칭: {', '.join(skipped_names[:3])})" if skipped_names else "")
+                + " — 메뉴 관리에서 이름을 맞춘 뒤 다시 시도해 주세요."
+            )
+        db.commit()
+
+    message = f"판매 반영 완료 — {len(applied_names)}개 품목, 합계 {total_applied:,}원"
+    if skipped_names:
+        message += f" (메뉴 미매칭으로 제외: {', '.join(skipped_names[:3])})"
     return True, message

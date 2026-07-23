@@ -176,14 +176,16 @@ export default function InventoryScreen() {
     }
   };
 
-  // OCR 확정 → 재고 입고 → 재고 현황 즉시 갱신 (실시간 연동)
+  // 문서 종류별 확정 대상 — 매입 명세서는 재고 입고, 영수증은 지출, 일마감표는 판매 기록
+  const confirmTargetOf = (doc: OcrDocument) => doc.suggested_target ?? 'inventory_inbound';
+  const CONFIRM_LABEL = { inventory_inbound: '재고 반영', expense: '지출 반영', sales: '판매 반영' } as const;
+
+  // OCR 확정 → 대상 시스템 반영(재고/지출/판매) → 재고 현황 즉시 갱신 (실시간 연동)
   const confirm = async (doc: OcrDocument) => {
     if (actingDocId) return; // 처리 중 중복 탭 방지 (이중 재고 반영·409 예방)
     setActingDocId(doc.id);
     try {
-      // 이 버튼의 의미가 '재고 반영'이므로 서버 추천값과 무관하게 항상 재고 입고로 확정한다
-      // (expense/sales는 미구현이라 추천값을 따르면 보관만 되고 재고에 안 들어간다)
-      const res = await confirmOcrDocument(doc.id, 'inventory_inbound', token);
+      const res = await confirmOcrDocument(doc.id, confirmTargetOf(doc), token);
       setDrafts((prev) => prev.filter((d) => d.id !== doc.id));
       loadStocks();
       notify('확정 완료', res.message);
@@ -560,7 +562,7 @@ export default function InventoryScreen() {
                       </PressableScale>
                       <PressableScale style={styles.confirmBtn} onPress={() => confirm(doc)} disabled={actingDocId != null} to={0.9}>
                         <Ionicons name="checkmark" size={16} color={colors.white} />
-                        <Text style={styles.confirmText}>{actingDocId === doc.id ? '처리 중…' : '확인했어요 · 재고 반영'}</Text>
+                        <Text style={styles.confirmText}>{actingDocId === doc.id ? '처리 중…' : `확인했어요 · ${CONFIRM_LABEL[confirmTargetOf(doc)]}`}</Text>
                       </PressableScale>
                     </View>
                   </View>
