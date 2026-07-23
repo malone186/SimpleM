@@ -16,6 +16,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from '../../i18n/translations';
 import { colors, typography } from '../../theme';
 import {
   getSensorDevices,
@@ -39,6 +40,8 @@ interface Props {
 export default function SensorSetupModal({
   visible, token, initialDeviceId, onClose, onPairingChanged, onDisableFeature,
 }: Props) {
+  // [한글 주석: 전역 다국어 훅 연결]
+  const { t, language } = useTranslation();
   const [devices, setDevices] = useState<SensorDevice[]>([]);
   const [loading, setLoading] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -52,27 +55,28 @@ export default function SensorSetupModal({
   // 진행 게이지 애니메이션
   const progressAnim = useRef(new Animated.Value(0)).current;
 
-  const pairedCount = devices.filter((d) => d.paired).length;
-  const total = devices.length || 6;
-  const allDone = devices.length > 0 && pairedCount === total;
-
-  const loadDevices = async () => {
+  // 기기 목록 수신
+  const reloadDevices = async () => {
     if (!token) return;
     try {
       setLoading(true);
       const res = await getSensorDevices(token);
       setDevices(res.devices);
       setStoreId(res.store_id);
-    } catch {
-      // 백엔드 미기동 시 목록 없이 안내만 노출
+    } catch (err) {
+      console.warn('센서 기기 목록 수신 오류:', err);
     } finally {
       setLoading(false);
     }
   };
 
+  const pairedCount = devices.filter((d) => d.paired).length;
+  const total = devices.length || 6;
+  const allDone = devices.length > 0 && pairedCount === total;
+
   useEffect(() => {
     if (visible) {
-      loadDevices();
+      reloadDevices();
       setExpandedId(initialDeviceId ?? null);
       setJustPairedId(null);
       setFoundDevices([]);
@@ -146,7 +150,7 @@ export default function SensorSetupModal({
       setJustPairedId(device.id);
       setFoundDevices([]);
       setScanError(null);
-      await loadDevices();
+      await reloadDevices();
       onPairingChanged();
     } catch {
       setScanError('페어링에 실패했어요. 잠시 후 다시 시도해 주세요.');
@@ -163,7 +167,7 @@ export default function SensorSetupModal({
       setJustPairedId(device.id);
       setFoundDevices([]);
       setScanError(null);
-      await loadDevices();
+      await reloadDevices();
       onPairingChanged();
     } catch { }
   };
@@ -174,7 +178,7 @@ export default function SensorSetupModal({
       stopBleLiveReader(device.id); // 실측 수신 중이면 GATT 연결부터 끊는다
       await unpairSensorDevice(token, device.id);
       setJustPairedId(null);
-      await loadDevices();
+      await reloadDevices();
       onPairingChanged();
     } catch { }
   };

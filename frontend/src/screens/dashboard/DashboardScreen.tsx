@@ -11,6 +11,8 @@ import QuickOrderModal from '../../components/dashboard/QuickOrderModal';
 import SalesCard from '../../components/dashboard/SalesCard';
 import TodoList, { type Todo } from '../../components/dashboard/TodoList';
 import WelcomeHeader from '../../components/dashboard/WelcomeHeader';
+import BriefingButton from '../../components/voice/BriefingButton';
+import VoiceCommandButton from '../../components/voice/VoiceCommandButton';
 import { FadeInUp, PressableScale } from '../../components/motion';
 import { listCompliance } from '../../lib/api/documents';
 import { listStocks } from '../../lib/api/inventory';
@@ -257,6 +259,10 @@ export default function DashboardScreen() {
         onClose={() => setSelected(null)}
         onConfirm={confirmOrder}
       />
+
+      {/* [한글 주석: 홈 화면(대시보드) 전용 음성 비서 브리핑 및 마이크 플로팅 버튼 배치] */}
+      <BriefingButton />
+      <VoiceCommandButton />
     </View>
   );
 }

@@ -1,12 +1,14 @@
-// [한글 주석] 독립된 원두 실시간 최저가 시세 및 실리뷰 분석 전용 화면
 import { useState } from 'react';
 import { Linking, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from '../../i18n/translations';
 import { Badge, Card, Screen, ScreenTitle } from '../../components/ui';
 import { colors } from '../../theme';
 
 
 export default function BeanOperationScreen() {
+  // [한글 주석: 전역 다국어 번역 훅 연동]
+  const { t, language } = useTranslation();
   const [selectedCategory, setSelectedCategory] = useState('전체');
   const [keyword, setKeyword] = useState('');
 
@@ -27,15 +29,20 @@ export default function BeanOperationScreen() {
 
   return (
     <Screen>
-      <ScreenTitle title="원두 실시간 시세 & 실리뷰 분석" subtitle="DB 적재 599개 원두 시세 및 1,822건의 사용자 리뷰 통계" />
+      <ScreenTitle
+        title={t('beanOpsTitle')}
+        subtitle={language === 'en' ? '599 Bean Prices & 1,822 User Review Analytics' : 'DB 적재 599개 원두 시세 및 1,822건의 사용자 리뷰 통계'}
+      />
       
       <Card style={{ marginBottom: 16, backgroundColor: colors.creamSand }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Ionicons name="cafe" size={22} color={colors.espressoBrown} />
-            <Text style={{ fontSize: 18, fontWeight: 'bold', color: colors.espressoBrown }}>수집 원두 카탈로그 & 시세</Text>
+            <Text style={{ fontSize: 18, fontWeight: 'bold', color: colors.espressoBrown }}>
+              {language === 'en' ? 'Collected Bean Catalog & Prices' : '수집 원두 카탈로그 & 시세'}
+            </Text>
           </View>
-          <Badge label="DB 599개 적재완료" tone="green" />
+          <Badge label={language === 'en' ? '599 Beans Loaded' : 'DB 599개 적재완료'} tone="green" />
         </View>
 
         {/* 검색어 입력창 */}

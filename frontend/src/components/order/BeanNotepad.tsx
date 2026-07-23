@@ -20,6 +20,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, shadows, typography } from '../../theme';
+import { useTranslation } from '../../i18n/translations';
 import { API_BASE_URL } from '../../lib/api/client';
 import { listRoasteryBeans, RoasteryBean } from '../../lib/api/inventory';
 import {
@@ -32,6 +33,7 @@ import {
   SensorRecommendation,
 } from '../../lib/api/sensor';
 import SensorSetupModal from './SensorSetupModal';
+import { SwipeDownModal } from '../ui/SwipeDownModal';
 
 // 대시보드 지표 → 센서 스테이션 기기 id 매핑 (설비 칩 탭 시 해당 가이드로 바로 진입)
 const METRIC_TO_DEVICE: Record<keyof LiveMetrics, string> = {
@@ -322,6 +324,8 @@ const CurationSlider: React.FC<CurationSliderProps> = ({ label, value, onChange 
 };
 
 export default function BeanNotepad() {
+  // [한글 주석: 전역 다국어 번역 훅 연동 — 영문/한글 텍스트 변환]
+  const { t, language } = useTranslation();
   const [data, setData] = useState<NotepadData>({
     currentCaffeine: '',
     currentDecaf: '',
@@ -977,7 +981,7 @@ export default function BeanNotepad() {
 
         <View style={styles.cardHeader}>
           <View style={styles.cardTitleRow}>
-            <Text style={styles.cardTitle}>현재 사용 중인 원두</Text>
+            <Text style={styles.cardTitle}>{t('beansCurrentlyInUse')}</Text>
             {/* [한글 주석: 회색=서버 미응답 / 주황=센서 0개(데모) / 초록=LIVE — 기능 OFF면 배지 자체를 숨김] */}
             {sensorFeatureOn !== false && (
               <LivePulseBadge
@@ -992,7 +996,7 @@ export default function BeanNotepad() {
           </View>
           <TouchableOpacity style={styles.editBtn} onPress={openCurrentEdit}>
             <Ionicons name="pencil-outline" size={14} color={colors.mochaBrown} />
-            <Text style={styles.editBtnText}>수정</Text>
+            <Text style={styles.editBtnText}>{t('edit')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -1005,13 +1009,13 @@ export default function BeanNotepad() {
           >
             <Ionicons name="hardware-chip-outline" size={18} color="#B45309" />
             <View style={{ flex: 1 }}>
-              <Text style={liveComponentStyles.demoBannerTitle}>지금 수치는 가상 데모예요</Text>
+              <Text style={liveComponentStyles.demoBannerTitle}>{t('virtualDemoNotice')}</Text>
               <Text style={liveComponentStyles.demoBannerDesc}>
-                무게·온도 센서를 연결하면 내 매장 실측값으로 바뀌어요
+                {language === 'en' ? 'Connect sensors to see live values' : '무게·온도 센서를 연결하면 내 매장 실측값으로 바뀌어요'}
               </Text>
             </View>
             <View style={liveComponentStyles.demoBannerCta}>
-              <Text style={liveComponentStyles.demoBannerCtaText}>센서 연결</Text>
+              <Text style={liveComponentStyles.demoBannerCtaText}>{t('connectSensor')}</Text>
               <Ionicons name="chevron-forward" size={11} color={colors.white} />
             </View>
           </TouchableOpacity>
@@ -1029,7 +1033,7 @@ export default function BeanNotepad() {
         ) : null}
 
         {renderHopperRow(
-          '카페인', 'cafe', colors.espressoBrown,
+          t('caffeinated'), 'cafe', colors.espressoBrown,
           cafDisplayName, cafHopper, colors.espressoBrown,
           sensor?.live_metrics?.rfid ? sensor.rfid.caffeine_tag : undefined,
           sensor ? !!sensor.live_metrics?.hoppers : undefined,
@@ -1038,7 +1042,7 @@ export default function BeanNotepad() {
         <View style={styles.divider} />
 
         {renderHopperRow(
-          '디카페인', 'cafe-outline', colors.mochaBrown,
+          t('decaf'), 'cafe-outline', colors.mochaBrown,
           decafDisplayName, decafHopper, colors.mochaBrown,
           sensor?.live_metrics?.rfid ? sensor.rfid.decaf_tag : undefined,
           sensor ? !!sensor.live_metrics?.hoppers : undefined,
@@ -1054,29 +1058,29 @@ export default function BeanNotepad() {
                 alert: false,
                 text:
                   sensor.machine.status === 'extracting'
-                    ? `추출 중${sensor.machine.current_menu ? ` · ${sensor.machine.current_menu}` : ''}`
-                    : sensor.machine.status === 'idle' ? '머신 대기' : '영업 전',
+                    ? (language === 'en' ? `Extracting${sensor.machine.current_menu ? ` · ${sensor.machine.current_menu}` : ''}` : `추출 중${sensor.machine.current_menu ? ` · ${sensor.machine.current_menu}` : ''}`)
+                    : sensor.machine.status === 'idle' ? t('machineReady') : (language === 'en' ? 'Closed' : '영업 전'),
                 activeColor: sensor.machine.status === 'extracting' ? '#D97706' : colors.mochaBrown,
               },
               {
                 metric: 'milk' as const,
                 icon: 'water-outline',
                 alert: sensor.milk.percent <= 25,
-                text: `우유 ${(sensor.milk.remaining_ml / 1000).toFixed(1)}L`,
+                text: `${t('milk')} ${(sensor.milk.remaining_ml / 1000).toFixed(1)}L`,
                 activeColor: colors.mochaBrown,
               },
               {
                 metric: 'water' as const,
                 icon: 'filter-outline',
                 alert: !sensor.water.ok,
-                text: `정수 ${sensor.water.percent}%`,
+                text: `${t('water')} ${sensor.water.percent}%`,
                 activeColor: colors.mochaBrown,
               },
               {
                 metric: 'fridge' as const,
                 icon: 'thermometer-outline',
                 alert: !sensor.fridge.ok,
-                text: `냉장 ${sensor.fridge.temp_c}℃`,
+                text: `${t('fridge')} ${sensor.fridge.temp_c}℃`,
                 activeColor: colors.mochaBrown,
               },
             ]).map((chip) => {
@@ -1129,7 +1133,7 @@ export default function BeanNotepad() {
             activeOpacity={0.8}
           >
             <Ionicons name="compass-outline" size={16} color={colors.white} />
-            <Text style={styles.curationBtnText}>취향 맞춤 로스터리 원두 추천받기</Text>
+            <Text style={styles.curationBtnText}>{t('recommendRoasteryBeans')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -1141,11 +1145,13 @@ export default function BeanNotepad() {
           <View style={styles.cardHeader}>
             <View style={styles.cardTitleRow}>
               <Ionicons name="sparkles" size={15} color={colors.espressoBrown} />
-              <Text style={styles.cardTitle}>AI 발주 코치</Text>
+              <Text style={styles.cardTitle}>{t('aiOrderCoach')}</Text>
             </View>
             {coachUpdatedAt ? (
               <Text style={coachStyles.updatedAt}>
-                {new Date(coachUpdatedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} 기준
+                {language === 'en'
+                  ? `As of ${new Date(coachUpdatedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
+                  : `${new Date(coachUpdatedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} 기준`}
               </Text>
             ) : null}
           </View>
@@ -1157,7 +1163,7 @@ export default function BeanNotepad() {
                   : item.priority === 'warn' ? '#D97706'
                     : colors.mochaBrown;
               const priorityLabel =
-                item.priority === 'urgent' ? '긴급' : item.priority === 'warn' ? '주의' : '참고';
+                item.priority === 'urgent' ? (language === 'en' ? 'Urgent' : '긴급') : item.priority === 'warn' ? (language === 'en' ? 'Warning' : '주의') : t('note');
               return (
                 <View key={idx} style={coachStyles.item}>
                   <View style={[coachStyles.bar, { backgroundColor: barColor }]} />
@@ -1166,19 +1172,39 @@ export default function BeanNotepad() {
                       <View style={[coachStyles.priorityChip, { backgroundColor: `${barColor}18`, borderColor: `${barColor}44` }]}>
                         <Text style={[coachStyles.priorityChipText, { color: barColor }]}>{priorityLabel}</Text>
                       </View>
-                      <Text style={coachStyles.title} numberOfLines={2}>{item.title}</Text>
+                      <Text style={coachStyles.title} numberOfLines={2}>
+                        {language === 'en'
+                          ? item.title
+                              .replace('지금 잔량은 판매 기록 기반 추정값이에요', 'Current levels are estimates based on sales logs')
+                          : item.title}
+                      </Text>
                     </View>
 
                     {/* 근거 수치 — 사장님이 "왜?"를 바로 알 수 있게 */}
-                    <Text style={coachStyles.reason}>{item.reason}</Text>
+                    <Text style={coachStyles.reason}>
+                      {language === 'en'
+                        ? item.reason
+                            .replace('센서가 아직 연결되지 않아 호퍼·우유 잔량을 판매 데이터로 역산하고 있어요.', 'Sensors not connected yet. Calculating hopper & milk levels from sales logs.')
+                        : item.reason}
+                    </Text>
 
                     {/* 실행 액션 — 지금 뭘 하면 되는지 */}
                     <View style={coachStyles.actionRow}>
                       <Ionicons name="arrow-forward-circle" size={13} color={colors.espressoBrown} />
-                      <Text style={coachStyles.actionText}>{item.action}</Text>
+                      <Text style={coachStyles.actionText}>
+                        {language === 'en'
+                          ? item.action
+                              .replace("원두 카드의 '센서 연결'에서 무게센서를 페어링하면 실측 기반으로 정확해져요.", "Pair weight sensors via 'Connect Sensor' for exact measurements.")
+                          : item.action}
+                      </Text>
                     </View>
 
-                    <Text style={coachStyles.source}>근거: {item.source}</Text>
+                    <Text style={coachStyles.source}>
+                      {language === 'en' ? 'Source: ' : '근거: '}
+                      {language === 'en'
+                        ? item.source.replace('센서 스테이션', 'Sensor Station').replace('판매 기록 역산', 'Sales Logs Back-calculation')
+                        : item.source}
+                    </Text>
                   </View>
                 </View>
               );
@@ -1191,11 +1217,11 @@ export default function BeanNotepad() {
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <View style={styles.cardTitleRow}>
-            <Text style={styles.cardTitle}>원두 체험 노트</Text>
+            <Text style={styles.cardTitle}>{language === 'en' ? 'Bean Tasting Notes' : '원두 체험 노트'}</Text>
           </View>
           <TouchableOpacity style={styles.addBtn} onPress={openAddNote}>
             <Ionicons name="add" size={15} color={colors.white} />
-            <Text style={styles.addBtnText}>추가</Text>
+            <Text style={styles.addBtnText}>{language === 'en' ? 'Add' : '추가'}</Text>
           </TouchableOpacity>
         </View>
 
@@ -1203,7 +1229,7 @@ export default function BeanNotepad() {
           <View style={styles.emptyNote}>
             <Ionicons name="document-text-outline" size={28} color={colors.stone300} />
             <Text style={styles.emptyNoteText}>
-              발주해본 원두나 써본 원두를 기록해 보세요
+              {language === 'en' ? 'Record roastery beans you have ordered or tested' : '발주해본 원두나 써본 원두를 기록해 보세요'}
             </Text>
           </View>
         ) : (
@@ -1282,330 +1308,315 @@ export default function BeanNotepad() {
         )}
       </View>
 
-      {/* ━━━ 현재 사용 원두 편집 모달 (이모지 없음) ━━━ */}
-      <Modal visible={showCurrentEdit} transparent animationType="slide" onRequestClose={() => setShowCurrentEdit(false)}>
-        <View style={modalStyles.root}>
-          <TouchableOpacity style={modalStyles.backdrop} onPress={() => setShowCurrentEdit(false)} />
-          <View style={modalStyles.sheet}>
-            <View style={modalStyles.handle} />
-            <Text style={modalStyles.title}>현재 사용 중인 원두 수정</Text>
+      {/* ━━━ 현재 사용 원두 편집 모달 (이모지 없음 - 드래그 다운 닫기 지원) ━━━ */}
+      <SwipeDownModal visible={showCurrentEdit} onClose={() => setShowCurrentEdit(false)}>
+        <Text style={modalStyles.title}>현재 사용 중인 원두 수정</Text>
 
-            <Text style={modalStyles.label}>카페인 원두</Text>
-            <TextInput
-              style={modalStyles.input}
-              value={tempCaffeine}
-              onChangeText={setTempCaffeine}
-              placeholder="예: 에티오피아 구지 내추럴"
-              placeholderTextColor={colors.stone300}
-            />
+        <Text style={modalStyles.label}>카페인 원두</Text>
+        <TextInput
+          style={modalStyles.input}
+          value={tempCaffeine}
+          onChangeText={setTempCaffeine}
+          placeholder="예: 에티오피아 구지 내추럴"
+          placeholderTextColor={colors.stone300}
+        />
 
-            <Text style={[modalStyles.label, { marginTop: 14 }]}>디카페인 원두</Text>
-            <TextInput
-              style={modalStyles.input}
-              value={tempDecaf}
-              onChangeText={setTempDecaf}
-              placeholder="예: 콜롬비아 워시드 디카페인"
-              placeholderTextColor={colors.stone300}
-            />
+        <Text style={[modalStyles.label, { marginTop: 14 }]}>디카페인 원두</Text>
+        <TextInput
+          style={modalStyles.input}
+          value={tempDecaf}
+          onChangeText={setTempDecaf}
+          placeholder="예: 콜롬비아 워시드 디카페인"
+          placeholderTextColor={colors.stone300}
+        />
 
-            {/* 🎛️ 매장 센서 연동 ON/OFF — 센서 없는 카페는 끄면 라이브·데모 안내·코치 알림이 모두 사라짐 */}
-            <View style={modalStyles.featureToggleRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={[modalStyles.label, { marginBottom: 2 }]}>매장 센서 연동</Text>
-                <Text style={modalStyles.featureToggleDesc}>
-                  {sensorFeatureOn === false
-                    ? '꺼짐 — 실시간 게이지·연동 안내가 표시되지 않아요'
-                    : '켜짐 — 센서 실시간 게이지와 AI 발주 코치를 사용해요'}
-                </Text>
-              </View>
-              <Switch
-                value={sensorFeatureOn !== false}
-                onValueChange={toggleSensorFeature}
-                trackColor={{ false: '#D6D3D1', true: colors.mochaBrown }}
-                thumbColor={colors.white}
-              />
-            </View>
-
-            <TouchableOpacity
-              style={[modalStyles.saveBtn, !tempCaffeine.trim() && !tempDecaf.trim() && { opacity: 0.5 }]}
-              onPress={saveCurrentBeans}
-            >
-              <Text style={modalStyles.saveBtnText}>저장하기</Text>
-            </TouchableOpacity>
+        {/* 🎛️ 매장 센서 연동 ON/OFF — 센서 없는 카페는 끄면 라이브·데모 안내·코치 알림이 모두 사라짐 */}
+        <View style={modalStyles.featureToggleRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={[modalStyles.label, { marginBottom: 2 }]}>매장 센서 연동</Text>
+            <Text style={modalStyles.featureToggleDesc}>
+              {sensorFeatureOn === false
+                ? '꺼짐 — 실시간 게이지·연동 안내가 표시되지 않아요'
+                : '켜짐 — 센서 실시간 게이지와 AI 발주 코치를 사용해요'}
+            </Text>
           </View>
+          <Switch
+            value={sensorFeatureOn !== false}
+            onValueChange={toggleSensorFeature}
+            trackColor={{ false: '#D6D3D1', true: colors.mochaBrown }}
+            thumbColor={colors.white}
+          />
         </View>
-      </Modal>
 
-      {/* ━━━ 원두 노트 추가/수정 모달 (이모지 및 status 배지 완전 배제) ━━━ */}
-      <Modal visible={showNoteModal} transparent animationType="slide" onRequestClose={() => setShowNoteModal(false)}>
-        <View style={modalStyles.root}>
-          <TouchableOpacity style={modalStyles.backdrop} onPress={() => setShowNoteModal(false)} />
-          <View style={modalStyles.sheet}>
-            <View style={modalStyles.handle} />
-            <Text style={modalStyles.title}>{editingNote ? '노트 수정' : '원두 노트 추가'}</Text>
+        <TouchableOpacity
+          style={[modalStyles.saveBtn, !tempCaffeine.trim() && !tempDecaf.trim() && { opacity: 0.5 }]}
+          onPress={saveCurrentBeans}
+        >
+          <Text style={modalStyles.saveBtnText}>저장하기</Text>
+        </TouchableOpacity>
+      </SwipeDownModal>
 
-            <Text style={modalStyles.label}>원두 이름 *</Text>
-            <TextInput
-              style={modalStyles.input}
-              value={tempName}
-              onChangeText={setTempName}
-              placeholder="예: 타팟 에티오피아 구지"
-              placeholderTextColor={colors.stone300}
-            />
+      {/* ━━━ 원두 노트 추가/수정 모달 (드래그 다운 닫기 지원) ━━━ */}
+      <SwipeDownModal visible={showNoteModal} onClose={() => setShowNoteModal(false)}>
+        <Text style={modalStyles.title}>{editingNote ? '노트 수정' : '원두 노트 추가'}</Text>
 
-            {/* 사용 횟수 카운터 */}
-            <Text style={[modalStyles.label, { marginTop: 14 }]}>주문 횟수</Text>
-            <View style={modalStyles.counterRow}>
-              <TouchableOpacity
-                style={modalStyles.counterBtn}
-                onPress={() => setTempUsageCount(Math.max(1, tempUsageCount - 1))}
-              >
-                <Ionicons name="remove" size={16} color={colors.espressoBrown} />
-              </TouchableOpacity>
-              <Text style={modalStyles.counterVal}>{tempUsageCount}회</Text>
-              <TouchableOpacity
-                style={modalStyles.counterBtn}
-                onPress={() => setTempUsageCount(tempUsageCount + 1)}
-              >
-                <Ionicons name="add" size={16} color={colors.espressoBrown} />
-              </TouchableOpacity>
-            </View>
+        <Text style={modalStyles.label}>원두 이름 *</Text>
+        <TextInput
+          style={modalStyles.input}
+          value={tempName}
+          onChangeText={setTempName}
+          placeholder="예: 타팟 에티오피아 구지"
+          placeholderTextColor={colors.stone300}
+        />
 
-            {/* 간단 메모 */}
-            <Text style={[modalStyles.label, { marginTop: 14 }]}>간단 메모</Text>
-            <TextInput
-              style={[modalStyles.input, modalStyles.inputMulti]}
-              value={tempMemo}
-              onChangeText={setTempMemo}
-              placeholder="특이사항이나 만족도를 자유롭게 메모하세요"
-              placeholderTextColor={colors.stone300}
-              multiline
-              numberOfLines={3}
-            />
+        {/* 사용 횟수 카운터 */}
+        <Text style={[modalStyles.label, { marginTop: 14 }]}>주문 횟수</Text>
+        <View style={modalStyles.counterRow}>
+          <TouchableOpacity
+            style={modalStyles.counterBtn}
+            onPress={() => setTempUsageCount(Math.max(1, tempUsageCount - 1))}
+          >
+            <Ionicons name="remove" size={16} color={colors.espressoBrown} />
+          </TouchableOpacity>
+          <Text style={modalStyles.counterVal}>{tempUsageCount}회</Text>
+          <TouchableOpacity
+            style={modalStyles.counterBtn}
+            onPress={() => setTempUsageCount(tempUsageCount + 1)}
+          >
+            <Ionicons name="add" size={16} color={colors.espressoBrown} />
+          </TouchableOpacity>
+        </View>
 
-            <TouchableOpacity
-              style={[modalStyles.saveBtn, !tempName.trim() && { opacity: 0.4 }]}
-              onPress={saveNote}
-              disabled={!tempName.trim()}
-            >
-              <Text style={modalStyles.saveBtnText}>{editingNote ? '수정 완료' : '노트 추가'}</Text>
-            </TouchableOpacity>
+        {/* 간단 메모 */}
+        <Text style={[modalStyles.label, { marginTop: 14 }]}>간단 메모</Text>
+        <TextInput
+          style={[modalStyles.input, modalStyles.inputMulti]}
+          value={tempMemo}
+          onChangeText={setTempMemo}
+          placeholder="특이사항이나 만족도를 자유롭게 메모하세요"
+          placeholderTextColor={colors.stone300}
+          multiline
+          numberOfLines={3}
+        />
+
+        <TouchableOpacity
+          style={[modalStyles.saveBtn, !tempName.trim() && { opacity: 0.4 }]}
+          onPress={saveNote}
+          disabled={!tempName.trim()}
+        >
+          <Text style={modalStyles.saveBtnText}>{editingNote ? '수정 완료' : '노트 추가'}</Text>
+        </TouchableOpacity>
+      </SwipeDownModal>
+      {/* ━━━ 원두 취향 큐레이션 설문 & 추천 결과 모달 (드래그 다운 닫기 지원) ━━━ */}
+      <SwipeDownModal
+        visible={showSurveyModal}
+        onClose={() => setShowSurveyModal(false)}
+        sheetStyle={{ maxHeight: '90%', paddingBottom: 24 }}
+      >
+        {/* 헤더 */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Ionicons name="compass" size={18} color={colors.mochaBrown} />
+            <Text style={[modalStyles.title, { marginBottom: 0, fontSize: 16 }]}>나만의 원두 취향 큐레이터</Text>
           </View>
+          <TouchableOpacity onPress={() => setShowSurveyModal(false)} style={{ padding: 4 }}>
+            <Ionicons name="close" size={20} color={colors.espressoBrown} />
+          </TouchableOpacity>
         </View>
-      </Modal>
-      {/* ━━━ 원두 취향 큐레이션 설문 & 추천 결과 모달 [NEW] ━━━ */}
-      <Modal visible={showSurveyModal} transparent animationType="slide" onRequestClose={() => setShowSurveyModal(false)}>
-        <View style={modalStyles.root}>
-          <TouchableOpacity style={modalStyles.backdrop} onPress={() => setShowSurveyModal(false)} />
-          <View style={[modalStyles.sheet, { maxHeight: '90%', paddingBottom: 24 }]}>
-            <View style={modalStyles.handle} />
 
-            {/* 헤더 */}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Ionicons name="compass" size={18} color={colors.mochaBrown} />
-                <Text style={[modalStyles.title, { marginBottom: 0, fontSize: 16 }]}>나만의 원두 취향 큐레이터</Text>
-              </View>
-              <TouchableOpacity onPress={() => setShowSurveyModal(false)} style={{ padding: 4 }}>
-                <Ionicons name="close" size={20} color={colors.espressoBrown} />
-              </TouchableOpacity>
+        <ScrollView ref={surveyScrollRef} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 10 }}>
+
+
+          {/* 카페인 함량 */}
+          <View style={styles.surveySection}>
+            <Text style={styles.surveyLabel}>카페인 함량</Text>
+            <View style={styles.chipRow}>
+              {([
+                { key: 'any', label: '상관없음' },
+                { key: 'normal', label: '일반 원두' },
+                { key: 'decaf', label: '디카페인' }
+              ] as const).map(opt => (
+                <TouchableOpacity
+                  key={opt.key}
+                  style={[styles.surveyChip, surveyDecaf === opt.key && styles.surveyChipActive]}
+                  onPress={() => setSurveyDecaf(opt.key)}
+                >
+                  <Text style={[styles.surveyChipText, surveyDecaf === opt.key && styles.surveyChipTextActive]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
+          </View>
 
-            <ScrollView ref={surveyScrollRef} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 10 }}>
+          {/* 원산지 */}
+          <View style={styles.surveySection}>
+            <Text style={styles.surveyLabel}>원산지 (Origin)</Text>
+            <View style={styles.chipRow}>
+              {([
+                { key: 'any', label: '전체' },
+                { key: 'ethiopia', label: '에티오피아' },
+                { key: 'colombia', label: '콜롬비아' },
+                { key: 'brazil', label: '브라질' },
+                { key: 'kenya', label: '케냐' }
+              ] as const).map(opt => (
+                <TouchableOpacity
+                  key={opt.key}
+                  style={[styles.surveyChip, surveyOrigin === opt.key && styles.surveyChipActive]}
+                  onPress={() => setSurveyOrigin(opt.key)}
+                >
+                  <Text style={[styles.surveyChipText, surveyOrigin === opt.key && styles.surveyChipTextActive]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
 
+          {/* 가공 방식 */}
+          <View style={styles.surveySection}>
+            <Text style={styles.surveyLabel}>가공 방식 (Process)</Text>
+            <View style={styles.chipRow}>
+              {([
+                { key: 'any', label: '전체' },
+                { key: 'washed', label: '워시드 (Washed)' },
+                { key: 'natural', label: '내추럴 (Natural)' },
+                { key: 'honey', label: '허니 (Honey)' },
+                { key: 'anaerobic', label: '애너로빅 (무산소)' }
+              ] as const).map(opt => (
+                <TouchableOpacity
+                  key={opt.key}
+                  style={[styles.surveyChip, surveyProcess === opt.key && styles.surveyChipActive]}
+                  onPress={() => setSurveyProcess(opt.key)}
+                >
+                  <Text style={[styles.surveyChipText, surveyProcess === opt.key && styles.surveyChipTextActive]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
 
-              {/* 카페인 함량 */}
-              <View style={styles.surveySection}>
-                <Text style={styles.surveyLabel}>카페인 함량</Text>
-                <View style={styles.chipRow}>
-                  {([
-                    { key: 'any', label: '상관없음' },
-                    { key: 'normal', label: '일반 원두' },
-                    { key: 'decaf', label: '디카페인' }
-                  ] as const).map(opt => (
-                    <TouchableOpacity
-                      key={opt.key}
-                      style={[styles.surveyChip, surveyDecaf === opt.key && styles.surveyChipActive]}
-                      onPress={() => setSurveyDecaf(opt.key)}
-                    >
-                      <Text style={[styles.surveyChipText, surveyDecaf === opt.key && styles.surveyChipTextActive]}>
-                        {opt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+          {/* 로스팅 정도 */}
+          <View style={styles.surveySection}>
+            <Text style={styles.surveyLabel}>로스팅 정도 (Roast Level)</Text>
+            <View style={styles.chipRow}>
+              {([
+                { key: 'any', label: '전체' },
+                { key: 'light', label: '라이트' },
+                { key: 'medium', label: '미디엄' },
+                { key: 'medium-dark', label: '미디엄 다크' },
+                { key: 'dark', label: '다크' }
+              ] as const).map(opt => (
+                <TouchableOpacity
+                  key={opt.key}
+                  style={[styles.surveyChip, surveyRoast === opt.key && styles.surveyChipActive]}
+                  onPress={() => setSurveyRoast(opt.key)}
+                >
+                  <Text style={[styles.surveyChipText, surveyRoast === opt.key && styles.surveyChipTextActive]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* 맛 강도 조절 (Interactive Snap Sliders) */}
+          <CurationSlider label="산미 (Acidity)" value={surveyAcidity} onChange={setSurveyAcidity} />
+          <CurationSlider label="바디감 (Body)" value={surveyBody} onChange={setSurveyBody} />
+
+          {/* 단맛 */}
+          <CurationSlider label="단맛 (Sweetness)" value={surveySweetness} onChange={setSurveySweetness} />
+
+          {/* 쓴맛 */}
+          <CurationSlider label="쓴맛 (Bitterness)" value={surveyBitterness} onChange={setSurveyBitterness} />
+
+          {/* 🔍 추천 실행 버튼 (한 화면 컴팩트 핏) */}
+          <TouchableOpacity
+            style={[modalStyles.saveBtn, { marginTop: 6, paddingVertical: 11, backgroundColor: colors.mochaBrown }]}
+            onPress={handleRunSurveyRecommendation}
+            activeOpacity={0.8}
+          >
+            <Text style={[modalStyles.saveBtnText, { fontSize: 13 }]}>취향 조건으로 로스터리 원두 찾기</Text>
+          </TouchableOpacity>
+
+          {/* 🎯 매칭 추천 결과 섹션 */}
+          {hasSearchedSurvey && (
+            <View style={styles.resultContainer}>
+              <View style={styles.resultHeader}>
+                <Ionicons name="sparkles" size={14} color={colors.espressoBrown} />
+                <Text style={styles.resultTitle}>취향 저격 로스터리 원두 추천</Text>
               </View>
 
-              {/* 원산지 */}
-              <View style={styles.surveySection}>
-                <Text style={styles.surveyLabel}>원산지 (Origin)</Text>
-                <View style={styles.chipRow}>
-                  {([
-                    { key: 'any', label: '전체' },
-                    { key: 'ethiopia', label: '에티오피아' },
-                    { key: 'colombia', label: '콜롬비아' },
-                    { key: 'brazil', label: '브라질' },
-                    { key: 'kenya', label: '케냐' }
-                  ] as const).map(opt => (
-                    <TouchableOpacity
-                      key={opt.key}
-                      style={[styles.surveyChip, surveyOrigin === opt.key && styles.surveyChipActive]}
-                      onPress={() => setSurveyOrigin(opt.key)}
-                    >
-                      <Text style={[styles.surveyChipText, surveyOrigin === opt.key && styles.surveyChipTextActive]}>
-                        {opt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+              {surveyResult.length === 0 ? (
+                <View style={styles.emptyResult}>
+                  <Text style={styles.emptyResultText}>
+                    해당 취향 필터에 완벽하게 일치하는 원두가 현재 없습니다. 다른 옵션을 탭해 보세요!
+                  </Text>
                 </View>
-              </View>
-
-              {/* 가공 방식 */}
-              <View style={styles.surveySection}>
-                <Text style={styles.surveyLabel}>가공 방식 (Process)</Text>
-                <View style={styles.chipRow}>
-                  {([
-                    { key: 'any', label: '전체' },
-                    { key: 'washed', label: '워시드 (Washed)' },
-                    { key: 'natural', label: '내추럴 (Natural)' },
-                    { key: 'honey', label: '허니 (Honey)' },
-                    { key: 'anaerobic', label: '애너로빅 (무산소)' }
-                  ] as const).map(opt => (
-                    <TouchableOpacity
-                      key={opt.key}
-                      style={[styles.surveyChip, surveyProcess === opt.key && styles.surveyChipActive]}
-                      onPress={() => setSurveyProcess(opt.key)}
-                    >
-                      <Text style={[styles.surveyChipText, surveyProcess === opt.key && styles.surveyChipTextActive]}>
-                        {opt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              {/* 로스팅 정도 */}
-              <View style={styles.surveySection}>
-                <Text style={styles.surveyLabel}>로스팅 정도 (Roast Level)</Text>
-                <View style={styles.chipRow}>
-                  {([
-                    { key: 'any', label: '전체' },
-                    { key: 'light', label: '라이트' },
-                    { key: 'medium', label: '미디엄' },
-                    { key: 'medium-dark', label: '미디엄 다크' },
-                    { key: 'dark', label: '다크' }
-                  ] as const).map(opt => (
-                    <TouchableOpacity
-                      key={opt.key}
-                      style={[styles.surveyChip, surveyRoast === opt.key && styles.surveyChipActive]}
-                      onPress={() => setSurveyRoast(opt.key)}
-                    >
-                      <Text style={[styles.surveyChipText, surveyRoast === opt.key && styles.surveyChipTextActive]}>
-                        {opt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              {/* 맛 강도 조절 (Interactive Snap Sliders) */}
-              <CurationSlider label="산미 (Acidity)" value={surveyAcidity} onChange={setSurveyAcidity} />
-              <CurationSlider label="바디감 (Body)" value={surveyBody} onChange={setSurveyBody} />
-
-              {/* 단맛 */}
-              <CurationSlider label="단맛 (Sweetness)" value={surveySweetness} onChange={setSurveySweetness} />
-
-              {/* 쓴맛 */}
-              <CurationSlider label="쓴맛 (Bitterness)" value={surveyBitterness} onChange={setSurveyBitterness} />
-
-              {/* 🔍 추천 실행 버튼 (한 화면 컴팩트 핏) */}
-              <TouchableOpacity
-                style={[modalStyles.saveBtn, { marginTop: 6, paddingVertical: 11, backgroundColor: colors.mochaBrown }]}
-                onPress={handleRunSurveyRecommendation}
-                activeOpacity={0.8}
-              >
-                <Text style={[modalStyles.saveBtnText, { fontSize: 13 }]}>취향 조건으로 로스터리 원두 찾기</Text>
-              </TouchableOpacity>
-
-              {/* 🎯 매칭 추천 결과 섹션 */}
-              {hasSearchedSurvey && (
-                <View style={styles.resultContainer}>
-                  <View style={styles.resultHeader}>
-                    <Ionicons name="sparkles" size={14} color={colors.espressoBrown} />
-                    <Text style={styles.resultTitle}>취향 저격 로스터리 원두 추천</Text>
-                  </View>
-
-                  {surveyResult.length === 0 ? (
-                    <View style={styles.emptyResult}>
-                      <Text style={styles.emptyResultText}>
-                        해당 취향 필터에 완벽하게 일치하는 원두가 현재 없습니다. 다른 옵션을 탭해 보세요!
-                      </Text>
-                    </View>
-                  ) : (
-                    <View style={{ gap: 12, marginTop: 8 }}>
-                      {surveyResult.map(({ bean, matchRate, matchedReasons }, index) => (
-                        <View key={bean.id} style={styles.resultCard}>
-                          {/* 등수 & 일치율 헤더 */}
-                          <View style={styles.resultCardHeader}>
-                            <View style={styles.rankBadge}>
-                              <Text style={styles.rankBadgeText}>{index + 1}순위</Text>
-                            </View>
-                            <View style={styles.matchRateBadge}>
-                              <Text style={styles.matchRateBadgeText}>일치율 {matchRate}%</Text>
-                            </View>
-                          </View>
-
-                          <Text style={styles.resultBeanName}>{bean.name}</Text>
-                          <Text style={styles.resultBeanPrice}>
-                            {bean.price ? `${bean.price.toLocaleString()}원` : '가격 정보 없음'}
-                          </Text>
-
-                          {/* 메타데이터 */}
-                          <Text style={styles.resultBeanMeta}>
-                            {bean.country || '원산지 미지정'} · {bean.process || '가공방식 미지정'} {bean.decaf ? '(디카페인)' : ''}
-                          </Text>
-
-                          {/* 쓴맛/산미 가이드에 근거한 매칭 칩 목록 */}
-                          <View style={styles.resultTagRow}>
-                            {matchedReasons.map((reason, i) => (
-                              <View key={i} style={styles.resultTagChip}>
-                                <Text style={styles.resultTagChipText}>{reason}</Text>
-                              </View>
-                            ))}
-                          </View>
-
-                          {bean.description && (
-                            <Text style={styles.resultBeanDesc} numberOfLines={2}>
-                              {bean.description.replace(/^매칭 조건:[^/]*\/\s*/, '')}
-                            </Text>
-                          )}
-
-                          <TouchableOpacity
-                            style={styles.resultGoBtn}
-                            // 네이버(스마트스토어/쇼핑)는 로그인을 요구하므로, 로그인 없이 볼 수 있는
-                            // mungmung.site 검색으로 대체한다. 네이버가 아닌 직접 상품 링크는 그대로 사용.
-                            onPress={() =>
-                              Linking.openURL(
-                                bean.product_url && !/naver\.com/i.test(bean.product_url)
-                                  ? bean.product_url
-                                  : `https://mungmung.site/?q=${encodeURIComponent(bean.name)}`,
-                              )
-                            }
-                            activeOpacity={0.7}
-                          >
-                            <Text style={styles.resultGoText}>원두 보러가기</Text>
-                            <Ionicons name="arrow-forward-outline" size={10} color={colors.white} />
-                          </TouchableOpacity>
+              ) : (
+                <View style={{ gap: 12, marginTop: 8 }}>
+                  {surveyResult.map(({ bean, matchRate, matchedReasons }, index) => (
+                    <View key={bean.id} style={styles.resultCard}>
+                      {/* 등수 & 일치율 헤더 */}
+                      <View style={styles.resultCardHeader}>
+                        <View style={styles.rankBadge}>
+                          <Text style={styles.rankBadgeText}>{index + 1}순위</Text>
                         </View>
-                      ))}
+                        <View style={styles.matchRateBadge}>
+                          <Text style={styles.matchRateBadgeText}>일치율 {matchRate}%</Text>
+                        </View>
+                      </View>
+
+                      <Text style={styles.resultBeanName}>{bean.name}</Text>
+                      <Text style={styles.resultBeanPrice}>
+                        {bean.price ? `${bean.price.toLocaleString()}원` : '가격 정보 없음'}
+                      </Text>
+
+                      {/* 메타데이터 */}
+                      <Text style={styles.resultBeanMeta}>
+                        {bean.country || '원산지 미지정'} · {bean.process || '가공방식 미지정'} {bean.decaf ? '(디카페인)' : ''}
+                      </Text>
+
+                      {/* 쓴맛/산미 가이드에 근거한 매칭 칩 목록 */}
+                      <View style={styles.resultTagRow}>
+                        {matchedReasons.map((reason, i) => (
+                          <View key={i} style={styles.resultTagChip}>
+                            <Text style={styles.resultTagChipText}>{reason}</Text>
+                          </View>
+                        ))}
+                      </View>
+
+                      {bean.description && (
+                        <Text style={styles.resultBeanDesc} numberOfLines={2}>
+                          {bean.description.replace(/^매칭 조건:[^/]*\/\s*/, '')}
+                        </Text>
+                      )}
+
+                      <TouchableOpacity
+                        style={styles.resultGoBtn}
+                        // 네이버(스마트스토어/쇼핑)는 로그인을 요구하므로, 로그인 없이 볼 수 있는
+                        // mungmung.site 검색으로 대체한다. 네이버가 아닌 직접 상품 링크는 그대로 사용.
+                        onPress={() =>
+                          Linking.openURL(
+                            bean.product_url && !/naver\.com/i.test(bean.product_url)
+                              ? bean.product_url
+                              : `https://mungmung.site/?q=${encodeURIComponent(bean.name)}`,
+                          )
+                        }
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.resultGoText}>원두 보러가기</Text>
+                        <Ionicons name="arrow-forward-outline" size={10} color={colors.white} />
+                      </TouchableOpacity>
                     </View>
-                  )}
+                  ))}
                 </View>
               )}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+            </View>
+          )}
+        </ScrollView>
+      </SwipeDownModal>
 
       {/* ━━━ 센서 스테이션 페어링 마법사 모달 ━━━ */}
       <SensorSetupModal

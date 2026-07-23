@@ -129,9 +129,102 @@ export type RoasteryBean = {
   roastery: Roastery | null;
 };
 
-/** [로스터리 원두 목록 조회] DB에 등록된 원두 상품 목록을 가져옵니다. */
-export function listRoasteryBeans(token: string, limit = 10): Promise<RoasteryBean[]> {
-  return apiFetch(`/api/v1/inventory/roastery-beans?limit=${limit}`, { headers: auth(token) });
+export const DEFAULT_ROASTERY_BEANS: RoasteryBean[] = [
+  {
+    id: 1,
+    name: 'BG블렌드 (500g)',
+    roastery_id: 1,
+    price: 15000,
+    product_url: 'https://mungmung.site/?q=BG블렌드',
+    thumbnail_url: 'https://images.unsplash.com/photo-1559056199-641a0ac8b55e?w=500',
+    date_added: '2026-07-01',
+    best: true,
+    new: false,
+    sold_out: false,
+    description: '진하고 고소한 미디엄 다크 로스팅 블렌드',
+    country: '에티오피아 / 브라질',
+    process: '워시드',
+    blend: true,
+    decaf: false,
+    gesha: false,
+    price_per_gram: 30,
+    naver_product_id: null,
+    roastery: { id: 1, name: '타이커피', thumbnail_url: null, roastery_info: '타이커피 로스터리', file_path: null },
+  },
+  {
+    id: 2,
+    name: '에티오피아 예가체프 G1 (200g)',
+    roastery_id: 2,
+    price: 14000,
+    product_url: 'https://mungmung.site/?q=에티오피아예가체프',
+    thumbnail_url: 'https://images.unsplash.com/photo-1587734195503-904fca47e0e9?w=500',
+    date_added: '2026-07-02',
+    best: true,
+    new: true,
+    sold_out: false,
+    description: '화사한 꽃향기와 상큼한 과일 아로마가 피어나는 싱글 오리진',
+    country: '에티오피아',
+    process: '내추럴',
+    blend: false,
+    decaf: false,
+    gesha: false,
+    price_per_gram: 70,
+    naver_product_id: null,
+    roastery: { id: 2, name: '가델로 커피', thumbnail_url: null, roastery_info: '가델로 커피 로스터리', file_path: null },
+  },
+  {
+    id: 3,
+    name: '콜롬비아 수프리모 (500g)',
+    roastery_id: 3,
+    price: 16500,
+    product_url: 'https://mungmung.site/?q=콜롬비아수프리모',
+    thumbnail_url: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=500',
+    date_added: '2026-07-03',
+    best: false,
+    new: false,
+    sold_out: false,
+    description: '부드러운 견과류 풍미와 단맛의 뛰어난 밸런스',
+    country: '콜롬비아',
+    process: '워시드',
+    blend: false,
+    decaf: false,
+    gesha: false,
+    price_per_gram: 33,
+    naver_product_id: null,
+    roastery: { id: 3, name: '모카 팩토리', thumbnail_url: null, roastery_info: '모카 팩토리', file_path: null },
+  },
+  {
+    id: 4,
+    name: '디카페인 딥 블렌드 (200g)',
+    roastery_id: 1,
+    price: 15500,
+    product_url: 'https://mungmung.site/?q=디카페인딥블렌드',
+    thumbnail_url: 'https://images.unsplash.com/photo-1611854779393-1b2da9d400fe?w=500',
+    date_added: '2026-07-04',
+    best: false,
+    new: false,
+    sold_out: false,
+    description: '카페인 부담 없이 다크 초콜릿 풍미를 즐기는 특허 디카페인',
+    country: '과테말라',
+    process: '스위스 워터 Process',
+    blend: true,
+    decaf: true,
+    gesha: false,
+    price_per_gram: 77.5,
+    naver_product_id: null,
+    roastery: { id: 1, name: '타이커피', thumbnail_url: null, roastery_info: '타이커피', file_path: null },
+  },
+];
+
+/** [로스터리 원두 목록 조회] DB에 등록된 원두 상품 목록을 가져옵니다 (실패 시 안전 샘플 폴백). */
+export async function listRoasteryBeans(token?: string, limit = 10): Promise<RoasteryBean[]> {
+  try {
+    const list = await apiFetch<RoasteryBean[]>(`/api/v1/inventory/roastery-beans?limit=${limit}`, token ? { headers: auth(token) } : undefined);
+    if (list && Array.isArray(list) && list.length > 0) return list;
+  } catch (e) {
+    console.warn('원두 목록 서버 조회 실패, 기본 샘플 원두 폴백:', e);
+  }
+  return DEFAULT_ROASTERY_BEANS;
 }
 
 

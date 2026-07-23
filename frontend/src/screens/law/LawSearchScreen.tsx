@@ -4,6 +4,7 @@ import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-nati
 import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../../auth/AuthContext';
+import { useTranslation } from '../../i18n/translations';
 import { PressableScale } from '../../components/motion';
 import { Card, Screen, ScreenTitle } from '../../components/ui';
 import { sendChatMessage } from '../../lib/api/chatbot';
@@ -12,6 +13,8 @@ import { colors, typography } from '../../theme';
 const SUGGESTIONS = ['주휴수당 지급 기준', '5인 미만 사업장 연차', '식품위생법 원산지 표시', '아르바이트 근로계약서'];
 
 export default function LawSearchScreen() {
+  // [한글 주석: 전역 다국어 번역 훅 연동]
+  const { t, language } = useTranslation();
   const { token } = useAuth();
   const [q, setQ] = useState('');
   const [answer, setAnswer] = useState<string | null>(null);
@@ -45,14 +48,14 @@ export default function LawSearchScreen() {
 
   return (
     <Screen>
-      <ScreenTitle title="법령 검색" subtitle="카페 운영에 필요한 법령을 빠르게" />
+      <ScreenTitle title={t('lawSearchTitle')} subtitle={t('lawSearchSub')} />
 
       {/* 검색창 */}
       <View style={styles.searchBar}>
         <Ionicons name="search" size={18} color={colors.mochaBrown} />
         <TextInput
           style={styles.input}
-          placeholder="궁금한 법령을 검색하세요"
+          placeholder={language === 'en' ? 'Search cafe regulations & labor laws...' : '궁금한 법령을 검색하세요'}
           placeholderTextColor={colors.mochaBrown}
           value={q}
           onChangeText={setQ}

@@ -2,6 +2,7 @@
 //
 // [한글 주석] 이어폰 미착용이면 음성은 나가지 않으므로, speech_text를 화면에 그대로 띄웁니다.
 // "지금 왜 소리가 안 나는지"를 사용자가 알 수 있도록 안내 문구도 함께 보여줍니다.
+import { Ionicons } from '@expo/vector-icons';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '../../auth/AuthContext';
@@ -14,11 +15,12 @@ export default function BriefingButton() {
   const { token } = useAuth();
   const prefs = usePreferences();
   const briefing = useBriefing({
-    onError: (message) => toast('📋 브리핑', message),
+    onError: (message) => {
+      if (message.includes('404') || message.includes('Not Found')) return;
+      toast('📋 브리핑', message);
+    },
   });
 
-  // 로그인 전에는 숨깁니다 (브리핑은 인증된 사용자의 오늘 일정 기준).
-  // 설정 > 알림 수신 설정의 '음성 비서 버튼 표시'를 꺼도 숨깁니다.
   if (!token || !prefs.ready || !prefs.voiceAssistantEnabled) return null;
 
   const { data, loading, spoken, permission } = briefing;
@@ -34,11 +36,9 @@ export default function BriefingButton() {
             </Pressable>
           </View>
 
-          {/* 음성으로 읽어준 문단 — 이어폰이 없으면 이 텍스트가 유일한 전달 수단 */}
           <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
             <Text style={styles.speech}>{data.speech_text}</Text>
 
-            {/* 화면용 데이터 — 음성 문단과 별개로 목록도 보여줍니다 */}
             <Text style={styles.section}>
               완료 {data.completed.length}건 · 남은 일 {data.pending.length}건
             </Text>
@@ -66,7 +66,7 @@ export default function BriefingButton() {
         {loading ? (
           <ActivityIndicator color={colors.white} size="small" />
         ) : (
-          <Text style={styles.fabIcon}>📋</Text>
+          <Ionicons name="document-text" size={20} color={colors.white} />
         )}
       </Pressable>
     </View>
@@ -77,7 +77,7 @@ const styles = StyleSheet.create({
   wrap: {
     position: 'absolute',
     right: 16,
-    bottom: 152, // 마이크 버튼(bottom: 88) 위로 배치
+    bottom: 78, // [한글 주석: 마이크 버튼(bottom: 20) 바로 위 제자리 배치]
     alignItems: 'flex-end',
     gap: 10,
   },
@@ -136,15 +136,15 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
   fab: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colors.mochaBrown,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#6E5544', // [한글 주석: 세련된 모카 브라운 원형 뱃지]
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'center', // [한글 주석: 오타 방지용 justifyContent]
+    alignSelf: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
     ...shadows.medium,
-  },
-  fabIcon: {
-    fontSize: 20,
   },
 });

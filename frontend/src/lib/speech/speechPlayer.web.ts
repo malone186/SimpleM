@@ -88,6 +88,44 @@ async function _processQueue(): Promise<void> {
   _processQueue();
 }
 
+/** [한글 주석] 브라우저 내 자연스러운 신경망/고품질 한국어 보이스 최우선 검색 */
+function getNaturalKoreanVoice(synth: SpeechSynthesis): SpeechSynthesisVoice | null {
+  const voices = synth.getVoices();
+  if (!voices.length) return null;
+
+  // 1순위: Natural, Neural, Google, Online 키워드가 들어간 고품질 한국어 사람 목소리
+  const naturalKo = voices.find(
+    (v) =>
+      v.lang.startsWith('ko') &&
+      (v.name.includes('Natural') ||
+        v.name.includes('Neural') ||
+        v.name.includes('Google') ||
+        v.name.includes('Online'))
+  );
+  if (naturalKo) return naturalKo;
+
+  // 2순위: Yuna, Heami, Sun-Hi 등 고유 한국어 보이스
+  const namedKo = voices.find(
+    (v) =>
+      v.lang.startsWith('ko') &&
+      (v.name.includes('Yuna') || v.name.includes('Heami') || v.name.includes('Sun-Hi'))
+  );
+  if (namedKo) return namedKo;
+
+  // 3순위: 일반 한국어 보이스
+  return voices.find((v) => v.lang.startsWith('ko')) || null;
+}
+
+/** [한글 주석] 사람이 말하듯 숨 쉬는 어조와 자연스러운 호흡 쉼표 가공 */
+function humanizeSpeechText(raw: string): string {
+  return raw
+    .replace(/([.!?])\s*/g, '$1 , ')
+    .replace(/입니다\./g, '입니다.. , ')
+    .replace(/있습니다\./g, '있습니다.. , ')
+    .replace(/에요\./g, '에요.. , ')
+    .replace(/요\./g, '요.. , ');
+}
+
 /** 실제 Web Speech API 호출 (Promise 래핑) */
 function _speakInternal(text: string): Promise<void> {
   return new Promise<void>((resolve) => {
@@ -98,19 +136,19 @@ function _speakInternal(text: string): Promise<void> {
     }
 
     const synth = window.speechSynthesis;
-    const utterance = new SpeechSynthesisUtterance(text);
+    const humanized = humanizeSpeechText(text);
+    const utterance = new SpeechSynthesisUtterance(humanized);
 
-    // [한글 주석] 한국어 음성 설정
+    // [한글 주석] 사람이 또박또박 따뜻하게 말하는 호흡과 억양 튜닝 (rate 0.93, pitch 1.08)
     utterance.lang = 'ko-KR';
-    utterance.rate = 1.0;   // 말 빠르기 (1.0 = 보통)
-    utterance.pitch = 1.0;  // 음 높이 (1.0 = 보통)
-    utterance.volume = 1.0; // 볼륨 (1.0 = 최대)
+    utterance.rate = 0.93;   // 사람이 편안하게 짚어주는 자연스러운 호흡 속도
+    utterance.pitch = 1.08;  // 로봇 같지 않고 부드럽고 다정한 사장님 톤
+    utterance.volume = 1.0;
 
-    // 한국어 음성이 있으면 우선 선택
-    const voices = synth.getVoices();
-    const koVoice = voices.find((v) => v.lang.startsWith('ko'));
-    if (koVoice) {
-      utterance.voice = koVoice;
+    // 고품질 사람 목소리가 세팅되어 있으면 적용
+    const naturalVoice = getNaturalKoreanVoice(synth);
+    if (naturalVoice) {
+      utterance.voice = naturalVoice;
     }
 
     _speaking = true;

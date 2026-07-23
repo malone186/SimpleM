@@ -5,19 +5,25 @@
 // 모두 RN 내장 Animated + 이모지로 처리 (추가 이미지 에셋 없음), 진동은 expo-haptics.
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
-import * as Haptics from 'expo-haptics';
+// [한글 주석] 웹(Web) 환경 및 Haptics 모듈 미지원 환경에서 번들링 에러가 나는 것을 방지합니다.
+let Haptics: any = null;
+try {
+  Haptics = require('expo-haptics');
+} catch (e) {
+  // 모듈 로드 불가 시 예외를 내지 않고 넘어갑니다.
+}
 
 import Brew, { type BrewMood } from '../brew/Brew';
 import { colors } from '../../theme';
 
-// 진동 피드백 — 웹에선 no-op, 실패해도 조용히 무시
-const buzz = (style: Haptics.ImpactFeedbackStyle) => {
-  if (Platform.OS === 'web') return;
-  Haptics.impactAsync(style).catch(() => {});
+// [한글 주석] 진동 피드백 — 웹에선 동작하지 않고, 실패 시에도 안전하게 예외 처리
+const buzz = (style: any) => {
+  if (Platform.OS === 'web' || !Haptics) return;
+  Haptics.impactAsync?.(style)?.catch(() => {});
 };
 const buzzSuccess = () => {
-  if (Platform.OS === 'web') return;
-  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+  if (Platform.OS === 'web' || !Haptics) return;
+  Haptics.notificationAsync?.(Haptics.NotificationFeedbackType?.Success)?.catch(() => {});
 };
 
 const PAT_LINES = [

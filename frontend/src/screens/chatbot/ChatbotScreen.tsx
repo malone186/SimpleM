@@ -21,6 +21,7 @@ import { useRoute, type RouteProp } from '@react-navigation/native';
 import type { RootTabParamList } from '../../navigation/RootNavigator';
 
 import { useAuth } from '../../auth/AuthContext';
+import { useTranslation } from '../../i18n/translations';
 import Brew from '../../components/brew/Brew';
 import DocumentCard from '../../components/chatbot/DocumentCard';
 import { FadeInUp, PressableScale } from '../../components/motion';
@@ -73,6 +74,8 @@ function confirmAsk(title: string, message: string, okLabel: string, onOk: () =>
 }
 
 export default function ChatbotScreen() {
+  // [한글 주석: 전역 다국어 번역 훅 연동]
+  const { t, language } = useTranslation();
   const { token } = useAuth();
   const route = useRoute<RouteProp<RootTabParamList, 'Chatbot'>>();
   const [messages, setMessages] = useState<Msg[]>([GREETING]);
@@ -203,7 +206,7 @@ export default function ChatbotScreen() {
     >
       <View style={styles.header}>
         <Brew mood="welcome" size={34} />
-        <Text style={styles.headerTitle}>브루 챗봇</Text>
+        <Text style={styles.headerTitle}>{language === 'en' ? 'Brew AI Assistant' : '브루 챗봇'}</Text>
         <View style={styles.headerActions}>
           {/* 대화 중에도 언제든 새 채팅을 열 수 있다 — 기존 대화는 기록에 남는다 */}
           <PressableScale
@@ -212,11 +215,11 @@ export default function ChatbotScreen() {
             disabled={sending || !hasConversation}
           >
             <Ionicons name="add" size={20} color={colors.espressoBrown} />
-            <Text style={styles.headerBtnText}>새 채팅</Text>
+            <Text style={styles.headerBtnText}>{language === 'en' ? 'New Chat' : '새 채팅'}</Text>
           </PressableScale>
           <PressableScale style={styles.headerBtn} onPress={openHistory}>
             <Ionicons name="time-outline" size={18} color={colors.espressoBrown} />
-            <Text style={styles.headerBtnText}>기록</Text>
+            <Text style={styles.headerBtnText}>{language === 'en' ? 'History' : '기록'}</Text>
           </PressableScale>
         </View>
       </View>
@@ -235,7 +238,13 @@ export default function ChatbotScreen() {
             >
               <View style={[styles.bubble, m.role === 'user' ? styles.userBubble : styles.botBubble]}>
                 <Text style={[styles.bubbleText, m.role === 'user' && { color: colors.white }]}>
-                  {m.role === 'bot' ? plainText(m.text) : m.text}
+                  {m.role === 'bot'
+                    ? (m.id === 'g0'
+                        ? (language === 'en'
+                            ? "Hello Manager! I'm Brew. ☕\nAsk me anything about executive reports, receipts, revenue forecasts, bean comparison, or taxes."
+                            : plainText(m.text))
+                        : plainText(m.text))
+                    : m.text}
                 </Text>
               </View>
             </FadeInUp>
@@ -252,14 +261,22 @@ export default function ChatbotScreen() {
         {sending && (
           <View style={[styles.bubbleRow, styles.rowLeft]}>
             <View style={[styles.bubble, styles.botBubble]}>
-              <Text style={styles.bubbleText}>생각 중이에요… ☕</Text>
+              <Text style={styles.bubbleText}>{language === 'en' ? 'Thinking... ☕' : '생각 중이에요… ☕'}</Text>
             </View>
           </View>
         )}
 
         {messages.length <= 1 && (
           <View style={styles.suggestWrap}>
-            {SUGGESTIONS.map((s, i) => (
+            {(language === 'en'
+              ? [
+                  'Generate this week executive report',
+                  'Create this month income ledger',
+                  'Any documents near expiration?',
+                  'Compare Ethiopia bean prices',
+                ]
+              : SUGGESTIONS
+            ).map((s, i) => (
               <FadeInUp key={s} delay={200 + i * 70}>
                 <PressableScale style={styles.chip} onPress={() => send(s)}>
                   <Text style={styles.chipText}>{s}</Text>
@@ -274,7 +291,7 @@ export default function ChatbotScreen() {
         <TextInput
           ref={inputRef}
           style={styles.input}
-          placeholder={sending ? '답변을 기다리는 중…' : '브루에게 물어보세요'}
+          placeholder={sending ? (language === 'en' ? 'Waiting for response...' : '답변을 기다리는 중…') : (language === 'en' ? 'Ask Brew anything about your cafe...' : '브루에게 물어보세요')}
           placeholderTextColor={colors.mochaBrown}
           value={input}
           onChangeText={setInput}
@@ -300,10 +317,10 @@ export default function ChatbotScreen() {
           <View style={styles.sheet}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>채팅 기록</Text>
+              <Text style={styles.sheetTitle}>{language === 'en' ? 'Chat History' : '채팅 기록'}</Text>
               {sessions.length > 0 && (
                 <PressableScale style={styles.clearBtn} onPress={removeAllSessions}>
-                  <Text style={styles.clearBtnText}>전체 삭제</Text>
+                  <Text style={styles.clearBtnText}>{language === 'en' ? 'Clear All' : '전체 삭제'}</Text>
                 </PressableScale>
               )}
               <PressableScale style={styles.closeBtn} onPress={() => setHistoryOpen(false)}>

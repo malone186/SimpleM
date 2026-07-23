@@ -10,6 +10,7 @@ import MascotEasterEgg from './MascotEasterEgg';
 import MarqueeText from '../MarqueeText';
 import { useAuth } from '../../auth/AuthContext';
 import { fetchNoticeFeed, type AdminNotice } from '../../lib/api/notice';
+import { useTranslation } from '../../i18n/translations';
 
 // [시간대별 인사말] "~사장님!" 아래 줄에 현재 시각에 맞춰 자동으로 바뀌는 문구.
 // 각 구간에 여러 후보를 두고 10분 단위로 회전해 같은 시간대라도 조금씩 달라진다.
@@ -180,6 +181,9 @@ export default function WelcomeHeader({
     dismiss();
   };
 
+  // [한글 주석: 다국어 번역 훅 호출 — 사장님 칭호 및 인사말 영어/한국어 처리]
+  const { t, language } = useTranslation();
+
   // [한글 주석: 강아지와 말풍선을 묶어 위아래로 둥둥 띄우기 위한 애니메이션 상태변수 정의]
   const floatAnim = useRef(new Animated.Value(0)).current;
 
@@ -232,14 +236,24 @@ export default function WelcomeHeader({
         {/* [한글 주석: 말풍선 카드 - 글씨가 커져도 마퀴(Marquee)가 한 줄로 예쁘게 흐르도록 maxFontSizeMultiplier=1.3 부여] */}
         <View style={styles.bubble}>
           {/* 1행 인사말 — 상호명이 길거나 글자 크기가 커져도 8글자까지 1줄로 단정하게 피트 */}
-          <Text style={[styles.greetingLine, { marginBottom: 1 }]} maxFontSizeMultiplier={1.2}>안녕하세요,</Text>
+          <Text style={[styles.greetingLine, { marginBottom: 1 }]} maxFontSizeMultiplier={1.2}>
+            {language === 'en' ? 'Hello,' : '안녕하세요,'}
+          </Text>
           <MarqueeText style={{ marginBottom: 5 }}>
             <Text style={styles.greetingLine} maxFontSizeMultiplier={1.2}>
-              <Text style={styles.nameHighlight} maxFontSizeMultiplier={1.2}>{storeName}</Text> 사장님!
+              {language === 'en' ? (
+                <>
+                  <Text style={styles.nameHighlight} maxFontSizeMultiplier={1.2}>{storeName}</Text> Manager!
+                </>
+              ) : (
+                <>
+                  <Text style={styles.nameHighlight} maxFontSizeMultiplier={1.2}>{storeName}</Text> 사장님!
+                </>
+              )}
             </Text>
           </MarqueeText>
 
-          {/* 2행 — 관리자 공지가 있으면 강아지가 전하는 공지(탭하면 알림함 열림), 없으면 시간대별 인사말 */}
+          {/* 2행 — 관리자 공지가 있으면 강아지가 전하는 공지, 없으면 시간대별 인사말 (둘 다 길면 흐른다) */}
           {announce ? (
             <View style={styles.announceRow}>
               {/* 본문 탭 → 알림함이 열려 전체 내용 확인 (동시에 말풍선에서 사라짐) */}
@@ -260,7 +274,9 @@ export default function WelcomeHeader({
             </View>
           ) : (
             <MarqueeText>
-              <Text style={styles.quoteLine} maxFontSizeMultiplier={1.2} numberOfLines={1}>{greeting}</Text>
+              <Text style={styles.quoteLine} maxFontSizeMultiplier={1.2} numberOfLines={1}>
+                {language === 'en' ? t('welcomeGreeting') : greeting}
+              </Text>
             </MarqueeText>
           )}
 
@@ -269,9 +285,9 @@ export default function WelcomeHeader({
           <View style={styles.bubbleTail} />
         </View>
 
-        {/* 강아지 탭 이스터에그: 한 번=쓰다듬기+한마디/간식, 빠른 두 번=시크릿, 꾹 누르기=풍선 터짐.
-            크기는 말풍선 카드 가로 폭을 넓히려 115px로 조율. */}
-        <MascotEasterEgg mood={mood} size={115} style={styles.mascot} />
+        {/* [한글 주석: 우측 마스코트 강아지 캐릭터] */}
+        {/* 강아지 탭 이스터에그: 한 번 = 쓰다듬기+한마디/간식 랜덤, 빠른 두 번 = 시크릿 */}
+        <MascotEasterEgg mood={mood} size={150} style={styles.mascot} />
       </Animated.View>
 
       {/* 알림함 모달 — 지난 공지를 스택 카드로 쌓아 보여준다 */}

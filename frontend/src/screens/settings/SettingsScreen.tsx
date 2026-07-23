@@ -14,11 +14,14 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../auth/AuthContext';
 import {
   FONT_SIZE_LABEL,
+  LANGUAGE_LABEL,
   PLANS,
   usePreferences,
   type FontSize,
+  type Language,
   type PlanTier,
 } from '../../preferences/PreferencesContext';
+import { useTranslation } from '../../i18n/translations';
 import { Badge, Button, Card, Divider, Screen, SectionTitle, IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
 import { PressableScale } from '../../components/motion';
@@ -182,16 +185,19 @@ export default function SettingsScreen() {
 
   const initial = (user?.name || 'S').charAt(0).toUpperCase();
 
+  // [한글 주석: 다국어 번역 훅 호출 — 사장님이 선택한 언어(ko/en) 텍스트 제공]
+  const { t } = useTranslation();
+
   // [한글 주석: 설정 창 내부 서브 라우팅 뷰 관리 상태 ('main'일 때는 메뉴 목록 노출)]
   const [subView, setSubView] = useState<'main' | 'account' | 'subscription' | 'notification' | 'appearance' | 'inquiry' | 'legal'>('main');
 
   // [한글 주석: 현재 진입한 subView 상태에 맞춰 상단 헤더 타이틀과 뒤로가기 동작을 동적으로 변경]
   useEffect(() => {
-    let title = '설정';
+    let title = t('settings');
     if (subView === 'account') title = '가게 & 계정 설정';
     else if (subView === 'subscription') title = '구독 & 결제 플랜';
     else if (subView === 'notification') title = '알림 수신 설정';
-    else if (subView === 'appearance') title = '화면 표시 & 접근성';
+    else if (subView === 'appearance') title = t('displayAndAccessibility');
     else if (subView === 'inquiry') title = '1대1 CS 문의';
     else if (subView === 'legal') title = '약관 및 정책';
 
@@ -423,8 +429,12 @@ export default function SettingsScreen() {
                 <Ionicons name="storefront-outline" size={20} color={colors.espressoBrown} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.menuItemTitle}>가게 & 계정 설정</Text>
-                <Text style={styles.menuItemDesc}>매장명, 사장님 이름, 센서 연동, 비밀번호 변경</Text>
+                <Text style={styles.menuItemTitle}>{prefs.language === 'en' ? 'Store & Account Settings' : '가게 & 계정 설정'}</Text>
+                <Text style={styles.menuItemDesc}>
+                  {prefs.language === 'en'
+                    ? 'Store name, Manager name, Sensors & Password'
+                    : '매장명, 사장님 이름, 센서 연동, 비밀번호 변경'}
+                </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
             </View>
@@ -443,8 +453,10 @@ export default function SettingsScreen() {
                 <Ionicons name="card-outline" size={20} color={colors.espressoBrown} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.menuItemTitle}>구독 & 결제 플랜</Text>
-                <Text style={styles.menuItemDesc}>이용 중인 플랜 확인, 요금제 업그레이드</Text>
+                <Text style={styles.menuItemTitle}>{prefs.language === 'en' ? 'Subscription & Billing' : '구독 & 결제 플랜'}</Text>
+                <Text style={styles.menuItemDesc}>
+                  {prefs.language === 'en' ? 'Check current plan & Upgrade' : '이용 중인 플랜 확인, 요금제 업그레이드'}
+                </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
             </View>
@@ -463,8 +475,12 @@ export default function SettingsScreen() {
                 <Ionicons name="notifications-outline" size={20} color={colors.espressoBrown} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.menuItemTitle}>알림 수신 설정</Text>
-                <Text style={styles.menuItemDesc}>재고·단가 알림, 음성 읽어주기, 방해금지 시간대</Text>
+                <Text style={styles.menuItemTitle}>{prefs.language === 'en' ? 'Notifications & Alerts' : '알림 수신 설정'}</Text>
+                <Text style={styles.menuItemDesc}>
+                  {prefs.language === 'en'
+                    ? 'Stock alerts, price changes & Do Not Disturb hours'
+                    : '재고·단가 알림, 음성 읽어주기, 방해금지 시간대'}
+                </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
             </View>
@@ -483,8 +499,10 @@ export default function SettingsScreen() {
                 <Ionicons name="text-outline" size={20} color={colors.espressoBrown} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.menuItemTitle}>화면 표시 & 접근성</Text>
-                <Text style={styles.menuItemDesc}>글자 크기 조절, 실시간 폰트 사이즈 미리보기</Text>
+                <Text style={styles.menuItemTitle}>{prefs.language === 'en' ? 'Display & Accessibility' : '화면 표시 & 접근성'}</Text>
+                <Text style={styles.menuItemDesc}>
+                  {prefs.language === 'en' ? 'Font size adjustment & live preview' : '글자 크기 조절, 실시간 폰트 사이즈 미리보기'}
+                </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
             </View>
@@ -503,8 +521,10 @@ export default function SettingsScreen() {
                 <Ionicons name="chatbubbles-outline" size={20} color={colors.espressoBrown} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.menuItemTitle}>1대1 CS 문의 & 요청</Text>
-                <Text style={styles.menuItemDesc}>건의사항 접수, 실시간 관리자 답변 피드백</Text>
+                <Text style={styles.menuItemTitle}>{prefs.language === 'en' ? '1:1 CS & Support' : '1대1 CS 문의 & 요청'}</Text>
+                <Text style={styles.menuItemDesc}>
+                  {prefs.language === 'en' ? 'Submit feedback & view admin responses' : '건의사항 접수, 실시간 관리자 답변 피드백'}
+                </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
             </View>
@@ -523,8 +543,10 @@ export default function SettingsScreen() {
                 <Ionicons name="document-text-outline" size={20} color={colors.espressoBrown} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.menuItemTitle}>약관 및 정책</Text>
-                <Text style={styles.menuItemDesc}>이용약관 및 개인정보처리방침 규정 조회</Text>
+                <Text style={styles.menuItemTitle}>{prefs.language === 'en' ? 'Terms & Policies' : '약관 및 정책'}</Text>
+                <Text style={styles.menuItemDesc}>
+                  {prefs.language === 'en' ? 'Terms of service & privacy policy' : '이용약관 및 개인정보처리방침 규정 조회'}
+                </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
             </View>
@@ -853,33 +875,58 @@ export default function SettingsScreen() {
       </Card>
       )}
 
-      {/* ④ 화면 표시 / 접근성 */}
+      {/* ④ 화면 표시 / 접근성 & 외국인 사장님을 위한 언어 설정 */}
       {subView === 'appearance' && (
         <Card>
-        <SectionTitle>화면 표시 · 접근성</SectionTitle>
-        <Text style={styles.fieldLabel}>글자 크기</Text>
+        <SectionTitle>{t('displayAndAccessibility')}</SectionTitle>
+
+        {/* [한글 주석: 글자 크기 조절 세션] */}
+        <Text style={styles.fieldLabel}>{t('fontSize')}</Text>
         <View style={{ marginTop: 8 }}>
           <Segmented
             options={(['small', 'normal', 'large', 'xlarge'] as FontSize[]).map((f) => ({
               value: f,
-              label: FONT_SIZE_LABEL[f],
+              label: f === 'small' ? t('fontSizeSmall') : f === 'normal' ? t('fontSizeNormal') : f === 'large' ? t('fontSizeLarge') : t('fontSizeXLarge'),
             }))}
             value={prefs.fontSize}
             onChange={(v) => prefs.setPref('fontSize', v)}
           />
         </View>
 
-        {/* 미리보기 — 선택한 글자 크기가 즉시 반영 */}
+        <Divider style={{ marginVertical: 18 }} />
+
+        {/* [한글 주석: 외국인 사장님을 위한 다국어(한국어/영어) 언어 선택 세션] */}
+        <Text style={styles.fieldLabel}>{t('languageSetting')}</Text>
+        <View style={{ marginTop: 8 }}>
+          <Segmented
+            options={(['ko', 'en'] as Language[]).map((lang) => ({
+              value: lang,
+              label: LANGUAGE_LABEL[lang],
+            }))}
+            value={prefs.language}
+            onChange={(v) => prefs.setPref('language', v)}
+          />
+        </View>
+
+        {/* 미리보기 — 선택한 글자 크기 및 언어가 즉시 반영 */}
         <View style={styles.previewBox}>
-          <Text style={styles.previewCaption}>미리보기</Text>
+          <Text style={styles.previewCaption}>{t('preview')}</Text>
           <Text style={[styles.previewText, { fontSize: 15 * prefs.fontScale }]}>
-            가나다라 ABC 123 · 오늘도 좋은 하루 되세요 ☕
+            {t('previewText')}
           </Text>
         </View>
+
+        {/* 설정 관련 안내 정보 */}
         <View style={styles.noteBox}>
           <Ionicons name="information-circle-outline" size={15} color={colors.mochaBrown} />
           <Text style={styles.noteText}>
-            글자 크기는 앱 전체에 즉시 적용되고 저장돼요. (실기기 앱 적용은 추후 확대)
+            {t('fontSizeNote')}
+          </Text>
+        </View>
+        <View style={[styles.noteBox, { marginTop: 6 }]}>
+          <Ionicons name="globe-outline" size={15} color={colors.mochaBrown} />
+          <Text style={styles.noteText}>
+            {t('languageNote')}
           </Text>
         </View>
       </Card>
@@ -1189,7 +1236,7 @@ export default function SettingsScreen() {
 
       {subView !== 'main' && (
         <Button
-          label="설정 홈으로 돌아가기"
+          label={t('returnToSettingsHome')}
           variant="secondary"
           style={{ marginTop: 14 }}
           onPress={() => {
@@ -1201,7 +1248,7 @@ export default function SettingsScreen() {
 
       {subView === 'main' && (
         <Button
-          label="관리로 돌아가기"
+          label={prefs.language === 'en' ? 'Return to Management' : '관리로 돌아가기'}
           variant="secondary"
           style={{ marginTop: 14 }}
           onPress={() => navigation.goBack()}

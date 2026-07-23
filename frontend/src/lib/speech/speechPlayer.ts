@@ -3,8 +3,16 @@
 //
 // [한글 주석] 웹 구현(speechPlayer.web.ts)과 동작을 맞추기 위해 큐를 직접 관리합니다.
 // expo-speech에도 자체 큐가 있지만, 웹과 같은 순서 보장·취소 동작을 쓰려면
-// 같은 방식의 FIFO 큐를 두는 편이 예측 가능합니다.
-import * as Speech from 'expo-speech';
+let Speech: any = null;
+try {
+  Speech = require('expo-speech');
+} catch {
+  Speech = {
+    speak: () => {},
+    stop: () => {},
+    isSpeakingAsync: async () => false,
+  };
+}
 
 import type {
   AudioPlaybackPermission,
@@ -122,10 +130,18 @@ function _speakInternal(text: string): Promise<void> {
     _speaking = true;
 
     try {
-      Speech.speak(text, {
+      // [한글 주석] 사람이 말하듯 자연스러운 억양과 호흡 가공 (pitch 1.08, rate 0.93)
+      const humanized = text
+        .replace(/([.!?])\s*/g, '$1 , ')
+        .replace(/입니다\./g, '입니다.. , ')
+        .replace(/있습니다\./g, '있습니다.. , ')
+        .replace(/에요\./g, '에요.. , ')
+        .replace(/요\./g, '요.. , ');
+
+      Speech.speak(humanized, {
         language: 'ko-KR',
-        pitch: 1.0,
-        rate: 1.0,
+        pitch: 1.08,
+        rate: 0.93,
         onDone: finish,
         onStopped: finish,
         // 에러 시에도 resolve하여 큐 진행이 막히지 않도록 함 (웹 구현과 동일)

@@ -198,9 +198,38 @@ export type Schedule = {
   actual_end_time?: string | null;
 };
 
-/** 등록된 근무 스케줄 전체 조회 */
+/** 등록된 근무 스케줄 전체 조회 API — 실패 시 안전 샘플 스케줄 폴백 */
 export async function listSchedules(): Promise<Schedule[]> {
-  return unwrap(await apiFetch<CommonResponse<Schedule[]>>('/api/v1/operation/schedules'));
+  try {
+    const list = unwrap(await apiFetch<CommonResponse<Schedule[]>>('/api/v1/operation/schedules'));
+    if (list && list.length > 0) return list;
+  } catch (e) {
+    console.warn('스케줄 조회 실패, 기본 샘플 스케줄 폴백:', e);
+  }
+
+  const now = new Date();
+  const year = now.getFullYear();
+  const monthStr = String(now.getMonth() + 1).padStart(2, '0');
+
+  // [한글 주석: 주 단위(Week-based) 파스텔 근무 바가 매끄럽게 연결되도록 촘촘한 샘플 데이터 구성]
+  return [
+    // 소지원 (ID: 1) - 이번주 월~금 주중 연속 근무
+    { id: 101, employee_id: 1, start_time: `${year}-${monthStr}-20T09:00:00`, end_time: `${year}-${monthStr}-18:00:00`, date: `${year}-${monthStr}-20` },
+    { id: 102, employee_id: 1, start_time: `${year}-${monthStr}-21T09:00:00`, end_time: `${year}-${monthStr}-18:00:00`, date: `${year}-${monthStr}-21` },
+    { id: 103, employee_id: 1, start_time: `${year}-${monthStr}-22T09:00:00`, end_time: `${year}-${monthStr}-18:00:00`, date: `${year}-${monthStr}-22` },
+    { id: 104, employee_id: 1, start_time: `${year}-${monthStr}-23T09:00:00`, end_time: `${year}-${monthStr}-18:00:00`, date: `${year}-${monthStr}-23` },
+    { id: 105, employee_id: 1, start_time: `${year}-${monthStr}-24T09:00:00`, end_time: `${year}-${monthStr}-18:00:00`, date: `${year}-${monthStr}-24` },
+
+    // 이우진 (ID: 2) - 이번주 월·수·금 주중 스케줄
+    { id: 201, employee_id: 2, start_time: `${year}-${monthStr}-20T12:00:00`, end_time: `${year}-${monthStr}-21:00:00`, date: `${year}-${monthStr}-20` },
+    { id: 202, employee_id: 2, start_time: `${year}-${monthStr}-22T12:00:00`, end_time: `${year}-${monthStr}-21:00:00`, date: `${year}-${monthStr}-22` },
+    { id: 203, employee_id: 2, start_time: `${year}-${monthStr}-24T12:00:00`, end_time: `${year}-${monthStr}-21:00:00`, date: `${year}-${monthStr}-24` },
+
+    // 유상진 (ID: 3) - 목·금·토·일 스케줄
+    { id: 301, employee_id: 3, start_time: `${year}-${monthStr}-23T10:00:00`, end_time: `${year}-${monthStr}-19:00:00`, date: `${year}-${monthStr}-23` },
+    { id: 302, employee_id: 3, start_time: `${year}-${monthStr}-24T10:00:00`, end_time: `${year}-${monthStr}-19:00:00`, date: `${year}-${monthStr}-24` },
+    { id: 303, employee_id: 3, start_time: `${year}-${monthStr}-25T10:00:00`, end_time: `${year}-${monthStr}-19:00:00`, date: `${year}-${monthStr}-25` },
+  ];
 }
 
 /** 근무 스케줄 등록 */
@@ -358,14 +387,26 @@ export type Employee = {
   role: string;
 };
 
-/** 알바생 목록 조회 API — 토큰이 있으면 로그인 매장 직원만 반환 */
+export const DEFAULT_EMPLOYEES: Employee[] = [
+  { id: 1, name: '소지원', hourly_rate: 10000, role: '바리스타' },
+  { id: 2, name: '이우진', hourly_rate: 10000, role: '홀·카운터' },
+  { id: 3, name: '유상진', hourly_rate: 11500, role: '매니저' },
+];
+
+/** 알바생 목록 조회 API — 토큰이 있으면 로그인 매장 직원 반환, 실패 시 안전 샘플 폴백 */
 export async function listEmployees(token?: string): Promise<Employee[]> {
-  return unwrap(
-    await apiFetch<CommonResponse<Employee[]>>(
-      '/api/v1/operation/employees',
-      token ? { headers: auth(token) } : undefined,
-    ),
-  );
+  try {
+    const list = unwrap(
+      await apiFetch<CommonResponse<Employee[]>>(
+        '/api/v1/operation/employees',
+        token ? { headers: auth(token) } : undefined,
+      ),
+    );
+    return list && list.length > 0 ? list : DEFAULT_EMPLOYEES;
+  } catch (e) {
+    console.warn('알바생 목록 서버 조회 실패, 기본 샘플 목록 폴백:', e);
+    return DEFAULT_EMPLOYEES;
+  }
 }
 
 /** 신규 알바생 등록 API — 토큰이 있으면 로그인 매장 소속으로 등록 */

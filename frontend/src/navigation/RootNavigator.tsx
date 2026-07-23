@@ -173,7 +173,20 @@ export default function RootNavigator() {
   );
 }
 
+import { useTranslation, type TranslationKey } from '../i18n/translations';
+
+const TAB_LABEL_KEYS: Record<keyof RootTabParamList, TranslationKey> = {
+  Dashboard: 'tabHome',
+  Inventory: 'tabInventory',
+  Order: 'tabOrder',
+  Chatbot: 'tabChatbot',
+  Management: 'tabManagement',
+};
+
 function TabsNavigator() {
+  // [한글 주석: 전역 다국어 훅 호출 — 사장님이 선택한 언어(ko/en)에 맞게 하단 탭 메뉴명 동적 가공]
+  const { t } = useTranslation();
+
   return (
     <Tab.Navigator
       initialRouteName="Dashboard"
@@ -212,7 +225,7 @@ function TabsNavigator() {
           <Ionicons name={ICONS[route.name]} size={size ?? 20} color={color} // 아이콘 비례 조절
           />
         ),
-        tabBarLabel: LABELS[route.name],
+        tabBarLabel: t(TAB_LABEL_KEYS[route.name]),
       })}
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} />

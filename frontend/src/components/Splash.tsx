@@ -4,7 +4,7 @@ import { Animated, StyleSheet } from 'react-native';
 
 import { colors } from '../theme';
 
-const LOGO = require('../../assets/brew_icon_cutout.png'); // [한글 주석] 앱 첫 실행 스플래시 로고 — 흰 배경 제거한 브루노트 마스코트(강아지+테이블)
+const LOGO = require('../../assets/brewnote_welcome_mascot.png'); // [한글 주석] 어플 첫 시작 스플래시 캐릭터 로고 — 사장님 요청 귀여운 BREWNOTE 강아지 마스코트
 
 export default function Splash() {
   const opacity = useRef(new Animated.Value(1)).current;
@@ -48,5 +48,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     zIndex: 100,
   },
-  logo: { width: 264, height: 232 },
+  logo: { width: 330, height: 210, resizeMode: 'contain' },
 });

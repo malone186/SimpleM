@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { RoasteryBean } from '../../lib/api/inventory';
+import { useTranslation } from '../../i18n/translations';
 import { colors, shadows, typography } from '../../theme';
 
 // ─── 원산지(나라) → 지역 특성 한 줄 설명 ────────────────────────────────
@@ -133,6 +134,8 @@ interface Props {
 }
 
 export default function BeanDetailModal({ bean, visible, onClose }: Props) {
+  // [한글 주석: 전역 다국어 번역 훅 연동]
+  const { t, language } = useTranslation();
   if (!bean) return null;
 
   const originInfo = getOriginInfo(bean.country);
@@ -201,14 +204,14 @@ export default function BeanDetailModal({ bean, visible, onClose }: Props) {
 
           {/* ━━━ 핵심 정보 (이모지 완벽 제거) ━━━ */}
           <View style={styles.section}>
-            <SectionTitle title="원두 정보" />
+            <SectionTitle title={language === 'en' ? 'Bean Information' : '원두 정보'} />
             <View style={styles.infoBox}>
 
               {/* 원산지: DB의 실제 country 값 */}
               {bean.country && (
                 <View>
                   <InfoRow
-                    label="원산지"
+                    label={language === 'en' ? 'Origin' : '원산지'}
                     value={originInfo
                       ? `${bean.country} (${originInfo.region})`
                       : bean.country}
@@ -227,7 +230,7 @@ export default function BeanDetailModal({ bean, visible, onClose }: Props) {
               {bean.process && (
                 <View>
                   <InfoRow
-                    label="가공"
+                    label={language === 'en' ? 'Process' : '가공'}
                     value={processInfo ? processInfo.label : bean.process}
                   />
                   {processInfo && (
@@ -241,15 +244,15 @@ export default function BeanDetailModal({ bean, visible, onClose }: Props) {
 
               {/* 블렌드 여부 */}
               <InfoRow
-                label="타입"
-                value={bean.blend ? '블렌드 (여러 원두 혼합)' : '싱글 오리진 (단일 산지)'}
+                label={language === 'en' ? 'Type' : '타입'}
+                value={bean.blend ? (language === 'en' ? 'Blend (Mixed beans)' : '블렌드 (여러 원두 혼합)') : (language === 'en' ? 'Single Origin' : '싱글 오리진 (단일 산지)')}
               />
 
               {/* 디카페인 여부 */}
               {bean.decaf && (
                 <>
                   <View style={styles.divider} />
-                  <InfoRow label="카페인" value="디카페인 (카페인 제거 처리)" />
+                  <InfoRow label={language === 'en' ? 'Caffeine' : '카페인'} value={language === 'en' ? 'Decaf (Swiss Water Processed)' : '디카페인 (카페인 제거 처리)'} />
                 </>
               )}
 
@@ -317,7 +320,7 @@ export default function BeanDetailModal({ bean, visible, onClose }: Props) {
               }}
             >
               <Ionicons name="cart-outline" size={16} color={colors.white} />
-              <Text style={styles.buyText}>웹사이트에서 원두 구매하기</Text>
+              <Text style={styles.buyText}>{t('roasteryStoreLink')}</Text>
               <Ionicons name="open-outline" size={13} color={colors.white} />
             </TouchableOpacity>
           )}
