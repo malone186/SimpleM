@@ -1,0 +1,3321 @@
+[
+ {
+  "image": "val_0000.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 1.0,
+   "item_full_recall": 1.0
+  },
+  "pred": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "김밥천국",
+    "biz_no": "605-91-65916",
+    "phone": "063-681-5954"
+   },
+   "issued_date": "2025-01-17",
+   "items": [
+    {
+     "name": "생삼겹살",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 12000,
+     "amount": 24000
+    },
+    {
+     "name": "냉면",
+     "spec": null,
+     "quantity": 6,
+     "unit": null,
+     "unit_price": 7000,
+     "amount": 42000
+    }
+   ],
+   "discount": null,
+   "subtotal": 60000,
+   "tax": 6000,
+   "total": 66000
+  },
+  "gt": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "김밥천국",
+    "biz_no": "605-91-65916",
+    "phone": "063-681-5954"
+   },
+   "issued_date": "2025-01-17",
+   "items": [
+    {
+     "name": "생삼겹살",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 12000,
+     "amount": 24000
+    },
+    {
+     "name": "냉면",
+     "spec": null,
+     "quantity": 6,
+     "unit": null,
+     "unit_price": 7000,
+     "amount": 42000
+    }
+   ],
+   "discount": null,
+   "subtotal": 60000,
+   "tax": 6000,
+   "total": 66000
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0001.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 1.0,
+   "item_full_recall": 1.0
+  },
+  "pred": {
+   "doc_type": "purchase_statement",
+   "vendor": {
+    "name": "제일종합식품",
+    "biz_no": "816-33-38777",
+    "phone": "031-764-3773"
+   },
+   "issued_date": "2025-06-19",
+   "items": [
+    {
+     "name": "헤이즐넛 시럽",
+     "spec": "750ml",
+     "quantity": 1,
+     "unit": "EA",
+     "unit_price": 12700,
+     "amount": 12700
+    },
+    {
+     "name": "냅킨",
+     "spec": "1000매",
+     "quantity": 3,
+     "unit": "BOX",
+     "unit_price": 11500,
+     "amount": 34500
+    },
+    {
+     "name": "레몬청",
+     "spec": "1kg",
+     "quantity": 4,
+     "unit": "EA",
+     "unit_price": 13100,
+     "amount": 52400
+    },
+    {
+     "name": "빨대 21cm",
+     "spec": "500입",
+     "quantity": 8,
+     "unit": "BOX",
+     "unit_price": 7200,
+     "amount": 57600
+    },
+    {
+     "name": "자몽청",
+     "spec": "1kg",
+     "quantity": 4,
+     "unit": "EA",
+     "unit_price": 13900,
+     "amount": 55600
+    },
+    {
+     "name": "에스프레소 원두",
+     "spec": "1kg",
+     "quantity": 9,
+     "unit": "EA",
+     "unit_price": 20000,
+     "amount": 180000
+    },
+    {
+     "name": "캐리어 2구",
+     "spec": "100입",
+     "quantity": 10,
+     "unit": "BOX",
+     "unit_price": 19800,
+     "amount": 198000
+    },
+    {
+     "name": "베이글 생지",
+     "spec": "12입",
+     "quantity": 10,
+     "unit": "BOX",
+     "unit_price": 19700,
+     "amount": 197000
+    }
+   ],
+   "discount": null,
+   "subtotal": 787800,
+   "tax": 78780,
+   "total": 866580
+  },
+  "gt": {
+   "doc_type": "purchase_statement",
+   "vendor": {
+    "name": "제일종합식품",
+    "biz_no": "816-33-38774",
+    "phone": "031-764-3773"
+   },
+   "issued_date": "2025-06-19",
+   "items": [
+    {
+     "name": "헤이즐넛 시럽",
+     "spec": "750ml",
+     "quantity": 1,
+     "unit": "EA",
+     "unit_price": 12700,
+     "amount": 12700
+    },
+    {
+     "name": "냅킨",
+     "spec": "1000매",
+     "quantity": 3,
+     "unit": "BOX",
+     "unit_price": 11500,
+     "amount": 34500
+    },
+    {
+     "name": "레몬청",
+     "spec": "1kg",
+     "quantity": 4,
+     "unit": "EA",
+     "unit_price": 13100,
+     "amount": 52400
+    },
+    {
+     "name": "빨대 21cm",
+     "spec": "500입",
+     "quantity": 8,
+     "unit": "BOX",
+     "unit_price": 7200,
+     "amount": 57600
+    },
+    {
+     "name": "자몽청",
+     "spec": "1kg",
+     "quantity": 4,
+     "unit": "EA",
+     "unit_price": 13900,
+     "amount": 55600
+    },
+    {
+     "name": "에스프레소 원두",
+     "spec": "1kg",
+     "quantity": 9,
+     "unit": "EA",
+     "unit_price": 20000,
+     "amount": 180000
+    },
+    {
+     "name": "캐리어 2구",
+     "spec": "100입",
+     "quantity": 10,
+     "unit": "BOX",
+     "unit_price": 19800,
+     "amount": 198000
+    },
+    {
+     "name": "베이글 생지",
+     "spec": "12입",
+     "quantity": 10,
+     "unit": "BOX",
+     "unit_price": 19700,
+     "amount": 197000
+    }
+   ],
+   "discount": null,
+   "subtotal": 787800,
+   "tax": 78780,
+   "total": 866580
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0002.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 1.0,
+   "item_full_recall": 1.0
+  },
+  "pred": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "청기와숯불갈비",
+    "biz_no": "106-81-62296",
+    "phone": "042-779-5629"
+   },
+   "issued_date": "2025-11-01",
+   "items": [
+    {
+     "name": "밥+된장",
+     "spec": null,
+     "quantity": 25,
+     "unit": null,
+     "unit_price": 2000,
+     "amount": 50000
+    },
+    {
+     "name": "소주",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 4000,
+     "amount": 8000
+    },
+    {
+     "name": "숯불향 닭갈비",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 13000,
+     "amount": 13000
+    },
+    {
+     "name": "계란찜",
+     "spec": null,
+     "quantity": 5,
+     "unit": null,
+     "unit_price": 4000,
+     "amount": 20000
+    },
+    {
+     "name": "주먹밥",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 3000,
+     "amount": 3000
+    }
+   ],
+   "discount": null,
+   "subtotal": null,
+   "tax": null,
+   "total": 94000
+  },
+  "gt": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "청기와숯불갈비",
+    "biz_no": "106-81-82296",
+    "phone": "042-779-5629"
+   },
+   "issued_date": "2025-11-01",
+   "items": [
+    {
+     "name": "밥+된장",
+     "spec": null,
+     "quantity": 25,
+     "unit": null,
+     "unit_price": 2000,
+     "amount": 50000
+    },
+    {
+     "name": "소주",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 4000,
+     "amount": 8000
+    },
+    {
+     "name": "숯불향 닭갈비",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 13000,
+     "amount": 13000
+    },
+    {
+     "name": "계란찜",
+     "spec": null,
+     "quantity": 5,
+     "unit": null,
+     "unit_price": 4000,
+     "amount": 20000
+    },
+    {
+     "name": "주먹밥",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 3000,
+     "amount": 3000
+    }
+   ],
+   "discount": null,
+   "subtotal": null,
+   "tax": null,
+   "total": 94000
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0003.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 0.875,
+   "item_full_recall": 0.875
+  },
+  "pred": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "식자재왕마트 시청점",
+    "biz_no": "443-13-43006",
+    "phone": "031-703-4888"
+   },
+   "issued_date": "2020-08-06",
+   "items": [
+    {
+     "name": "P초코파이 12입",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": null,
+     "amount": 13080
+    },
+    {
+     "name": "P코카콜라 1.5L",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 3510
+    },
+    {
+     "name": "P칠성사이다 1.5L",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": null,
+     "amount": 5980
+    },
+    {
+     "name": "P진라면 매운맛 5입",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 3780
+    },
+    {
+     "name": "P코모도우유 900ML",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": null,
+     "amount": 4160
+    },
+    {
+     "name": "P청양고추 150g",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": null,
+     "amount": 6030
+    },
+    {
+     "name": "P대파",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 1800
+    },
+    {
+     "name": "P포카칩 66g",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 1400
+    }
+   ],
+   "discount": null,
+   "subtotal": 25227,
+   "tax": 2523,
+   "total": 39740
+  },
+  "gt": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "식자재왕마트 중앙점",
+    "biz_no": "443-13-43005",
+    "phone": "031-703-4888"
+   },
+   "issued_date": "2020-08-06",
+   "items": [
+    {
+     "name": "P초코파이 12입",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": null,
+     "amount": 13080
+    },
+    {
+     "name": "P코카콜라 1.5L",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 3510
+    },
+    {
+     "name": "P칠성사이다 1.5L",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": null,
+     "amount": 5980
+    },
+    {
+     "name": "P진라면 매운맛 5입",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 3780
+    },
+    {
+     "name": "P굿모닝우유 900ML",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": null,
+     "amount": 4160
+    },
+    {
+     "name": "P청양고추 150g",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": null,
+     "amount": 6030
+    },
+    {
+     "name": "P대파",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 1800
+    },
+    {
+     "name": "P포카칩 66g",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 1400
+    }
+   ],
+   "discount": null,
+   "subtotal": 25227,
+   "tax": 2523,
+   "total": 39740
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0004.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 1.0,
+   "item_full_recall": 1.0
+  },
+  "pred": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "농협 하나로마트 본점",
+    "biz_no": "681-87-85227",
+    "phone": "070-211-4434"
+   },
+   "issued_date": "2022-02-21",
+   "items": [
+    {
+     "name": "P하선정 장아찌",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 1350,
+     "amount": 4050
+    },
+    {
+     "name": "P청양고추 150g",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 1950,
+     "amount": 5850
+    },
+    {
+     "name": "P콩나물 340g",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 800,
+     "amount": 800
+    }
+   ],
+   "discount": null,
+   "subtotal": 3682,
+   "tax": 368,
+   "total": 10700
+  },
+  "gt": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "농협 하나로마트 시청점",
+    "biz_no": "681-87-85227",
+    "phone": "070-211-4434"
+   },
+   "issued_date": "2022-02-21",
+   "items": [
+    {
+     "name": "P하선정 장아찌",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 1350,
+     "amount": 4050
+    },
+    {
+     "name": "P청양고추 150g",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 1950,
+     "amount": 5850
+    },
+    {
+     "name": "P콩나물 340g",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 800,
+     "amount": 800
+    }
+   ],
+   "discount": null,
+   "subtotal": 3682,
+   "tax": 368,
+   "total": 10700
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0005.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 1.0,
+   "item_full_recall": 1.0
+  },
+  "pred": {
+   "doc_type": "purchase_statement",
+   "vendor": {
+    "name": "동방식자재마트",
+    "biz_no": "533-70-67401",
+    "phone": "054-265-4567"
+   },
+   "issued_date": "2024-05-21",
+   "items": [
+    {
+     "name": "레몬청",
+     "spec": "1kg",
+     "quantity": 5,
+     "unit": "EA",
+     "unit_price": 9200,
+     "amount": 46000
+    },
+    {
+     "name": "멸균우유",
+     "spec": "1L",
+     "quantity": 8,
+     "unit": "EA",
+     "unit_price": 2600,
+     "amount": 20800
+    },
+    {
+     "name": "크루아상 생지",
+     "spec": "20입",
+     "quantity": 1,
+     "unit": "BOX",
+     "unit_price": 20800,
+     "amount": 20800
+    },
+    {
+     "name": "타피오카 펄",
+     "spec": "3kg",
+     "quantity": 6,
+     "unit": "EA",
+     "unit_price": 15500,
+     "amount": 93000
+    },
+    {
+     "name": "녹차 파우더",
+     "spec": "500g",
+     "quantity": 10,
+     "unit": "EA",
+     "unit_price": 13400,
+     "amount": 134000
+    },
+    {
+     "name": "냅킨",
+     "spec": "1000매",
+     "quantity": 6,
+     "unit": "BOX",
+     "unit_price": 11200,
+     "amount": 67200
+    },
+    {
+     "name": "헤이즐넛 시럽",
+     "spec": "750ml",
+     "quantity": 9,
+     "unit": "EA",
+     "unit_price": 10100,
+     "amount": 90900
+    }
+   ],
+   "discount": null,
+   "subtotal": 472700,
+   "tax": 47270,
+   "total": 519970
+  },
+  "gt": {
+   "doc_type": "purchase_statement",
+   "vendor": {
+    "name": "동방식자재마트",
+    "biz_no": "533-70-67403",
+    "phone": "054-265-4567"
+   },
+   "issued_date": "2024-05-21",
+   "items": [
+    {
+     "name": "레몬청",
+     "spec": "1kg",
+     "quantity": 5,
+     "unit": "EA",
+     "unit_price": 9200,
+     "amount": 46000
+    },
+    {
+     "name": "멸균우유",
+     "spec": "1L",
+     "quantity": 8,
+     "unit": "EA",
+     "unit_price": 2600,
+     "amount": 20800
+    },
+    {
+     "name": "크루아상 생지",
+     "spec": "20입",
+     "quantity": 1,
+     "unit": "BOX",
+     "unit_price": 20800,
+     "amount": 20800
+    },
+    {
+     "name": "타피오카 펄",
+     "spec": "3kg",
+     "quantity": 6,
+     "unit": "EA",
+     "unit_price": 15500,
+     "amount": 93000
+    },
+    {
+     "name": "녹차 파우더",
+     "spec": "500g",
+     "quantity": 10,
+     "unit": "EA",
+     "unit_price": 13400,
+     "amount": 134000
+    },
+    {
+     "name": "냅킨",
+     "spec": "1000매",
+     "quantity": 6,
+     "unit": "BOX",
+     "unit_price": 11200,
+     "amount": 67200
+    },
+    {
+     "name": "헤이즐넛 시럽",
+     "spec": "750ml",
+     "quantity": 9,
+     "unit": "EA",
+     "unit_price": 10100,
+     "amount": 90900
+    }
+   ],
+   "discount": null,
+   "subtotal": 472700,
+   "tax": 47270,
+   "total": 519970
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0006.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 1.0,
+   "item_full_recall": 1.0
+  },
+  "pred": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "김밥천국",
+    "biz_no": "297-82-23899",
+    "phone": "054-444-7411"
+   },
+   "issued_date": "2019-05-16",
+   "items": [
+    {
+     "name": "주먹밥",
+     "spec": null,
+     "quantity": 15,
+     "unit": null,
+     "unit_price": 2500,
+     "amount": 37500
+    },
+    {
+     "name": "김치찌개",
+     "spec": null,
+     "quantity": 6,
+     "unit": null,
+     "unit_price": 7000,
+     "amount": 42000
+    },
+    {
+     "name": "맥주",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 5000,
+     "amount": 15000
+    }
+   ],
+   "discount": null,
+   "subtotal": 85909,
+   "tax": 8591,
+   "total": 94500
+  },
+  "gt": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "김밥천국",
+    "biz_no": "297-82-23899",
+    "phone": "054-444-7411"
+   },
+   "issued_date": "2019-05-16",
+   "items": [
+    {
+     "name": "주먹밥",
+     "spec": null,
+     "quantity": 15,
+     "unit": null,
+     "unit_price": 2500,
+     "amount": 37500
+    },
+    {
+     "name": "김치찌개",
+     "spec": null,
+     "quantity": 6,
+     "unit": null,
+     "unit_price": 7000,
+     "amount": 42000
+    },
+    {
+     "name": "맥주",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 5000,
+     "amount": 15000
+    }
+   ],
+   "discount": null,
+   "subtotal": 85909,
+   "tax": 8591,
+   "total": 94500
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0007.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 1.0,
+   "item_full_recall": 1.0
+  },
+  "pred": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "김밥천국",
+    "biz_no": "825-85-98805",
+    "phone": "063-666-8667"
+   },
+   "issued_date": "2024-11-22",
+   "items": [
+    {
+     "name": "주먹밥",
+     "spec": null,
+     "quantity": 24,
+     "unit": null,
+     "unit_price": 2000,
+     "amount": 48000
+    },
+    {
+     "name": "목살",
+     "spec": null,
+     "quantity": 4,
+     "unit": null,
+     "unit_price": 8000,
+     "amount": 32000
+    },
+    {
+     "name": "숯불향 닭갈비",
+     "spec": null,
+     "quantity": 6,
+     "unit": null,
+     "unit_price": 10000,
+     "amount": 60000
+    }
+   ],
+   "discount": null,
+   "subtotal": null,
+   "tax": null,
+   "total": 140000
+  },
+  "gt": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "김밥천국",
+    "biz_no": "825-85-98805",
+    "phone": "063-666-8667"
+   },
+   "issued_date": "2024-11-22",
+   "items": [
+    {
+     "name": "주먹밥",
+     "spec": null,
+     "quantity": 24,
+     "unit": null,
+     "unit_price": 2000,
+     "amount": 48000
+    },
+    {
+     "name": "목살",
+     "spec": null,
+     "quantity": 4,
+     "unit": null,
+     "unit_price": 8000,
+     "amount": 32000
+    },
+    {
+     "name": "숯불향 닭갈비",
+     "spec": null,
+     "quantity": 6,
+     "unit": null,
+     "unit_price": 10000,
+     "amount": 60000
+    }
+   ],
+   "discount": null,
+   "subtotal": null,
+   "tax": null,
+   "total": 140000
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0008.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 1.0,
+   "item_full_recall": 1.0
+  },
+  "pred": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "청기와숯불갈비",
+    "biz_no": "379-29-66807",
+    "phone": "032-988-5789"
+   },
+   "issued_date": "2024-07-31",
+   "items": [
+    {
+     "name": "목살",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 8000,
+     "amount": 8000
+    },
+    {
+     "name": "주먹밥",
+     "spec": null,
+     "quantity": 4,
+     "unit": null,
+     "unit_price": 4000,
+     "amount": 16000
+    }
+   ],
+   "discount": null,
+   "subtotal": null,
+   "tax": null,
+   "total": 24000
+  },
+  "gt": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "청기와숯불갈비",
+    "biz_no": "379-29-66807",
+    "phone": "032-988-5789"
+   },
+   "issued_date": "2024-07-31",
+   "items": [
+    {
+     "name": "목살",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 8000,
+     "amount": 8000
+    },
+    {
+     "name": "주먹밥",
+     "spec": null,
+     "quantity": 4,
+     "unit": null,
+     "unit_price": 4000,
+     "amount": 16000
+    }
+   ],
+   "discount": null,
+   "subtotal": null,
+   "tax": null,
+   "total": 24000
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0009.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 1.0,
+   "item_full_recall": 1.0
+  },
+  "pred": {
+   "doc_type": "purchase_statement",
+   "vendor": {
+    "name": "대명F&B",
+    "biz_no": "203-69-67979",
+    "phone": "032-467-7618"
+   },
+   "issued_date": "2020-10-20",
+   "items": [
+    {
+     "name": "바리스타 우유",
+     "spec": "1L",
+     "quantity": 2,
+     "unit": "BOX",
+     "unit_price": 22700,
+     "amount": 45400
+    },
+    {
+     "name": "크루아상 생지",
+     "spec": "20입",
+     "quantity": 7,
+     "unit": "BOX",
+     "unit_price": 24500,
+     "amount": 171500
+    },
+    {
+     "name": "초코 파우더",
+     "spec": "1kg",
+     "quantity": 4,
+     "unit": "EA",
+     "unit_price": 12600,
+     "amount": 50400
+    }
+   ],
+   "discount": null,
+   "subtotal": 267300,
+   "tax": 26730,
+   "total": 294030
+  },
+  "gt": {
+   "doc_type": "purchase_statement",
+   "vendor": {
+    "name": "대명F&B",
+    "biz_no": "203-69-67974",
+    "phone": "032-467-7618"
+   },
+   "issued_date": "2020-10-20",
+   "items": [
+    {
+     "name": "바리스타 우유",
+     "spec": "1L",
+     "quantity": 2,
+     "unit": "BOX",
+     "unit_price": 22700,
+     "amount": 45400
+    },
+    {
+     "name": "크루아상 생지",
+     "spec": "20입",
+     "quantity": 7,
+     "unit": "BOX",
+     "unit_price": 24500,
+     "amount": 171500
+    },
+    {
+     "name": "초코 파우더",
+     "spec": "1kg",
+     "quantity": 4,
+     "unit": "EA",
+     "unit_price": 12600,
+     "amount": 50400
+    }
+   ],
+   "discount": null,
+   "subtotal": 267300,
+   "tax": 26730,
+   "total": 294030
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0010.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 1.0,
+   "item_full_recall": 1.0
+  },
+  "pred": {
+   "doc_type": "purchase_statement",
+   "vendor": {
+    "name": "동방식자재마트",
+    "biz_no": "403-13-53332",
+    "phone": "051-589-3262"
+   },
+   "issued_date": "2020-01-10",
+   "items": [
+    {
+     "name": "아이스컵 92파이",
+     "spec": "50입",
+     "quantity": 2,
+     "unit": "줄",
+     "unit_price": 5500,
+     "amount": 11000
+    },
+    {
+     "name": "휘핑크림",
+     "spec": "500ml",
+     "quantity": 10,
+     "unit": "EA",
+     "unit_price": 5200,
+     "amount": 52000
+    },
+    {
+     "name": "바리스타 우유",
+     "spec": "1L",
+     "quantity": 1,
+     "unit": "BOX",
+     "unit_price": 32700,
+     "amount": 32700
+    }
+   ],
+   "discount": null,
+   "subtotal": 95700,
+   "tax": 9570,
+   "total": 105270
+  },
+  "gt": {
+   "doc_type": "purchase_statement",
+   "vendor": {
+    "name": "동방식자재마트",
+    "biz_no": "403-13-53332",
+    "phone": "051-589-3262"
+   },
+   "issued_date": "2020-01-10",
+   "items": [
+    {
+     "name": "아이스컵 92파이",
+     "spec": "50입",
+     "quantity": 2,
+     "unit": "줄",
+     "unit_price": 5500,
+     "amount": 11000
+    },
+    {
+     "name": "휘핑크림",
+     "spec": "500ml",
+     "quantity": 10,
+     "unit": "EA",
+     "unit_price": 5200,
+     "amount": 52000
+    },
+    {
+     "name": "바리스타 우유",
+     "spec": "1L",
+     "quantity": 1,
+     "unit": "BOX",
+     "unit_price": 32700,
+     "amount": 32700
+    }
+   ],
+   "discount": null,
+   "subtotal": 95700,
+   "tax": 9570,
+   "total": 105270
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0011.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 1.0,
+   "item_full_recall": 1.0
+  },
+  "pred": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "커피볶는집 대학로점",
+    "biz_no": "304-81-44801",
+    "phone": "032-523-7953"
+   },
+   "issued_date": "2020-05-06",
+   "items": [
+    {
+     "name": "바닐라라떼",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 5900,
+     "amount": 17700
+    },
+    {
+     "name": "딸기스무디",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 6900,
+     "amount": 13800
+    },
+    {
+     "name": "콜드브루",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 4800,
+     "amount": 14400
+    },
+    {
+     "name": "샷 추가",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 500,
+     "amount": 1000
+    }
+   ],
+   "discount": null,
+   "subtotal": 42636,
+   "tax": 4264,
+   "total": 46900
+  },
+  "gt": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "커피볶는집 대학로점",
+    "biz_no": "304-81-44801",
+    "phone": "032-523-7953"
+   },
+   "issued_date": "2020-05-06",
+   "items": [
+    {
+     "name": "바닐라라떼",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 5900,
+     "amount": 17700
+    },
+    {
+     "name": "딸기스무디",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 6900,
+     "amount": 13800
+    },
+    {
+     "name": "콜드브루",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 4800,
+     "amount": 14400
+    },
+    {
+     "name": "샷 추가",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 500,
+     "amount": 1000
+    }
+   ],
+   "discount": null,
+   "subtotal": 42636,
+   "tax": 4264,
+   "total": 46900
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0012.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 1.0,
+   "item_full_recall": 1.0
+  },
+  "pred": {
+   "doc_type": "purchase_statement",
+   "vendor": {
+    "name": "한결상사",
+    "biz_no": "299-54-82766",
+    "phone": "054-807-4768"
+   },
+   "issued_date": "2024-09-24",
+   "items": [
+    {
+     "name": "자몽청",
+     "spec": "1kg",
+     "quantity": 1,
+     "unit": "EA",
+     "unit_price": 11000,
+     "amount": 11000
+    },
+    {
+     "name": "에스프레소 원두",
+     "spec": "1kg",
+     "quantity": 9,
+     "unit": "EA",
+     "unit_price": 30700,
+     "amount": 276300
+    },
+    {
+     "name": "아이스컵 92파이",
+     "spec": "50입",
+     "quantity": 10,
+     "unit": "줄",
+     "unit_price": 3700,
+     "amount": 37000
+    },
+    {
+     "name": "캐리어 2구",
+     "spec": "100입",
+     "quantity": 8,
+     "unit": "BOX",
+     "unit_price": 20000,
+     "amount": 160000
+    }
+   ],
+   "discount": null,
+   "subtotal": 484300,
+   "tax": 48430,
+   "total": 532730
+  },
+  "gt": {
+   "doc_type": "purchase_statement",
+   "vendor": {
+    "name": "한결상사",
+    "biz_no": "299-54-82765",
+    "phone": "054-807-4768"
+   },
+   "issued_date": "2024-09-24",
+   "items": [
+    {
+     "name": "자몽청",
+     "spec": "1kg",
+     "quantity": 1,
+     "unit": "EA",
+     "unit_price": 11000,
+     "amount": 11000
+    },
+    {
+     "name": "에스프레소 원두",
+     "spec": "1kg",
+     "quantity": 9,
+     "unit": "EA",
+     "unit_price": 30700,
+     "amount": 276300
+    },
+    {
+     "name": "아이스컵 92파이",
+     "spec": "50입",
+     "quantity": 10,
+     "unit": "줄",
+     "unit_price": 3700,
+     "amount": 37000
+    },
+    {
+     "name": "캐리어 2구",
+     "spec": "100입",
+     "quantity": 8,
+     "unit": "BOX",
+     "unit_price": 20000,
+     "amount": 160000
+    }
+   ],
+   "discount": null,
+   "subtotal": 484300,
+   "tax": 48430,
+   "total": 532730
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0013.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 0.8888888888888888,
+   "item_full_recall": 0.8888888888888888
+  },
+  "pred": {
+   "doc_type": "purchase_statement",
+   "vendor": {
+    "name": "누리식자재유통",
+    "biz_no": "495-82-79733",
+    "phone": "032-599-5876"
+   },
+   "issued_date": "2023-11-15",
+   "items": [
+    {
+     "name": "초코 파우더",
+     "spec": "1kg",
+     "quantity": 1,
+     "unit": "EA",
+     "unit_price": 13800,
+     "amount": 13800
+    },
+    {
+     "name": "캐리어 2구",
+     "spec": "100입",
+     "quantity": 2,
+     "unit": "BOX",
+     "unit_price": 19400,
+     "amount": 38800
+    },
+    {
+     "name": "냅킨",
+     "spec": "1000매",
+     "quantity": 2,
+     "unit": "BOX",
+     "unit_price": 9700,
+     "amount": 19400
+    },
+    {
+     "name": "타피오카 펄",
+     "spec": "3kg",
+     "quantity": 5,
+     "unit": "EA",
+     "unit_price": 12200,
+     "amount": 61000
+    },
+    {
+     "name": "녹차 파우더",
+     "spec": "500g",
+     "quantity": 8,
+     "unit": "EA",
+     "unit_price": 12300,
+     "amount": 98400
+    },
+    {
+     "name": "항균 13온스",
+     "spec": "50입",
+     "quantity": 6,
+     "unit": "줄",
+     "unit_price": 4500,
+     "amount": 27000
+    },
+    {
+     "name": "연유",
+     "spec": "500g",
+     "quantity": 6,
+     "unit": "EA",
+     "unit_price": 8400,
+     "amount": 28800
+    },
+    {
+     "name": "아이스컵 92파이",
+     "spec": "50입",
+     "quantity": 4,
+     "unit": "줄",
+     "unit_price": 5800,
+     "amount": 23200
+    },
+    {
+     "name": "컵뚜껑 92파이",
+     "spec": "50입",
+     "quantity": 7,
+     "unit": "줄",
+     "unit_price": 4400,
+     "amount": 30800
+    }
+   ],
+   "discount": null,
+   "subtotal": 341200,
+   "tax": 34120,
+   "total": 375320
+  },
+  "gt": {
+   "doc_type": "purchase_statement",
+   "vendor": {
+    "name": "누리식자재유통",
+    "biz_no": "495-82-79739",
+    "phone": "032-599-5876"
+   },
+   "issued_date": "2023-11-15",
+   "items": [
+    {
+     "name": "초코 파우더",
+     "spec": "1kg",
+     "quantity": 1,
+     "unit": "EA",
+     "unit_price": 13800,
+     "amount": 13800
+    },
+    {
+     "name": "캐리어 2구",
+     "spec": "100입",
+     "quantity": 2,
+     "unit": "BOX",
+     "unit_price": 19400,
+     "amount": 38800
+    },
+    {
+     "name": "냅킨",
+     "spec": "1000매",
+     "quantity": 2,
+     "unit": "BOX",
+     "unit_price": 9700,
+     "amount": 19400
+    },
+    {
+     "name": "타피오카 펄",
+     "spec": "3kg",
+     "quantity": 5,
+     "unit": "EA",
+     "unit_price": 12200,
+     "amount": 61000
+    },
+    {
+     "name": "녹차 파우더",
+     "spec": "500g",
+     "quantity": 8,
+     "unit": "EA",
+     "unit_price": 12300,
+     "amount": 98400
+    },
+    {
+     "name": "핫컵 13온스",
+     "spec": "50입",
+     "quantity": 6,
+     "unit": "줄",
+     "unit_price": 4500,
+     "amount": 27000
+    },
+    {
+     "name": "연유",
+     "spec": "500g",
+     "quantity": 6,
+     "unit": "EA",
+     "unit_price": 4800,
+     "amount": 28800
+    },
+    {
+     "name": "아이스컵 92파이",
+     "spec": "50입",
+     "quantity": 4,
+     "unit": "줄",
+     "unit_price": 5800,
+     "amount": 23200
+    },
+    {
+     "name": "컵뚜껑 92파이",
+     "spec": "50입",
+     "quantity": 7,
+     "unit": "줄",
+     "unit_price": 4400,
+     "amount": 30800
+    }
+   ],
+   "discount": null,
+   "subtotal": 341200,
+   "tax": 34120,
+   "total": 375320
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0014.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 1.0,
+   "item_full_recall": 1.0
+  },
+  "pred": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "농협 하나로마트 수정점",
+    "biz_no": "867-97-86610",
+    "phone": "042-452-9331"
+   },
+   "issued_date": "2021-12-31",
+   "items": [
+    {
+     "name": "브로커리",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 1900,
+     "amount": 3800
+    },
+    {
+     "name": "신라면 5입",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 4400,
+     "amount": 13200
+    },
+    {
+     "name": "양파 1.5kg",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 3870,
+     "amount": 3870
+    },
+    {
+     "name": "코카콜라 1.5L",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 2540,
+     "amount": 2540
+    },
+    {
+     "name": "햇반 210g",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 1240,
+     "amount": 2480
+    },
+    {
+     "name": "두부 300g",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 2160,
+     "amount": 4320
+    },
+    {
+     "name": "초코파이 12입",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 4930,
+     "amount": 9860
+    }
+   ],
+   "discount": null,
+   "subtotal": 25527,
+   "tax": 2553,
+   "total": 40070
+  },
+  "gt": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "농협 하나로마트 포곡골든점",
+    "biz_no": "867-97-86610",
+    "phone": "042-452-9331"
+   },
+   "issued_date": "2021-12-31",
+   "items": [
+    {
+     "name": "브로커리",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 1900,
+     "amount": 3800
+    },
+    {
+     "name": "신라면 5입",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 4400,
+     "amount": 13200
+    },
+    {
+     "name": "양파 1.5kg",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 3870,
+     "amount": 3870
+    },
+    {
+     "name": "코카콜라 1.5L",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 2540,
+     "amount": 2540
+    },
+    {
+     "name": "햇반 210g",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 1240,
+     "amount": 2480
+    },
+    {
+     "name": "두부 300g",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 2160,
+     "amount": 4320
+    },
+    {
+     "name": "초코파이 12입",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 4930,
+     "amount": 9860
+    }
+   ],
+   "discount": null,
+   "subtotal": 25527,
+   "tax": 2553,
+   "total": 40070
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0015.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 1.0,
+   "item_full_recall": 1.0
+  },
+  "pred": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "CU문정점",
+    "biz_no": "644-87-31225",
+    "phone": "02-688-5783"
+   },
+   "issued_date": "2020-11-26",
+   "items": [
+    {
+     "name": "농심)새우깡90g",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 1440,
+     "amount": 4320
+    },
+    {
+     "name": "동원)덴마크우",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 2480,
+     "amount": 2480
+    },
+    {
+     "name": "마운틴블러스트",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 2400,
+     "amount": 2400
+    },
+    {
+     "name": "라라스윗)바닐",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 7020,
+     "amount": 7020
+    },
+    {
+     "name": "코카)콜라500ml",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 2130,
+     "amount": 4260
+    },
+    {
+     "name": "마늘빅프랑크",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 2030,
+     "amount": 2030
+    },
+    {
+     "name": "라라스윗)초코",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 6780,
+     "amount": 6780
+    },
+    {
+     "name": "바나나맛우유",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 1500,
+     "amount": 1500
+    }
+   ],
+   "discount": 2350,
+   "subtotal": 25855,
+   "tax": 2585,
+   "total": 28440
+  },
+  "gt": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "CU문정점",
+    "biz_no": "644-87-31225",
+    "phone": "02-688-5783"
+   },
+   "issued_date": "2020-11-26",
+   "items": [
+    {
+     "name": "농심)새우깡90g",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 1440,
+     "amount": 4320
+    },
+    {
+     "name": "동원)덴마크우",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 2480,
+     "amount": 2480
+    },
+    {
+     "name": "마운틴블러스트",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 2400,
+     "amount": 2400
+    },
+    {
+     "name": "라라스윗)바닐",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 7020,
+     "amount": 7020
+    },
+    {
+     "name": "코카)콜라500ml",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 2130,
+     "amount": 4260
+    },
+    {
+     "name": "마늘빅프랑크",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 2030,
+     "amount": 2030
+    },
+    {
+     "name": "라라스윗)초코",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 6780,
+     "amount": 6780
+    },
+    {
+     "name": "바나나맛우유",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 1500,
+     "amount": 1500
+    }
+   ],
+   "discount": 2350,
+   "subtotal": 25855,
+   "tax": 2585,
+   "total": 28440
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0016.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 0,
+   "item_count": 1,
+   "item_name_recall": 0.8571428571428571,
+   "item_full_recall": 0.5714285714285714
+  },
+  "pred": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "탑마트 대학로점",
+    "biz_no": "297-45-21224",
+    "phone": "042-729-6568"
+   },
+   "issued_date": "2020-10-18",
+   "items": [
+    {
+     "name": "P사과 4입",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 5040
+    },
+    {
+     "name": "P초코파이 12입",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 5800
+    },
+    {
+     "name": "P사육우유 1L",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": null,
+     "amount": 8100
+    },
+    {
+     "name": "P칠성사이다 1.5L",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 2350
+    },
+    {
+     "name": "P깻잎",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": null,
+     "amount": 4360
+    },
+    {
+     "name": "P신라면 5입",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 4360
+    },
+    {
+     "name": "P삼다수 2L",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": null,
+     "amount": 3840
+    }
+   ],
+   "discount": null,
+   "subtotal": 14882,
+   "tax": 1488,
+   "total": 33890
+  },
+  "gt": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "탑마트 본점",
+    "biz_no": "297-45-21224",
+    "phone": "042-729-6568"
+   },
+   "issued_date": "2020-10-16",
+   "items": [
+    {
+     "name": "P사과 4입",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 5040
+    },
+    {
+     "name": "P초코파이 12입",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 5800
+    },
+    {
+     "name": "P서울우유 1L",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": null,
+     "amount": 8100
+    },
+    {
+     "name": "P칠성사이다 1.5L",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 2350
+    },
+    {
+     "name": "P깻잎",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": null,
+     "amount": 4380
+    },
+    {
+     "name": "P신라면 5입",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 4380
+    },
+    {
+     "name": "P삼다수 2L",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": null,
+     "amount": 3840
+    }
+   ],
+   "discount": null,
+   "subtotal": 14882,
+   "tax": 1488,
+   "total": 33890
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0017.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 0.8571428571428571,
+   "item_full_recall": 0.8571428571428571
+  },
+  "pred": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "이마트24문정점",
+    "biz_no": "613-64-54448",
+    "phone": "031-753-3045"
+   },
+   "issued_date": "2020-07-04",
+   "items": [
+    {
+     "name": "서울)비엔나소세지",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": null,
+     "amount": 6340
+    },
+    {
+     "name": "전주비빔 삼각김밥",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": null,
+     "amount": 3660
+    },
+    {
+     "name": "라라스윗)바닐라파인",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 6630
+    },
+    {
+     "name": "롯데)의성마늘햄",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 4160
+    },
+    {
+     "name": "빙그레)바나나우유240",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 1520
+    },
+    {
+     "name": "바나나맛오유",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": null,
+     "amount": 3700
+    },
+    {
+     "name": "틈새라면 컵",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 2030
+    }
+   ],
+   "discount": null,
+   "subtotal": 25491,
+   "tax": 2549,
+   "total": 28040
+  },
+  "gt": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "이마트24문정점",
+    "biz_no": "613-64-54448",
+    "phone": "031-753-3045"
+   },
+   "issued_date": "2020-07-04",
+   "items": [
+    {
+     "name": "서울)비엔나소세지",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": null,
+     "amount": 6340
+    },
+    {
+     "name": "전주비빔 삼각김밥",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": null,
+     "amount": 3660
+    },
+    {
+     "name": "라라스윗)바닐라파인",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 6630
+    },
+    {
+     "name": "롯데)의성마늘햄",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 4160
+    },
+    {
+     "name": "빙그레)바나나우유240",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 1520
+    },
+    {
+     "name": "바나나맛우유",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": null,
+     "amount": 3700
+    },
+    {
+     "name": "틈새라면 컵",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 2030
+    }
+   ],
+   "discount": null,
+   "subtotal": 25491,
+   "tax": 2549,
+   "total": 28040
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0018.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 0.875,
+   "item_full_recall": 0.875
+  },
+  "pred": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "농협 하나로마트 본점",
+    "biz_no": null,
+    "phone": null
+   },
+   "issued_date": "2023-05-14",
+   "items": [
+    {
+     "name": "P브로커리",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 1780,
+     "amount": 1780
+    },
+    {
+     "name": "P서울우유 1L",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 2990,
+     "amount": 2990
+    },
+    {
+     "name": "P바나나 2송이",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 2910,
+     "amount": 2910
+    },
+    {
+     "name": "P삼다수 2L",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 1400,
+     "amount": 2800
+    },
+    {
+     "name": "P계란 30구",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 5500,
+     "amount": 16500
+    },
+    {
+     "name": "P진라면 매운맛 5입",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 4050,
+     "amount": 12150
+    },
+    {
+     "name": "P칠성사이다 1.5L",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 2880,
+     "amount": 2880
+    },
+    {
+     "name": "P햇반 210g",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 1830,
+     "amount": 3660
+    }
+   ],
+   "discount": null,
+   "subtotal": 19536,
+   "tax": 1954,
+   "total": 45670
+  },
+  "gt": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "농협 하나로마트 포곡골든점",
+    "biz_no": null,
+    "phone": null
+   },
+   "issued_date": "2023-05-14",
+   "items": [
+    {
+     "name": "P브로커리",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 1780,
+     "amount": 1780
+    },
+    {
+     "name": "P서울우유 1L",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 2990,
+     "amount": 2990
+    },
+    {
+     "name": "P바나나 1송이",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 2910,
+     "amount": 2910
+    },
+    {
+     "name": "P삼다수 2L",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 1400,
+     "amount": 2800
+    },
+    {
+     "name": "P계란 30구",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 5500,
+     "amount": 16500
+    },
+    {
+     "name": "P진라면 매운맛 5입",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 4050,
+     "amount": 12150
+    },
+    {
+     "name": "P칠성사이다 1.5L",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 2880,
+     "amount": 2880
+    },
+    {
+     "name": "P햇반 210g",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 1830,
+     "amount": 3660
+    }
+   ],
+   "discount": null,
+   "subtotal": 19536,
+   "tax": 1954,
+   "total": 45670
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0019.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 1.0,
+   "item_full_recall": 1.0
+  },
+  "pred": {
+   "doc_type": "purchase_statement",
+   "vendor": {
+    "name": "우성유통",
+    "biz_no": "106-51-43411",
+    "phone": "054-713-8161"
+   },
+   "issued_date": "2020-05-14",
+   "items": [
+    {
+     "name": "휘핑크림",
+     "spec": "500ml",
+     "quantity": 6,
+     "unit": "EA",
+     "unit_price": 7700,
+     "amount": 46200
+    },
+    {
+     "name": "헤이즐넛 시럽",
+     "spec": "750ml",
+     "quantity": 4,
+     "unit": "EA",
+     "unit_price": 13600,
+     "amount": 54400
+    },
+    {
+     "name": "캐리어 2구",
+     "spec": "100입",
+     "quantity": 2,
+     "unit": "BOX",
+     "unit_price": 20000,
+     "amount": 40000
+    }
+   ],
+   "discount": null,
+   "subtotal": 140600,
+   "tax": 14060,
+   "total": 154660
+  },
+  "gt": {
+   "doc_type": "purchase_statement",
+   "vendor": {
+    "name": "우성유통",
+    "biz_no": "106-51-43418",
+    "phone": "054-713-8161"
+   },
+   "issued_date": "2020-05-14",
+   "items": [
+    {
+     "name": "휘핑크림",
+     "spec": "500ml",
+     "quantity": 6,
+     "unit": "EA",
+     "unit_price": 7700,
+     "amount": 46200
+    },
+    {
+     "name": "헤이즐넛 시럽",
+     "spec": "750ml",
+     "quantity": 4,
+     "unit": "EA",
+     "unit_price": 13600,
+     "amount": 54400
+    },
+    {
+     "name": "캐리어 2구",
+     "spec": "100입",
+     "quantity": 2,
+     "unit": "BOX",
+     "unit_price": 20000,
+     "amount": 40000
+    }
+   ],
+   "discount": null,
+   "subtotal": 140600,
+   "tax": 14060,
+   "total": 154660
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0020.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 1.0,
+   "item_full_recall": 1.0
+  },
+  "pred": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "행복마트 중앙점",
+    "biz_no": "114-69-26111",
+    "phone": "051-341-1110"
+   },
+   "issued_date": "2024-09-25",
+   "items": [
+    {
+     "name": "코카콜라 1.5L",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 2690,
+     "amount": 2690
+    },
+    {
+     "name": "양파 1.5kg",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 4280,
+     "amount": 4280
+    },
+    {
+     "name": "삼겹살 500g",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 12070,
+     "amount": 12070
+    },
+    {
+     "name": "포카칩 66g",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 1710,
+     "amount": 1710
+    },
+    {
+     "name": "두부 300g",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 2050,
+     "amount": 4100
+    },
+    {
+     "name": "무",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 1520,
+     "amount": 4560
+    },
+    {
+     "name": "진라면 매운맛",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 4410,
+     "amount": 8820
+    },
+    {
+     "name": "닭가슴살 600g",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 6870,
+     "amount": 6870
+    }
+   ],
+   "discount": 2110,
+   "subtotal": 10100,
+   "tax": 1010,
+   "total": 42990
+  },
+  "gt": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "행복마트 중앙점",
+    "biz_no": "114-69-26111",
+    "phone": "051-341-1110"
+   },
+   "issued_date": "2024-09-25",
+   "items": [
+    {
+     "name": "코카콜라 1.5L",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 2690,
+     "amount": 2690
+    },
+    {
+     "name": "양파 1.5kg",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 4280,
+     "amount": 4280
+    },
+    {
+     "name": "삼겹살 500g",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 12070,
+     "amount": 12070
+    },
+    {
+     "name": "포카칩 66g",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 1710,
+     "amount": 1710
+    },
+    {
+     "name": "두부 300g",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 2050,
+     "amount": 4100
+    },
+    {
+     "name": "무",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 1520,
+     "amount": 4560
+    },
+    {
+     "name": "진라면 매운맛",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 4410,
+     "amount": 8820
+    },
+    {
+     "name": "닭가슴살 600g",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 6870,
+     "amount": 6870
+    }
+   ],
+   "discount": 2110,
+   "subtotal": 10100,
+   "tax": 1010,
+   "total": 42990
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0021.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 0,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 1.0,
+   "item_full_recall": 1.0
+  },
+  "pred": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "농협 하나로마트 본점",
+    "biz_no": "470-98-15320",
+    "phone": "063-821-3788"
+   },
+   "issued_date": "2024-03-29",
+   "items": [
+    {
+     "name": "P두부 300g",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 1310,
+     "amount": 3930
+    },
+    {
+     "name": "P굿모닝우유 900ML",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 1520,
+     "amount": 1520
+    },
+    {
+     "name": "P바나나 1송이",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 3040,
+     "amount": 3040
+    },
+    {
+     "name": "P닭가슴살 600g",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 7680,
+     "amount": 15360
+    },
+    {
+     "name": "P코카콜라 1.5L",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 3120,
+     "amount": 9360
+    },
+    {
+     "name": "P깻잎",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 800,
+     "amount": 800
+    },
+    {
+     "name": "P콩나물 340g",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 820,
+     "amount": 2460
+    }
+   ],
+   "discount": null,
+   "subtotal": 7900,
+   "tax": 790,
+   "total": 35800
+  },
+  "gt": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "농협 하나로마트 수정점",
+    "biz_no": "470-98-15320",
+    "phone": "063-821-3788"
+   },
+   "issued_date": "2024-03-29",
+   "items": [
+    {
+     "name": "P두부 300g",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 1310,
+     "amount": 3930
+    },
+    {
+     "name": "P굿모닝우유 900ML",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 1520,
+     "amount": 1520
+    },
+    {
+     "name": "P바나나 1송이",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 3040,
+     "amount": 3040
+    },
+    {
+     "name": "P닭가슴살 600g",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": 7680,
+     "amount": 15360
+    },
+    {
+     "name": "P코카콜라 1.5L",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 3120,
+     "amount": 9360
+    },
+    {
+     "name": "P깻잎",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 800,
+     "amount": 800
+    },
+    {
+     "name": "P콩나물 340g",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 820,
+     "amount": 2460
+    }
+   ],
+   "discount": 670,
+   "subtotal": 7900,
+   "tax": 790,
+   "total": 35800
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0022.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 0.8333333333333334,
+   "item_full_recall": 0.8333333333333334
+  },
+  "pred": {
+   "doc_type": "purchase_statement",
+   "vendor": {
+    "name": "동방식자재마트",
+    "biz_no": "232-43-65644",
+    "phone": "042-849-8709"
+   },
+   "issued_date": "2020-11-19",
+   "items": [
+    {
+     "name": "자몽청",
+     "spec": "1kg",
+     "quantity": 8,
+     "unit": "EA",
+     "unit_price": 11700,
+     "amount": 93600
+    },
+    {
+     "name": "햇빛 13온스",
+     "spec": "50입",
+     "quantity": 10,
+     "unit": "줄",
+     "unit_price": 5800,
+     "amount": 58000
+    },
+    {
+     "name": "바리스타 우유",
+     "spec": "1L",
+     "quantity": 2,
+     "unit": "BOX",
+     "unit_price": 22600,
+     "amount": 45200
+    },
+    {
+     "name": "캐리어 2구",
+     "spec": "100입",
+     "quantity": 3,
+     "unit": "BOX",
+     "unit_price": 12000,
+     "amount": 36000
+    },
+    {
+     "name": "냅킨",
+     "spec": "1000매",
+     "quantity": 2,
+     "unit": "BOX",
+     "unit_price": 14300,
+     "amount": 28600
+    },
+    {
+     "name": "초코 파우더",
+     "spec": "1kg",
+     "quantity": 10,
+     "unit": "EA",
+     "unit_price": 9700,
+     "amount": 97000
+    }
+   ],
+   "discount": null,
+   "subtotal": 358400,
+   "tax": 35840,
+   "total": 394240
+  },
+  "gt": {
+   "doc_type": "purchase_statement",
+   "vendor": {
+    "name": "동방식자재마트",
+    "biz_no": "232-43-65649",
+    "phone": "042-849-8709"
+   },
+   "issued_date": "2020-11-19",
+   "items": [
+    {
+     "name": "자몽청",
+     "spec": "1kg",
+     "quantity": 8,
+     "unit": "EA",
+     "unit_price": 11700,
+     "amount": 93600
+    },
+    {
+     "name": "핫컵 13온스",
+     "spec": "50입",
+     "quantity": 10,
+     "unit": "줄",
+     "unit_price": 5800,
+     "amount": 58000
+    },
+    {
+     "name": "바리스타 우유",
+     "spec": "1L",
+     "quantity": 2,
+     "unit": "BOX",
+     "unit_price": 22600,
+     "amount": 45200
+    },
+    {
+     "name": "캐리어 2구",
+     "spec": "100입",
+     "quantity": 3,
+     "unit": "BOX",
+     "unit_price": 12000,
+     "amount": 36000
+    },
+    {
+     "name": "냅킨",
+     "spec": "1000매",
+     "quantity": 2,
+     "unit": "BOX",
+     "unit_price": 14300,
+     "amount": 28600
+    },
+    {
+     "name": "초코 파우더",
+     "spec": "1kg",
+     "quantity": 10,
+     "unit": "EA",
+     "unit_price": 9700,
+     "amount": 97000
+    }
+   ],
+   "discount": null,
+   "subtotal": 358400,
+   "tax": 35840,
+   "total": 394240
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0023.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 0.75,
+   "item_full_recall": 0.75
+  },
+  "pred": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "식자재왕마트 본점",
+    "biz_no": "527-98-33969",
+    "phone": "032-236-2537"
+   },
+   "issued_date": "2023-07-30",
+   "items": [
+    {
+     "name": "P굿모닝우유 90",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 1530,
+     "amount": 4590
+    },
+    {
+     "name": "P칠성사이다 1.",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 2210,
+     "amount": 2210
+    },
+    {
+     "name": "P깻잎",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 1320,
+     "amount": 1320
+    },
+    {
+     "name": "P풍나물 340g",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 1200,
+     "amount": 3600
+    }
+   ],
+   "discount": null,
+   "subtotal": 2009,
+   "tax": 201,
+   "total": 11720
+  },
+  "gt": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "식자재왕마트 시청점",
+    "biz_no": "527-98-33969",
+    "phone": "032-236-2537"
+   },
+   "issued_date": "2023-07-30",
+   "items": [
+    {
+     "name": "P굿모닝우유 90",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 1530,
+     "amount": 4590
+    },
+    {
+     "name": "P칠성사이다 1.",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 2210,
+     "amount": 2210
+    },
+    {
+     "name": "P깻잎",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": 1320,
+     "amount": 1320
+    },
+    {
+     "name": "P콩나물 340g",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": 1200,
+     "amount": 3600
+    }
+   ],
+   "discount": null,
+   "subtotal": 2009,
+   "tax": 201,
+   "total": 11720
+  },
+  "raw": null
+ },
+ {
+  "image": "val_0024.jpg",
+  "kind": "synth",
+  "scores": {
+   "parsed": 1,
+   "doc_type": 1,
+   "total": 1,
+   "tax": 1,
+   "subtotal": 1,
+   "discount": 1,
+   "issued_date": 1,
+   "item_count": 1,
+   "item_name_recall": 0.4,
+   "item_full_recall": 0.4
+  },
+  "pred": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "이마트24문정점",
+    "biz_no": "554-55-72366",
+    "phone": "051-454-6250"
+   },
+   "issued_date": "2020-03-13",
+   "items": [
+    {
+     "name": "농심)새우깡90g",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": null,
+     "amount": 2760
+    },
+    {
+     "name": "비닐봉투 보증금",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 40
+    },
+    {
+     "name": "바나나맛유",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": null,
+     "amount": 4590
+    },
+    {
+     "name": "서울)바엔나소세지",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 2880
+    },
+    {
+     "name": "블랙라면 컵",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 1520
+    }
+   ],
+   "discount": 380,
+   "subtotal": 10464,
+   "tax": 1046,
+   "total": 11510
+  },
+  "gt": {
+   "doc_type": "receipt",
+   "vendor": {
+    "name": "이마트24문정점",
+    "biz_no": "554-55-72366",
+    "phone": "051-545-6250"
+   },
+   "issued_date": "2020-03-13",
+   "items": [
+    {
+     "name": "농심)새우깡90g",
+     "spec": null,
+     "quantity": 2,
+     "unit": null,
+     "unit_price": null,
+     "amount": 2760
+    },
+    {
+     "name": "비닐봉투 보증금",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 40
+    },
+    {
+     "name": "바나나맛우유",
+     "spec": null,
+     "quantity": 3,
+     "unit": null,
+     "unit_price": null,
+     "amount": 4590
+    },
+    {
+     "name": "서울)비엔나소세지",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 2880
+    },
+    {
+     "name": "틈새라면 컵",
+     "spec": null,
+     "quantity": 1,
+     "unit": null,
+     "unit_price": null,
+     "amount": 1620
+    }
+   ],
+   "discount": 380,
+   "subtotal": 10464,
+   "tax": 1046,
+   "total": 11510
+  },
+  "raw": null
+ }
+]

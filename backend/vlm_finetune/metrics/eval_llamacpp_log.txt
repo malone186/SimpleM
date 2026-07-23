@@ -1,0 +1,20 @@
+W0722 10:41:13.123000 2028 site-packages\torch\distributed\elastic\multiprocessing\redirects.py:29] NOTE: Redirects are currently not supported in Windows or MacOs.
+[ERROR] `loss` is part of Qwen3_5CausalLMOutputWithPast.__init__'s signature, but not documented. Make sure to add it to the docstring of the function in C:\Users\USER\miniforge3\Lib\site-packages\transformers\models\qwen3_5\modeling_qwen3_5.py.
+[ERROR] `logits` is part of Qwen3_5CausalLMOutputWithPast.__init__'s signature, but not documented. Make sure to add it to the docstring of the function in C:\Users\USER\miniforge3\Lib\site-packages\transformers\models\qwen3_5\modeling_qwen3_5.py.
+eval samples: 130 (llama.cpp Q8, max_side=1024)
+  20/130  f1=0.304 full=0.278 avg=4.04s
+  40/130  f1=0.252 full=0.237 avg=3.78s
+  60/130  f1=0.284 full=0.273 avg=3.75s
+  80/130  f1=0.278 full=0.268 avg=3.86s
+  100/130  f1=0.285 full=0.277 avg=3.85s
+  120/130  f1=0.266 full=0.255 avg=3.90s
+
+=== item metrics (llama.cpp Q8) ===
+  parsed          : 0.831
+  item_count_acc  : 0.731
+  name_recall     : 0.255
+  full_recall     : 0.246
+  name_precision  : 0.258
+  name_f1         : 0.256
+  avg_infer_sec   : 3.89
+report -> C:\Users\USER\Desktop\final\backend\vlm_finetune\output\eval35_llamacpp.json

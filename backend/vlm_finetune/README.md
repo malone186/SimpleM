@@ -1,7 +1,12 @@
-# VLM 영수증 OCR 파인튜닝 (백엔드 B)
+# VLM 영수증 OCR 파인튜닝 (백엔드 B) — 아카이브
 
-CLOVA OCR + Gemini 2단계 파이프라인을 **파인튜닝한 Qwen3-VL-2B 하나**로 대체하기 위한
-데이터·학습·평가 일체. 학습된 어댑터는 `ocr_service.py`의 `OCR_BACKEND=qwen_vlm` 백엔드가 로드한다.
+> **⚠️ 2026-07 아카이브됨**: 운영 OCR은 Gemini API(`ocr_service.py`)로 전환됐다.
+> 0.8B/2B 파인튜닝 평가 지표는 [`metrics/`](metrics/README.md)에 보존.
+> GGUF·병합 체크포인트·llama.cpp 도구는 삭제했고 LoRA 어댑터(`output/adapter*`)와
+> 학습 스크립트·손라벨 데이터만 남겨 재수출이 가능하다.
+
+CLOVA OCR + Gemini 2단계 파이프라인을 **파인튜닝한 Qwen VLM 하나**로 대체하기 위한
+데이터·학습·평가 일체 (Qwen3-VL-2B와 Qwen3.5-0.8B 두 크기를 학습·비교했다).
 
 > 참고: 요구사항의 "qwen3.5 0.8b"는 존재하지 않는 모델이다 (Qwen3 0.6B/1.7B는 텍스트 전용).
 > 실존하는 가장 작은 Qwen 비전 모델인 **Qwen3-VL-2B-Instruct**를 사용했다.

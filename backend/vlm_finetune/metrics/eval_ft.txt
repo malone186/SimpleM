@@ -1,0 +1,20 @@
+[ERROR] `loss` is part of Qwen3VLCausalLMOutputWithPast.__init__'s signature, but not documented. Make sure to add it to the docstring of the function in C:\Users\USER\miniforge3\Lib\site-packages\transformers\models\qwen3_vl\modeling_qwen3_vl.py.
+[ERROR] `logits` is part of Qwen3VLCausalLMOutputWithPast.__init__'s signature, but not documented. Make sure to add it to the docstring of the function in C:\Users\USER\miniforge3\Lib\site-packages\transformers\models\qwen3_vl\modeling_qwen3_vl.py.
+eval samples: 25 (synth=25, real=0)
+adapter loaded: C:\Users\USER\Desktop\final\backend\vlm_finetune\output\adapter
+  10/25
+  20/25
+
+=== field accuracy ===
+  parsed            : 1.000
+  doc_type          : 1.000
+  total             : 1.000
+  tax               : 1.000
+  subtotal          : 1.000
+  discount          : 0.960
+  issued_date       : 0.960
+  item_count        : 1.000
+  item_name_recall  : 0.933
+  item_full_recall  : 0.922
+
+report -> C:\Users\USER\Desktop\final\backend\vlm_finetune\output\eval_report.json

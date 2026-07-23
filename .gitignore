@@ -22,6 +22,11 @@ node_modules/
 out/
 frontend/.env*
 !frontend/.env.example
+# 배포 웹 빌드용 — EXPO_PUBLIC_* 공개값만 담으므로 커밋 대상
+!frontend/.env.production
+
+# Cloud Run 배포 환경변수 (실제 시크릿 — 커밋 금지, 예시는 env.example.yaml)
+backend/deploy/env.yaml
 
 # IDE / OS
 .vscode/

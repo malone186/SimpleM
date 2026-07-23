@@ -57,13 +57,7 @@ except Exception:
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    """로컬 VLM(OCR_BACKEND=qwen_vlm)을 미리 로드 — 첫 OCR 요청의 모델 로드 지연 제거.
-
-    백그라운드 스레드로 돌아가므로 서버 기동을 막지 않고, 다른 백엔드에서는 즉시 반환한다.
-    """
-    from app.services.ai.ocr_service import warmup_ocr_backend
-
-    warmup_ocr_backend()
+    """OCR이 Gemini API 호출로 전환되어 예열할 로컬 모델이 없다 — 자리만 유지."""
     yield
 
 

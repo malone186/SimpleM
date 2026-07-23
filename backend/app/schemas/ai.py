@@ -63,7 +63,7 @@ class OcrDocumentResponse(BaseModel):
     confirmed_target: Optional[RegisterTarget] = None
     applied: bool = Field(False, description="확정 후 대상 시스템 반영 여부")
     elapsed_sec: Optional[float] = Field(None, description="OCR 처리 소요 시간(초)")
-    ocr_backend: Optional[str] = Field(None, description="사용된 OCR 백엔드 (qwen_vlm/ollama_vlm)")
+    ocr_backend: Optional[str] = Field(None, description="사용된 OCR 백엔드 (gemini)")
     created_at: datetime
     updated_at: datetime
 

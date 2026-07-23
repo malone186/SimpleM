@@ -1,6 +1,6 @@
 # SimpleM 백엔드 운영 이미지 (백엔드 B)
-# OCR은 별도 llama.cpp 컨테이너(docker-compose.prod.yml의 ocr 서비스)가 담당하므로
-# torch/transformers 없이 가볍게 유지한다 — OCR_BACKEND=llamacpp_vlm 전제.
+# OCR·챗봇·리포트가 모두 Gemini API 호출이라 torch/transformers 없이 가볍다.
+# Cloud Run 배포 전제: PORT 환경변수로 리슨 포트를 받는다 (로컬 실행 시 8000).
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -16,13 +16,12 @@ COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini .
 
-# uploads(OCR 원본 저장)·data(chroma_db 등)는 컨테이너 재시작에도 남아야 하므로
-# 런타임에는 compose가 호스트 볼륨으로 덮어 마운트한다.
-RUN mkdir -p uploads data
+# 법령/원두 RAG용 chroma_db(수 MB)는 이미지에 굽는다 — Cloud Run은 디스크가
+# 휘발성이라 볼륨 마운트 대신 이미지 포함이 맞다. uploads(OCR 원본)는 휘발돼도
+# 초안 자체는 DB(ocr_documents)에 있으므로 기능에 지장 없다.
+COPY data ./data
+RUN mkdir -p uploads
 
-EXPOSE 8000
+EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
-    CMD python -c "import httpx; httpx.get('http://localhost:8000/health', timeout=4).raise_for_status()"
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

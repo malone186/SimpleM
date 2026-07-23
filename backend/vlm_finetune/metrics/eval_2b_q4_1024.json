@@ -1,0 +1,1444 @@
+{
+ "summary": {
+  "parsed": 0.9692307692307692,
+  "item_count_acc": 0.8692307692307693,
+  "name_recall": 0.6630097378739912,
+  "full_recall": 0.6335032476322069,
+  "name_precision": 0.6698705567936337,
+  "name_f1": 0.6655710578925403,
+  "avg_infer_sec": 4.618185306923876,
+  "max_side": 1024
+ },
+ "detail": [
+  {
+   "image": "IMG00003.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00005.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.5,
+    "full_recall": 0.5,
+    "name_precision": 0.5,
+    "name_f1": 0.5
+   }
+  },
+  {
+   "image": "IMG00013.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.7142857142857143,
+    "full_recall": 0.7142857142857143,
+    "name_precision": 0.7142857142857143,
+    "name_f1": 0.7142857142857143
+   }
+  },
+  {
+   "image": "IMG00015.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.0,
+    "full_recall": 0.0,
+    "name_precision": 0.0,
+    "name_f1": 0.0
+   }
+  },
+  {
+   "image": "IMG00017.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00021.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00031.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00039.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.6666666666666666,
+    "full_recall": 0.6666666666666666,
+    "name_precision": 0.6666666666666666,
+    "name_f1": 0.6666666666666666
+   }
+  },
+  {
+   "image": "IMG00040.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.0,
+    "full_recall": 0.0,
+    "name_precision": 0.0,
+    "name_f1": 0.0
+   }
+  },
+  {
+   "image": "IMG00045.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.8333333333333334,
+    "full_recall": 0.8333333333333334,
+    "name_precision": 0.8333333333333334,
+    "name_f1": 0.8333333333333334
+   }
+  },
+  {
+   "image": "IMG00052.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 0.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00060.png",
+   "scores": {
+    "parsed": 0,
+    "item_count_acc": 0,
+    "name_recall": 0.0,
+    "full_recall": 0.0,
+    "name_precision": 0.0,
+    "name_f1": 0.0
+   }
+  },
+  {
+   "image": "IMG00061.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00068.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.2727272727272727,
+    "full_recall": 0.2727272727272727,
+    "name_precision": 0.2727272727272727,
+    "name_f1": 0.2727272727272727
+   }
+  },
+  {
+   "image": "IMG00078.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.42857142857142855,
+    "full_recall": 0.42857142857142855,
+    "name_precision": 0.42857142857142855,
+    "name_f1": 0.42857142857142855
+   }
+  },
+  {
+   "image": "IMG00079.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.3333333333333333,
+    "full_recall": 0.3333333333333333,
+    "name_precision": 0.3333333333333333,
+    "name_f1": 0.3333333333333333
+   }
+  },
+  {
+   "image": "IMG00087.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00088.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.6,
+    "full_recall": 0.6,
+    "name_precision": 0.6,
+    "name_f1": 0.6
+   }
+  },
+  {
+   "image": "IMG00090.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.5,
+    "full_recall": 0.5,
+    "name_precision": 0.5,
+    "name_f1": 0.5
+   }
+  },
+  {
+   "image": "IMG00096.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00101.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00106.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 0,
+    "name_recall": 0.4,
+    "full_recall": 0.4,
+    "name_precision": 0.5,
+    "name_f1": 0.4444444444444445
+   }
+  },
+  {
+   "image": "IMG00108.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.75,
+    "full_recall": 0.75,
+    "name_precision": 0.75,
+    "name_f1": 0.75
+   }
+  },
+  {
+   "image": "IMG00111.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00116.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.0,
+    "full_recall": 0.0,
+    "name_precision": 0.0,
+    "name_f1": 0.0
+   }
+  },
+  {
+   "image": "IMG00119.png",
+   "scores": {
+    "parsed": 0,
+    "item_count_acc": 0,
+    "name_recall": 0.0,
+    "full_recall": 0.0,
+    "name_precision": 0.0,
+    "name_f1": 0.0
+   }
+  },
+  {
+   "image": "IMG00122.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00124.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.6666666666666666,
+    "full_recall": 0.6666666666666666,
+    "name_precision": 0.6666666666666666,
+    "name_f1": 0.6666666666666666
+   }
+  },
+  {
+   "image": "IMG00125.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00133.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00135.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.0,
+    "full_recall": 0.0,
+    "name_precision": 0.0,
+    "name_f1": 0.0
+   }
+  },
+  {
+   "image": "IMG00141.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00147.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00148.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00152.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00155.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00158.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.6666666666666666,
+    "full_recall": 0.6666666666666666,
+    "name_precision": 0.6666666666666666,
+    "name_f1": 0.6666666666666666
+   }
+  },
+  {
+   "image": "IMG00161.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00171.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.5714285714285714,
+    "full_recall": 0.5714285714285714,
+    "name_precision": 0.5714285714285714,
+    "name_f1": 0.5714285714285714
+   }
+  },
+  {
+   "image": "IMG00176.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 0,
+    "name_recall": 0.2,
+    "full_recall": 0.2,
+    "name_precision": 0.25,
+    "name_f1": 0.22222222222222224
+   }
+  },
+  {
+   "image": "IMG00188.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00190.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00201.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00213.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00220.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.6,
+    "full_recall": 0.6,
+    "name_precision": 0.6,
+    "name_f1": 0.6
+   }
+  },
+  {
+   "image": "IMG00221.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00232.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00241.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.8571428571428571,
+    "full_recall": 0.8571428571428571,
+    "name_precision": 0.8571428571428571,
+    "name_f1": 0.8571428571428571
+   }
+  },
+  {
+   "image": "IMG00247.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.75,
+    "full_recall": 0.5,
+    "name_precision": 0.75,
+    "name_f1": 0.75
+   }
+  },
+  {
+   "image": "IMG00256.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.3333333333333333,
+    "full_recall": 0.3333333333333333,
+    "name_precision": 0.3333333333333333,
+    "name_f1": 0.3333333333333333
+   }
+  },
+  {
+   "image": "IMG00267.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.5454545454545454,
+    "full_recall": 0.45454545454545453,
+    "name_precision": 0.5454545454545454,
+    "name_f1": 0.5454545454545454
+   }
+  },
+  {
+   "image": "IMG00271.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.875,
+    "full_recall": 0.875,
+    "name_precision": 0.875,
+    "name_f1": 0.875
+   }
+  },
+  {
+   "image": "IMG00274.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 0,
+    "name_recall": 0.3333333333333333,
+    "full_recall": 0.3333333333333333,
+    "name_precision": 0.35714285714285715,
+    "name_f1": 0.3448275862068965
+   }
+  },
+  {
+   "image": "IMG00275.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00277.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.6666666666666666,
+    "full_recall": 0.6666666666666666,
+    "name_precision": 0.6666666666666666,
+    "name_f1": 0.6666666666666666
+   }
+  },
+  {
+   "image": "IMG00280.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00281.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00282.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.7142857142857143,
+    "full_recall": 0.7142857142857143,
+    "name_precision": 0.7142857142857143,
+    "name_f1": 0.7142857142857143
+   }
+  },
+  {
+   "image": "IMG00286.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 0,
+    "name_recall": 0.8,
+    "full_recall": 0.8,
+    "name_precision": 1.0,
+    "name_f1": 0.888888888888889
+   }
+  },
+  {
+   "image": "IMG00289.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00292.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00296.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00300.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.6,
+    "full_recall": 0.6,
+    "name_precision": 0.6,
+    "name_f1": 0.6
+   }
+  },
+  {
+   "image": "IMG00302.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.8571428571428571,
+    "full_recall": 0.8571428571428571,
+    "name_precision": 0.8571428571428571,
+    "name_f1": 0.8571428571428571
+   }
+  },
+  {
+   "image": "IMG00307.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.6,
+    "full_recall": 0.6,
+    "name_precision": 0.6,
+    "name_f1": 0.6
+   }
+  },
+  {
+   "image": "IMG00309.png",
+   "scores": {
+    "parsed": 0,
+    "item_count_acc": 0,
+    "name_recall": 0.0,
+    "full_recall": 0.0,
+    "name_precision": 0.0,
+    "name_f1": 0.0
+   }
+  },
+  {
+   "image": "IMG00323.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.75,
+    "full_recall": 0.75,
+    "name_precision": 0.75,
+    "name_f1": 0.75
+   }
+  },
+  {
+   "image": "IMG00330.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00334.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.2,
+    "full_recall": 0.2,
+    "name_precision": 0.2,
+    "name_f1": 0.20000000000000004
+   }
+  },
+  {
+   "image": "IMG00339.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.75,
+    "full_recall": 0.75,
+    "name_precision": 0.75,
+    "name_f1": 0.75
+   }
+  },
+  {
+   "image": "IMG00343.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.0,
+    "full_recall": 0.0,
+    "name_precision": 0.0,
+    "name_f1": 0.0
+   }
+  },
+  {
+   "image": "IMG00345.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.6,
+    "full_recall": 0.6,
+    "name_precision": 0.6,
+    "name_f1": 0.6
+   }
+  },
+  {
+   "image": "IMG00354.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.8,
+    "full_recall": 0.8,
+    "name_precision": 0.8,
+    "name_f1": 0.8000000000000002
+   }
+  },
+  {
+   "image": "IMG00355.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 0,
+    "name_recall": 0.0,
+    "full_recall": 0.0,
+    "name_precision": 0.0,
+    "name_f1": 0.0
+   }
+  },
+  {
+   "image": "IMG00358.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 0,
+    "name_recall": 0.23529411764705882,
+    "full_recall": 0.17647058823529413,
+    "name_precision": 0.2857142857142857,
+    "name_f1": 0.2580645161290323
+   }
+  },
+  {
+   "image": "IMG00360.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00362.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.0,
+    "full_recall": 0.0,
+    "name_precision": 0.0,
+    "name_f1": 0.0
+   }
+  },
+  {
+   "image": "IMG00364.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.8333333333333334,
+    "full_recall": 0.8333333333333334,
+    "name_precision": 0.8333333333333334,
+    "name_f1": 0.8333333333333334
+   }
+  },
+  {
+   "image": "IMG00378.png",
+   "scores": {
+    "parsed": 0,
+    "item_count_acc": 0,
+    "name_recall": 0.0,
+    "full_recall": 0.0,
+    "name_precision": 0.0,
+    "name_f1": 0.0
+   }
+  },
+  {
+   "image": "IMG00380.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.38461538461538464,
+    "full_recall": 0.38461538461538464,
+    "name_precision": 0.38461538461538464,
+    "name_f1": 0.38461538461538464
+   }
+  },
+  {
+   "image": "IMG00385.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00397.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00412.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 0,
+    "name_recall": 0.5,
+    "full_recall": 0.375,
+    "name_precision": 0.4444444444444444,
+    "name_f1": 0.47058823529411764
+   }
+  },
+  {
+   "image": "IMG00413.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.6666666666666666,
+    "full_recall": 0.6666666666666666,
+    "name_precision": 0.6666666666666666,
+    "name_f1": 0.6666666666666666
+   }
+  },
+  {
+   "image": "IMG00419.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.0,
+    "full_recall": 0.0,
+    "name_precision": 0.0,
+    "name_f1": 0.0
+   }
+  },
+  {
+   "image": "IMG00423.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.25,
+    "full_recall": 0.25,
+    "name_precision": 0.25,
+    "name_f1": 0.25
+   }
+  },
+  {
+   "image": "IMG00427.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.5714285714285714,
+    "full_recall": 0.5714285714285714,
+    "name_precision": 0.5714285714285714,
+    "name_f1": 0.5714285714285714
+   }
+  },
+  {
+   "image": "IMG00431.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.6,
+    "full_recall": 0.4,
+    "name_precision": 0.6,
+    "name_f1": 0.6
+   }
+  },
+  {
+   "image": "IMG00436.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00446.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.75,
+    "full_recall": 0.75,
+    "name_precision": 0.75,
+    "name_f1": 0.75
+   }
+  },
+  {
+   "image": "IMG00448.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00449.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.6666666666666666,
+    "full_recall": 0.6666666666666666,
+    "name_precision": 0.6666666666666666,
+    "name_f1": 0.6666666666666666
+   }
+  },
+  {
+   "image": "IMG00450.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.0,
+    "full_recall": 0.0,
+    "name_precision": 0.0,
+    "name_f1": 0.0
+   }
+  },
+  {
+   "image": "IMG00456.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 0,
+    "name_recall": 0.6,
+    "full_recall": 0.5,
+    "name_precision": 0.6666666666666666,
+    "name_f1": 0.631578947368421
+   }
+  },
+  {
+   "image": "IMG00462.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.75,
+    "full_recall": 0.75,
+    "name_precision": 0.75,
+    "name_f1": 0.75
+   }
+  },
+  {
+   "image": "IMG00480.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.3333333333333333,
+    "full_recall": 0.26666666666666666,
+    "name_precision": 0.3333333333333333,
+    "name_f1": 0.3333333333333333
+   }
+  },
+  {
+   "image": "IMG00484.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 0.75,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00486.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.5,
+    "full_recall": 0.5,
+    "name_precision": 0.5,
+    "name_f1": 0.5
+   }
+  },
+  {
+   "image": "IMG00487.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.3333333333333333,
+    "full_recall": 0.3333333333333333,
+    "name_precision": 0.3333333333333333,
+    "name_f1": 0.3333333333333333
+   }
+  },
+  {
+   "image": "IMG00488.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.6666666666666666,
+    "full_recall": 0.6666666666666666,
+    "name_precision": 0.6666666666666666,
+    "name_f1": 0.6666666666666666
+   }
+  },
+  {
+   "image": "IMG00490.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.8333333333333334,
+    "full_recall": 0.8333333333333334,
+    "name_precision": 0.8333333333333334,
+    "name_f1": 0.8333333333333334
+   }
+  },
+  {
+   "image": "IMG00492.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.0,
+    "full_recall": 0.0,
+    "name_precision": 0.0,
+    "name_f1": 0.0
+   }
+  },
+  {
+   "image": "IMG00493.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00498.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 0,
+    "name_recall": 0.2,
+    "full_recall": 0.2,
+    "name_precision": 0.16666666666666666,
+    "name_f1": 0.1818181818181818
+   }
+  },
+  {
+   "image": "IMG00504.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.375,
+    "full_recall": 0.375,
+    "name_precision": 0.375,
+    "name_f1": 0.375
+   }
+  },
+  {
+   "image": "IMG00508.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.5,
+    "full_recall": 0.5,
+    "name_precision": 0.5,
+    "name_f1": 0.5
+   }
+  },
+  {
+   "image": "IMG00509.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.6,
+    "full_recall": 0.6,
+    "name_precision": 0.6,
+    "name_f1": 0.6
+   }
+  },
+  {
+   "image": "IMG00517.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00519.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.6666666666666666,
+    "full_recall": 0.6666666666666666,
+    "name_precision": 0.6666666666666666,
+    "name_f1": 0.6666666666666666
+   }
+  },
+  {
+   "image": "IMG00527.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.5,
+    "full_recall": 0.5,
+    "name_precision": 0.5,
+    "name_f1": 0.5
+   }
+  },
+  {
+   "image": "IMG00528.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00539.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00565.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00585.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00587.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 0.5,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00589.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00591.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 0,
+    "name_recall": 0.5,
+    "full_recall": 0.5,
+    "name_precision": 1.0,
+    "name_f1": 0.6666666666666666
+   }
+  },
+  {
+   "image": "IMG00593.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 0,
+    "name_recall": 0.5,
+    "full_recall": 0.4166666666666667,
+    "name_precision": 0.5454545454545454,
+    "name_f1": 0.5217391304347826
+   }
+  },
+  {
+   "image": "IMG00600.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 0,
+    "name_recall": 0.0,
+    "full_recall": 0.0,
+    "name_precision": 0.0,
+    "name_f1": 0.0
+   }
+  },
+  {
+   "image": "IMG00606.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00609.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.6666666666666666,
+    "full_recall": 0.6666666666666666,
+    "name_precision": 0.6666666666666666,
+    "name_f1": 0.6666666666666666
+   }
+  },
+  {
+   "image": "IMG00613.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 0,
+    "name_recall": 0.5555555555555556,
+    "full_recall": 0.4444444444444444,
+    "name_precision": 0.5,
+    "name_f1": 0.5263157894736842
+   }
+  },
+  {
+   "image": "IMG00614.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.25,
+    "full_recall": 0.25,
+    "name_precision": 0.25,
+    "name_f1": 0.25
+   }
+  },
+  {
+   "image": "IMG00617.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.0,
+    "full_recall": 0.0,
+    "name_precision": 0.0,
+    "name_f1": 0.0
+   }
+  },
+  {
+   "image": "IMG00625.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.3333333333333333,
+    "full_recall": 0.3333333333333333,
+    "name_precision": 0.3333333333333333,
+    "name_f1": 0.3333333333333333
+   }
+  },
+  {
+   "image": "IMG00639.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00648.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 0.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  },
+  {
+   "image": "IMG00652.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.5,
+    "full_recall": 0.5,
+    "name_precision": 0.5,
+    "name_f1": 0.5
+   }
+  },
+  {
+   "image": "IMG00665.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.8333333333333334,
+    "full_recall": 0.8333333333333334,
+    "name_precision": 0.8333333333333334,
+    "name_f1": 0.8333333333333334
+   }
+  },
+  {
+   "image": "IMG00674.png",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 1.0,
+    "full_recall": 1.0,
+    "name_precision": 1.0,
+    "name_f1": 1.0
+   }
+  }
+ ]
+}

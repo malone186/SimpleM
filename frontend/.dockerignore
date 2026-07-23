@@ -1,0 +1,11 @@
+node_modules/
+dist/
+web-build/
+.expo/
+.git/
+android/
+ios/
+*.apk
+*.aab
+# 로컬 개인 오버라이드는 빌드에 섞이면 안 된다 (.env.production이 단일 소스)
+.env*.local
