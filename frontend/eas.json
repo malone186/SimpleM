@@ -18,7 +18,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://brewnote.tailc1719a.ts.net",
+        "EXPO_PUBLIC_API_BASE_URL": "https://brewnote-api.onrender.com",
         "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyBOiKu27M13SnpWmbHDtP0AVSU_yXSI3R4",
         "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "simplem-72f8d.firebaseapp.com",
         "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "simplem-72f8d",
@@ -32,7 +32,7 @@
       "autoIncrement": true,
       "channel": "production",
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://brewnote.tailc1719a.ts.net",
+        "EXPO_PUBLIC_API_BASE_URL": "https://brewnote-api.onrender.com",
         "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyBOiKu27M13SnpWmbHDtP0AVSU_yXSI3R4",
         "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "simplem-72f8d.firebaseapp.com",
         "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "simplem-72f8d",
