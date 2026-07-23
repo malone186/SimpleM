@@ -138,7 +138,7 @@ function ShiftTimePicker({
 }
 
 export default function AuthScreen() {
-  const { login, signup, loginWithGoogle, loginWithApple } = useAuth();
+  const { login, signup, loginWithGoogle } = useAuth();
   const [mode, setMode] = useState<Mode>('login');
   const [step, setStep] = useState<1 | 2>(1); // [한글 주석] 회원가입 1단계/2단계 구분 상태
 
@@ -535,18 +535,6 @@ export default function AuthScreen() {
     }
   };
 
-  const handleAppleLogin = async () => {
-    setError('');
-    setBusy(true);
-    try {
-      await loginWithApple(autoLogin);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '애플 로그인 중 문제가 발생했어요.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const switchMode = (m: Mode) => {
     setMode(m);
     setStep(1);
@@ -830,29 +818,18 @@ export default function AuthScreen() {
               <>
                 <View style={styles.socialSeparator}>
                   <View style={styles.separatorLine} />
-                  <Text style={styles.separatorText}>또는 소셜 계정으로 로그인</Text>
+                  <Text style={styles.separatorText}>또는</Text>
                   <View style={styles.separatorLine} />
                 </View>
 
-                <View style={styles.socialButtonsRow}>
-                  <PressableScale
-                    style={[styles.socialBtn, styles.googleBtn]}
-                    onPress={handleGoogleLogin}
-                    disabled={busy}
-                  >
-                    <Ionicons name="logo-google" size={18} color={colors.espressoBrown} />
-                    <Text style={[styles.socialBtnText, styles.googleBtnText]}>Google</Text>
-                  </PressableScale>
-
-                  <PressableScale
-                    style={[styles.socialBtn, styles.appleBtn]}
-                    onPress={handleAppleLogin}
-                    disabled={busy}
-                  >
-                    <Ionicons name="logo-apple" size={18} color={colors.white} />
-                    <Text style={[styles.socialBtnText, styles.appleBtnText]}>Apple</Text>
-                  </PressableScale>
-                </View>
+                <PressableScale
+                  style={[styles.socialBtn, styles.googleBtn]}
+                  onPress={handleGoogleLogin}
+                  disabled={busy}
+                >
+                  <Ionicons name="logo-google" size={18} color={colors.espressoBrown} />
+                  <Text style={[styles.socialBtnText, styles.googleBtnText]}>Google 계정으로 로그인</Text>
+                </PressableScale>
               </>
             )}
 
@@ -1209,13 +1186,7 @@ const styles = StyleSheet.create({
     color: colors.mochaBrown,
     fontWeight: '700',
   },
-  socialButtonsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    justifyContent: 'space-between',
-  },
   socialBtn: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1230,13 +1201,6 @@ const styles = StyleSheet.create({
   },
   googleBtnText: {
     color: colors.espressoBrown,
-  },
-  appleBtn: {
-    backgroundColor: colors.pointOrange,
-    borderColor: colors.pointOrange,
-  },
-  appleBtnText: {
-    color: colors.white,
   },
   socialBtnText: {
     ...typography.L4,

@@ -8,7 +8,6 @@ import {
   signOut,
   updateProfile as updateFirebaseProfile,
   GoogleAuthProvider,
-  OAuthProvider,
   signInWithPopup,
   signInWithCredential,
   onIdTokenChanged,
@@ -24,7 +23,6 @@ import {
 } from 'react';
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
-import * as AppleAuthentication from 'expo-apple-authentication';
 
 import { auth } from '../lib/firebase';
 import { API_BASE_URL } from '../lib/api/client';
@@ -42,7 +40,6 @@ type AuthContextValue = {
   login: (email: string, password: string, autoLogin: boolean) => Promise<void>;
   signup: (name: string, email: string, password: string, autoLogin: boolean, acquisitionSource?: string) => Promise<void>;
   loginWithGoogle: (autoLogin: boolean) => Promise<void>;
-  loginWithApple: (autoLogin: boolean) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (patch: { name?: string; store_name?: string; password?: string; photo?: string }) => Promise<void>;
 };
@@ -492,101 +489,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [persistSession, loginWithBackendDemo, request, promptAsync, syncProfileInBackground]
   );
 
-  // [한글 주석] 애플 계정을 이용한 소셜 로그인을 처리합니다. (Mock 모드 지원)
-  const loginWithApple = useCallback(
-    async (autoLogin: boolean) => {
-      const FIREBASE_API_KEY = process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '';
-      const isMockFirebase = FIREBASE_API_KEY.startsWith('mock-') || !FIREBASE_API_KEY;
-
-      if (isMockFirebase) {
-        // [한글 주석] Mock 모드일 때는 백엔드 로컬 인증으로 데모 계정에 진짜 토큰을 발급받습니다.
-        await loginWithBackendDemo('apple-demo@test.com', '애플사장님', 'demo-social-1234', autoLogin);
-        return;
-      }
-
-      if (Platform.OS !== 'web') {
-        // [한글 주석] 모바일 환경에서는 expo-apple-authentication을 이용해 기기 자체의 네이티브 Apple 로그인 창을 호출합니다.
-        try {
-          const appleCredential = await AppleAuthentication.signInAsync({
-            requestedScopes: [
-              AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-              AppleAuthentication.AppleAuthenticationScope.EMAIL,
-            ],
-          });
-
-          if (!appleCredential.identityToken) {
-            throw new Error('Apple 로그인 토큰을 가져오지 못했습니다.');
-          }
-
-          // [한글 주석] 가져온 identityToken을 이용하여 Firebase OAuth 자격증명(Credential)을 생성합니다.
-          const provider = new OAuthProvider('apple.com');
-          const credential = provider.credential({
-            idToken: appleCredential.identityToken,
-          });
-
-          // [한글 주석] Firebase Auth에 로그인합니다.
-          const result = await signInWithCredential(auth, credential);
-          const fbUser = result.user;
-          const idToken = await fbUser.getIdToken();
-          
-          // 애플 계정에서 반환해 주는 닉네임이나 이메일을 파싱합니다.
-          const familyName = appleCredential.fullName?.familyName || '';
-          const givenName = appleCredential.fullName?.givenName || '';
-          const fullName = [familyName, givenName].filter(Boolean).join('') || fbUser.displayName || '애플사장님';
-          const email = appleCredential.email || fbUser.email || 'apple-사장님@test.com';
-
-          const u = {
-            email,
-            name: fullName,
-            token: idToken,
-          };
-
-          // 즉시 로그인 완료 — 백엔드 프로필 동기화는 백그라운드로
-          setUser({ email: u.email, name: u.name });
-          setToken(idToken);
-          await persistSession(u, autoLogin);
-          syncProfileInBackground(idToken, fullName);
-          return;
-        } catch (err: any) {
-          // 사용자가 취소한 경우는 단순 경고/에러 처리만 하고 넘어갑니다.
-          if (err.code === 'ERR_REQUEST_CANCELED') {
-            console.log('애플 로그인이 사용자에 의해 취소되었습니다.');
-            throw new Error('애플 로그인이 취소되었습니다.');
-          }
-          console.error('모바일 애플 로그인 처리 중 실패:', err);
-          throw new Error(err.message || '애플 로그인 처리 중 문제가 발생했습니다.');
-        }
-      }
-
-      if (!auth) throw new Error('Firebase가 초기화되지 않았습니다.');
-
-      try {
-        const provider = new OAuthProvider('apple.com');
-        // 팝업 창을 띄워 애플 로그인 시도
-        const result = await signInWithPopup(auth, provider);
-        const fbUser = result.user;
-        const idToken = await fbUser.getIdToken();
-        const userName = fbUser.displayName || fbUser.email?.split('@')[0] || '애플사장님';
-
-        const u = {
-          email: fbUser.email || 'apple-사장님@test.com',
-          name: userName,
-          token: idToken,
-        };
-
-        // 즉시 로그인 완료 — 백엔드 프로필 동기화는 백그라운드로
-        setUser({ email: u.email, name: u.name });
-        setToken(idToken);
-        await persistSession(u, autoLogin);
-        syncProfileInBackground(idToken, userName);
-      } catch (err: any) {
-        console.error('애플 로그인 실패:', err);
-        throw new Error(err.message || '애플 로그인 중 오류가 발생했습니다.');
-      }
-    },
-    [persistSession, loginWithBackendDemo, syncProfileInBackground]
-  );
-
   // [한글 주석] 로그아웃 시 Firebase 세션을 끊고 로컬 세션을 완전히 파기합니다.
   const logout = useCallback(async () => {
     try {
@@ -667,7 +569,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         signup,
         loginWithGoogle,
-        loginWithApple,
         logout,
         updateProfile,
       }}
