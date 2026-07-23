@@ -34,3 +34,7 @@ sensor_pairing.json
 # APK 배포물은 서버 static에만 둔다 (git에 105MB 바이너리 금지)
 *.apk
 backend/uvicorn_restart.log
+
+# TLS 인증서/개인키 (tailscale cert 산출물 — 절대 커밋 금지)
+*.crt
+*.key
