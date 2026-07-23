@@ -13,6 +13,11 @@ langchain-google-genai>=4.2  # 챗봇 두뇌·리포트 조언 (Gemini)
 # core/auth.py가 import 시점에 요구 — 로그인/JWT 발급
 PyJWT>=2.13
 bcrypt>=5.0
+cryptography>=42.0  # core/auth.py Firebase 토큰 서명 검증 (지연 import — 로그인 시 필요)
+# schemas/user.py의 EmailStr이 요구 — 없으면 앱 import 자체가 죽는다 (Render 배포 실패 사례)
+email-validator>=2.0
+# forecast/price 서비스가 지연 import — 없으면 예측·가격 조회 호출 시 죽는다
+requests>=2.31
 # core/database.py가 import 시점에 요구 — 없으면 CI 등 새 환경에서 앱 전체가 즉시 죽는다
 python-dotenv>=1.0
 psycopg2-binary>=2.9
