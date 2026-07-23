@@ -11,7 +11,6 @@
 - `backend/app/api/v1/chatbot.py`
 - `backend/app/services/ai/tool_registry.py` ← A·C의 도구를 모으는 곳
 - `backend/app/services/ai/agents/main_agent.py` ← 챗봇 두뇌
-- `backend/app/services/ai/rag_pipeline.py`
 - `backend/app/services/ai/ocr_service.py` + `ocr_tools.py`
 - `backend/app/services/ai/document_service.py` + `document_tools.py`
 - `backend/app/services/ai/report_tools.py`
