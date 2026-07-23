@@ -10,7 +10,9 @@ API(FastAPI)와 OCR(llama.cpp)을 Space 2개로 나눠 올린다. DB는 기존 N
   (.env는 올리지 않으므로 키는 안전 — 키는 전부 Space Secrets로 주입)
 - 48시간 동안 요청이 없으면 잠들었다가 첫 요청에 1~2분 걸려 깨어난다.
 - uploads/(OCR 원본 이미지)는 재시작 시 사라진다. 문서 데이터 자체는 Neon에 있어 무관.
-- OCR은 CPU 서빙이라 장당 수십 초.
+- OCR 속도(2B Q4_K_M, 2 vCPU 모사 실측): 보통 영수증 ~13초, 90%가 30초 이내,
+  품목 20개 이상 대형 영수증만 35~50초. 병목은 토큰 생성(~20 tok/s)이라
+  이미지 축소로는 더 못 줄인다 (768px는 정확도 하락으로 채택 안 함).
 
 ---
 
@@ -18,8 +20,8 @@ API(FastAPI)와 OCR(llama.cpp)을 Space 2개로 나눠 올린다. DB는 기존 N
 
 1. huggingface.co → New → **Model** → 이름 `simplem-ocr-gguf`, **Public**
 2. Files 탭 → Upload files → 아래 2개 드래그 (backend/vlm_finetune/output/):
-   - `qwen35-08b-ocr-v2-q8.gguf` (812MB)
-   - `mmproj-qwen35-08b.gguf` (207MB)
+   - `qwen35-2b-ocr-q4km.gguf` (1.2GB — 2B Q4_K_M, Q8과 정확도 동일·CPU에서 ~1.6배 빠름)
+   - `mmproj-qwen35-2b.gguf` (671MB)
 
 ## 2단계. OCR Space 만들기
 
@@ -58,7 +60,9 @@ API(FastAPI)와 OCR(llama.cpp)을 Space 2개로 나눠 올린다. DB는 기존 N
      `TAVILY_API_KEY`, `LLAMACPP_API_KEY`(=2단계의 LLAMA_API_KEY와 동일 값)
    - **Variables**(공개돼도 되는 것): `GEMINI_MODEL`, `FIREBASE_PROJECT_ID`,
      `OCR_BACKEND=llamacpp_vlm`, `LLAMACPP_AUTOSTART=0`,
-     `LLAMACPP_BASE_URL=https://<HF아이디>-simplem-ocr.hf.space`
+     `LLAMACPP_BASE_URL=https://<HF아이디>-simplem-ocr.hf.space`,
+     `QWEN_VLM_MAX_NEW_TOKENS=1100` (테스트셋 최장 라벨 878토큰 + 여유.
+     반복 생성 폭주 시 최악 지연을 ~55초로 제한 — 기본값 2048이면 100초까지 감)
 4. 확인: `https://<HF아이디>-simplem-api.hf.space/health` → `{"status":"ok"}`,
    `/db-test` → success (Neon 콜드스타트면 1회 재시도)
 
