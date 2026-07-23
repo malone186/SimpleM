@@ -4,6 +4,7 @@ import { StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator 
 import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../../auth/AuthContext';
+import { useTranslation } from '../../i18n/translations';
 import { PressableScale } from '../../components/motion';
 import FormSheet, { LabeledInput } from '../../components/FormSheet';
 import { Badge, Button, Card, Divider, Screen, ScreenTitle } from '../../components/ui';
@@ -42,6 +43,8 @@ type Menu = {
 type NewRow = { ingredient_id: string; quantity: string };
 
 export default function MenuScreen() {
+  // [한글 주석: 전역 다국어 훅 연동]
+  const { t, language } = useTranslation();
   const [open, setOpen] = useState<number | null>(null);
   const [menus, setMenus] = useState<Menu[]>([]);
   const [allIngredients, setAllIngredients] = useState<Ingredient[]>([]);
@@ -165,22 +168,22 @@ export default function MenuScreen() {
   return (
     <>
       <Screen>
-        <ScreenTitle title="메뉴 관리" subtitle="메뉴 · 레시피 · 원가율" />
+        <ScreenTitle title={t('menuMgmtTitle')} subtitle={t('menuMgmtSub')} />
 
-        <Button label="+ 메뉴 추가" variant="secondary" onPress={() => setAdding(true)} />
+        <Button label={language === 'en' ? '+ Add Menu' : '+ 메뉴 추가'} variant="secondary" onPress={() => setAdding(true)} />
 
         {loading ? (
           <View style={{ paddingVertical: 40 }}>
             <ActivityIndicator size="large" color={colors.espressoBrown} />
             <Text style={{ textAlign: 'center', marginTop: 10, color: colors.mochaBrown }}>
-              데이터를 동기화하고 있어요...
+              {language === 'en' ? 'Syncing data...' : '데이터를 동기화하고 있어요...'}
             </Text>
           </View>
         ) : menus.length === 0 ? (
           <View style={{ paddingVertical: 40, alignItems: 'center' }}>
             <Ionicons name="cafe-outline" size={48} color={colors.mutedSand} />
             <Text style={{ marginTop: 10, color: colors.mochaBrown, ...typography.L4 }}>
-              등록된 메뉴가 없습니다. 새 메뉴를 추가해 주세요.
+              {language === 'en' ? 'No registered menus. Please add a new menu.' : '등록된 메뉴가 없습니다. 새 메뉴를 추가해 주세요.'}
             </Text>
           </View>
         ) : (

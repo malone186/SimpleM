@@ -8,6 +8,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 
 import { useAuth } from '../../auth/AuthContext';
+import { useTranslation } from '../../i18n/translations';
 import { FadeInUp, PressableScale } from '../../components/motion';
 import { confirmDialog, toast } from '../../components/toast';
 import { Badge, Button, Card, Divider, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
@@ -305,6 +306,8 @@ async function printOnPhone(d: GeneratedDocument): Promise<void> {
 }
 
 export default function DocumentScreen() {
+  // [한글 주석: 전역 다국어 번역 훅 연동]
+  const { t, language } = useTranslation();
   const { token } = useAuth();
   const [tab, setTab] = useState<'document' | 'tax'>('document');
   const [docs, setDocs] = useState<GeneratedDocument[]>([]);
@@ -355,14 +358,16 @@ export default function DocumentScreen() {
     }
   };
 
+  // [한글 주석: 갱신 서류 등록 - 비로그인 시 안내 팝업 출력 및 성공 토스트 반응성 강화]
   const addRenewal = async () => {
-    if (!token) return;
+    if (!token) return toast('로그인 필요', '서류 갱신 알림 등록은 로그인 후 이용할 수 있습니다.');
     if (!cpName.trim()) return toast('입력 확인', '서류 이름을 입력하세요. (예: 보건증-홍길동)');
     const expiry = normalizeDate(cpExpiry);
     if (!expiry) return toast('입력 확인', `만료일을 알아볼 수 없어요: "${cpExpiry}" — 예: 2026-12-31`);
     try {
       await addCompliance(token, { name: cpName.trim(), expiry_date: expiry });
       setCpName(''); setCpExpiry(''); setOpenForm(null);
+      toast('등록 완료', `'${cpName.trim()}' 갱신 만료 알림이 등록되었습니다.`);
       reload();
     } catch (e) {
       toast('등록 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
@@ -370,9 +375,10 @@ export default function DocumentScreen() {
   };
 
   const removeRenewal = async (item: ComplianceItem) => {
-    if (!token) return;
+    if (!token) return toast('로그인 필요', '서류 삭제는 로그인 후 가능합니다.');
     try {
       await deleteCompliance(token, item.id);
+      toast('삭제 완료', `'${item.name}' 알림이 삭제되었습니다.`);
       reload();
     } catch {
       toast('삭제 실패', '잠시 후 다시 시도해 주세요.');
@@ -445,14 +451,14 @@ export default function DocumentScreen() {
   return (
     <Screen>
       {/* [한글 주석] 세금 관리 기능이 이관되어 서류와 세금을 아우르는 화면으로 변경되었습니다 */}
-      <ScreenTitle title="서류·세금 자동화" subtitle="서류 초안 생성과 세금 관리를 한 곳에서" />
+      <ScreenTitle title={t('taxDocsTitle')} subtitle={t('taxDocsSub')} />
 
       <Segmented<'document' | 'tax'>
         value={tab}
         onChange={setTab}
         options={[
-          { value: 'document', label: '서류 자동화' },
-          { value: 'tax', label: '세금 관리' },
+          { value: 'document', label: language === 'en' ? 'Docs Automation' : '서류 자동화' },
+          { value: 'tax', label: language === 'en' ? 'Tax Management' : '세금 관리' },
         ]}
       />
 

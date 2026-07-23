@@ -7,6 +7,7 @@ import { colors, spacing, typography, shadows } from '../../theme';
 import { useCountUp } from '../motion';
 import { PressableScale } from '../motion';
 import { useAuth } from '../../auth/AuthContext';
+import { useTranslation } from '../../i18n/translations';
 import {
   getDevicePosition,
   getSalesCalendar,
@@ -213,6 +214,9 @@ export default function SalesCard({
       cancelled = true;
     };
   }, [token]);
+  // [한글 주석: 전역 다국어 번역 훅 연동]
+  const { t, language } = useTranslation();
+
   // [실시간 시계] 매분 확인 — 정시가 바뀌면 X축 시간대와 '내일 같은 시각' 예측 기준이 따라 움직인다
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -464,17 +468,17 @@ export default function SalesCard({
           <View style={styles.legendContainer}>
             <View style={styles.legendItem}>
               <View style={[styles.legendColorDot, { backgroundColor: colors.espressoBrown }]} />
-              <Text style={styles.legendText}>오늘 실시간</Text>
+              <Text style={styles.legendText}>{t('todayLive')}</Text>
             </View>
             <View style={styles.legendItem}>
               <View style={[styles.legendColorDot, { backgroundColor: colors.mochaBrown, opacity: 0.5 }]} />
-              <Text style={styles.legendText}>내일 AI 예측</Text>
+              <Text style={styles.legendText}>{language === 'en' ? 'Tomorrow AI' : '내일 AI 예측'}</Text>
             </View>
 
             {/* [브루] 예측 원인 설명 트리거 버튼 */}
             <PressableScale style={styles.brewCta} onPress={() => setShowBrew(true)} to={0.95}>
               <Ionicons name="cafe" size={12} color={colors.pointOrange} />
-              <Text style={styles.brewCtaText}>예측 이유</Text>
+              <Text style={styles.brewCtaText}>{language === 'en' ? 'Reason' : '예측 이유'}</Text>
             </PressableScale>
           </View>
 
@@ -637,7 +641,7 @@ export default function SalesCard({
                       textAlign: 'center',
                     }}
                   >
-                    {i === currentAxisIndex ? `${hourLabel(h)} (지금)` : hourLabel(h)}
+                    {i === currentAxisIndex ? `${hourLabel(h)} (${t('now')})` : hourLabel(h)}
                   </Text>
                 </View>
               ))}
@@ -652,22 +656,22 @@ export default function SalesCard({
       {activeTab !== 'todo' && (
         <View style={styles.footRow}>
           <View style={styles.footItem}>
-            <Text style={styles.footLabel}>{activeTab === 'month' ? '판매 잔' : '판매 잔 (오늘 / 내일예상)'}</Text>
+            <Text style={styles.footLabel}>{activeTab === 'month' ? t('soldCups') : t('soldCupsTodayTomorrow')}</Text>
             <Text style={styles.footValue}>
               {salesCount}
               {activeTab === 'day' && forecast && (
                 <Text style={{ fontSize: 11, color: colors.mochaBrown, fontWeight: 'normal' }}>
-                  {` / ${tomorrowCups}잔`}
+                  {` / ${tomorrowCups}${t('cups')}`}
                 </Text>
               )}
             </Text>
           </View>
           <View style={styles.footItem}>
-            <Text style={styles.footLabel}>객단가</Text>
+            <Text style={styles.footLabel}>{t('avgPricePerCustomer')}</Text>
             <Text style={styles.footValue}>{averagePrice}</Text>
           </View>
           <View style={styles.footItem}>
-            <Text style={styles.footLabel}>피크</Text>
+            <Text style={styles.footLabel}>{t('peakTime')}</Text>
             <Text style={[styles.footValue, { color: colors.trendGreenText }]}>{peakTime}</Text>
           </View>
         </View>

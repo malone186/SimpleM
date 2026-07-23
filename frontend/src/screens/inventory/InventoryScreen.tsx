@@ -11,6 +11,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 import { useNavigation } from '@react-navigation/native';
 
 import { useAuth } from '../../auth/AuthContext';
+import { useTranslation } from '../../i18n/translations';
 import { PressableScale } from '../../components/motion';
 import { confirmDialog, toast } from '../../components/toast';
 import { Badge, Button, Card, ProgressBar, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
@@ -50,6 +51,8 @@ function getCategory(name: string): string {
 type EditRow = { name: string; qty: string; unit: string; price: string };
 
 export default function InventoryScreen() {
+  // [한글 주석: 다국어 번역 훅 연동 — 영문/한글 화면 가공]
+  const { t, language } = useTranslation();
   const { token } = useAuth();
   const navigation = useNavigation<any>();
   const [stocks, setStocks] = useState<StockItem[]>([]);
@@ -349,7 +352,7 @@ export default function InventoryScreen() {
 
   return (
     <Screen>
-      <ScreenTitle title="재고" subtitle="현재 재고와 안전재고 상태" />
+      <ScreenTitle title={t('inventoryTitle')} subtitle={t('inventorySubtitle')} />
 
       {/* 메뉴·레시피 관리 진입 */}
       <PressableScale style={styles.menuNav} onPress={() => navigation.navigate('Menu')} to={0.97}>
@@ -357,8 +360,8 @@ export default function InventoryScreen() {
           <Ionicons name="cafe-outline" size={20} color={colors.espressoBrown} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.menuNavTitle}>메뉴 · 레시피 관리</Text>
-          <Text style={styles.menuNavSub}>메뉴 등록 · 레시피 구성 · 원가율</Text>
+          <Text style={styles.menuNavTitle}>{t('menuMgmtTitle')}</Text>
+          <Text style={styles.menuNavSub}>{t('menuMgmtSub')}</Text>
         </View>
         <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown} />
       </PressableScale>
@@ -367,10 +370,12 @@ export default function InventoryScreen() {
       <Card>
         <View style={styles.ocrHead}>
           <View style={{ flex: 1 }}>
-            <SectionTitle>명세서 촬영 입고</SectionTitle>
+            <SectionTitle>{language === 'en' ? 'Receipt OCR Inbound' : '명세서 촬영 입고'}</SectionTitle>
             {/* [한글 주석] 인식 중일 때는 텍스트를 변경하여 사용자에게 상태를 피드백합니다 */}
             <Text style={styles.hint}>
-              {scanning ? '인식 중… (수 초 걸려요)' : '사진을 찍으면 상품·단가·수량을 인식해 입고 초안을 만들어요'}
+              {scanning
+                ? (language === 'en' ? 'Recognizing... (Takes a few seconds)' : '인식 중… (수 초 걸려요)')
+                : (language === 'en' ? 'Take a photo to auto-detect items, prices & quantities for inbound draft' : '사진을 찍으면 상품·단가·수량을 인식해 입고 초안을 만들어요')}
             </Text>
           </View>
           {/* [한글 주석] 우측 상단의 카메라 아이콘에 터치 인터랙션과 촬영 기능(runOcr)을 부여합니다 */}
@@ -577,11 +582,13 @@ export default function InventoryScreen() {
       <View style={{ gap: 12 }}>
         <View style={styles.rowBetween}>
           <SectionTitle>
-            재고 현황 ({selectedCategory === 'all' ? stocks.length : `${filteredStocks.length}/${stocks.length}`})
+            {language === 'en'
+              ? `Stock Status (${selectedCategory === 'all' ? stocks.length : `${filteredStocks.length}/${stocks.length}`})`
+              : `재고 현황 (${selectedCategory === 'all' ? stocks.length : `${filteredStocks.length}/${stocks.length}`})`}
           </SectionTitle>
           <PressableScale style={styles.addBtn} onPress={() => setFormOpen((v) => !v)} to={0.92}>
             <Ionicons name={formOpen ? 'remove' : 'add'} size={16} color={colors.white} />
-            <Text style={styles.confirmText}>{formOpen ? '닫기' : '재료 직접 등록'}</Text>
+            <Text style={styles.confirmText}>{formOpen ? (language === 'en' ? 'Close' : '닫기') : (language === 'en' ? '+ Add Ingredient Directly' : '+ 재료 직접 등록')}</Text>
           </PressableScale>
         </View>
 
@@ -598,7 +605,7 @@ export default function InventoryScreen() {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Ionicons name="filter-outline" size={15} color={colors.mochaBrown} />
               <Text style={styles.dropdownTriggerText}>
-                카테고리: {CATEGORIES.find((c) => c.id === selectedCategory)?.label || '전체'}
+                {language === 'en' ? 'Category: ' : '카테고리: '}{selectedCategory === 'all' ? (language === 'en' ? 'All' : '전체') : (CATEGORIES.find((c) => c.id === selectedCategory)?.label || '전체')}
               </Text>
             </View>
             <Ionicons 
@@ -664,14 +671,16 @@ export default function InventoryScreen() {
 
         {!token ? (
           <Card>
-            <Text style={styles.hint}>로그인하면 내 매장의 재고 현황이 표시됩니다.</Text>
+            <Text style={styles.hint}>{language === 'en' ? 'Log in to view your store stock status.' : '로그인하면 내 매장의 재고 현황이 표시됩니다.'}</Text>
           </Card>
         ) : filteredStocks.length === 0 ? (
           <Card>
             <Text style={styles.hint}>
               {selectedCategory === 'all'
-                ? '아직 등록된 재고가 없어요. 영수증을 촬영해 입고하거나 "재료 직접 등록"으로 시작해 보세요.'
-                : '해당 카테고리에 속하는 재고가 없어요.'}
+                ? (language === 'en'
+                    ? 'No stock registered yet. Take a receipt photo or tap "+ Add Ingredient Directly" to start.'
+                    : '아직 등록된 재고가 없어요. 영수증을 촬영해 입고하거나 "재료 직접 등록"으로 시작해 보세요.')
+                : (language === 'en' ? 'No stock found in this category.' : '해당 카테고리에 속하는 재고가 없어요.')}
             </Text>
           </Card>
         ) : (

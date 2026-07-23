@@ -5,6 +5,7 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../../auth/AuthContext';
+import { useTranslation } from '../../i18n/translations';
 import { PressableScale } from '../../components/motion';
 import { Badge, Card, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
 import { listMenus, listRecentSales, recordSales, type MenuItem, type RecentSale } from '../../lib/api/sales';
@@ -22,6 +23,7 @@ function timeAgo(soldAt: string): string {
 }
 
 export default function SalesInputScreen() {
+  const { t, language } = useTranslation();
   const { token } = useAuth();
   const [menus, setMenus] = useState<MenuItem[] | null>(null);
   const [recent, setRecent] = useState<RecentSale[]>([]);
@@ -85,18 +87,22 @@ export default function SalesInputScreen() {
 
   return (
     <Screen>
-      <ScreenTitle title="판매 입력" subtitle="입력하면 레시피 기준 재고가 자동 차감돼요" />
+      <ScreenTitle title={t('salesInputTitle')} subtitle={t('salesInputSub')} />
 
       {/* POS 연동 안내 */}
       <Card tone="cream">
         <View style={styles.posRow}>
           <Ionicons name="sync-outline" size={18} color={colors.mochaBrown} />
-          <Text style={styles.posText}>POS 자동 동기화 외 판매는 여기서 수동 입력하세요</Text>
+          <Text style={styles.posText}>
+            {language === 'en'
+              ? 'Manually record sales here for non-POS synced orders'
+              : 'POS 자동 동기화 외 판매는 여기서 수동 입력하세요'}
+          </Text>
         </View>
       </Card>
 
       {/* 메뉴 선택 */}
-      <SectionTitle>메뉴 선택</SectionTitle>
+      <SectionTitle>{language === 'en' ? 'Select Menu' : '메뉴 선택'}</SectionTitle>
 
       {menus === null && !failed && (
         <Card>
@@ -145,16 +151,18 @@ export default function SalesInputScreen() {
       {count > 0 && (
         <PressableScale style={[styles.registerBtn, submitting && { opacity: 0.6 }]} onPress={register}>
           <Text style={styles.registerText}>
-            {submitting ? '등록 중…' : `${count}잔 · ₩${total.toLocaleString()} 판매 등록`}
+            {submitting
+              ? (language === 'en' ? 'Recording...' : '등록 중…')
+              : (language === 'en' ? `Record Sales (${count} cups · ₩${total.toLocaleString()})` : `${count}잔 · ₩${total.toLocaleString()} 판매 등록`)}
           </Text>
         </PressableScale>
       )}
 
       {/* 최근 판매 */}
-      <SectionTitle>최근 판매</SectionTitle>
+      <SectionTitle>{language === 'en' ? 'Recent Sales' : '최근 판매'}</SectionTitle>
       {recent.length === 0 && (
         <Card>
-          <Text style={styles.stateText}>아직 판매 기록이 없어요.</Text>
+          <Text style={styles.stateText}>{language === 'en' ? 'No recent sales records yet.' : '아직 판매 기록이 없어요.'}</Text>
         </Card>
       )}
       {recent.map((s) => (

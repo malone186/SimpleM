@@ -10,6 +10,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 import { useAuth } from '../../auth/AuthContext';
+import { useTranslation } from '../../i18n/translations';
 import { Card, Divider, ProgressBar, Screen, ScreenTitle, SectionTitle, Badge } from '../../components/ui';
 import { PressableScale } from '../../components/motion'; // [한글 주석: 터치 이벤트가 씹히지 않는 최적화 모션 프레스 컴포넌트 추가]
 import { apiFetch } from '../../lib/api/client';
@@ -80,6 +81,8 @@ const getCategoryOfMenu = (name: string): string => {
 };
 
 export default function CostScreen() {
+  // [한글 주석: 전역 다국어 훅 호출]
+  const { t, language } = useTranslation();
   const { token } = useAuth();
   const [menus, setMenus] = useState<MenuRow[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -178,19 +181,19 @@ export default function CostScreen() {
   return (
     <View style={{ flex: 1 }}>
       <Screen>
-        <ScreenTitle title="원가 분석" subtitle="메뉴별 원가율 · 단가 변동 자동 반영" />
+        <ScreenTitle title={t('costAnalysisTitle')} subtitle={t('costAnalysisSub')} />
 
         {/* 요약 */}
         <Card>
-          <Text style={styles.summaryLabel}>전체 평균 원가율</Text>
+          <Text style={styles.summaryLabel}>{language === 'en' ? 'Overall Avg. Cost Ratio' : '전체 평균 원가율'}</Text>
           <Text style={styles.summaryValue}>{avg !== null ? `${avg}%` : '—'}</Text>
-          <Text style={styles.summaryHint}>일반적으로 30~35% 이하를 권장해요</Text>
+          <Text style={styles.summaryHint}>{language === 'en' ? 'Recommended: 30-35% or lower' : '일반적으로 30~35% 이하를 권장해요'}</Text>
         </Card>
 
         {/* [한글 주석] 대시보드에서 이관 배치한 AI 메뉴 최적화 아코디언 카드 */}
         <MenuOptimizationCard />
 
-        <SectionTitle>메뉴별 원가율</SectionTitle>
+        <SectionTitle>{language === 'en' ? 'Cost Ratio by Menu' : '메뉴별 원가율'}</SectionTitle>
 
         {/* [한글 주석] 공간 효율성과 확장성을 극대화한 부드러운 드롭다운 필터 버튼 */}
         {menus !== null && rows.length > 0 && (

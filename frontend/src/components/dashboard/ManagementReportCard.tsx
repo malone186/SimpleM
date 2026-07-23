@@ -8,6 +8,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { useAuth } from '../../auth/AuthContext';
 import { usePreferences } from '../../preferences/PreferencesContext';
+import { useTranslation } from '../../i18n/translations';
 import type { RootTabParamList } from '../../navigation/RootNavigator';
 import {
   getManagementReport,
@@ -44,9 +45,24 @@ const formatFriendlyText = (text: string) => {
 const won = (n: number) => `${n < 0 ? '-' : ''}₩${Math.abs(n).toLocaleString('ko-KR')}`;
 
 export default function ManagementReportCard() {
+  // [한글 주석: 전역 다국어 훅 연동 — AI 경영 리포트 카드 영문/한글 텍스트 제공]
+  const { t, language } = useTranslation();
   const { token } = useAuth();
   const navigation = useNavigation<NativeStackNavigationProp<RootTabParamList>>();
   const { reportFrequency } = usePreferences();
+
+  const periodsOptions: { value: ReportPeriodType; label: string }[] = [
+    { value: 'daily', label: t('daily') },
+    { value: 'weekly', label: t('weekly') },
+    { value: 'monthly', label: t('monthly') },
+  ];
+
+  const periodWordMap: Record<ReportPeriodType, string> = {
+    daily: t('thisDayRevenue'),
+    weekly: t('thisWeekRevenue'),
+    monthly: t('thisMonthRevenue'),
+  };
+
   // 설정의 'AI 경영 리포트 수신 주기'(매일/매주)를 첫 화면 기간으로 반영
   const [period, setPeriod] = useState<ReportPeriodType>(reportFrequency === 'daily' ? 'daily' : 'weekly');
   // 기간별 응답 캐시 — 탭을 오가도 다시 로딩하지 않는다 (카드 리마운트 시 초기화 = 당겨서 새로고침)
@@ -94,24 +110,24 @@ export default function ManagementReportCard() {
   return (
     <View style={styles.card}>
       <View style={styles.headRow}>
-        <Text style={styles.title}>AI 경영 리포트</Text>
+        <Text style={styles.title}>{t('aiManagementReport')}</Text>
         {report && <Text style={styles.periodText}>{c.period}</Text>}
       </View>
 
-      <Segmented options={PERIODS} value={period} onChange={setPeriod} />
+      <Segmented options={periodsOptions} value={period} onChange={setPeriod} />
 
       {!report && loading && (
         <View style={styles.stateWrap}>
           <ActivityIndicator color={colors.mochaBrown} />
-          <Text style={styles.stateText}>{PERIOD_WORD[period]} 데이터를 모으는 중…</Text>
+          <Text style={styles.stateText}>{periodWordMap[period]} {language === 'en' ? 'loading...' : '데이터를 모으는 중…'}</Text>
         </View>
       )}
 
       {!report && failed && !loading && (
         <View style={styles.stateWrap}>
-          <Text style={styles.stateText}>리포트를 가져오지 못했어요. 로그인과 서버를 확인해 주세요.</Text>
+          <Text style={styles.stateText}>{language === 'en' ? 'Failed to fetch report.' : '리포트를 가져오지 못했어요. 로그인과 서버를 확인해 주세요.'}</Text>
           <PressableScale style={styles.retryBtn} onPress={() => setRetryKey((k) => k + 1)}>
-            <Text style={styles.retryText}>다시 시도</Text>
+            <Text style={styles.retryText}>{language === 'en' ? 'Retry' : '다시 시도'}</Text>
           </PressableScale>
         </View>
       )}
@@ -121,7 +137,7 @@ export default function ManagementReportCard() {
           {/* 히어로 숫자 — 기간 매출 + 이전 기간 대비 증감 (화살표 + 퍼센트) */}
           <View style={styles.heroRow}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.heroLabel}>{PERIOD_WORD[period]} 매출</Text>
+              <Text style={styles.heroLabel}>{periodWordMap[period]}</Text>
               <Text style={styles.heroValue}>{won(salesTotal)}</Text>
             </View>
             {salesDelta !== null ? (
@@ -132,7 +148,7 @@ export default function ManagementReportCard() {
               </View>
             ) : (
               <View style={styles.deltaBadgeNeutral}>
-                <Text style={styles.deltaTextNeutral}>비교 데이터 없음</Text>
+                <Text style={styles.deltaTextNeutral}>{t('noComparisonData')}</Text>
               </View>
             )}
           </View>
@@ -143,7 +159,7 @@ export default function ManagementReportCard() {
               style={[styles.tile, selectedTile === 'profit' && styles.tileActive]}
               onPress={() => toggleTile('profit')}
             >
-              <Text style={styles.tileLabel}>추정 수익</Text>
+              <Text style={styles.tileLabel}>{t('estProfit')}</Text>
               <Text style={styles.tileValue} numberOfLines={1} adjustsFontSizeToFit>
                 {won(c.profit?.estimated_profit ?? 0)}
               </Text>
@@ -153,7 +169,7 @@ export default function ManagementReportCard() {
               style={[styles.tile, selectedTile === 'cost' && styles.tileActive]}
               onPress={() => toggleTile('cost')}
             >
-              <Text style={styles.tileLabel}>비용 합계</Text>
+              <Text style={styles.tileLabel}>{t('totalExpenses')}</Text>
               <Text style={styles.tileValue} numberOfLines={1} adjustsFontSizeToFit>
                 {won(c.profit?.total_cost ?? 0)}
               </Text>
@@ -163,9 +179,9 @@ export default function ManagementReportCard() {
               style={[styles.tile, selectedTile === 'sales' && styles.tileActive]}
               onPress={() => toggleTile('sales')}
             >
-              <Text style={styles.tileLabel}>판매 잔</Text>
+              <Text style={styles.tileLabel}>{t('soldCups')}</Text>
               <Text style={styles.tileValue} numberOfLines={1} adjustsFontSizeToFit>
-                {(c.sales?.cups ?? 0).toLocaleString('ko-KR')}잔
+                {(c.sales?.cups ?? 0).toLocaleString('ko-KR')}{t('cups')}
               </Text>
             </PressableScale>
           </View>
@@ -293,19 +309,20 @@ export default function ManagementReportCard() {
 
           {/* 운영 체크 + 상세 안내 */}
           <Text style={styles.opsLine}>
-            재고 부족 알림 {c.inventory?.low_stock?.length ?? 0}건 · 진행 중 발주{' '}
-            {c.orders?.open_count ?? 0}건 · 갱신 확인 서류 {c.compliance_alerts?.length ?? 0}건
+            {language === 'en'
+              ? `${c.inventory?.low_stock?.length ?? 0} Low Stock · ${c.orders?.open_count ?? 0} Pending Orders · ${c.compliance_alerts?.length ?? 0} Docs`
+              : `재고 부족 알림 ${c.inventory?.low_stock?.length ?? 0}건 · 진행 중 발주 ${c.orders?.open_count ?? 0}건 · 갱신 확인 서류 ${c.compliance_alerts?.length ?? 0}건`}
           </Text>
           {/* 품목별 상세는 전용 화면이 없으므로, 눌러서 챗봇에 질문을 바로 채워 넣는다 */}
           <PressableScale
             style={styles.detailBtn}
             onPress={() => {
-              const label = PERIODS.find((p) => p.value === period)?.label ?? '일간';
+              const label = periodsOptions.find((p) => p.value === period)?.label ?? '일간';
               navigation.navigate('Chatbot', { prefill: `${label} 품목별 상세 표 보여줘`, ts: Date.now() });
             }}
           >
             <Ionicons name="chatbubble-ellipses" size={15} color={colors.white} />
-            <Text style={styles.detailBtnText}>품목별 상세 표 보기</Text>
+            <Text style={styles.detailBtnText}>{t('viewItemizedDetail')}</Text>
           </PressableScale>
         </>
       )}

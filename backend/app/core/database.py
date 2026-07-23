@@ -62,14 +62,30 @@ def _create_db_engine():
 
 engine = _create_db_engine()
 
-# [한글 주석] SQLite 사용 시 기존 DB에 부족한 컬럼(actual_start_time, actual_end_time 등) 자동 생성 보완
+# [한글 주석] SQLite 사용 시 기존 DB에 부족한 컬럼(actual_start_time, actual_end_time, roastery_beans 컬럼 등) 자동 생성 보완
 def _ensure_sqlite_schema():
     if str(engine.url).startswith("sqlite"):
         from sqlalchemy import text
         with engine.connect() as conn:
+            # 1. schedules 테이블 부족 컬럼 보완
             for col in ["actual_start_time", "actual_end_time"]:
                 try:
                     conn.execute(text(f"ALTER TABLE schedules ADD COLUMN {col} DATETIME"))
+                    conn.commit()
+                except Exception:
+                    pass
+
+            # 2. roastery_beans 테이블 신규 수집/큐레이션 컬럼 자동 스키마 마이그레이션
+            roastery_cols = [
+                ("avg_rating", "FLOAT DEFAULT 0.0"),
+                ("review_count", "INTEGER DEFAULT 0"),
+                ("positive_ratio", "FLOAT DEFAULT 0.0"),
+                ("top_keywords", "TEXT"),
+                ("curation_snapshot", "TEXT"),
+            ]
+            for col_name, col_type in roastery_cols:
+                try:
+                    conn.execute(text(f"ALTER TABLE roastery_beans ADD COLUMN {col_name} {col_type}"))
                     conn.commit()
                 except Exception:
                     pass

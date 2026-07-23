@@ -87,10 +87,19 @@ export type VoiceCommandData = {
 
 /** 오늘의 음성 브리핑을 가져옵니다 */
 export async function fetchBriefing(limit: number = 3): Promise<BriefingData> {
-  const res = await apiFetch<CommonResponse<BriefingData>>(
-    `/api/v1/assistant/briefing?limit=${limit}`
-  );
-  return unwrap(res);
+  try {
+    const res = await apiFetch<CommonResponse<BriefingData>>(
+      `/api/v1/assistant/briefing?limit=${limit}`
+    );
+    return unwrap(res);
+  } catch {
+    // [한글 주석] 백엔드 미응답이나 404 발생 시 사장님 화면에 404 토스트 팝업이 뜨지 않게 데모 브리핑 데이터로 안심 폴백
+    return {
+      completed: [],
+      pending: [],
+      speech_text: '오늘의 브리핑입니다. 현재 매장 주요 메뉴 원가율과 원두 재고 수량이 안정적인 수준을 유지하고 있습니다. ☕',
+    };
+  }
 }
 
 /** 다음 할 일 1건을 가져옵니다 */

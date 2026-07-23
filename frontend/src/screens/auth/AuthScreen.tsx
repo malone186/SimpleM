@@ -22,7 +22,7 @@ import { IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
 import { colors, spacing, typography } from '../../theme';
 
-const LOGO = require('../../../assets/brew_icon_cutout.png');
+const LOGO = require('../../../assets/brewnote_welcome_mascot.png'); // [한글 주석] 로그인/로그아웃 화면 로고 — 사장님 요청 귀여운 BREWNOTE 강아지 마스코트
 
 type Mode = 'login' | 'signup';
 
@@ -144,9 +144,9 @@ export default function AuthScreen() {
 
   // 1단계 기본 정보
   const [name, setName] = useState('');
-  // [한글 주석] 직접 입력하여 가입 및 로그인을 할 수 있도록 기본값(데모 계정)을 삭제합니다.
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  // [한글 주석: 백엔드 실제 시드 계정(owner@cafe.com / owner123)이 입력칸에 채워져 바로 로그인 클릭 가능]
+  const [email, setEmail] = useState('owner@cafe.com');
+  const [password, setPassword] = useState('owner123');
   const [autoLogin, setAutoLogin] = useState(true);
 
   // 2단계 가게 상세 설정 정보
@@ -481,6 +481,21 @@ export default function AuthScreen() {
     setStep(2);
   };
 
+  const handleDemoLogin = async () => {
+    // [한글 주석: 사장님이 클릭 한 번으로 바로 체험할 수 있는 1초 데모 로그인]
+    setError('');
+    setEmail('owner@cafe.com');
+    setPassword('owner1234');
+    setBusy(true);
+    try {
+      await login('owner@cafe.com', 'owner1234', true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '데모 로그인 중 문제가 발생했어요.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const submit = async () => {
     setError('');
     if (mode === 'login') {
@@ -488,11 +503,20 @@ export default function AuthScreen() {
         setError('이메일과 비밀번호를 입력해 주세요.');
         return;
       }
+      if (!email.includes('@')) {
+        setError('올바른 이메일 형식(예: owner@cafe.com)으로 입력해 주세요.');
+        return;
+      }
       setBusy(true);
       try {
-        await login(email, password, autoLogin);
+        await login(email.trim(), password, autoLogin);
       } catch (e) {
-        setError(e instanceof Error ? e.message : '문제가 발생했어요.');
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.includes('value is not a valid email address')) {
+          setError('이메일에 @ 기호를 포함해 주세요 (예: owner@cafe.com)');
+        } else {
+          setError(msg || '로그인에 실패했어요. 아이디와 비밀번호를 확인해 주세요.');
+        }
       } finally {
         setBusy(false);
       }
@@ -967,7 +991,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.creamSand },
   content: { padding: spacing.globalPadding, paddingTop: 60, gap: spacing.verticalGap },
   brand: { alignItems: 'center', marginBottom: 8 },
-  logo: { width: 248, height: 218 },
+  logo: { width: 310, height: 190, resizeMode: 'contain' },
   brandSub: { ...typography.L4, color: colors.mochaBrown, marginTop: 10 },
   form: { gap: 12 },
   field: {

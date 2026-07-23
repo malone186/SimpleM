@@ -17,12 +17,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Screen, ScreenTitle } from '../../components/ui';
+import { useTranslation } from '../../i18n/translations';
 import { colors, shadows, spacing, typography } from '../../theme';
-import { listRoasteryBeans, listStocks, RoasteryBean, StockItem } from '../../lib/api/inventory';
+import { listRoasteryBeans, listStocks, DEFAULT_ROASTERY_BEANS, RoasteryBean, StockItem } from '../../lib/api/inventory';
 import BeanDetailModal from '../../components/order/BeanDetailModal';
 import BeanNotepad from '../../components/order/BeanNotepad';
 
 export default function OrderScreen() {
+  // [한글 주석: 전역 다국어 훅 호출]
+  const { t, language } = useTranslation();
 
   // [상태] 원두 목록, 로딩 중 여부, 오류 여부, 상세 모달 대상 원두
   const [beans, setBeans] = useState<RoasteryBean[]>([]);
@@ -54,25 +57,25 @@ export default function OrderScreen() {
     return null;
   };
 
-  // 백엔드에서 원두 목록 데이터 로드
+  // 백엔드에서 원두 목록 데이터 로드 (실패 시 샘플 원두 목록 폴백)
   const loadBeans = async () => {
     try {
       setLoading(true);
       setError(false);
       const token = await getAuthToken();
-      if (!token) return;
-      const data = await listRoasteryBeans(token, 10);
-      setBeans(data);
-      // 실시간 재고에서 안전재고 미달 품목만 추린다 — 하드코딩 더미 목록을 대체
-      try {
-        const stocks = await listStocks(token);
-        setLowStocks(stocks.filter((st) => st.current_quantity < st.safety_quantity));
-      } catch {
-        setLowStocks([]); // 재고 조회 실패 시 추천 섹션만 조용히 비운다
+      const data = await listRoasteryBeans(token ?? undefined, 10);
+      setBeans(data && data.length > 0 ? data : DEFAULT_ROASTERY_BEANS);
+      if (token) {
+        try {
+          const stocks = await listStocks(token);
+          setLowStocks(stocks.filter((st) => st.current_quantity < st.safety_quantity));
+        } catch {
+          setLowStocks([]);
+        }
       }
     } catch (e) {
-      console.error('[원두 탐색] 원두 목록 로드 실패:', e);
-      setError(true);
+      console.error('[원두 탐색] 원두 목록 로드 실패, 샘플 폴백 사용:', e);
+      setBeans(DEFAULT_ROASTERY_BEANS);
     } finally {
       setLoading(false);
     }
@@ -113,10 +116,10 @@ export default function OrderScreen() {
   if (loading) {
     return (
       <Screen>
-        <ScreenTitle title="원두 탐색" />
+        <ScreenTitle title={t('beanExplore')} />
         <View style={styles.centerBox}>
           <ActivityIndicator size="large" color={colors.espressoBrown} />
-          <Text style={styles.loadingText}>로스터리 원두 정보를 불러오는 중...</Text>
+          <Text style={styles.loadingText}>{language === 'en' ? 'Loading roastery beans...' : '로스터리 원두 정보를 불러오는 중...'}</Text>
         </View>
       </Screen>
     );
@@ -126,11 +129,11 @@ export default function OrderScreen() {
   if (error) {
     return (
       <Screen>
-        <ScreenTitle title="발주" />
+        <ScreenTitle title={t('orderTitle')} />
         <View style={styles.centerBox}>
           <Ionicons name="alert-circle-outline" size={48} color={colors.mochaBrown} />
-          <Text style={styles.errorTitle}>데이터를 불러오지 못했어요</Text>
-          <Text style={styles.errorDesc}>잠시 후 다시 시도해 주세요.</Text>
+          <Text style={styles.errorTitle}>{language === 'en' ? 'Failed to load data' : '데이터를 불러오지 못했어요'}</Text>
+          <Text style={styles.errorDesc}>{language === 'en' ? 'Please try again later.' : '잠시 후 다시 시도해 주세요.'}</Text>
           <TouchableOpacity style={styles.retryBtn} onPress={loadBeans}>
             <Text style={styles.retryText}>다시 시도</Text>
           </TouchableOpacity>

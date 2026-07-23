@@ -14,6 +14,7 @@ import {
 export type FontSize = 'small' | 'normal' | 'large' | 'xlarge';
 export type ReportFrequency = 'daily' | 'weekly';
 export type PlanTier = 'free' | 'pro' | 'business';
+export type Language = 'ko' | 'en'; // 다국어 언어 지원 타입 (한국어 / 영어)
 
 export type Preferences = {
   // 알림
@@ -26,7 +27,8 @@ export type Preferences = {
   voiceAlertEnabled: boolean; // 알림 음성 읽어주기(TTS) — 이어폰 연결 시 완료 알림을 읽어줌
   voiceAssistantEnabled: boolean; // 음성 비서 버튼 표시 — 우하단 브리핑(📋)·음성 명령(🎤) 버튼
   // 화면 표시 / 접근성
-  fontSize: FontSize;
+  fontSize: FontSize;       // 글자 크기
+  language: Language;       // 앱 표현 언어 (한국어: 'ko', 영어: 'en')
   // 계정 부가정보 (백엔드 User에 필드가 없어 로컬 보관)
   businessType: string;     // 업종
   openHour: string;         // 가게 오픈 시간 ('HH:MM')
@@ -45,6 +47,7 @@ const DEFAULTS: Preferences = {
   voiceAlertEnabled: true,
   voiceAssistantEnabled: true,
   fontSize: 'normal',
+  language: 'ko', // 기본 언어: 한국어
   businessType: '카페',
   openHour: '09:00',
   closeHour: '21:00',
@@ -64,6 +67,12 @@ export const FONT_SIZE_LABEL: Record<FontSize, string> = {
   normal: '보통',
   large: '크게',
   xlarge: '아주 크게',
+};
+
+// 언어 선택용 라벨 매핑 (한국어 / English)
+export const LANGUAGE_LABEL: Record<Language, string> = {
+  ko: '한국어',
+  en: 'English',
 };
 
 // 구독 요금제 메타 (데모 가격)

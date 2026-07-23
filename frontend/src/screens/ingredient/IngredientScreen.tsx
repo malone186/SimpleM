@@ -5,6 +5,7 @@ import { StyleSheet, Text, View, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../../auth/AuthContext';
+import { useTranslation } from '../../i18n/translations';
 import FormSheet, { LabeledInput } from '../../components/FormSheet';
 import { PressableScale } from '../../components/motion';
 import { Badge, Button, Card, Screen, ScreenTitle } from '../../components/ui';
@@ -22,6 +23,8 @@ type Ingredient = {
 };
 
 export default function IngredientScreen() {
+  // [한글 주석: 전역 다국어 훅 연동]
+  const { t, language } = useTranslation();
   const [items, setItems] = useState<Ingredient[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
@@ -110,22 +113,22 @@ export default function IngredientScreen() {
   return (
     <>
       <Screen>
-        <ScreenTitle title="재료 관리" subtitle="재료 단가와 변동 이력" />
+        <ScreenTitle title={t('ingredientMgmtTitle')} subtitle={t('ingredientMgmtSub')} />
 
-        <Button label="+ 재료 추가" variant="secondary" onPress={() => setAdding(true)} />
+        <Button label={language === 'en' ? '+ Add Ingredient' : '+ 재료 추가'} variant="secondary" onPress={() => setAdding(true)} />
 
         {loading ? (
           <View style={{ paddingVertical: 40 }}>
             <ActivityIndicator size="large" color={colors.espressoBrown} />
             <Text style={{ textAlign: 'center', marginTop: 10, color: colors.mochaBrown }}>
-              데이터를 동기화하고 있어요...
+              {language === 'en' ? 'Syncing data...' : '데이터를 동기화하고 있어요...'}
             </Text>
           </View>
         ) : items.length === 0 ? (
           <View style={{ paddingVertical: 40, alignItems: 'center' }}>
             <Ionicons name="cube-outline" size={48} color={colors.mutedSand} />
             <Text style={{ marginTop: 10, color: colors.mochaBrown, ...typography.L4 }}>
-              등록된 재료가 없습니다. 새 재료를 추가해 주세요.
+              {language === 'en' ? 'No registered ingredients. Please add a new ingredient.' : '등록된 재료가 없습니다. 새 재료를 추가해 주세요.'}
             </Text>
           </View>
         ) : (

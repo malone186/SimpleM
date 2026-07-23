@@ -8,6 +8,7 @@ import Svg, { Circle, Defs, FeGaussianBlur, Filter, LinearGradient, Path, Stop }
 
 import { FadeInUp, PressableScale } from '../../components/motion';
 import { colors } from '../../theme';
+import { useTranslation } from '../../i18n/translations';
 import Brew from '../../components/brew/Brew';
 
 const IVORY = '#F4F1EF';
@@ -87,7 +88,19 @@ function scheme(color: string) {
 }
 
 export default function ManagementScreen() {
+  // [한글 주석: 전역 다국어 훅 호출]
+  const { t, language } = useTranslation();
   const navigation = useNavigation<any>();
+
+  const itemsList: Item[] = [
+    { label: language === 'en' ? 'Dessert Mgmt' : '디저트 관리', en: 'DESSERT', desc: language === 'en' ? 'Shelf life · Loss · Margin ranking' : '소비기한 · 폐기 손실 · 마진 순위', color: '#6B4A32', route: 'Dessert' },
+    { label: t('employeeManagement'), en: 'PAYROLL', desc: language === 'en' ? 'Employee schedule & Payroll' : '알바 스케줄 · 손익 정산', color: '#5B514C', route: 'Operation' },
+    { label: t('taxDocsTitle'), en: 'DOCUMENTS', desc: t('taxDocsSub'), color: '#9A8E82', route: 'Document' },
+    { label: t('salesInputTitle'), en: 'SALES', desc: t('salesInputSub'), color: '#D1C6B9', route: 'SalesInput' },
+    { label: t('costAnalysisTitle'), en: 'COST', desc: t('costAnalysisSub'), color: '#E1DCD7', route: 'Cost' },
+    { label: t('lawSearchTitle'), en: 'LAW', desc: t('lawSearchSub'), color: '#F4F1EF', route: 'LawSearch' },
+    { label: language === 'en' ? 'Bean Ops' : '운영·원두 분석', en: 'OPERATION', desc: language === 'en' ? 'Bean market price & Reviews' : '원두 최저가 시세 · 실리뷰 분석', color: '#463C34', route: 'BeanOperation' },
+  ];
 
   // 탭에 다시 들어올 때마다 카드 등장 애니메이션을 재생한다 (홈 화면과 같은 방식)
   const isFocused = useIsFocused();
@@ -130,15 +143,15 @@ export default function ManagementScreen() {
       {/* 헤더 — ScrollView 밖에 있어 카드가 흘러도 제자리에 고정된다 */}
       <View style={styles.header}>
         <FadeInUp key={`title-${runId}`} style={styles.headerText}>
-          <Text style={styles.bigTitle}>관리</Text>
-          <Text style={styles.sub}>가게 운영에 필요한 모든 기능</Text>
+          <Text style={styles.bigTitle}>{t('tabManagement')}</Text>
+          <Text style={styles.sub}>{t('managementHubSubtitle')}</Text>
         </FadeInUp>
 
         <View style={styles.headerRight}>
           {/* 설정 진입 — 카드가 아니라 헤더 안에 둔다 */}
           <PressableScale style={styles.gearBtn} onPress={() => navigation.navigate('Settings')} to={0.9}>
             <Ionicons name="settings-outline" size={15} color={colors.creamSand} />
-            <Text style={styles.gearText}>설정</Text>
+            <Text style={styles.gearText}>{t('settings')}</Text>
           </PressableScale>
           <Brew mood="clipboard" size={96} />
         </View>
@@ -156,7 +169,7 @@ export default function ManagementScreen() {
           scrollEventThrottle={16}
           onLayout={(e) => setSheetH(e.nativeEvent.layout.height)}
         >
-          {ITEMS.map((it, i) => {
+          {itemsList.map((it, i) => {
             const lay = LAYOUT[i % LAYOUT.length];
             const s = scheme(it.color);
 

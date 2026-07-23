@@ -4,6 +4,7 @@
 // speechPlayer는 이어폰이 없으면 TTS를 건너뜁니다(2단계 설계).
 // 확인 질문이 음성으로 안 들리는데 시스템은 답을 기다리는 상황을 막으려면,
 // 확인 문구와 [확인]/[취소] 버튼이 반드시 화면에 보여야 합니다.
+import { Ionicons } from '@expo/vector-icons';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '../../auth/AuthContext';
@@ -19,22 +20,18 @@ export default function VoiceCommandButton() {
     onError: (message) => toast('🎤 음성 명령', message),
   });
 
-  // 로그인 상태가 아니거나 음성 인식을 못 쓰는 환경(네이티브·미지원 브라우저)이면 숨깁니다.
-  // 설정 > 알림 수신 설정의 '음성 비서 버튼 표시'를 꺼도 숨깁니다.
   if (!token || !vc.support.supported || !prefs.ready || !prefs.voiceAssistantEnabled) return null;
 
   const listening = vc.phase === 'listening';
   const processing = vc.phase === 'processing';
   const confirming = vc.phase === 'awaiting_confirmation';
 
-  // 말풍선에 띄울 문구 — 말하는 중에는 중간 결과, 그 외에는 서버 응답
   const bubbleText = listening
     ? vc.partial || '듣고 있습니다…'
     : vc.response?.speech_text ?? '';
 
   return (
     <View style={styles.wrap} pointerEvents="box-none">
-      {/* 상태 말풍선 */}
       {(listening || processing || confirming || !!vc.response) && !!bubbleText && (
         <View style={styles.bubble}>
           {!!vc.transcript && !listening && (
@@ -42,7 +39,6 @@ export default function VoiceCommandButton() {
           )}
           <Text style={styles.bubbleText}>{bubbleText}</Text>
 
-          {/* 파괴적 명령 확인 — 음성('네') 대신 버튼으로도 답할 수 있게 */}
           {confirming && (
             <View style={styles.actions}>
               <Pressable
@@ -69,7 +65,7 @@ export default function VoiceCommandButton() {
         {processing ? (
           <ActivityIndicator color={colors.white} size="small" />
         ) : (
-          <Text style={styles.micIcon}>{listening ? '⏹' : '🎤'}</Text>
+          <Ionicons name={listening ? 'square' : 'mic'} size={20} color={colors.white} />
         )}
       </Pressable>
     </View>
@@ -80,7 +76,7 @@ const styles = StyleSheet.create({
   wrap: {
     position: 'absolute',
     right: 16,
-    bottom: 88, // 하단 탭바 위로 띄움
+    bottom: 20, // [한글 주석: 하단 탭 바 위 딱 맞춰 안정적으로 배치되는 제자리 포지션]
     alignItems: 'flex-end',
     gap: 10,
   },
@@ -131,18 +127,17 @@ const styles = StyleSheet.create({
     color: colors.mochaBrown,
   },
   mic: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: colors.pointOrange,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.espressoBrown, // [한글 주석: 튀지 않고 차분한 딥 에스프레소 브라운 뱃지]
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
     ...shadows.medium,
   },
   micActive: {
     backgroundColor: colors.trendGreenText,
-  },
-  micIcon: {
-    fontSize: 22,
   },
 });

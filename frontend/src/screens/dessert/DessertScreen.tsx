@@ -6,6 +6,7 @@ import { Modal, Pressable, StyleSheet, Text, TextInput, View, Alert } from 'reac
 import { Ionicons } from '@expo/vector-icons';
 
 import { Badge, Button, Card, Divider, ProgressBar, Screen, SectionTitle } from '../../components/ui';
+import { useTranslation } from '../../i18n/translations';
 import { PressableScale } from '../../components/motion';
 import { confirmDialog, toast } from '../../components/toast';
 import { colors, typography } from '../../theme';
@@ -39,6 +40,8 @@ function expiryState(dl: number): { label: string; tone: 'danger' | 'orange' | '
 }
 
 export default function DessertScreen() {
+  // [한글 주석: 전역 다국어 훅 연동]
+  const { t, language } = useTranslation();
   const { desserts, batches, wastes, addDessert, addBatch, removeDessert, sell, waste } = useDesserts();
 
 
@@ -96,11 +99,11 @@ export default function DessertScreen() {
       {/* ① 소비기한 임박 알림 */}
       <Card tone="cream">
         <View style={styles.rowBetween}>
-          <SectionTitle>소비기한 임박 알림</SectionTitle>
-          <Badge label={`${urgent.length}건`} tone={urgent.length ? 'danger' : 'neutral'} />
+          <SectionTitle>{language === 'en' ? 'Expiration Imminent Alert' : '소비기한 임박 알림'}</SectionTitle>
+          <Badge label={`${urgent.length}${language === 'en' ? ' items' : '건'}`} tone={urgent.length ? 'danger' : 'neutral'} />
         </View>
         {urgent.length === 0 ? (
-          <Text style={styles.empty}>임박한 디저트가 없어요. 여유롭게 판매하세요 ☕</Text>
+          <Text style={styles.empty}>{language === 'en' ? 'No items near expiration date ☕' : '임박한 디저트가 없어요. 여유롭게 판매하세요 ☕'}</Text>
         ) : (
           <View style={{ marginTop: 10, gap: 10 }}>
             {urgent.map((b) => {
