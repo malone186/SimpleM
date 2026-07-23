@@ -101,6 +101,23 @@ class ChatSession(Base):
     updated_at_ms: Mapped[int] = mapped_column(BigInteger, index=True)
 
 
+class AdminAccount(Base):
+    """관리자 콘솔 계정 — 비밀번호를 공유 DB에 bcrypt 해시로 저장한다
+
+    각 팀원 PC의 .env(ADMIN_PASSWORD)에 의존하지 않고, 어느 컴퓨터에서 백엔드를
+    띄우든 같은 아이디·비밀번호로 로그인되게 한다. 행이 없으면 최초 로그인 시
+    env 자격증명으로 검증 후 자동 생성된다(무중단 이행).
+    """
+
+    __tablename__ = "admin_accounts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(100))  # bcrypt
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+
+
 class AdminNotification(Base):
     """관리자 공지·알림 — 관리자 콘솔에서 발송해 사장님 앱이 폴링으로 수신한다
 

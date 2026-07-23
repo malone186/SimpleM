@@ -12,13 +12,15 @@ from app.core.auth import (
     get_current_user,
     get_current_admin,
     create_access_token,
+    get_password_hash,
+    verify_password,
     ADMIN_EMAILS,
     ADMIN_PASSWORD,
 )
 from app.core.database import get_db
 from app.models.user import User
 from app.models.inventory import Ingredient
-from app.models.ai import AdminNotification, GeneratedDocument
+from app.models.ai import AdminAccount, AdminNotification, GeneratedDocument
 from app.models.tracking import TrackingEvent
 
 logger = logging.getLogger(__name__)
@@ -37,18 +39,54 @@ class AdminLogin(BaseModel):
 
 
 @router.post("/login")
-def admin_login(payload: AdminLogin):
+def admin_login(payload: AdminLogin, db: Session = Depends(get_db)):
     """
-    [관리자 로그인] 관리자 허용목록 이메일 + 콘솔 비밀번호(env ADMIN_PASSWORD)를 검증해
-    JWT를 발급한다. admin_web은 이 토큰을 Authorization 헤더로 실어 관리자 API를 호출한다.
+    [관리자 로그인] 공유 DB의 admin_accounts(bcrypt 해시)로 검증해 JWT를 발급한다.
+    어느 컴퓨터에서 백엔드를 띄우든 동일한 아이디·비밀번호가 통한다.
+
+    이행 경로: DB에 계정이 아직 없으면 env(ADMIN_EMAILS/ADMIN_PASSWORD)로 1회 검증 후
+    그 자격증명을 DB 계정으로 자동 생성한다 — 이후부터는 DB만 본다.
     """
-    if not ADMIN_PASSWORD:
-        # 비밀번호 미설정 시 로그인 자체를 막아, 빈 비밀번호로 뚫리는 일을 방지
-        raise HTTPException(status_code=503, detail="관리자 로그인이 설정되지 않았습니다(ADMIN_PASSWORD 미설정).")
-    if payload.email not in ADMIN_EMAILS or payload.password != ADMIN_PASSWORD:
-        raise HTTPException(status_code=401, detail="관리자 이메일 또는 비밀번호가 올바르지 않습니다.")
-    token = create_access_token({"sub": payload.email})
-    return {"access_token": token, "token_type": "bearer", "email": payload.email}
+    email = payload.email.strip()
+    account = db.query(AdminAccount).filter(AdminAccount.email == email).first()
+    if account is not None:
+        if not verify_password(payload.password, account.password_hash):
+            raise HTTPException(status_code=401, detail="관리자 이메일 또는 비밀번호가 올바르지 않습니다.")
+    else:
+        if not ADMIN_PASSWORD and db.query(AdminAccount).count() == 0:
+            # DB 계정도 env 비밀번호도 없으면 로그인 자체를 막아, 빈 비밀번호로 뚫리는 일을 방지
+            raise HTTPException(status_code=503, detail="관리자 로그인이 설정되지 않았습니다(admin_accounts 비어 있음 + ADMIN_PASSWORD 미설정).")
+        if email not in ADMIN_EMAILS or not ADMIN_PASSWORD or payload.password != ADMIN_PASSWORD:
+            raise HTTPException(status_code=401, detail="관리자 이메일 또는 비밀번호가 올바르지 않습니다.")
+        db.add(AdminAccount(email=email, password_hash=get_password_hash(payload.password)))
+        db.commit()
+        logger.info("관리자 계정 자동 이행 — env 자격증명을 DB(admin_accounts)로 옮김: %s", email)
+    token = create_access_token({"sub": email})
+    return {"access_token": token, "token_type": "bearer", "email": email}
+
+
+class AdminPasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/password")
+def change_admin_password(
+    payload: AdminPasswordChange,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """[관리자 비밀번호 변경] 공유 DB에 저장되므로 모든 컴퓨터에 즉시 적용된다."""
+    if len(payload.new_password) < 8:
+        raise HTTPException(status_code=422, detail="새 비밀번호는 8자 이상이어야 합니다.")
+    account = db.query(AdminAccount).filter(AdminAccount.email == current_admin.email).first()
+    if account is None:
+        raise HTTPException(status_code=404, detail="DB에 관리자 계정이 없습니다 — 먼저 로그인해 계정을 생성하세요.")
+    if not verify_password(payload.current_password, account.password_hash):
+        raise HTTPException(status_code=401, detail="현재 비밀번호가 올바르지 않습니다.")
+    account.password_hash = get_password_hash(payload.new_password)
+    db.commit()
+    return {"message": "관리자 비밀번호가 변경되었습니다. 모든 컴퓨터에서 새 비밀번호로 로그인하세요."}
 
 # ---------------------------------------------------------------------------
 # 메모리 기반 가상 임시 데이터 (CS, 알림, 결제 이력 관리용)
