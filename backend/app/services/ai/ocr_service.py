@@ -69,6 +69,9 @@ _VLM_FINETUNE_DIR = Path(__file__).resolve().parents[3] / "vlm_finetune"
 
 # llama.cpp 서버 (파인튜닝 Qwen3.5-0.8B GGUF Q8 — vlm_finetune/output에서 변환)
 LLAMACPP_BASE_URL = os.getenv("LLAMACPP_BASE_URL", "http://localhost:8089")
+# OCR 서버가 공개 URL(HF Space 등)에 있으면 llama-server --api-key와 짝을 맞춰 무단 사용을 막는다
+LLAMACPP_API_KEY = os.getenv("LLAMACPP_API_KEY", "")
+_LLAMACPP_HEADERS = {"Authorization": f"Bearer {LLAMACPP_API_KEY}"} if LLAMACPP_API_KEY else {}
 LLAMACPP_TIMEOUT = float(os.getenv("LLAMACPP_TIMEOUT", "120"))
 LLAMACPP_AUTOSTART = os.getenv("LLAMACPP_AUTOSTART", "1") == "1"
 LLAMACPP_SERVER_EXE = Path(os.getenv("LLAMACPP_SERVER_EXE", _VLM_FINETUNE_DIR / "tools_bin" / "llama-server.exe"))
@@ -527,7 +530,7 @@ async def _call_llamacpp_vlm(image_bytes: bytes, rescue_bytes: Optional[bytes] =
         for attempt in (1, 2, 3):
             try:
                 async with httpx.AsyncClient(timeout=LLAMACPP_TIMEOUT) as client:
-                    resp = await client.post(f"{LLAMACPP_BASE_URL}/v1/chat/completions", json=payload)
+                    resp = await client.post(f"{LLAMACPP_BASE_URL}/v1/chat/completions", json=payload, headers=_LLAMACPP_HEADERS)
                     resp.raise_for_status()
                 content = resp.json()["choices"][0]["message"]["content"] or ""
                 break
