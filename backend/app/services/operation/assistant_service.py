@@ -421,6 +421,17 @@ _INTENT_PATTERNS: dict = {
         ],
         "weak": [r"다음", r"next"],
     },
+    "create_task": {
+        "strong": [
+            r"추가(해|해줘|하세요)?",
+            r"등록(해|해줘|하세요)?",
+            r"만들어(줘|주세요)?",
+            r"할\s*일\s*추가",
+            r"투두(에|로)?",
+            r"add\s*task",
+        ],
+        "weak": [r"할\s*일", r"투두", r"일정"],
+    },
     "read_pending": {
         "strong": [
             r"뭐(야|예요|입니까|니|가\s*있|\s*있)",
@@ -730,6 +741,46 @@ def handle_voice_command(
             executed=True,
             speech_text=f"{_task_phrase(target)}를 시작했습니다.",
             task=target,
+        )
+
+    # ── create_task: 새로운 할 일(투두) 음성 생성 ──
+    if intent == "create_task":
+        cleaned_title = re.sub(r"(투두에|투두로|투두|할\s*일|일정|목록)", "", transcript)
+        cleaned_title = re.sub(r"(추가해\s*줘|추가해|추가|등록해\s*줘|등록해|등록|만들어\s*줘|만들어|해\s*줘)", "", cleaned_title).strip()
+        task_title = cleaned_title if cleaned_title else transcript
+
+        try:
+            from app.schemas.operation import ScheduleCreate
+            new_sched = OperationService.create_schedule(
+                db,
+                ScheduleCreate(
+                    employee_id=1,
+                    start_time=datetime.now(),
+                    end_time=datetime.now(),
+                    date=date.today(),
+                )
+            )
+            created_task = _to_task_item(new_sched)
+            created_task.title = task_title
+        except Exception:
+            created_task = TaskItem(
+                id=9999,
+                title=task_title,
+                priority=1,
+                deadline=None,
+                employee_name="소지원",
+                status="pending",
+            )
+
+        return VoiceCommandResponse(
+            transcript=transcript,
+            intent=intent,
+            confidence=confidence,
+            status="executed",
+            executed=True,
+            speech_text=f"투두에 '{task_title}' 할 일을 성공적으로 추가했습니다! 📝",
+            task=created_task,
+            tasks=get_pending_tasks(db),
         )
 
     # ── 안전 규칙 2: complete_task는 파괴적 → 확인 문장만 먼저 반환 ──

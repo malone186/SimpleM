@@ -4,6 +4,7 @@
 // speechPlayer는 이어폰이 없으면 TTS를 건너뜁니다(2단계 설계).
 // 확인 질문이 음성으로 안 들리는데 시스템은 답을 기다리는 상황을 막으려면,
 // 확인 문구와 [확인]/[취소] 버튼이 반드시 화면에 보여야 합니다.
+import { useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -20,20 +21,57 @@ export default function VoiceCommandButton() {
     onError: (message) => toast('🎤 음성 명령', message),
   });
 
-  if (!token || !vc.support.supported || !prefs.ready || !prefs.voiceAssistantEnabled) return null;
+  const [dismissed, setDismissed] = useState(false);
 
   const listening = vc.phase === 'listening';
   const processing = vc.phase === 'processing';
   const confirming = vc.phase === 'awaiting_confirmation';
 
+  // [한글 주석: 음성 인식이 새로 시작되면 말풍선 닫힘 상태 리셋]
+  useEffect(() => {
+    if (listening) {
+      setDismissed(false);
+    }
+  }, [listening]);
+
+  // [한글 주석: 음성 응답 도착 시 6초 후 자동으로 말풍선이 스르륵 닫히는 오토 디스미스 타이머]
+  useEffect(() => {
+    if (vc.response && !confirming && !listening) {
+      setDismissed(false);
+      const timer = setTimeout(() => {
+        setDismissed(true);
+      }, 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [vc.response, confirming, listening]);
+
+  if (!token || !vc.support.supported || !prefs.ready || !prefs.voiceAssistantEnabled) return null;
+
   const bubbleText = listening
     ? vc.partial || '듣고 있습니다…'
     : vc.response?.speech_text ?? '';
 
+  const closeBubble = () => {
+    setDismissed(true);
+    if (confirming) {
+      vc.cancelPending();
+    }
+  };
+
   return (
     <View style={styles.wrap} pointerEvents="box-none">
-      {(listening || processing || confirming || !!vc.response) && !!bubbleText && (
+      {!dismissed && (listening || processing || confirming || !!vc.response) && !!bubbleText && (
         <View style={styles.bubble}>
+          {/* [한글 주석: 우측 상단 앙증맞고 단정한 닫기 (X) 아이콘 버튼] */}
+          <Pressable
+            style={styles.closeBtn}
+            hitSlop={8}
+            onPress={closeBubble}
+            accessibilityLabel="음성 안내 닫기"
+          >
+            <Ionicons name="close" size={16} color={colors.mochaBrown} />
+          </Pressable>
+
           {!!vc.transcript && !listening && (
             <Text style={styles.heard}>“{vc.transcript}”</Text>
           )}
@@ -47,7 +85,7 @@ export default function VoiceCommandButton() {
               >
                 <Text style={styles.confirmLabel}>확인</Text>
               </Pressable>
-              <Pressable style={styles.actionBtn} onPress={() => vc.cancelPending()}>
+              <Pressable style={styles.actionBtn} onPress={closeBubble}>
                 <Text style={styles.cancelLabel}>취소</Text>
               </Pressable>
             </View>
@@ -81,15 +119,25 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   bubble: {
-    maxWidth: 260,
+    maxWidth: 265,
     backgroundColor: colors.coffeeCream,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.mutedSand,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 12,
+    paddingLeft: 14,
+    paddingRight: 28,
     gap: 6,
+    position: 'relative',
     ...shadows.medium,
+  },
+  closeBtn: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    padding: 4,
+    zIndex: 10,
   },
   heard: {
     ...typography.L5,

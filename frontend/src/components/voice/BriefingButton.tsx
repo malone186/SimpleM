@@ -31,8 +31,8 @@ export default function BriefingButton() {
         <View style={styles.card}>
           <View style={styles.header}>
             <Text style={styles.title}>오늘의 브리핑</Text>
-            <Pressable onPress={briefing.dismiss} accessibilityLabel="브리핑 닫기">
-              <Text style={styles.close}>✕</Text>
+            <Pressable onPress={briefing.dismiss} hitSlop={8} accessibilityLabel="브리핑 닫기">
+              <Ionicons name="close" size={16} color={colors.mochaBrown} />
             </Pressable>
           </View>
 
@@ -141,8 +141,8 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     backgroundColor: '#6E5544', // [한글 주석: 세련된 모카 브라운 원형 뱃지]
     alignItems: 'center',
-    justifyContent: 'center', // [한글 주석: 오타 방지용 justifyContent]
-    alignSelf: 'center',
+    justifyContent: 'center',
+    alignSelf: 'flex-end',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.25)',
     ...shadows.medium,
