@@ -36,6 +36,9 @@ def _analyze(db, store_id: str):
     two_cup_rows = total_rows = 0
     for sold_at, qty, menu_id in rows:
         dt = sold_at if isinstance(sold_at, datetime) else datetime.fromisoformat(str(sold_at))
+        # Neon(timestamptz)은 UTC로 돌려준다 — KST로 바꿔야 요일·시간대 패턴이 실제 영업시간과 맞는다
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(KST)
         daily[dt.date()] += qty
         hour_w[dt.hour] += qty
         menu_w[menu_id] += qty
@@ -60,6 +63,8 @@ def _hours_with_sales_today(db, store_id: str, today: date) -> set[int]:
     out = set()
     for (sold_at,) in rows:
         dt = sold_at if isinstance(sold_at, datetime) else datetime.fromisoformat(str(sold_at))
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(KST)
         out.add(dt.hour)
     return out
 
@@ -79,7 +84,9 @@ def seed_sales(db, store_id: str, now: datetime) -> int:
 
     today = now.date()
     created = 0
-    day = profile["last_day"] + timedelta(days=1)
+    # last_day 자체부터 시작 — 과거 날짜는 days_with_sales로 걸러지고,
+    # 오늘 판매가 이미 있어도(last_day == 오늘) 남은 시간대를 시간 단위로 이어서 채운다
+    day = profile["last_day"]
     while day <= today:
         is_today = day == today
         # 과거 날짜는 이미 판매가 있으면 통째로 건너뛴다 (멱등)

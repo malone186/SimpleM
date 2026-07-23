@@ -95,7 +95,9 @@ def _sales_summary(db, store_id: str, start: date, end: date,
     daily: dict[str, int] = {}
     by_menu: dict[str, dict[str, Any]] = {}
     for s, menu_name in rows:
-        day = s.sold_at.date().isoformat()
+        # timestamptz(UTC)로 돌아오는 sold_at을 KST 날짜로 버킷링 — UTC 그대로면 자정 전후 판매가 전날로 밀린다
+        sold = s.sold_at.astimezone(KST) if s.sold_at.tzinfo else s.sold_at
+        day = sold.date().isoformat()
         daily[day] = daily.get(day, 0) + s.total_price
         m = by_menu.setdefault(menu_name, {"menu": menu_name, "quantity": 0, "total": 0})
         m["quantity"] += s.quantity
@@ -170,7 +172,7 @@ def _expense_summary(db, store_id: str, start: date, end: date) -> dict[str, Any
     }
 
 
-def _labor_summary(db, start: date, end: date) -> dict[str, Any]:
+def _labor_summary(db, store_id: str, start: date, end: date) -> dict[str, Any]:
     """인건비: 근무 스케줄 시간 × 직원 시급으로 추정 (주휴수당·보험 미포함 간이 계산).
 
     아직 끝나지 않은 근무는 지금 시각까지 일한 만큼만 계산한다 —
@@ -182,6 +184,7 @@ def _labor_summary(db, start: date, end: date) -> dict[str, Any]:
     rows = (
         db.query(Schedule, Employee)
         .join(Employee, Schedule.employee_id == Employee.id)
+        .filter(Employee.store_id == store_id)
         .filter(Schedule.date >= start.isoformat(), Schedule.date < end.isoformat())
         .all()
     )
@@ -421,7 +424,7 @@ def generate_management_report(store_id: str, period_type: str = "weekly",
         sales = _sales_summary(db, store_id, start, end, prev_start, prev_end)
         purchases = _purchase_summary(db, start, end, prev_start, prev_end)
         expenses = _expense_summary(db, store_id, start, end)
-        labor = _labor_summary(db, start, end)
+        labor = _labor_summary(db, store_id, start, end)
         inventory = _inventory_snapshot(db, store_id)
         orders = _order_snapshot(db, store_id)
 

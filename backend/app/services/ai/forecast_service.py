@@ -18,8 +18,16 @@ import logging
 import math
 import os
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
+
+# 매장 시간대 — Neon(timestamptz)은 sold_at을 UTC로 돌려주므로 시간대 집계 전 반드시 KST로 변환한다.
+KST = timezone(timedelta(hours=9))
+
+
+def _to_kst(dt: "datetime") -> "datetime":
+    """tz-aware(UTC 등)면 KST로 변환, naive(과거 로컬 DB 데이터)는 이미 KST로 보고 그대로 둔다."""
+    return dt.astimezone(KST) if dt.tzinfo is not None else dt
 
 logger = logging.getLogger(__name__)
 
@@ -568,7 +576,7 @@ def _load_hourly_shares(db, store_id: str, target_weekday: int) -> dict[str, flo
         return {"09시": 0.1, "12시": 0.4, "15시": 0.3, "18시": 0.2}
 
     df = pd.DataFrame(rows, columns=["sold_at", "quantity"])
-    df["sold_at"] = pd.to_datetime(df["sold_at"])
+    df["sold_at"] = pd.to_datetime(df["sold_at"].map(lambda d: _to_kst(d).replace(tzinfo=None) if isinstance(d, datetime) else d))
     df["weekday"] = df["sold_at"].dt.weekday
     df["hour"] = df["sold_at"].dt.hour
 
@@ -625,7 +633,7 @@ def _hourly_profile(db, store_id: str, target_weekday: int) -> list[float]:
         return list(_DEFAULT_HOUR_PROFILE)
 
     df = pd.DataFrame(rows, columns=["sold_at", "quantity"])
-    df["sold_at"] = pd.to_datetime(df["sold_at"])
+    df["sold_at"] = pd.to_datetime(df["sold_at"].map(lambda d: _to_kst(d).replace(tzinfo=None) if isinstance(d, datetime) else d))
     df_day = df[df["sold_at"].dt.weekday == target_weekday]
     if df_day.empty:
         df_day = df
@@ -660,6 +668,7 @@ def _today_actuals(db, store_id: str) -> dict[str, Any]:
             dt = sold_at if isinstance(sold_at, datetime) else datetime.fromisoformat(str(sold_at))
         except ValueError:
             continue
+        dt = _to_kst(dt)
         if dt.date() == today:
             cups += qty
             revenue += price
@@ -718,6 +727,7 @@ def sales_calendar(store_id: str, year: int, month: int) -> dict[str, Any]:
             dt = sold_at if isinstance(sold_at, datetime) else datetime.fromisoformat(str(sold_at))
         except ValueError:
             continue
+        dt = _to_kst(dt)
         d = dt.date()
         if d >= first:
             day = days.setdefault(d.day, {"date": d.isoformat(), "cups": 0.0, "revenue": 0.0,

@@ -548,14 +548,17 @@ def calculate_payroll_api(payload: PayrollCalculateRequest):
 @router.get("/payroll/all", response_model=CommonResponse, summary="전체 직원 월별 예상 급여 목록")
 def list_all_payroll_api(
     year_month: str = Query(..., description="조회 대상 연월 (YYYY-MM)"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """등록된 모든 직원의 해당 월 예상 급여 목록을 조회합니다. (해당 월 스케줄이 없는 직원은 제외)"""
     import re
     if not re.fullmatch(r"\d{4}-\d{2}", year_month):
         raise HTTPException(status_code=400, detail="year_month는 YYYY-MM 형식이어야 합니다.")
     try:
-        results = OperationService.list_employees_payroll(db, year_month)
+        # 로그인한 매장 직원만 — 토큰 없이 부르면 기존처럼 전체 (다른 화면 호환)
+        results = OperationService.list_employees_payroll(
+            db, year_month, store_id=current_user.email if current_user else None)
         return CommonResponse(
             success=True,
             data=results,
