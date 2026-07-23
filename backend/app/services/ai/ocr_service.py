@@ -69,7 +69,10 @@ _VLM_FINETUNE_DIR = Path(__file__).resolve().parents[3] / "vlm_finetune"
 
 # llama.cpp 서버 (파인튜닝 Qwen3.5-0.8B GGUF Q8 — vlm_finetune/output에서 변환)
 LLAMACPP_BASE_URL = os.getenv("LLAMACPP_BASE_URL", "http://localhost:8089")
-# OCR 서버가 공개 URL(HF Space 등)에 있으면 llama-server --api-key와 짝을 맞춰 무단 사용을 막는다
+# [하이브리드] GPU 서버 주소가 설정되어 있으면 요청마다 먼저 살아있는지 확인하고 우선 사용한다.
+# 사장님 PC(GPU, 장당 ~3초)가 켜져 있으면 그쪽으로, 꺼져 있으면 기본 서버(HF CPU, ~1분)로.
+LLAMACPP_GPU_BASE_URL = os.getenv("LLAMACPP_GPU_BASE_URL", "")
+# OCR 서버가 공개 URL(HF Space·Funnel)에 있으면 llama-server --api-key와 짝을 맞춰 무단 사용을 막는다
 LLAMACPP_API_KEY = os.getenv("LLAMACPP_API_KEY", "")
 _LLAMACPP_HEADERS = {"Authorization": f"Bearer {LLAMACPP_API_KEY}"} if LLAMACPP_API_KEY else {}
 LLAMACPP_TIMEOUT = float(os.getenv("LLAMACPP_TIMEOUT", "120"))
@@ -494,13 +497,33 @@ def _start_llamacpp_server() -> None:
     import subprocess
 
     port = LLAMACPP_BASE_URL.rsplit(":", 1)[-1]
+    args = [str(LLAMACPP_SERVER_EXE), "-m", str(LLAMACPP_MODEL_GGUF), "--mmproj", str(LLAMACPP_MMPROJ_GGUF),
+            "-ngl", "99", "--port", port, "--ctx-size", "8192"]
+    if LLAMACPP_API_KEY:  # Funnel 등으로 외부 노출 시 무단 사용 차단
+        args += ["--api-key", LLAMACPP_API_KEY]
     _llamacpp_proc = subprocess.Popen(
-        [str(LLAMACPP_SERVER_EXE), "-m", str(LLAMACPP_MODEL_GGUF), "--mmproj", str(LLAMACPP_MMPROJ_GGUF),
-         "-ngl", "99", "--port", port, "--ctx-size", "8192"],
+        args,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     logger.info("llama.cpp 서버 기동 — %s (pid %s)", LLAMACPP_BASE_URL, _llamacpp_proc.pid)
+
+
+async def _pick_llamacpp_url() -> str:
+    """[하이브리드] GPU 서버(사장님 PC)가 살아 있으면 그쪽을, 아니면 기본 서버(HF CPU)를 쓴다.
+
+    health 확인은 2초 안에 끝내서, PC가 꺼져 있어도 요청이 지연되지 않게 한다.
+    """
+    if LLAMACPP_GPU_BASE_URL:
+        try:
+            async with httpx.AsyncClient(timeout=2) as client:
+                r = await client.get(f"{LLAMACPP_GPU_BASE_URL}/health", headers=_LLAMACPP_HEADERS)
+                if r.status_code == 200:
+                    return LLAMACPP_GPU_BASE_URL
+        except httpx.HTTPError:
+            pass
+        logger.info("GPU OCR 서버 응답 없음 — 기본 서버(%s)로 처리", LLAMACPP_BASE_URL)
+    return LLAMACPP_BASE_URL
 
 
 async def _call_llamacpp_vlm(image_bytes: bytes, rescue_bytes: Optional[bytes] = None) -> dict[str, Any]:
@@ -513,6 +536,7 @@ async def _call_llamacpp_vlm(image_bytes: bytes, rescue_bytes: Optional[bytes] =
     실패(저해상도 반복 루프로 출력이 잘린 경우)는 재요청 대신 업스케일본(rescue_bytes)으로
     한 번 더 시도한다. HTTP 오류만 같은 이미지로 재시도한다(서버 자동 기동 직후 로드 지연).
     """
+    base_url = await _pick_llamacpp_url()
     variants = [image_bytes] + ([rescue_bytes] if rescue_bytes is not None else [])
     last_error: Exception | None = None
     for img in variants:
@@ -530,7 +554,7 @@ async def _call_llamacpp_vlm(image_bytes: bytes, rescue_bytes: Optional[bytes] =
         for attempt in (1, 2, 3):
             try:
                 async with httpx.AsyncClient(timeout=LLAMACPP_TIMEOUT) as client:
-                    resp = await client.post(f"{LLAMACPP_BASE_URL}/v1/chat/completions", json=payload, headers=_LLAMACPP_HEADERS)
+                    resp = await client.post(f"{base_url}/v1/chat/completions", json=payload, headers=_LLAMACPP_HEADERS)
                     resp.raise_for_status()
                 content = resp.json()["choices"][0]["message"]["content"] or ""
                 break
@@ -546,7 +570,7 @@ async def _call_llamacpp_vlm(image_bytes: bytes, rescue_bytes: Optional[bytes] =
             last_error = e
             if img is not variants[-1]:
                 logger.warning("llama.cpp 출력 JSON 파싱 실패 — 업스케일본으로 구제 재시도")
-    raise OcrError(f"llama.cpp OCR 실패 ({LLAMACPP_BASE_URL}): {last_error}")
+    raise OcrError(f"llama.cpp OCR 실패 ({base_url}): {last_error}")
 
 
 def warmup_ocr_backend() -> None:
