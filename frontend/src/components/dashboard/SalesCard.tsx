@@ -80,6 +80,12 @@ function SlidingTabToggle({
 }) {
   const tabIndex = value === 'day' ? 0 : value === 'month' ? 1 : 2;
   const slideAnim = useRef(new Animated.Value(tabIndex)).current;
+  // [반응형] 트랙 실제 폭을 측정해 캡슐 위치·크기를 셀에 맞춘다.
+  // 하드코딩(트랙 200 / 캡슐 64 / 위치 2·68·134)은 기기·폰트에 따라 트랙 폭이
+  // 달라지면 캡슐이 라벨과 어긋나고 긴 라벨(todo)이 넘친다 — 폭 기반 계산으로 대체.
+  const [trackW, setTrackW] = useState(0);
+  const cellW = trackW > 0 ? trackW / 3 : 66; // 측정 전 초기값(트랙 200 기준 66)
+  const capsuleGap = 3;
 
   useEffect(() => {
     Animated.spring(slideAnim, {
@@ -92,12 +98,17 @@ function SlidingTabToggle({
 
   const translateX = slideAnim.interpolate({
     inputRange: [0, 1, 2],
-    outputRange: [2, 68, 134],
+    outputRange: [capsuleGap, cellW + capsuleGap, cellW * 2 + capsuleGap],
   });
 
   return (
-    <View style={StyleSheet.flatten([styles.toggleTrack, Platform.OS === 'web' && { cursor: 'pointer' }])}>
-      <Animated.View style={[styles.toggleCapsule, { transform: [{ translateX }] }]} />
+    <View
+      style={StyleSheet.flatten([styles.toggleTrack, Platform.OS === 'web' && { cursor: 'pointer' }])}
+      onLayout={(e) => setTrackW(e.nativeEvent.layout.width)}
+    >
+      <Animated.View
+        style={[styles.toggleCapsule, { width: cellW - capsuleGap * 2, transform: [{ translateX }] }]}
+      />
       
       <View style={styles.toggleLabelsRow}>
         <Pressable onPress={() => onChange('day')} style={styles.toggleLabelCell}>
@@ -1086,13 +1097,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 0.8,
     borderColor: 'rgba(140, 111, 86, 0.04)',
-    // [한글 주석: 사용자의 시각적 요청에 맞춰 왼쪽과 위로 8px씩 살짝 오프셋 조정]
-    marginLeft: -8,
-    marginTop: -8,
+    // 음수 마진(왼쪽·위 -8)은 세그먼트를 카드 콘텐츠 영역 밖으로 밀어 테두리와 어긋나고
+    // 위 요소와 겹치게 만들었다 — 제거해 카드 콘텐츠(매출 숫자 등)와 왼쪽 정렬을 맞춘다.
   },
   toggleCapsule: {
     position: 'absolute',
-    width: 64,
+    // width는 SlidingTabToggle에서 트랙 폭 기반으로 동적 지정 (하드코딩 64 제거)
     height: 28,
     borderRadius: 999,
     backgroundColor: colors.white, // [iOS 스타일] 깨끗하고 정교한 화이트 캡슐
