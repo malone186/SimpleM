@@ -32,8 +32,14 @@ export default function DashboardScreen() {
     let cancelled = false;
     (async () => {
       const next: Todo[] = [];
+      // 재고·서류를 병렬로 조회 — 순차 대기(각 ~0.8초)를 한 번의 대기로 줄인다
+      const [stocksResult, complianceResult] = await Promise.allSettled([
+        listStocks(token),
+        listCompliance(token),
+      ]);
       try {
-        const stocks = await listStocks(token);
+        if (stocksResult.status === 'rejected') throw stocksResult.reason;
+        const stocks = stocksResult.value;
         stocks
           .filter((s) => s.current_quantity <= s.safety_quantity)
           .sort(
@@ -57,7 +63,8 @@ export default function DashboardScreen() {
         console.error('재고 할 일 조회 실패:', e);
       }
       try {
-        const items = await listCompliance(token);
+        if (complianceResult.status === 'rejected') throw complianceResult.reason;
+        const items = complianceResult.value;
         items
           .filter((c) => c.status !== 'ok')
           .slice(0, 2)
