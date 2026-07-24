@@ -156,14 +156,16 @@ export default function InventoryScreen() {
 
   const runOcr = async () => {
     try {
+      // quality 0.6: 서버가 어차피 1280px대로 축소해 인식하므로 화질 손해 없이
+      // 업로드 용량(12MP 기준 수 MB)을 줄여 모바일 회선에서 전송 시간을 아낀다
       let picked: ImagePicker.ImagePickerResult;
       if (Platform.OS === 'web') {
-        picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.9 });
+        picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6 });
       } else {
         const perm = await ImagePicker.requestCameraPermissionsAsync();
         picked = perm.granted
-          ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.9 })
-          : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.9 });
+          ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.6 })
+          : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6 });
       }
       if (picked.canceled || !picked.assets?.length) return;
 

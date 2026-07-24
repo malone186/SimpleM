@@ -57,11 +57,11 @@ _load_dotenv()
 OCR_BACKEND = "gemini"
 
 # Gemini API — 키는 챗봇·리포트와 공유한다 (GOOGLE_API_KEY는 별칭).
-# 모델은 챗봇(GEMINI_MODEL, 지연시간 위주로 lite 선택)과 일부러 분리한다:
-# 영수증처럼 글자가 빽빽한 이미지는 flash가 안정적이고, 무료 쿼터도 모델별이라
-# 챗봇 트래픽과 한도를 나눠 쓰는 효과가 있다.
+# 기본 모델은 3.1-flash-lite: 실측(2026-07-24, 영수증 5장×2회) flash 3.2~4.1초 vs
+# flash-lite 2.0~2.3초로 절반 수준이고 품목·금액 추출 결과는 동일했다.
+# 정확도 문제가 생기면 OCR_GEMINI_MODEL=gemini-2.5-flash로 되돌릴 수 있다.
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "") or os.getenv("GOOGLE_API_KEY", "")
-GEMINI_MODEL = os.getenv("OCR_GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("OCR_GEMINI_MODEL", "gemini-3.1-flash-lite")
 GEMINI_TIMEOUT = float(os.getenv("OCR_GEMINI_TIMEOUT", "60"))
 # 품목 20개+ 문서도 JSON이 잘리지 않도록 여유 있게 (Gemini는 출력 토큰만 과금 대상이라
 # 한도를 높여도 실제 짧은 응답 비용은 그대로다)
@@ -93,8 +93,17 @@ _TARGET_BY_DOC_TYPE: dict[str, RegisterTarget] = {
 # 초안 저장소 — PostgreSQL(ocr_documents 테이블) 우선, DB 연결 불가 시 인메모리 폴백.
 # 폴백 시 서버 재시작하면 초안이 사라지지만 OCR 기능 자체는 계속 동작한다 (PRD §7 가용성).
 # ---------------------------------------------------------------------------
-_DRAFTS: dict[str, dict[str, Any]] = {}  # 인메모리 폴백
+_DRAFTS: dict[str, dict[str, Any]] = {}  # 인메모리 폴백 + 최근 초안 캐시
+_DRAFTS_MAX = 50  # 캐시 용도로도 쓰므로 무한히 크지 않게 오래된 것부터 버린다
 _db_available: Optional[bool] = None
+
+
+def _cache_draft(draft: dict[str, Any]) -> None:
+    """초안을 메모리에도 보관한다 — DB 저장(백그라운드, 원격 왕복 ~2초)이 끝나기 전에
+    사용자가 바로 수정/확정을 눌러도 404가 나지 않게 하는 안전망."""
+    _DRAFTS[draft["id"]] = draft
+    while len(_DRAFTS) > _DRAFTS_MAX:
+        _DRAFTS.pop(next(iter(_DRAFTS)))
 
 
 def _check_db() -> bool:
@@ -319,6 +328,17 @@ def _parse_model_json(content: str) -> dict[str, Any]:
 # Gemini 백엔드 — generateContent REST 호출 (report_service와 같은 방식, SDK 불필요)
 # ---------------------------------------------------------------------------
 
+_gemini_client: Optional[httpx.AsyncClient] = None
+
+
+def _get_gemini_client() -> httpx.AsyncClient:
+    """공유 AsyncClient — 연결(TLS 핸드셰이크 ~0.3초)을 재사용해 호출당 지연을 줄인다."""
+    global _gemini_client
+    if _gemini_client is None or _gemini_client.is_closed:
+        _gemini_client = httpx.AsyncClient(timeout=GEMINI_TIMEOUT)
+    return _gemini_client
+
+
 async def _call_gemini(image_bytes: bytes) -> dict[str, Any]:
     """Gemini 호출 — 이미지 1장을 구조화 JSON으로.
 
@@ -353,16 +373,15 @@ async def _call_gemini(image_bytes: bytes) -> dict[str, Any]:
     last_error: Exception | None = None
     for attempt in (1, 2, 3):
         try:
-            async with httpx.AsyncClient(timeout=GEMINI_TIMEOUT) as client:
-                resp = await client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
-                    json=payload,
-                    headers={"x-goog-api-key": GEMINI_API_KEY},
-                )
+            resp = await _get_gemini_client().post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+                json=payload,
+                headers={"x-goog-api-key": GEMINI_API_KEY},
+            )
             if resp.status_code == 429 or resp.status_code >= 500:
                 last_error = OcrError(f"Gemini HTTP {resp.status_code}: {resp.text[:200]}")
                 if attempt < 3:
-                    await asyncio.sleep(4 * attempt)  # 무료 쿼터는 분당 한도라 여유 있게 대기
+                    await asyncio.sleep(2 * attempt)  # 분당 쿼터는 짧은 대기로 안 풀리는 경우가 많아 빨리 실패를 알린다
                 continue
             resp.raise_for_status()
             content = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
@@ -544,7 +563,9 @@ async def analyze_image(image_bytes: bytes, filename: Optional[str] = None) -> d
         "created_at": now,
         "updated_at": now,
     }
-    # 저장을 기다리지 않고 바로 응답한다 — 원격 DB 저장 ~2초가 인식 체감 속도에서 빠진다
+    # 저장을 기다리지 않고 바로 응답한다 — 원격 DB 저장 ~2초가 인식 체감 속도에서 빠진다.
+    # DB 저장이 끝나기 전 조회/확정이 와도 메모리 캐시가 받아준다.
+    _cache_draft(draft)
     asyncio.get_running_loop().run_in_executor(None, _save_draft_background, draft)
     return draft
 
@@ -554,6 +575,10 @@ def get_draft(doc_id: str) -> dict[str, Any]:
         if doc_id not in _DRAFTS:
             raise DraftNotFoundError(doc_id)
         return _DRAFTS[doc_id]
+    # 메모리 캐시 우선 — 방금 인식한 초안은 백그라운드 DB 저장이 아직일 수 있고,
+    # 캐시가 항상 최신 상태다 (수정/확정도 같은 dict를 갱신하므로).
+    if doc_id in _DRAFTS:
+        return _DRAFTS[doc_id]
     from app.core.database import SessionLocal
     from app.models.ai import OcrDocument
 
@@ -561,7 +586,13 @@ def get_draft(doc_id: str) -> dict[str, Any]:
         row = session.get(OcrDocument, doc_id)
         if row is None:
             raise DraftNotFoundError(doc_id)
-        return _row_to_draft(row)
+        draft = _row_to_draft(row)
+    _cache_draft(draft)  # 이후 수정/확정은 캐시 히트로 DB 왕복 1회 절약
+    return draft
+
+
+# 목록은 최근 문서만 — 원격 DB에서 전체 이력을 끌어오면 첫 화면이 수 초씩 걸린다
+LIST_LIMIT = int(os.getenv("OCR_LIST_LIMIT", "30"))
 
 
 def list_drafts(status: Optional[str] = None) -> list[dict[str, Any]]:
@@ -570,14 +601,31 @@ def list_drafts(status: Optional[str] = None) -> list[dict[str, Any]]:
         if status:
             docs = [d for d in docs if d["status"] == status]
         return docs
+    from sqlalchemy.orm import selectinload
+
     from app.core.database import SessionLocal
     from app.models.ai import OcrDocument
 
     with SessionLocal() as session:
-        query = session.query(OcrDocument).order_by(OcrDocument.created_at.desc())
+        # selectinload: 문서별 품목 lazy load(N+1)가 원격 DB에서 문서당 왕복 1회씩
+        # 쌓여 목록이 10초를 넘던 것을 쿼리 2회로 줄인다 (실측 11초 → 1초대).
+        query = (
+            session.query(OcrDocument)
+            .options(selectinload(OcrDocument.items))
+            .order_by(OcrDocument.created_at.desc())
+        )
         if status:
             query = query.filter(OcrDocument.status == status)
-        return [_row_to_draft(row) for row in query.all()]
+        rows = query.limit(LIST_LIMIT).all()
+        drafts = [_row_to_draft(row) for row in rows]
+
+    # 아직 DB에 저장 전인(백그라운드 저장 중) 메모리 초안을 합쳐 방금 찍은 문서가 목록에서 빠지지 않게 한다
+    db_ids = {d["id"] for d in drafts}
+    for cached in _DRAFTS.values():
+        if cached["id"] not in db_ids and (not status or cached["status"] == status):
+            drafts.append(cached)
+    drafts.sort(key=lambda d: d["created_at"], reverse=True)
+    return drafts
 
 
 def update_draft(doc_id: str, patch: OcrDocumentUpdate) -> dict[str, Any]:
