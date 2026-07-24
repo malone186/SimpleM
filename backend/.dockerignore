@@ -6,6 +6,7 @@ tests/
 __pycache__/
 **/__pycache__/
 *.pyc
+*.apk
 .env
 .env.*
 !.env.production.example
