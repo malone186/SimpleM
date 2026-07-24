@@ -1,21 +1,13 @@
 name: Deploy Backend to Cloud Run
 
-# main 브랜치에 backend 코드가 push되면 Cloud Run(simplem-api)에 자동 재배포한다.
-# DEPLOY.md의 수동 명령과 동일한 배포를 GitHub Actions로 자동화한 것:
-#   gcloud run deploy simplem-api --source backend --region asia-northeast3 \
-#     --allow-unauthenticated --memory 1Gi --set-env-vars-file backend/deploy/env.yaml
+# main 브랜치에 backend 코드가 push되면 Cloud Run(brewnote-api)에 자동 재배포한다.
+# DEPLOY.md의 수동 명령과 동일한 배포를 GitHub Actions로 자동화한 것.
 #
 # ── 최초 1회 설정 (GitHub 저장소 Settings → Secrets and variables → Actions) ──
-#   GCP_PROJECT_ID : GCP 프로젝트 ID
-#   GCP_SA_KEY     : 배포용 서비스 계정 JSON 키 전체 (아래 권한 필요)
-#                    roles/run.admin, roles/cloudbuild.builds.editor,
-#                    roles/artifactregistry.writer, roles/iam.serviceAccountUser,
-#                    roles/storage.admin
+#   GCP_PROJECT_ID : GCP 프로젝트 ID (simplem-app — 표시 이름은 brewnote지만 ID는 변경 불가)
+#   GCP_SA_KEY     : 배포용 서비스 계정 JSON 키 전체 (github-deployer@...)
 #   GCP_ENV_YAML   : backend/deploy/env.yaml 파일 내용 전체
 #                    (env.yaml은 .gitignore라 저장소에 없으므로 Secret으로 주입한다)
-#
-# 서비스 계정 키 대신 Workload Identity Federation(키 없는 인증)을 쓰려면
-# google-github-actions/auth 문서의 WIF 방식으로 auth 스텝만 교체하면 된다.
 
 on:
   push:
@@ -48,7 +40,7 @@ jobs:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
       - name: Restore env.yaml from secret
-        # env.yaml은 커밋되지 않으므로 Secret에서 복원해 --set-env-vars-file에 넘긴다
+        # env.yaml은 커밋되지 않으므로 Secret에서 복원해 --env-vars-file에 넘긴다
         run: |
           printf '%s' "${{ secrets.GCP_ENV_YAML }}" > backend/deploy/env.yaml
           # 최소 필수 키 존재 확인 — 없으면 배포 전에 실패시켜 잘못된 리비전을 막는다
@@ -59,17 +51,18 @@ jobs:
 
       - name: Deploy to Cloud Run
         run: |
-          gcloud run deploy simplem-api \
+          gcloud run deploy brewnote-api \
             --source backend \
             --region asia-northeast3 \
             --allow-unauthenticated \
-            --memory 1Gi \
-            --set-env-vars-file backend/deploy/env.yaml
+            --memory 1Gi --cpu 1 --timeout 300 \
+            --env-vars-file backend/deploy/env.yaml \
+            --quiet
 
       - name: Smoke test
         # 배포된 리비전이 실제로 응답하는지 확인 (실패하면 워크플로가 빨간불)
         run: |
-          URL=$(gcloud run services describe simplem-api \
+          URL=$(gcloud run services describe brewnote-api \
             --region asia-northeast3 --format 'value(status.url)')
           echo "배포 URL: $URL"
           for i in 1 2 3 4 5; do

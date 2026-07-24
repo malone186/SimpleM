@@ -1,20 +1,18 @@
 name: Deploy Frontend (Web) to Cloud Run
 
-# main 브랜치에 frontend 코드가 push되면 Expo 웹 빌드를 Cloud Run(simplem-web)에 재배포한다.
-# DEPLOY.md의 deploy_frontend.ps1과 동일한 흐름을 자동화한 것:
-#   1) 배포된 백엔드(simplem-api)의 Cloud Run URL을 조회
+# main 브랜치에 frontend 코드가 push되면 Expo 웹 빌드를 Cloud Run(brewnote-web)에 재배포한다.
+# 흐름:
+#   1) 배포된 백엔드(brewnote-api)의 Cloud Run URL을 조회
 #   2) frontend/.env.production 의 EXPO_PUBLIC_API_BASE_URL 를 그 URL로 치환
 #      (EXPO_PUBLIC_* 는 expo export 시 번들에 박히므로 빌드 전에 값이 확정돼야 한다)
-#   3) gcloud run deploy simplem-web --source frontend
+#   3) gcloud run deploy brewnote-web --source frontend
 #
-# ⚠️ 이 워크플로는 백엔드(simplem-api)가 먼저 배포돼 있어야 URL을 조회할 수 있다.
-#    최초 배포는 deploy_backend 워크플로(또는 수동)로 백엔드를 먼저 올린 뒤 실행한다.
+# ⚠️ 백엔드(brewnote-api)가 먼저 배포돼 있어야 URL을 조회할 수 있다.
 #
-# 이 배포는 "웹 버전"만 다룬다. 아이폰/안드로이드 네이티브 앱은 EAS(별도)로 빌드하며,
-# 앱의 API 주소는 frontend/.env 를 백엔드 URL로 바꾸고 다시 빌드해야 한다.
+# 이 배포는 "웹 버전"만 다룬다. 안드로이드 네이티브 앱은 EAS(별도)로 빌드하며,
+# 앱의 API 주소는 frontend/.env·eas.json 을 백엔드 URL로 바꾸고 다시 빌드해야 한다.
 #
-# 필요한 Secret (deploy_backend와 공유):
-#   GCP_PROJECT_ID, GCP_SA_KEY
+# 필요한 Secret (deploy_backend와 공유): GCP_PROJECT_ID, GCP_SA_KEY
 
 on:
   push:
@@ -47,10 +45,10 @@ jobs:
 
       - name: Inject backend URL into .env.production
         run: |
-          BACKEND_URL=$(gcloud run services describe simplem-api \
+          BACKEND_URL=$(gcloud run services describe brewnote-api \
             --region asia-northeast3 --format 'value(status.url)' 2>/dev/null || true)
           if [ -z "$BACKEND_URL" ]; then
-            echo "::error::백엔드(simplem-api)를 찾을 수 없습니다 — 백엔드를 먼저 배포하세요"; exit 1
+            echo "::error::백엔드(brewnote-api)를 찾을 수 없습니다 — 백엔드를 먼저 배포하세요"; exit 1
           fi
           echo "백엔드 URL: $BACKEND_URL"
           # EXPO_PUBLIC_API_BASE_URL 줄을 실제 백엔드 URL로 치환 (커밋하지 않고 빌드 컨텍스트에서만)
@@ -60,14 +58,16 @@ jobs:
 
       - name: Deploy to Cloud Run
         run: |
-          gcloud run deploy simplem-web \
+          gcloud run deploy brewnote-web \
             --source frontend \
             --region asia-northeast3 \
-            --allow-unauthenticated
+            --allow-unauthenticated \
+            --memory 512Mi \
+            --quiet
 
       - name: Smoke test
         run: |
-          URL=$(gcloud run services describe simplem-web \
+          URL=$(gcloud run services describe brewnote-web \
             --region asia-northeast3 --format 'value(status.url)')
           echo "웹 배포 URL: $URL"
           code=$(curl -s -o /dev/null -w '%{http_code}' "$URL" || true)

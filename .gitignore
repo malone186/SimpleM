@@ -27,6 +27,8 @@ frontend/.env*
 
 # Cloud Run 배포 환경변수 (실제 시크릿 — 커밋 금지, 예시는 env.example.yaml)
 backend/deploy/env.yaml
+# GCP 서비스 계정 키 (GitHub Secrets 등록용 — 절대 커밋 금지)
+backend/deploy/github-deployer-key.json
 
 # IDE / OS
 .vscode/

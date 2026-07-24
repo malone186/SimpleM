@@ -20,7 +20,7 @@ gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregi
 `deploy/deploy_backend.ps1` 실행 (또는 아래 명령 직접):
 
 ```bash
-gcloud run deploy simplem-api --source backend --region asia-northeast3 --allow-unauthenticated --memory 1Gi --set-env-vars-file backend/deploy/env.yaml
+gcloud run deploy brewnote-api --source backend --region asia-northeast3 --allow-unauthenticated --memory 1Gi --set-env-vars-file backend/deploy/env.yaml
 ```
 
 - 환경변수는 `backend/deploy/env.yaml`에 채운다 (`env.example.yaml` 참고, **커밋 금지** — .gitignore에 등록됨).
@@ -34,7 +34,7 @@ Expo 웹 빌드를 정적 서빙하는 컨테이너다. API 주소가 **빌드 �
 백엔드 URL을 빌드 인자로 넘긴다. `deploy/deploy_frontend.ps1` 이 자동으로 처리한다:
 
 ```bash
-gcloud run deploy simplem-web --source frontend --region asia-northeast3 --allow-unauthenticated
+gcloud run deploy brewnote-web --source frontend --region asia-northeast3 --allow-unauthenticated
 ```
 
 (frontend/Dockerfile이 `EXPO_PUBLIC_API_BASE_URL` build-arg를 받는다 —
