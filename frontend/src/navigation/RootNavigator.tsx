@@ -173,6 +173,7 @@ export default function RootNavigator() {
   );
 }
 
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation, type TranslationKey } from '../i18n/translations';
 
 const TAB_LABEL_KEYS: Record<keyof RootTabParamList, TranslationKey> = {
@@ -186,6 +187,15 @@ const TAB_LABEL_KEYS: Record<keyof RootTabParamList, TranslationKey> = {
 function TabsNavigator() {
   // [한글 주석: 전역 다국어 훅 호출 — 사장님이 선택한 언어(ko/en)에 맞게 하단 탭 메뉴명 동적 가공]
   const { t } = useTranslation();
+  // [한글 주석: 갤럭시 등 안드로이드 하단 소프트키/제스처 바 영역 높이 동적 측정 훅]
+  const insets = useSafeAreaInsets();
+
+  // [한글 주석: 기기별 하단 안전 여백 보정 — 갤럭시 시스템 소프트키와 탭 바가 겹치지 않게 여백 확보]
+  const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 16 : 10);
+  const tabBarHeight = Platform.select({
+    ios: 65 + bottomInset,
+    default: 62 + bottomInset,
+  });
 
   return (
     <Tab.Navigator
@@ -199,8 +209,8 @@ function TabsNavigator() {
           backgroundColor: 'rgba(250, 249, 246, 0.96)', // [아이폰 스타일] 맑고 투명도가 살짝 도는 오프화이트 틴트
           borderTopWidth: 0.8,
           borderTopColor: 'rgba(140, 111, 86, 0.08)', // 은은하고 세련된 초슬림 엣지
-          height: Platform.OS === 'ios' ? 92 : 84, // [한글 주석: 글씨 잘림 해결] 전체 높이를 시원하게 키워 렌더링 공간 확보
-          paddingBottom: Platform.OS === 'ios' ? 24 : 10, // [한글 주석: 가독성 보정] 패딩 소모량을 줄여 내부 콘텐츠가 위로 오를 수 있는 가용 높이를 극대화함
+          height: tabBarHeight, // [한글 주석: 안드로이드 소프트키 및 노치 대응 동적 높이]
+          paddingBottom: bottomInset, // [한글 주석: 갤럭시 하단 시스템 바에 글자/아이콘 가림 방지 여백]
           paddingTop: 8,
           shadowColor: '#4E3629',
           shadowOffset: { width: 0, height: -3 },

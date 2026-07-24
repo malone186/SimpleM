@@ -174,7 +174,7 @@ const styles = StyleSheet.create({
   screenContent: {
     padding: spacing.globalPadding,
     paddingTop: 45, // [중요] 노치바 및 상태바 시스템 글자 겹침을 방지하기 위한 안전 높이 적용
-    paddingBottom: 32,
+    paddingBottom: 48, // [한글 주석: 하단 탭바 및 갤럭시 소프트키에 마지막 스크롤 내용이 가려지지 않는 하단 여백]
     gap: spacing.verticalGap,
   },
   screenTitleWrap: { marginBottom: 4 },

@@ -202,7 +202,8 @@ export default function ChatbotScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
       <View style={styles.header}>
         <Brew mood="welcome" size={34} />
@@ -229,6 +230,7 @@ export default function ChatbotScreen() {
         style={styles.list}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        onContentSizeChange={scrollDown}
       >
         {messages.map((m) => (
           <View key={m.id} style={styles.msgBlock}>
@@ -295,6 +297,7 @@ export default function ChatbotScreen() {
           placeholderTextColor={colors.mochaBrown}
           value={input}
           onChangeText={setInput}
+          onFocus={scrollDown}
           onSubmitEditing={() => send(input)}
           returnKeyType="send"
           editable={!sending}
@@ -390,7 +393,11 @@ const styles = StyleSheet.create({
   headerBtnDim: { opacity: 0.4 },
   headerBtnText: { ...typography.L5, fontWeight: '700', color: colors.espressoBrown },
   list: { flex: 1 },
-  listContent: { padding: spacing.globalPadding, gap: 12 },
+  listContent: {
+    padding: spacing.globalPadding,
+    paddingBottom: 24, // [한글 주석: 입력바에 채팅 메시지 하단이 가려지지 않게 여유로운 패딩 확보]
+    gap: 12,
+  },
   msgBlock: { gap: 10 },
   bubbleRow: { flexDirection: 'row' },
   rowLeft: { justifyContent: 'flex-start' },
@@ -418,7 +425,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: Platform.OS === 'ios' ? 14 : 12, // [한글 주석: 키보드 및 탭 바에 입력창이 묻히지 않도록 하단 세이프티 여백 보정]
     borderTopWidth: 1,
     borderTopColor: colors.mutedSand,
     backgroundColor: colors.white,
