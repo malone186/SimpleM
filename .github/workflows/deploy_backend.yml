@@ -40,9 +40,13 @@ jobs:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
       - name: Restore env.yaml from secret
-        # env.yaml은 커밋되지 않으므로 Secret에서 복원해 --env-vars-file에 넘긴다
+        # env.yaml은 커밋되지 않으므로 Secret에서 복원해 --env-vars-file에 넘긴다.
+        # 시크릿을 run 스크립트에 ${{ }}로 직접 끼우면 값 속 큰따옴표가 셸 문자열을
+        # 깨뜨린다 (실제 배포 실패 사례) — env: 로 넘겨 셸 파싱을 우회한다.
+        env:
+          ENV_YAML: ${{ secrets.GCP_ENV_YAML }}
         run: |
-          printf '%s' "${{ secrets.GCP_ENV_YAML }}" > backend/deploy/env.yaml
+          printf '%s\n' "$ENV_YAML" > backend/deploy/env.yaml
           # 최소 필수 키 존재 확인 — 없으면 배포 전에 실패시켜 잘못된 리비전을 막는다
           for key in DATABASE_URL SECRET_KEY GEMINI_API_KEY; do
             grep -q "^${key}:" backend/deploy/env.yaml \
