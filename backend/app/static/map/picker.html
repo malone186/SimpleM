@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<style>
+  html,body,#map{margin:0;padding:0;width:100%;height:100%;background:#F8F6F2;}
+  #hint{position:absolute;left:0;right:0;bottom:0;padding:7px 10px;background:rgba(78,54,41,0.82);
+        color:#fff;font:600 11px -apple-system,BlinkMacSystemFont,sans-serif;text-align:center;z-index:9999;}
+</style>
+</head>
+<body>
+<!--
+  [회원가입 매장 위치 선택 지도 — 앱(WebView)용]
+
+  웹 회원가입 화면은 브라우저 DOM에 직접 지도를 그리지만, 그 코드는 네이티브에서 동작하지
+  않아 앱에서는 지도가 아예 표시되지 않았다. 이 페이지를 WebView로 띄워 같은 기능을 제공한다.
+
+  · 지도를 탭하면 핀이 이동하고 역지오코딩(Nominatim)으로 주소를 구해 앱에 전달한다.
+  · 앱의 검색창에서 찾은 좌표는 window.setPin(lat, lon, address)로 주입된다.
+  · 결과는 postMessage(JSON)로 앱에 올려보낸다: {type:'pick', lat, lon, address}
+
+  쿼리: key=NCP Client ID, lat/lon=초기 좌표
+-->
+<div id="map"></div>
+<div id="hint">지도를 탭해서 매장 위치를 지정하세요</div>
+<script>
+var params = new URLSearchParams(location.search);
+var CLIENT_ID = params.get('key') || '';
+var LAT = parseFloat(params.get('lat')) || 37.5665;
+var LON = parseFloat(params.get('lon')) || 126.978;
+
+function send(obj) {
+  if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage(JSON.stringify(obj)); }
+}
+
+// 좌표 → 주소. 웹 회원가입 화면과 동일하게 Nominatim을 쓴다(키 불필요).
+function reverseGeocode(lat, lon) {
+  return fetch('https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lon +
+               '&format=json&accept-language=ko&zoom=17')
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      var a = d && d.address;
+      if (!a) return undefined;
+      var parts = [a.province || a.city, a.borough || a.county || a.city_district,
+                   a.suburb || a.quarter || a.town || a.village, a.road].filter(Boolean);
+      var uniq = parts.filter(function (v, i) { return parts.indexOf(v) === i; });
+      return uniq.length ? uniq.join(' ') : d.display_name;
+    })
+    .catch(function () { return undefined; });
+}
+
+function pick(lat, lon, addressMaybe) {
+  if (addressMaybe) { send({ type: 'pick', lat: lat, lon: lon, address: addressMaybe }); return; }
+  reverseGeocode(lat, lon).then(function (addr) {
+    send({ type: 'pick', lat: lat, lon: lon, address: addr });
+  });
+}
+
+// ---- 네이버 지도 ----
+function initNaver() {
+  if (!window.naver || !window.naver.maps) { initLeaflet(); return; }
+  send({ type: 'engine', engine: 'naver' });
+  var map = new naver.maps.Map(document.getElementById('map'), {
+    center: new naver.maps.LatLng(LAT, LON), zoom: 16, zoomControl: false,
+  });
+  var marker = new naver.maps.Marker({ position: new naver.maps.LatLng(LAT, LON), map: map });
+  naver.maps.Event.addListener(map, 'click', function (e) {
+    var lat = e.coord.lat(), lon = e.coord.lng();
+    marker.setPosition(e.coord);
+    pick(lat, lon);
+  });
+  // 앱 검색 결과를 지도에 반영
+  window.setPin = function (lat, lon, address) {
+    var pos = new naver.maps.LatLng(lat, lon);
+    map.setCenter(pos); marker.setPosition(pos);
+    pick(lat, lon, address);
+  };
+}
+
+// ---- Leaflet 폴백 (네이버 인증 실패 시에도 위치 선택은 가능해야 한다) ----
+function initLeaflet() {
+  send({ type: 'engine', engine: 'leaflet' });
+  var link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  document.head.appendChild(link);
+  var start = function () {
+    if (!window.L) return;
+    var map = L.map(document.getElementById('map'), { zoomControl: false }).setView([LAT, LON], 16);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
+    var marker = L.marker([LAT, LON]).addTo(map);
+    map.on('click', function (e) {
+      marker.setLatLng(e.latlng);
+      pick(e.latlng.lat, e.latlng.lng);
+    });
+    window.setPin = function (lat, lon, address) {
+      map.setView([lat, lon], 16); marker.setLatLng([lat, lon]);
+      pick(lat, lon, address);
+    };
+  };
+  if (window.L) { start(); return; }
+  var script = document.createElement('script');
+  script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  script.onload = start;
+  document.head.appendChild(script);
+}
+
+if (!CLIENT_ID) {
+  initLeaflet();
+} else {
+  window.navermap_authFailure = function () { initLeaflet(); };
+  var s = document.createElement('script');
+  s.src = 'https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=' + encodeURIComponent(CLIENT_ID);
+  s.onload = initNaver;
+  s.onerror = initLeaflet;
+  document.head.appendChild(s);
+}
+</script>
+</body>
+</html>

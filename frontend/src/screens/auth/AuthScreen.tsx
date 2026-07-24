@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { WebView } from 'react-native-webview';
 
 import { useAuth } from '../../auth/AuthContext';
 import { API_BASE_URL } from '../../lib/api/client';
@@ -160,6 +161,8 @@ export default function AuthScreen() {
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   // 모달의 "주소 검색" 버튼이 지도 초기화 이후 생성되는 검색 함수를 호출할 수 있게 ref로 연결
   const mapSearchRef = useRef<((query: string) => void) | null>(null);
+  // 앱(네이티브)의 지도 WebView — 검색 결과 좌표를 지도에 반영할 때 사용
+  const mapWebViewRef = useRef<WebView>(null);
   // 지도 모달 안내 문구 (검색 중 / 결과 없음 피드백)
   const [mapNotice, setMapNotice] = useState('');
   // [한글 주석] 약관 동의 상태 및 상세보기 모달 상태
@@ -464,6 +467,38 @@ export default function AuthScreen() {
       mapSearchRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showMapModal]);
+
+  // [앱(네이티브) 지도 검색] 웹 훅은 DOM에 의존해 네이티브에서 동작하지 않으므로 별도로 연결한다.
+  // 백엔드 지오코딩으로 좌표를 얻어 상태에 반영하고, WebView 지도의 핀도 그 위치로 옮긴다.
+  useEffect(() => {
+    if (Platform.OS === 'web' || !showMapModal) return;
+    mapSearchRef.current = async (query: string) => {
+      const q = query.trim();
+      if (!q) return;
+      setMapNotice('🔍 주소를 찾는 중…');
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/chatbot/geocode?query=${encodeURIComponent(q)}`);
+        if (res.ok) {
+          const d = await res.json();
+          if (typeof d?.lat === 'number' && typeof d?.lon === 'number') {
+            setCoords({ lat: d.lat, lon: d.lon });
+            if (d.address) setRegion(d.address);
+            setMapNotice('');
+            mapWebViewRef.current?.injectJavaScript(
+              `window.setPin && window.setPin(${d.lat}, ${d.lon}, ${JSON.stringify(d.address || '')}); true;`,
+            );
+            return;
+          }
+        }
+        setMapNotice('검색 결과가 없어요. 도로명 주소나 가게 이름으로 다시 시도해 주세요.');
+      } catch {
+        setMapNotice('검색에 실패했어요. 네트워크를 확인해 주세요.');
+      }
+    };
+    return () => {
+      mapSearchRef.current = null;
+    };
   }, [showMapModal]);
 
   // 1단계 ➡️ 2단계 이동 검증
@@ -905,15 +940,32 @@ export default function AuthScreen() {
               {Platform.OS === 'web' ? (
                 <View id="signup-map-container" style={{ width: '100%', height: '100%' }} />
               ) : (
-                <View style={styles.mapContainerBox}>
-                  <Ionicons name="location" size={36} color={colors.pointOrange} />
-                  <Text style={{ fontSize: 13, fontWeight: '800', color: colors.espressoBrown, marginTop: 6, textAlign: 'center' }}>
-                    {region}
-                  </Text>
-                  <Text style={{ fontSize: 11, color: colors.mochaBrown, marginTop: 4, textAlign: 'center' }}>
-                    앱에서는 위 주소 입력으로 위치를 설정해 주세요
-                  </Text>
-                </View>
+                // 앱(네이티브)은 브라우저 DOM을 못 쓰므로, 백엔드가 서빙하는 지도 페이지를
+                // WebView로 띄운다. 지도를 탭하면 핀 이동 + 역지오코딩 주소가 postMessage로 온다.
+                <WebView
+                  ref={mapWebViewRef}
+                  originWhitelist={['*']}
+                  source={{
+                    uri: `${API_BASE_URL}/map/picker.html?key=${encodeURIComponent(
+                      process.env.EXPO_PUBLIC_NAVER_CLIENT_ID || '6amak4awt7',
+                    )}&lat=${coords?.lat ?? 37.5665}&lon=${coords?.lon ?? 126.978}`,
+                  }}
+                  javaScriptEnabled
+                  domStorageEnabled
+                  onMessage={(e) => {
+                    try {
+                      const msg = JSON.parse(e.nativeEvent.data);
+                      if (msg.type === 'pick') {
+                        setCoords({ lat: msg.lat, lon: msg.lon });
+                        if (msg.address) setRegion(msg.address);
+                        setMapNotice('');
+                      }
+                    } catch {
+                      // 형식이 다른 메시지는 무시 (엔진 로그 등)
+                    }
+                  }}
+                  style={{ flex: 1, backgroundColor: colors.creamSand }}
+                />
               )}
             </View>
 
