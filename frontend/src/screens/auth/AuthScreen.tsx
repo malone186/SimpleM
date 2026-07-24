@@ -144,9 +144,8 @@ export default function AuthScreen() {
 
   // 1단계 기본 정보
   const [name, setName] = useState('');
-  // [한글 주석: 백엔드 실제 시드 계정(owner@cafe.com / owner123)이 입력칸에 채워져 바로 로그인 클릭 가능]
-  const [email, setEmail] = useState('owner@cafe.com');
-  const [password, setPassword] = useState('owner123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [autoLogin, setAutoLogin] = useState(true);
 
   // 2단계 가게 상세 설정 정보
