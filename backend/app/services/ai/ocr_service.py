@@ -114,9 +114,11 @@ def _check_db() -> bool:
             from sqlalchemy import text as _text
 
             import app.models  # noqa: F401 — OcrDocument를 Base.metadata에 등록
-            from app.core.database import Base, SessionLocal, engine
+            from app.core.database import SessionLocal
 
-            Base.metadata.create_all(bind=engine)  # 테이블 없으면 생성 (있으면 no-op)
+            # 테이블 생성은 main.py 기동 시 create_all이 보장한다 — 여기서 또 하면
+            # 인스턴스별 첫 OCR 요청이 테이블 존재 확인(pg_catalog ~30회, 원격 DB
+            # 실측 6초)을 뒤집어쓴다. 연결 생존 확인만 가볍게 한다.
             with SessionLocal() as session:
                 session.execute(_text("SELECT 1"))
             _db_available = True
