@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<style>html,body,#map{margin:0;padding:0;width:100%;height:100%;background:#F8F6F2;}</style>
+</head>
+<body>
+<!--
+  [매장 위치 지도 — 백엔드 서빙본]
+
+  앱(WebView)이 HTML 문자열을 baseUrl과 함께 로드하면 iOS가 하위 리소스 요청에
+  Referer를 붙이지 않는다. 네이버 지도는 Referer로 등록 도메인을 검증하므로
+  authFailure가 나고 Leaflet으로 폴백된다.
+  이 파일을 실제 URL(https://<api-domain>/map/)에서 로드하면 Referer가 정상 전송되어
+  네이버 지도 인증이 통과한다. NCP 콘솔의 Web 서비스 URL에 이 API 도메인을 등록할 것.
+
+  쿼리 파라미터:
+    d   = JSON {lat, lon, regionName, shopLabel, events:[{lat,lon,name,place,distance_km,date}]}
+    key = NCP Maps Client ID (Web Dynamic Map)
+-->
+<div id="map"></div>
+<script>
+var params = new URLSearchParams(location.search);
+var D = { lat: 37.5665, lon: 126.9780, regionName: '', shopLabel: '', events: [] };
+try {
+  var raw = params.get('d');
+  if (raw) {
+    var parsed = JSON.parse(raw);
+    D.lat = Number(parsed.lat) || D.lat;
+    D.lon = Number(parsed.lon) || D.lon;
+    D.regionName = String(parsed.regionName || '');
+    D.shopLabel = String(parsed.shopLabel || '');
+    D.events = Array.isArray(parsed.events) ? parsed.events : [];
+  }
+} catch (e) { /* 파라미터가 깨져도 기본 좌표로 지도는 뜨게 둔다 */ }
+var CLIENT_ID = params.get('key') || '';
+
+// 앱(WebView) 콘솔에서 실제 사용 중인 지도 엔진을 확인할 수 있게 알린다
+function reportEngine(name) {
+  if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage(name); }
+}
+
+function initNaver() {
+  try {
+    if (!window.naver || !window.naver.maps) { initLeaflet(); return; }
+    var container = document.getElementById('map');
+    container.innerHTML = '';
+    reportEngine('naver');
+    var map = new naver.maps.Map(container, {
+      center: new naver.maps.LatLng(D.lat, D.lon),
+      zoom: 14,
+      zoomControl: false,
+    });
+    var shopMarker = new naver.maps.Marker({
+      position: new naver.maps.LatLng(D.lat, D.lon),
+      map: map,
+      icon: {
+        content: '<div style="width:16px;height:16px;background:#4E3629;border:3px solid #FFFFFF;border-radius:50%;box-shadow:0 2px 5px rgba(0,0,0,0.3)"></div>',
+        anchor: new naver.maps.Point(8, 8),
+      },
+    });
+    var infoWindow = new naver.maps.InfoWindow({
+      content: '<div style="padding:10px;min-width:140px;line-height:140%;font-size:11px;font-family:-apple-system,sans-serif"><b>📍 ' + D.shopLabel + '</b><br/>' + D.regionName + '</div>',
+      borderWidth: 1,
+      borderColor: '#8C6F56',
+      borderRadius: 8,
+      backgroundColor: '#FFFFFF',
+      anchorSize: new naver.maps.Size(10, 10),
+    });
+    naver.maps.Event.addListener(shopMarker, 'click', function () {
+      if (infoWindow.getMap()) { infoWindow.close(); } else { infoWindow.open(map, shopMarker); }
+    });
+    var eventWindows = [];
+    D.events.forEach(function (e) {
+      if (e.lat && e.lon) {
+        var eventMarker = new naver.maps.Marker({
+          position: new naver.maps.LatLng(e.lat, e.lon),
+          map: map,
+          icon: {
+            content: '<div style="width:12px;height:12px;background:#E28257;border:2.5px solid #FFFFFF;border-radius:50%;box-shadow:0 2px 4px rgba(0,0,0,0.3)"></div>',
+            anchor: new naver.maps.Point(6, 6),
+          },
+        });
+        var eWindow = new naver.maps.InfoWindow({
+          content: '<div style="padding:10px;min-width:160px;line-height:140%;font-size:11px;font-family:-apple-system,sans-serif"><b>🎉 ' + e.name + '</b><br/>장소: ' + e.place + '<br/>거리: ' + e.distance_km + 'km<br/>날짜: ' + e.date + '</div>',
+          borderWidth: 1,
+          borderColor: '#E28257',
+          borderRadius: 8,
+          backgroundColor: '#FFFFFF',
+        });
+        eventWindows.push(eWindow);
+        naver.maps.Event.addListener(eventMarker, 'click', function () {
+          if (eWindow.getMap()) { eWindow.close(); } else { eWindow.open(map, eventMarker); }
+        });
+      }
+    });
+    naver.maps.Event.addListener(map, 'click', function () {
+      eventWindows.forEach(function (w) { if (w.getMap()) w.close(); });
+    });
+  } catch (err) { initLeaflet(); }
+}
+
+function initLeaflet() {
+  reportEngine('leaflet');
+  var link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  document.head.appendChild(link);
+  var start = function () {
+    if (!window.L) return;
+    var container = document.getElementById('map');
+    container.innerHTML = '';
+    var map = L.map(container, { zoomControl: false }).setView([D.lat, D.lon], 14);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
+    L.circleMarker([D.lat, D.lon], { color: '#4E3629', fillColor: '#8C6F56', fillOpacity: 1, radius: 8, weight: 3 })
+      .addTo(map)
+      .bindPopup("<div style='font-size:11px'><b>📍 " + D.shopLabel + '</b><br/>' + D.regionName + '</div>');
+    D.events.forEach(function (e) {
+      if (e.lat && e.lon) {
+        L.circleMarker([e.lat, e.lon], { color: '#E28257', fillColor: '#FFFFFF', fillOpacity: 0.9, radius: 6, weight: 3.5 })
+          .addTo(map)
+          .bindPopup("<div style='font-size:11px'><b>🎉 " + e.name + '</b><br/>장소: ' + e.place + '<br/>거리: ' + e.distance_km + 'km<br/>날짜: ' + e.date + '</div>');
+      }
+    });
+  };
+  if (window.L) { start(); return; }
+  var script = document.createElement('script');
+  script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  script.onload = start;
+  document.head.appendChild(script);
+}
+
+// 키가 없으면 네이버를 시도하지 않고 바로 폴백
+if (!CLIENT_ID) {
+  initLeaflet();
+} else {
+  window.navermap_authFailure = function () {
+    reportEngine('naver-AUTH-FAILED(키/도메인 미등록) origin=' + location.origin);
+    initLeaflet();
+  };
+  var s = document.createElement('script');
+  s.src = 'https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=' + encodeURIComponent(CLIENT_ID);
+  s.onload = initNaver;
+  s.onerror = function () {
+    reportEngine('naver-SCRIPT-ERROR(네트워크/차단) origin=' + location.origin);
+    initLeaflet();
+  };
+  document.head.appendChild(s);
+}
+</script>
+</body>
+</html>

@@ -152,6 +152,13 @@ app.include_router(api_router, prefix="/api/v1")
 _LEGAL_DIR = Path(__file__).parent / "static" / "legal"
 app.mount("/legal", StaticFiles(directory=str(_LEGAL_DIR), html=True), name="legal")
 
+# [매장 위치 지도] 앱 WebView가 HTML 문자열을 baseUrl과 함께 로드하면 iOS가 Referer를
+# 보내지 않아, Referer로 도메인을 검증하는 네이버 지도가 인증을 거부한다(Leaflet 폴백).
+# 지도 HTML을 실제 URL(https://<도메인>/map/)로 서빙하면 Referer가 정상 전송된다.
+# NCP 콘솔 Maps Application의 "Web 서비스 URL"에 이 API 도메인을 등록해야 동작한다.
+_MAP_DIR = Path(__file__).parent / "static" / "map"
+app.mount("/map", StaticFiles(directory=str(_MAP_DIR), html=True), name="map")
+
 
 # 1. 데이터베이스 접속이 실제로 잘 되는지 테스트해보는 맛보기 API
 @app.get("/db-test")

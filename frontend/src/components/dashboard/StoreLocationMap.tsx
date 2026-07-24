@@ -6,6 +6,7 @@ import { useEffect, useMemo } from 'react';
 import { Platform, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
+import { API_BASE_URL } from '../../lib/api/client';
 import type { NearbyEvent } from '../../lib/api/forecast';
 
 // [한글 주석] 네이티브 WebView용 자립형 HTML — 웹 버전과 동일한 네이버 지도 + Leaflet 폴백 로직
@@ -126,11 +127,18 @@ function initLeaflet() {
   document.head.appendChild(script);
 }
 
-window.navermap_authFailure = function () { initLeaflet(); };
+// 폴백 원인을 구분해 로그로 알린다 (인증 거부 vs 스크립트 로드 실패)
+window.navermap_authFailure = function () {
+  reportEngine('naver-AUTH-FAILED(키/도메인 미등록) referer=' + document.referrer + ' origin=' + location.origin);
+  initLeaflet();
+};
 var s = document.createElement('script');
 s.src = 'https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${clientId}';
 s.onload = initNaver;
-s.onerror = initLeaflet;
+s.onerror = function () {
+  reportEngine('naver-SCRIPT-ERROR(네트워크/차단) origin=' + location.origin);
+  initLeaflet();
+};
 document.head.appendChild(s);
 </script>
 </body>
@@ -165,6 +173,17 @@ export default function StoreLocationMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [lat, lon, regionName, shopLabel, serializedEvents, NAVER_CLIENT_ID],
   );
+
+  // 네이티브 WebView가 로드할 백엔드 지도 URL.
+  // HTML 문자열을 직접 넣으면 iOS가 Referer를 안 보내 네이버 인증이 실패하므로,
+  // 백엔드(/map/)가 서빙하는 실제 URL을 로드해 Referer가 전송되게 한다.
+  const mapUri = useMemo(() => {
+    const payload = encodeURIComponent(
+      JSON.stringify({ lat, lon, regionName, shopLabel, events: nearbyEvents }),
+    );
+    return `${API_BASE_URL}/map/?key=${encodeURIComponent(NAVER_CLIENT_ID)}&d=${payload}`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lat, lon, regionName, shopLabel, serializedEvents, NAVER_CLIENT_ID]);
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -365,10 +384,11 @@ export default function StoreLocationMap({
       <View style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
         <WebView
           originWhitelist={['*']}
-          // baseUrl을 웹 개발 서버와 같은 origin으로 지정 — NCP 지도 인증이 referer(웹 서비스 URL)
-          // 기준이라, 이게 없으면 about:blank로 취급돼 인증 실패 → Leaflet 폴백으로 빠진다.
-          // NCP 콘솔에 등록된 URL과 일치해야 하며, 다르면 EXPO_PUBLIC_NAVER_WEB_ORIGIN으로 덮어쓴다.
-          source={{ html: mobileHtml, baseUrl: process.env.EXPO_PUBLIC_NAVER_WEB_ORIGIN || 'http://localhost:8081' }}
+          // [중요] HTML 문자열 + baseUrl 방식(loadHTMLString)은 iOS가 하위 리소스에 Referer를
+          // 붙이지 않아, Referer로 도메인을 검증하는 네이버 지도가 인증을 거부한다(Leaflet 폴백).
+          // 그래서 지도 HTML을 백엔드가 실제 URL로 서빙하고 여기서는 그 URL을 로드한다.
+          // NCP 콘솔 Maps Application의 "Web 서비스 URL"에 이 API 도메인을 등록해야 한다.
+          source={{ uri: mapUri }}
           javaScriptEnabled
           domStorageEnabled
           scrollEnabled={false}
