@@ -23,18 +23,13 @@ logger = logging.getLogger(__name__)
 # 한 달 평균 주 수 (365.25 / 12 / 7) — 주휴수당 월 환산에 사용
 WEEKS_PER_MONTH = 4.345
 
-_tables_ready = False
-
-
 def _session():
-    """DB 세션 획득 + 첫 사용 시 테이블 생성 (없으면)."""
-    global _tables_ready
+    """DB 세션 획득. 테이블 생성은 main.py 기동 시 create_all이 이미 보장한다 —
+    여기서 또 하면 인스턴스별 첫 요청이 테이블 존재 확인(pg_catalog 조회 ~30회,
+    원격 DB 실측 6초)을 뒤집어쓴다. 센서 라이브(5초 폴링)가 이 세션을 쓰므로 치명적."""
     import app.models  # noqa: F401 — 모든 모델을 Base.metadata에 등록
-    from app.core.database import Base, SessionLocal, engine
+    from app.core.database import SessionLocal
 
-    if not _tables_ready:
-        Base.metadata.create_all(bind=engine)
-        _tables_ready = True
     return SessionLocal()
 
 

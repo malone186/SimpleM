@@ -219,6 +219,32 @@ def _save_draft(draft: dict[str, Any]) -> None:
         session.commit()
 
 
+def _save_draft_meta(draft: dict[str, Any]) -> None:
+    """상태 변경(확정/반려)만 저장한다 — 품목은 그대로이므로 전체 저장(_save_draft,
+    품목 삭제+재삽입 포함 왕복 ~8회) 대신 UPDATE 1문장으로 끝낸다. 행이 아직 없으면
+    (백그라운드 최초 저장 전) 전체 저장으로 폴백."""
+    if not _check_db():
+        _DRAFTS[draft["id"]] = draft
+        return
+    from app.core.database import SessionLocal
+    from app.models import ai as ai_models
+
+    with SessionLocal() as session:
+        updated = (
+            session.query(ai_models.OcrDocument)
+            .filter(ai_models.OcrDocument.id == draft["id"])
+            .update({
+                "status": draft["status"],
+                "target": draft["confirmed_target"] or draft["suggested_target"],
+                "applied": draft["applied"],
+                "updated_at": draft["updated_at"],
+            })
+        )
+        session.commit()
+    if not updated:
+        _save_draft(draft)
+
+
 class OcrError(Exception):
     """OCR 처리 실패 (모델 호출/응답 파싱)"""
 
@@ -329,13 +355,20 @@ def _parse_model_json(content: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 _gemini_client: Optional[httpx.AsyncClient] = None
+_gemini_client_loop: Optional[asyncio.AbstractEventLoop] = None
 
 
 def _get_gemini_client() -> httpx.AsyncClient:
-    """공유 AsyncClient — 연결(TLS 핸드셰이크 ~0.3초)을 재사용해 호출당 지연을 줄인다."""
-    global _gemini_client
-    if _gemini_client is None or _gemini_client.is_closed:
+    """공유 AsyncClient — 연결(TLS 핸드셰이크 ~0.3초)을 재사용해 호출당 지연을 줄인다.
+
+    AsyncClient는 생성된 이벤트 루프에 묶이므로 루프가 바뀌면(TestClient 등)
+    재생성한다 — 운영(uvicorn 단일 루프)에서는 항상 재사용된다.
+    """
+    global _gemini_client, _gemini_client_loop
+    loop = asyncio.get_running_loop()
+    if _gemini_client is None or _gemini_client.is_closed or _gemini_client_loop is not loop:
         _gemini_client = httpx.AsyncClient(timeout=GEMINI_TIMEOUT)
+        _gemini_client_loop = loop
     return _gemini_client
 
 
@@ -673,7 +706,7 @@ def confirm_draft(
     applied, message = _apply_to_target(draft, resolved, store_id)
     draft["applied"] = applied
     draft["updated_at"] = _now()
-    _save_draft(draft)
+    _save_draft_meta(draft)  # 품목은 그대로 — 상태만 UPDATE (확정 체감 속도)
     return draft, message
 
 
@@ -685,7 +718,7 @@ def reject_draft(doc_id: str) -> dict[str, Any]:
         raise DraftStateError(f"이미 {draft['status']} 상태입니다")
     draft["status"] = "rejected"
     draft["updated_at"] = _now()
-    _save_draft(draft)
+    _save_draft_meta(draft)  # 품목은 그대로 — 상태만 UPDATE
     return draft
 
 
@@ -776,16 +809,18 @@ def _find_ingredient(db, store_id: str, name: str, ingredients: list) -> tuple[A
 
 
 def _apply_inventory_inbound(draft: dict[str, Any], store_id: str) -> tuple[bool, str]:
-    """OCR 품목을 백엔드 A의 재고 로직으로 입고 처리한다.
+    """OCR 품목을 재고에 입고 처리한다 (백엔드 A의 서비스 규칙과 동일한 기록을 남긴다).
 
     품목명이 등록된 재료와 (유사도 포함) 일치하면 그 재료에 입고하고, 없으면 재료를
     새로 등록 후 입고한다. 새 재료 이름은 줄번호 접두('01 ')를 뗀 표시용 이름으로
     저장한다. 수량을 못 읽은 품목은 건너뛰고 사용자에게 알린다.
+
+    inventory_service의 함수들은 호출마다 commit+refresh(원격 DB 왕복 2회)를 하므로
+    4품목 문서 하나에 실측 23초가 걸렸다 — 같은 규칙(재고 0으로 생성, 최초/변동 단가
+    이력, IN 트랜잭션 기록)의 ORM을 직접 써서 커밋을 마지막 1회로 모은다.
     """
     from app.core.database import SessionLocal
-    from app.models.inventory import Ingredient
-    from app.schemas.inventory import IngredientCreate, StockAdjust
-    from app.services import inventory_service
+    from app.models.inventory import Ingredient, IngredientPriceHistory, Stock, StockTransaction
 
     result: OcrResult = draft["result"]
     applied_names: list[str] = []
@@ -794,6 +829,15 @@ def _apply_inventory_inbound(draft: dict[str, Any], store_id: str) -> tuple[bool
 
     with SessionLocal() as db:
         ingredients = db.query(Ingredient).filter(Ingredient.store_id == store_id).all()
+        stocks: dict[int, Stock] = {
+            s.ingredient_id: s
+            for s in (
+                db.query(Stock)
+                .join(Ingredient, Stock.ingredient_id == Ingredient.id)
+                .filter(Ingredient.store_id == store_id)
+                .all()
+            )
+        }
         for item in result.items:
             if not item.name or item.quantity is None or item.quantity <= 0:
                 skipped_names.append(item.name or "(이름 미인식)")
@@ -805,29 +849,38 @@ def _apply_inventory_inbound(draft: dict[str, Any], store_id: str) -> tuple[bool
             if ingredient is None:
                 # 줄번호 접두를 뗀 표시용 이름으로 등록 ('01 피코크 짬뽕' → '피코크 짬뽕')
                 display_name = re.sub(r"^\s*\d{1,3}\s*[.*)]?\s*", "", item.name).strip() or item.name
-                ingredient = inventory_service.create_ingredient(
-                    db, store_id,
-                    IngredientCreate(
-                        name=display_name,
-                        unit=item.unit or "개",
-                        current_price=int(item.unit_price or 0),
-                    ),
+                ingredient = Ingredient(
+                    name=display_name,
+                    unit=item.unit or "개",
+                    current_price=int(item.unit_price or 0),
+                    store_id=store_id,
                 )
+                db.add(ingredient)
+                db.flush()  # id 확보 (새 재료일 때만 왕복 1회)
+                db.add(IngredientPriceHistory(ingredient_id=ingredient.id, price=ingredient.current_price))
+                stock = Stock(ingredient_id=ingredient.id, current_quantity=0.0, safety_quantity=0.0)
+                db.add(stock)
+                stocks[ingredient.id] = stock
                 ingredients.append(ingredient)  # 같은 문서 내 중복 품목이 새 재료를 또 만들지 않게
-            elif item.unit_price:
+            elif item.unit_price and int(item.unit_price) != (ingredient.current_price or 0):
                 # 최신 매입 단가 반영 및 단가 변동 이력 자동 적재
-                inventory_service.update_ingredient_price(db, store_id, ingredient.id, int(item.unit_price))
+                ingredient.current_price = int(item.unit_price)
+                db.add(IngredientPriceHistory(ingredient_id=ingredient.id, price=int(item.unit_price)))
 
-
-            inventory_service.add_or_adjust_stock(
-                db, store_id,
-                StockAdjust(
-                    ingredient_id=ingredient.id,
-                    quantity_change=item.quantity,
-                    description=f"영수증 OCR 입고 (문서 {draft['id']})",
-                ),
-            )
+            stock = stocks.get(ingredient.id)
+            if stock is None:  # 재고 레코드가 없던 기존 재료 방어
+                stock = Stock(ingredient_id=ingredient.id, current_quantity=0.0, safety_quantity=0.0)
+                db.add(stock)
+                stocks[ingredient.id] = stock
+            stock.current_quantity = (stock.current_quantity or 0.0) + item.quantity
+            db.add(StockTransaction(
+                ingredient_id=ingredient.id,
+                quantity_change=item.quantity,
+                type="IN",
+                description=f"영수증 OCR 입고 (문서 {draft['id']})",
+            ))
             applied_names.append(item.name)
+        db.commit()
 
     message = f"재고 반영 완료 — {len(applied_names)}개 품목 입고"
     if corrections:

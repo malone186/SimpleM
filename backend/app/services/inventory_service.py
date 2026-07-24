@@ -108,9 +108,15 @@ def get_stocks(db: Session, store_id: str) -> list[dict]:
     [백엔드 B 추가 — 재고 현황 화면·OCR 입고 확인용] 내 매장의 재료별 실시간 재고 목록을
     재료 이름·단위·단가와 함께 한 번에 조회합니다. (A 확인 요망: 필요 시 자유롭게 수정하세요)
     """
+    from sqlalchemy.orm import contains_eager
+
+    # contains_eager: 아래에서 s.ingredient에 접근할 때 재고 1건마다 재료를 따로
+    # 조회(N+1)하지 않도록 조인 결과를 그대로 재사용한다 (원격 DB에서 재고 30개면
+    # 왕복 30회 ≈ 6초가 추가되던 것을 쿼리 1회로).
     stocks = (
         db.query(Stock)
         .join(Ingredient, Stock.ingredient_id == Ingredient.id)
+        .options(contains_eager(Stock.ingredient))
         .filter(Ingredient.store_id == store_id)
         .order_by(Ingredient.id.asc())
         .all()

@@ -83,6 +83,28 @@ app.add_middleware(
 # [활동 트래킹 수집] 앱의 모든 인증 요청을 tracking_events 테이블에 1건씩 기록한다(서버사이드 → 프론트 무수정).
 #  - 마지막 접속·기능별 사용량·이탈 위험은 이 로그의 집계로 관리자 콘솔에 표시된다.
 #  - 어떤 실패도 원 요청을 막지 않는다(전 구간 try/except). 관리자 콘솔 트래픽(/admin)·문서·헬스는 기록 제외.
+#  - DB INSERT는 백그라운드 스레드에서 — 원격 DB 왕복(INSERT+COMMIT ~0.5초)이 모든 API
+#    응답 시간에 그대로 얹히던 것을 제거한다. 트래킹은 베스트에포트라 유실 허용.
+def _record_tracking(email, method, path, status_code):
+    try:
+        from app.models.tracking import TrackingEvent, classify_feature
+
+        db_session = SessionLocal()
+        try:
+            db_session.add(TrackingEvent(
+                email=email,
+                method=method,
+                path=path[:255],
+                feature=classify_feature(path),
+                status_code=status_code,
+            ))
+            db_session.commit()
+        finally:
+            db_session.close()
+    except Exception:
+        logger.debug("활동 트래킹 기록 실패(무시)", exc_info=True)
+
+
 @app.middleware("http")
 async def track_activity(request, call_next):
     response = await call_next(request)
@@ -95,8 +117,6 @@ async def track_activity(request, call_next):
             and path.startswith("/api/v1")
             and not path.startswith("/api/v1/admin")
         ):
-            from app.models.tracking import TrackingEvent, classify_feature
-
             # [베스트에포트] Authorization 헤더의 로컬 JWT에서 이메일(sub)만 조용히 추출 — 실패해도 무시.
             email = None
             auth_header = request.headers.get("authorization") or ""
@@ -113,18 +133,11 @@ async def track_activity(request, call_next):
                 except Exception:
                     email = None  # Firebase 토큰 등 로컬 해독 불가 시 익명 기록
 
-            db_session = SessionLocal()
-            try:
-                db_session.add(TrackingEvent(
-                    email=email,
-                    method=method,
-                    path=path[:255],
-                    feature=classify_feature(path),
-                    status_code=getattr(response, "status_code", None),
-                ))
-                db_session.commit()
-            finally:
-                db_session.close()
+            import asyncio
+            asyncio.get_running_loop().run_in_executor(
+                None, _record_tracking, email, method, path,
+                getattr(response, "status_code", None),
+            )
     except Exception:
         logger.debug("활동 트래킹 기록 실패(무시)", exc_info=True)
     return response
