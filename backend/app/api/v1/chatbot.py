@@ -294,7 +294,7 @@ def get_sales_forecast_api(
 def geocode_address(query: str):
     """주소/상호 → 좌표 (회원가입 매장 위치 검색용 — 가입 전 화면이라 인증 불필요).
 
-    네이버 지역 검색(도로명주소·상호에 강함) → Nominatim 폴백 순으로 조회한다.
+    네이버 지도 전용: 네이버 지역 검색(상호) → NCP Geocoding(주소) 순. 무료 지오코더 폴백 없음.
     """
     result = forecast_service.geocode(query)
     if not result:
