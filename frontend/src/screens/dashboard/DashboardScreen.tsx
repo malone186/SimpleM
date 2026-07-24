@@ -286,7 +286,10 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 36,
     paddingHorizontal: spacing.globalPadding,
     paddingTop: spacing.verticalGap, // 원래 패딩값으로 복원
-    paddingBottom: 40, // [한글 주석: 하단 탭 바 가림 방지 여백 조정] 과도한 여백(110)을 줄여서 깔끔하게 배치되도록 조율
+    // 플로팅 버튼(마이크 bottom:20, 브리핑 bottom:78 — 각 44px)이 차지하는 세로 영역은 약 122px.
+    // 이보다 여백이 작으면 카드 안의 달력·통계·목록이 버튼에 덮인다(40이라 겹쳤음).
+    // 버튼 영역 + 여유를 확보해 카드 콘텐츠가 버튼 밑으로 들어가지 않게 한다.
+    paddingBottom: 150,
     gap: spacing.verticalGap,
   },
 });

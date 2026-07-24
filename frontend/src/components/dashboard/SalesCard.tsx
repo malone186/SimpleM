@@ -85,7 +85,9 @@ function SlidingTabToggle({
   // 달라지면 캡슐이 라벨과 어긋나고 긴 라벨(todo)이 넘친다 — 폭 기반 계산으로 대체.
   const [trackW, setTrackW] = useState(0);
   const cellW = trackW > 0 ? trackW / 3 : 66; // 측정 전 초기값(트랙 200 기준 66)
-  const capsuleGap = 3;
+  // 트랙은 borderRadius 999(양 끝이 반원)라 여백이 좁으면 첫/마지막 캡슐 모서리가
+  // 곡선 밖으로 삐져나온다. 트랙 높이(34)의 반경을 고려해 여백을 넉넉히 준다.
+  const capsuleGap = 6;
 
   useEffect(() => {
     Animated.spring(slideAnim, {
