@@ -64,11 +64,14 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "") or os.getenv("GOOGLE_API_KEY", 
 GEMINI_MODEL = os.getenv("OCR_GEMINI_MODEL", "gemini-3.1-flash-lite")
 GEMINI_TIMEOUT = float(os.getenv("OCR_GEMINI_TIMEOUT", "60"))
 # 품목 20개+ 문서도 JSON이 잘리지 않도록 여유 있게 (Gemini는 출력 토큰만 과금 대상이라
-# 한도를 높여도 실제 짧은 응답 비용은 그대로다)
-GEMINI_MAX_OUTPUT_TOKENS = int(os.getenv("OCR_GEMINI_MAX_TOKENS", "4096"))
+# 한도를 높여도 실제 짧은 응답 비용은 그대로다). 4096에서는 품목 40개급 대형 명세서가
+# 꼬리 절단(_parse_model_json 복구 경로)으로 품목을 조용히 잃을 수 있어 8192로 상향.
+GEMINI_MAX_OUTPUT_TOKENS = int(os.getenv("OCR_GEMINI_MAX_TOKENS", "8192"))
 
-# 폰 사진은 4000px가 넘어가므로 전송·인코딩 비용을 줄이기 위해 축소한다
-MAX_IMAGE_SIDE = int(os.getenv("OCR_MAX_IMAGE_SIDE", "1280"))
+# 폰 사진은 4000px가 넘어가므로 전송·인코딩 비용을 줄이기 위해 축소한다.
+# 1280² 예산은 도트 프린터 영수증의 작은 글자가 뭉개져 숫자 오독이 나던 크기라
+# 1600²(약 1.6배 픽셀)으로 상향 — 전송량은 조금 늘지만 인식 정확도가 우선이다.
+MAX_IMAGE_SIDE = int(os.getenv("OCR_MAX_IMAGE_SIDE", "1600"))
 
 UPLOAD_DIR = Path(os.getenv("OCR_UPLOAD_DIR", Path(__file__).resolve().parents[3] / "uploads" / "ocr"))
 
@@ -374,12 +377,57 @@ def _get_gemini_client() -> httpx.AsyncClient:
     return _gemini_client
 
 
+# Gemini responseSchema — EXTRACTION_SCHEMA(JSON Schema)와 같은 구조를 Gemini 방식
+# (type: ["number","null"] 대신 nullable: true)으로 옮긴 것. 스키마를 디코더에 강제하면
+# 필드 누락·오탈자 키·구조 변형이 원천 차단되어 프롬프트 규칙에만 기대던 것보다 안정적이다.
+# propertyOrdering은 표를 읽는 순서(이름→규격→수량→단위→단가→금액)와 맞춰 정확도를 돕는다.
+def _gemini_schema() -> dict[str, Any]:
+    num = {"type": "number", "nullable": True}
+    s = {"type": "string", "nullable": True}
+    return {
+        "type": "object",
+        "properties": {
+            "doc_type": {
+                "type": "string",
+                "enum": ["purchase_statement", "tax_invoice", "receipt", "sales_summary", "unknown"],
+            },
+            "vendor": {
+                "type": "object",
+                "properties": {"name": s, "biz_no": s, "phone": s},
+                "propertyOrdering": ["name", "biz_no", "phone"],
+            },
+            "issued_date": s,
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "spec": s,
+                        "quantity": num,
+                        "unit": s,
+                        "unit_price": num,
+                        "amount": num,
+                    },
+                    "required": ["name"],
+                    "propertyOrdering": ["name", "spec", "quantity", "unit", "unit_price", "amount"],
+                },
+            },
+            "discount": num,
+            "subtotal": num,
+            "tax": num,
+            "total": num,
+        },
+        "required": ["doc_type", "vendor", "items"],
+        "propertyOrdering": ["doc_type", "vendor", "issued_date", "items",
+                             "discount", "subtotal", "tax", "total"],
+    }
+
+
 async def _call_gemini(image_bytes: bytes) -> dict[str, Any]:
     """Gemini 호출 — 이미지 1장을 구조화 JSON으로.
 
-    responseMimeType=application/json으로 JSON 출력을 강제한다. responseSchema는
-    쓰지 않는다 — EXTRACTION_SCHEMA의 type: ["number","null"] 표기가 Gemini 스키마
-    (nullable 방식)와 호환되지 않고, 프롬프트 규칙 + _parse_model_json으로 충분하다.
+    responseMimeType=application/json + responseSchema로 출력 구조를 강제한다.
     429(쿼터)·5xx·타임아웃은 지수 백오프로 재시도한다.
     """
     if not GEMINI_API_KEY:
@@ -388,6 +436,7 @@ async def _call_gemini(image_bytes: bytes) -> dict[str, Any]:
     generation_config: dict[str, Any] = {
         "temperature": 0,
         "responseMimeType": "application/json",
+        "responseSchema": _gemini_schema(),
         "maxOutputTokens": GEMINI_MAX_OUTPUT_TOKENS,
     }
     if GEMINI_MODEL.startswith("gemini-2.5"):
@@ -516,9 +565,12 @@ def _merge_duplicate_items(result: OcrResult) -> None:
     for item in result.items:
         if not item.name:
             continue
-        # 이름이 숫자·기호뿐이면 품목이 아니라 바코드/상품코드 줄이다
-        # (코스트코 영수증의 '652125' 같은 줄을 모델이 품목으로 뽑는 실측 사례 차단)
-        if re.fullmatch(r"[\d\-*#. ]{5,}", item.name.strip()):
+        # 이름이 숫자·기호뿐이고 수량·금액도 없으면 품목이 아니라 바코드/상품코드 줄이다
+        # (코스트코 영수증의 '652125' 같은 줄을 모델이 품목으로 뽑는 실측 사례 차단).
+        # 단, 수량·금액이 붙어 있으면 품목명이 바코드로 찍힌 '진짜 품목'이다
+        # (실측: 마트 영수증의 '8801005638654 1,380×2=2,760' 행 — 버리면 합계가 안 맞는다)
+        if (re.fullmatch(r"[\d\-*#. ]{5,}", item.name.strip())
+                and item.quantity is None and item.amount is None):
             continue
         # '@CJ_1만원1천원' 같은 할인/프로모션 설명 줄 — 수량·단가·금액이 전부 비면 품목이 아니다
         if item.name.strip().startswith("@") and item.quantity is None and item.amount is None:
@@ -884,6 +936,10 @@ def _apply_inventory_inbound(draft: dict[str, Any], store_id: str) -> tuple[bool
             applied_names.append(item.name)
         db.commit()
 
+    # 재고가 바뀌면 대시보드 발주 추천이 달라진다 — 예측 캐시 무효화
+    from app.services.ai import forecast_service
+    forecast_service.invalidate_forecast_cache(store_id)
+
     message = f"재고 반영 완료 — {len(applied_names)}개 품목 입고"
     if corrections:
         message += f" · 오타 자동 교정 {len(corrections)}건: {'; '.join(corrections[:3])}"
@@ -1016,6 +1072,10 @@ def _apply_sales(draft: dict[str, Any], store_id: str) -> tuple[bool, str]:
                 + " — 메뉴 관리에서 이름을 맞춘 뒤 다시 시도해 주세요."
             )
         db.commit()
+
+    # 판매 실적이 바뀌면 대시보드 오늘 그래프·예측이 달라진다 — 예측 캐시 무효화
+    from app.services.ai import forecast_service
+    forecast_service.invalidate_forecast_cache(store_id)
 
     message = f"판매 반영 완료 — {len(applied_names)}개 품목, 합계 {total_applied:,}원"
     if skipped_names:

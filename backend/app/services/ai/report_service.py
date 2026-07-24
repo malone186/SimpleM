@@ -15,6 +15,7 @@ import hashlib
 import json
 import logging
 import os
+import threading
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Optional
 
@@ -483,6 +484,48 @@ def generate_management_report(store_id: str, period_type: str = "weekly",
     label = PERIOD_LABEL[period_type]
     return document_service._save_document(
         store_id, "management_report", f"{label} 경영 리포트 ({display})", content, period=display)
+
+
+def get_cached_management_report(store_id: str, period_type: str = "weekly",
+                                 reference_date: Optional[str] = None) -> Optional[dict[str, Any]]:
+    """현재 기간의 저장된 리포트를 재계산 없이 돌려준다 (없거나 입력이 이상하면 None).
+
+    홈 화면 stale-while-revalidate용 — 집계 쿼리 10회+와 Gemini 호출 없이
+    문서 조회 1회로 끝나므로 원격 DB에서도 즉시 응답한다. 최신화는 호출자가
+    refresh_management_report_background로 백그라운드에서 처리한다.
+    """
+    try:
+        ref = date.fromisoformat(reference_date) if reference_date else date.today()
+        *_, display = _period_range(period_type, ref)
+    except (ValueError, ReportError):
+        return None
+    return next(
+        (d for d in document_service.list_documents(store_id, kind="management_report")
+         if d["period"] == display and d["content"].get("period_type") == period_type),
+        None,
+    )
+
+
+# 같은 (매장, 기간) 리포트 재계산이 동시에 여러 번 돌지 않게 하는 진행 중 표시.
+# 홈 화면이 연달아 열리거나 당겨서 새로고침을 반복해도 백그라운드 재계산은 한 번만 돈다.
+_refresh_inflight: set[tuple[str, str]] = set()
+_refresh_lock = threading.Lock()
+
+
+def refresh_management_report_background(store_id: str, period_type: str = "weekly") -> None:
+    """리포트를 백그라운드에서 최신 수치로 재계산한다 (BackgroundTasks용, 실패는 로그만)."""
+    key = (store_id, period_type)
+    with _refresh_lock:
+        if key in _refresh_inflight:
+            return
+        _refresh_inflight.add(key)
+    try:
+        generate_management_report(store_id, period_type=period_type, force_refresh=True)
+    except Exception:
+        logger.exception("경영 리포트 백그라운드 갱신 실패 (%s, %s)", store_id, period_type)
+    finally:
+        with _refresh_lock:
+            _refresh_inflight.discard(key)
 
 
 def list_management_reports(store_id: str, period_type: Optional[str] = None) -> list[dict[str, Any]]:

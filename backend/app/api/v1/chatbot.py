@@ -12,7 +12,7 @@ from datetime import date
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel, Field
@@ -274,6 +274,7 @@ def update_generated_document(
 
 @router.get("/forecast")
 def get_sales_forecast_api(
+    background_tasks: BackgroundTasks,
     lat: Optional[float] = None,
     lon: Optional[float] = None,
     days: int = 7,
@@ -283,7 +284,19 @@ def get_sales_forecast_api(
 
     lat/lon: 매장 GPS 좌표 (프론트가 기기 위치 전달, 없으면 서울 기준 날씨).
     판매 기록이 14일 미만이면 409와 함께 안내 메시지를 준다.
+
+    대시보드 첫 화면이 부르는 엔드포인트라 stale-while-revalidate로 응답한다:
+    같은 날 만든 캐시가 있으면 즉시 돌려주고, 오래됐으면 백그라운드로 재계산해
+    다음 조회부터 최신이 된다 (SARIMAX 적합 + 외부 API 왕복을 사용자가 기다리지 않게).
     """
+    cached = forecast_service.peek_forecast_cache(current_user.email, lat=lat, lon=lon, days=days)
+    if cached is not None:
+        result, fresh = cached
+        if not fresh:
+            background_tasks.add_task(
+                forecast_service.refresh_forecast_background,
+                current_user.email, lat, lon, days)
+        return result
     try:
         return forecast_service.forecast(current_user.email, lat=lat, lon=lon, days=days)
     except forecast_service.ForecastError as e:
@@ -321,10 +334,13 @@ def record_sales_api(
     여기로 등록한 판매는 대시보드·경영 리포트·예측이 읽는 Sale 테이블에 바로 반영된다.
     """
     try:
-        return sales_service.record_sales(
+        result = sales_service.record_sales(
             current_user.email, [i.model_dump() for i in body.items])
     except sales_service.SalesError as e:
         raise HTTPException(400, str(e))
+    # 오늘 실적이 바뀌었으므로 예측 캐시를 비운다 — 대시보드 그래프가 바로 최신을 본다
+    forecast_service.invalidate_forecast_cache(current_user.email)
+    return result
 
 
 @router.get("/sales/recent")
@@ -374,19 +390,30 @@ def compare_prices_api(q: str, current_price: int = 0):
 
 @router.get("/reports/management", response_model=GeneratedDocumentResponse)
 def get_management_report_api(
+    background_tasks: BackgroundTasks,
     period_type: str = "weekly",
     refresh: bool = True,
     current_user: User = Depends(get_current_user),
 ):
-    """현재 기간(오늘 기준)의 경영 리포트를 돌려준다 — 없으면 생성, 있으면 최신 수치로 갱신.
+    """현재 기간(오늘 기준)의 경영 리포트를 돌려준다 — 없으면 생성, 있으면 즉시 반환 후 갱신.
 
     period_type: daily(오늘) / weekly(이번 주) / monthly(이번 달).
-    refresh=false면 이미 있는 리포트를 다시 계산하지 않고 그대로 돌려준다.
     같은 기간 리포트는 문서 하나로 유지된다(중복 생성 없음).
+
+    홈 화면 첫 로딩이 부르는 엔드포인트라 stale-while-revalidate로 응답한다:
+    저장된 리포트가 있으면 재계산(집계 쿼리 10회+ · Gemini 조언) 없이 즉시 돌려주고,
+    refresh=true(기본)면 백그라운드에서 최신 수치로 다시 계산해 다음 조회부터 반영된다.
     """
+    cached = report_service.get_cached_management_report(current_user.email, period_type)
+    if cached is not None:
+        if refresh:
+            background_tasks.add_task(
+                report_service.refresh_management_report_background,
+                current_user.email, period_type)
+        return cached
     try:
         return report_service.generate_management_report(
-            current_user.email, period_type=period_type, force_refresh=refresh)
+            current_user.email, period_type=period_type, force_refresh=True)
     except report_service.ReportError as e:
         raise HTTPException(400, str(e))
 
