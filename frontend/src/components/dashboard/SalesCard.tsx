@@ -1089,7 +1089,10 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
   },
   toggleTrack: {
-    width: 200, // [가독성 개선] 위치 칩이 있던 자리까지 가로로 확장
+    // 고정폭(200)은 카드 폭보다 좁아 금액·달력과 정렬이 어긋났다(세그먼트만 왼쪽에 치우침).
+    // 카드 콘텐츠 폭을 그대로 쓰게 해 세 요소의 좌우 기준선을 맞춘다.
+    // 캡슐은 트랙 폭을 측정해 따라가므로(SlidingTabToggle) 폭이 바뀌어도 라벨과 정렬된다.
+    width: '100%',
     height: 34,
     borderRadius: 999,
     backgroundColor: 'rgba(140, 111, 86, 0.08)', // [iOS 스타일] 투명감 도는 탭 트랙
