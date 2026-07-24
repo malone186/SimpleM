@@ -9,10 +9,10 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.simplem.brewnote"
+      "bundleIdentifier": "com.vivayouth.brewnote"
     },
     "android": {
-      "package": "com.simplem.brewnote",
+      "package": "com.vivayouth.brewnote",
       "adaptiveIcon": {
         "backgroundColor": "#FBEFDD",
         "foregroundImage": "./assets/brew_icon_cutout.png"
