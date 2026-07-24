@@ -1048,10 +1048,12 @@ const styles = StyleSheet.create({
   brewBtnText: { ...typography.L3, color: colors.white, fontWeight: '700' },
 
   card: {
-    backgroundColor: 'rgba(242, 236, 224, 0.55)', // 원래 0.55 크림 베이지 톤으로 복구
+    // 베이지 반투명 배경은 크림 시트 위에서 카드가 '액자 프레임'처럼 떠 보였다 —
+    // 아래 AI 경영 리포트 카드와 같은 흰색+동일 테두리로 통일해 이중 테두리 느낌 제거
+    backgroundColor: colors.white,
     borderRadius: 24,
-    borderWidth: 0.8, // [iOS 스타일] 초슬림 베젤 가공
-    borderColor: 'rgba(140, 111, 86, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(140,111,86,0.25)', // ManagementReportCard와 동일 톤
     padding: spacing.globalPadding,
     ...shadows.soft, // [iOS 스타일] 부드럽게 매끄러운 섀도우 탑재
   },
