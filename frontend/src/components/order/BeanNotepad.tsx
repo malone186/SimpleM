@@ -405,7 +405,42 @@ export default function BeanNotepad() {
   }
   const [surveyResult, setSurveyResult] = useState<SurveyResultItem[]>([]);
   const [hasSearchedSurvey, setHasSearchedSurvey] = useState(false);
+  const [surveyLoading, setSurveyLoading] = useState(false); // 추천 버튼 연타 방지
   const surveyScrollRef = useRef<ScrollView>(null);
+  const resultBoxRef = useRef<View>(null); // 결과 섹션 View (웹 scrollIntoView용)
+  const resultSectionY = useRef(0); // 결과 섹션의 스크롤 Y 위치 (onLayout에서 기록)
+  const pendingResultScroll = useRef(false); // 결과 도착 후 스크롤 예약 플래그
+
+  // 결과 섹션 위치로 스크롤. 웹에서는 ScrollView ref가 RN 인스턴스가 아니라 DOM 요소라
+  // RN 시그니처 {y, animated}가 조용히 무시된다 — 플랫폼별로 나눠 호출한다.
+  const scrollSurveyTo = (y: number) => {
+    if (Platform.OS === 'web') {
+      // smooth는 transform 애니메이션이 걸린 바텀시트 안에서 중간에 취소되는 경우가
+      // 있어(실측) 즉시 이동으로 확실하게 보여준다
+      (resultBoxRef.current as any)?.scrollIntoView?.({ behavior: 'auto', block: 'start' });
+    } else {
+      surveyScrollRef.current?.scrollTo({ y: Math.max(0, y - 8), animated: true });
+    }
+  };
+
+  // 결과 '제목(1순위)'이 화면에 오도록 스크롤 — scrollToEnd는 10순위까지 지나쳐 버려
+  // 다시 위로 올려야 했다. 첫 검색은 결과 섹션이 새로 마운트되므로 onLayout에서
+  // 위치가 잡힌 순간 스크롤하고(플래그 예약), 재검색은 이미 아는 위치로 바로 이동한다.
+  const scrollToResults = () => {
+    if (Platform.OS === 'web' || resultSectionY.current > 0) {
+      setTimeout(() => scrollSurveyTo(resultSectionY.current), 150);
+    } else {
+      pendingResultScroll.current = true; // 결과 섹션 onLayout이 이어받는다
+    }
+  };
+
+  const onResultSectionLayout = (y: number) => {
+    resultSectionY.current = y;
+    if (pendingResultScroll.current) {
+      pendingResultScroll.current = false;
+      scrollSurveyTo(y);
+    }
+  };
 
 
   // 아코디언 상태: 현재 메모가 열린 원두의 ID를 저장합니다. (기본적으로 모두 접힌 상태)
@@ -546,8 +581,23 @@ export default function BeanNotepad() {
     }
   ];
 
-  // 사용자의 설문 선택 조건 매칭 알고리즘 함수
+  // 추천 실행 진입점 — 요청 중이면 무시(연타 시 결과 중첩·스크롤 반복 방지).
+  // state는 리렌더 전 연속 탭을 못 막으므로 ref로 즉시 잠근다.
+  const surveyBusyRef = useRef(false);
   const handleRunSurveyRecommendation = async () => {
+    if (surveyBusyRef.current) return;
+    surveyBusyRef.current = true;
+    setSurveyLoading(true);
+    try {
+      await runSurveyRecommendation();
+    } finally {
+      surveyBusyRef.current = false;
+      setSurveyLoading(false);
+    }
+  };
+
+  // 사용자의 설문 선택 조건 매칭 알고리즘 함수
+  const runSurveyRecommendation = async () => {
     try {
       const originMap: Record<string, string> = {
         any: '전체',
@@ -625,9 +675,7 @@ export default function BeanNotepad() {
 
           setSurveyResult(apiResults);
           setHasSearchedSurvey(true);
-          setTimeout(() => {
-            surveyScrollRef.current?.scrollToEnd({ animated: true });
-          }, 100);
+          scrollToResults();
           return;
         }
       }
@@ -778,10 +826,8 @@ export default function BeanNotepad() {
     const topMatches = scoredList.filter(item => item.score >= 0).slice(0, 3);
     setSurveyResult(topMatches);
     setHasSearchedSurvey(true);
-    // API 경로와 동일하게 결과 영역으로 스크롤
-    setTimeout(() => {
-      surveyScrollRef.current?.scrollToEnd({ animated: true });
-    }, 100);
+    // API 경로와 동일하게 결과 영역(1순위)으로 스크롤
+    scrollToResults();
   };
 
 
@@ -1531,18 +1577,29 @@ export default function BeanNotepad() {
           {/* 쓴맛 */}
           <CurationSlider label="쓴맛 (Bitterness)" value={surveyBitterness} onChange={setSurveyBitterness} />
 
-          {/* 🔍 추천 실행 버튼 (한 화면 컴팩트 핏) */}
+          {/* 🔍 추천 실행 버튼 (한 화면 컴팩트 핏) — 요청 중에는 비활성화해 연타 중첩 방지 */}
           <TouchableOpacity
-            style={[modalStyles.saveBtn, { marginTop: 6, paddingVertical: 11, backgroundColor: colors.mochaBrown }]}
+            style={[
+              modalStyles.saveBtn,
+              { marginTop: 6, paddingVertical: 11, backgroundColor: colors.mochaBrown },
+              surveyLoading && { opacity: 0.6 },
+            ]}
             onPress={handleRunSurveyRecommendation}
+            disabled={surveyLoading}
             activeOpacity={0.8}
           >
-            <Text style={[modalStyles.saveBtnText, { fontSize: 13 }]}>취향 조건으로 로스터리 원두 찾기</Text>
+            <Text style={[modalStyles.saveBtnText, { fontSize: 13 }]}>
+              {surveyLoading ? '취향에 맞는 원두 찾는 중…' : '취향 조건으로 로스터리 원두 찾기'}
+            </Text>
           </TouchableOpacity>
 
-          {/* 🎯 매칭 추천 결과 섹션 */}
+          {/* 🎯 매칭 추천 결과 섹션 — onLayout으로 위치를 기록해 결과 제목으로 스크롤 */}
           {hasSearchedSurvey && (
-            <View style={styles.resultContainer}>
+            <View
+              ref={resultBoxRef}
+              style={styles.resultContainer}
+              onLayout={(e) => onResultSectionLayout(e.nativeEvent.layout.y)}
+            >
               <View style={styles.resultHeader}>
                 <Ionicons name="sparkles" size={14} color={colors.espressoBrown} />
                 <Text style={styles.resultTitle}>취향 저격 로스터리 원두 추천</Text>
@@ -1556,8 +1613,9 @@ export default function BeanNotepad() {
                 </View>
               ) : (
                 <View style={{ gap: 12, marginTop: 8 }}>
+                  {/* key에 index를 섞는다 — API가 같은 원두 id를 중복 반환해도 카드가 겹치거나 누락되지 않게 */}
                   {surveyResult.map(({ bean, matchRate, matchedReasons }, index) => (
-                    <View key={bean.id} style={styles.resultCard}>
+                    <View key={`${bean.id}-${index}`} style={styles.resultCard}>
                       {/* 등수 & 일치율 헤더 */}
                       <View style={styles.resultCardHeader}>
                         <View style={styles.rankBadge}>
