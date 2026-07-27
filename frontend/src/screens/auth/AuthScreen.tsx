@@ -19,7 +19,7 @@ import { WebView } from 'react-native-webview';
 import { useAuth } from '../../auth/AuthContext';
 import { API_BASE_URL } from '../../lib/api/client';
 import { getGpsPosition } from '../../lib/api/forecast';
-import { NAVER_CLIENT_ID } from '../../lib/naverMap';
+import { NAVER_CLIENT_ID, NAVER_MAP_ERROR, loadNaverMaps } from '../../lib/naverMap';
 import { FadeInUp, PressableScale } from '../../components/motion';
 import { IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
@@ -28,6 +28,19 @@ import { colors, spacing, typography } from '../../theme';
 const LOGO = require('../../../assets/brewnote_welcome_mascot.png'); // [한글 주석] 로그인/로그아웃 화면 로고 — 사장님 요청 귀여운 BREWNOTE 강아지 마스코트
 
 type Mode = 'login' | 'signup';
+
+/** 좌표 → 주소. 네이버 전용(백엔드 NCP Reverse Geocoding 프록시).
+ *  실패하면 undefined — 다른 지도 서비스로 폴백하지 않는다. */
+async function reverseGeocodeViaNaver(lat: number, lon: number): Promise<string | undefined> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/v1/chatbot/reverse-geocode?lat=${lat}&lon=${lon}`);
+    if (!res.ok) return undefined;
+    const d = await res.json();
+    return typeof d?.address === 'string' && d.address ? d.address : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 // [비밀번호 유출 경고 차단] 크롬·구글 비밀번호 관리자는 type="password" 필드로 로그인하면
 // 입력값을 유출 DB와 대조해 "비밀번호가 유출되었습니다" 팝업을 띄운다(사이트가 끌 수 있는 공식 API 없음).
@@ -152,7 +165,9 @@ export default function AuthScreen() {
   const [autoLogin, setAutoLogin] = useState(true);
 
   // 2단계 가게 상세 설정 정보
-  const [region, setRegion] = useState('서울특별시 중구 명동');
+  // 매장 주소는 빈칸에서 시작한다 — 예시 주소를 미리 넣어두면 그대로 가입해 버리는 사고가 난다.
+  // 사용자가 직접 입력하거나, 현위치 버튼 / 지도 핀으로 채운다.
+  const [region, setRegion] = useState('');
   const [openHour, setOpenHour] = useState('09:00');
   const [closeHour, setCloseHour] = useState('21:00');
   const [bizType, setBizType] = useState('오피스 상권');
@@ -291,10 +306,10 @@ export default function AuthScreen() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // [회원가입 지도 핀 훅] SalesCard와 동일한 '직접 스크립트 로드' 방식.
+  // [회원가입 지도 핀 훅] 공용 로더(lib/naverMap)로 네이버 SDK를 올린다.
   // 이전 iframe(m.map.naver.com) 방식은 네이버가 외부 삽입을 차단(X-Frame-Options)해 빈 화면이 됐다.
   // 지도 클릭 → 핀 이동 + 역지오코딩으로 주소 자동 입력, 주소 검색 → 지오코딩으로 핀 이동.
-  // 네이버 인증 실패 시 Leaflet 오픈맵 + Nominatim 지오코딩으로 폴백해 기능이 죽지 않는다.
+  // 네이버 지도 전용 — 인증/로딩이 실패하면 다른 지도로 바꾸지 않고 안내 문구만 띄운다.
   useEffect(() => {
     if (Platform.OS !== 'web' || !showMapModal) return;
     let disposed = false;
@@ -308,24 +323,9 @@ export default function AuthScreen() {
       if (address) setRegion(address);
     };
 
-    // 역지오코딩은 Nominatim 사용 — 네이버 Geocoding API는 NCP에서 별도 신청이 필요해
-    // 미신청 상태에서도 주소가 항상 채워지도록 공개 API로 통일한다
-    const reverseGeocode = async (lat: number, lon: number): Promise<string | undefined> => {
-      try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=ko&zoom=17`,
-        );
-        const data = await res.json();
-        const a = data?.address;
-        if (!a) return undefined;
-        // 한국 주소 위계: 시/도 → 구/군 → 동/읍/면 → 도로명
-        const parts = [a.province || a.city, a.borough || a.county || a.city_district, a.suburb || a.quarter || a.town || a.village, a.road]
-          .filter(Boolean);
-        return parts.length ? Array.from(new Set(parts)).join(' ') : (data.display_name as string);
-      } catch {
-        return undefined;
-      }
-    };
+    // 역지오코딩도 네이버 전용 — 백엔드(NCP Reverse Geocoding) 프록시를 쓴다.
+    // OSM(Nominatim) 폴백 없음. 실패하면 주소는 비워 두고 사용자가 직접 입력한다.
+    const reverseGeocode = reverseGeocodeViaNaver;
 
     const searchGeocode = async (query: string): Promise<{ lat: number; lon: number; label?: string } | null> => {
       const q = query.trim();
@@ -361,46 +361,8 @@ export default function AuthScreen() {
         });
         if (viaNaver) return viaNaver;
       }
-      // 3순위: Photon(OSM) — 접두어 매칭이 되어 '협성대'→'협성대학교' 같은 명칭 검색에 강하다.
-      // 네이버 지오코더는 도로명주소 전용이라, 백엔드가 꺼져 있을 때 명칭 검색은 여기서 잡는다.
-      try {
-        const res = await fetch(
-          `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=5&bbox=124,33,132,39`,
-        );
-        const feats: any[] = (await res.json())?.features ?? [];
-        const minor = ['bicycle_rental', 'vending_machine', 'parking'];
-        const best = feats
-          .map((f) => {
-            const p = f?.properties ?? {};
-            const name: string = p.name ?? '';
-            const score = (name === q ? 4 : 0) + (name.startsWith(q) ? 2 : 0) + (minor.includes(p.osm_value) ? 0 : 1);
-            return { f, p, name, score };
-          })
-          .sort((a, b) => b.score - a.score)[0];
-        if (best?.f?.geometry?.coordinates) {
-          const [lonP, latP] = best.f.geometry.coordinates;
-          const region = [best.p.state, best.p.city, best.p.county, best.p.district]
-            .filter((v, i, arr) => v && arr.indexOf(v) === i)
-            .join(' ');
-          return {
-            lat: parseFloat(latP),
-            lon: parseFloat(lonP),
-            label: [region, best.name].filter(Boolean).join(' ') || undefined,
-          };
-        }
-      } catch {
-        // Photon 실패 시 아래 Nominatim으로
-      }
-      // 4순위: Nominatim 검색 (도로명주소·정식 지명)
-      try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&accept-language=ko&countrycodes=kr&limit=1`,
-        );
-        const data = await res.json();
-        if (data?.[0]) return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-      } catch {
-        // 검색 실패 시 null — 버튼 쪽에서 안내
-      }
+      // OSM(Photon·Nominatim) 폴백은 제거했다 — 네이버 지도 전용.
+      // 둘 다 실패하면 null이고, 호출부가 "검색 결과가 없다"고 안내한다.
       return null;
     };
 
@@ -411,7 +373,7 @@ export default function AuthScreen() {
         container.innerHTML = '';
         const naverObj = (window as any).naver;
         if (!naverObj?.maps) {
-          initLeafletPicker();
+          setMapNotice(NAVER_MAP_ERROR);
           return;
         }
 
@@ -478,117 +440,26 @@ export default function AuthScreen() {
           });
         }
       } catch (err) {
-        console.error('네이버 지도 핀 초기화 실패, Leaflet 폴백:', err);
-        initLeafletPicker();
+        console.error('네이버 지도 핀 초기화 실패:', err);
+        setMapNotice(NAVER_MAP_ERROR);
       }
     };
 
-    const initLeafletPicker = () => {
-      const container = document.getElementById('signup-map-container');
-      if (!container) return;
-      container.innerHTML = '';
 
-      if (!document.getElementById('leaflet-css-direct')) {
-        const link = document.createElement('link');
-        link.id = 'leaflet-css-direct';
-        link.rel = 'stylesheet';
-        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-        document.head.appendChild(link);
-      }
-
-      const startLeaflet = () => {
-        const L = (window as any).L;
-        if (!L || disposed) return;
-        const map = L.map(container, { zoomControl: false }).setView([startLat, startLon], 15);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
-        const marker = L.circleMarker([startLat, startLon], {
-          color: '#E28257',
-          fillColor: '#FFFFFF',
-          fillOpacity: 1,
-          radius: 9,
-          weight: 4,
-        }).addTo(map);
-
-        const pick = async (lat: number, lon: number) => {
-          setMapNotice('');
-          marker.setLatLng([lat, lon]);
-          applyPick(lat, lon);
-          const addr = await reverseGeocode(lat, lon);
-          if (addr) applyPick(lat, lon, addr);
-        };
-
-        map.on('click', (e: any) => pick(e.latlng.lat, e.latlng.lng));
-
-        mapSearchRef.current = async (query: string) => {
-          setMapNotice('🔍 주소를 찾는 중…');
-          const found = await searchGeocode(query);
+    // 네이버 지도 전용 — 공용 로더가 SDK를 문서당 한 번만 올린다(중복 로드로 지도가 안 뜨던 문제).
+    // 실패하면 다른 지도로 바꾸지 않고 안내 문구만 띄운다.
+    const timer = setTimeout(() => {
+      loadNaverMaps()
+        .then(() => {
+          if (!disposed) initNaverPicker();
+        })
+        .catch((err: Error) => {
           if (disposed) return;
-          if (!found) {
-            setMapNotice('주소를 찾지 못했어요. 도로명주소를 좀 더 구체적으로 입력해 주세요.');
-            return;
-          }
-          map.setView([found.lat, found.lon], 16);
-          marker.setLatLng([found.lat, found.lon]);
-          // 찾은 명칭·주소를 입력창에 채운다 ('협성대' → '경기도 화성시 봉담읍 협성대학교')
-          applyPick(found.lat, found.lon, found.label);
-          setMapNotice(found.label ? `📍 ${found.label}` : '📍 위치로 이동했어요. 핀을 눌러 미세 조정할 수 있어요.');
-        };
+          console.error('네이버 지도 로딩 실패:', err);
+          setMapNotice(err.message || NAVER_MAP_ERROR);
+        });
+    }, 50);
 
-        // "현위치" 버튼 → 지도·핀을 해당 좌표로 이동시키고 역지오코딩 주소까지 채운다
-        mapPinRef.current = (lat: number, lon: number) => {
-          map.setView([lat, lon], 16);
-          pick(lat, lon);
-        };
-
-        // 모달을 열 때 핀 미확정이면 현위치를 먼저 시도하고, 실패(권한 거부 등) 시 입력된 주소로 이동
-        if (!coords) {
-          getGpsPosition().then((pos) => {
-            if (disposed) return;
-            if (pos) mapPinRef.current?.(pos.lat, pos.lon);
-            else if (region.trim()) mapSearchRef.current?.(region);
-          });
-        }
-      };
-
-      const existingScript = document.getElementById('leaflet-js-direct');
-      if (existingScript) {
-        if ((window as any).L) startLeaflet();
-        else existingScript.addEventListener('load', startLeaflet, { once: true });
-      } else {
-        const script = document.createElement('script');
-        script.id = 'leaflet-js-direct';
-        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-        script.onload = startLeaflet;
-        document.head.appendChild(script);
-      }
-    };
-
-    (window as any).navermap_authFailure = () => {
-      console.warn('네이버 지도 인증 실패: Leaflet 오픈 지도로 전환합니다.');
-      initLeafletPicker();
-    };
-
-    const loadNaverScript = () => {
-      const existing = document.getElementById('naver-map-script-geocoder');
-      if (existing) {
-        if ((window as any).naver?.maps) initNaverPicker();
-        else existing.addEventListener('load', initNaverPicker, { once: true });
-        return;
-      }
-      const script = document.createElement('script');
-      script.id = 'naver-map-script-geocoder';
-      script.type = 'text/javascript';
-      // 신규 NCP Maps API는 oapi 도메인 + ncpKeyId 파라미터로만 인증됨. geocoder 서브모듈로 주소 검색까지 지원.
-      script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${NAVER_CLIENT_ID}&submodules=geocoder`;
-      script.onload = initNaverPicker;
-      script.onerror = () => {
-        console.error('네이버 지도 로딩 실패: Leaflet으로 전환');
-        initLeafletPicker();
-      };
-      document.head.appendChild(script);
-    };
-
-    const timer = setTimeout(loadNaverScript, 50);
     return () => {
       disposed = true;
       clearTimeout(timer);
@@ -640,15 +511,26 @@ export default function AuthScreen() {
       return;
     }
     if (Platform.OS === 'web') {
-      // 지도 초기화 전이면 좌표만이라도 확정 (핀은 다음 지도 오픈 때 이 좌표에서 시작)
-      if (mapPinRef.current) mapPinRef.current(pos.lat, pos.lon);
-      else setCoords(pos);
+      if (mapPinRef.current) {
+        // 지도가 떠 있으면 핀 이동이 역지오코딩까지 처리한다
+        mapPinRef.current(pos.lat, pos.lon);
+      } else {
+        // 지도 초기화 전이어도 주소는 채워 준다 — 현위치를 눌렀으면 주소가 보여야 한다
+        setCoords(pos);
+        const addr = await reverseGeocodeViaNaver(pos.lat, pos.lon);
+        if (addr) setRegion(addr);
+        if (!silent) setMapNotice(addr ? '' : '현위치 주소를 찾지 못했어요. 주소를 직접 입력해 주세요.');
+      }
     } else {
       setCoords(pos);
       // picker.html의 setPin이 지도 이동 + 역지오코딩 주소를 postMessage로 돌려준다
       mapWebViewRef.current?.injectJavaScript(
         `window.setPin && window.setPin(${pos.lat}, ${pos.lon}); true;`,
       );
+      // WebView가 아직 안 떴을 수도 있으니 주소는 여기서도 직접 채운다
+      const addr = await reverseGeocodeViaNaver(pos.lat, pos.lon);
+      if (addr) setRegion(addr);
+      if (!silent) setMapNotice(addr ? '' : '현위치 주소를 찾지 못했어요. 주소를 직접 입력해 주세요.');
     }
   };
 

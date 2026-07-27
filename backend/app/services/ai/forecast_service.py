@@ -276,6 +276,52 @@ def _reverse_geocode(lat: float, lon: float) -> str:
     return f"위도 {lat:.4f}, 경도 {lon:.4f}"
 
 
+def reverse_geocode_address(lat: float, lon: float) -> Optional[str]:
+    """좌표 → 도로명주소 (회원가입 지도 핀용) — 네이버 지도(NCP Reverse Geocoding) 전용.
+
+    표시용 지역명만 주는 `_reverse_geocode`와 달리 도로명까지 붙여 준다.
+    roadaddr(도로명)가 없으면 admcode(행정동)로 내려가고, 둘 다 없으면 None.
+    OSM(Nominatim) 폴백 없음 — 실패 시 사용자가 주소를 직접 입력한다.
+    """
+    import requests
+
+    cid = os.getenv("NCP_MAPS_CLIENT_ID") or os.getenv("NAVER_CLIENT_ID", "")
+    csec = os.getenv("NCP_MAPS_CLIENT_SECRET") or os.getenv("NAVER_CLIENT_SECRET", "")
+    if not (cid and csec):
+        return None
+    try:
+        r = requests.get(
+            "https://maps.apigw.ntruss.com/map-reversegeocode/v2/gc",
+            params={"coords": f"{lon},{lat}", "output": "json", "orders": "roadaddr,admcode"},
+            headers={"x-ncp-apigw-api-key-id": cid, "x-ncp-apigw-api-key": csec},
+            timeout=5,
+        )
+        r.raise_for_status()
+        results = r.json().get("results", [])
+    except Exception:
+        logger.warning("네이버 역지오코딩(주소) 실패 — NCP Maps 구독 확인 필요", exc_info=True)
+        return None
+
+    # roadaddr가 있으면 도로명까지, 없으면 행정구역명만
+    for want in ("roadaddr", "admcode"):
+        for res in results:
+            if res.get("name") != want:
+                continue
+            region = res.get("region", {})
+            parts = [region.get(f"area{i}", {}).get("name") for i in (1, 2, 3)]
+            if want == "roadaddr":
+                land = res.get("land", {})
+                road = land.get("name")
+                num = land.get("number1")
+                if num and land.get("number2"):
+                    num = f"{num}-{land['number2']}"
+                parts += [road, num]
+            name = " ".join(p for p in parts if p)
+            if name:
+                return name
+    return None
+
+
 def _geocode_naver_local(q: str) -> Optional[dict[str, Any]]:
     """네이버 지역 검색 API — 상호·기관명에 강하다 (developers.naver.com '검색 API' 키 필요)."""
     import re

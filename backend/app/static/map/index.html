@@ -11,7 +11,7 @@
 
   앱(WebView)이 HTML 문자열을 baseUrl과 함께 로드하면 iOS가 하위 리소스 요청에
   Referer를 붙이지 않는다. 네이버 지도는 Referer로 등록 도메인을 검증하므로
-  authFailure가 나고 Leaflet으로 폴백된다.
+  authFailure가 나고 지도가 뜨지 않는다.
   이 파일을 실제 URL(https://<api-domain>/map/)에서 로드하면 Referer가 정상 전송되어
   네이버 지도 인증이 통과한다. NCP 콘솔의 Web 서비스 URL에 이 API 도메인을 등록할 것.
 
@@ -47,7 +47,7 @@ function reportEngine(name) {
 
 function initNaver() {
   try {
-    if (!window.naver || !window.naver.maps) { initLeaflet(); return; }
+    if (!window.naver || !window.naver.maps) { showError('SDK 로드 안 됨'); return; }
     var container = document.getElementById('map');
     container.innerHTML = '';
     reportEngine('naver');
@@ -114,59 +114,33 @@ function initNaver() {
         zIndex: 300,
       });
     }
-  } catch (err) { initLeaflet(); }
+  } catch (err) { showError('초기화 예외: ' + err); }
 }
 
-function initLeaflet() {
-  reportEngine('leaflet');
-  var link = document.createElement('link');
-  link.rel = 'stylesheet';
-  link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-  document.head.appendChild(link);
-  var start = function () {
-    if (!window.L) return;
-    var container = document.getElementById('map');
-    container.innerHTML = '';
-    var map = L.map(container, { zoomControl: false }).setView([D.lat, D.lon], 14);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
-    L.circleMarker([D.lat, D.lon], { color: '#4E3629', fillColor: '#8C6F56', fillOpacity: 1, radius: 8, weight: 3 })
-      .addTo(map)
-      .bindPopup("<div style='font-size:11px'><b>📍 " + D.shopLabel + '</b><br/>' + D.regionName + '</div>');
-    D.events.forEach(function (e) {
-      if (e.lat && e.lon) {
-        L.circleMarker([e.lat, e.lon], { color: '#E28257', fillColor: '#FFFFFF', fillOpacity: 0.9, radius: 6, weight: 3.5 })
-          .addTo(map)
-          .bindPopup("<div style='font-size:11px'><b>🎉 " + e.name + '</b><br/>장소: ' + e.place + '<br/>거리: ' + e.distance_km + 'km<br/>날짜: ' + e.date + '</div>');
-      }
-    });
-    // 현위치 파란 점 (매장 핀과 구분되는 기기 GPS 위치 — 좌표가 없으면 생략)
-    if (D.me) {
-      L.circleMarker([D.me.lat, D.me.lon], { color: '#FFFFFF', fillColor: '#1A73E8', fillOpacity: 1, radius: 7, weight: 3 })
-        .addTo(map)
-        .bindPopup("<div style='font-size:11px'><b>📱 현위치</b></div>");
-    }
-  };
-  if (window.L) { start(); return; }
-  var script = document.createElement('script');
-  script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-  script.onload = start;
-  document.head.appendChild(script);
+function showError(reason) {
+  reportEngine('naver-FAILED: ' + reason);
+  var c = document.getElementById('map');
+  c.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;'
+    + 'height:100%;padding:20px;box-sizing:border-box;text-align:center;font-family:-apple-system,sans-serif;'
+    + 'color:#8C6F56;background:#F8F6F2">'
+    + '<div style="font-size:26px;margin-bottom:10px">🗺️</div>'
+    + '<div style="font-size:13px;font-weight:700;line-height:1.5">네이버 지도를 불러오지 못했습니다.</div>'
+    + '<div style="font-size:11px;margin-top:6px;line-height:1.5;color:#A99C90">네트워크 상태를 확인한 뒤 다시 시도해 주세요.</div>'
+    + '</div>';
 }
 
-// 키가 없으면 네이버를 시도하지 않고 바로 폴백
+// 네이버 지도 전용 — 다른 지도로 폴백하지 않는다. 키가 없으면 바로 실패를 알린다.
 if (!CLIENT_ID) {
-  initLeaflet();
+  showError('Client ID 없음');
 } else {
   window.navermap_authFailure = function () {
-    reportEngine('naver-AUTH-FAILED(키/도메인 미등록) origin=' + location.origin);
-    initLeaflet();
+    showError('인증 실패(키/도메인 미등록) origin=' + location.origin);
   };
   var s = document.createElement('script');
   s.src = 'https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=' + encodeURIComponent(CLIENT_ID);
   s.onload = initNaver;
   s.onerror = function () {
-    reportEngine('naver-SCRIPT-ERROR(네트워크/차단) origin=' + location.origin);
-    initLeaflet();
+    showError('스크립트 로드 실패(네트워크/차단) origin=' + location.origin);
   };
   document.head.appendChild(s);
 }

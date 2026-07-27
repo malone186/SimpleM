@@ -315,6 +315,18 @@ def geocode_address(query: str):
     return result
 
 
+@router.get("/reverse-geocode")
+def reverse_geocode_point(lat: float, lon: float):
+    """좌표 → 주소 (회원가입 지도 핀·현위치용 — 가입 전 화면이라 인증 불필요).
+
+    네이버 지도 전용(NCP Reverse Geocoding). OSM(Nominatim) 폴백 없음.
+    """
+    address = forecast_service.reverse_geocode_address(lat, lon)
+    if not address:
+        raise HTTPException(404, "이 위치의 주소를 찾지 못했습니다. 주소를 직접 입력해 주세요.")
+    return {"lat": lat, "lon": lon, "address": address}
+
+
 class SaleItemIn(BaseModel):
     menu_id: int
     quantity: int = Field(1, ge=1)

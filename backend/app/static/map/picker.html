@@ -16,7 +16,7 @@
   웹 회원가입 화면은 브라우저 DOM에 직접 지도를 그리지만, 그 코드는 네이티브에서 동작하지
   않아 앱에서는 지도가 아예 표시되지 않았다. 이 페이지를 WebView로 띄워 같은 기능을 제공한다.
 
-  · 지도를 탭하면 핀이 이동하고 역지오코딩(Nominatim)으로 주소를 구해 앱에 전달한다.
+  · 지도를 탭하면 핀이 이동하고 역지오코딩(네이버)으로 주소를 구해 앱에 전달한다.
   · 앱의 검색창에서 찾은 좌표는 window.setPin(lat, lon, address)로 주입된다.
   · 결과는 postMessage(JSON)로 앱에 올려보낸다: {type:'pick', lat, lon, address}
 
@@ -34,19 +34,12 @@ function send(obj) {
   if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage(JSON.stringify(obj)); }
 }
 
-// 좌표 → 주소. 웹 회원가입 화면과 동일하게 Nominatim을 쓴다(키 불필요).
+// 좌표 → 주소. 네이버 전용(백엔드 NCP Reverse Geocoding 프록시).
+// 이 페이지 자체를 백엔드가 서빙하므로 상대경로로 부른다. OSM 폴백 없음.
 function reverseGeocode(lat, lon) {
-  return fetch('https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lon +
-               '&format=json&accept-language=ko&zoom=17')
-    .then(function (r) { return r.json(); })
-    .then(function (d) {
-      var a = d && d.address;
-      if (!a) return undefined;
-      var parts = [a.province || a.city, a.borough || a.county || a.city_district,
-                   a.suburb || a.quarter || a.town || a.village, a.road].filter(Boolean);
-      var uniq = parts.filter(function (v, i) { return parts.indexOf(v) === i; });
-      return uniq.length ? uniq.join(' ') : d.display_name;
-    })
+  return fetch('/api/v1/chatbot/reverse-geocode?lat=' + lat + '&lon=' + lon)
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) { return (d && d.address) ? d.address : undefined; })
     .catch(function () { return undefined; });
 }
 
@@ -59,7 +52,7 @@ function pick(lat, lon, addressMaybe) {
 
 // ---- 네이버 지도 ----
 function initNaver() {
-  if (!window.naver || !window.naver.maps) { initLeaflet(); return; }
+  if (!window.naver || !window.naver.maps) { showError('SDK 로드 안 됨'); return; }
   send({ type: 'engine', engine: 'naver' });
   var map = new naver.maps.Map(document.getElementById('map'), {
     center: new naver.maps.LatLng(LAT, LON), zoom: 16, zoomControl: false,
@@ -78,42 +71,27 @@ function initNaver() {
   };
 }
 
-// ---- Leaflet 폴백 (네이버 인증 실패 시에도 위치 선택은 가능해야 한다) ----
-function initLeaflet() {
-  send({ type: 'engine', engine: 'leaflet' });
-  var link = document.createElement('link');
-  link.rel = 'stylesheet';
-  link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-  document.head.appendChild(link);
-  var start = function () {
-    if (!window.L) return;
-    var map = L.map(document.getElementById('map'), { zoomControl: false }).setView([LAT, LON], 16);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
-    var marker = L.marker([LAT, LON]).addTo(map);
-    map.on('click', function (e) {
-      marker.setLatLng(e.latlng);
-      pick(e.latlng.lat, e.latlng.lng);
-    });
-    window.setPin = function (lat, lon, address) {
-      map.setView([lat, lon], 16); marker.setLatLng([lat, lon]);
-      pick(lat, lon, address);
-    };
-  };
-  if (window.L) { start(); return; }
-  var script = document.createElement('script');
-  script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-  script.onload = start;
-  document.head.appendChild(script);
+// ---- 실패 안내 (네이버 지도 전용 — 다른 지도로 폴백하지 않는다) ----
+function showError(reason) {
+  send({ type: 'engine', engine: 'failed', reason: reason });
+  document.getElementById('map').innerHTML =
+    '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;'
+    + 'height:100%;padding:20px;box-sizing:border-box;text-align:center;font-family:-apple-system,sans-serif;'
+    + 'color:#8C6F56;background:#F8F6F2">'
+    + '<div style="font-size:26px;margin-bottom:10px">🗺️</div>'
+    + '<div style="font-size:13px;font-weight:700;line-height:1.5">네이버 지도를 불러오지 못했습니다.</div>'
+    + '<div style="font-size:11px;margin-top:6px;line-height:1.5;color:#A99C90">주소는 위 입력칸에 직접 입력하실 수 있어요.</div>'
+    + '</div>';
 }
 
 if (!CLIENT_ID) {
-  initLeaflet();
+  showError('Client ID 없음');
 } else {
-  window.navermap_authFailure = function () { initLeaflet(); };
+  window.navermap_authFailure = function () { showError('인증 실패(키/도메인 미등록)'); };
   var s = document.createElement('script');
   s.src = 'https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=' + encodeURIComponent(CLIENT_ID);
   s.onload = initNaver;
-  s.onerror = initLeaflet;
+  s.onerror = function () { showError('스크립트 로드 실패'); };
   document.head.appendChild(s);
 }
 </script>
