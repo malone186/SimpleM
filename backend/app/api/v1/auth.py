@@ -2,10 +2,29 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from sqlalchemy import func as sa_func
+
 from app.core.database import get_db
 from app.core.auth import get_password_hash, verify_password, create_access_token, get_current_user, get_current_admin
 from app.models.user import User
-from app.schemas.user import UserCreate, UserLogin, UserResponse, Token, UserUpdate
+from app.schemas.user import (
+    FindEmailItem,
+    FindEmailRequest,
+    FindEmailResponse,
+    ResetPasswordRequest,
+    Token,
+    UserCreate,
+    UserLogin,
+    UserResponse,
+    UserUpdate,
+)
+
+
+def _mask_email(email: str) -> str:
+    """이메일 앞 2자만 남기고 마스킹한다 (ow***@cafe.com). 로컬파트가 짧으면 1자만 남긴다."""
+    local, _, domain = email.partition("@")
+    keep = 2 if len(local) > 2 else 1
+    return f"{local[:keep]}***@{domain}"
 
 # APIRouter를 통해 "/auth" 주소 영역을 담당하는 세부 창구를 지정합니다.
 router = APIRouter(prefix="/auth", tags=["인증(Authentication)"])
@@ -84,6 +103,55 @@ def login(user_in: UserLogin, db: Session = Depends(get_db)):
         "email": user.email,
         "name": user.name
     }
+
+
+# 2-1. [아이디(이메일) 찾기 API 창구]
+# 상호명으로 계정을 조회해 마스킹된 이메일만 알려준다 — 원본 이메일은 절대 노출하지 않는다.
+# 가입 화면이 상호/이름을 한 필드로 받아 두 컬럼에 같이 저장하므로 store_name과 name 둘 다 대조한다.
+@router.post("/find-email", response_model=FindEmailResponse)
+def find_email(req: FindEmailRequest, db: Session = Depends(get_db)):
+    """상호명이 일치하는 계정들의 마스킹된 이메일 목록을 반환합니다."""
+    q = req.store_name.strip().lower()
+    if not q:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="상호명을 입력해 주세요.")
+    users = (
+        db.query(User)
+        .filter(
+            (sa_func.lower(sa_func.trim(User.store_name)) == q)
+            | (sa_func.lower(sa_func.trim(User.name)) == q)
+        )
+        .order_by(User.created_at.asc())
+        .limit(5)
+        .all()
+    )
+    if not users:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="입력하신 상호명으로 가입된 계정을 찾을 수 없습니다. 가입 시 등록한 상호명을 정확히 입력해 주세요.",
+        )
+    return FindEmailResponse(
+        accounts=[FindEmailItem(masked_email=_mask_email(u.email), created_at=u.created_at) for u in users]
+    )
+
+
+# 2-2. [비밀번호 재설정 API 창구]
+# 메일 발송 인프라가 없어 링크 방식 대신 '이메일 + 상호명' 본인확인 후 즉시 재설정한다.
+# 이메일 존재 여부가 새어나가지 않도록 실패 사유는 한 문장으로 뭉뚱그려 응답한다.
+@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """이메일과 상호명이 모두 일치하면 비밀번호를 새 값으로 교체합니다."""
+    user = db.query(User).filter(sa_func.lower(User.email) == req.email.strip().lower()).first()
+    q = req.store_name.strip().lower()
+    matched = user is not None and (
+        (user.store_name or "").strip().lower() == q or (user.name or "").strip().lower() == q
+    )
+    if not matched:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="이메일과 상호명이 일치하는 계정을 찾을 수 없습니다. 입력 정보를 다시 확인해 주세요.",
+        )
+    user.hashed_password = get_password_hash(req.new_password)
+    db.commit()
 
 
 # [관리자 전용] 3. [전체 회원 목록 조회 API 창구]

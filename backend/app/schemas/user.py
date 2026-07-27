@@ -53,3 +53,24 @@ class UserUpdate(BaseModel):
     password: str | None = Field(None, min_length=4, description="새로 변경할 비밀번호 (선택사항)")
     store_name: str | None = Field(None, description="수정할 매장/카페 이름")
 
+
+# 7. [아이디(이메일) 찾기] 요청/응답 규격 — 상호명으로 조회해 마스킹된 이메일만 돌려준다.
+class FindEmailRequest(BaseModel):
+    store_name: str = Field(..., min_length=1, description="가입 시 등록한 상호/매장 이름")
+
+
+class FindEmailItem(BaseModel):
+    masked_email: str = Field(..., description="마스킹된 가입 이메일 (예: ow***@cafe.com)")
+    created_at: datetime = Field(..., description="가입일 — 동일 상호가 여럿일 때 구분용")
+
+
+class FindEmailResponse(BaseModel):
+    accounts: list[FindEmailItem] = Field(..., description="상호명이 일치한 계정 목록")
+
+
+# 8. [비밀번호 재설정] 요청 규격 — 메일 인프라가 없어 이메일+상호명 본인확인 후 즉시 재설정한다.
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr = Field(..., description="가입 이메일")
+    store_name: str = Field(..., min_length=1, description="가입 시 등록한 상호/매장 이름 (본인 확인용)")
+    new_password: str = Field(..., min_length=4, description="새 비밀번호 (최소 4자 이상)")
+
