@@ -195,10 +195,13 @@ export default function DashboardScreen() {
         </Svg>
       </View>
 
+      {/* [한글 주석: UI 카드 아래로 텅 빈 여백이 무한정 스크롤되어 내려가는 현상을 막기 위해 오버스크롤 제한 지정] */}
       <Animated.ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        bounces={false}
+        overScrollMode="never"
         scrollEventThrottle={16}
         onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
           useNativeDriver: true,
@@ -212,17 +215,6 @@ export default function DashboardScreen() {
           />
         }
       >
-        {/* [하단 바운스 블리드] 콘텐츠 끝 아래에 크림 블록을 깔아, 끝에서 더 당겨도(오버스크롤) 갈색 배경 대신 크림이 보이게 한다 */}
-        <View
-          style={{
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            bottom: -600,
-            height: 600,
-            backgroundColor: colors.creamSand,
-          }}
-        />
         <Animated.View
           style={{ transform: [{ translateY: headerTranslate }], opacity: headerOpacity }}
         >
@@ -275,20 +267,15 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#1E1612' }, // Svg 로딩 지연 중 어두운 광원을 채우기 위한 딥 브라운 지정
+  root: { flex: 1, backgroundColor: colors.creamSand }, // [한글 주석: 화면 바탕 배경색을 크림샌드로 통일하여 불필요한 색상 이질감 차단]
   scroll: { flex: 1 },
-  // flexGrow: 콘텐츠가 화면보다 짧아도 크림 시트가 바닥까지 늘어나 갈색 배경이 드러나지 않게 한다
-  content: { flexGrow: 1, paddingBottom: 0 },
+  content: { paddingBottom: 16 }, // [한글 주석: 하단 과도한 여백 제거 — 콤팩트한 16px 패딩으로 밀착]
   body: {
-    flexGrow: 1, // 스크롤 끝(최하단)까지 크림 시트로 채움 — 하단 갈색 여백 노출 차단
-    backgroundColor: colors.creamSand, // 원래 100% 불투명 오프화이트로 원복
-    borderTopLeftRadius: 36, // [iOS 스타일] 부드럽게 얹어지는 시트
+    backgroundColor: colors.creamSand,
+    borderTopLeftRadius: 36,
     borderTopRightRadius: 36,
     paddingHorizontal: spacing.globalPadding,
-    paddingTop: spacing.verticalGap, // 원래 패딩값으로 복원
-    // 플로팅 버튼(마이크 bottom:20, 브리핑 bottom:78 — 각 44px)이 차지하는 세로 영역은 약 122px.
-    // 이보다 여백이 작으면 카드 안의 달력·통계·목록이 버튼에 덮인다(40이라 겹쳤음).
-    // 버튼 영역 + 여유를 확보해 카드 콘텐츠가 버튼 밑으로 들어가지 않게 한다.
+    paddingTop: spacing.verticalGap,
     paddingBottom: 150,
     gap: spacing.verticalGap,
   },

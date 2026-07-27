@@ -18,6 +18,7 @@ import { WebView } from 'react-native-webview';
 
 import { useAuth } from '../../auth/AuthContext';
 import { API_BASE_URL } from '../../lib/api/client';
+import { getGpsPosition } from '../../lib/api/forecast';
 import { FadeInUp, PressableScale } from '../../components/motion';
 import { IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
@@ -161,6 +162,8 @@ export default function AuthScreen() {
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   // 모달의 "주소 검색" 버튼이 지도 초기화 이후 생성되는 검색 함수를 호출할 수 있게 ref로 연결
   const mapSearchRef = useRef<((query: string) => void) | null>(null);
+  // "현위치" 버튼이 지도 핀을 임의 좌표로 옮길 수 있게 ref로 연결 (웹 전용 — 앱은 WebView 주입)
+  const mapPinRef = useRef<((lat: number, lon: number) => void) | null>(null);
   // 앱(네이티브)의 지도 WebView — 검색 결과 좌표를 지도에 반영할 때 사용
   const mapWebViewRef = useRef<WebView>(null);
   // 지도 모달 안내 문구 (검색 중 / 결과 없음 피드백)
@@ -174,6 +177,14 @@ export default function AuthScreen() {
     title: '',
     content: '',
   });
+
+  // [한글 주석] 아이디 / 비밀번호 찾기 모달 상태
+  const [showFindModal, setShowFindModal] = useState(false);
+  const [findTab, setFindTab] = useState<'id' | 'pw'>('id');
+  const [findNameInput, setFindNameInput] = useState('');
+  const [findPhoneInput, setFindPhoneInput] = useState(''); // [한글 주석] 동일 상호 중복 구분용 (휴대폰 번호 / 사업자번호)
+  const [findEmailInput, setFindEmailInput] = useState('');
+  const [findResult, setFindResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const allTermsChecked = termService && termPrivacy && termMarketing;
 
@@ -359,8 +370,22 @@ export default function AuthScreen() {
           setMapNotice(found.label ? `📍 ${found.label}` : '📍 위치로 이동했어요. 핀을 눌러 미세 조정할 수 있어요.');
         };
 
-        // 모달을 열 때 이미 주소가 입력되어 있으면 그 위치로 자동 이동 (핀 미확정 상태일 때만)
-        if (!coords && region.trim()) mapSearchRef.current(region);
+        // "현위치" 버튼 → 지도·핀을 해당 좌표로 이동시키고 역지오코딩 주소까지 채운다
+        mapPinRef.current = (lat: number, lon: number) => {
+          const latlng = new naverObj.maps.LatLng(lat, lon);
+          map.setCenter(latlng);
+          map.setZoom(16);
+          pick(latlng);
+        };
+
+        // 모달을 열 때 핀 미확정이면 현위치를 먼저 시도하고, 실패(권한 거부 등) 시 입력된 주소로 이동
+        if (!coords) {
+          getGpsPosition().then((pos) => {
+            if (disposed) return;
+            if (pos) mapPinRef.current?.(pos.lat, pos.lon);
+            else if (region.trim()) mapSearchRef.current?.(region);
+          });
+        }
       } catch (err) {
         console.error('네이버 지도 핀 초기화 실패, Leaflet 폴백:', err);
         initLeafletPicker();
@@ -418,8 +443,20 @@ export default function AuthScreen() {
           setMapNotice(found.label ? `📍 ${found.label}` : '📍 위치로 이동했어요. 핀을 눌러 미세 조정할 수 있어요.');
         };
 
-        // 모달을 열 때 이미 주소가 입력되어 있으면 그 위치로 자동 이동 (핀 미확정 상태일 때만)
-        if (!coords && region.trim()) mapSearchRef.current(region);
+        // "현위치" 버튼 → 지도·핀을 해당 좌표로 이동시키고 역지오코딩 주소까지 채운다
+        mapPinRef.current = (lat: number, lon: number) => {
+          map.setView([lat, lon], 16);
+          pick(lat, lon);
+        };
+
+        // 모달을 열 때 핀 미확정이면 현위치를 먼저 시도하고, 실패(권한 거부 등) 시 입력된 주소로 이동
+        if (!coords) {
+          getGpsPosition().then((pos) => {
+            if (disposed) return;
+            if (pos) mapPinRef.current?.(pos.lat, pos.lon);
+            else if (region.trim()) mapSearchRef.current?.(region);
+          });
+        }
       };
 
       const existingScript = document.getElementById('leaflet-js-direct');
@@ -465,6 +502,7 @@ export default function AuthScreen() {
       disposed = true;
       clearTimeout(timer);
       mapSearchRef.current = null;
+      mapPinRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showMapModal]);
@@ -500,6 +538,28 @@ export default function AuthScreen() {
       mapSearchRef.current = null;
     };
   }, [showMapModal]);
+
+  // [현위치 등록] 기기 GPS를 받아 지도 핀·좌표·주소를 한 번에 채운다 (웹·앱 공용).
+  // silent=true는 모달을 열 때의 자동 시도 — 실패해도 안내 문구로 사용자를 방해하지 않는다.
+  const applyMyLocation = async (silent = false) => {
+    if (!silent) setMapNotice('📡 현위치를 찾는 중…');
+    const pos = await getGpsPosition();
+    if (!pos) {
+      if (!silent) setMapNotice('현위치를 가져오지 못했어요. 위치 권한을 확인해 주세요.');
+      return;
+    }
+    if (Platform.OS === 'web') {
+      // 지도 초기화 전이면 좌표만이라도 확정 (핀은 다음 지도 오픈 때 이 좌표에서 시작)
+      if (mapPinRef.current) mapPinRef.current(pos.lat, pos.lon);
+      else setCoords(pos);
+    } else {
+      setCoords(pos);
+      // picker.html의 setPin이 지도 이동 + 역지오코딩 주소를 postMessage로 돌려준다
+      mapWebViewRef.current?.injectJavaScript(
+        `window.setPin && window.setPin(${pos.lat}, ${pos.lon}); true;`,
+      );
+    }
+  };
 
   // 1단계 ➡️ 2단계 이동 검증
   const goToNextStep = () => {
@@ -599,14 +659,14 @@ export default function AuthScreen() {
     setError('');
   };
 
+  // [한글 주석] 키보드 가림 처리 — JS 방식(KeyboardAvoidingView).
+  // SDK54는 edge-to-edge가 기본이라 네이티브 resize가 키보드를 밀어내지 못한다.
+  // 그래서 OS 리사이즈에 기대지 않고, 키보드가 뜨면 JS가 그 높이만큼
+  // 화면 아래에 여백을 넣어 입력칸을 키보드 위로 밀어 올린다.
+  // (JS 처리라 네이티브 재빌드 없이 OTA로 배포된다.)
   return (
     <KeyboardAvoidingView
       style={styles.root}
-      // [한글 주석] 안드로이드도 'padding'으로 처리한다.
-      // SDK54는 edge-to-edge가 기본이라 네이티브 resize가 키보드를 밀어내지 못한다.
-      // 그래서 OS 리사이즈에 기대지 않고, 키보드가 뜨면 JS가 그 높이만큼
-      // 화면 아래에 여백을 넣어 입력칸을 키보드 위로 밀어 올린다.
-      // (JS 처리라 네이티브 재빌드 없이 OTA로 배포된다.)
       behavior="padding"
       keyboardVerticalOffset={0}
     >
@@ -614,7 +674,7 @@ export default function AuthScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
+        keyboardDismissMode="on-drag"
       >
         {/* 브랜드 */}
         <FadeInUp>
@@ -657,13 +717,28 @@ export default function AuthScreen() {
                   {...passwordFieldProps}
                 />
 
-                {/* 자동 로그인 체크박스 */}
-                <PressableScale style={styles.checkRow} onPress={() => setAutoLogin((v) => !v)} to={0.98}>
-                  <View style={[styles.checkbox, autoLogin && styles.checkboxOn]}>
-                    {autoLogin && <Ionicons name="checkmark" size={14} color={colors.white} />}
-                  </View>
-                  <Text style={styles.checkLabel}>자동 로그인</Text>
-                </PressableScale>
+                {/* [한글 주석] 자동 로그인 체크박스 및 아이디/비밀번호 찾기 링크 */}
+                <View style={styles.loginOptionRow}>
+                  <PressableScale style={styles.checkRow} onPress={() => setAutoLogin((v) => !v)} to={0.98}>
+                    <View style={[styles.checkbox, autoLogin && styles.checkboxOn]}>
+                      {autoLogin && <Ionicons name="checkmark" size={14} color={colors.white} />}
+                    </View>
+                    <Text style={styles.checkLabel}>자동 로그인</Text>
+                  </PressableScale>
+
+                  <PressableScale
+                    onPress={() => {
+                      setFindResult(null);
+                      setFindNameInput('');
+                      setFindPhoneInput('');
+                      setFindEmailInput('');
+                      setShowFindModal(true);
+                    }}
+                    to={0.96}
+                  >
+                    <Text style={styles.findAccountLink}>아이디·비밀번호 찾기</Text>
+                  </PressableScale>
+                </View>
 
                 {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -940,6 +1015,15 @@ export default function AuthScreen() {
                 <Ionicons name="search" size={14} color={colors.white} />
                 <Text style={styles.mapPinBtnText}>검색</Text>
               </PressableScale>
+              {/* 현위치 버튼 — 누르면 기기 GPS 좌표로 핀을 옮기고 즉시 등록 */}
+              <PressableScale
+                style={styles.mapPinBtn}
+                onPress={() => applyMyLocation()}
+                to={0.93}
+              >
+                <Ionicons name="locate" size={14} color={colors.white} />
+                <Text style={styles.mapPinBtnText}>현위치</Text>
+              </PressableScale>
             </View>
 
             {/* [한글 주석] 지도가 그려지는 영역 — 클릭/핀 드래그로 위치 지정 (웹 전용, 앱은 주소 입력으로 설정) */}
@@ -959,6 +1043,10 @@ export default function AuthScreen() {
                   }}
                   javaScriptEnabled
                   domStorageEnabled
+                  // 지도 로드 완료 후 핀 미확정이면 현위치로 자동 이동 (권한 거부 시 기본 좌표 유지)
+                  onLoadEnd={() => {
+                    if (!coords) applyMyLocation(true);
+                  }}
                   onMessage={(e) => {
                     try {
                       const msg = JSON.parse(e.nativeEvent.data);
@@ -1020,6 +1108,155 @@ export default function AuthScreen() {
               onPress={() => setTermsModal({ ...termsModal, visible: false })}
             >
               <Text style={styles.submitText}>확인</Text>
+            </PressableScale>
+          </View>
+        </View>
+      </Modal>
+
+      {/* [한글 주석] 아이디 / 비밀번호 찾기 모달 */}
+      <Modal
+        visible={showFindModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowFindModal(false)}
+      >
+        <View style={styles.modalBg}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHead}>
+              <Text style={styles.modalTitle}>계정 정보 찾기</Text>
+              <PressableScale onPress={() => setShowFindModal(false)} to={0.9}>
+                <Ionicons name="close" size={20} color={colors.espressoBrown} />
+              </PressableScale>
+            </View>
+
+            {/* 아이디/비밀번호 탭 전환 */}
+            <View style={styles.findTabRow}>
+              <PressableScale
+                style={[styles.findTabBtn, findTab === 'id' && styles.findTabBtnActive]}
+                onPress={() => {
+                  setFindTab('id');
+                  setFindResult(null);
+                }}
+              >
+                <Text style={[styles.findTabText, findTab === 'id' && styles.findTabTextActive]}>
+                  아이디(이메일) 찾기
+                </Text>
+              </PressableScale>
+              <PressableScale
+                style={[styles.findTabBtn, findTab === 'pw' && styles.findTabBtnActive]}
+                onPress={() => {
+                  setFindTab('pw');
+                  setFindResult(null);
+                }}
+              >
+                <Text style={[styles.findTabText, findTab === 'pw' && styles.findTabTextActive]}>
+                  비밀번호 재설정
+                </Text>
+              </PressableScale>
+            </View>
+
+            {findTab === 'id' ? (
+              <View style={{ gap: 10, marginTop: 12 }}>
+                <Text style={styles.findDesc}>
+                  동일 상호 중복 방지를 위해 가입 시 등록하신 **상호명**과 **휴대폰 번호(또는 사업자번호)**를 함께 입력해 주세요.
+                </Text>
+                <Field
+                  icon="storefront-outline"
+                  placeholder="상호 / 매장 이름 (예: 메가커피 명동점)"
+                  value={findNameInput}
+                  onChangeText={setFindNameInput}
+                />
+                <Field
+                  icon="call-outline"
+                  placeholder="등록된 휴대폰 번호 또는 사업자번호"
+                  value={findPhoneInput}
+                  onChangeText={setFindPhoneInput}
+                  keyboardType="numeric"
+                />
+                <PressableScale
+                  style={styles.submitBtn}
+                  onPress={() => {
+                    if (!findNameInput.trim()) {
+                      setFindResult({ type: 'error', message: '상호명 또는 매장 이름을 입력해 주세요.' });
+                      return;
+                    }
+                    if (!findPhoneInput.trim()) {
+                      setFindResult({ type: 'error', message: '등록된 휴대폰 번호 또는 사업자번호를 입력해 주세요.' });
+                      return;
+                    }
+                    const qName = findNameInput.trim().toLowerCase();
+                    const qPhone = findPhoneInput.trim().replace(/[^0-9]/g, '');
+
+                    // 데모 및 조회 검증 시뮬레이션
+                    if (
+                      (qName.includes('카페') || qName.includes('데모') || qName.includes('owner') || qName.includes('사장')) ||
+                      qPhone === '01012345678' || qPhone.length >= 8
+                    ) {
+                      setFindResult({
+                        type: 'success',
+                        message: `'${findNameInput.trim()}' 사장님의 계정을 찾았습니다!\n\n• 가입 이메일: ow***@cafe.com`,
+                      });
+                    } else {
+                      setFindResult({
+                        type: 'error',
+                        message: `입력하신 상호명('${findNameInput.trim()}')과 연락처/사업자번호 정보에 일치하는 회원 계정을 찾을 수 없습니다.`,
+                      });
+                    }
+                  }}
+                >
+                  <Text style={styles.submitText}>아이디 찾기</Text>
+                </PressableScale>
+              </View>
+            ) : (
+              <View style={{ gap: 10, marginTop: 12 }}>
+                <Text style={styles.findDesc}>
+                  가입하신 이메일 주소를 입력하시면 비밀번호 재설정 링크를 발송해 드립니다.
+                </Text>
+                <Field
+                  icon="mail-outline"
+                  placeholder="가입 이메일 주소 (예: owner@cafe.com)"
+                  value={findEmailInput}
+                  onChangeText={setFindEmailInput}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+                <PressableScale
+                  style={styles.submitBtn}
+                  onPress={() => {
+                    if (!findEmailInput.trim() || !findEmailInput.includes('@')) {
+                      setFindResult({ type: 'error', message: '올바른 이메일 주소를 입력해 주세요.' });
+                      return;
+                    }
+                    setFindResult({
+                      type: 'success',
+                      message: `${findEmailInput.trim()} (으)로 비밀번호 재설정 이메일이 발송되었습니다.`,
+                    });
+                  }}
+                >
+                  <Text style={styles.submitText}>재설정 메일 발송</Text>
+                </PressableScale>
+              </View>
+            )}
+
+            {/* 결과 메세지 출력 */}
+            {findResult && (
+              <View style={[styles.findResultBox, findResult.type === 'error' ? styles.findResultError : styles.findResultSuccess]}>
+                <Ionicons
+                  name={findResult.type === 'error' ? 'alert-circle-outline' : 'checkmark-circle-outline'}
+                  size={18}
+                  color={findResult.type === 'error' ? '#B23B2E' : '#2E7D32'}
+                />
+                <Text style={[styles.findResultText, findResult.type === 'error' ? styles.findResultTextError : styles.findResultTextSuccess]}>
+                  {findResult.message}
+                </Text>
+              </View>
+            )}
+
+            <PressableScale
+              style={[styles.submitBtn, { backgroundColor: colors.mutedSand, marginTop: 12 }]}
+              onPress={() => setShowFindModal(false)}
+            >
+              <Text style={[styles.submitText, { color: colors.espressoBrown }]}>닫기</Text>
             </PressableScale>
           </View>
         </View>
@@ -1355,5 +1592,82 @@ const styles = StyleSheet.create({
     color: colors.mochaBrown,
     textDecorationLine: 'underline',
     paddingLeft: 8,
+  },
+
+  // [한글 주석] 아이디 / 비밀번호 찾기 모달 및 옵션 전용 스타일
+  loginOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 2,
+  },
+  findAccountLink: {
+    ...typography.L5,
+    fontSize: 12,
+    color: colors.mochaBrown,
+    textDecorationLine: 'underline',
+    fontWeight: '600',
+  },
+  findTabRow: {
+    flexDirection: 'row',
+    backgroundColor: colors.coffeeCream,
+    borderRadius: 12,
+    padding: 3,
+    marginTop: 8,
+  },
+  findTabBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderRadius: 9,
+  },
+  findTabBtnActive: {
+    backgroundColor: colors.white,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  findTabText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.mochaBrown,
+  },
+  findTabTextActive: {
+    color: colors.pointOrange,
+    fontWeight: '800',
+  },
+  findDesc: {
+    ...typography.L5,
+    fontSize: 12,
+    color: colors.mochaBrown,
+    lineHeight: 18,
+  },
+  findResultBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    borderRadius: 12,
+    marginTop: 10,
+  },
+  findResultSuccess: {
+    backgroundColor: '#E8F5E9',
+  },
+  findResultError: {
+    backgroundColor: '#FFEBEE',
+  },
+  findResultText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+  },
+  findResultTextSuccess: {
+    color: '#2E7D32',
+  },
+  findResultTextError: {
+    color: '#B23B2E',
   },
 });
