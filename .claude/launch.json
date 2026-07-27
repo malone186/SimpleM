@@ -6,6 +6,13 @@
       "url": "http://localhost:8081"
     },
     {
+      "name": "web-dist-sim",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "dist", "-s", "-l", "8099"],
+      "cwd": "frontend",
+      "port": 8099
+    },
+    {
       "name": "frontend-web",
       "runtimeExecutable": "npx",
       "runtimeArgs": ["expo", "start", "--web", "--port", "8081", "--clear"],

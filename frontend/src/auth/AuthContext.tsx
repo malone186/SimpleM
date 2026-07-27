@@ -18,7 +18,6 @@ import {
   useContext,
   useEffect,
   useState,
-  useMemo,
   type ReactNode,
 } from 'react';
 import * as WebBrowser from 'expo-web-browser';
@@ -46,6 +45,11 @@ type AuthContextValue = {
 
 const SESSION_KEY = 'simplem:session'; // [한글 주석] 자동 로그인 체크 시 로컬에 저장할 세션 키
 
+// [한글 주석] 모바일 구글 로그인 브리지 페이지가 배포된 웹 주소 (Firebase 승인 도메인이어야 함)
+const WEB_APP_BASE_URL =
+  process.env.EXPO_PUBLIC_WEB_BASE_URL ||
+  'https://brewnote-web-915817944047.asia-northeast3.run.app';
+
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 // JWT의 exp(만료 시각)를 확인한다 — 백엔드 토큰은 24시간 유효라서,
@@ -70,50 +74,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [booting, setBooting] = useState(true);
-  const [socialAutoLogin, setSocialAutoLogin] = useState(true);
-
-  // [한글 주석] 구글이 허용하는 리디렉션 주소를 생성합니다. (exp:// 로컬 주소가 나오면 아래에서 HTTPS 프록시로 강제 우회)
-  const redirectUri = AuthSession.makeRedirectUri({
-    scheme: 'simplem',
-  });
-
-  // [한글 주석] 일부 환경에서 여전히 로컬 사설 주소(exp://)가 반환될 경우, 구글 400 에러를 방지하기 위해 강제로 정식 HTTPS 프록시 주소로 우회 처리합니다.
-  const finalRedirectUri = redirectUri.startsWith('exp://')
-    ? 'https://auth.expo.io/@anonymous/frontend'
-    : redirectUri;
-
-  // [한글 주석] 구글 콘솔 등록을 위해 현재 앱이 생성한 리디렉션 URI 주소를 터미널 로그에 인쇄합니다.
-  useEffect(() => {
-    console.log('🔗 [Google 소셜 로그인 리디렉션 URI]:', finalRedirectUri);
-  }, [finalRedirectUri]);
-
-  // [한글 주석] response_type=id_token 흐름에서 구글이 보안을 위해 필수로 요구하는 일회용 위조 방지 난수(nonce)를 생성하고 useMemo로 고정합니다.
-  const googleNonce = useMemo(() => {
-    return 'simplem_google_auth_nonce_' + Math.random().toString(36).substring(2, 15);
-  }, []);
-
-  // [한글 주석] useAuthRequest가 렌더링 시마다 갱신되어 무한 루프에 빠지는 것을 방지하기 위해 전체 설정을 useMemo로 박제합니다.
-  const googleRequestConfig = useMemo(() => {
-    return {
-      clientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
-      redirectUri: finalRedirectUri,
-      scopes: ['openid', 'profile', 'email'],
-      responseType: 'id_token',
-      usePKCE: false,
-      nonce: googleNonce,
-      extraParams: {
-        nonce: googleNonce,
-      },
-    };
-  }, [finalRedirectUri, googleNonce]);
-
-  // [한글 주석] expo-auth-session을 이용해 모바일 환경에서의 Google 소셜 로그인 요청을 세팅합니다.
-  const [request, response, promptAsync] = AuthSession.useAuthRequest(
-    googleRequestConfig,
-    {
-      authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
-    }
-  );
 
   // [한글 주석] 자동 로그인 여부에 따라 디스크에 세션을 남기거나 지웁니다.
   const persistSession = useCallback(async (u: User & { token: string }, autoLogin: boolean) => {
@@ -171,37 +131,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     return unsub;
   }, []);
-
-  // [한글 주석] 모바일 Google 로그인 성공 시 웹뷰로부터 인증 정보(id_token)를 받아와 처리합니다.
-  useEffect(() => {
-    if (response?.type === 'success') {
-      const { id_token } = response.params;
-      (async () => {
-        try {
-          if (!auth) throw new Error('Firebase가 초기화되지 않았습니다.');
-          const credential = GoogleAuthProvider.credential(id_token);
-          const result = await signInWithCredential(auth, credential);
-          const fbUser = result.user;
-          const idToken = await fbUser.getIdToken();
-          const userName = fbUser.displayName || fbUser.email?.split('@')[0] || '구글사장님';
-
-          const u = {
-            email: fbUser.email || 'google-사장님@test.com',
-            name: userName,
-            token: idToken,
-          };
-
-          // 즉시 로그인 완료 — 백엔드 프로필 동기화는 백그라운드로
-          setUser({ email: u.email, name: u.name });
-          setToken(idToken);
-          await persistSession(u, socialAutoLogin);
-          syncProfileInBackground(idToken, userName);
-        } catch (err) {
-          console.error('모바일 구글 로그인 후 처리 실패:', err);
-        }
-      })();
-    }
-  }, [response, persistSession, socialAutoLogin, syncProfileInBackground]);
 
   // [한글 주석] 앱 구동 시 로컬 저장소에서 세션을 읽어 자동 로그인을 복원합니다.
   useEffect(() => {
@@ -472,21 +401,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      if (!auth) throw new Error('Firebase가 초기화되지 않았습니다.');
+
       if (Platform.OS !== 'web') {
-        // [한글 주석] 모바일 환경일 경우 AuthSession의 promptAsync를 호출하여 웹 브라우저를 엽니다.
-        setSocialAutoLogin(autoLogin);
-        if (request) {
-          const result = await promptAsync();
-          if (result.type !== 'success') {
-            throw new Error('구글 로그인이 취소되었거나 실패했습니다.');
-          }
-        } else {
-          throw new Error('구글 로그인 요청이 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요.');
+        // [모바일 구글 로그인 — 브리지 방식]
+        // 예전 expo-auth-session 직접 호출은 client_id 미설정 + 폐쇄된 auth.expo.io 프록시 탓에
+        // 구글이 400을 뱉었다. 대신 Firebase 승인 도메인인 우리 웹(brewnote-web)의
+        // 브리지 페이지를 커스텀 탭으로 열고, 거기서 구글 로그인 후 딥링크로 id_token을 돌려받는다.
+        // → 구글/파이어베이스 콘솔에 아무것도 추가 등록할 필요가 없다.
+        const returnUrl = AuthSession.makeRedirectUri({ scheme: 'simplem', path: 'google-auth' });
+        // [한글 주석] public/serve.json이 cleanUrls를 꺼둔 상태라 .html 경로가 리디렉션 없이(쿼리 보존) 그대로 서빙된다
+        const bridgeUrl = `${WEB_APP_BASE_URL}/google-auth-bridge.html?return=${encodeURIComponent(returnUrl)}`;
+
+        const session = await WebBrowser.openAuthSessionAsync(bridgeUrl, returnUrl);
+        if (session.type !== 'success' || !session.url) {
+          throw new Error('구글 로그인이 취소되었거나 실패했습니다.');
+        }
+
+        // [한글 주석] RN의 URLSearchParams 구현이 불완전할 수 있어 정규식으로 직접 파싱한다.
+        const errMatch = /[#?&]error=([^&]+)/.exec(session.url);
+        if (errMatch) {
+          throw new Error(decodeURIComponent(errMatch[1]));
+        }
+        const tokenMatch = /[#?&]id_token=([^&]+)/.exec(session.url);
+        if (!tokenMatch) {
+          throw new Error('구글 인증 정보를 받지 못했습니다. 다시 시도해 주세요.');
+        }
+        const googleIdToken = decodeURIComponent(tokenMatch[1]);
+
+        try {
+          // [한글 주석] 돌려받은 구글 id_token으로 이 기기의 Firebase 세션을 정식 개설한다 (토큰 자동 갱신 유지)
+          const credential = GoogleAuthProvider.credential(googleIdToken);
+          const result = await signInWithCredential(auth, credential);
+          const fbUser = result.user;
+          const idToken = await fbUser.getIdToken();
+          const userName = fbUser.displayName || fbUser.email?.split('@')[0] || '구글사장님';
+
+          const u = {
+            email: fbUser.email || 'google-사장님@test.com',
+            name: userName,
+            token: idToken,
+          };
+
+          // 즉시 로그인 완료 — 백엔드 프로필 동기화는 백그라운드로
+          setUser({ email: u.email, name: u.name });
+          setToken(idToken);
+          await persistSession(u, autoLogin);
+          syncProfileInBackground(idToken, userName);
+        } catch (err: any) {
+          console.error('모바일 구글 로그인 후 처리 실패:', err);
+          throw new Error(err.message || '구글 로그인 중 오류가 발생했습니다.');
         }
         return;
       }
-
-      if (!auth) throw new Error('Firebase가 초기화되지 않았습니다.');
 
       try {
         const provider = new GoogleAuthProvider();
@@ -512,7 +479,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(err.message || '구글 로그인 중 오류가 발생했습니다.');
       }
     },
-    [persistSession, loginWithBackendDemo, request, promptAsync, syncProfileInBackground]
+    [persistSession, loginWithBackendDemo, syncProfileInBackground]
   );
 
   // [한글 주석] 로그아웃 시 Firebase 세션을 끊고 로컬 세션을 완전히 파기합니다.

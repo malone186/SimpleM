@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>브루노트 — 구글 로그인</title>
+  <!--
+    [한글 주석] 모바일 앱 전용 구글 로그인 브리지 페이지.
+    앱(커스텀 탭)이 이 페이지를 열면 → Firebase signInWithRedirect로 구글 로그인 →
+    돌아온 구글 id_token을 ?return= 으로 받은 앱 딥링크(simplem:// 또는 exp://)에 실어 되돌려준다.
+    이 도메인(brewnote-web)은 Firebase 승인 도메인에 이미 등록돼 있어서
+    구글 클라우드 콘솔에 리디렉션 URI를 따로 등록할 필요가 없다.
+  -->
+  <style>
+    body { margin: 0; font-family: -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+           display: flex; align-items: center; justify-content: center; min-height: 100vh;
+           background: #FAF7F2; color: #4E342E; }
+    .card { text-align: center; padding: 24px; }
+    .spinner { width: 36px; height: 36px; margin: 0 auto 16px; border: 4px solid #E8DFD5;
+               border-top-color: #8D6E63; border-radius: 50%; animation: spin 0.9s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .err { color: #C62828; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="spinner" id="spinner"></div>
+    <p id="msg">구글 로그인으로 이동하는 중입니다…</p>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script>
+    (function () {
+      var msgEl = document.getElementById('msg');
+      var spinnerEl = document.getElementById('spinner');
+      function fail(text) {
+        spinnerEl.style.display = 'none';
+        msgEl.className = 'err';
+        msgEl.textContent = text;
+      }
+
+      // [한글 주석] 앱으로 돌아갈 딥링크 주소. 허용된 스킴(simplem/exp)만 통과시켜 오픈 리디렉션을 막는다.
+      // 구글 리디렉션 왕복이나 서버의 쿼리 소실에 대비해 sessionStorage에 백업해 둔다.
+      var params = new URLSearchParams(location.search);
+      var returnUrl = params.get('return') || sessionStorage.getItem('brewnote:googleAuthReturn') || '';
+      if (!/^(simplem|exp|exps):\/\//.test(returnUrl)) {
+        fail('잘못된 접근입니다. 브루노트 앱에서 [Google 계정으로 로그인]을 눌러 주세요.');
+        return;
+      }
+      sessionStorage.setItem('brewnote:googleAuthReturn', returnUrl);
+      function goBack(fragment) {
+        // [한글 주석] 토큰은 서버 로그에 남지 않도록 해시(#) 조각으로 실어 보낸다.
+        location.replace(returnUrl + '#' + fragment);
+      }
+
+      // [한글 주석] 클라이언트 공개값이라 하드코딩해도 안전 (.env.production과 동일 값)
+      firebase.initializeApp({
+        apiKey: 'AIzaSyBOiKu27M13SnpWmbHDtP0AVSU_yXSI3R4',
+        authDomain: 'simplem-72f8d.firebaseapp.com',
+        projectId: 'simplem-72f8d',
+      });
+
+      var auth = firebase.auth();
+      auth
+        .getRedirectResult()
+        .then(function (result) {
+          if (result && result.credential && result.credential.idToken) {
+            // [한글 주석] 구글 로그인 완료 — 앱이 signInWithCredential에 쓸 구글 id_token을 들고 복귀
+            msgEl.textContent = '로그인 완료! 앱으로 돌아갑니다…';
+            goBack('id_token=' + encodeURIComponent(result.credential.idToken));
+          } else {
+            // [한글 주석] 아직 로그인 전 — 구글 계정 선택 화면으로 보낸다
+            var provider = new firebase.auth.GoogleAuthProvider();
+            provider.setCustomParameters({ prompt: 'select_account' });
+            return auth.signInWithRedirect(provider);
+          }
+        })
+        .catch(function (err) {
+          var reason = (err && err.message) || '알 수 없는 오류';
+          fail('구글 로그인에 실패했습니다.\n' + reason);
+          goBack('error=' + encodeURIComponent(reason));
+        });
+    })();
+  </script>
+</body>
+</html>
