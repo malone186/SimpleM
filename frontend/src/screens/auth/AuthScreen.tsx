@@ -177,13 +177,96 @@ export default function AuthScreen() {
     content: '',
   });
 
-  // [한글 주석] 아이디 / 비밀번호 찾기 모달 상태
+  // [한글 주석] 아이디 / 비밀번호 찾기 모달 상태 — 백엔드 /auth/find-email·/auth/reset-password 실연동
   const [showFindModal, setShowFindModal] = useState(false);
   const [findTab, setFindTab] = useState<'id' | 'pw'>('id');
-  const [findNameInput, setFindNameInput] = useState('');
-  const [findPhoneInput, setFindPhoneInput] = useState(''); // [한글 주석] 동일 상호 중복 구분용 (휴대폰 번호 / 사업자번호)
+  const [findNameInput, setFindNameInput] = useState(''); // 상호명 (두 탭 공용 — 본인 확인용)
   const [findEmailInput, setFindEmailInput] = useState('');
+  const [findNewPwInput, setFindNewPwInput] = useState(''); // 재설정할 새 비밀번호
+  const [findBusy, setFindBusy] = useState(false);
   const [findResult, setFindResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // [아이디 찾기] 상호명으로 조회 → 마스킹된 이메일 목록 표시 (원본 이메일은 서버가 노출하지 않음)
+  const submitFindEmail = async () => {
+    if (!findNameInput.trim()) {
+      setFindResult({ type: 'error', message: '가입 시 등록한 상호명(매장 이름)을 입력해 주세요.' });
+      return;
+    }
+    setFindBusy(true);
+    setFindResult(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/find-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ store_name: findNameInput.trim() }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setFindResult({
+          type: 'error',
+          message: data?.detail || '계정을 찾지 못했어요. 상호명을 다시 확인해 주세요.',
+        });
+        return;
+      }
+      const lines = (data.accounts as { masked_email: string; created_at: string }[])
+        .map((a) => `• ${a.masked_email}  (가입일 ${a.created_at.slice(0, 10)})`)
+        .join('\n');
+      setFindResult({
+        type: 'success',
+        message: `'${findNameInput.trim()}' 상호로 가입된 계정을 찾았습니다!\n\n${lines}`,
+      });
+    } catch {
+      setFindResult({ type: 'error', message: '서버에 연결하지 못했어요. 네트워크를 확인해 주세요.' });
+    } finally {
+      setFindBusy(false);
+    }
+  };
+
+  // [비밀번호 재설정] 메일 인프라가 없어 링크 발송 대신 이메일+상호명 본인확인 후 즉시 재설정
+  const submitResetPassword = async () => {
+    if (!findEmailInput.trim() || !findEmailInput.includes('@')) {
+      setFindResult({ type: 'error', message: '올바른 이메일 주소를 입력해 주세요.' });
+      return;
+    }
+    if (!findNameInput.trim()) {
+      setFindResult({ type: 'error', message: '본인 확인을 위해 가입 시 등록한 상호명을 입력해 주세요.' });
+      return;
+    }
+    if (findNewPwInput.length < 4) {
+      setFindResult({ type: 'error', message: '새 비밀번호는 4자 이상으로 입력해 주세요.' });
+      return;
+    }
+    setFindBusy(true);
+    setFindResult(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: findEmailInput.trim(),
+          store_name: findNameInput.trim(),
+          new_password: findNewPwInput,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setFindResult({
+          type: 'error',
+          message: data?.detail || '입력 정보가 일치하는 계정을 찾을 수 없습니다.',
+        });
+        return;
+      }
+      setFindNewPwInput('');
+      setFindResult({
+        type: 'success',
+        message: '비밀번호가 변경되었습니다.\n새 비밀번호로 바로 로그인해 주세요.',
+      });
+    } catch {
+      setFindResult({ type: 'error', message: '서버에 연결하지 못했어요. 네트워크를 확인해 주세요.' });
+    } finally {
+      setFindBusy(false);
+    }
+  };
 
   const allTermsChecked = termService && termPrivacy && termMarketing;
 
@@ -732,8 +815,8 @@ export default function AuthScreen() {
                     onPress={() => {
                       setFindResult(null);
                       setFindNameInput('');
-                      setFindPhoneInput('');
                       setFindEmailInput('');
+                      setFindNewPwInput('');
                       setShowFindModal(true);
                     }}
                     to={0.96}
@@ -1160,7 +1243,7 @@ export default function AuthScreen() {
             {findTab === 'id' ? (
               <View style={{ gap: 10, marginTop: 12 }}>
                 <Text style={styles.findDesc}>
-                  동일 상호 중복 방지를 위해 가입 시 등록하신 **상호명**과 **휴대폰 번호(또는 사업자번호)**를 함께 입력해 주세요.
+                  가입 시 등록하신 상호명(매장 이름)을 입력하시면 가입 이메일을 마스킹된 형태로 알려드립니다.
                 </Text>
                 <Field
                   icon="storefront-outline"
@@ -1168,51 +1251,17 @@ export default function AuthScreen() {
                   value={findNameInput}
                   onChangeText={setFindNameInput}
                 />
-                <Field
-                  icon="call-outline"
-                  placeholder="등록된 휴대폰 번호 또는 사업자번호"
-                  value={findPhoneInput}
-                  onChangeText={setFindPhoneInput}
-                  keyboardType="numeric"
-                />
                 <PressableScale
-                  style={styles.submitBtn}
-                  onPress={() => {
-                    if (!findNameInput.trim()) {
-                      setFindResult({ type: 'error', message: '상호명 또는 매장 이름을 입력해 주세요.' });
-                      return;
-                    }
-                    if (!findPhoneInput.trim()) {
-                      setFindResult({ type: 'error', message: '등록된 휴대폰 번호 또는 사업자번호를 입력해 주세요.' });
-                      return;
-                    }
-                    const qName = findNameInput.trim().toLowerCase();
-                    const qPhone = findPhoneInput.trim().replace(/[^0-9]/g, '');
-
-                    // 데모 및 조회 검증 시뮬레이션
-                    if (
-                      (qName.includes('카페') || qName.includes('데모') || qName.includes('owner') || qName.includes('사장')) ||
-                      qPhone === '01012345678' || qPhone.length >= 8
-                    ) {
-                      setFindResult({
-                        type: 'success',
-                        message: `'${findNameInput.trim()}' 사장님의 계정을 찾았습니다!\n\n• 가입 이메일: ow***@cafe.com`,
-                      });
-                    } else {
-                      setFindResult({
-                        type: 'error',
-                        message: `입력하신 상호명('${findNameInput.trim()}')과 연락처/사업자번호 정보에 일치하는 회원 계정을 찾을 수 없습니다.`,
-                      });
-                    }
-                  }}
+                  style={[styles.submitBtn, findBusy && { opacity: 0.6 }]}
+                  onPress={() => !findBusy && submitFindEmail()}
                 >
-                  <Text style={styles.submitText}>아이디 찾기</Text>
+                  <Text style={styles.submitText}>{findBusy ? '조회 중…' : '아이디 찾기'}</Text>
                 </PressableScale>
               </View>
             ) : (
               <View style={{ gap: 10, marginTop: 12 }}>
                 <Text style={styles.findDesc}>
-                  가입하신 이메일 주소를 입력하시면 비밀번호 재설정 링크를 발송해 드립니다.
+                  본인 확인을 위해 가입 이메일과 상호명을 입력하시면 새 비밀번호로 즉시 재설정됩니다.
                 </Text>
                 <Field
                   icon="mail-outline"
@@ -1222,20 +1271,24 @@ export default function AuthScreen() {
                   keyboardType="email-address"
                   autoCapitalize="none"
                 />
+                <Field
+                  icon="storefront-outline"
+                  placeholder="가입 시 등록한 상호 / 매장 이름"
+                  value={findNameInput}
+                  onChangeText={setFindNameInput}
+                />
+                <Field
+                  icon="lock-closed-outline"
+                  placeholder="새 비밀번호 (4자 이상)"
+                  value={findNewPwInput}
+                  onChangeText={setFindNewPwInput}
+                  {...passwordFieldProps}
+                />
                 <PressableScale
-                  style={styles.submitBtn}
-                  onPress={() => {
-                    if (!findEmailInput.trim() || !findEmailInput.includes('@')) {
-                      setFindResult({ type: 'error', message: '올바른 이메일 주소를 입력해 주세요.' });
-                      return;
-                    }
-                    setFindResult({
-                      type: 'success',
-                      message: `${findEmailInput.trim()} (으)로 비밀번호 재설정 이메일이 발송되었습니다.`,
-                    });
-                  }}
+                  style={[styles.submitBtn, findBusy && { opacity: 0.6 }]}
+                  onPress={() => !findBusy && submitResetPassword()}
                 >
-                  <Text style={styles.submitText}>재설정 메일 발송</Text>
+                  <Text style={styles.submitText}>{findBusy ? '변경 중…' : '비밀번호 재설정'}</Text>
                 </PressableScale>
               </View>
             )}
