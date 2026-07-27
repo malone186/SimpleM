@@ -18,6 +18,7 @@ import { WebView } from 'react-native-webview';
 
 import { useAuth } from '../../auth/AuthContext';
 import { API_BASE_URL } from '../../lib/api/client';
+import { getGpsPosition } from '../../lib/api/forecast';
 import { FadeInUp, PressableScale } from '../../components/motion';
 import { IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
@@ -161,6 +162,8 @@ export default function AuthScreen() {
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   // 모달의 "주소 검색" 버튼이 지도 초기화 이후 생성되는 검색 함수를 호출할 수 있게 ref로 연결
   const mapSearchRef = useRef<((query: string) => void) | null>(null);
+  // "현위치" 버튼이 지도 핀을 임의 좌표로 옮길 수 있게 ref로 연결 (웹 전용 — 앱은 WebView 주입)
+  const mapPinRef = useRef<((lat: number, lon: number) => void) | null>(null);
   // 앱(네이티브)의 지도 WebView — 검색 결과 좌표를 지도에 반영할 때 사용
   const mapWebViewRef = useRef<WebView>(null);
   // 지도 모달 안내 문구 (검색 중 / 결과 없음 피드백)
@@ -359,8 +362,22 @@ export default function AuthScreen() {
           setMapNotice(found.label ? `📍 ${found.label}` : '📍 위치로 이동했어요. 핀을 눌러 미세 조정할 수 있어요.');
         };
 
-        // 모달을 열 때 이미 주소가 입력되어 있으면 그 위치로 자동 이동 (핀 미확정 상태일 때만)
-        if (!coords && region.trim()) mapSearchRef.current(region);
+        // "현위치" 버튼 → 지도·핀을 해당 좌표로 이동시키고 역지오코딩 주소까지 채운다
+        mapPinRef.current = (lat: number, lon: number) => {
+          const latlng = new naverObj.maps.LatLng(lat, lon);
+          map.setCenter(latlng);
+          map.setZoom(16);
+          pick(latlng);
+        };
+
+        // 모달을 열 때 핀 미확정이면 현위치를 먼저 시도하고, 실패(권한 거부 등) 시 입력된 주소로 이동
+        if (!coords) {
+          getGpsPosition().then((pos) => {
+            if (disposed) return;
+            if (pos) mapPinRef.current?.(pos.lat, pos.lon);
+            else if (region.trim()) mapSearchRef.current?.(region);
+          });
+        }
       } catch (err) {
         console.error('네이버 지도 핀 초기화 실패, Leaflet 폴백:', err);
         initLeafletPicker();
@@ -418,8 +435,20 @@ export default function AuthScreen() {
           setMapNotice(found.label ? `📍 ${found.label}` : '📍 위치로 이동했어요. 핀을 눌러 미세 조정할 수 있어요.');
         };
 
-        // 모달을 열 때 이미 주소가 입력되어 있으면 그 위치로 자동 이동 (핀 미확정 상태일 때만)
-        if (!coords && region.trim()) mapSearchRef.current(region);
+        // "현위치" 버튼 → 지도·핀을 해당 좌표로 이동시키고 역지오코딩 주소까지 채운다
+        mapPinRef.current = (lat: number, lon: number) => {
+          map.setView([lat, lon], 16);
+          pick(lat, lon);
+        };
+
+        // 모달을 열 때 핀 미확정이면 현위치를 먼저 시도하고, 실패(권한 거부 등) 시 입력된 주소로 이동
+        if (!coords) {
+          getGpsPosition().then((pos) => {
+            if (disposed) return;
+            if (pos) mapPinRef.current?.(pos.lat, pos.lon);
+            else if (region.trim()) mapSearchRef.current?.(region);
+          });
+        }
       };
 
       const existingScript = document.getElementById('leaflet-js-direct');
@@ -465,6 +494,7 @@ export default function AuthScreen() {
       disposed = true;
       clearTimeout(timer);
       mapSearchRef.current = null;
+      mapPinRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showMapModal]);
@@ -500,6 +530,28 @@ export default function AuthScreen() {
       mapSearchRef.current = null;
     };
   }, [showMapModal]);
+
+  // [현위치 등록] 기기 GPS를 받아 지도 핀·좌표·주소를 한 번에 채운다 (웹·앱 공용).
+  // silent=true는 모달을 열 때의 자동 시도 — 실패해도 안내 문구로 사용자를 방해하지 않는다.
+  const applyMyLocation = async (silent = false) => {
+    if (!silent) setMapNotice('📡 현위치를 찾는 중…');
+    const pos = await getGpsPosition();
+    if (!pos) {
+      if (!silent) setMapNotice('현위치를 가져오지 못했어요. 위치 권한을 확인해 주세요.');
+      return;
+    }
+    if (Platform.OS === 'web') {
+      // 지도 초기화 전이면 좌표만이라도 확정 (핀은 다음 지도 오픈 때 이 좌표에서 시작)
+      if (mapPinRef.current) mapPinRef.current(pos.lat, pos.lon);
+      else setCoords(pos);
+    } else {
+      setCoords(pos);
+      // picker.html의 setPin이 지도 이동 + 역지오코딩 주소를 postMessage로 돌려준다
+      mapWebViewRef.current?.injectJavaScript(
+        `window.setPin && window.setPin(${pos.lat}, ${pos.lon}); true;`,
+      );
+    }
+  };
 
   // 1단계 ➡️ 2단계 이동 검증
   const goToNextStep = () => {
@@ -933,6 +985,15 @@ export default function AuthScreen() {
                 <Ionicons name="search" size={14} color={colors.white} />
                 <Text style={styles.mapPinBtnText}>검색</Text>
               </PressableScale>
+              {/* 현위치 버튼 — 누르면 기기 GPS 좌표로 핀을 옮기고 즉시 등록 */}
+              <PressableScale
+                style={styles.mapPinBtn}
+                onPress={() => applyMyLocation()}
+                to={0.93}
+              >
+                <Ionicons name="locate" size={14} color={colors.white} />
+                <Text style={styles.mapPinBtnText}>현위치</Text>
+              </PressableScale>
             </View>
 
             {/* [한글 주석] 지도가 그려지는 영역 — 클릭/핀 드래그로 위치 지정 (웹 전용, 앱은 주소 입력으로 설정) */}
@@ -952,6 +1013,10 @@ export default function AuthScreen() {
                   }}
                   javaScriptEnabled
                   domStorageEnabled
+                  // 지도 로드 완료 후 핀 미확정이면 현위치로 자동 이동 (권한 거부 시 기본 좌표 유지)
+                  onLoadEnd={() => {
+                    if (!coords) applyMyLocation(true);
+                  }}
                   onMessage={(e) => {
                     try {
                       const msg = JSON.parse(e.nativeEvent.data);

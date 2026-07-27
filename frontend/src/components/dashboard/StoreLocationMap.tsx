@@ -2,11 +2,12 @@
 // SalesCard의 지도 모달에 있던 다이렉트 DOM 렌더링 로직을 추출 — 프로필 화면 등 어디서든 재사용.
 // 네이버 지도 인증 실패/로딩 실패 시 Leaflet.js 오픈맵으로 자동 폴백된다.
 // 웹은 브라우저 DOM에 직접 렌더, 네이티브(Expo Go)는 동일 로직을 WebView HTML로 렌더.
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Platform, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 import { API_BASE_URL } from '../../lib/api/client';
+import { getGpsPosition } from '../../lib/api/forecast';
 import type { NearbyEvent } from '../../lib/api/forecast';
 
 // [한글 주석] 네이티브 WebView용 자립형 HTML — 웹 버전과 동일한 네이버 지도 + Leaflet 폴백 로직
@@ -163,6 +164,19 @@ export default function StoreLocationMap({
 }) {
   const serializedEvents = JSON.stringify(nearbyEvents);
 
+  // [현위치 표시] 기기 GPS 좌표 — 매장 핀(브라운)과 별개로 파란 점으로 표시한다.
+  // getDevicePosition은 저장된 매장 좌표를 우선 반환해 현위치가 안 보였으므로 순수 GPS 함수를 쓴다.
+  const [myPos, setMyPos] = useState<{ lat: number; lon: number } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    getGpsPosition().then((pos) => {
+      if (alive && pos) setMyPos(pos);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   // [네이버 지도 연동 설정 가이드]
   // NCP 콘솔 Maps > Web Dynamic Map의 Client ID. 비어있거나 인증 실패 시 Leaflet 폴백 가동.
   const NAVER_CLIENT_ID = process.env.EXPO_PUBLIC_NAVER_CLIENT_ID || '6amak4awt7';
@@ -179,11 +193,11 @@ export default function StoreLocationMap({
   // 백엔드(/map/)가 서빙하는 실제 URL을 로드해 Referer가 전송되게 한다.
   const mapUri = useMemo(() => {
     const payload = encodeURIComponent(
-      JSON.stringify({ lat, lon, regionName, shopLabel, events: nearbyEvents }),
+      JSON.stringify({ lat, lon, regionName, shopLabel, events: nearbyEvents, me: myPos }),
     );
     return `${API_BASE_URL}/map/?key=${encodeURIComponent(NAVER_CLIENT_ID)}&d=${payload}`;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lat, lon, regionName, shopLabel, serializedEvents, NAVER_CLIENT_ID]);
+  }, [lat, lon, regionName, shopLabel, serializedEvents, NAVER_CLIENT_ID, myPos]);
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -299,6 +313,20 @@ export default function StoreLocationMap({
             if (w.getMap()) w.close();
           });
         });
+
+        // 현위치 파란 점 (매장 핀과 구분되는 GPS 위치 — 좌표를 못 받았으면 생략)
+        if (myPos) {
+          new naverObj.maps.Marker({
+            position: new naverObj.maps.LatLng(myPos.lat, myPos.lon),
+            map: map,
+            icon: {
+              content:
+                '<div title="현위치" style="width:14px;height:14px;background:#1A73E8;border:3px solid #FFFFFF;border-radius:50%;box-shadow:0 0 0 5px rgba(26,115,232,0.2),0 2px 5px rgba(0,0,0,0.3)"></div>',
+              anchor: new naverObj.maps.Point(7, 7),
+            },
+            zIndex: 300,
+          });
+        }
       } catch (err) {
         console.error('네이버 지도 직접 초기화 중 에러, 폴백 가동:', err);
         initLeafletFallback();
@@ -352,6 +380,18 @@ export default function StoreLocationMap({
                 .bindPopup("<div style='font-size:11px'><b>🎉 " + e.name + '</b><br/>장소: ' + e.place + '<br/>거리: ' + e.distance_km + 'km<br/>날짜: ' + e.date + '</div>');
             }
           });
+
+          // 현위치 파란 점 (매장 핀과 구분되는 GPS 위치 — 좌표를 못 받았으면 생략)
+          if (myPos) {
+            L.circleMarker([myPos.lat, myPos.lon], {
+              color: '#FFFFFF',
+              fillColor: '#1A73E8',
+              fillOpacity: 1,
+              radius: 7,
+              weight: 3,
+            }).addTo(map)
+              .bindPopup("<div style='font-size:11px'><b>📱 현위치</b></div>");
+          }
         };
 
         const existingScript = document.getElementById('leaflet-js-direct');
@@ -377,7 +417,7 @@ export default function StoreLocationMap({
 
     const timer = setTimeout(loadNaverScript, 50);
     return () => clearTimeout(timer);
-  }, [lat, lon, regionName, shopLabel, serializedEvents, containerId, NAVER_CLIENT_ID]);
+  }, [lat, lon, regionName, shopLabel, serializedEvents, containerId, NAVER_CLIENT_ID, myPos]);
 
   if (Platform.OS !== 'web') {
     return (

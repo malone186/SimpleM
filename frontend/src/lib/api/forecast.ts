@@ -175,6 +175,12 @@ export async function getDevicePosition(): Promise<{ lat: number; lon: number } 
   } catch {
     // 저장값이 깨졌으면 무시하고 GPS로 진행
   }
+  return getGpsPosition();
+}
+
+/** 순수 기기 GPS 현위치 — 저장된 매장 좌표를 무시하고 실제 기기 위치만 반환.
+ * 회원가입 지도의 '현위치' 등록, 프로필 지도의 현위치 표시용. 거부/실패 시 null. */
+export async function getGpsPosition(): Promise<{ lat: number; lon: number } | null> {
   if (Platform.OS === 'web') {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
       console.warn('[위치] 이 브라우저는 geolocation을 지원하지 않습니다 → 서울 기준으로 예측합니다');
