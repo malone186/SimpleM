@@ -26,6 +26,7 @@ import Brew from '../../components/brew/Brew';
 import DocumentCard from '../../components/chatbot/DocumentCard';
 import { FadeInUp, PressableScale } from '../../components/motion';
 import { sendChatMessage } from '../../lib/api/chatbot';
+import { toast } from '../../components/toast';
 import {
   clearSessions,
   deleteSession,
@@ -144,7 +145,7 @@ export default function ChatbotScreen() {
     }
   };
 
-  // 새 채팅 — 지금 대화는 이미 저장돼 있으므로 화면만 초기화한다
+  // [한글 주석: 새 채팅 클릭 시 이전 대화 세션을 보관하고 화면 대화를 즉시 초기화합니다]
   const startNewChat = () => {
     if (sending) return;
     sessionIdRef.current = `s${Date.now()}`;
@@ -152,6 +153,7 @@ export default function ChatbotScreen() {
     messagesRef.current = [GREETING];
     setMessages([GREETING]);
     setInput('');
+    toast('새 채팅 시작', '브루와 새로운 대화를 시작합니다.');
   };
 
   const hasConversation = messages.some((m) => m.role === 'user');
@@ -209,11 +211,11 @@ export default function ChatbotScreen() {
         <Brew mood="welcome" size={34} />
         <Text style={styles.headerTitle}>{language === 'en' ? 'Brew AI Assistant' : '브루 챗봇'}</Text>
         <View style={styles.headerActions}>
-          {/* 대화 중에도 언제든 새 채팅을 열 수 있다 — 기존 대화는 기록에 남는다 */}
+          {/* [한글 주석: 대화 유무와 상관없이 사용자가 언제든 새 채팅을 열 수 있도록 disabled 및 딤 처리를 해제합니다] */}
           <PressableScale
-            style={[styles.headerBtn, !hasConversation && styles.headerBtnDim]}
+            style={styles.headerBtn}
             onPress={startNewChat}
-            disabled={sending || !hasConversation}
+            disabled={sending}
           >
             <Ionicons name="add" size={20} color={colors.espressoBrown} />
             <Text style={styles.headerBtnText}>{language === 'en' ? 'New Chat' : '새 채팅'}</Text>
