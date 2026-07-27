@@ -157,7 +157,7 @@ export default function MenuScreen() {
   const getIngredientCost = (ingId: number, qty: number) => {
     const ing = allIngredients.find((i) => i.id === ingId);
     if (!ing) return 0;
-    const unitLower = ing.unit.toLowerCase();
+    const unitLower = (ing.unit ?? '').toLowerCase();
     
     if (unitLower === 'kg' || unitLower === 'l' || unitLower === '팩' || unitLower === '병') {
       return Math.round((ing.current_price / 1000) * qty);
@@ -188,9 +188,13 @@ export default function MenuScreen() {
           </View>
         ) : (
           menus.map((m) => {
+            // [방어] 특정 메뉴의 recipes/selling_price가 누락/null이면 렌더 중 크래시(앱 종료)로 이어진다.
+            // 참조가 깨진(재료 삭제 등) 데이터에도 화면이 죽지 않도록 안전한 기본값으로 정규화한다.
+            const recipes = m.recipes ?? [];
+            const sellingPrice = m.selling_price ?? 0;
             // 백엔드가 실시간 계산해 준 원가와 원가율을 최우선 매핑하고, 없으면 로컬 폴백 연산합니다.
-            const cost = m.cost_price !== undefined ? m.cost_price : m.recipes.reduce((s, r) => s + getIngredientCost(r.ingredient_id, r.quantity), 0);
-            const rate = m.cost_ratio !== undefined ? m.cost_ratio : (m.selling_price ? Math.round((cost / m.selling_price) * 100) : 0);
+            const cost = m.cost_price != null ? m.cost_price : recipes.reduce((s, r) => s + getIngredientCost(r.ingredient_id, r.quantity), 0);
+            const rate = m.cost_ratio != null ? m.cost_ratio : (sellingPrice ? Math.round((cost / sellingPrice) * 100) : 0);
             const expanded = open === m.id;
             return (
               <Card key={m.id}>
@@ -203,7 +207,7 @@ export default function MenuScreen() {
                     <View style={{ flex: 1 }}>
                       <Text style={styles.name}>{m.name}</Text>
                       <Text style={styles.sub}>
-                        판매가 ₩{m.selling_price.toLocaleString()} · 원가 ₩{cost.toLocaleString()}
+                        판매가 ₩{sellingPrice.toLocaleString()} · 원가 ₩{cost.toLocaleString()}
                       </Text>
                     </View>
                     <Badge label={`원가율 ${rate}%`} tone={rate > 35 ? 'danger' : 'green'} />
@@ -222,7 +226,7 @@ export default function MenuScreen() {
                 {expanded && (
                   <View style={styles.recipe}>
                     <Text style={styles.recipeTitle}>레시피 구성 재료</Text>
-                    {m.recipes.map((r, i) => {
+                    {recipes.map((r, i) => {
                       const itemCost = getIngredientCost(r.ingredient_id, r.quantity);
                       return (
                         <View key={i} style={styles.recipeRow}>
