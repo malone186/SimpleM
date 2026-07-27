@@ -146,7 +146,8 @@ export default function RootNavigator() {
   }
 
   return (
-    <NavigationContainer>
+    // [한글 주석: 계정이 변경될 때(로그아웃 후 타 계정 로그인) key={user.email}을 통해 컴포넌트 트리를 완전히 새로 마운트하여 이전 계정의 화면 메모리 State(영수증, 재고 등)를 리셋합니다]
+    <NavigationContainer key={user.email}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Tabs" component={TabsNavigator} />
         <Stack.Screen

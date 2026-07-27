@@ -17,6 +17,7 @@
         "backgroundColor": "#FBEFDD",
         "foregroundImage": "./assets/brew_icon_cutout.png"
       },
+      "softwareKeyboardLayoutMode": "resize",
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.BLUETOOTH",

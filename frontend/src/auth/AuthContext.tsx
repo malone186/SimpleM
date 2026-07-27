@@ -482,7 +482,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [persistSession, loginWithBackendDemo, syncProfileInBackground]
   );
 
-  // [한글 주석] 로그아웃 시 Firebase 세션을 끊고 로컬 세션을 완전히 파기합니다.
+  // [한글 주석: 로그아웃 시 Firebase 세션을 끊고 로컬 저장소(AsyncStorage)의 모든 데이터를 완전 초기화 파기합니다]
   const logout = useCallback(async () => {
     try {
       // Firebase 미초기화(키 없음) 시 auth 는 null — 백엔드 우회 모드이므로 건너뛴다.
@@ -492,7 +492,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setUser(null);
     setToken(null);
-    await AsyncStorage.removeItem(SESSION_KEY);
+    // [한글 주석: 다른 계정으로 로그인할 때 영수증, 임시 노트, 캐시 등 이전 사용자의 로컬 데이터가 남아있지 않도록 전체 삭제]
+    await AsyncStorage.clear();
   }, []);
 
   // [한글 주석] 로그인된 점주님의 정보(이름/비밀번호)를 Firebase 및 백엔드 데이터베이스에 동시 갱신합니다.
