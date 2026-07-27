@@ -602,7 +602,13 @@ export default function AuthScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      // [한글 주석] 안드로이드도 'padding'으로 처리한다.
+      // SDK54는 edge-to-edge가 기본이라 네이티브 resize가 키보드를 밀어내지 못한다.
+      // 그래서 OS 리사이즈에 기대지 않고, 키보드가 뜨면 JS가 그 높이만큼
+      // 화면 아래에 여백을 넣어 입력칸을 키보드 위로 밀어 올린다.
+      // (JS 처리라 네이티브 재빌드 없이 OTA로 배포된다.)
+      behavior="padding"
+      keyboardVerticalOffset={0}
     >
       <ScrollView
         contentContainerStyle={styles.content}
