@@ -4,7 +4,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Alert,
   Image,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   ScrollView,
@@ -652,15 +651,19 @@ export default function AuthScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+    {/*
+      [안드로이드 전용 배포] 키보드 가림 처리:
+      app.json의 softwareKeyboardLayoutMode:"resize"(= AndroidManifest adjustResize)가
+      키보드가 뜨면 앱 화면을 키보드 위 영역으로 줄인다. 그 줄어든 영역에서 ScrollView가
+      스크롤 가능해지고, 안드로이드는 포커스된 TextInput이 보이도록 자동 스크롤한다.
+      KeyboardAvoidingView를 함께 쓰면 이중으로 밀려 튀므로 쓰지 않는다.
+    */}
+    <View style={styles.root}>
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
+        keyboardDismissMode="on-drag"
       >
         {/* 브랜드 */}
         <FadeInUp>
@@ -1083,7 +1086,7 @@ export default function AuthScreen() {
           </View>
         </View>
       </Modal>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
