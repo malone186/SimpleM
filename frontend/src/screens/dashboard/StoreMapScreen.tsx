@@ -17,6 +17,7 @@ import { colors, typography } from '../../theme';
 export default function StoreMapScreen() {
   const { token, user } = useAuth();
   const [storedLoc, setStoredLoc] = useState<StoredStoreLocation | null>(null);
+  const [pos, setPos] = useState<{ lat: number; lon: number } | null>(null);
   const [forecast, setForecast] = useState<SalesForecast | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -31,11 +32,6 @@ export default function StoreMapScreen() {
   }, []);
 
   useEffect(() => {
-    // 로그인 전이면 기다릴 게 없다 — 예전엔 여기서 그냥 return해 스피너가 영영 안 멈췄다
-    if (!token) {
-      setLoading(false);
-      return;
-    }
     let cancelled = false;
 
     // 위치·예측 중 하나라도 응답이 없으면 화면이 로딩에 갇힌다.
@@ -45,11 +41,25 @@ export default function StoreMapScreen() {
 
     (async () => {
       try {
-        const pos = await withLimit(getDevicePosition(), 9000);
-        const data = await withLimit(getSalesForecast(token, pos?.lat, pos?.lon), 12000);
+        // 1) 좌표(가입 핀 또는 기기 GPS)가 잡히는 즉시 지도를 그린다.
+        //    예전엔 예측 API 응답의 location만 썼는데, 판매 기록 14일 미만 계정은
+        //    예측이 409로 실패해 GPS를 받아 놓고도 에러 화면이 떴다(+ 직렬 대기 최대 21초).
+        const p = await withLimit(getDevicePosition(), 6000);
+        if (cancelled) return;
+        if (p) {
+          setPos(p);
+          setLoading(false); // 지도는 이미 그릴 수 있다 — 아래 예측은 배경 보강일 뿐
+        }
+        if (!token) {
+          setLoading(false);
+          return;
+        }
+        // 2) 예측 API는 지역명·주변 행사 보강용 — 실패해도 지도는 그대로 뜬다
+        const data = await withLimit(getSalesForecast(token, p?.lat, p?.lon), 12000);
         if (!cancelled && data) {
           setForecast(data);
-          if (data.location) cacheStoreLocation(data.location);
+          // 좌표 없이 부르면 서울 기본값이 오므로, 실제 좌표를 보냈을 때만 캐시한다
+          if (data.location && p) cacheStoreLocation(data.location);
         }
       } catch (e) {
         console.error('지도 화면 매장 위치 조회 실패:', e);
@@ -62,7 +72,8 @@ export default function StoreMapScreen() {
     };
   }, [token]);
 
-  const mapLocation = forecast?.location ?? storedLoc;
+  // 우선순위: 예측 응답(보낸 좌표 + 지역명) → 가입 핀 → 기기 GPS → 예측의 서울 폴백(최후)
+  const mapLocation = (pos && forecast?.location) || storedLoc || pos || forecast?.location || null;
 
 
 
@@ -87,8 +98,8 @@ export default function StoreMapScreen() {
           <Ionicons name="alert-circle-outline" size={40} color={colors.mochaBrown} />
           <Text style={styles.loadingText}>매장 위치를 불러오지 못했습니다.</Text>
           <Text style={styles.hintText}>
-            네트워크와 위치 권한을 확인해 주세요.{'\n'}
-            설정에서 매장 주소를 등록하면 위치 없이도 지도가 표시됩니다.
+            휴대폰 설정에서 이 앱의 위치 권한을 허용하면{'\n'}
+            현재 위치 기준으로 지도가 표시됩니다.
           </Text>
         </View>
       )}
