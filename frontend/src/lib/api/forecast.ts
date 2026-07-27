@@ -179,8 +179,12 @@ export async function getDevicePosition(): Promise<{ lat: number; lon: number } 
 }
 
 /** 순수 기기 GPS 현위치 — 저장된 매장 좌표를 무시하고 실제 기기 위치만 반환.
- * 회원가입 지도의 '현위치' 등록, 프로필 지도의 현위치 표시용. 거부/실패 시 null. */
-export async function getGpsPosition(): Promise<{ lat: number; lon: number } | null> {
+ * 회원가입 지도의 '현위치' 등록, 프로필 지도의 현위치 표시용. 거부/실패 시 null.
+ *
+ * 기본은 '마지막으로 알려진 위치' 우선 — OS가 이미 아는 값이라 즉시 반환되고,
+ * 지도 중심 잡기에는 충분하다. 새 측위는 그게 없을 때만 기다린다.
+ * preferFresh: 정확도가 중요한 곳(가입 '현위치' 등록)은 새 측위를 먼저 시도. */
+export async function getGpsPosition(opts?: { preferFresh?: boolean }): Promise<{ lat: number; lon: number } | null> {
   if (Platform.OS === 'web') {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
       console.warn('[위치] 이 브라우저는 geolocation을 지원하지 않습니다 → 서울 기준으로 예측합니다');
@@ -215,20 +219,47 @@ export async function getGpsPosition(): Promise<{ lat: number; lon: number } | n
       console.warn(`[위치] 권한이 없습니다 (status=${status}) → 서울 기준으로 예측합니다`);
       return null;
     }
-    // [중요] getCurrentPositionAsync에는 자체 타임아웃이 없다. 실내·GPS 꺼짐 상태에서는
-    // 영원히 안 돌아와서, 이걸 기다리던 화면이 로딩 스피너에 갇힌다(매장 지도 무한 로딩 원인).
-    // 8초 안에 못 받으면 '마지막으로 알려진 위치'라도 쓰고, 그것도 없으면 null로 끝낸다.
-    const fresh = await Promise.race([
-      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
-    ]);
-    if (fresh) return { lat: fresh.coords.latitude, lon: fresh.coords.longitude };
-
-    const last = await Location.getLastKnownPositionAsync({});
-    if (last) {
-      console.warn('[위치] 새 측위가 8초를 넘겨 마지막으로 알려진 위치를 사용합니다');
-      return { lat: last.coords.latitude, lon: last.coords.longitude };
+    // 기기의 위치(GPS) 스위치 자체가 꺼져 있으면 측위를 시작해도 영영 안 끝난다 — 즉시 포기
+    const enabled = await Location.hasServicesEnabledAsync().catch(() => true);
+    if (!enabled) {
+      console.warn('[위치] 기기 위치(GPS) 스위치가 꺼져 있습니다 → 서울 기준으로 예측합니다');
+      return null;
     }
+
+    const lastKnown = async () => {
+      const last = await Location.getLastKnownPositionAsync({});
+      return last ? { lat: last.coords.latitude, lon: last.coords.longitude } : null;
+    };
+    // [중요] getCurrentPositionAsync에는 자체 타임아웃이 없다. 실내에서는 몇 십 초씩
+    // 안 돌아와서, 이걸 기다리던 화면이 로딩 스피너에 갇힌다(매장 지도 무한 로딩 원인).
+    const freshFix = async (ms: number, accuracy: number) => {
+      const fresh = await Promise.race([
+        Location.getCurrentPositionAsync({ accuracy }),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
+      ]);
+      return fresh ? { lat: fresh.coords.latitude, lon: fresh.coords.longitude } : null;
+    };
+
+    if (opts?.preferFresh) {
+      // 정확도 우선 (가입 '현위치' 등록) — 새 측위 8초, 실패 시 마지막 위치
+      const fresh = await freshFix(8000, Location.Accuracy.Balanced);
+      if (fresh) return fresh;
+      const last = await lastKnown();
+      if (last) {
+        console.warn('[위치] 새 측위가 8초를 넘겨 마지막으로 알려진 위치를 사용합니다');
+        return last;
+      }
+      console.warn('[위치] 측위 시간 초과 → 서울 기준으로 예측합니다');
+      return null;
+    }
+
+    // 기본: 마지막으로 알려진 위치 먼저 — 즉시 반환되고 지도 중심 잡기에는 충분하다.
+    // 예전엔 새 측위(실내에서 8초+)만 기다려서, 권한을 켜도 지도가 한참 걸리거나 실패했다.
+    const last = await lastKnown();
+    if (last) return last;
+    // 위치 캐시가 비어 있는 기기(방금 켠 폰 등)만 새 측위를 기다린다 — Low 정확도가 실내에서 빨리 잡힌다
+    const fresh = await freshFix(10000, Location.Accuracy.Low);
+    if (fresh) return fresh;
     console.warn('[위치] 측위 시간 초과 → 서울 기준으로 예측합니다');
     return null;
   } catch (e) {

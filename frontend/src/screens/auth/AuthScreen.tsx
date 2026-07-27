@@ -505,7 +505,8 @@ export default function AuthScreen() {
   // silent=true는 모달을 열 때의 자동 시도 — 실패해도 안내 문구로 사용자를 방해하지 않는다.
   const applyMyLocation = async (silent = false) => {
     if (!silent) setMapNotice('📡 현위치를 찾는 중…');
-    const pos = await getGpsPosition();
+    // 매장 위치 등록은 정확도가 중요 — 새 측위를 먼저 시도 (지도 표시용 빠른 경로와 다름)
+    const pos = await getGpsPosition({ preferFresh: true });
     if (!pos) {
       if (!silent) setMapNotice('현위치를 가져오지 못했어요. 위치 권한을 확인해 주세요.');
       return;

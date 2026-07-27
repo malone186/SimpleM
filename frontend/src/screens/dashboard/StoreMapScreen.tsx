@@ -44,7 +44,10 @@ export default function StoreMapScreen() {
         // 1) 좌표(가입 핀 또는 기기 GPS)가 잡히는 즉시 지도를 그린다.
         //    예전엔 예측 API 응답의 location만 썼는데, 판매 기록 14일 미만 계정은
         //    예측이 409로 실패해 GPS를 받아 놓고도 에러 화면이 떴다(+ 직렬 대기 최대 21초).
-        const p = await withLimit(getDevicePosition(), 6000);
+        // 12초 상한: 내부의 '마지막 위치(즉시)→새 측위(최대 10초)' 폴백이 잘리지 않게
+        // 내부 최대치보다 길게 둔다 (6초로 뒀더니 폴백이 끝나기 전에 끊겨 위치를 버렸다).
+        // 대부분은 마지막 위치가 즉시 오므로 실제 체감은 1초 미만이다.
+        const p = await withLimit(getDevicePosition(), 12000);
         if (cancelled) return;
         if (p) {
           setPos(p);
@@ -98,7 +101,7 @@ export default function StoreMapScreen() {
           <Ionicons name="alert-circle-outline" size={40} color={colors.mochaBrown} />
           <Text style={styles.loadingText}>매장 위치를 불러오지 못했습니다.</Text>
           <Text style={styles.hintText}>
-            휴대폰 설정에서 이 앱의 위치 권한을 허용하면{'\n'}
+            이 앱의 위치 권한과 휴대폰의 위치(GPS) 스위치를 켜면{'\n'}
             현재 위치 기준으로 지도가 표시됩니다.
           </Text>
         </View>
