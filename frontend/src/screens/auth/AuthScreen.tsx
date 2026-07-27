@@ -186,6 +186,11 @@ export default function AuthScreen() {
   const [findBusy, setFindBusy] = useState(false);
   const [findResult, setFindResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  // [에러 문구 정제] 서버 detail이 문장(string)일 때만 그대로 쓰고, 그 외(422 배열·HTML 등)는
+  // 준비된 한글 안내문으로 바꾼다 — 사용자에게 코드/원시 응답이 보이는 일이 없게.
+  const friendlyDetail = (data: any, fallback: string): string =>
+    typeof data?.detail === 'string' && data.detail.trim() ? data.detail : fallback;
+
   // [아이디 찾기] 상호명으로 조회 → 마스킹된 이메일 목록 표시 (원본 이메일은 서버가 노출하지 않음)
   const submitFindEmail = async () => {
     if (!findNameInput.trim()) {
@@ -204,7 +209,7 @@ export default function AuthScreen() {
       if (!res.ok) {
         setFindResult({
           type: 'error',
-          message: data?.detail || '계정을 찾지 못했어요. 상호명을 다시 확인해 주세요.',
+          message: friendlyDetail(data, '입력하신 상호명으로 가입된 계정을 찾지 못했어요.\n가입할 때 등록한 상호명(매장 이름)을 그대로 입력해 주세요.'),
         });
         return;
       }
@@ -252,7 +257,10 @@ export default function AuthScreen() {
         const data = await res.json().catch(() => null);
         setFindResult({
           type: 'error',
-          message: data?.detail || '입력 정보가 일치하는 계정을 찾을 수 없습니다.',
+          message: friendlyDetail(
+            data,
+            '이메일과 상호명이 일치하는 계정을 찾지 못했어요.\n가입할 때 사용한 이메일과 상호명을 다시 확인해 주세요.',
+          ),
         });
         return;
       }
