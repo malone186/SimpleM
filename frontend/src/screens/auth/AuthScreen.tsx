@@ -976,8 +976,10 @@ export default function AuthScreen() {
                 style={[styles.input, styles.mapSearchInput]}
                 value={region}
                 onChangeText={setRegion}
-                placeholder="가게 주소 입력 (예: 서울 중구 명동길 26)"
+                // 예시까지 넣으면 입력칸 너비를 넘겨 두 줄로 접혀 읽기 나쁘다 — 예시는 아래 안내줄로 뺐다
+                placeholder="가게 주소 입력"
                 placeholderTextColor={colors.mochaBrown}
+                numberOfLines={1}
                 onSubmitEditing={() => mapSearchRef.current?.(region)}
               />
               <PressableScale
@@ -998,6 +1000,9 @@ export default function AuthScreen() {
                 <Text style={styles.mapPinBtnText}>현위치</Text>
               </PressableScale>
             </View>
+
+            {/* 입력 예시는 placeholder 대신 여기 한 줄로 — 입력칸이 접히지 않게 */}
+            <Text style={styles.mapHintText}>예: 서울 중구 명동길 26 · 상호명으로도 찾을 수 있어요</Text>
 
             {/* [한글 주석] 지도가 그려지는 영역 — 클릭/핀 드래그로 위치 지정 (웹 전용, 앱은 주소 입력으로 설정) */}
             <View style={{ marginVertical: 10, borderRadius: 14, overflow: 'hidden', height: 260, backgroundColor: colors.creamSand }}>
@@ -1319,6 +1324,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.creamSand,
     borderRadius: 10,
     paddingHorizontal: 12,
+  },
+  // 입력칸 아래 예시 안내 — placeholder가 두 줄로 접히던 걸 대체한다
+  mapHintText: {
+    fontSize: 10.5,
+    lineHeight: 15,
+    color: '#A99C90',
+    fontWeight: '600',
+    marginTop: 5,
+    marginLeft: 3,
   },
   mapPickedText: {
     fontSize: 11.5,

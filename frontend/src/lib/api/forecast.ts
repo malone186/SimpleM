@@ -215,8 +215,22 @@ export async function getGpsPosition(): Promise<{ lat: number; lon: number } | n
       console.warn(`[위치] 권한이 없습니다 (status=${status}) → 서울 기준으로 예측합니다`);
       return null;
     }
-    const p = await Location.getCurrentPositionAsync({});
-    return { lat: p.coords.latitude, lon: p.coords.longitude };
+    // [중요] getCurrentPositionAsync에는 자체 타임아웃이 없다. 실내·GPS 꺼짐 상태에서는
+    // 영원히 안 돌아와서, 이걸 기다리던 화면이 로딩 스피너에 갇힌다(매장 지도 무한 로딩 원인).
+    // 8초 안에 못 받으면 '마지막으로 알려진 위치'라도 쓰고, 그것도 없으면 null로 끝낸다.
+    const fresh = await Promise.race([
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
+    ]);
+    if (fresh) return { lat: fresh.coords.latitude, lon: fresh.coords.longitude };
+
+    const last = await Location.getLastKnownPositionAsync({});
+    if (last) {
+      console.warn('[위치] 새 측위가 8초를 넘겨 마지막으로 알려진 위치를 사용합니다');
+      return { lat: last.coords.latitude, lon: last.coords.longitude };
+    }
+    console.warn('[위치] 측위 시간 초과 → 서울 기준으로 예측합니다');
+    return null;
   } catch (e) {
     console.warn(`[위치] 측위 실패: ${e instanceof Error ? e.message : e} → 서울 기준으로 예측합니다`);
     return null;
