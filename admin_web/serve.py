@@ -21,6 +21,14 @@ class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
+    def do_GET(self):
+        # favicon이 없어 매 접속마다 404 로그가 찍히던 것을 빈 응답으로 조용히 처리
+        if self.path == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
+            return
+        super().do_GET()
+
 
 def main() -> None:
     # [한글 주석] 윈도우 콘솔에서 유니코드 출력 시 cp949 인코딩 에러가 발생하지 않도록 UTF-8로 지정
@@ -35,7 +43,13 @@ def main() -> None:
         webbrowser.open(url)
     except Exception:
         pass
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        # Ctrl+C 종료는 정상 동작 — 트레이스백 없이 조용히 닫는다
+        print("\n[SimpleM] 관리자 콘솔을 종료합니다.")
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":
