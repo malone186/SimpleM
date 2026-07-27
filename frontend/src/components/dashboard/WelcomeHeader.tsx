@@ -50,7 +50,7 @@ const announceSig = (n: { id: number; title?: string; date?: string }) =>
 // 소스는 로그인 매장 몫만 골라 주는 타겟 피드(/admin/notifications/feed) — 다른 매장 공지는 안 온다.
 function useAdminAnnouncement(refreshTrigger = 0) {
   const { token } = useAuth();
-  const [announce, setAnnounce] = useState<{ sig: string; title: string } | null>(null);
+  const [announce, setAnnounce] = useState<{ id: number; sig: string; title: string } | null>(null);
 
   useEffect(() => {
     if (!token) {
@@ -67,7 +67,7 @@ function useAdminAnnouncement(refreshTrigger = 0) {
         const fresh = (list || [])
           .filter((n) => typeof n?.id === 'number' && !seen.includes(announceSig(n)))
           .sort((a, b) => b.id - a.id);
-        if (alive) setAnnounce(fresh[0] ? { sig: announceSig(fresh[0]), title: fresh[0].title } : null);
+        if (alive) setAnnounce(fresh[0] ? { id: fresh[0].id, sig: announceSig(fresh[0]), title: fresh[0].title } : null);
       } catch {
         // 서버 오프라인/미로그인 — 다음 주기에 재시도, 말풍선은 시간대 인사말로 유지
       }
@@ -198,25 +198,38 @@ export default function WelcomeHeader({
   const [inboxOpen, setInboxOpen] = useState(false);
   // 모달을 열 때의 읽음 기준선을 스냅샷 — 그 이후 id는 목록에서 'NEW'로 표시
   const [newBaseline, setNewBaseline] = useState(0);
+  // 한 건만 골라 보는 상세 화면 — 알림이 여러 개 와도 하나씩 집중해서 읽을 수 있게 한다
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const selected = notices.find((n) => n.id === selectedId) ?? null;
+  // 상세로 연 공지에 이어지는 화면이 있으면 하단에 이동 버튼을 띄운다
+  const selectedTarget = selected ? resolveNoticeRoute(selected) : null;
 
   const navigation = useNavigation<any>();
 
   const openInbox = () => {
     setNewBaseline(readMaxId);
+    setSelectedId(null); // 항상 목록부터 — 지난번 상세가 남아 있지 않게
     setInboxOpen(true);
     markAllRead();
   };
 
-  // 공지 카드 탭 → 알림함을 닫고 관련 화면으로 이동.
+  const closeInbox = () => {
+    setInboxOpen(false);
+    setSelectedId(null);
+  };
+
+  // 공지 상세의 이동 버튼 → 알림함을 닫고 관련 화면으로 이동.
   // 모달이 닫히는 프레임과 화면 전환이 겹치면 전환이 씹히므로 다음 프레임에 이동한다.
   const goToNoticeTarget = (route: string) => {
-    setInboxOpen(false);
+    closeInbox();
     requestAnimationFrame(() => navigation.navigate(route));
   };
 
-  // 말풍선 공지를 탭하면: 말풍선에서 치우고(dismiss) 알림함을 열어 전체 내용을 보여준다
+  // 말풍선 공지를 탭하면: 말풍선에서 치우고(dismiss) 그 공지 하나의 상세로 바로 들어간다
   const openAnnounce = () => {
+    const id = announce?.id ?? null;
     openInbox();
+    setSelectedId(id);
     dismiss();
   };
 
@@ -329,21 +342,62 @@ export default function WelcomeHeader({
         <MascotEasterEgg mood={mood} size={150} style={styles.mascot} />
       </Animated.View>
 
-      {/* 알림함 모달 — 지난 공지를 스택 카드로 쌓아 보여준다 */}
-      <Modal visible={inboxOpen} transparent animationType="fade" onRequestClose={() => setInboxOpen(false)}>
-        <Pressable style={styles.inboxBackdrop} onPress={() => setInboxOpen(false)}>
+      {/* 알림함 모달 — 목록(스택 카드) ↔ 한 건 상세 두 단계로 동작한다 */}
+      <Modal visible={inboxOpen} transparent animationType="fade" onRequestClose={selected ? () => setSelectedId(null) : closeInbox}>
+        <Pressable style={styles.inboxBackdrop} onPress={closeInbox}>
           <Pressable style={styles.inboxPanel} onPress={(e) => e.stopPropagation()}>
             <View style={styles.inboxHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Ionicons name="notifications" size={16} color={colors.espressoBrown} />
-                <Text style={styles.inboxTitle}>알림</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                {selected ? (
+                  // 상세에서는 벨 대신 뒤로가기 — 누르면 목록으로 돌아간다
+                  <TouchableOpacity onPress={() => setSelectedId(null)} hitSlop={10} style={styles.backBtn}>
+                    <Ionicons name="chevron-back" size={18} color={colors.espressoBrown} />
+                  </TouchableOpacity>
+                ) : (
+                  <Ionicons name="notifications" size={16} color={colors.espressoBrown} />
+                )}
+                <Text style={styles.inboxTitle} numberOfLines={1}>
+                  {selected ? '알림 상세' : notices.length > 0 ? `알림 ${notices.length}건` : '알림'}
+                </Text>
               </View>
-              <TouchableOpacity onPress={() => setInboxOpen(false)} hitSlop={8}>
+              <TouchableOpacity onPress={closeInbox} hitSlop={8}>
                 <Ionicons name="close" size={20} color={colors.mochaBrown} />
               </TouchableOpacity>
             </View>
 
-            {notices.length === 0 ? (
+            {selected ? (
+              /* ── 상세: 고른 알림 한 건만 전문으로 ── */
+              <View>
+                <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false}>
+                  <View style={styles.detailCard}>
+                    <View style={styles.detailTop}>
+                      <Ionicons name="megaphone" size={15} color={colors.pointOrange} style={{ marginRight: 6, marginTop: 2 }} />
+                      <Text style={styles.detailTitle}>{selected.title}</Text>
+                    </View>
+                    <Text style={styles.detailMeta}>{selected.author} · {selected.date}</Text>
+                    <View style={styles.detailDivider} />
+                    <Text style={styles.detailBody}>{selected.body || '내용이 없는 공지예요.'}</Text>
+                  </View>
+                </ScrollView>
+                {/* 공지 주제와 이어지는 화면이 있으면 여기서 바로 이동 */}
+                {selectedTarget && (
+                  <TouchableOpacity
+                    style={styles.detailGoBtn}
+                    activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${selectedTarget.label} 화면으로 이동`}
+                    onPress={() => goToNoticeTarget(selectedTarget.route)}
+                  >
+                    <Text style={styles.detailGoText}>{selectedTarget.label} 화면으로 이동</Text>
+                    <Ionicons name="chevron-forward" size={13} color={colors.white} />
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity style={styles.detailBackBtn} onPress={() => setSelectedId(null)} activeOpacity={0.85}>
+                  <Ionicons name="list-outline" size={14} color={colors.espressoBrown} />
+                  <Text style={styles.detailBackText}>알림 목록으로</Text>
+                </TouchableOpacity>
+              </View>
+            ) : notices.length === 0 ? (
               <View style={styles.inboxEmpty}>
                 <Ionicons name="mail-open-outline" size={28} color="#C7BBB0" />
                 <Text style={styles.inboxEmptyText}>받은 알림이 없어요.</Text>
@@ -351,20 +405,29 @@ export default function WelcomeHeader({
             ) : (
               <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
                 {notices.map((n) => {
-                  // 공지 내용과 이어지는 화면이 있으면 카드를 눌러 바로 이동할 수 있다
+                  // 카드를 누르면 상세로 들어간다. 이어지는 화면이 있으면 칩으로 미리 알려주고,
+                  // 실제 이동은 상세 안의 버튼에서 한다(한 번 읽고 넘어가게).
                   const target = resolveNoticeRoute(n);
-                  const inner = (
-                    <>
+                  return (
+                    <TouchableOpacity
+                      key={n.id}
+                      style={[styles.noticeCard, target && styles.noticeCardLinked]}
+                      activeOpacity={0.75}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${n.title} 자세히 보기`}
+                      onPress={() => setSelectedId(n.id)}
+                    >
                       <View style={styles.noticeCardTop}>
                         <Ionicons name="megaphone" size={13} color={colors.pointOrange} style={{ marginRight: 5, marginTop: 1 }} />
-                        <Text style={styles.noticeCardTitle}>{n.title}</Text>
+                        <Text style={styles.noticeCardTitle} numberOfLines={1}>{n.title}</Text>
                         {n.id > newBaseline && (
                           <View style={styles.newDot}>
                             <Text style={styles.newDotText}>N</Text>
                           </View>
                         )}
+                        <Ionicons name="chevron-forward" size={14} color="#C0B3A8" style={{ marginLeft: 4, marginTop: 2 }} />
                       </View>
-                      {!!n.body && <Text style={styles.noticeCardBody}>{n.body}</Text>}
+                      {!!n.body && <Text style={styles.noticeCardBody} numberOfLines={2}>{n.body}</Text>}
                       <View style={styles.noticeCardFoot}>
                         <Text style={styles.noticeCardMeta}>{n.author} · {n.date}</Text>
                         {target && (
@@ -374,26 +437,6 @@ export default function WelcomeHeader({
                           </View>
                         )}
                       </View>
-                    </>
-                  );
-
-                  if (!target) {
-                    return (
-                      <View key={n.id} style={styles.noticeCard}>
-                        {inner}
-                      </View>
-                    );
-                  }
-                  return (
-                    <TouchableOpacity
-                      key={n.id}
-                      style={[styles.noticeCard, styles.noticeCardLinked]}
-                      activeOpacity={0.75}
-                      accessibilityRole="button"
-                      accessibilityLabel={`${n.title} — ${target.label} 화면으로 이동`}
-                      onPress={() => goToNoticeTarget(target.route)}
-                    >
-                      {inner}
                     </TouchableOpacity>
                   );
                 })}
@@ -558,7 +601,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 8,
   },
-  inboxTitle: { fontSize: 15, fontWeight: '900', color: colors.espressoBrown, letterSpacing: -0.3 },
+  inboxTitle: { flexShrink: 1, fontSize: 15, fontWeight: '900', color: colors.espressoBrown, letterSpacing: -0.3 },
+  // 상세 화면 헤더의 뒤로가기 버튼 — 벨 아이콘 자리를 그대로 이어받는다
+  backBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(140,111,86,0.10)',
+    marginLeft: -2,
+  },
   // [한글 주석: 빈 알림 안내 영역 - 패널 크기 축소에 맞춰 상하 여백을 24px로 슬림하게 맞춤]
   inboxEmpty: { alignItems: 'center', gap: 6, paddingVertical: 24 },
   inboxEmptyText: { fontSize: 12, color: '#9C8E82', fontWeight: '600' },
@@ -603,4 +656,44 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   newDotText: { color: colors.white, fontSize: 8.5, fontWeight: '900' },
+
+  // 한 건만 펼쳐 보는 상세 카드 — 목록 카드보다 여백을 넉넉히 줘 읽기에 집중되게
+  detailCard: {
+    backgroundColor: colors.white,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(140,111,86,0.14)',
+    paddingHorizontal: 15,
+    paddingVertical: 14,
+    marginTop: 4,
+  },
+  detailTop: { flexDirection: 'row', alignItems: 'flex-start' },
+  detailTitle: { flex: 1, fontSize: 14.5, fontWeight: '900', color: colors.espressoBrown, lineHeight: 20, letterSpacing: -0.3 },
+  detailMeta: { fontSize: 10.5, color: '#A99C90', fontWeight: '600', marginTop: 6 },
+  detailDivider: { height: 1, backgroundColor: 'rgba(140,111,86,0.12)', marginVertical: 11 },
+  detailBody: { fontSize: 12.5, color: '#5C4F46', lineHeight: 19, letterSpacing: -0.2 },
+  // 공지 주제와 이어지는 화면으로 보내는 주 버튼 — 상세에서 가장 눈에 띄어야 한다
+  detailGoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    marginTop: 10,
+    paddingVertical: 11,
+    borderRadius: 13,
+    backgroundColor: colors.pointOrange,
+  },
+  detailGoText: { fontSize: 12.5, fontWeight: '800', color: colors.white, letterSpacing: -0.2 },
+  // 상세 하단 '목록으로' 버튼 — 뒤로가기를 못 찾아도 되돌아갈 길을 하나 더
+  detailBackBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    marginTop: 8,
+    paddingVertical: 10,
+    borderRadius: 13,
+    backgroundColor: 'rgba(140,111,86,0.10)',
+  },
+  detailBackText: { fontSize: 12, fontWeight: '800', color: colors.espressoBrown, letterSpacing: -0.2 },
 });
