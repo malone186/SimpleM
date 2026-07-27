@@ -276,7 +276,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 36,
     paddingHorizontal: spacing.globalPadding,
     paddingTop: spacing.verticalGap,
-    paddingBottom: 20, // [한글 주석: 하단 붕 뜨는 거대한 빈 여백을 없애기 위해 20px로 패딩 조율]
+    paddingBottom: 150,
     gap: spacing.verticalGap,
   },
 });
