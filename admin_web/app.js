@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ━━━ 관리자 로그인 게이트 (A방안: 로그인 → 토큰 발급 → 모든 관리자 API에 자동 첨부) ━━━
   const ADMIN_TOKEN_KEY = 'simplem_admin_token';
-  const ADMIN_API = 'http://localhost:8000/api/v1';
+  const ADMIN_API = 'https://brewnote-api-915817944047.asia-northeast3.run.app/api/v1';
   const getAdminToken = () => localStorage.getItem(ADMIN_TOKEN_KEY) || '';
 
   // 원본 fetch를 감싸 /admin, /auth/users 호출에 Authorization 헤더를 자동으로 실어 준다 (login 제외)
@@ -106,7 +106,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(async () => {
       if (type === 'api') {
         try {
-          const res = await fetch('http://localhost:8000/health');
+          const res = await fetch('https://brewnote-api-915817944047.asia-northeast3.run.app/health');
           if (res.ok) {
             card.querySelector('.status-indicator').className = 'status-indicator green';
             card.querySelector('.status-badge').className = 'status-badge green-bg';
@@ -119,7 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       } else if (type === 'db') {
         try {
-          const dbRes = await fetch('http://localhost:8000/db-test');
+          const dbRes = await fetch('https://brewnote-api-915817944047.asia-northeast3.run.app/db-test');
           if (dbRes.ok) {
             card.querySelector('.status-indicator').className = 'status-indicator green';
             card.querySelector('.status-badge').className = 'status-badge green-bg';
@@ -175,7 +175,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const dbStatusCard = document.getElementById('status-db');
 
     try {
-      const res = await fetch('http://localhost:8000/health');
+      const res = await fetch('https://brewnote-api-915817944047.asia-northeast3.run.app/health');
       if (res.ok) {
         if (apiStatusCard) {
           apiStatusCard.querySelector('.status-indicator').className = 'status-indicator green';
@@ -192,7 +192,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     try {
-      const dbRes = await fetch('http://localhost:8000/db-test');
+      const dbRes = await fetch('https://brewnote-api-915817944047.asia-northeast3.run.app/db-test');
       if (dbRes.ok) {
         const data = await dbRes.json();
         if (data.database === 'success') {
@@ -212,7 +212,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(checkBackendHealth, 10000);
 
   // 3. 실시간 백엔드 API 연동 베이스 URL
-  const API_BASE = 'http://localhost:8000/api/v1';
+  const API_BASE = 'https://brewnote-api-915817944047.asia-northeast3.run.app/api/v1';
 
   // [한글 주석: 백엔드 API 호출을 통해 채워질 실시간 데이터 보관함]
   let mockUsers = [];
@@ -636,7 +636,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function loadCSList() {
     try {
-      const res = await fetch('http://localhost:8000/api/v1/admin/cs');
+      const res = await fetch('https://brewnote-api-915817944047.asia-northeast3.run.app/api/v1/admin/cs');
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) {
@@ -753,7 +753,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       try {
-        const res = await fetch(`http://localhost:8000/api/v1/admin/cs/${selectedCSItem.id}/reply`, {
+        const res = await fetch(`https://brewnote-api-915817944047.asia-northeast3.run.app/api/v1/admin/cs/${selectedCSItem.id}/reply`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ reply: answerText })
