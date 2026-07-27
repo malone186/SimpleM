@@ -40,8 +40,15 @@ export type OcrDocument = {
   updated_at: string;
 };
 
-/** 명세서/영수증 이미지를 업로드해 OCR 초안을 만든다 (자동 확정 없음). */
-export async function uploadOcrImage(asset: { uri: string; mimeType?: string | null; fileName?: string | null }): Promise<OcrDocument> {
+// 초안은 매장(로그인 계정)별로 격리된다 — 토큰 없이 만들면 어느 매장에서도 안 보이므로 항상 넘길 것
+const authHeader = (token?: string | null): Record<string, string> | undefined =>
+  token ? { Authorization: `Bearer ${token}` } : undefined;
+
+/** 명세서/영수증 이미지를 업로드해 OCR 초안을 만든다 (자동 확정 없음). 토큰으로 내 매장 소유가 된다. */
+export async function uploadOcrImage(
+  asset: { uri: string; mimeType?: string | null; fileName?: string | null },
+  token?: string | null,
+): Promise<OcrDocument> {
   const form = new FormData();
   const name = asset.fileName ?? 'receipt.jpg';
   const type = asset.mimeType ?? 'image/jpeg';
@@ -55,7 +62,11 @@ export async function uploadOcrImage(asset: { uri: string; mimeType?: string | n
     form.append('file', { uri: asset.uri, name, type } as unknown as Blob);
   }
 
-  const res = await fetch(`${API_BASE_URL}/api/v1/chatbot/ocr/documents`, { method: 'POST', body: form });
+  const res = await fetch(`${API_BASE_URL}/api/v1/chatbot/ocr/documents`, {
+    method: 'POST',
+    headers: authHeader(token),
+    body: form,
+  });
   if (!res.ok) {
     const detail = await res.json().catch(() => null);
     throw new Error(detail?.detail ?? `OCR 업로드 실패 (${res.status})`);
@@ -63,9 +74,9 @@ export async function uploadOcrImage(asset: { uri: string; mimeType?: string | n
   return res.json();
 }
 
-export function listOcrDocuments(status?: OcrDocument['status']): Promise<OcrDocument[]> {
+export function listOcrDocuments(status?: OcrDocument['status'], token?: string | null): Promise<OcrDocument[]> {
   const query = status ? `?status=${status}` : '';
-  return apiFetch(`/api/v1/chatbot/ocr/documents${query}`);
+  return apiFetch(`/api/v1/chatbot/ocr/documents${query}`, { headers: authHeader(token) });
 }
 
 /** 사람이 확인을 마친 초안을 확정한다. 토큰을 주면 확정 즉시 내 매장 재고에 입고 반영된다. */
@@ -74,20 +85,21 @@ export function confirmOcrDocument(id: string, target?: OcrDocument['suggested_t
     `/api/v1/chatbot/ocr/documents/${id}/confirm`,
     {
       method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      headers: authHeader(token),
       body: JSON.stringify({ target: target ?? null }),
     },
   );
 }
 
-export function rejectOcrDocument(id: string): Promise<OcrDocument> {
-  return apiFetch(`/api/v1/chatbot/ocr/documents/${id}/reject`, { method: 'POST' });
+export function rejectOcrDocument(id: string, token?: string | null): Promise<OcrDocument> {
+  return apiFetch(`/api/v1/chatbot/ocr/documents/${id}/reject`, { method: 'POST', headers: authHeader(token) });
 }
 
 // [초안 수정 API] 사용자가 직접 수정한 품목 및 영수증 정보를 백엔드 DB에 업데이트합니다.
-export function updateOcrDocument(id: string, patch: { items?: OcrItem[] }): Promise<OcrDocument> {
+export function updateOcrDocument(id: string, patch: { items?: OcrItem[] }, token?: string | null): Promise<OcrDocument> {
   return apiFetch(`/api/v1/chatbot/ocr/documents/${id}`, {
     method: 'PATCH',
+    headers: authHeader(token),
     body: JSON.stringify(patch),
   });
 }

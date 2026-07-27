@@ -157,6 +157,7 @@ def _row_to_draft(row) -> dict[str, Any]:
     warnings = _validate_result(result)  # 저장하지 않으므로 조회 시 재계산 (항상 최신 로직 기준)
     return {
         "id": row.id,
+        "store_id": row.store_id,
         "status": row.status,
         "filename": None,
         "image_path": None,  # 원본은 uploads/ocr/{id}.* 규칙으로 디스크에만 보관
@@ -195,6 +196,7 @@ def _save_draft(draft: dict[str, Any]) -> None:
     result: OcrResult = draft["result"]
     with SessionLocal() as session:
         row = session.get(ai_models.OcrDocument, draft["id"]) or ai_models.OcrDocument(id=draft["id"])
+        row.store_id = draft.get("store_id")
         row.status = draft["status"]
         row.doc_type = result.doc_type
         row.vendor_name = result.vendor.name
@@ -616,8 +618,13 @@ async def _run_backend(backend: str, image_bytes: bytes) -> dict[str, Any]:
     return await _call_gemini(_preprocess_image(image_bytes))
 
 
-async def analyze_image(image_bytes: bytes, filename: Optional[str] = None) -> dict[str, Any]:
-    """이미지 1장을 OCR해 등록 초안을 만든다. 초안은 사람이 확정하기 전까지 아무 데도 반영되지 않는다."""
+async def analyze_image(
+    image_bytes: bytes, filename: Optional[str] = None, store_id: Optional[str] = None
+) -> dict[str, Any]:
+    """이미지 1장을 OCR해 등록 초안을 만든다. 초안은 사람이 확정하기 전까지 아무 데도 반영되지 않는다.
+
+    store_id(로그인 이메일)가 초안에 새겨져 이후 목록·조회는 그 매장에서만 보인다.
+    """
     # OCR 실패 시에도 원인 분석이 가능하도록 원본을 먼저 저장한다
     doc_id = uuid.uuid4().hex[:12]
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -637,6 +644,7 @@ async def analyze_image(image_bytes: bytes, filename: Optional[str] = None) -> d
     now = _now()
     draft = {
         "id": doc_id,
+        "store_id": store_id,
         "status": "draft",
         "filename": filename,
         "image_path": str(image_path),
@@ -657,15 +665,22 @@ async def analyze_image(image_bytes: bytes, filename: Optional[str] = None) -> d
     return draft
 
 
-def get_draft(doc_id: str) -> dict[str, Any]:
+def _check_owner(draft: dict[str, Any], store_id: Optional[str]) -> dict[str, Any]:
+    """다른 매장의 초안이면 존재 자체를 숨긴다(404). 소유자 없는 초안(비로그인 업로드)은 통과."""
+    if store_id is not None and draft.get("store_id") is not None and draft["store_id"] != store_id:
+        raise DraftNotFoundError(draft["id"])
+    return draft
+
+
+def get_draft(doc_id: str, store_id: Optional[str] = None) -> dict[str, Any]:
     if not _check_db():
         if doc_id not in _DRAFTS:
             raise DraftNotFoundError(doc_id)
-        return _DRAFTS[doc_id]
+        return _check_owner(_DRAFTS[doc_id], store_id)
     # 메모리 캐시 우선 — 방금 인식한 초안은 백그라운드 DB 저장이 아직일 수 있고,
     # 캐시가 항상 최신 상태다 (수정/확정도 같은 dict를 갱신하므로).
     if doc_id in _DRAFTS:
-        return _DRAFTS[doc_id]
+        return _check_owner(_DRAFTS[doc_id], store_id)
     from app.core.database import SessionLocal
     from app.models.ai import OcrDocument
 
@@ -675,16 +690,23 @@ def get_draft(doc_id: str) -> dict[str, Any]:
             raise DraftNotFoundError(doc_id)
         draft = _row_to_draft(row)
     _cache_draft(draft)  # 이후 수정/확정은 캐시 히트로 DB 왕복 1회 절약
-    return draft
+    return _check_owner(draft, store_id)
 
 
 # 목록은 최근 문서만 — 원격 DB에서 전체 이력을 끌어오면 첫 화면이 수 초씩 걸린다
 LIST_LIMIT = int(os.getenv("OCR_LIST_LIMIT", "30"))
 
 
-def list_drafts(status: Optional[str] = None) -> list[dict[str, Any]]:
+def list_drafts(status: Optional[str] = None, store_id: Optional[str] = None) -> list[dict[str, Any]]:
+    """매장(store_id) 스코프 목록 — 내 매장 초안만 보인다. 새 계정은 빈 목록에서 시작.
+
+    store_id=None(비로그인)은 소유자 없는 초안(개발 데모 업로드)만 돌려준다.
+    """
+    def _mine(d: dict[str, Any]) -> bool:
+        return d.get("store_id") == store_id
+
     if not _check_db():
-        docs = sorted(_DRAFTS.values(), key=lambda d: d["created_at"], reverse=True)
+        docs = sorted((d for d in _DRAFTS.values() if _mine(d)), key=lambda d: d["created_at"], reverse=True)
         if status:
             docs = [d for d in docs if d["status"] == status]
         return docs
@@ -701,6 +723,9 @@ def list_drafts(status: Optional[str] = None) -> list[dict[str, Any]]:
             .options(selectinload(OcrDocument.items))
             .order_by(OcrDocument.created_at.desc())
         )
+        query = query.filter(
+            OcrDocument.store_id.is_(None) if store_id is None else OcrDocument.store_id == store_id
+        )
         if status:
             query = query.filter(OcrDocument.status == status)
         rows = query.limit(LIST_LIMIT).all()
@@ -709,15 +734,15 @@ def list_drafts(status: Optional[str] = None) -> list[dict[str, Any]]:
     # 아직 DB에 저장 전인(백그라운드 저장 중) 메모리 초안을 합쳐 방금 찍은 문서가 목록에서 빠지지 않게 한다
     db_ids = {d["id"] for d in drafts}
     for cached in _DRAFTS.values():
-        if cached["id"] not in db_ids and (not status or cached["status"] == status):
+        if cached["id"] not in db_ids and _mine(cached) and (not status or cached["status"] == status):
             drafts.append(cached)
     drafts.sort(key=lambda d: d["created_at"], reverse=True)
     return drafts
 
 
-def update_draft(doc_id: str, patch: OcrDocumentUpdate) -> dict[str, Any]:
+def update_draft(doc_id: str, patch: OcrDocumentUpdate, store_id: Optional[str] = None) -> dict[str, Any]:
     """사용자 직접 수정. 수정 후 관계 검증을 다시 돌려 warning을 갱신한다."""
-    draft = get_draft(doc_id)
+    draft = get_draft(doc_id, store_id=store_id)
     if draft["status"] != "draft":
         raise DraftStateError(f"{draft['status']} 상태 문서는 수정할 수 없습니다")
 
@@ -748,7 +773,7 @@ def confirm_draft(
     store_id는 로그인한 사장님의 매장 식별자(이메일) — 재고 반영 시 어느 매장인지에 필요.
     챗봇에는 이 함수를 노출하지 않는다 — 확정은 전용 화면에서 사람만 (PRD §5.3 안전장치).
     """
-    draft = get_draft(doc_id)
+    draft = get_draft(doc_id, store_id=store_id)  # 다른 매장 초안이면 404
     if draft["status"] != "draft":
         raise DraftStateError(f"이미 {draft['status']} 상태입니다")
     resolved = target or draft["suggested_target"]
@@ -764,8 +789,8 @@ def confirm_draft(
     return draft, message
 
 
-def reject_draft(doc_id: str) -> dict[str, Any]:
-    draft = get_draft(doc_id)
+def reject_draft(doc_id: str, store_id: Optional[str] = None) -> dict[str, Any]:
+    draft = get_draft(doc_id, store_id=store_id)
     if draft["status"] == "rejected":  # 중복 반려 요청은 에러 없이 그대로 성공 처리 (멱등)
         return draft
     if draft["status"] != "draft":

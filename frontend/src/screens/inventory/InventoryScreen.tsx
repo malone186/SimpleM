@@ -103,8 +103,10 @@ export default function InventoryScreen() {
   }, [token]);
 
   const loadDrafts = useCallback(() => {
-    listOcrDocuments('draft').then(setDrafts).catch(() => {});
-  }, []);
+    // 초안은 매장(계정)별로 격리 — 로그아웃/계정 전환 시 이전 계정 초안이 남지 않게 비운다
+    if (!token) { setDrafts([]); return; }
+    listOcrDocuments('draft', token).then(setDrafts).catch(() => {});
+  }, [token]);
 
   useEffect(() => {
     loadStocks();
@@ -170,7 +172,7 @@ export default function InventoryScreen() {
       if (picked.canceled || !picked.assets?.length) return;
 
       setScanning(true);
-      const doc = await uploadOcrImage(picked.assets[0]);
+      const doc = await uploadOcrImage(picked.assets[0], token);
       setDrafts((prev) => [doc, ...prev]);
       const secs = doc.elapsed_sec != null ? ` (${doc.elapsed_sec}초)` : '';
       notify('인식 완료' + secs, `${doc.result.items.length}개 품목을 인식했어요. 내용을 확인하고 반영하세요.`);
@@ -205,7 +207,7 @@ export default function InventoryScreen() {
     if (actingDocId) return; // 처리 중 중복 탭 방지
     setActingDocId(doc.id);
     try {
-      await rejectOcrDocument(doc.id);
+      await rejectOcrDocument(doc.id, token);
       setDrafts((prev) => prev.filter((d) => d.id !== doc.id));
     } catch (e) {
       notify('반려 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
@@ -293,7 +295,7 @@ export default function InventoryScreen() {
 
     setIsSavingDraft(true);
     try {
-      await updateOcrDocument(docId, { items });
+      await updateOcrDocument(docId, { items }, token);
       notify('저장 완료', '영수증 인식 내역이 정상적으로 업데이트되었습니다.');
       loadDrafts();
       setEditingDocId(null);

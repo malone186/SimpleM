@@ -97,38 +97,54 @@ async def ocr_demo_page() -> FileResponse:
 
 
 @router.post("/ocr/documents", response_model=OcrDocumentResponse, status_code=201)
-async def analyze_document(file: UploadFile = File(...)) -> OcrDocumentResponse:
-    """거래명세서/영수증 이미지를 OCR해 등록 초안을 만든다. 어떤 시스템에도 아직 반영되지 않는다."""
+async def analyze_document(
+    file: UploadFile = File(...),
+    store_id: Optional[str] = Depends(_optional_store_id),
+) -> OcrDocumentResponse:
+    """거래명세서/영수증 이미지를 OCR해 등록 초안을 만든다. 어떤 시스템에도 아직 반영되지 않는다.
+
+    초안에 업로드 매장(store_id)이 새겨져 이후 목록·조회는 그 매장에서만 보인다.
+    """
     if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(415, f"지원하지 않는 형식: {file.content_type} (jpeg/png/webp만 가능)")
     image_bytes = await file.read()
     if len(image_bytes) > MAX_IMAGE_BYTES:
         raise HTTPException(413, "이미지가 15MB를 초과합니다")
     try:
-        draft = await ocr_service.analyze_image(image_bytes, filename=file.filename)
+        draft = await ocr_service.analyze_image(image_bytes, filename=file.filename, store_id=store_id)
     except ocr_service.OcrError as e:
         raise HTTPException(502, str(e))
     return _to_response(draft)
 
 
 @router.get("/ocr/documents", response_model=list[OcrDocumentResponse])
-async def list_documents(status: Optional[OcrStatus] = None) -> list[OcrDocumentResponse]:
-    return [_to_response(d) for d in ocr_service.list_drafts(status=status)]
+async def list_documents(
+    status: Optional[OcrStatus] = None,
+    store_id: Optional[str] = Depends(_optional_store_id),
+) -> list[OcrDocumentResponse]:
+    """내 매장 초안만 — 다른 계정(매장)의 문서는 보이지 않는다. 새 계정은 빈 목록."""
+    return [_to_response(d) for d in ocr_service.list_drafts(status=status, store_id=store_id)]
 
 
 @router.get("/ocr/documents/{doc_id}", response_model=OcrDocumentResponse)
-async def get_document(doc_id: str) -> OcrDocumentResponse:
+async def get_document(
+    doc_id: str, store_id: Optional[str] = Depends(_optional_store_id)
+) -> OcrDocumentResponse:
     try:
-        return _to_response(ocr_service.get_draft(doc_id))
+        return _to_response(ocr_service.get_draft(doc_id, store_id=store_id))
     except ocr_service.DraftNotFoundError:
         raise HTTPException(404, "문서를 찾을 수 없습니다")
 
 
 @router.patch("/ocr/documents/{doc_id}", response_model=OcrDocumentResponse)
-async def update_document(doc_id: str, patch: OcrDocumentUpdate) -> OcrDocumentResponse:
+async def update_document(
+    doc_id: str,
+    patch: OcrDocumentUpdate,
+    store_id: Optional[str] = Depends(_optional_store_id),
+) -> OcrDocumentResponse:
     """사용자 직접 수정 — 품목·금액·문서 종류 등을 고치면 관계 검증을 다시 수행한다."""
     try:
-        return _to_response(ocr_service.update_draft(doc_id, patch))
+        return _to_response(ocr_service.update_draft(doc_id, patch, store_id=store_id))
     except ocr_service.DraftNotFoundError:
         raise HTTPException(404, "문서를 찾을 수 없습니다")
     except ocr_service.DraftStateError as e:
@@ -161,9 +177,11 @@ async def confirm_document(
 
 
 @router.post("/ocr/documents/{doc_id}/reject", response_model=OcrDocumentResponse)
-async def reject_document(doc_id: str) -> OcrDocumentResponse:
+async def reject_document(
+    doc_id: str, store_id: Optional[str] = Depends(_optional_store_id)
+) -> OcrDocumentResponse:
     try:
-        return _to_response(ocr_service.reject_draft(doc_id))
+        return _to_response(ocr_service.reject_draft(doc_id, store_id=store_id))
     except ocr_service.DraftNotFoundError:
         raise HTTPException(404, "문서를 찾을 수 없습니다")
     except ocr_service.DraftStateError as e:

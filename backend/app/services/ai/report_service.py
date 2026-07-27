@@ -129,7 +129,7 @@ def _sales_summary(db, store_id: str, start: date, end: date,
     }
 
 
-def _purchase_summary(db, start: date, end: date,
+def _purchase_summary(db, store_id: str, start: date, end: date,
                       prev_start: date, prev_end: date) -> dict[str, Any]:
     """매입: 확정된 OCR 문서(거래명세서·영수증) 기준 + 이전 기간 비교."""
     from app.models.ai import OcrDocument
@@ -137,6 +137,7 @@ def _purchase_summary(db, start: date, end: date,
     def _total(s: date, e: date) -> tuple[float, int]:
         docs = (
             db.query(OcrDocument)
+            .filter(OcrDocument.store_id == store_id)  # 내 매장 매입만 — 다른 매장 문서 섞임 방지
             .filter(OcrDocument.status == "confirmed")
             .filter(OcrDocument.created_at >= s.isoformat(), OcrDocument.created_at < e.isoformat())
             .all()
@@ -423,7 +424,7 @@ def generate_management_report(store_id: str, period_type: str = "weekly",
 
     with document_service._session() as db:
         sales = _sales_summary(db, store_id, start, end, prev_start, prev_end)
-        purchases = _purchase_summary(db, start, end, prev_start, prev_end)
+        purchases = _purchase_summary(db, store_id, start, end, prev_start, prev_end)
         expenses = _expense_summary(db, store_id, start, end)
         labor = _labor_summary(db, store_id, start, end)
         inventory = _inventory_snapshot(db, store_id)

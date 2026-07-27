@@ -17,6 +17,8 @@ class OcrDocument(Base):
     __tablename__ = "ocr_documents"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    # 업로드한 매장(로그인 이메일) — 초안은 매장별로만 보인다. NULL은 비로그인 업로드(개발 데모)
+    store_id: Mapped[str | None] = mapped_column(String(100), index=True, nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="draft", index=True)  # draft | confirmed | rejected
     doc_type: Mapped[str] = mapped_column(String(32), default="unknown")  # purchase_statement | tax_invoice | receipt | sales_summary
     vendor_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 거래처(공급자) 이름

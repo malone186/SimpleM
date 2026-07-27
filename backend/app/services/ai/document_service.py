@@ -195,7 +195,8 @@ def generate_inspection_report(store_id: str, ocr_doc_id: str) -> dict[str, Any]
 
     with _session() as db:
         doc = db.get(OcrDocument, ocr_doc_id)
-        if doc is None:
+        # 다른 매장의 문서는 존재 자체를 숨긴다 (초안과 같은 매장 격리 규칙)
+        if doc is None or (doc.store_id is not None and doc.store_id != store_id):
             raise DocumentError(f"OCR 문서 {ocr_doc_id}를 찾을 수 없습니다")
         items = [{
             "name": item.name,
@@ -257,6 +258,7 @@ def generate_monthly_ledger(store_id: str, year: int, month: int) -> dict[str, A
             "total": float(d.total) if d.total is not None else None,
         } for d in (
             db.query(OcrDocument)
+            .filter(OcrDocument.store_id == store_id)  # 내 매장 매입만 — 다른 매장 문서 섞임 방지
             .filter(OcrDocument.status == "confirmed")
             .filter(OcrDocument.created_at >= start, OcrDocument.created_at < end)
             .order_by(OcrDocument.created_at)
@@ -421,6 +423,7 @@ def generate_vat_reference(store_id: str, start_date: str, end_date: str) -> dic
         ))
         purchase_docs = (
             db.query(OcrDocument)
+            .filter(OcrDocument.store_id == store_id)  # 내 매장 매입만 — 다른 매장 문서 섞임 방지
             .filter(OcrDocument.status == "confirmed")
             .filter(OcrDocument.created_at >= start_date, OcrDocument.created_at < end_date)
             .all()
