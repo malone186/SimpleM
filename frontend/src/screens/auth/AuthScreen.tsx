@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Alert,
   Image,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   ScrollView,
@@ -749,20 +750,17 @@ export default function AuthScreen() {
     setError('');
   };
 
-  // [안드로이드 전용 배포] 키보드 가림 처리:
-  // app.json의 softwareKeyboardLayoutMode:"resize"(= AndroidManifest adjustResize)가
-  // 키보드가 뜨면 앱 화면을 키보드 위 영역으로 줄인다. 그 줄어든 영역에서 ScrollView가
-  // 스크롤 가능해지고, 안드로이드는 포커스된 TextInput이 보이도록 자동 스크롤한다.
-  // KeyboardAvoidingView를 함께 쓰면 이중으로 밀려 튀므로 쓰지 않는다.
+  // [한글 주석] 키보드 가림 처리 — JS 방식(KeyboardAvoidingView).
+  // SDK54는 edge-to-edge가 기본이라 네이티브 resize가 키보드를 밀어내지 못한다.
+  // 그래서 OS 리사이즈에 기대지 않고, 키보드가 뜨면 JS가 그 높이만큼
+  // 화면 아래에 여백을 넣어 입력칸을 키보드 위로 밀어 올린다.
+  // (JS 처리라 네이티브 재빌드 없이 OTA로 배포된다.)
   return (
-    <View style={styles.root}>
-      {/*
-        [안드로이드 전용 배포] 키보드 가림 처리:
-        app.json의 softwareKeyboardLayoutMode:"resize"(= AndroidManifest adjustResize)가
-        키보드가 뜨면 앱 화면을 키보드 위 영역으로 줄인다. 그 줄어든 영역에서 ScrollView가
-        스크롤 가능해지고, 안드로이드는 포커스된 TextInput이 보이도록 자동 스크롤한다.
-        KeyboardAvoidingView를 함께 쓰면 이중으로 밀려 튀므로 쓰지 않는다.
-      */}
+    <KeyboardAvoidingView
+      style={styles.root}
+      behavior="padding"
+      keyboardVerticalOffset={0}
+    >
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
@@ -1324,7 +1322,7 @@ export default function AuthScreen() {
           </View>
         </View>
       </Modal>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
