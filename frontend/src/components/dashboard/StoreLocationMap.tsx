@@ -9,6 +9,7 @@ import { WebView } from 'react-native-webview';
 import { API_BASE_URL } from '../../lib/api/client';
 import { getGpsPosition } from '../../lib/api/forecast';
 import type { NearbyEvent } from '../../lib/api/forecast';
+import { NAVER_CLIENT_ID } from '../../lib/naverMap';
 
 // [한글 주석] 네이티브 WebView용 자립형 HTML — 웹 버전과 동일한 네이버 지도 + Leaflet 폴백 로직
 function buildMobileMapHtml(
@@ -178,8 +179,7 @@ export default function StoreLocationMap({
   }, []);
 
   // [네이버 지도 연동 설정 가이드]
-  // NCP 콘솔 Maps > Web Dynamic Map의 Client ID. 비어있거나 인증 실패 시 Leaflet 폴백 가동.
-  const NAVER_CLIENT_ID = process.env.EXPO_PUBLIC_NAVER_CLIENT_ID || '6amak4awt7';
+  // Client ID는 src/lib/naverMap.ts가 단일 출처. 비어있거나 인증 실패 시 Leaflet 폴백 가동.
 
   // 네이티브 WebView용 HTML (props가 바뀔 때만 재생성)
   const mobileHtml = useMemo(

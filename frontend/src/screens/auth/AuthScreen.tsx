@@ -19,6 +19,7 @@ import { WebView } from 'react-native-webview';
 import { useAuth } from '../../auth/AuthContext';
 import { API_BASE_URL } from '../../lib/api/client';
 import { getGpsPosition } from '../../lib/api/forecast';
+import { NAVER_CLIENT_ID } from '../../lib/naverMap';
 import { FadeInUp, PressableScale } from '../../components/motion';
 import { IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
@@ -296,7 +297,6 @@ export default function AuthScreen() {
   // 네이버 인증 실패 시 Leaflet 오픈맵 + Nominatim 지오코딩으로 폴백해 기능이 죽지 않는다.
   useEffect(() => {
     if (Platform.OS !== 'web' || !showMapModal) return;
-    const NAVER_CLIENT_ID = process.env.EXPO_PUBLIC_NAVER_CLIENT_ID || '6amak4awt7';
     let disposed = false;
 
     const startLat = coords?.lat ?? 37.5665;
@@ -1129,7 +1129,7 @@ export default function AuthScreen() {
                   originWhitelist={['*']}
                   source={{
                     uri: `${API_BASE_URL}/map/picker.html?key=${encodeURIComponent(
-                      process.env.EXPO_PUBLIC_NAVER_CLIENT_ID || '6amak4awt7',
+                      NAVER_CLIENT_ID,
                     )}&lat=${coords?.lat ?? 37.5665}&lon=${coords?.lon ?? 126.978}`,
                   }}
                   javaScriptEnabled
