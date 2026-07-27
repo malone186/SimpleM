@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 
 import { colors, spacing } from '../../theme';
 import { type BrewMood } from '../brew/Brew';
@@ -97,6 +98,35 @@ function useAdminAnnouncement(refreshTrigger = 0) {
 
 const READ_MAX_KEY = 'simplem:notice:read-max-id';
 
+// 공지 → 화면 연결 규칙. 관리자 공지에는 대상 화면 정보가 없어서
+// 제목·본문의 키워드로 갈 곳을 추론한다. 위에 있는 규칙이 우선(구체적인 주제부터).
+// 매칭되는 규칙이 없으면 카드는 눌러도 이동하지 않는 일반 카드로 남는다.
+const NOTICE_ROUTE_RULES: { keywords: string[]; route: string; label: string }[] = [
+  { keywords: ['급여', '알바', '아르바이트', '스케줄', '근무', '인건비', '주휴'], route: 'Operation', label: '스케줄 · 급여' },
+  { keywords: ['법령', '법률', '노무', '근로기준법', '노동법', '위생법'], route: 'LawSearch', label: '법령 검색' },
+  { keywords: ['세금', '세무', '부가세', '신고', '계약서', '서류', '문서', '명세서', '장부'], route: 'Document', label: '서류 자동화' },
+  { keywords: ['원가', '마진', '손익'], route: 'Cost', label: '원가 분석' },
+  { keywords: ['매출', '판매'], route: 'SalesInput', label: '판매 입력' },
+  { keywords: ['디저트'], route: 'Dessert', label: '디저트 관리' },
+  { keywords: ['메뉴', '레시피'], route: 'Menu', label: '메뉴 관리' },
+  { keywords: ['발주', '주문', '입고', '거래처'], route: 'Order', label: '발주' },
+  { keywords: ['재고', '재료', '유통기한', '실사', '원두'], route: 'Inventory', label: '재고' },
+  { keywords: ['결제', '구독', '프리미엄', '요금', '멤버십'], route: 'Management', label: '관리' },
+  { keywords: ['챗봇', '어시스턴트', 'ai'], route: 'Chatbot', label: '챗봇' },
+  { keywords: ['설정', '환경설정'], route: 'Settings', label: '설정' },
+];
+
+/** 공지 내용에서 이동할 화면을 찾는다. 못 찾으면 null.
+ *  제목이 공지의 주제이므로 제목에서 먼저 찾고, 없을 때만 본문까지 넓혀 본다.
+ *  (예: 제목 "재고 부족" + 본문 "발주 필요" → 재고 화면) */
+function resolveNoticeRoute(notice: { title?: string; body?: string }) {
+  const match = (text: string) =>
+    text.trim() ? NOTICE_ROUTE_RULES.find((rule) => rule.keywords.some((k) => text.includes(k))) : undefined;
+  const title = (notice.title ?? '').toLowerCase();
+  const body = (notice.body ?? '').toLowerCase();
+  return match(title) ?? match(body) ?? null;
+}
+
 // 알림함 — 내 매장에 온 관리자 공지 전체를 최신순으로 들고, 안 읽은 개수(배지)를 계산한다.
 // 열면 현재 최신 id까지 '읽음' 처리한다.
 function useNoticeInbox(refreshTrigger = 0) {
@@ -169,10 +199,19 @@ export default function WelcomeHeader({
   // 모달을 열 때의 읽음 기준선을 스냅샷 — 그 이후 id는 목록에서 'NEW'로 표시
   const [newBaseline, setNewBaseline] = useState(0);
 
+  const navigation = useNavigation<any>();
+
   const openInbox = () => {
     setNewBaseline(readMaxId);
     setInboxOpen(true);
     markAllRead();
+  };
+
+  // 공지 카드 탭 → 알림함을 닫고 관련 화면으로 이동.
+  // 모달이 닫히는 프레임과 화면 전환이 겹치면 전환이 씹히므로 다음 프레임에 이동한다.
+  const goToNoticeTarget = (route: string) => {
+    setInboxOpen(false);
+    requestAnimationFrame(() => navigation.navigate(route));
   };
 
   // 말풍선 공지를 탭하면: 말풍선에서 치우고(dismiss) 알림함을 열어 전체 내용을 보여준다
@@ -311,21 +350,53 @@ export default function WelcomeHeader({
               </View>
             ) : (
               <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
-                {notices.map((n) => (
-                  <View key={n.id} style={styles.noticeCard}>
-                    <View style={styles.noticeCardTop}>
-                      <Ionicons name="megaphone" size={13} color={colors.pointOrange} style={{ marginRight: 5, marginTop: 1 }} />
-                      <Text style={styles.noticeCardTitle}>{n.title}</Text>
-                      {n.id > newBaseline && (
-                        <View style={styles.newDot}>
-                          <Text style={styles.newDotText}>N</Text>
-                        </View>
-                      )}
-                    </View>
-                    {!!n.body && <Text style={styles.noticeCardBody}>{n.body}</Text>}
-                    <Text style={styles.noticeCardMeta}>{n.author} · {n.date}</Text>
-                  </View>
-                ))}
+                {notices.map((n) => {
+                  // 공지 내용과 이어지는 화면이 있으면 카드를 눌러 바로 이동할 수 있다
+                  const target = resolveNoticeRoute(n);
+                  const inner = (
+                    <>
+                      <View style={styles.noticeCardTop}>
+                        <Ionicons name="megaphone" size={13} color={colors.pointOrange} style={{ marginRight: 5, marginTop: 1 }} />
+                        <Text style={styles.noticeCardTitle}>{n.title}</Text>
+                        {n.id > newBaseline && (
+                          <View style={styles.newDot}>
+                            <Text style={styles.newDotText}>N</Text>
+                          </View>
+                        )}
+                      </View>
+                      {!!n.body && <Text style={styles.noticeCardBody}>{n.body}</Text>}
+                      <View style={styles.noticeCardFoot}>
+                        <Text style={styles.noticeCardMeta}>{n.author} · {n.date}</Text>
+                        {target && (
+                          <View style={styles.noticeCardCta}>
+                            <Text style={styles.noticeCardCtaText}>{target.label}</Text>
+                            <Ionicons name="chevron-forward" size={11} color={colors.pointOrange} />
+                          </View>
+                        )}
+                      </View>
+                    </>
+                  );
+
+                  if (!target) {
+                    return (
+                      <View key={n.id} style={styles.noticeCard}>
+                        {inner}
+                      </View>
+                    );
+                  }
+                  return (
+                    <TouchableOpacity
+                      key={n.id}
+                      style={[styles.noticeCard, styles.noticeCardLinked]}
+                      activeOpacity={0.75}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${n.title} — ${target.label} 화면으로 이동`}
+                      onPress={() => goToNoticeTarget(target.route)}
+                    >
+                      {inner}
+                    </TouchableOpacity>
+                  );
+                })}
               </ScrollView>
             )}
           </Pressable>
@@ -500,10 +571,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
     paddingVertical: 11,
   },
+  // 관련 화면으로 이동할 수 있는 카드 — 왼쪽 포인트 띠로 '누를 수 있음'을 알린다
+  noticeCardLinked: {
+    borderLeftWidth: 3,
+    borderLeftColor: colors.pointOrange,
+    paddingLeft: 11,
+  },
   noticeCardTop: { flexDirection: 'row', alignItems: 'flex-start' },
   noticeCardTitle: { flex: 1, fontSize: 13, fontWeight: '800', color: colors.espressoBrown, lineHeight: 18 },
   noticeCardBody: { fontSize: 11.5, color: '#6B5D53', lineHeight: 16, marginTop: 5 },
-  noticeCardMeta: { fontSize: 10, color: '#A99C90', fontWeight: '600', marginTop: 7 },
+  noticeCardFoot: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 7,
+  },
+  noticeCardMeta: { flex: 1, fontSize: 10, color: '#A99C90', fontWeight: '600' },
+  // 이동 힌트 — "재고 ›" 형태로 어디로 가는지 미리 알려 준다
+  noticeCardCta: { flexDirection: 'row', alignItems: 'center', gap: 1 },
+  noticeCardCtaText: { fontSize: 10.5, fontWeight: '800', color: colors.pointOrange, letterSpacing: -0.2 },
   // 새 공지 'N' 뱃지
   newDot: {
     minWidth: 15,
