@@ -608,6 +608,7 @@ export default function AuthScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
       >
         {/* 브랜드 */}
         <FadeInUp>
@@ -1040,7 +1041,16 @@ function Field({
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.creamSand },
-  content: { padding: spacing.globalPadding, paddingTop: 60, gap: spacing.verticalGap },
+  // [한글 주석] flexGrow: 내용이 짧아도 ScrollView가 화면을 꽉 채우도록.
+  // paddingBottom: 키보드가 떠서 뷰포트가 줄었을 때, 비밀번호 등 하단 입력칸을
+  //   키보드 위로 끌어올릴 스크롤 여유 공간. 이 값이 부족하면 칸이 키보드에 가려진다.
+  content: {
+    flexGrow: 1,
+    padding: spacing.globalPadding,
+    paddingTop: 60,
+    paddingBottom: 120,
+    gap: spacing.verticalGap,
+  },
   brand: { alignItems: 'center', marginBottom: 8 },
   logo: { width: 310, height: 190, resizeMode: 'contain' },
   brandSub: { ...typography.L4, color: colors.mochaBrown, marginTop: 10 },
