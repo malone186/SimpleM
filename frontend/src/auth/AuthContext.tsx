@@ -37,7 +37,7 @@ type AuthContextValue = {
   token: string | null; // [한글 주석] 백엔드 API 호출용 Firebase ID Token (Authorization: Bearer ...)
   booting: boolean;
   login: (email: string, password: string, autoLogin: boolean) => Promise<void>;
-  signup: (name: string, email: string, password: string, autoLogin: boolean, acquisitionSource?: string) => Promise<void>;
+  signup: (name: string, email: string, password: string, autoLogin: boolean, acquisitionSource?: string, phone?: string) => Promise<void>;
   loginWithGoogle: (autoLogin: boolean) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (patch: { name?: string; store_name?: string; password?: string; photo?: string }) => Promise<void>;
@@ -317,7 +317,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // [한글 주석] Firebase Auth로 계정을 최초 생성하고 닉네임을 설정합니다.
   // 가짜 Firebase 키 상황일 경우 백엔드 자체 로컬 회원가입 API로 즉시 우회합니다.
   const signup = useCallback(
-    async (name: string, email: string, password: string, autoLogin: boolean, acquisitionSource?: string) => {
+    async (name: string, email: string, password: string, autoLogin: boolean, acquisitionSource?: string, phone?: string) => {
       const FIREBASE_API_KEY = process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '';
       const isMockFirebase = FIREBASE_API_KEY.startsWith('mock-') || !FIREBASE_API_KEY;
 
@@ -332,6 +332,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               password,
               name: name.trim(),
               store_name: `${name.trim()} 매장`,
+              // 휴대폰 번호 — 아이디/비밀번호 찾기 본인 확인용 (선택)
+              ...(phone ? { phone } : {}),
               // [유입 경로] 선택값 — 미선택 시 전송하지 않아 백엔드가 NULL로 저장(추정 폴백)
               ...(acquisitionSource ? { acquisition_source: acquisitionSource } : {}),
             }),
@@ -371,6 +373,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // 3. 가입 즉시 로그인을 진행하여 토큰 획득 및 백엔드 데이터베이스 동기화(Lazy Signup) 유도
         await login(email, password, autoLogin);
+
+        // 4. 휴대폰 번호는 Firebase 계정에 없는 정보라 백엔드 프로필에 별도로 심는다 (아이디/비번 찾기용).
+        //    실패해도 가입은 이미 끝났으므로 배경 전송으로 충분하다.
+        if (phone) {
+          userCredential.user.getIdToken().then((idToken) =>
+            fetch(`${API_BASE_URL}/api/v1/auth/profile`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+              body: JSON.stringify({ phone }),
+            }),
+          ).catch(() => {
+            console.warn('휴대폰 번호 동기화 경고: 아이디/비밀번호 찾기에서 상호명으로 본인 확인해야 할 수 있습니다.');
+          });
+        }
 
       } catch (error: any) {
         let msg = '회원가입 중 오류가 발생했습니다.';

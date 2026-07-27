@@ -444,8 +444,11 @@ async def _call_gemini(image_bytes: bytes) -> dict[str, Any]:
     if GEMINI_MODEL.startswith("gemini-2.5"):
         # 2.5 계열은 기본 thinking이 출력 토큰 예산을 잠식해 JSON이 잘린다
         # (실측: 349자에서 절단). OCR은 추론이 필요 없으므로 끈다.
-        # 3.x 계열은 thinkingBudget 대신 thinkingLevel을 쓰므로 붙이지 않는다.
         generation_config["thinkingConfig"] = {"thinkingBudget": 0}
+    elif GEMINI_MODEL.startswith("gemini-3"):
+        # 3.x 계열은 thinkingBudget 대신 thinkingLevel — OCR은 추론이 필요 없어 최저로.
+        # 실측(2026-07-27, 품목 24개 영수증 2회씩): 인식 결과 동일, 첫 응답 지연 소폭 감소.
+        generation_config["thinkingConfig"] = {"thinkingLevel": "low"}
 
     payload = {
         "contents": [{"parts": [
@@ -527,10 +530,12 @@ def _validate_result(result: OcrResult) -> list[str]:
             item.warnings.append("수량/단가/금액 중 두 개 이상을 읽지 못했습니다 — 직접 입력 필요")
 
     amounts = [i.amount for i in result.items if i.amount is not None]
+    items_net = None  # 품목 합(할인 반영) — 아래 공급가액+세액 검증의 오탐 억제에도 쓴다
     if amounts:
         items_sum = sum(amounts)
         discount = result.discount or 0
         net = items_sum - discount  # 품목은 할인 전 금액이므로 할인을 빼고 비교
+        items_net = net
         # 명세서는 품목 금액이 공급가액 기준, 영수증은 부가세 포함(합계) 기준으로 찍히므로
         # 둘 중 어느 쪽과도 맞지 않을 때만 경고한다
         bases = [(v, label) for v, label in ((result.subtotal, "공급가액"), (result.total, "합계")) if v is not None]
@@ -548,9 +553,16 @@ def _validate_result(result: OcrResult) -> list[str]:
             )
     if result.subtotal is not None and result.tax is not None and result.total is not None:
         if abs(result.subtotal + result.tax - result.total) > max(abs(result.total) * AMOUNT_TOLERANCE, AMOUNT_TOLERANCE_ABS):
-            doc_warnings.append(
-                f"공급가액+세액({result.subtotal + result.tax:,.0f})이 합계({result.total:,.0f})와 다릅니다"
+            # 면세+과세 혼합 영수증(마트·편의점)은 '과세물품(공급가액)+부가세'가 합계보다
+            # 면세물품만큼 작게 찍히는 게 정상이다 (실측: 면세 27,960+과세 41,445+세 4,145=합계 73,550).
+            # 품목 합이 합계와 일치하면 문서는 정합이므로 오탐 경고를 내지 않는다.
+            items_match_total = items_net is not None and abs(items_net - result.total) <= max(
+                abs(result.total) * AMOUNT_TOLERANCE, AMOUNT_TOLERANCE_ABS
             )
+            if not items_match_total:
+                doc_warnings.append(
+                    f"공급가액+세액({result.subtotal + result.tax:,.0f})이 합계({result.total:,.0f})와 다릅니다"
+                )
     return doc_warnings
 
 

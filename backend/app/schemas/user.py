@@ -12,6 +12,7 @@ class UserCreate(BaseModel):
     
     name: str = Field(..., description="점주(사용자)의 실명")
     store_name: str = Field(..., description="운영 중인 매장/카페 이름")
+    phone: str | None = Field(None, description="휴대폰 번호 — 아이디/비밀번호 찾기 본인 확인용 (선택)")
 
     # [유입 경로] 가입 시점 first-touch. 모두 선택값 — 안 보내도 기존과 동일하게 가입 성공한다.
     acquisition_source: str | None = Field(None, description="유입 채널 키(referral/web_search/instagram/app_store/youtube/naver_blog/etc)")
@@ -28,6 +29,7 @@ class UserResponse(BaseModel):
     email: EmailStr
     name: str
     store_name: str
+    phone: str | None = None
     created_at: datetime
     acquisition_source: str | None = None
 
@@ -52,11 +54,14 @@ class UserUpdate(BaseModel):
     name: str | None = Field(None, description="수정할 점주(사용자) 실명")
     password: str | None = Field(None, min_length=4, description="새로 변경할 비밀번호 (선택사항)")
     store_name: str | None = Field(None, description="수정할 매장/카페 이름")
+    phone: str | None = Field(None, description="휴대폰 번호 — 아이디/비밀번호 찾기 본인 확인용")
 
 
-# 7. [아이디(이메일) 찾기] 요청/응답 규격 — 상호명으로 조회해 마스킹된 이메일만 돌려준다.
+# 7. [아이디(이메일) 찾기] 요청/응답 규격 — 상호명+휴대폰으로 조회해 마스킹된 이메일만 돌려준다.
 class FindEmailRequest(BaseModel):
     store_name: str = Field(..., min_length=1, description="가입 시 등록한 상호/매장 이름")
+    # 동일 상호 중복 구분용 — phone이 등록된 계정은 일치해야 하고, 미등록(기존) 계정은 상호명만으로 조회
+    phone: str | None = Field(None, description="가입 시 등록한 휴대폰 번호 (또는 사업자번호)")
 
 
 class FindEmailItem(BaseModel):
@@ -68,9 +73,12 @@ class FindEmailResponse(BaseModel):
     accounts: list[FindEmailItem] = Field(..., description="상호명이 일치한 계정 목록")
 
 
-# 8. [비밀번호 재설정] 요청 규격 — 메일 인프라가 없어 이메일+상호명 본인확인 후 즉시 재설정한다.
+# 8. [비밀번호 재설정] 요청 규격 — 메일 인프라가 없어 본인확인(휴대폰 또는 상호명) 후 즉시 재설정한다.
 class ResetPasswordRequest(BaseModel):
     email: EmailStr = Field(..., description="가입 이메일")
-    store_name: str = Field(..., min_length=1, description="가입 시 등록한 상호/매장 이름 (본인 확인용)")
+    # 본인 확인값 — 휴대폰 번호(등록 계정) 또는 상호명(휴대폰 미등록 기존 계정) 중 하나가 일치하면 통과.
+    # store_name은 구버전 앱(상호명 방식) 하위호환용으로 유지한다.
+    verify: str | None = Field(None, description="가입 시 등록한 휴대폰 번호 또는 상호명 (본인 확인용)")
+    store_name: str | None = Field(None, description="(구버전 호환) 가입 시 등록한 상호/매장 이름")
     new_password: str = Field(..., min_length=4, description="새 비밀번호 (최소 4자 이상)")
 

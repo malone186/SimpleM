@@ -26,6 +26,9 @@ class User(Base):
     # 5. 매장(카페) 이름 (예: "포자카페 강남점")
     store_name = Column(String(100), nullable=False)
 
+    # 5-1. 휴대폰 번호 — 아이디/비밀번호 찾기의 본인 확인용 (선택 입력, 기존 회원은 NULL)
+    phone = Column(String(20), nullable=True)
+
     # 6. 계정이 생성된 날짜와 시간 (회원가입이 완료되는 시점의 현재 시각이 자동으로 입력됩니다.)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -57,6 +60,7 @@ def ensure_acquisition_columns(engine) -> None:
         "acquisition_source": "VARCHAR(30)",
         "acquisition_detail": "VARCHAR(120)",
         "acquisition_at": ts_type,
+        "phone": "VARCHAR(20)",  # 아이디/비밀번호 찾기 본인 확인용 (선택)
     }
     missing = {name: coltype for name, coltype in wanted.items() if name not in existing}
     if not missing:

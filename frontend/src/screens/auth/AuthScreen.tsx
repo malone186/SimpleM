@@ -162,6 +162,7 @@ export default function AuthScreen() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [phone, setPhone] = useState(''); // 아이디/비밀번호 찾기 본인 확인용 (선택 입력)
   const [autoLogin, setAutoLogin] = useState(true);
 
   // 2단계 가게 상세 설정 정보
@@ -198,6 +199,7 @@ export default function AuthScreen() {
   const [showFindModal, setShowFindModal] = useState(false);
   const [findTab, setFindTab] = useState<'id' | 'pw'>('id');
   const [findNameInput, setFindNameInput] = useState(''); // 상호명 (두 탭 공용 — 본인 확인용)
+  const [findPhoneInput, setFindPhoneInput] = useState(''); // [한글 주석] 동일 상호 중복 구분용 (휴대폰 번호 / 사업자번호)
   const [findEmailInput, setFindEmailInput] = useState('');
   const [findNewPwInput, setFindNewPwInput] = useState(''); // 재설정할 새 비밀번호
   const [findBusy, setFindBusy] = useState(false);
@@ -208,10 +210,15 @@ export default function AuthScreen() {
   const friendlyDetail = (data: any, fallback: string): string =>
     typeof data?.detail === 'string' && data.detail.trim() ? data.detail : fallback;
 
-  // [아이디 찾기] 상호명으로 조회 → 마스킹된 이메일 목록 표시 (원본 이메일은 서버가 노출하지 않음)
+  // [아이디 찾기] 상호명 + 휴대폰 번호(또는 사업자번호)로 조회 → 마스킹된 이메일 목록 표시
+  // (원본 이메일은 서버가 노출하지 않음. 휴대폰 미등록 기존 계정은 상호명만으로 조회됨)
   const submitFindEmail = async () => {
     if (!findNameInput.trim()) {
-      setFindResult({ type: 'error', message: '가입 시 등록한 상호명(매장 이름)을 입력해 주세요.' });
+      setFindResult({ type: 'error', message: '상호명 또는 매장 이름을 입력해 주세요.' });
+      return;
+    }
+    if (!findPhoneInput.trim()) {
+      setFindResult({ type: 'error', message: '등록된 휴대폰 번호 또는 사업자번호를 입력해 주세요.' });
       return;
     }
     setFindBusy(true);
@@ -220,7 +227,7 @@ export default function AuthScreen() {
       const res = await fetch(`${API_BASE_URL}/api/v1/auth/find-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ store_name: findNameInput.trim() }),
+        body: JSON.stringify({ store_name: findNameInput.trim(), phone: findPhoneInput.trim() }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
@@ -244,14 +251,15 @@ export default function AuthScreen() {
     }
   };
 
-  // [비밀번호 재설정] 메일 인프라가 없어 링크 발송 대신 이메일+상호명 본인확인 후 즉시 재설정
+  // [비밀번호 재설정] 메일 인프라가 없어 링크 발송 대신 이메일 + 휴대폰 번호(미등록 계정은 상호명)
+  // 본인확인 후 즉시 재설정
   const submitResetPassword = async () => {
     if (!findEmailInput.trim() || !findEmailInput.includes('@')) {
       setFindResult({ type: 'error', message: '올바른 이메일 주소를 입력해 주세요.' });
       return;
     }
-    if (!findNameInput.trim()) {
-      setFindResult({ type: 'error', message: '본인 확인을 위해 가입 시 등록한 상호명을 입력해 주세요.' });
+    if (!findPhoneInput.trim()) {
+      setFindResult({ type: 'error', message: '본인 확인을 위해 가입 시 등록한 휴대폰 번호(미등록 시 상호명)를 입력해 주세요.' });
       return;
     }
     if (findNewPwInput.length < 4) {
@@ -266,7 +274,7 @@ export default function AuthScreen() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: findEmailInput.trim(),
-          store_name: findNameInput.trim(),
+          verify: findPhoneInput.trim(),
           new_password: findNewPwInput,
         }),
       });
@@ -596,7 +604,7 @@ export default function AuthScreen() {
       }
       setBusy(true);
       try {
-        await signup(name, email, password, autoLogin, acquisition || undefined);
+        await signup(name, email, password, autoLogin, acquisition || undefined, phone.trim() || undefined);
         // 가입 성공 시 매장 위치를 로컬에 저장 — 대시보드/발주 예측이 기기 GPS보다 이 좌표를 우선 사용한다
         try {
           await AsyncStorage.setItem(
@@ -704,6 +712,7 @@ export default function AuthScreen() {
                     onPress={() => {
                       setFindResult(null);
                       setFindNameInput('');
+                      setFindPhoneInput('');
                       setFindEmailInput('');
                       setFindNewPwInput('');
                       setShowFindModal(true);
@@ -743,6 +752,13 @@ export default function AuthScreen() {
                   value={password}
                   onChangeText={setPassword}
                   {...passwordFieldProps}
+                />
+                <Field
+                  icon="call-outline"
+                  placeholder="휴대폰 번호 (아이디·비밀번호 찾기에 사용)"
+                  value={phone}
+                  onChangeText={setPhone}
+                  keyboardType="phone-pad"
                 />
 
                 {/* [한글 주석: 토스 스타일 인터랙션] 상호명을 입력하면 가게 설정 UI와 완료 버튼이 부드럽게 스르륵 밑에 떠오릅니다 */}
@@ -1137,13 +1153,20 @@ export default function AuthScreen() {
             {findTab === 'id' ? (
               <View style={{ gap: 10, marginTop: 12 }}>
                 <Text style={styles.findDesc}>
-                  가입 시 등록하신 상호명(매장 이름)을 입력하시면 가입 이메일을 마스킹된 형태로 알려드립니다.
+                  동일 상호 중복 방지를 위해 가입 시 등록하신 상호명과 휴대폰 번호(또는 사업자번호)를 함께 입력해 주세요.
                 </Text>
                 <Field
                   icon="storefront-outline"
                   placeholder="상호 / 매장 이름 (예: 메가커피 명동점)"
                   value={findNameInput}
                   onChangeText={setFindNameInput}
+                />
+                <Field
+                  icon="call-outline"
+                  placeholder="등록된 휴대폰 번호 또는 사업자번호"
+                  value={findPhoneInput}
+                  onChangeText={setFindPhoneInput}
+                  keyboardType="numeric"
                 />
                 <PressableScale
                   style={[styles.submitBtn, findBusy && { opacity: 0.6 }]}
@@ -1155,7 +1178,7 @@ export default function AuthScreen() {
             ) : (
               <View style={{ gap: 10, marginTop: 12 }}>
                 <Text style={styles.findDesc}>
-                  본인 확인을 위해 가입 이메일과 상호명을 입력하시면 새 비밀번호로 즉시 재설정됩니다.
+                  본인 확인을 위해 가입 이메일과 휴대폰 번호를 입력하시면 새 비밀번호로 즉시 재설정됩니다.
                 </Text>
                 <Field
                   icon="mail-outline"
@@ -1166,10 +1189,10 @@ export default function AuthScreen() {
                   autoCapitalize="none"
                 />
                 <Field
-                  icon="storefront-outline"
-                  placeholder="가입 시 등록한 상호 / 매장 이름"
-                  value={findNameInput}
-                  onChangeText={setFindNameInput}
+                  icon="call-outline"
+                  placeholder="등록된 휴대폰 번호 (미등록 시 상호명)"
+                  value={findPhoneInput}
+                  onChangeText={setFindPhoneInput}
                 />
                 <Field
                   icon="lock-closed-outline"
