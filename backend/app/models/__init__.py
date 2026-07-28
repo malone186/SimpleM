@@ -2,8 +2,9 @@
 
 # A (ai.py)
 from app.models.ai import (
-    ChatSession, ComplianceItem, DeviceToken, GeneratedDocument, NotificationSetting,
-    OcrDocument, OcrItem, SentNotification, TodoItem,
+    AdminAccount, AdminNotification, ChatSession, ComplianceItem, DeviceToken,
+    GeneratedDocument, InsightAck, NotificationSetting, OcrDocument, OcrItem,
+    SentNotification, TodoItem,
 )
 
 # I (inquiry.py & inventory.py)
