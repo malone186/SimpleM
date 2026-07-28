@@ -93,7 +93,11 @@ def _search_naver(endpoint: str, query: str, display: int, sort: str) -> list[di
         return []
     import requests
 
-    for attempt in (1, 2):
+    # 429는 실측에서 재시도 1회로 부족했다(라이브 로그에 키워드 3개가 통째로 유실).
+    # 백오프를 늘려 3회까지 시도한다 — 전부 실패하면 그 키워드의 카페는 목록에서 빠지므로
+    # 조용히 넘어가지 않고 경고를 남긴다.
+    backoff = (0.5, 1.5)
+    for attempt in (1, 2, 3):
         try:
             r = requests.get(
                 f"https://openapi.naver.com/v1/search/{endpoint}.json",
@@ -105,16 +109,17 @@ def _search_naver(endpoint: str, query: str, display: int, sort: str) -> list[di
                 logger.warning("네이버 %s 검색 인증 실패(%s) — developers.naver.com 검색 API 키 확인",
                                endpoint, r.status_code)
                 return []
-            if r.status_code == 429 and attempt == 1:
-                time.sleep(0.4)  # 초당 제한 — 잠깐 쉬고 한 번만 다시
+            if r.status_code == 429 and attempt < 3:
+                time.sleep(backoff[attempt - 1])  # 초당 요청 제한 — 쉬었다 재시도
                 continue
             r.raise_for_status()
             return r.json().get("items", [])
         except Exception as e:
-            if attempt == 1:
-                time.sleep(0.3)
+            if attempt < 3:
+                time.sleep(backoff[attempt - 1])
                 continue
-            logger.warning("네이버 %s 검색 실패 (query=%s): %s", endpoint, query, e)
+            logger.warning("네이버 %s 검색 실패 — 이 키워드 결과는 빠집니다 (query=%s): %s",
+                           endpoint, query, e)
     return []
 
 
@@ -211,8 +216,10 @@ def find_nearby_cafes(lat: float, lon: float, radius_m: int = 1000, limit: int =
         queries.append((f"{region['sigungu']} 카페", "comment"))
 
     # 검색 API 6~13회를 순차로 돌면 지도 화면이 수 초 멈춘다 → 병렬 조회.
-    # 동시성을 더 올리면 네이버가 429(초당 제한)를 뱉어 결과가 뭉텅이로 빈다 — 4가 실측 균형점.
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    # 다만 동시성이 높으면 네이버가 429(초당 제한)를 뱉고 그 키워드 결과가 통째로 빈다.
+    # 라이브에서 4는 429가 섞였다(실측) → 2로 낮춘다. 재시도 백오프와 합쳐 유실을 막는다.
+    # 13개 질의 ÷ 2 워커 ≈ 2초로, 체감 속도는 그대로다.
+    with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(lambda q: _search_local(q[0], display=5, sort=q[1]), queries))
 
     excluded = re.sub(r"\s+", "", exclude_name).lower()
