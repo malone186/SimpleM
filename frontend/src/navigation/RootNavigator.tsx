@@ -8,6 +8,8 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { useAuth } from '../auth/AuthContext';
+import { navigationRef, navigateToTarget } from '../notifications/navigationTarget';
+import { takePendingTarget } from '../notifications/pushRegistration';
 import AdminScreen from '../screens/admin/AdminScreen';
 import AuthScreen from '../screens/auth/AuthScreen';
 import ChatbotScreen from '../screens/chatbot/ChatbotScreen';
@@ -147,7 +149,16 @@ export default function RootNavigator() {
 
   return (
     // [한글 주석: 계정이 변경될 때(로그아웃 후 타 계정 로그인) key={user.email}을 통해 컴포넌트 트리를 완전히 새로 마운트하여 이전 계정의 화면 메모리 State(영수증, 재고 등)를 리셋합니다]
-    <NavigationContainer key={user.email}>
+    // ref/onReady: 푸시 알림을 탭해 앱이 켜진 경우 네비게이터가 준비된 뒤 그 화면으로 보낸다
+    // (AlertsWatcher가 컨테이너 바깥에 있어 useNavigation을 못 쓴다 — notifications/navigationTarget.ts)
+    <NavigationContainer
+      key={user.email}
+      ref={navigationRef}
+      onReady={() => {
+        const target = takePendingTarget();
+        if (target) navigateToTarget(target);
+      }}
+    >
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Tabs" component={TabsNavigator} />
         <Stack.Screen
