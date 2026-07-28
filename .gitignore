@@ -35,6 +35,9 @@ backend/deploy/github-deployer-key.json
 #      (EAS 빌드가 app.json의 android.googleServicesFile 경로에서 찾는다).
 **/serviceAccountKey*.json
 **/firebase-adminsdk-*.json
+# 로컬 개발용 키 보관 위치 (.env의 GOOGLE_APPLICATION_CREDENTIALS가 가리킨다).
+# 파일명이 위 규칙에 안 맞게 바뀌어도 새 나가지 않도록 디렉터리째 막는다.
+backend/secrets/
 
 # IDE / OS
 .vscode/
