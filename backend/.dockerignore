@@ -2,6 +2,8 @@
 vlm_finetune/
 uploads/
 tests/
+# FCM 서비스 계정 키 — 이미지에 절대 굽지 않는다. Cloud Run은 FCM_SERVICE_ACCOUNT_JSON 환경변수로 받는다
+secrets/
 .pytest_cache/
 __pycache__/
 **/__pycache__/

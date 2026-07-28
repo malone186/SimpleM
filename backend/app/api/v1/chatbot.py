@@ -8,11 +8,13 @@
 
 import json
 import logging
+import os
+import secrets
 from datetime import date
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel, Field
@@ -33,9 +35,12 @@ from app.schemas.ai import (
     ChatSessionUpsert,
     ComplianceItemCreate,
     ComplianceItemResponse,
+    DeviceTokenRegister,
     EmploymentContractRequest,
     GeneratedDocumentResponse,
     GeneratedDocumentUpdate,
+    NotificationSettingBody,
+    NotificationSettingResponse,
     OcrConfirmRequest,
     OcrConfirmResponse,
     OcrDocumentResponse,
@@ -46,9 +51,12 @@ from app.schemas.ai import (
 from app.services.ai import (
     document_service,
     forecast_service,
+    insight_service,
     nearby_cafe_service,
+    notification_service,
     ocr_service,
     price_service,
+    push_service,
     report_service,
     sales_service,
 )
@@ -542,6 +550,108 @@ def get_management_report_api(
 
 
 # ---------------------------------------------------------------------------
+# 푸시 알림 (FCM) — 기기 토큰 등록 · 수신 설정 · 스케줄러 진입점
+# ---------------------------------------------------------------------------
+
+# 스케줄러(Cloud Scheduler 등)만 /notifications/run을 부를 수 있게 하는 공유 비밀.
+# 비어 있으면 그 엔드포인트는 404를 내 외부에 열리지 않는다 — 설정을 깜빡한 채
+# 배포됐을 때 누구나 전체 매장에 푸시를 쏠 수 있는 상태가 되면 안 된다.
+CRON_SECRET = os.getenv("NOTIFICATION_CRON_SECRET", "")
+
+
+@router.post("/push/tokens", status_code=204)
+def register_push_token(
+    body: DeviceTokenRegister,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """기기 푸시 토큰을 등록/갱신한다 (upsert).
+
+    프론트는 로그인 직후와 토큰 갱신 이벤트(addPushTokenListener)마다 다시 호출한다.
+    FCM 토큰은 앱 재설치·데이터 삭제로 언제든 바뀌므로 영구 식별자가 아니다.
+    """
+    push_service.register_token(db, current_user.email, body.token,
+                                platform=body.platform, device_name=body.device_name)
+
+
+@router.delete("/push/tokens", status_code=204)
+def unregister_push_token(token: str, current_user: User = Depends(get_current_user),
+                          db: Session = Depends(get_db)):
+    """로그아웃 시 호출 — 이 기기로 더는 알림이 가지 않게 한다.
+
+    토큰은 경로가 아니라 쿼리로 받는다 — FCM 토큰에 섞일 수 있는 문자가
+    경로 세그먼트에서 잘못 해석되는 일을 피한다.
+
+    store_id를 함께 넘겨 '내 기기'만 지운다 — 안 그러면 인증만 된 사용자가
+    토큰 문자열을 아는 것만으로 남의 기기 등록을 해제할 수 있다.
+    """
+    push_service.unregister_token(db, token, store_id=current_user.email)
+
+
+@router.get("/notifications/settings", response_model=NotificationSettingResponse)
+def get_notification_settings(current_user: User = Depends(get_current_user),
+                              db: Session = Depends(get_db)):
+    """푸시 수신 설정 조회 (없으면 기본값으로 만들어 돌려준다)."""
+    row = notification_service.get_settings(db, current_user.email)
+    return NotificationSettingResponse(
+        store_id=row.store_id,
+        push_enabled=row.push_enabled,
+        compliance_alert=row.compliance_alert,
+        report_alert=row.report_alert,
+        stock_alert=row.stock_alert,
+        sensor_alert=row.sensor_alert,
+        report_frequency=row.report_frequency,
+        dnd_enabled=row.dnd_enabled,
+        dnd_start=row.dnd_start,
+        dnd_end=row.dnd_end,
+        push_configured=push_service.is_configured(),
+        device_count=len(push_service.list_tokens(db, current_user.email)),
+    )
+
+
+@router.put("/notifications/settings", response_model=NotificationSettingResponse)
+def update_notification_settings(
+    body: NotificationSettingBody,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """설정 화면이 바뀔 때마다 서버로 동기화 — 발송 판단은 서버가 하므로 필수."""
+    row = notification_service.get_settings(db, current_user.email)
+    for field, value in body.model_dump().items():
+        setattr(row, field, value)
+    db.commit()
+    return get_notification_settings(current_user=current_user, db=db)
+
+
+@router.post("/notifications/test")
+def send_test_push(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """지금 이 계정의 등록 기기로 시험 발송 — 설정 화면의 '테스트 알림' 버튼용."""
+    if not push_service.is_configured():
+        raise HTTPException(503, "서버에 FCM 자격증명이 설정되지 않았습니다 (FCM_SERVICE_ACCOUNT_JSON)")
+    sent = push_service.send_to_store(
+        db, current_user.email, "🔔 브루노트 알림 테스트",
+        "푸시 알림이 정상적으로 도착했어요.", {"category": "test", "screen": "Settings"})
+    if sent == 0:
+        raise HTTPException(400, "등록된 기기가 없습니다. 앱에서 알림 권한을 허용했는지 확인해 주세요.")
+    return {"sent": sent}
+
+
+@router.post("/notifications/run")
+def run_notifications(x_cron_secret: str = Header(default="")):
+    """Tier 1 알림 규칙을 전 매장에 대해 평가·발송한다 (스케줄러 전용).
+
+    Cloud Scheduler가 하루 한 번(아침 8시 30분 KST) 부르는 것을 기준으로 만들었다.
+    더 자주 불러도 안전하다 — 같은 사건은 SentNotification 유니크 제약이 한 번만 내보낸다.
+    설비 이상만 쿨다운(기본 6시간) 뒤 다시 나간다.
+    """
+    if not CRON_SECRET:
+        raise HTTPException(404, "Not Found")  # 미설정이면 존재 자체를 숨긴다
+    if not secrets.compare_digest(x_cron_secret, CRON_SECRET):
+        raise HTTPException(403, "invalid cron secret")
+    return notification_service.run_all()
+
+
+# ---------------------------------------------------------------------------
 # 정기 갱신 서류 만료 추적 (위생교육·보건증·임대차/공급 계약)
 # ---------------------------------------------------------------------------
 
@@ -573,6 +683,48 @@ def delete_compliance_item(item_id: int, current_user: User = Depends(get_curren
     except document_service.DocumentError as e:
         raise HTTPException(404, str(e))
     return {"deleted": item_id}  # 프론트 apiFetch가 JSON 응답을 기대하므로 204 대신 본문 반환
+
+
+# ---------------------------------------------------------------------------
+# 선제 인사이트 — 사장님이 묻기 전에 시스템이 먼저 찾아내는 "챙길 일"
+# 앱은 이걸 폴링해 알림으로만 띄운다 (먼저 말을 걸지는 않는다)
+# ---------------------------------------------------------------------------
+
+
+class InsightDismissRequest(BaseModel):
+    snooze_days: int = Field(
+        0, ge=0, le=365,
+        description="0이면 영구 확인 처리, 1 이상이면 그 일수만큼 숨겼다가 다시 알림",
+    )
+
+
+@router.get("/insights")
+def get_insights_api(
+    include_dismissed: bool = False,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """지금 챙겨야 할 일을 매장 데이터에서 찾아 돌려준다 (심각한 것부터 정렬).
+
+    재고 소진 예상일, 단가 인상, 잠자는 재고, 확정 안 한 명세서, 진행 안 된 발주,
+    갱신 임박 서류, 세무 신고 기한, 매출 급락, 판매 입력 누락, 주휴수당 발생,
+    근로계약서 미작성, 재고실사·월 장부 미생성, 레시피 없는 메뉴를 검사한다.
+
+    저장된 목록이 아니라 호출 시점에 DB를 훑어 매번 새로 계산한다 —
+    사장님이 조치를 끝내면 다음 호출에서 그 항목은 자연히 사라진다.
+    """
+    return insight_service.scan(current_user.email, include_dismissed=include_dismissed)
+
+
+@router.post("/insights/{insight_key:path}/dismiss")
+def dismiss_insight_api(
+    insight_key: str,
+    body: InsightDismissRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """인사이트 확인 처리 — snooze_days를 주면 그 기간만 숨겼다가 다시 올라온다."""
+    return insight_service.dismiss(
+        current_user.email, insight_key, snooze_days=body.snooze_days
+    )
 
 
 # ---------------------------------------------------------------------------

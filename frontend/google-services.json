@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "1064063561776",
+    "project_id": "simplem-72f8d",
+    "storage_bucket": "simplem-72f8d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1064063561776:android:731e181c645e740d997df5",
+        "android_client_info": {
+          "package_name": "com.vivayouth.brewnote"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1064063561776-pscpo08n2mubev20u2t3c6mf7aj4lgsb.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBTJ9A3zi4flvs3YoxI93x4buHLjiItYyg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1064063561776-pscpo08n2mubev20u2t3c6mf7aj4lgsb.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

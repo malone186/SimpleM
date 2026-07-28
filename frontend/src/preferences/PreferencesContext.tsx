@@ -1,5 +1,5 @@
 // 앱 환경설정(설정 탭) 전역 상태 — AsyncStorage에 영구 저장한다.
-// 알림 on/off, AI 리포트 주기, 방해금지 시간, 글자 크기, 다크/라이트, 업종, 구독 요금제를 보관.
+// 알림 on/off, AI 리포트 주기, 방해금지 시간, 글자 크기, 다크/라이트, 업종을 보관.
 // [단계적 적용] 현재는 설정값을 저장·노출하며, 폰트/테마의 전역 화면 적용은 후속 작업으로 확장한다.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
@@ -13,7 +13,6 @@ import {
 
 export type FontSize = 'small' | 'normal' | 'large' | 'xlarge';
 export type ReportFrequency = 'daily' | 'weekly';
-export type PlanTier = 'free' | 'pro' | 'business';
 export type Language = 'ko' | 'en'; // 다국어 언어 지원 타입 (한국어 / 영어)
 
 export type Preferences = {
@@ -21,6 +20,7 @@ export type Preferences = {
   lowStockAlert: boolean;   // 재고 부족 알림
   priceSurgeAlert: boolean; // 단가 급등 알림
   reportFrequency: ReportFrequency; // AI 경영 리포트 수신 주기
+  proactiveInsights: boolean; // 선제 알림 — 매장 데이터에서 찾아낸 '곧 할 일·놓친 일'을 먼저 알려줌
   dndEnabled: boolean;      // 방해 금지 시간대 사용
   dndStart: string;         // 'HH:MM'
   dndEnd: string;           // 'HH:MM'
@@ -33,14 +33,13 @@ export type Preferences = {
   businessType: string;     // 업종
   openHour: string;         // 가게 오픈 시간 ('HH:MM')
   closeHour: string;        // 가게 마감 시간 ('HH:MM')
-  // 구독 (데모 — 실제 결제 백엔드 없음)
-  plan: PlanTier;
 };
 
 const DEFAULTS: Preferences = {
   lowStockAlert: true,
   priceSurgeAlert: true,
   reportFrequency: 'weekly',
+  proactiveInsights: true,
   dndEnabled: true,
   dndStart: '22:00',
   dndEnd: '08:00',
@@ -51,7 +50,6 @@ const DEFAULTS: Preferences = {
   businessType: '카페',
   openHour: '09:00',
   closeHour: '21:00',
-  plan: 'free',
 };
 
 // 글자 크기 → 배율 (전역 적용 시 곱해 쓸 값)
@@ -73,13 +71,6 @@ export const FONT_SIZE_LABEL: Record<FontSize, string> = {
 export const LANGUAGE_LABEL: Record<Language, string> = {
   ko: '한국어',
   en: 'English',
-};
-
-// 구독 요금제 메타 (데모 가격)
-export const PLANS: Record<PlanTier, { label: string; price: number; blurb: string }> = {
-  free: { label: 'Free', price: 0, blurb: '기본 재고·발주 관리' },
-  pro: { label: 'Pro', price: 29000, blurb: 'AI 리포트·예측·알림 전체' },
-  business: { label: 'Business', price: 59000, blurb: '다점포·세무 자동화·우선지원' },
 };
 
 type Ctx = Preferences & {

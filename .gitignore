@@ -29,6 +29,15 @@ frontend/.env*
 backend/deploy/env.yaml
 # GCP 서비스 계정 키 (GitHub Secrets 등록용 — 절대 커밋 금지)
 backend/deploy/github-deployer-key.json
+# FCM 발송용 서비스 계정 키 (절대 커밋 금지 — 이 키 하나로 전 사용자에게 푸시를 쏠 수 있다)
+# 서버에는 FCM_SERVICE_ACCOUNT_JSON 환경변수로 넣는다.
+# 참고: frontend/google-services.json은 비밀이 아니라 앱 번들에 포함되는 값이므로 커밋 대상이다
+#      (EAS 빌드가 app.json의 android.googleServicesFile 경로에서 찾는다).
+**/serviceAccountKey*.json
+**/firebase-adminsdk-*.json
+# 로컬 개발용 키 보관 위치 (.env의 GOOGLE_APPLICATION_CREDENTIALS가 가리킨다).
+# 파일명이 위 규칙에 안 맞게 바뀌어도 새 나가지 않도록 디렉터리째 막는다.
+backend/secrets/
 
 # IDE / OS
 .vscode/

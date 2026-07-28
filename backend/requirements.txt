@@ -33,3 +33,6 @@ lxml>=4.9.0
 # 법령 RAG 벡터 검색 (백엔드 C law_rag_service — CI 평가도 사용)
 chromadb>=0.5
 
+
+# FCM 푸시 알림 (백엔드 B push_service — 서비스 계정 OAuth2, 액세스 토큰 자동 갱신)
+google-auth>=2.35

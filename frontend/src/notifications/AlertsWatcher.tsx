@@ -6,6 +6,8 @@
 // ⑤ 문의 답변 도착: 내 1대1 문의에 관리자 답변이 달리면 어느 화면에 있든 즉시 알림
 // ⑥ 음성 비서 알림: 새 완료 이벤트를 30초 주기로 폴링, 이어폰(블루투스 포함) 착용 시 TTS 음성 재생
 //    — 설정 > 알림 수신 설정의 '알림 음성 읽어주기' 스위치로 켜고 끌 수 있다
+// ⑦ 선제 인사이트: 서버가 매장 DB를 훑어 찾아낸 "곧 할 일·놓친 일"을 10분 주기로 받아 알림
+//    — 재고 소진 예상일, 신고 기한, 갱신 서류, 주휴수당, 방치된 초안 등 (먼저 말을 걸지는 않는다)
 // (관리자 공지는 홈 화면 강아지 말풍선(WelcomeHeader)이 단독으로 전하므로 여기선 토스트를 띄우지 않는다)
 // 같은 품목·같은 날 중복 알림은 AsyncStorage에 발송 이력을 남겨 1회로 제한한다.
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -16,18 +18,36 @@ import { usePreferences } from '../preferences/PreferencesContext';
 import { listMyInquiries } from '../lib/api/inquiry';
 import { listStocks, type StockItem } from '../lib/api/inventory';
 import { fetchNotifications } from '../lib/api/assistant';
+import { fetchInsights } from '../lib/api/insights';
 import { enqueue as speechEnqueue, canPlayAudio, cancelAll as speechCancelAll } from '../lib/speech/speechPlayer';
 import { toast } from '../components/toast';
+import { updateNotificationSettings } from '../lib/api/push';
+import { usePushRegistration } from './pushRegistration';
 
 const POLL_MS = 60_000;           // 감시 주기 (1분)
 const NOTICE_POLL_MS = 15_000;    // 문의 답변 감시 주기 (15초 — 답변 후 빠른 도착 체감)
 const VOICE_POLL_MS = 30_000;     // ⑥ 음성 비서 알림 폴링 주기 (30초)
+const INSIGHT_POLL_MS = 600_000;  // ⑦ 선제 인사이트 폴링 주기 (10분 — 하루 단위로 바뀌는 정보라 자주 볼 필요 없다)
+const INSIGHT_MAX_PER_CYCLE = 3;  // 한 번에 쏟아붓지 않는다 — 나머지는 다음 주기에
 const SURGE_RATIO = 1.1;          // 단가 급등 기준: 기준가 대비 +10% 이상
 const REPORT_HOUR = 9;            // 리포트 도착 알림은 오전 9시 이후에만
 
 const STORE_KEY = 'simplem:alerts:state';
 // 이미 알림을 보낸 '답변 완료' 문의 id 목록 (중복 토스트 방지)
 const INQUIRY_KEY = 'simplem:alerts:inquiry-answered-ids';
+// 오늘 이미 알린 인사이트 key 목록 — {date, keys} 형태로 보관해 날짜가 바뀌면 초기화된다
+const INSIGHT_KEY = 'simplem:alerts:insight-sent';
+
+/** 인사이트 카테고리별 아이콘 — 어느 영역 이야기인지 한눈에 */
+const INSIGHT_ICON: Record<string, string> = {
+  inventory: '📦',
+  order: '🚚',
+  document: '📄',
+  tax: '🧾',
+  sales: '📉',
+  staff: '👥',
+  data: '✏️',
+};
 
 type AlertState = {
   lowStockDate?: string;          // 재고 부족 알림을 마지막으로 보낸 날짜 (YYYY-MM-DD)
@@ -74,7 +94,43 @@ export default function AlertsWatcher() {
   const running = useRef(false); // 폴링 중복 실행 방지
   const noticeRunning = useRef(false); // 공지·답변 폴링 중복 실행 방지
   const voiceRunning = useRef(false); // ⑥ 음성 알림 폴링 중복 실행 방지
+  const insightRunning = useRef(false); // ⑦ 선제 인사이트 폴링 중복 실행 방지
   const lastVoiceCheck = useRef<string>(new Date().toISOString()); // 마지막 폴링 시각
+
+  // ⑦ FCM 푸시 등록 — 앱이 꺼져 있을 때도 도착해야 하는 Tier 1 알림용.
+  //    위 폴링(①~⑥)은 앱이 열려 있을 때만 도는 인앱 토스트라 서로 역할이 다르다.
+  usePushRegistration(token);
+
+  // ⑧ 알림 설정 서버 동기화 — 푸시는 서버가 보내므로 방해금지·수신 주기를 서버도 알아야 한다.
+  //    (이 설정들은 기기 로컬 AsyncStorage에만 있어서 서버는 알 길이 없다)
+  useEffect(() => {
+    if (!token || !prefs.ready) return;
+    const t = setTimeout(() => {
+      // 스위치를 연속으로 토글할 때 매번 PUT하지 않도록 잠깐 모았다 보낸다
+      updateNotificationSettings(token, {
+        push_enabled: true,
+        compliance_alert: true, // 갱신 서류는 별도 스위치가 아직 없어 기본 on
+        report_alert: true,
+        stock_alert: prefs.lowStockAlert,
+        sensor_alert: true,
+        report_frequency: prefs.reportFrequency,
+        dnd_enabled: prefs.dndEnabled,
+        dnd_start: prefs.dndStart,
+        dnd_end: prefs.dndEnd,
+      }).catch(() => {
+        // 서버 오프라인 — 설정이 바뀔 때 다시 시도된다
+      });
+    }, 800);
+    return () => clearTimeout(t);
+  }, [
+    token,
+    prefs.ready,
+    prefs.lowStockAlert,
+    prefs.reportFrequency,
+    prefs.dndEnabled,
+    prefs.dndStart,
+    prefs.dndEnd,
+  ]);
 
   // ⑤ 문의 답변 도착 — 15초 주기로 감시 (관리자 공지는 홈 말풍선이 담당하므로 제외)
   useEffect(() => {
@@ -286,6 +342,59 @@ export default function AlertsWatcher() {
     const timer = setInterval(checkVoiceNotifications, VOICE_POLL_MS);
     return () => clearInterval(timer);
   }, [token, prefs.ready, prefs.dndEnabled, prefs.dndStart, prefs.dndEnd, prefs.voiceAlertEnabled]);
+
+  // ⑦ 선제 인사이트 — 서버가 매장 DB를 훑어 찾아낸 "곧 할 일 · 놓친 일"을 알림으로 전한다.
+  //    묻지 않아도 먼저 알려주되, 말을 걸지는 않는다(대화는 사장님이 시작한다).
+  //    low(알아두면 좋음)는 토스트로 띄우지 않는다 — 챗봇에게 물으면 그때 알려준다.
+  useEffect(() => {
+    if (!token || !prefs.ready || !prefs.proactiveInsights) return;
+
+    const checkInsights = async () => {
+      if (insightRunning.current) return;
+      insightRunning.current = true;
+      try {
+        if (prefs.dndEnabled && isInDndWindow(new Date(), prefs.dndStart, prefs.dndEnd)) return;
+
+        const scan = await fetchInsights();
+        const urgent = scan.insights.filter((i) => i.severity !== 'low');
+        if (urgent.length === 0) return;
+
+        // 같은 인사이트를 하루에 한 번만 알린다 (날짜가 바뀌면 이력은 자동 폐기)
+        const today = dateKey(new Date());
+        const raw = await AsyncStorage.getItem(INSIGHT_KEY);
+        const saved: { date?: string; keys?: string[] } = raw ? JSON.parse(raw) : {};
+        const sent = saved.date === today ? saved.keys ?? [] : [];
+
+        const fresh = urgent.filter((i) => !sent.includes(i.key));
+        if (fresh.length === 0) return;
+
+        for (const insight of fresh.slice(0, INSIGHT_MAX_PER_CYCLE)) {
+          const icon = INSIGHT_ICON[insight.category] ?? '🔔';
+          toast(`${icon} ${insight.title}`, insight.body);
+        }
+        const notified = fresh.slice(0, INSIGHT_MAX_PER_CYCLE).map((i) => i.key);
+        await AsyncStorage.setItem(
+          INSIGHT_KEY,
+          JSON.stringify({ date: today, keys: [...sent, ...notified] })
+        );
+      } catch {
+        // 서버 오프라인 — 다음 주기에 재시도
+      } finally {
+        insightRunning.current = false;
+      }
+    };
+
+    checkInsights();
+    const timer = setInterval(checkInsights, INSIGHT_POLL_MS);
+    return () => clearInterval(timer);
+  }, [
+    token,
+    prefs.ready,
+    prefs.proactiveInsights,
+    prefs.dndEnabled,
+    prefs.dndStart,
+    prefs.dndEnd,
+  ]);
 
   return null;
 }

@@ -31,6 +31,10 @@ try:
     from app.models.operation import ensure_employee_store_column
     ensure_employee_store_column(engine)
 
+    # [자가치유] 기존 ocr_documents 테이블에 store_id 컬럼이 없으면 보강한다 (매장별 OCR 조회용).
+    from app.models.ai import ensure_ocr_store_column
+    ensure_ocr_store_column(engine)
+
     # [한글 주석] 로그인 데모를 즉시 하실 수 있게 테스트용 사장님 계정을 자동으로 생성(시딩)해 둡니다.
     db_session = SessionLocal()
     try:

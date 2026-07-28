@@ -111,7 +111,6 @@ const NOTICE_ROUTE_RULES: { keywords: string[]; route: string; label: string }[]
   { keywords: ['메뉴', '레시피'], route: 'Menu', label: '메뉴 관리' },
   { keywords: ['발주', '주문', '입고', '거래처'], route: 'Order', label: '발주' },
   { keywords: ['재고', '재료', '유통기한', '실사', '원두'], route: 'Inventory', label: '재고' },
-  { keywords: ['결제', '구독', '프리미엄', '요금', '멤버십'], route: 'Management', label: '관리' },
   { keywords: ['챗봇', '어시스턴트', 'ai'], route: 'Chatbot', label: '챗봇' },
   { keywords: ['설정', '환경설정'], route: 'Settings', label: '설정' },
 ];

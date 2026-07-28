@@ -1,5 +1,5 @@
 // 설정 화면 — 관리 허브에서 진입. (P0)
-// ① 계정/가게 정보  ② 구독/결제(ROI 해지방지)  ③ 알림 설정  ④ 화면 표시/접근성
+// ① 계정/가게 정보  ② 알림 설정  ③ 화면 표시/접근성
 // 계정은 백엔드 /auth 실연동, 나머지 환경설정은 PreferencesContext(AsyncStorage)에 저장.
 import { useEffect, useState, useRef } from 'react';
 import { Modal, ScrollView, StyleSheet, Switch, Text, TextInput, View, LayoutAnimation, Platform, UIManager, Animated } from 'react-native';
@@ -15,11 +15,9 @@ import { useAuth } from '../../auth/AuthContext';
 import {
   FONT_SIZE_LABEL,
   LANGUAGE_LABEL,
-  PLANS,
   usePreferences,
   type FontSize,
   type Language,
-  type PlanTier,
 } from '../../preferences/PreferencesContext';
 import { useTranslation } from '../../i18n/translations';
 import { Badge, Button, Card, Divider, Screen, SectionTitle, IosTimePicker } from '../../components/ui';
@@ -29,11 +27,6 @@ import { confirmDialog, toast } from '../../components/toast';
 import { API_BASE_URL } from '../../lib/api/client';
 import { getSensorFeature, setSensorFeature } from '../../lib/api/sensor';
 import { colors, typography } from '../../theme';
-
-const wonFmt = (n: number) => '₩' + Math.round(n || 0).toLocaleString('ko-KR');
-
-// [데모] 이번 달 브루노트가 아껴준 것으로 추정되는 금액 — 실제 절감 지표 연동 전 대표값
-const SAVED_THIS_MONTH = 342_000;
 
 // 설정 항목 한 줄 (라벨 + 우측 컨트롤)
 function Row({ label, hint, right }: { label: string; hint?: string; right: React.ReactNode }) {
@@ -189,13 +182,12 @@ export default function SettingsScreen() {
   const { t } = useTranslation();
 
   // [한글 주석: 설정 창 내부 서브 라우팅 뷰 관리 상태 ('main'일 때는 메뉴 목록 노출)]
-  const [subView, setSubView] = useState<'main' | 'account' | 'subscription' | 'notification' | 'appearance' | 'inquiry' | 'legal'>('main');
+  const [subView, setSubView] = useState<'main' | 'account' | 'notification' | 'appearance' | 'inquiry' | 'legal'>('main');
 
   // [한글 주석: 현재 진입한 subView 상태에 맞춰 상단 헤더 타이틀과 뒤로가기 동작을 동적으로 변경]
   useEffect(() => {
     let title = t('settings');
     if (subView === 'account') title = '가게 & 계정 설정';
-    else if (subView === 'subscription') title = '구독 & 결제 플랜';
     else if (subView === 'notification') title = '알림 수신 설정';
     else if (subView === 'appearance') title = t('displayAndAccessibility');
     else if (subView === 'inquiry') title = '1대1 CS 문의';
@@ -387,30 +379,6 @@ export default function SettingsScreen() {
     toast('접수 완료', '1대1 문의 및 요청사항이 관리자에게 전달되었어요.');
   };
 
-  // ── 구독/결제 ──────────────────────────────────────
-  const plan = PLANS[prefs.plan];
-  // ROI: 아껴준 돈 ÷ 구독료 (Free면 Pro 기준으로 이득 소구)
-  const compareTier: PlanTier = prefs.plan === 'free' ? 'pro' : prefs.plan;
-  const comparePrice = PLANS[compareTier].price;
-  const roi = comparePrice > 0 ? SAVED_THIS_MONTH / comparePrice : 0;
-
-  const changePlan = (tier: PlanTier) => {
-    if (tier === prefs.plan) return;
-    const up = PLANS[tier].price > plan.price;
-    confirmDialog(
-      `${PLANS[tier].label} 플랜(${wonFmt(PLANS[tier].price)}/월)으로 ${up ? '업그레이드' : '변경'}할까요?`,
-      {
-        confirmLabel: up ? '업그레이드' : '변경',
-        onConfirm: () => {
-          prefs.setPref('plan', tier);
-          toast('플랜 변경', `${PLANS[tier].label} 플랜으로 전환됐어요.`);
-        },
-      }
-    );
-  };
-
-
-
   return (
     <Screen>
       {/* ── [한글 주석: 설정 첫 화면 진입 시 카테고리 6개 항목 메뉴 리스트 노출] ── */}
@@ -434,28 +402,6 @@ export default function SettingsScreen() {
                   {prefs.language === 'en'
                     ? 'Store name, Manager name, Sensors & Password'
                     : '매장명, 사장님 이름, 센서 연동, 비밀번호 변경'}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
-            </View>
-          </PressableScale>
-
-          {/* 구독 & 결제 플랜 */}
-          <PressableScale
-            style={styles.menuItemCard}
-            onPress={() => {
-              springTransition();
-              setSubView('subscription');
-            }}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              <View style={styles.menuIconWrap}>
-                <Ionicons name="card-outline" size={20} color={colors.espressoBrown} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.menuItemTitle}>{prefs.language === 'en' ? 'Subscription & Billing' : '구독 & 결제 플랜'}</Text>
-                <Text style={styles.menuItemDesc}>
-                  {prefs.language === 'en' ? 'Check current plan & Upgrade' : '이용 중인 플랜 확인, 요금제 업그레이드'}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
@@ -718,60 +664,7 @@ export default function SettingsScreen() {
       </Card>
       )}
 
-      {/* ② 구독 / 결제 */}
-      {subView === 'subscription' && (
-        <Card tone="cream">
-        <View style={styles.rowBetween}>
-          <SectionTitle>구독 · 결제</SectionTitle>
-          <Badge label={`현재 ${plan.label}`} tone={prefs.plan === 'free' ? 'neutral' : 'green'} />
-        </View>
-
-        {/* ROI — 해지 방지 소구 */}
-        <View style={styles.roiBox}>
-          <Text style={styles.roiCaption}>이번 달 브루노트가 아껴준 돈 (추정)</Text>
-          <Text style={styles.roiValue}>{wonFmt(SAVED_THIS_MONTH)}</Text>
-          {roi > 0 ? (
-            <Text style={styles.roiCompare}>
-              {compareTier === prefs.plan ? '' : `${PLANS[compareTier].label} `}구독료 {wonFmt(comparePrice)}/월의{' '}
-              <Text style={styles.roiHighlight}>{roi.toFixed(1)}배</Text>를 아꼈어요
-            </Text>
-          ) : (
-            <Text style={styles.roiCompare}>유료 플랜으로 올리면 더 많은 기능으로 비용을 아낄 수 있어요.</Text>
-          )}
-        </View>
-
-        {/* 플랜 선택 */}
-        <View style={styles.planRow}>
-          {(Object.keys(PLANS) as PlanTier[]).map((tier) => {
-            const p = PLANS[tier];
-            const active = prefs.plan === tier;
-            return (
-              <PressableScale
-                key={tier}
-                style={[styles.planCard, active && styles.planCardActive]}
-                onPress={() => changePlan(tier)}
-                to={0.97}
-              >
-                <Text style={[styles.planName, active && styles.planNameActive]}>{p.label}</Text>
-                <Text style={[styles.planPrice, active && styles.planNameActive]}>
-                  {p.price === 0 ? '무료' : `${wonFmt(p.price)}/월`}
-                </Text>
-                <Text style={styles.planBlurb}>{p.blurb}</Text>
-              </PressableScale>
-            );
-          })}
-        </View>
-        {prefs.plan !== 'business' ? (
-          <Button
-            label="업그레이드"
-            style={{ marginTop: 14 }}
-            onPress={() => changePlan(prefs.plan === 'free' ? 'pro' : 'business')}
-          />
-        ) : null}
-      </Card>
-      )}
-
-      {/* ③ 알림 설정 */}
+      {/* ② 알림 설정 */}
       {subView === 'notification' && (
         <Card>
         <SectionTitle>알림 설정</SectionTitle>
@@ -795,6 +688,19 @@ export default function SettingsScreen() {
             <Switch
               value={prefs.priceSurgeAlert}
               onValueChange={(v) => prefs.setPref('priceSurgeAlert', v)}
+              trackColor={{ false: '#D6CFC7', true: colors.espressoBrown }}
+              thumbColor={colors.white}
+            />
+          }
+        />
+        <Divider />
+        <Row
+          label="놓친 일 먼저 알려주기"
+          hint="재고 소진 예상일, 신고 기한, 갱신 서류, 방치된 초안 등을 매장 데이터에서 찾아 미리 알려드려요"
+          right={
+            <Switch
+              value={prefs.proactiveInsights}
+              onValueChange={(v) => prefs.setPref('proactiveInsights', v)}
               trackColor={{ false: '#D6CFC7', true: colors.espressoBrown }}
               thumbColor={colors.white}
             />
@@ -875,7 +781,7 @@ export default function SettingsScreen() {
       </Card>
       )}
 
-      {/* ④ 화면 표시 / 접근성 & 외국인 사장님을 위한 언어 설정 */}
+      {/* ③ 화면 표시 / 접근성 & 외국인 사장님을 위한 언어 설정 */}
       {subView === 'appearance' && (
         <Card>
         <SectionTitle>{t('displayAndAccessibility')}</SectionTitle>
@@ -932,14 +838,14 @@ export default function SettingsScreen() {
       </Card>
       )}
 
-      {/* ⑤ [한글 주석] 사장님 1대1 문의 & 요청사항 서비스 카드 */}
+      {/* ④ [한글 주석] 사장님 1대1 문의 & 요청사항 서비스 카드 */}
       {subView === 'inquiry' && (
         <Card tone="cream">
           <View style={styles.rowBetween}>
             <SectionTitle>💬 1대1 CS 문의 & 요청</SectionTitle>
             <Badge label="실시간 관리자 연동" tone="green" />
           </View>
-          <Text style={[styles.roiCompare, { marginTop: 4, marginBottom: 12 }]}>
+          <Text style={[styles.helperText, { marginTop: 4, marginBottom: 12 }]}>
             매장 운영 시 필요한 기능 개선 요청이나 불편사항을 해결해 드려요.
           </Text>
 
@@ -1156,8 +1062,8 @@ export default function SettingsScreen() {
                 },
                 {
                   id: 4,
-                  q: '무료 플랜과 Pro 플랜의 차이가 무엇인가요?',
-                  a: 'Pro 플랜부터는 주간 경영 분석 보고서와 매입단가 폭등 사전 경고, 무제한 재고 매칭 엔진이 제공되어 매장 원가 관리가 한층 입체적으로 자동화됩니다.'
+                  q: '매장 데이터는 안전하게 보관되나요?',
+                  a: '매출·재고·거래명세서 등 입력하신 운영 데이터는 암호화된 통신으로 전송되며, 설정 > 약관 및 정책의 개인정보처리방침에 명시된 목적 범위 안에서만 처리됩니다. 회원 탈퇴 시에는 지체 없이 파기됩니다.'
                 }
               ].map((faq) => {
                 const expanded = faqExpandedId === faq.id;
@@ -1212,7 +1118,7 @@ export default function SettingsScreen() {
         </Card>
       )}
 
-      {/* ⑥ 약관 및 정책 */}
+      {/* ⑤ 약관 및 정책 */}
       {subView === 'legal' && (
         <Card>
         <SectionTitle>약관 및 정책</SectionTitle>
@@ -1295,26 +1201,8 @@ const styles = StyleSheet.create({
   },
   dangerText: { ...typography.L4, color: '#B23B2E' },
 
-  // 구독 ROI
-  roiBox: {
-    backgroundColor: 'rgba(78,54,41,0.05)', borderRadius: 14, padding: 14, marginTop: 12,
-    borderWidth: 1, borderColor: 'rgba(78,54,41,0.08)',
-  },
-  roiCaption: { ...typography.L5, color: colors.mochaBrown },
-  roiValue: { ...typography.L2, color: colors.espressoBrown, marginTop: 4 },
-  roiCompare: { ...typography.L5, color: colors.mochaBrown, marginTop: 6, lineHeight: 16 },
-  roiHighlight: { color: colors.trendGreenText, fontWeight: '900' },
-
-  planRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
-  planCard: {
-    flex: 1, borderRadius: 14, padding: 12,
-    backgroundColor: colors.white, borderWidth: 1.5, borderColor: 'rgba(140,111,86,0.14)',
-  },
-  planCardActive: { borderColor: colors.espressoBrown, backgroundColor: '#FBF7F3' },
-  planName: { ...typography.L4, color: colors.mochaBrown },
-  planNameActive: { color: colors.espressoBrown },
-  planPrice: { ...typography.L5, color: colors.mochaBrown, marginTop: 4, fontWeight: '800' },
-  planBlurb: { ...typography.L5, color: colors.mochaBrown, marginTop: 6, lineHeight: 14 },
+  // 카드 상단 안내 문구
+  helperText: { ...typography.L5, color: colors.mochaBrown, marginTop: 6, lineHeight: 16 },
 
   dndRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
   timeInput: {
