@@ -210,3 +210,22 @@ def test_chatbot_tool_reports_failure_instead_of_guessing(db):
     out = json.loads(todo_tools.complete_todo.invoke({"store_id": STORE, "title": "원두"}))
     assert out["ok"] is False
     assert len(out["todos"]) == 2            # 되물을 수 있게 후보를 함께 준다
+
+
+def test_duplicate_by_normalized_ai_titles(db):
+    """AI가 짓는 제목은 매번 조금씩 다르다 — '원두 발주' vs '원두 발주하기' vs
+    '원두발주'가 세 줄로 쌓이면 안 된다."""
+    first = ts.add_todo(STORE, TodoCreate(title="원두 발주하기"), source="ai")
+    assert ts.add_todo(STORE, TodoCreate(title="원두 발주"), source="ai")["id"] == first["id"]
+    assert ts.add_todo(STORE, TodoCreate(title="원두발주"), source="ai")["id"] == first["id"]
+    assert db.query(TodoItem).count() == 1
+
+
+def test_normalized_dedupe_keeps_different_tasks_apart(db):
+    """'원두 발주'와 '원두 발주서 확인'은 다른 일이다 — 잘못 합치는 것보다
+    한 줄 더 생기는 쪽이 덜 위험하므로 표기 차이만 흡수한다."""
+    ts.add_todo(STORE, TodoCreate(title="원두 발주"))
+    ts.add_todo(STORE, TodoCreate(title="원두 발주서 확인"))
+    ts.add_todo(STORE, TodoCreate(title="원두"))   # 부분 문자열이지만 같은 일이라 확신할 수 없다
+
+    assert db.query(TodoItem).count() == 3

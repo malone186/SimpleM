@@ -25,6 +25,7 @@ import importlib
 import json
 import logging
 import os
+from datetime import date
 from pathlib import Path
 from typing import Any, Optional
 
@@ -87,6 +88,8 @@ _SUB_PROMPT_BASE = """당신은 카페 운영 시스템 SimpleM의 '{title}'입�
 주어진 도구만 사용해 요청을 처리하고, 결과를 한국어로 간결하게 정리해 보고하세요.
 
 규칙:
+- 오늘 날짜는 {today}입니다. '내일'·'다음 주' 같은 상대 날짜는 반드시 이 날짜 기준으로
+  계산하세요. 날짜를 모르는 채 추측해 넣으면 과거 날짜 같은 엉뚱한 값이 들어갑니다.
 - 도구가 store_id를 요구하면 반드시 '{store_id}'를 넣으세요.
 - 도구 실행 결과에 있는 숫자·데이터를 지어내지 말고 그대로 사용하세요.
 - 요청을 처리할 도구가 없으면 "이 요청은 제 담당 도구로는 처리할 수 없습니다"라고 보고하세요.
@@ -431,7 +434,10 @@ def _build_subagent(domain: dict[str, Any], store_id: str, created_docs: list[di
     tools = [_bind_store(t, store_id, created_docs) for m in domain["modules"] for t in _module_tools(m)]
     if not tools:
         return None
-    prompt = _SUB_PROMPT_BASE.format(title=domain["title"], store_id=store_id, extra=domain["extra"])
+    # today: 메인 프롬프트에만 있던 오늘 날짜를 서브에도 넣는다 — 서브가 날짜를 모르면
+    # '내일 발주' 같은 상대 날짜를 환각으로 채워 과거 날짜가 저장되는 사고가 났다.
+    prompt = _SUB_PROMPT_BASE.format(title=domain["title"], store_id=store_id,
+                                     today=date.today().isoformat(), extra=domain["extra"])
     return create_agent(_get_model(model_name), tools, system_prompt=prompt)
 
 

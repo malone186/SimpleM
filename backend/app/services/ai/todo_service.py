@@ -90,12 +90,24 @@ def _aware(dt: datetime) -> datetime:
 # 추가
 # ---------------------------------------------------------------------------
 
+def _normalize_title(s: str) -> str:
+    """중복 판정용 제목 정규화 — 공백을 걷어내고 '~하기' 어미를 뗀다.
+
+    AI가 짓는 제목은 매번 조금씩 달라서('원두 발주' vs '원두 발주하기') 정확일치로는
+    같은 일이 두 줄로 쌓인다. 반대로 포함관계 매칭은 '원두 발주'와 '원두 발주서 확인'
+    같은 다른 일까지 합쳐버린다 — 잘못 합치는 것보다 한 줄 더 생기는 쪽이 덜 위험하므로
+    표기 차이만 흡수하는 정규화 동등 비교에 머문다.
+    """
+    t = "".join(s.split())
+    return t[:-2] if t.endswith("하기") else t
+
+
 def add_todo(store_id: str, req: TodoCreate, source: str = "owner") -> dict[str, Any]:
-    """할 일을 추가한다. 같은 제목의 미완료 항목이 이미 있으면 그것을 그대로 돌려준다.
+    """할 일을 추가한다. 같은 일을 가리키는 미완료 항목이 이미 있으면 그것을 그대로 돌려준다.
 
     중복을 막는 이유는 챗봇 때문이다. 사장님이 "원두 발주 잊지 말라고 해줘"를 두 번
-    말하거나 모델이 도구를 두 번 호출하면 같은 줄이 두 개 쌓인다. 사람이 직접 두 번
-    적는 건 드물지만, 그 경우에도 같은 항목을 가리키는 게 자연스럽다.
+    말하거나 모델이 도구를 두 번 호출하면 같은 줄이 두 개 쌓인다. 판정 기준은
+    _normalize_title 참고.
     """
     from app.models.ai import TodoItem
 
@@ -109,12 +121,13 @@ def add_todo(store_id: str, req: TodoCreate, source: str = "owner") -> dict[str,
             raise TodoError(f"기한 형식 오류: '{req.due_date}' (YYYY-MM-DD로 입력)")
 
     with _session() as db:
-        existing = (
+        open_rows = (
             db.query(TodoItem)
-            .filter(TodoItem.store_id == store_id, TodoItem.title == title,
-                    TodoItem.done.is_(False))
-            .first()
+            .filter(TodoItem.store_id == store_id, TodoItem.done.is_(False))
+            .all()
         )
+        norm = _normalize_title(title)
+        existing = next((r for r in open_rows if _normalize_title(r.title) == norm), None)
         if existing is not None:
             return _to_dict(existing)
 
