@@ -22,8 +22,10 @@
       "permissions": [
         "android.permission.BLUETOOTH",
         "android.permission.BLUETOOTH_ADMIN",
-        "android.permission.BLUETOOTH_CONNECT"
-      ]
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "favicon": "./assets/brew_icon_cutout.png"
@@ -48,6 +50,14 @@
         {
           "isBackgroundEnabled": false,
           "bluetoothAlwaysPermission": "매장 센서(무게·온도·RFID 허브)를 찾기 위해 블루투스를 사용합니다."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/brew_icon_cutout.png",
+          "color": "#E8833A",
+          "defaultChannel": "brewnote-default"
         }
       ]
     ],
