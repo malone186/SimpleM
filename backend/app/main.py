@@ -18,6 +18,11 @@ import app.models  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
+# [로그 레벨] 루트 로거의 기본값은 WARNING이라 앱 코드의 logger.info(...)가 한 줄도 안 나간다.
+# 그 탓에 "FCM 자격증명 로드 완료" 같은 기동 확인용 로그를 Cloud Run에서 grep해도 안 잡혀,
+# 기능은 정상인데 미설정으로 오판하게 된다. INFO까지 내보낸다 (uvicorn 자체 로거는 그대로).
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+
 # [안전장치] 서버가 처음 기동할 때, 우리가 설계한 DB 테이블(User 등)이 실제 DB에 없으면 자동으로 생성해 줍니다.
 # DB가 꺼져 있어도 서버 자체는 뜨도록 한다 — DB와 무관한 기능(OCR 등)은 독립 동작해야 함 (PRD §7)
 try:
