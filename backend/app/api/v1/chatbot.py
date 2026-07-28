@@ -488,8 +488,11 @@ def unregister_push_token(token: str, current_user: User = Depends(get_current_u
 
     토큰은 경로가 아니라 쿼리로 받는다 — FCM 토큰에 섞일 수 있는 문자가
     경로 세그먼트에서 잘못 해석되는 일을 피한다.
+
+    store_id를 함께 넘겨 '내 기기'만 지운다 — 안 그러면 인증만 된 사용자가
+    토큰 문자열을 아는 것만으로 남의 기기 등록을 해제할 수 있다.
     """
-    push_service.unregister_token(db, token)
+    push_service.unregister_token(db, token, store_id=current_user.email)
 
 
 @router.get("/notifications/settings", response_model=NotificationSettingResponse)

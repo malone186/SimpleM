@@ -210,3 +210,261 @@ def test_push_disabled_when_unconfigured(monkeypatch):
     monkeypatch.setattr(ps, "_credentials", None)
     monkeypatch.setattr(ps, "_project_id", None)
     assert ps.is_configured() is False
+
+
+def test_unregister_token_only_removes_own_device(db):
+    """토큰 문자열을 안다고 남의 기기 등록을 해제할 수 있으면 안 된다."""
+    ps.register_token(db, STORE, "tok-mine-1234567890")
+    ps.register_token(db, "other@test.com", "tok-theirs-1234567890")
+
+    # 남의 토큰을 내 store_id로 지우려 해도 남아 있어야 한다
+    ps.unregister_token(db, "tok-theirs-1234567890", store_id=STORE)
+    assert ps.list_tokens(db, "other@test.com") == ["tok-theirs-1234567890"]
+
+    ps.unregister_token(db, "tok-mine-1234567890", store_id=STORE)
+    assert "tok-mine-1234567890" not in ps.list_tokens(db, STORE)
+
+
+def test_send_to_store_drops_tokens_fcm_rejected(db, monkeypatch):
+    """FCM이 UNREGISTERED로 거절한 토큰은 그 자리에서 지워야 한다 —
+    쌓아두면 발송량만 늘고 '발송 0건' 판정이 계속 어긋난다."""
+    ps.register_token(db, STORE, "tok-dead-000000000000")
+    ps.register_token(db, STORE, "tok-live-000000000000")
+
+    monkeypatch.setattr(ps, "_load_credentials", lambda: ("creds", "proj"))
+    monkeypatch.setattr(ps, "_access_token", lambda: "at")
+    monkeypatch.setattr(
+        ps, "_send_one",
+        lambda at, pid, token, title, body, data, urgent: (
+            (False, "UNREGISTERED") if "dead" in token else (True, None)),
+    )
+
+    # db 픽스처가 이미 살아있는 토큰 하나를 넣어 두므로 성공은 2건이 된다
+    live_before = [t for t in ps.list_tokens(db, STORE) if "dead" not in t]
+    assert ps.send_to_store(db, STORE, "제목", "본문") == len(live_before)
+
+    remaining = ps.list_tokens(db, STORE)
+    assert "tok-dead-000000000000" not in remaining
+    assert "tok-live-000000000000" in remaining
+
+
+# ---------------------------------------------------------------------------
+# 발송 실패 — 이력을 남기면 그 사건은 영영 안 나간다
+# ---------------------------------------------------------------------------
+
+def test_dispatch_retries_when_nothing_was_sent(db, monkeypatch):
+    """0건 발송이면 예약을 취소해 다음 실행에서 다시 시도해야 한다."""
+    calls = []
+    monkeypatch.setattr(
+        ps, "send_to_store",
+        lambda db_, sid, title, body, data=None, urgent=False: (calls.append(title) or 0))
+
+    today = datetime.now(KST).date()
+    db.add(ComplianceItem(store_id=STORE, name="보건증(실패)",
+                          expiry_date=(today + timedelta(days=7)).isoformat()))
+    db.commit()
+    settings = ns.get_settings(db, STORE)
+
+    assert ns.check_compliance(db, STORE, settings) == []      # 보냈다고 보고하지 않는다
+    assert db.query(SentNotification).count() == 0             # 이력도 남지 않는다
+
+    # 다음 실행에서 FCM이 살아나면 그대로 나간다
+    monkeypatch.setattr(
+        ps, "send_to_store",
+        lambda db_, sid, title, body, data=None, urgent=False: (calls.append(title) or 1))
+    assert len(ns.check_compliance(db, STORE, settings)) == 1
+    assert db.query(SentNotification).count() == 1
+    assert len(calls) == 2                                     # 재시도가 실제로 일어났다
+
+
+def test_run_all_skips_everything_when_push_unconfigured(db, monkeypatch):
+    """미설정 상태에서 돌면 발송은 0건인데 리포트·예측 비용만 반복해서 치르게 된다."""
+    monkeypatch.setattr(ps, "is_configured", lambda: False)
+    called = []
+    monkeypatch.setattr(ns, "run_for_store", lambda *a, **k: called.append(1))
+
+    result = ns.run_all(_at(9))
+    assert result["skipped"] == "push_unconfigured"
+    assert called == []
+
+
+# ---------------------------------------------------------------------------
+# 리포트 — '끝난 기간'을, 이른 새벽이 아닌 때에
+# ---------------------------------------------------------------------------
+
+def test_report_waits_for_report_hour(db, sent, monkeypatch):
+    """매시간 스케줄러의 그날 첫 실행은 00:00이다 — 자정에 리포트가 나가면 안 된다."""
+    monkeypatch.setattr(ns, "_already_sent", lambda *a: False)
+    settings = ns.get_settings(db, STORE)
+    settings.report_frequency = "daily"
+    db.commit()
+
+    assert ns.check_report(db, STORE, settings, _at(0)) == []
+    assert ns.check_report(db, STORE, settings, _at(8)) == []
+    assert sent == []
+
+
+def test_report_covers_the_completed_period(db, sent, monkeypatch):
+    """기준일을 오늘로 두면 월요일 아침 '지난주 리포트'가 매출 0원짜리 이번 주가 된다."""
+    captured = {}
+
+    def fake_report(store_id, period_type="weekly", reference_date=None, force_refresh=True):
+        captured["ref"] = reference_date
+        captured["period_type"] = period_type
+        return {"content": {"period": "2026-07-20 ~ 2026-07-26",
+                            "sales": {"total": 1_234_000, "change_pct": 5}}}
+
+    from app.services.ai import report_service
+    monkeypatch.setattr(report_service, "generate_management_report", fake_report)
+
+    settings = ns.get_settings(db, STORE)
+    settings.report_frequency = "weekly"
+    db.commit()
+
+    monday = datetime(2026, 7, 27, 9, tzinfo=KST)
+    assert monday.weekday() == 0
+    keys = ns.check_report(db, STORE, settings, monday)
+
+    assert len(keys) == 1
+    # 기준일이 하루 앞(일요일)이라야 '지난주(7/20~7/26)'가 잡힌다
+    assert captured["ref"] == "2026-07-26"
+    assert "지난주" in sent[0]["title"]
+    assert "1,234,000원" in sent[0]["body"]
+
+
+def test_report_skips_generation_when_already_sent(db, sent, monkeypatch):
+    """중복 판정이 생성보다 뒤에 있으면 매 틱마다 집계·문서 갱신이 반복된다."""
+    calls = []
+
+    def fake_report(store_id, period_type="weekly", reference_date=None, force_refresh=True):
+        calls.append(reference_date)
+        return {"content": {"period": "2026-07-27", "sales": {"total": 100}}}
+
+    from app.services.ai import report_service
+    monkeypatch.setattr(report_service, "generate_management_report", fake_report)
+
+    settings = ns.get_settings(db, STORE)
+    settings.report_frequency = "daily"
+    db.commit()
+
+    assert len(ns.check_report(db, STORE, settings, _at(9))) == 1
+    assert len(calls) == 1
+
+    # 같은 날 재실행 — 생성 자체가 일어나면 안 된다
+    assert ns.check_report(db, STORE, settings, _at(10)) == []
+    assert ns.check_report(db, STORE, settings, _at(11)) == []
+    assert len(calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# 재고 소진 — 예측은 비싸다
+# ---------------------------------------------------------------------------
+
+def test_stock_bundles_urgent_items(db, sent, monkeypatch):
+    from app.services.ai import forecast_service
+    monkeypatch.setattr(forecast_service, "forecast", lambda sid: {"order_recommendations": [
+        {"ingredient": "원두", "days_until_stockout": 1.0},
+        {"ingredient": "우유", "days_until_stockout": 2.0},
+        {"ingredient": "시럽", "days_until_stockout": 10.0},   # 리드타임 밖 — 제외
+    ]})
+
+    settings = ns.get_settings(db, STORE)
+    keys = ns.check_stock(db, STORE, settings, _at(9))
+
+    assert keys == ["stock:2종"]                 # 품목별로 쪼개 보내지 않는다
+    assert "원두" in sent[0]["title"]             # 가장 급한 품목이 제목
+    assert "시럽" not in sent[0]["body"]
+    assert sent[0]["data"]["screen"] == "Order"
+
+
+def test_stock_skips_forecast_when_already_sent(db, sent, monkeypatch):
+    """forecast()는 SARIMAX 적합 + 외부 HTTP다 — 이미 보낸 날엔 부르면 안 된다."""
+    calls = []
+
+    def fake_forecast(sid):
+        calls.append(sid)
+        return {"order_recommendations": [{"ingredient": "원두", "days_until_stockout": 1.0}]}
+
+    from app.services.ai import forecast_service
+    monkeypatch.setattr(forecast_service, "forecast", fake_forecast)
+
+    settings = ns.get_settings(db, STORE)
+    assert ns.check_stock(db, STORE, settings, _at(9)) == ["stock:1종"]
+    assert len(calls) == 1
+
+    assert ns.check_stock(db, STORE, settings, _at(10)) == []
+    assert ns.check_stock(db, STORE, settings, _at(23)) == []
+    assert len(calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# 설비 이상 — 방해금지를 뚫되 쿨다운은 지킨다
+# ---------------------------------------------------------------------------
+
+def _stub_sensor(monkeypatch, items):
+    from app.services.ai import sensor_service
+    monkeypatch.setattr(sensor_service, "is_feature_enabled", lambda sid: True)
+    monkeypatch.setattr(sensor_service, "get_recommendations", lambda sid: {"items": items})
+
+
+def test_sensor_fires_through_dnd_then_cools_down(db, sent, monkeypatch):
+    _stub_sensor(monkeypatch, [{
+        "priority": "urgent", "source": "온도센서",
+        "title": "냉장고 온도 이탈", "reason": "8.5도까지 올랐어요.", "action": "문 닫힘을 확인해 주세요.",
+    }])
+
+    settings = ns.get_settings(db, STORE)
+    settings.dnd_enabled = True
+    settings.dnd_start, settings.dnd_end = "22:00", "08:00"
+    db.commit()
+
+    # 방해금지 한복판(새벽 3시)에도 나가야 한다 — 식자재 폐기로 직결된다
+    result = ns.run_for_store(db, STORE, _at(3))
+    assert result["skipped"] == "dnd"          # 나머지 종류는 보류되지만
+    assert len(result["sent"]) == 1            # 설비 이상은 뚫고 나갔다
+    assert sent[0]["urgent"] is True
+
+    # 같은 쿨다운 구간(6시간) 안에서는 다시 울리지 않는다
+    assert ns.check_sensor(db, STORE, settings, _at(4)) == []
+    assert len(sent) == 1
+
+    # 구간이 넘어가면 상황이 계속되고 있으므로 다시 알린다
+    assert len(ns.check_sensor(db, STORE, settings, _at(9))) == 1
+    assert len(sent) == 2
+
+
+def test_sensor_ignores_non_equipment_urgent(db, sent, monkeypatch):
+    """호퍼 재장전 같은 건 영업 중 화면에서 보면 되는 일이라 푸시 대상이 아니다."""
+    _stub_sensor(monkeypatch, [
+        {"priority": "urgent", "source": "재고", "title": "호퍼 재장전", "reason": "", "action": ""},
+        {"priority": "normal", "source": "온도센서", "title": "정상", "reason": "", "action": ""},
+    ])
+    settings = ns.get_settings(db, STORE)
+    assert ns.check_sensor(db, STORE, settings, _at(9)) == []
+    assert sent == []
+
+
+# ---------------------------------------------------------------------------
+# 정리 — 안 지우면 무한히 쌓인다
+# ---------------------------------------------------------------------------
+
+def test_purge_removes_only_old_rows(db):
+    from datetime import datetime as dt
+
+    old = dt.now(timezone.utc) - timedelta(days=200)
+    fresh = dt.now(timezone.utc) - timedelta(days=1)
+
+    db.add(DeviceToken(store_id=STORE, token="tok-old-00000000000", last_seen_at=old))
+    db.add(DeviceToken(store_id=STORE, token="tok-fresh-000000000", last_seen_at=fresh))
+    db.add(SentNotification(store_id=STORE, dedupe_key="old:1", category="report",
+                            title="옛날", body="", sent_at=old))
+    db.add(SentNotification(store_id=STORE, dedupe_key="new:1", category="report",
+                            title="최근", body="", sent_at=fresh))
+    db.commit()
+
+    assert ps.purge_stale_tokens(db) == 1
+    assert ns.purge_old_history(db) == 1
+
+    assert "tok-old-00000000000" not in ps.list_tokens(db, STORE)
+    assert "tok-fresh-000000000" in ps.list_tokens(db, STORE)
+    assert [r.dedupe_key for r in db.query(SentNotification).all()] == ["new:1"]

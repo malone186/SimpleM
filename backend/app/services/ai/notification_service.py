@@ -32,6 +32,15 @@ STOCK_LEAD_DAYS = 3
 # 설비 이상은 상황이 계속되면 다시 알려야 하지만, 매 시간 울리면 안 된다
 SENSOR_COOLDOWN_HOURS = 6
 
+# 발송 이력 보관 기간. 중복 방지용이라 기간이 지난 사건은 다시 나갈 일이 없다
+# (가장 긴 주기가 서류 D-30이므로 90일이면 충분히 여유롭다).
+SENT_HISTORY_DAYS = 90
+
+# 리포트를 내보낼 가장 이른 시각 (KST). 스케줄러를 매시간으로 돌리면 그날 첫 실행이
+# 00:00이라 리포트가 자정에 나간다 — 방해금지 기본값이 꺼져 있어 그것으로도 못 막는다.
+# 프론트 AlertsWatcher의 REPORT_HOUR와 같은 값이어야 한다.
+REPORT_HOUR = 9
+
 
 # ---------------------------------------------------------------------------
 # 설정 · 방해금지
@@ -88,6 +97,18 @@ def _already_sent(db, store_id: str, dedupe_key: str) -> bool:
     ).first() is not None
 
 
+def purge_old_history(db, days: int = SENT_HISTORY_DAYS) -> int:
+    """오래된 발송 이력을 지우고 지운 개수를 돌려준다 — 안 지우면 무한히 쌓인다."""
+    from app.models.ai import SentNotification
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    n = db.query(SentNotification).filter(SentNotification.sent_at < cutoff).delete()
+    db.commit()
+    if n:
+        logger.info("오래된 발송 이력 %d건 정리 (%d일 경과)", n, days)
+    return n
+
+
 def _dispatch(db, store_id: str, category: str, dedupe_key: str, title: str, body: str,
               data: dict[str, Any], urgent: bool = False) -> bool:
     """중복이 아니면 발송하고 이력을 남긴다. 실제로 보냈으면 True."""
@@ -110,7 +131,21 @@ def _dispatch(db, store_id: str, category: str, dedupe_key: str, title: str, bod
         return False  # 다른 실행이 선점 — 그쪽이 보낸다
 
     payload = {"category": category, **{k: str(v) for k, v in data.items()}}
-    push_service.send_to_store(db, store_id, title, body, payload, urgent=urgent)
+    sent = push_service.send_to_store(db, store_id, title, body, payload, urgent=urgent)
+
+    if sent == 0:
+        # 한 대도 못 보냈다 — FCM 장애이거나 등록된 토큰이 전부 죽은 상태다.
+        # 이력을 남겨두면 이 사건은 영영 안 나간다(D-7 서류 알림이 통째로 증발한다).
+        # 예약을 취소해 다음 실행에서 다시 시도하게 한다.
+        #
+        # 무한 재시도가 되지 않는 이유: 죽은 토큰은 send_to_store가 그 자리에서 지우고,
+        # 매장에 토큰이 하나도 안 남으면 run_all의 순회 대상에서 빠진다. 푸시 미설정
+        # 상태는 run_all이 앞에서 걸러낸다.
+        db.delete(row)
+        db.commit()
+        logger.warning("발송 0건 — 이력 취소하고 다음 실행에 재시도 (%s / %s)", store_id, dedupe_key)
+        return False
+
     return True
 
 
@@ -143,8 +178,10 @@ def check_compliance(db, store_id: str, settings) -> list[str]:
             title = f"🗂 {item['name']} 갱신 {when}"
             body = f"{item['expiry_date']} 만료예요. 미리 예약해 두시면 마음이 편해요."
 
+        # screen은 프론트 RootNavigator의 실제 라우트 이름이어야 한다 — 'Documents'(복수)로
+        # 보내던 시절엔 탭해도 이동이 조용히 실패했다. 라우트는 'Document'(단수)다.
         if _dispatch(db, store_id, "compliance", f"compliance:{item['id']}:{milestone}",
-                     title, body, {"screen": "Documents", "item_id": item["id"]}):
+                     title, body, {"screen": "Document", "item_id": item["id"]}):
             sent.append(f"compliance:{item['name']}:{milestone}")
     return sent
 
@@ -185,30 +222,44 @@ def check_report(db, store_id: str, settings, now: datetime) -> list[str]:
     if not settings.report_alert:
         return []
 
+    if now.hour < REPORT_HOUR:
+        return []  # 아직 이른 시각 — 이력을 남기지 않으므로 오늘 늦게 실행되면 그때 나간다
+
     period_type = "daily" if settings.report_frequency == "daily" else "weekly"
     if period_type == "weekly" and now.weekday() != 0:
         return []  # 주간은 월요일에만
 
     from app.services.ai import report_service
 
+    # 리포트는 '끝난 기간'을 다뤄야 한다. 기준일을 오늘로 두면 월요일 아침에 뽑은 주간
+    # 리포트가 '오늘 시작한 이번 주'가 되어, 매출 0원짜리 리포트에 "지난주" 딱지가 붙는다.
+    # 하루 물려 어제를 기준으로 잡으면 daily=어제, weekly=지난주(월~일)가 된다.
+    ref = now.date() - timedelta(days=1)
+    *_, period = report_service._period_range(period_type, ref)
+
+    # 무거운 작업(집계·문서 갱신) '전에' 중복부터 판정한다 — 스케줄러가 매시간 돌아도
+    # 이미 보낸 기간이면 여기서 끝나므로 재계산이 반복되지 않는다.
+    dedupe_key = f"report:{period_type}:{period}"
+    if _already_sent(db, store_id, dedupe_key):
+        return []
+
     try:
         # 알림보다 리포트가 먼저 있어야 한다 — 탭해서 들어갔는데 없으면 안 되므로
         # 여기서 확실히 생성/갱신한다.
         report = report_service.generate_management_report(
-            store_id, period_type=period_type, force_refresh=True)
+            store_id, period_type=period_type, reference_date=ref.isoformat(), force_refresh=True)
     except Exception:
         logger.exception("리포트 알림용 생성 실패 (%s, %s)", store_id, period_type)
         return []
 
     content = report.get("content") or {}
-    period = content.get("period") or ""
-    label = "오늘" if period_type == "daily" else "지난주"
+    label = "어제" if period_type == "daily" else "지난주"
     title = f"📊 {label} 경영 리포트가 나왔어요"
 
-    if _dispatch(db, store_id, "report", f"report:{period_type}:{period}",
+    if _dispatch(db, store_id, "report", dedupe_key,
                  title, _report_body(content),
                  {"screen": "Dashboard", "period_type": period_type}):
-        return [f"report:{period_type}:{period}"]
+        return [dedupe_key]
     return []
 
 
@@ -222,6 +273,13 @@ def check_stock(db, store_id: str, settings, now: datetime) -> list[str]:
     품목별로 따로 보내지 않고 하루 한 번 묶는다. 개별 발송하면 알림을 꺼 버린다.
     """
     if not settings.stock_alert:
+        return []
+
+    # 중복 판정을 예측보다 앞에 둔다 — forecast()는 SARIMAX 적합(CPU)에 날씨·지오코딩
+    # 외부 호출까지 도는 데다 자기 캐시를 읽지 않는다. 하루 한 번 보내는 알림 때문에
+    # 매 스케줄러 틱마다 이걸 돌릴 이유가 없다.
+    dedupe_key = f"stock:{now.date().isoformat()}"
+    if _already_sent(db, store_id, dedupe_key):
         return []
 
     from app.services.ai import forecast_service
@@ -247,7 +305,7 @@ def check_stock(db, store_id: str, settings, now: datetime) -> list[str]:
     title = f"📦 {head['ingredient']} 소진 임박"
     body = " · ".join(parts) + (f" 외 {more}종" if more > 0 else "") + " 뒤 소진 예상이에요. 오늘 발주하면 안 끊겨요."
 
-    if _dispatch(db, store_id, "stock", f"stock:{now.date().isoformat()}",
+    if _dispatch(db, store_id, "stock", dedupe_key,
                  title, body, {"screen": "Order"}):
         return [f"stock:{len(urgent_items)}종"]
     return []
@@ -327,7 +385,25 @@ def run_all(now: Optional[datetime] = None) -> dict[str, Any]:
     from app.models.ai import DeviceToken
 
     now = now or datetime.now(KST)
+
+    # FCM 자격증명이 없으면 아무것도 하지 않는다. 발송이 전부 0건이 되는데,
+    # _dispatch가 0건을 '실패'로 보고 이력을 취소하므로 매 실행마다 리포트 생성과
+    # 재고 예측만 반복하게 된다 (보내지도 못하면서).
+    if not push_service.is_configured():
+        logger.info("FCM 미설정 — 알림 실행 건너뜀")
+        return {"ran_at": now.isoformat(), "skipped": "push_unconfigured",
+                "stores": 0, "sent_total": 0, "results": []}
+
     with document_service._session() as db:
+        # 순회 전에 청소한다 — 죽은 토큰을 먼저 걷어내야 '보낼 곳 없는 매장'에
+        # 예측·리포트 비용을 치르지 않는다. 둘 다 타임스탬프 조건 DELETE 한 번씩이다.
+        try:
+            push_service.purge_stale_tokens(db)
+            purge_old_history(db)
+        except Exception:
+            logger.exception("정리 작업 실패 — 알림 발송은 계속 진행한다")
+            db.rollback()
+
         store_ids = [r[0] for r in db.query(DeviceToken.store_id).distinct().all()]
 
         results = []

@@ -17,6 +17,7 @@ import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 
 import { registerPushToken, unregisterPushToken } from '../lib/api/push';
+import { navigateToTarget, type PushTarget } from './navigationTarget';
 
 // 백엔드 push_service.py의 CHANNEL_DEFAULT/CHANNEL_URGENT와 반드시 같아야 한다 —
 // 서버가 보낸 channel_id에 해당하는 채널이 없으면 안드로이드가 기본 채널로 강등한다.
@@ -112,11 +113,28 @@ export async function registerForPush(authToken: string): Promise<string | null>
   }
 }
 
-/** 로그아웃 시 호출 — 이 기기로 이전 사장님 알림이 계속 가지 않게 한다 */
+/**
+ * 로그아웃 시 호출 — 이 기기로 이전 사장님 알림이 계속 가지 않게 한다.
+ *
+ * currentFcmToken은 이번 앱 실행에서 등록을 거쳤을 때만 채워져 있다. 자동 로그인으로
+ * 켜자마자 로그아웃하는 흐름에서는 비어 있으므로, 그때는 기기에서 토큰을 직접 물어본다.
+ * (이 경로가 없으면 앱 재시작 후 로그아웃이 서버에 아무 영향을 주지 못한다)
+ */
 export async function unregisterFromPush(authToken: string): Promise<void> {
-  if (!currentFcmToken) return;
+  let fcmToken = currentFcmToken;
+
+  if (!fcmToken && isPushSupported()) {
+    const N = loadNotifications();
+    try {
+      fcmToken = N ? ((await N.getDevicePushTokenAsync()).data as string) : null;
+    } catch {
+      fcmToken = null; // 권한 없음·개발빌드 아님 — 애초에 등록된 적이 없다
+    }
+  }
+  if (!fcmToken) return;
+
   try {
-    await unregisterPushToken(authToken, currentFcmToken);
+    await unregisterPushToken(authToken, fcmToken);
   } catch {
     // 서버 오프라인 — 다음 로그인 때 토큰 소유자가 덮어써지므로 치명적이지 않다
   }
@@ -125,17 +143,24 @@ export async function unregisterFromPush(authToken: string): Promise<void> {
 
 /**
  * 알림을 탭했을 때 열 화면. 서버가 data.screen으로 넣어 보낸다
- * (compliance→Documents, report→Dashboard, stock→Order, sensor→Dashboard).
+ * (compliance→Document, report→Dashboard, stock→Order, sensor→Dashboard).
  *
- * 앱이 완전히 종료된 상태에서 알림으로 실행되면 리스너가 붙기 전에 이벤트가 지나가므로,
- * 마지막 탭 대상을 여기 담아 두고 네비게이터가 준비된 뒤 꺼내 쓰게 한다.
+ * 앱이 완전히 종료된 상태에서 알림으로 실행되면 네비게이터가 준비되기 전에 이벤트가
+ * 지나가므로, 이동에 실패하면 여기 담아 두고 RootNavigator의 onReady에서 꺼내 쓴다.
  */
-let pendingTarget: { screen: string; params?: Record<string, string> } | null = null;
+let pendingTarget: PushTarget | null = null;
 
-export function takePendingTarget() {
+export function takePendingTarget(): PushTarget | null {
   const target = pendingTarget;
   pendingTarget = null;
   return target;
+}
+
+/** 탭 이벤트 처리 — 지금 이동할 수 있으면 바로 가고, 아니면 보류함에 넣는다 */
+function handleTap(data: Record<string, string> | undefined) {
+  if (!data?.screen) return;
+  const target: PushTarget = { screen: data.screen, params: data };
+  if (!navigateToTarget(target)) pendingTarget = target;
 }
 
 /**
@@ -179,11 +204,24 @@ export function usePushRegistration(authToken: string | null) {
       });
     });
 
-    // ② 알림 탭 → 열 화면 기록
+    // ② 알림 탭 → 해당 화면으로 이동
     const tapSub = N.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data as Record<string, string> | undefined;
-      if (data?.screen) pendingTarget = { screen: data.screen, params: data };
+      handleTap(response.notification.request.content.data as Record<string, string> | undefined);
     });
+
+    // ③ 앱이 종료된 상태에서 알림으로 실행된 경우 — 위 리스너가 붙기 전에 이벤트가 끝나
+    // 있으므로 마지막 응답을 직접 꺼내 온다. 이게 없으면 콜드스타트 탭이 전부 무시된다.
+    // 처리한 뒤 clear하지 않으면 로그아웃 후 재로그인 등으로 이 훅이 다시 돌 때마다
+    // 같은 알림으로 또 이동한다.
+    try {
+      const last = N.getLastNotificationResponse();
+      if (last) {
+        handleTap(last.notification.request.content.data as Record<string, string> | undefined);
+        N.clearLastNotificationResponse();
+      }
+    } catch {
+      // 미지원 환경 — 포그라운드 탭은 위 리스너가 처리하므로 치명적이지 않다
+    }
 
     return () => {
       tokenSub.remove();

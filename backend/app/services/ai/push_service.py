@@ -126,11 +126,18 @@ def register_token(db, store_id: str, token: str, platform: str = "android",
     db.commit()
 
 
-def unregister_token(db, token: str) -> None:
-    """로그아웃 시 호출 — 이 기기로 더는 알림이 가지 않게 한다."""
+def unregister_token(db, token: str, store_id: Optional[str] = None) -> None:
+    """로그아웃 시 호출 — 이 기기로 더는 알림이 가지 않게 한다.
+
+    store_id를 주면 그 매장 소유의 토큰만 지운다. API에서는 반드시 넘겨야 한다 —
+    안 넘기면 토큰 문자열만 아는 사람이 남의 기기 등록을 해제할 수 있다.
+    """
     from app.models.ai import DeviceToken
 
-    db.query(DeviceToken).filter(DeviceToken.token == token).delete()
+    q = db.query(DeviceToken).filter(DeviceToken.token == token)
+    if store_id is not None:
+        q = q.filter(DeviceToken.store_id == store_id)
+    q.delete()
     db.commit()
 
 
@@ -146,6 +153,25 @@ def list_tokens(db, store_id: str) -> list[str]:
     from app.models.ai import DeviceToken
 
     return [r.token for r in db.query(DeviceToken).filter(DeviceToken.store_id == store_id).all()]
+
+
+# 이 기간 넘게 앱이 한 번도 안 열린 기기는 등록을 지운다. FCM 토큰은 장기 미사용만으로도
+# 무효화되므로, 남겨봐야 발송 실패만 늘고 성공률 지표가 망가진다.
+STALE_TOKEN_DAYS = 90
+
+
+def purge_stale_tokens(db, days: int = STALE_TOKEN_DAYS) -> int:
+    """오래 갱신되지 않은 기기 토큰을 지우고 지운 개수를 돌려준다."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.ai import DeviceToken
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    n = db.query(DeviceToken).filter(DeviceToken.last_seen_at < cutoff).delete()
+    db.commit()
+    if n:
+        logger.info("오래된 기기 토큰 %d건 정리 (%d일 미갱신)", n, days)
+    return n
 
 
 # ---------------------------------------------------------------------------

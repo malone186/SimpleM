@@ -25,6 +25,7 @@ import * as AuthSession from 'expo-auth-session';
 
 import { auth } from '../lib/firebase';
 import { API_BASE_URL } from '../lib/api/client';
+import { unregisterFromPush } from '../notifications/pushRegistration';
 
 // [한글 주석] 모바일 환경에서 로그인 후 브라우저 창을 닫기 위해 초기화합니다.
 WebBrowser.maybeCompleteAuthSession();
@@ -500,6 +501,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // [한글 주석: 로그아웃 시 Firebase 세션을 끊고 로컬 저장소(AsyncStorage)의 모든 데이터를 완전 초기화 파기합니다]
   const logout = useCallback(async () => {
+    // 푸시 토큰 해제를 '가장 먼저' — 토큰을 지운 뒤엔 인증 헤더를 못 만든다.
+    // 이걸 빠뜨리면 로그아웃해도 서버의 device_tokens 행이 남아 이전 사장님의 알림이
+    // 이 기기로 계속 간다 (다음 로그인 때 소유자가 옮겨질 때까지).
+    if (token) await unregisterFromPush(token);
+
     try {
       // Firebase 미초기화(키 없음) 시 auth 는 null — 백엔드 우회 모드이므로 건너뛴다.
       if (auth) await signOut(auth);
@@ -510,7 +516,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     // [한글 주석: 다른 계정으로 로그인할 때 영수증, 임시 노트, 캐시 등 이전 사용자의 로컬 데이터가 남아있지 않도록 전체 삭제]
     await AsyncStorage.clear();
-  }, []);
+  }, [token]);
 
   // [한글 주석] 로그인된 점주님의 정보(이름/비밀번호)를 Firebase 및 백엔드 데이터베이스에 동시 갱신합니다.
   const updateProfile = useCallback(
