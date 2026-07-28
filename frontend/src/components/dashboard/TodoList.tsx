@@ -13,6 +13,11 @@ export type Todo = {
   actionable?: boolean; // 발주 액션 대상
   done?: boolean;
   qty?: string; // 발주 추천 수량 (예: "5 kg") — 재고 API 기준 계산값
+  // 누가 넣었는지 — 'ai'면 챗봇(브루)이 대화 중 추가한 항목이라 배지를 붙인다.
+  // subtitle로 대신할 수 없다: 브루가 배경 설명을 note에 담으면 부제가 그 문장으로
+  // 채워져 출처가 화면에서 사라진다. 사장님이 적지 않은 항목이 설명 없이 홈에 떠 있으면
+  // 목록 전체를 안 믿게 된다.
+  source?: 'owner' | 'ai';
 };
 
 export default function TodoList({
@@ -211,7 +216,22 @@ function TodoItem({
             </View>
           ) : (
             <>
-              <Text style={[styles.itemTitle, disabled && styles.strike]}>{todo.title}</Text>
+              <View style={styles.titleRow}>
+                <Text style={[styles.itemTitle, disabled && styles.strike]} numberOfLines={1}>
+                  {todo.title}
+                </Text>
+                {/* 브루가 대화 중 넣은 항목 — 사장님이 "이걸 내가 적었나?" 하지 않도록 */}
+                {todo.source === 'ai' && (
+                  <View style={[styles.aiBadge, disabled && styles.aiBadgeDone]}>
+                    <Ionicons
+                      name="sparkles"
+                      size={9}
+                      color={disabled ? colors.mochaBrown : colors.pointOrange}
+                    />
+                    <Text style={[styles.aiBadgeText, disabled && styles.aiBadgeTextDone]}>브루</Text>
+                  </View>
+                )}
+              </View>
               <Text style={[styles.itemSub, disabled && styles.strike]}>{todo.subtitle}</Text>
             </>
           )}
@@ -282,6 +302,22 @@ const styles = StyleSheet.create({
   itemTitle: { fontSize: 13, fontWeight: '700', color: colors.espressoBrown, letterSpacing: -0.2 },
   itemSub: { fontSize: 10, fontWeight: '500', color: colors.mochaBrown, marginTop: 2, letterSpacing: -0.1 },
   strike: { textDecorationLine: 'line-through' },
+  // 제목이 길면 배지를 밀어내지 않고 제목 쪽이 줄어들게 한다 (제목에 numberOfLines=1)
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  aiBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    flexShrink: 0,
+    backgroundColor: 'rgba(232, 131, 58, 0.10)',
+    borderRadius: 999,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  // 완료된 항목에서는 배지도 함께 힘을 뺀다 — 안 그러면 끝난 일이 제일 눈에 띈다
+  aiBadgeDone: { backgroundColor: 'rgba(140, 111, 86, 0.08)' },
+  aiBadgeText: { fontSize: 9, fontWeight: '800', color: colors.pointOrange, letterSpacing: -0.1 },
+  aiBadgeTextDone: { color: colors.mochaBrown, opacity: 0.7 },
   actionHint: {
     backgroundColor: 'rgba(140, 111, 86, 0.05)',
     borderRadius: 8,

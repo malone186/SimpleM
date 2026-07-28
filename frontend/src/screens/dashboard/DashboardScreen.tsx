@@ -100,9 +100,17 @@ export default function DashboardScreen() {
             // 'server-' 접두어로 구분해야 완료·수정·삭제를 서버로 보낼지 로컬로 끝낼지 정할 수 있다
             id: `server-${t.id}`,
             title: t.title,
-            subtitle: t.note ?? (t.source === 'ai' ? '브루가 추가함' : '사장님 직접 추가'),
+            // 출처는 배지가 맡는다 — note에는 '왜 이 일이 생겼는지'만 남긴다.
+            // 기본 문구("브루가 추가함")는 배지와 같은 말이라 부제에서는 걷어낸다.
+            subtitle:
+              t.note && t.note !== '브루가 추가함'
+                ? t.note
+                : t.source === 'ai'
+                  ? '대화 중 추가됨'
+                  : '사장님 직접 추가',
             actionable: false,
             done: t.done,
+            source: t.source,
           });
         });
       } catch (e) {
