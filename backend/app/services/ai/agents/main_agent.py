@@ -219,6 +219,9 @@ _DOMAINS: list[dict[str, Any]] = [
         "modules": ["app.services.ai.sensor_tools"],
         "extra": (
             "- 센서 값은 '지금 이 순간'의 측정치입니다 — 언제 기준인지(방금 측정)를 밝히세요.\n"
+            "- 발주·준비·추천 질문('뭘 발주해야 해', '주말 준비')에는 반드시 get_sensor_order_coach를 "
+            "쓰세요. 스냅샷만 보고 직접 판단하지 마세요 — 코치는 최근 7일 판매 추세까지 반영하지만 "
+            "스냅샷은 지금 잔량뿐이라 '아직 충분해 보여도 주말에 모자라는' 경우를 놓칩니다.\n"
             "- 센서 기능이 꺼져 있거나 페어링이 안 된 매장이라는 응답이 오면, 지어내지 말고 "
             "센서 미연결 상태라고 그대로 안내하세요.\n"
             "- 재고 '장부' 수량과 센서 '실측' 잔량은 다를 수 있습니다 — 장부 질문이면 재고 전문가 "
@@ -433,7 +436,15 @@ def _bind_store(t, store_id: str, created_docs: list[dict[str, Any]]):
 
     def _run(**kwargs):
         kwargs["store_id"] = store_id
-        result = t.invoke(kwargs)
+        try:
+            result = t.invoke(kwargs)
+        except Exception as e:
+            # 도구 하나의 예상 밖 예외(의존성 누락·외부 API 죽음 등)가 턴 전체를 죽이면
+            # 사장님은 "앗! 문제가 생겼어요"만 받는다. 문자열로 돌려주면 모델이 이 도구만
+            # 포기하고 다른 도구나 사과로 대화를 이어갈 수 있다. (각 도구의 자체 except가
+            # 1차 방어이고 여기는 전 도구 공통의 마지막 그물이다)
+            logger.exception("도구 실행 실패: %s", t.name)
+            return f"도구 '{t.name}' 실행 실패: {type(e).__name__}: {e}"
         doc = _extract_document(result)
         if doc and all(d["id"] != doc["id"] for d in created_docs):
             created_docs.append(doc)
