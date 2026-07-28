@@ -18,6 +18,8 @@ import { listStocks, type StockItem } from '../lib/api/inventory';
 import { fetchNotifications } from '../lib/api/assistant';
 import { enqueue as speechEnqueue, canPlayAudio, cancelAll as speechCancelAll } from '../lib/speech/speechPlayer';
 import { toast } from '../components/toast';
+import { updateNotificationSettings } from '../lib/api/push';
+import { usePushRegistration } from './pushRegistration';
 
 const POLL_MS = 60_000;           // 감시 주기 (1분)
 const NOTICE_POLL_MS = 15_000;    // 문의 답변 감시 주기 (15초 — 답변 후 빠른 도착 체감)
@@ -75,6 +77,41 @@ export default function AlertsWatcher() {
   const noticeRunning = useRef(false); // 공지·답변 폴링 중복 실행 방지
   const voiceRunning = useRef(false); // ⑥ 음성 알림 폴링 중복 실행 방지
   const lastVoiceCheck = useRef<string>(new Date().toISOString()); // 마지막 폴링 시각
+
+  // ⑦ FCM 푸시 등록 — 앱이 꺼져 있을 때도 도착해야 하는 Tier 1 알림용.
+  //    위 폴링(①~⑥)은 앱이 열려 있을 때만 도는 인앱 토스트라 서로 역할이 다르다.
+  usePushRegistration(token);
+
+  // ⑧ 알림 설정 서버 동기화 — 푸시는 서버가 보내므로 방해금지·수신 주기를 서버도 알아야 한다.
+  //    (이 설정들은 기기 로컬 AsyncStorage에만 있어서 서버는 알 길이 없다)
+  useEffect(() => {
+    if (!token || !prefs.ready) return;
+    const t = setTimeout(() => {
+      // 스위치를 연속으로 토글할 때 매번 PUT하지 않도록 잠깐 모았다 보낸다
+      updateNotificationSettings(token, {
+        push_enabled: true,
+        compliance_alert: true, // 갱신 서류는 별도 스위치가 아직 없어 기본 on
+        report_alert: true,
+        stock_alert: prefs.lowStockAlert,
+        sensor_alert: true,
+        report_frequency: prefs.reportFrequency,
+        dnd_enabled: prefs.dndEnabled,
+        dnd_start: prefs.dndStart,
+        dnd_end: prefs.dndEnd,
+      }).catch(() => {
+        // 서버 오프라인 — 설정이 바뀔 때 다시 시도된다
+      });
+    }, 800);
+    return () => clearTimeout(t);
+  }, [
+    token,
+    prefs.ready,
+    prefs.lowStockAlert,
+    prefs.reportFrequency,
+    prefs.dndEnabled,
+    prefs.dndStart,
+    prefs.dndEnd,
+  ]);
 
   // ⑤ 문의 답변 도착 — 15초 주기로 감시 (관리자 공지는 홈 말풍선이 담당하므로 제외)
   useEffect(() => {

@@ -204,3 +204,43 @@ class ChatSessionResponse(BaseModel):
     messages: list[dict]
     created_at: int
     updated_at: int
+
+
+# ---------------------------------------------------------------------------
+# 푸시 알림 (FCM) — 기기 토큰 등록 + 수신 설정 서버 동기화
+# ---------------------------------------------------------------------------
+
+
+class DeviceTokenRegister(BaseModel):
+    """기기 푸시 토큰 등록/갱신 입력.
+
+    토큰은 앱 재설치·데이터 삭제·장기 미사용으로 무효화되므로 영구 식별자가 아니다.
+    프론트는 로그인 직후와 토큰 갱신 이벤트마다 이 API를 다시 호출한다 (upsert).
+    """
+
+    token: str = Field(min_length=10, max_length=255, description="FCM registration token")
+    platform: Literal["android", "ios", "web"] = "android"
+    device_name: Optional[str] = Field(None, max_length=100, description="관리 화면 표시용 기기 이름")
+
+
+class NotificationSettingBody(BaseModel):
+    """푸시 수신 설정 — 기기 로컬 설정을 서버로 동기화한 사본.
+
+    푸시는 서버가 보내므로 방해금지 구간과 종류별 on/off를 서버가 알아야 한다.
+    """
+
+    push_enabled: bool = Field(True, description="푸시 마스터 스위치")
+    compliance_alert: bool = Field(True, description="갱신 임박 서류")
+    report_alert: bool = Field(True, description="경영 리포트 도착")
+    stock_alert: bool = Field(True, description="재고 소진 임박")
+    sensor_alert: bool = Field(True, description="설비 이상 (방해금지 무시)")
+    report_frequency: Literal["daily", "weekly"] = "weekly"
+    dnd_enabled: bool = False
+    dnd_start: str = Field("22:00", pattern=r"^\d{2}:\d{2}$")
+    dnd_end: str = Field("08:00", pattern=r"^\d{2}:\d{2}$")
+
+
+class NotificationSettingResponse(NotificationSettingBody):
+    store_id: str
+    push_configured: bool = Field(description="서버에 FCM 자격증명이 설정돼 실제 발송이 가능한지")
+    device_count: int = Field(0, description="이 매장에 등록된 기기 수")

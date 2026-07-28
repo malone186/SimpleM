@@ -2,7 +2,9 @@
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import (
+    BigInteger, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -154,3 +156,75 @@ class ComplianceItem(Base):
     remind_before_days: Mapped[int] = mapped_column(Integer, default=30)  # 며칠 전부터 알릴지
     memo: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# ---------------------------------------------------------------------------
+# 푸시 알림 (FCM) — 앱을 닫아둔 사이에 놓치면 손해가 나는 사건만 내보낸다
+# ---------------------------------------------------------------------------
+
+
+class DeviceToken(Base):
+    """FCM 기기 등록 토큰 — 한 매장이 여러 기기(사장님 폰·태블릿)를 쓸 수 있다.
+
+    토큰은 앱 재설치·데이터 삭제·장기 미사용으로 언제든 무효화되므로 영구 식별자가 아니다.
+    프론트가 갱신 이벤트를 받을 때마다 재등록하고(upsert), 발송 시 FCM이 UNREGISTERED로
+    거절한 토큰은 push_service가 즉시 지운다. 죽은 토큰을 쌓아두면 발송량만 늘고
+    성공률 지표가 망가진다.
+    """
+
+    __tablename__ = "device_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    store_id: Mapped[str] = mapped_column(String(100), index=True)
+    token: Mapped[str] = mapped_column(String(255), unique=True, index=True)  # FCM registration token
+    platform: Mapped[str] = mapped_column(String(16), default="android")
+    device_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 관리 화면 표시용
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # 마지막으로 앱이 이 토큰을 다시 등록한 시각 — 오래 갱신되지 않은 토큰 정리 기준
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class NotificationSetting(Base):
+    """매장별 푸시 수신 설정 — 기기 로컬(AsyncStorage) 설정의 서버 사본.
+
+    푸시는 서버가 보내므로 방해금지 구간과 종류별 on/off를 서버가 알아야 한다.
+    프론트 설정 화면이 바뀔 때마다 PUT으로 동기화한다.
+    """
+
+    __tablename__ = "notification_settings"
+
+    store_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    push_enabled: Mapped[bool] = mapped_column(Boolean, default=True)  # 마스터 스위치
+    compliance_alert: Mapped[bool] = mapped_column(Boolean, default=True)   # 갱신 임박 서류
+    report_alert: Mapped[bool] = mapped_column(Boolean, default=True)       # 경영 리포트 도착
+    stock_alert: Mapped[bool] = mapped_column(Boolean, default=True)        # 재고 소진 임박
+    sensor_alert: Mapped[bool] = mapped_column(Boolean, default=True)       # 설비 이상(긴급)
+    report_frequency: Mapped[str] = mapped_column(String(10), default="weekly")  # daily | weekly
+    dnd_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    dnd_start: Mapped[str] = mapped_column(String(5), default="22:00")  # HH:MM
+    dnd_end: Mapped[str] = mapped_column(String(5), default="08:00")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class SentNotification(Base):
+    """발송 이력 — 같은 사건을 두 번 보내지 않기 위한 멱등 키 저장소.
+
+    dedupe_key에 '무엇에 대한 몇 번째 알림인지'를 담는다 (예: compliance:12:D-7,
+    report:weekly:2026-07-27). 스케줄러가 재시도되거나 두 번 겹쳐 돌아도
+    (store_id, dedupe_key) 유니크 제약이 중복 발송을 막는다.
+    """
+
+    __tablename__ = "sent_notifications"
+    __table_args__ = (UniqueConstraint("store_id", "dedupe_key", name="uq_sent_notification"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    store_id: Mapped[str] = mapped_column(String(100), index=True)
+    dedupe_key: Mapped[str] = mapped_column(String(120))
+    category: Mapped[str] = mapped_column(String(32), index=True)  # compliance | report | stock | sensor
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str] = mapped_column(Text, default="")
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
