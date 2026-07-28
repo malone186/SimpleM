@@ -26,6 +26,7 @@ import { PressableScale } from '../../components/motion';
 import { confirmDialog, toast } from '../../components/toast';
 import { API_BASE_URL } from '../../lib/api/client';
 import { getSensorFeature, setSensorFeature } from '../../lib/api/sensor';
+import { isNativePushAvailable } from '../../notifications/pushRegistration';
 import { colors, typography } from '../../theme';
 
 // 설정 항목 한 줄 (라벨 + 우측 컨트롤)
@@ -668,6 +669,14 @@ export default function SettingsScreen() {
       {subView === 'notification' && (
         <Card>
         <SectionTitle>알림 설정</SectionTitle>
+        {/* [솔직한 안내] 푸시 모듈이 없는 빌드에서는 알림이 앱 밖으로 나가지 않는다.
+            스위치만 켜져 있고 아무 일도 안 일어나면 사장님은 고장으로 오해한다. */}
+        {Platform.OS !== 'web' && !isNativePushAvailable() && (
+          <Text style={styles.pushNotice}>
+            지금 설치된 버전은 앱을 켜 두었을 때만 알림이 표시돼요. 앱이 꺼진 동안에도 받는
+            푸시 알림은 다음 앱 업데이트부터 지원됩니다.
+          </Text>
+        )}
         <Row
           label="재고 부족 알림"
           hint="설정한 안전재고 밑으로 떨어지면 먼저 알려드려요"
@@ -1169,6 +1178,16 @@ const styles = StyleSheet.create({
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   rowLabel: { ...typography.L4, color: colors.espressoBrown },
   rowHint: { ...typography.L5, color: colors.mochaBrown, marginTop: 3, lineHeight: 15 },
+  // 푸시 미지원 빌드 안내 — 스위치가 왜 조용한지 알려주는 한 문단
+  pushNotice: {
+    ...typography.L5,
+    color: colors.mochaBrown,
+    lineHeight: 16,
+    backgroundColor: colors.coffeeCream,
+    borderRadius: 10,
+    padding: 11,
+    marginBottom: 6,
+  },
 
   fieldLabel: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700', marginTop: 12 },
   input: {

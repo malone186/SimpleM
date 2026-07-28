@@ -22,7 +22,8 @@ import { fetchInsights } from '../lib/api/insights';
 import { enqueue as speechEnqueue, canPlayAudio, cancelAll as speechCancelAll } from '../lib/speech/speechPlayer';
 import { toast } from '../components/toast';
 import { updateNotificationSettings } from '../lib/api/push';
-import { usePushRegistration } from './pushRegistration';
+import { getSensorRecommendations } from '../lib/api/sensor';
+import { isNativePushAvailable, usePushRegistration } from './pushRegistration';
 
 const POLL_MS = 60_000;           // 감시 주기 (1분)
 const NOTICE_POLL_MS = 15_000;    // 문의 답변 감시 주기 (15초 — 답변 후 빠른 도착 체감)
@@ -37,6 +38,10 @@ const STORE_KEY = 'simplem:alerts:state';
 const INQUIRY_KEY = 'simplem:alerts:inquiry-answered-ids';
 // 오늘 이미 알린 인사이트 key 목록 — {date, keys} 형태로 보관해 날짜가 바뀌면 초기화된다
 const INSIGHT_KEY = 'simplem:alerts:insight-sent';
+// ⑨ 설비 이상(냉장고 온도·수위) 인앱 감시 — 푸시가 없는 빌드에서만 돈다
+const FAULT_KEY = 'simplem:alerts:sensor-fault-sent';
+const FAULT_POLL_MS = 300_000;        // 5분 — 온도 이탈은 분 단위로 급변하지 않는다
+const SENSOR_COOLDOWN_MS = 6 * 3600_000; // 같은 이상 재알림 간격 (서버 SENSOR_COOLDOWN_HOURS와 동일)
 
 /** 인사이트 카테고리별 아이콘 — 어느 영역 이야기인지 한눈에 */
 const INSIGHT_ICON: Record<string, string> = {
@@ -95,6 +100,7 @@ export default function AlertsWatcher() {
   const noticeRunning = useRef(false); // 공지·답변 폴링 중복 실행 방지
   const voiceRunning = useRef(false); // ⑥ 음성 알림 폴링 중복 실행 방지
   const insightRunning = useRef(false); // ⑦ 선제 인사이트 폴링 중복 실행 방지
+  const faultRunning = useRef(false); // ⑨ 설비 이상 폴링 중복 실행 방지
   const lastVoiceCheck = useRef<string>(new Date().toISOString()); // 마지막 폴링 시각
 
   // 로그인한 사장님이 있을 때만 감시한다.
@@ -402,6 +408,55 @@ export default function AlertsWatcher() {
     prefs.dndStart,
     prefs.dndEnd,
   ]);
+
+  // ⑨ 설비 이상(냉장고 온도 이탈·수위) — Tier 1 중 유일하게 인앱 감시가 없던 항목.
+  //
+  // [왜 여기 있나] 서버는 이걸 FCM 푸시로 보내지만, expo-notifications는 네이티브 모듈이라
+  // 그 모듈이 없는 빌드(=OTA로만 갱신된 앱)에서는 푸시가 아예 도착하지 않는다.
+  // 식자재 폐기로 직결되는 알림이라 "앱이 켜져 있는 동안만이라도" 반드시 전한다.
+  // 푸시가 살아 있는 빌드에서는 서버 푸시와 겹치므로 이 감시는 돌리지 않는다.
+  useEffect(() => {
+    if (!signedIn || !prefs.ready) return;
+    if (isNativePushAvailable()) return; // 네이티브 푸시가 가능한 빌드 → 서버 푸시에 맡긴다 (중복 방지)
+
+    const checkFaults = async () => {
+      if (faultRunning.current) return;
+      faultRunning.current = true;
+      try {
+        // [방해금지 예외] 설비 이상은 밤에도 알린다 — 새벽에 냉장고가 죽으면 아침에 다 버린다.
+        //  (서버 규칙도 sensor만 방해금지를 뚫는다)
+        const { items } = await getSensorRecommendations(token!);
+        const faults = items.filter(
+          (i) => i.priority === 'urgent' && (i.source === '온도센서' || i.source === '수위센서'),
+        );
+        if (faults.length === 0) return;
+
+        // 같은 이상은 6시간에 한 번만 (서버 SENSOR_COOLDOWN_HOURS와 같은 값)
+        const raw = await AsyncStorage.getItem(FAULT_KEY);
+        const saved: Record<string, number> = raw ? JSON.parse(raw) : {};
+        const now = Date.now();
+        const next = { ...saved };
+        let notified = false;
+
+        for (const fault of faults) {
+          const key = `${fault.source}:${fault.title}`;
+          if (saved[key] && now - saved[key] < SENSOR_COOLDOWN_MS) continue;
+          toast(`🚨 ${fault.title}`, `${fault.reason} — ${fault.action}`);
+          next[key] = now;
+          notified = true;
+        }
+        if (notified) await AsyncStorage.setItem(FAULT_KEY, JSON.stringify(next));
+      } catch {
+        // 센서 기능이 꺼져 있거나 서버 오프라인 — 다음 주기에 재시도
+      } finally {
+        faultRunning.current = false;
+      }
+    };
+
+    checkFaults();
+    const timer = setInterval(checkFaults, FAULT_POLL_MS);
+    return () => clearInterval(timer);
+  }, [signedIn, token, prefs.ready]);
 
   return null;
 }

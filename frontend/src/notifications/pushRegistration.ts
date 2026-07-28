@@ -40,6 +40,16 @@ function loadNotifications(): typeof import('expo-notifications') | null {
   }
 }
 
+/** 이 빌드에서 네이티브 원격 푸시(FCM)가 실제로 가능한가.
+ *
+ *  expo-notifications는 네이티브 모듈이라 OTA(eas update)로는 추가되지 않는다.
+ *  모듈이 들어가기 전에 만들어진 빌드는 JS만 최신이고 푸시는 영영 도착하지 않으므로,
+ *  그런 빌드에서는 AlertsWatcher가 인앱 감시로 대신 알린다(앱이 켜져 있는 동안).
+ */
+export function isNativePushAvailable(): boolean {
+  return isPushSupported() && loadNotifications() !== null;
+}
+
 /** 마지막으로 서버에 등록한 FCM 토큰 — 로그아웃 시 해제하려면 값을 들고 있어야 한다 */
 let currentFcmToken: string | null = null;
 
