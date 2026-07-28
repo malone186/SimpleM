@@ -13,6 +13,9 @@
 // 주의: SDK 53부터 안드로이드 Expo Go에서는 원격 푸시가 동작하지 않는다.
 // 개발 빌드(expo-dev-client)에서만 토큰이 발급되므로, Expo Go에서는 조용히 건너뛴다.
 import Constants, { ExecutionEnvironment } from 'expo-constants';
+// expo-modules-core는 모든 Expo 앱에 이미 들어 있다(expo 패키지의 핵심 의존성) —
+// 구버전 빌드에서도 안전하게 쓸 수 있어, 네이티브 모듈 존재 확인에 이걸 쓴다.
+import { requireOptionalNativeModule } from 'expo-modules-core';
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 
@@ -31,9 +34,20 @@ function isPushSupported(): boolean {
   return Constants.executionEnvironment !== ExecutionEnvironment.StoreClient;
 }
 
-/** expo-notifications를 지연 로드한다 — 미설치·미지원 환경에서 import만으로 죽지 않게 */
+/** expo-notifications를 지연 로드한다 — 네이티브 모듈이 없는 빌드에서는 아예 손대지 않는다.
+ *
+ *  [중요 — 실제 사고] OTA로만 갱신된 구버전 APK(네이티브 모듈 없음)에서 이 모듈을 require하면,
+ *  내부 파일들이 import 시점에 requireNativeModule('ExpoNotification*')을 호출하면서
+ *  앱이 통째로 튕긴다. 네이티브 레벨에서 죽기 때문에 아래 try/catch로는 못 막는다
+ *  (2026-07-28: 로그인 직후 흰 화면 → 재실행 시 즉시 종료로 재현).
+ *
+ *  그래서 '던지지 않는' requireOptionalNativeModule로 존재 여부를 먼저 확인하고,
+ *  없으면 require 자체를 하지 않는다. try/catch는 그다음 안전망으로 남겨 둔다.
+ */
 function loadNotifications(): typeof import('expo-notifications') | null {
   try {
+    // 알림 권한 모듈은 expo-notifications가 가장 먼저 붙잡는 네이티브 모듈이라 대표로 확인한다
+    if (!requireOptionalNativeModule('ExpoNotificationPermissionsModule')) return null;
     return require('expo-notifications');
   } catch {
     return null;
