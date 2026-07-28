@@ -57,6 +57,12 @@ export default function StoreMapScreen() {
   const [analysis, setAnalysis] = useState<CafeAnalysisResult | null>(null);
   const [analysisError, setAnalysisError] = useState('');
 
+  // 첫 화면은 '요약 + 이번 주 할 일'까지만 — 나머지 분석과 카페 목록은 눌러서 펼친다.
+  // (항목을 전부 펼쳐 두면 불릿이 스무 개 넘게 쌓여 무엇부터 볼지 알 수 없다.)
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [showAllCafes, setShowAllCafes] = useState(false);
+  const [reviewsOpen, setReviewsOpen] = useState(false); // 카페 상세의 후기 원문 펼침
+
   // 1) 매장 고정 위치 — 계정(DB)이 원본, 기기 캐시는 보조. GPS는 쓰지 않는다.
   useEffect(() => {
     let cancelled = false;
@@ -100,6 +106,9 @@ export default function StoreMapScreen() {
 
   useEffect(() => {
     loadNearby(radius);
+    // 반경을 바꾸면 목록·분석이 통째로 달라지므로 펼침 상태도 처음으로 되돌린다
+    setShowAllCafes(false);
+    setDetailOpen(false);
   }, [loadNearby, radius]);
 
   // 3) 카페 하나를 고르면 그 집의 네이버 후기 분석을 불러온다
@@ -108,6 +117,7 @@ export default function StoreMapScreen() {
       setSelected(cafe);
       setAnalysis(null);
       setAnalysisError('');
+      setReviewsOpen(false); // 다른 카페를 열 때마다 후기는 다시 접힌 상태로
       if (!token) return;
       try {
         setAnalysis(await getCafeAnalysis(token, cafe, nearby?.region ?? ''));
@@ -174,6 +184,9 @@ export default function StoreMapScreen() {
   }
 
   const insight = nearby?.insight ?? null;
+  // 목록은 거리순이라 첫 항목이 곧 가장 가까운 경쟁점이다
+  const nearest = nearby?.cafes[0]?.distance_m ?? null;
+  const visibleCafes = showAllCafes ? (nearby?.cafes ?? []) : (nearby?.cafes ?? []).slice(0, 5);
 
   return (
     <View style={styles.root}>
@@ -240,69 +253,101 @@ export default function StoreMapScreen() {
             </View>
           ) : (
             <>
-              {/* 상권 AI 분석 요약 */}
-              {insight && (
-                <View style={styles.insightCard}>
-                  <View style={styles.insightHead}>
-                    <Text style={styles.insightHeadline}>{insight.headline}</Text>
-                    <View style={styles.levelBadge}>
-                      <Text style={styles.levelText}>경쟁 {insight.competition_level}</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.insightSummary}>{insight.market_summary}</Text>
-
-                  <InsightList title="🔎 동네 트렌드" items={insight.trends} />
-                  <InsightList title="💡 우리가 파고들 자리" items={insight.opportunities} />
-                  <InsightList title="⚠️ 위협 요인" items={insight.threats} />
-                  <InsightList title="✅ 이번 주 실행안" items={insight.actions} highlight />
-
-                  {insight.watch_list?.length > 0 && (
-                    <View style={styles.watchRow}>
-                      <Text style={styles.watchLabel}>주시할 경쟁 카페</Text>
-                      <View style={styles.chipRow}>
-                        {insight.watch_list.map((name) => {
-                          const hit = nearby?.cafes.find((c) => c.name === name);
-                          return (
-                            <TouchableOpacity
-                              key={name}
-                              style={styles.watchChip}
-                              disabled={!hit}
-                              onPress={() => hit && openCafe(hit)}
-                            >
-                              <Text style={styles.watchChipText}>{name}</Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </View>
-                    </View>
-                  )}
-                  <Text style={styles.aiNote}>
-                    네이버 지역정보·블로그 후기를 모아 AI가 정리했어요. 참고용으로 봐 주세요.
-                  </Text>
+              {/* ① 한눈 요약 — 숫자 세 개로 상권을 먼저 파악하게 한다 */}
+              {nearby && nearby.count > 0 && (
+                <View style={styles.statRow}>
+                  <Stat value={`${nearby.count}곳`} label="주변 카페" />
+                  <Stat value={`${nearest ?? '-'}m`} label="가장 가까운 곳" />
+                  <Stat value={insight?.competition_level ?? '분석 중'} label="경쟁 강도" accent />
                 </View>
               )}
 
-              {/* 카페 목록 (거리순) */}
-              {nearby?.cafes.map((cafe) => (
+              {/* ② 상권 한 줄 + 이번 주 할 일 3개 — 기본 화면은 여기까지만 보여 준다 */}
+              {insight && (
+                <View style={styles.insightCard}>
+                  <Text style={styles.insightHeadline}>{insight.headline}</Text>
+                  <Text style={styles.insightSummary}>{insight.market_summary}</Text>
+
+                  {insight.actions?.length > 0 && (
+                    <View style={styles.actionBox}>
+                      <Text style={styles.actionTitle}>이번 주에 해 볼 일</Text>
+                      {insight.actions.slice(0, 3).map((text, i) => (
+                        <View key={`action-${i}`} style={styles.actionRow}>
+                          <View style={styles.actionNum}>
+                            <Text style={styles.actionNumText}>{i + 1}</Text>
+                          </View>
+                          <Text style={styles.actionText}>{text}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  {/* 나머지 분석은 접어 둔다 — 필요할 때만 펼쳐 보게 */}
+                  <TouchableOpacity style={styles.moreBtn} onPress={() => setDetailOpen((v) => !v)}>
+                    <Text style={styles.moreBtnText}>
+                      {detailOpen ? '분석 접기' : '기회 · 위협 · 트렌드 더 보기'}
+                    </Text>
+                    <Ionicons
+                      name={detailOpen ? 'chevron-up' : 'chevron-down'}
+                      size={14}
+                      color={colors.espressoBrown}
+                    />
+                  </TouchableOpacity>
+
+                  {detailOpen && (
+                    <>
+                      <TagBlock title="💡 파고들 자리" items={insight.opportunities} tone="good" />
+                      <TagBlock title="⚠️ 위협" items={insight.threats} tone="warn" />
+                      <TagBlock title="🔎 동네 트렌드" items={insight.trends} />
+                      {insight.watch_list?.length > 0 && (
+                        <TagBlock
+                          title="👀 주시할 카페"
+                          items={insight.watch_list}
+                          onPressItem={(name) => {
+                            const hit = nearby?.cafes.find((c) => c.name === name);
+                            if (hit) openCafe(hit);
+                          }}
+                        />
+                      )}
+                      <Text style={styles.aiNote}>
+                        네이버 지역정보·블로그 후기를 모아 AI가 정리했어요. 참고용입니다.
+                      </Text>
+                    </>
+                  )}
+                </View>
+              )}
+
+              {/* ③ 카페 목록 — 기본 5곳만, 나머지는 버튼으로 */}
+              {visibleCafes.map((cafe) => (
                 <TouchableOpacity
                   key={`${cafe.name}-${cafe.lat}-${cafe.lon}`}
                   style={styles.cafeCard}
                   onPress={() => openCafe(cafe)}
                   activeOpacity={0.85}
                 >
-                  <View style={styles.cafeDot} />
+                  <View style={styles.distanceBadge}>
+                    <Text style={styles.distanceText}>{cafe.distance_m}m</Text>
+                  </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.cafeName}>{cafe.name}</Text>
-                    <Text style={styles.cafeMeta}>
-                      {cafe.category} · {cafe.distance_m}m
+                    <Text style={styles.cafeName} numberOfLines={1}>
+                      {cafe.name}
                     </Text>
-                    <Text style={styles.cafeAddress} numberOfLines={1}>
-                      {cafe.address}
+                    <Text style={styles.cafeMeta} numberOfLines={1}>
+                      {cafe.category.split('>').pop()}
                     </Text>
                   </View>
                   <Ionicons name="chevron-forward" size={16} color={colors.mochaBrown} />
                 </TouchableOpacity>
               ))}
+
+              {!!nearby && nearby.cafes.length > visibleCafes.length && (
+                <TouchableOpacity style={styles.moreBtn} onPress={() => setShowAllCafes(true)}>
+                  <Text style={styles.moreBtnText}>
+                    카페 {nearby.cafes.length - visibleCafes.length}곳 더 보기
+                  </Text>
+                  <Ionicons name="chevron-down" size={14} color={colors.espressoBrown} />
+                </TouchableOpacity>
+              )}
 
               {nearby && nearby.count === 0 && (
                 <Text style={styles.emptyText}>
@@ -344,22 +389,24 @@ export default function StoreMapScreen() {
                 <>
                   {analysis.analysis ? (
                     <>
-                      <Text style={styles.sheetSummary}>{analysis.analysis.summary}</Text>
+                      {/* 태그 한 줄로 성격을 먼저 — 여론·가격·고객층·분위기를 문장 대신 칩으로 */}
                       <View style={styles.tagRow}>
                         <Tag label={`여론 ${analysis.analysis.sentiment}`} />
                         <Tag label={`가격 ${analysis.analysis.price_level}`} />
-                        <Tag label={`후기 ${analysis.review_count}건`} />
+                        {!!analysis.analysis.main_customers && <Tag label={analysis.analysis.main_customers} />}
+                        {!!analysis.analysis.atmosphere && <Tag label={analysis.analysis.atmosphere} />}
                       </View>
-                      <InsightList title="👍 강점" items={analysis.analysis.strengths} />
-                      <InsightList title="👎 약점" items={analysis.analysis.weaknesses} />
-                      {analysis.analysis.signature_menus.length > 0 && (
-                        <InsightList title="🍰 대표 메뉴" items={analysis.analysis.signature_menus} />
-                      )}
-                      <InsightList
-                        title="🙋 주 고객층 · 분위기"
-                        items={[analysis.analysis.main_customers, analysis.analysis.atmosphere]}
-                      />
-                      <InsightList title="🎯 우리 대응 전략" items={[analysis.analysis.counter_strategy]} highlight />
+                      <Text style={styles.sheetSummary}>{analysis.analysis.summary}</Text>
+
+                      <TagBlock title="👍 강점" items={analysis.analysis.strengths} tone="good" />
+                      <TagBlock title="👎 약점" items={analysis.analysis.weaknesses} tone="warn" />
+                      <TagBlock title="🍰 대표 메뉴" items={analysis.analysis.signature_menus} />
+
+                      {/* 사장님이 실제로 쓸 한 줄 — 시트에서 가장 눈에 띄어야 한다 */}
+                      <View style={styles.strategyBox}>
+                        <Text style={styles.strategyLabel}>🎯 우리 대응</Text>
+                        <Text style={styles.strategyText}>{analysis.analysis.counter_strategy}</Text>
+                      </View>
                     </>
                   ) : (
                     <Text style={styles.sheetSummary}>
@@ -369,24 +416,34 @@ export default function StoreMapScreen() {
 
                   {analysis.reviews.length > 0 && (
                     <>
-                      <Text style={styles.listTitle}>📝 후기 원문</Text>
-                      {analysis.reviews.map((r) => (
-                        <TouchableOpacity
-                          key={r.link}
-                          style={styles.reviewItem}
-                          onPress={() => r.link && Linking.openURL(r.link)}
-                        >
-                          <Text style={styles.reviewTitle} numberOfLines={1}>
-                            {r.title}
-                          </Text>
-                          <Text style={styles.reviewSnippet} numberOfLines={2}>
-                            {r.snippet}
-                          </Text>
-                          <Text style={styles.reviewMeta}>
-                            {r.blogger} · {r.date}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
+                      <TouchableOpacity style={styles.moreBtn} onPress={() => setReviewsOpen((v) => !v)}>
+                        <Text style={styles.moreBtnText}>
+                          {reviewsOpen ? '후기 접기' : `근거가 된 후기 ${analysis.review_count}건 보기`}
+                        </Text>
+                        <Ionicons
+                          name={reviewsOpen ? 'chevron-up' : 'chevron-down'}
+                          size={14}
+                          color={colors.espressoBrown}
+                        />
+                      </TouchableOpacity>
+                      {reviewsOpen &&
+                        analysis.reviews.map((r) => (
+                          <TouchableOpacity
+                            key={r.link}
+                            style={styles.reviewItem}
+                            onPress={() => r.link && Linking.openURL(r.link)}
+                          >
+                            <Text style={styles.reviewTitle} numberOfLines={1}>
+                              {r.title}
+                            </Text>
+                            <Text style={styles.reviewSnippet} numberOfLines={2}>
+                              {r.snippet}
+                            </Text>
+                            <Text style={styles.reviewMeta}>
+                              {r.blogger} · {r.date}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
                     </>
                   )}
                 </>
@@ -407,21 +464,49 @@ export default function StoreMapScreen() {
   );
 }
 
-// 목록형 인사이트 블록 (제목 + 불릿)
-function InsightList({ title, items, highlight }: { title: string; items?: string[]; highlight?: boolean }) {
+// 한눈 요약 숫자 한 칸 (주변 카페 수 · 최근접 거리 · 경쟁 강도)
+function Stat({ value, label, accent }: { value: string; label: string; accent?: boolean }) {
+  return (
+    <View style={styles.statBox}>
+      <Text style={[styles.statValue, accent && { color: colors.trendGreenText }]} numberOfLines={1}>
+        {value}
+      </Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
+// 제목 + 칩 묶음. 불릿 문장을 길게 늘어놓는 대신 짧은 칩으로 훑어보게 한다.
+function TagBlock({
+  title,
+  items,
+  tone,
+  onPressItem,
+}: {
+  title: string;
+  items?: string[];
+  tone?: 'good' | 'warn';
+  onPressItem?: (item: string) => void;
+}) {
   const clean = (items ?? []).filter((t) => t && t.trim());
   if (clean.length === 0) return null;
+  const toneStyle = tone === 'good' ? styles.tagGood : tone === 'warn' ? styles.tagWarn : null;
+  const toneText = tone === 'good' ? styles.tagGoodText : tone === 'warn' ? styles.tagWarnText : null;
   return (
     <View style={{ marginTop: 12 }}>
       <Text style={styles.listTitle}>{title}</Text>
-      {clean.map((text, i) => (
-        <View key={`${title}-${i}`} style={styles.bulletRow}>
-          <Text style={[styles.bulletDot, highlight && { color: colors.trendGreenText }]}>•</Text>
-          <Text style={[styles.bulletText, highlight && { color: colors.espressoBrown, fontWeight: '700' }]}>
-            {text}
-          </Text>
-        </View>
-      ))}
+      <View style={styles.chipRow}>
+        {clean.map((text, i) => (
+          <TouchableOpacity
+            key={`${title}-${i}`}
+            style={[styles.tag, toneStyle]}
+            disabled={!onPressItem}
+            onPress={() => onPressItem?.(text)}
+          >
+            <Text style={[styles.tagText, toneText]}>{text}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
     </View>
   );
 }
@@ -519,6 +604,21 @@ const styles = StyleSheet.create({
   },
   retryText: { ...typography.L5, color: colors.espressoBrown, fontWeight: '800' },
 
+  // 한눈 요약 3칸
+  statRow: { flexDirection: 'row', gap: 8 },
+  statBox: {
+    flex: 1,
+    backgroundColor: colors.white,
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    ...shadows.soft,
+  },
+  statValue: { ...typography.L3, color: colors.espressoBrown },
+  statLabel: { ...typography.L5, color: colors.mochaBrown, marginTop: 3 },
+
   insightCard: {
     backgroundColor: colors.white,
     borderRadius: 16,
@@ -527,26 +627,44 @@ const styles = StyleSheet.create({
     borderColor: colors.mutedSand,
     ...shadows.soft,
   },
-  insightHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  insightHeadline: { ...typography.L3, color: colors.espressoBrown, flex: 1, lineHeight: 21 },
-  levelBadge: { backgroundColor: colors.trendGreenBg, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4 },
-  levelText: { ...typography.L5, color: colors.trendGreenText, fontWeight: '800' },
-  insightSummary: { ...typography.L5, color: colors.mochaBrown, lineHeight: 17, marginTop: 8 },
+  insightHeadline: { ...typography.L3, color: colors.espressoBrown, lineHeight: 21 },
+  insightSummary: { ...typography.L5, color: colors.mochaBrown, lineHeight: 17, marginTop: 6 },
 
-  listTitle: { ...typography.L4, color: colors.espressoBrown, marginBottom: 5, marginTop: 4 },
-  bulletRow: { flexDirection: 'row', gap: 6, marginTop: 3 },
-  bulletDot: { ...typography.L5, color: colors.mochaBrown, lineHeight: 17 },
-  bulletText: { ...typography.L5, color: colors.mochaBrown, flex: 1, lineHeight: 17 },
-
-  watchRow: { marginTop: 14, gap: 6 },
-  watchLabel: { ...typography.L4, color: colors.espressoBrown },
-  watchChip: {
-    backgroundColor: colors.coffeeCream,
-    borderRadius: 999,
-    paddingHorizontal: 11,
-    paddingVertical: 6,
+  // 이번 주 할 일 — 번호를 붙여 '해야 할 목록'으로 읽히게 한다
+  actionBox: {
+    backgroundColor: colors.creamSand,
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 12,
+    gap: 8,
   },
-  watchChipText: { ...typography.L5, color: colors.espressoBrown, fontWeight: '800' },
+  actionTitle: { ...typography.L4, color: colors.espressoBrown },
+  actionRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  actionNum: {
+    width: 18,
+    height: 18,
+    borderRadius: 999,
+    backgroundColor: colors.espressoBrown,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  actionNumText: { fontSize: 10, fontWeight: '900', color: colors.white },
+  actionText: { ...typography.L5, color: colors.espressoBrown, flex: 1, lineHeight: 17, fontWeight: '600' },
+
+  moreBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 11,
+    marginTop: 10,
+    borderRadius: 12,
+    backgroundColor: colors.coffeeCream,
+  },
+  moreBtnText: { ...typography.L5, color: colors.espressoBrown, fontWeight: '800' },
+
+  listTitle: { ...typography.L4, color: colors.espressoBrown, marginBottom: 6 },
   aiNote: { ...typography.L5, color: '#A99C90', marginTop: 12, lineHeight: 15 },
 
   cafeCard: {
@@ -555,14 +673,22 @@ const styles = StyleSheet.create({
     gap: 10,
     backgroundColor: colors.white,
     borderRadius: 14,
-    padding: 13,
+    padding: 12,
     borderWidth: 1,
     borderColor: colors.mutedSand,
   },
-  cafeDot: { width: 9, height: 9, borderRadius: 999, backgroundColor: '#3F8F6B' },
+  // 거리를 왼쪽 배지로 — 목록을 훑을 때 '얼마나 가까운가'가 먼저 보이게
+  distanceBadge: {
+    minWidth: 46,
+    paddingVertical: 5,
+    paddingHorizontal: 7,
+    borderRadius: 9,
+    backgroundColor: colors.trendGreenBg,
+    alignItems: 'center',
+  },
+  distanceText: { ...typography.L5, color: colors.trendGreenText, fontWeight: '800' },
   cafeName: { ...typography.L4, color: colors.espressoBrown },
-  cafeMeta: { ...typography.L5, color: colors.trendGreenText, fontWeight: '700', marginTop: 2 },
-  cafeAddress: { ...typography.L5, color: colors.mochaBrown, marginTop: 2 },
+  cafeMeta: { ...typography.L5, color: colors.mochaBrown, marginTop: 2 },
   emptyText: { ...typography.L5, color: colors.mochaBrown, textAlign: 'center', paddingVertical: 18 },
 
   modalRoot: { flex: 1, justifyContent: 'flex-end', width: '100%', maxWidth: 420, alignSelf: 'center' },
@@ -579,9 +705,25 @@ const styles = StyleSheet.create({
   sheetTitle: { ...typography.L1, color: colors.espressoBrown },
   sheetMeta: { ...typography.L5, color: colors.mochaBrown, marginTop: 3 },
   sheetSummary: { ...typography.L5, color: colors.espressoBrown, lineHeight: 18 },
-  tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
+  tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
   tag: { backgroundColor: colors.coffeeCream, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
   tagText: { ...typography.L5, color: colors.espressoBrown, fontWeight: '800' },
+  // 강점=초록, 약점/위협=주의 — 색만 봐도 좋은 소식인지 나쁜 소식인지 구분된다
+  tagGood: { backgroundColor: colors.trendGreenBg },
+  tagGoodText: { color: colors.trendGreenText },
+  tagWarn: { backgroundColor: 'rgba(226, 130, 87, 0.12)' },
+  tagWarnText: { color: '#B4542C' },
+
+  // 카페 상세에서 가장 중요한 한 줄 (우리 대응)
+  strategyBox: {
+    marginTop: 14,
+    backgroundColor: colors.espressoBrown,
+    borderRadius: 12,
+    padding: 13,
+    gap: 4,
+  },
+  strategyLabel: { ...typography.L5, color: 'rgba(255,255,255,0.7)', fontWeight: '800' },
+  strategyText: { ...typography.L4, color: colors.white, lineHeight: 18 },
 
   reviewItem: {
     backgroundColor: colors.white,
