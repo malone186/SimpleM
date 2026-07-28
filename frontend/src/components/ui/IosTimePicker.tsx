@@ -104,34 +104,50 @@ interface HourWheelProps {
 
 function HourWheel({ items, selectedValue, onValueChange }: HourWheelProps) {
   const scrollRef = useRef<ScrollView>(null);
-  
-  // [5줄 확장 패딩 적용] 
+
+  // [5줄 확장 패딩 적용]
   // 5줄 휠 피커의 정가운데(3번째 행)에 선택 아이템이 고정되도록 앞뒤에 각각 2개씩 빈 여백 추가
   const fullItems = ['', '', ...items, '', ''];
+  // 손가락이 닿아 있거나 관성 스크롤이 흐르는 동안 true — 이때는 프로그램 스크롤을 걸지 않는다.
   const [isScrolling, setIsScrolling] = useState(false);
+  const scrollingRef = useRef(false);
+  // 스크롤이 멎었는지 지켜보는 타이머 (스크롤 이벤트가 올 때마다 다시 시작)
+  const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastOffset = useRef(0);
+  // 첫 표시 때 선택된 시간이 중앙에 오도록 한 번만 위치를 잡는다
+  const positioned = useRef(false);
 
   // 현재 활성화된 값의 인덱스 매핑 (패딩 2개가 앞에 있으므로 index + 2)
   const targetIndex = items.indexOf(selectedValue);
 
-  // [초기 스크롤 및 포커스 동기화] 
-  // 외부 값 주입 혹은 클릭 시 해당 픽셀 오프셋(targetIndex * ITEM_HEIGHT)으로 스무스하게 롤링
-  useEffect(() => {
-    if (targetIndex !== -1 && scrollRef.current && !isScrolling) {
-      const timer = setTimeout(() => {
-        scrollRef.current?.scrollTo({
-          y: targetIndex * ITEM_HEIGHT,
-          animated: true,
-        });
-      }, 60);
-      return () => clearTimeout(timer);
+  const clearIdleTimer = () => {
+    if (idleTimer.current) {
+      clearTimeout(idleTimer.current);
+      idleTimer.current = null;
     }
+  };
+  useEffect(() => clearIdleTimer, []);
+
+  // [초기 스크롤 및 포커스 동기화]
+  // 외부 값 주입 혹은 클릭 시 해당 픽셀 오프셋(targetIndex * ITEM_HEIGHT)으로 롤링.
+  // 첫 배치와 웹에서는 애니메이션 없이 즉시 이동한다 — 웹의 부드러운 스크롤(behavior: smooth)은
+  // 화면 등장 애니메이션과 겹치면 브라우저가 조용히 취소해 버려서, 09시를 골라놨는데도
+  // 휠이 00시에 멈춰 있는 상태가 됐다.
+  useEffect(() => {
+    if (targetIndex === -1 || isScrolling) return;
+    const first = !positioned.current;
+    const timer = setTimeout(() => {
+      positioned.current = true;
+      scrollRef.current?.scrollTo({
+        y: targetIndex * ITEM_HEIGHT,
+        animated: !first && Platform.OS !== 'web',
+      });
+    }, 60);
+    return () => clearTimeout(timer);
   }, [targetIndex, isScrolling]);
 
-  // [스크롤 종료 감지] 손가락 드래그나 마우스 휠이 끝났을 때 중심선을 기반으로 값을 재스냅
-  const handleScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    setIsScrolling(false);
-    const yOffset = e.nativeEvent.contentOffset.y;
-    // 가장 가까운 42px 경계선 인덱스 계산
+  // 중심선에 가장 가까운 항목을 골라 부모에 알린다 (스크롤 위치 → 값)
+  const settleValue = (yOffset: number) => {
     const index = Math.round(yOffset / ITEM_HEIGHT);
     const clampedIndex = Math.max(0, Math.min(items.length - 1, index));
     const newValue = items[clampedIndex];
@@ -141,15 +157,39 @@ function HourWheel({ items, selectedValue, onValueChange }: HourWheelProps) {
     }
   };
 
+  // [핵심] 값 확정을 드래그·관성 콜백이 아니라 onScroll 하나로 처리한다.
+  // 웹(react-native-web)에서는 마우스 휠로 굴려도 onScrollEndDrag / onMomentumScrollEnd가
+  // 아예 발생하지 않아 아무리 굴려도 시간이 안 바뀌고, 그다음 렌더에서 원래 자리로
+  // 되감기며 "스크롤이 안 되는" 것처럼 보였다. 스크롤이 멎으면(=이벤트가 끊기면) 확정한다.
+  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    lastOffset.current = e.nativeEvent.contentOffset.y;
+    if (!scrollingRef.current) {
+      scrollingRef.current = true;
+      setIsScrolling(true);
+    }
+    clearIdleTimer();
+    idleTimer.current = setTimeout(() => {
+      idleTimer.current = null;
+      settleValue(lastOffset.current);
+      scrollingRef.current = false;
+      setIsScrolling(false);
+    }, 160);
+  };
+
   const handleScrollBegin = () => {
+    clearIdleTimer();
+    scrollingRef.current = true;
     setIsScrolling(true);
   };
 
-  // [웹 친화적 스크롤 스타일 정의] 
+
+  // [웹 친화적 스크롤 스타일 정의]
   // PC 웹 환경에서 브라우저 스크롤 휠이 자석처럼 들러붙고 지저분한 스크롤바가 숨겨지도록 인라인 스타일 병합
   const webScrollStyle = Platform.OS === 'web' ? {
     scrollSnapType: 'y mandatory',
     scrollbarWidth: 'none' as const,
+    overscrollBehavior: 'contain' as const, // 휠 끝에서 페이지가 같이 밀리지 않도록
+    touchAction: 'pan-y' as const,
   } : {};
 
   return (
@@ -163,10 +203,13 @@ function HourWheel({ items, selectedValue, onValueChange }: HourWheelProps) {
         snapToInterval={ITEM_HEIGHT}
         decelerationRate="fast"
         scrollEventThrottle={16}
+        // [안드로이드] 회원가입 폼처럼 세로 스크롤뷰 안에 들어가면 바깥 스크롤이 제스처를 먼저
+        // 가로채 휠이 꿈쩍도 하지 않는다. 이 옵션이 있어야 안쪽 휠이 먼저 손가락을 받는다.
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
+        onScroll={handleScroll}
         onScrollBeginDrag={handleScrollBegin}
         onMomentumScrollBegin={handleScrollBegin}
-        onMomentumScrollEnd={handleScrollEnd}
-        onScrollEndDrag={handleScrollEnd}
         contentContainerStyle={{ paddingVertical: 0 }}
         style={[styles.scrollView, webScrollStyle as any]}
       >

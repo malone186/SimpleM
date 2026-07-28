@@ -5,6 +5,7 @@ import { AuthProvider } from './src/auth/AuthContext';
 import { PreferencesProvider } from './src/preferences/PreferencesContext';
 import { DessertProvider } from './src/dessert/DessertContext';
 import DeviceFrame from './src/components/DeviceFrame';
+import ErrorBoundary from './src/components/ErrorBoundary';
 import Splash from './src/components/Splash';
 import { ToastHost } from './src/components/toast';
 import AlertsWatcher from './src/notifications/AlertsWatcher';
@@ -18,7 +19,10 @@ export default function App() {
         <AuthProvider>
           <DessertProvider>
           <DeviceFrame>
-            <RootNavigator />
+            {/* 화면 하나가 터져도 앱 전체가 흰 화면이 되지 않도록 감싼다 */}
+            <ErrorBoundary>
+              <RootNavigator />
+            </ErrorBoundary>
             <StatusBar style="auto" />
             {/* 인앱 토스트/확인 다이얼로그 (브라우저 alert 대체) */}
             <ToastHost />

@@ -97,6 +97,12 @@ export default function AlertsWatcher() {
   const insightRunning = useRef(false); // ⑦ 선제 인사이트 폴링 중복 실행 방지
   const lastVoiceCheck = useRef<string>(new Date().toISOString()); // 마지막 폴링 시각
 
+  // 로그인한 사장님이 있을 때만 감시한다.
+  // (토큰만 살아 있고 user가 없는 상태 = 로그인 화면 — 이때 폴링하면 재고 부족·리포트
+  //  토스트가 로그인 화면 위로 쏟아진다. 파이어베이스 세션이 기기에 남아 있으면
+  //  자동 로그인을 끄고 앱을 켰을 때 바로 이 상황이 된다.)
+  const signedIn = !!token && !!user;
+
   // ⑦ FCM 푸시 등록 — 앱이 꺼져 있을 때도 도착해야 하는 Tier 1 알림용.
   //    위 폴링(①~⑥)은 앱이 열려 있을 때만 도는 인앱 토스트라 서로 역할이 다르다.
   usePushRegistration(token);
@@ -134,7 +140,7 @@ export default function AlertsWatcher() {
 
   // ⑤ 문의 답변 도착 — 15초 주기로 감시 (관리자 공지는 홈 말풍선이 담당하므로 제외)
   useEffect(() => {
-    if (!token || !prefs.ready) return;
+    if (!signedIn || !prefs.ready) return;
 
     // ⑤ 내 문의에 관리자 답변이 새로 달렸는지 감시 — 답변 완료 id 목록 비교 방식
     const checkInquiryAnswers = async () => {
@@ -177,10 +183,10 @@ export default function AlertsWatcher() {
     runOnce();
     const timer = setInterval(runOnce, NOTICE_POLL_MS);
     return () => clearInterval(timer);
-  }, [token, user?.email, prefs.ready, prefs.dndEnabled, prefs.dndStart, prefs.dndEnd]);
+  }, [signedIn, user?.email, prefs.ready, prefs.dndEnabled, prefs.dndStart, prefs.dndEnd]);
 
   useEffect(() => {
-    if (!token || !prefs.ready) return;
+    if (!signedIn || !prefs.ready) return;
 
     const check = async () => {
       if (running.current) return;
@@ -284,6 +290,7 @@ export default function AlertsWatcher() {
     const timer = setInterval(check, POLL_MS);
     return () => clearInterval(timer);
   }, [
+    signedIn,
     token,
     prefs.ready,
     prefs.lowStockAlert,
@@ -297,12 +304,12 @@ export default function AlertsWatcher() {
   // 로그아웃하거나 '알림 음성 읽어주기'를 끄면 재생 중·대기 중인 음성을 즉시 중단한다.
   // (끊지 않으면 큐에 쌓인 TTS가 로그인 화면까지 이어져 흘러나온다)
   useEffect(() => {
-    if (!token || !prefs.voiceAlertEnabled) speechCancelAll();
-  }, [token, prefs.voiceAlertEnabled]);
+    if (!signedIn || !prefs.voiceAlertEnabled) speechCancelAll();
+  }, [signedIn, prefs.voiceAlertEnabled]);
 
   // ⑥ 음성 비서 알림 — 30초 주기로 새 완료 이벤트를 폴링하고, 이어폰 착용 시 음성 재생
   useEffect(() => {
-    if (!token || !prefs.ready) return;
+    if (!signedIn || !prefs.ready) return;
 
     const checkVoiceNotifications = async () => {
       if (voiceRunning.current) return;
@@ -341,7 +348,7 @@ export default function AlertsWatcher() {
     checkVoiceNotifications();
     const timer = setInterval(checkVoiceNotifications, VOICE_POLL_MS);
     return () => clearInterval(timer);
-  }, [token, prefs.ready, prefs.dndEnabled, prefs.dndStart, prefs.dndEnd, prefs.voiceAlertEnabled]);
+  }, [signedIn, prefs.ready, prefs.dndEnabled, prefs.dndStart, prefs.dndEnd, prefs.voiceAlertEnabled]);
 
   // ⑦ 선제 인사이트 — 서버가 매장 DB를 훑어 찾아낸 "곧 할 일 · 놓친 일"을 알림으로 전한다.
   //    묻지 않아도 먼저 알려주되, 말을 걸지는 않는다(대화는 사장님이 시작한다).

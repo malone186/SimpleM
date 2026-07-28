@@ -1,6 +1,6 @@
 // 메뉴 관리 (ERP-3) — 메뉴 등록 + 레시피(재료 구성), 원가율
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../../auth/AuthContext';
@@ -41,6 +41,75 @@ type Menu = {
 
 // 2. 새로운 메뉴를 만들 때 한 줄 한 줄의 레시피 입력칸 규격
 type NewRow = { ingredient_id: string; quantity: string };
+
+// [재료 선택 드롭다운]
+// 예전엔 HTML <select> 태그를 그대로 썼는데, 앱(React Native)에는 그런 태그가 없어서
+// 이 화면을 열자마자 렌더링이 터지고 앱 전체가 흰 화면이 됐다(강제 재시작).
+// 웹·앱 모두에서 동작하는 순수 RN 컴포넌트로 다시 만든다.
+function IngredientSelect({
+  items,
+  value,
+  onChange,
+}: {
+  items: Ingredient[];
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = items.find((i) => String(i.id) === value);
+
+  return (
+    <View style={styles.selectWrap}>
+      <TouchableOpacity
+        activeOpacity={0.8}
+        style={styles.selectInput}
+        onPress={() => setOpen((v) => !v)}
+      >
+        <Text
+          numberOfLines={1}
+          style={[styles.selectText, !selected && styles.selectPlaceholder]}
+        >
+          {selected ? `${selected.name} (${selected.unit})` : '재료 선택'}
+        </Text>
+        <Ionicons
+          name={open ? 'chevron-up' : 'chevron-down'}
+          size={15}
+          color={colors.mochaBrown}
+        />
+      </TouchableOpacity>
+
+      {open && (
+        <View style={styles.selectList}>
+          {items.length === 0 ? (
+            <Text style={styles.selectEmpty}>등록된 재료가 없어요. 재료 관리에서 먼저 추가해 주세요.</Text>
+          ) : (
+            <ScrollView style={{ maxHeight: 190 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+              {items.map((ing) => {
+                const active = String(ing.id) === value;
+                return (
+                  <TouchableOpacity
+                    key={ing.id}
+                    activeOpacity={0.7}
+                    style={[styles.selectOption, active && styles.selectOptionActive]}
+                    onPress={() => {
+                      onChange(String(ing.id));
+                      setOpen(false);
+                    }}
+                  >
+                    <Text style={[styles.selectOptionText, active && styles.selectOptionTextActive]} numberOfLines={1}>
+                      {ing.name} ({ing.unit})
+                    </Text>
+                    {active && <Ionicons name="checkmark" size={15} color={colors.pointOrange} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          )}
+        </View>
+      )}
+    </View>
+  );
+}
 
 export default function MenuScreen() {
   // [한글 주석: 전역 다국어 훅 연동]
@@ -268,20 +337,13 @@ export default function MenuScreen() {
         <Text style={styles.formLabel}>레시피 (재료 구성)</Text>
         {rows.map((r, i) => (
           <View key={i} style={styles.formRow}>
-            {/* 웹 브라우저 호환 및 패키지 충돌 방지를 위해 표준 HTML select 태그를 스타일링하여 드롭다운을 제공합니다. */}
-            <select
-              style={styles.selectInput}
+            {/* 웹·앱 공용 재료 드롭다운 (HTML select 대신 RN 컴포넌트) */}
+            <IngredientSelect
+              items={allIngredients}
               value={r.ingredient_id}
-              onChange={(e) => setRow(i, { ingredient_id: e.target.value })}
-            >
-              <option value="">-- 재료 선택 --</option>
-              {allIngredients.map((ing) => (
-                <option key={ing.id} value={ing.id}>
-                  {ing.name} ({ing.unit})
-                </option>
-              ))}
-            </select>
-            
+              onChange={(id) => setRow(i, { ingredient_id: id })}
+            />
+
             <TextInput
               style={[styles.formInput, { flex: 1 }]}
               value={r.quantity}
@@ -309,17 +371,41 @@ export default function MenuScreen() {
 
 
 const styles = StyleSheet.create({
+  selectWrap: { flex: 2 },
   selectInput: {
-    flex: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.mutedSand,
     borderRadius: 10,
     paddingHorizontal: 10,
-    paddingVertical: 10,
-    ...typography.L5,
-    color: colors.espressoBrown,
+    paddingVertical: 11,
   },
+  selectText: { flex: 1, ...typography.L5, color: colors.espressoBrown },
+  selectPlaceholder: { color: colors.mochaBrown },
+  selectList: {
+    marginTop: 4,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  selectOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.creamSand,
+  },
+  selectOptionActive: { backgroundColor: colors.creamSand },
+  selectOptionText: { flex: 1, ...typography.L5, color: colors.espressoBrown },
+  selectOptionTextActive: { color: colors.pointOrange, fontWeight: '700' },
+  selectEmpty: { ...typography.L5, color: colors.mochaBrown, padding: 12 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerHit: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   delBtn: { padding: 8, borderRadius: 10, backgroundColor: 'rgba(178,59,46,0.08)' },
@@ -333,7 +419,8 @@ const styles = StyleSheet.create({
   recipeAmount: { ...typography.L5, color: colors.mochaBrown, width: 60, textAlign: 'right' },
   recipeCost: { ...typography.L5, color: colors.espressoBrown, fontWeight: '700', width: 70, textAlign: 'right' },
   formLabel: { ...typography.L5, color: colors.mochaBrown, marginBottom: 8, marginTop: 4 },
-  formRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  // 드롭다운이 펼쳐지면 세로로 길어지므로 위쪽 기준 정렬 (소요량 칸이 아래로 딸려가지 않게)
+  formRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginBottom: 8 },
   formInput: {
     backgroundColor: colors.white,
     borderWidth: 1,
