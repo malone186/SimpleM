@@ -1,11 +1,16 @@
 """AI 관련 모델 (백엔드 B)"""
 
+import logging
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import (
+    BigInteger, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func, inspect, text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+logger = logging.getLogger(__name__)
 
 
 class OcrDocument(Base):
@@ -59,6 +64,33 @@ class OcrItem(Base):
     amount: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)  # 금액
 
     document: Mapped[OcrDocument] = relationship(back_populates="items")
+
+
+def ensure_ocr_store_column(engine) -> None:
+    """[자가치유 스키마] 기존 ocr_documents 테이블에 store_id 컬럼이 없으면 멱등하게 추가한다.
+
+    store_id는 나중에 도입된 컬럼이라 그 전에 만들어진 DB에는 없다. create_all은 기존
+    테이블을 ALTER하지 않으므로, 컬럼이 빠진 채로 두면 매장별 OCR 조회가 전부 실패한다.
+    nullable이라 기존 행(비로그인 업로드분)은 그대로 남는다.
+    """
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("ocr_documents"):
+            return  # 테이블 자체가 없으면 create_all이 스키마째로 생성한다
+        existing = {c["name"] for c in insp.get_columns("ocr_documents")}
+    except Exception as e:
+        logger.warning(f"[OCR 스키마] ocr_documents 점검 실패 — 건너뜁니다: {e}")
+        return
+    if "store_id" in existing:
+        return
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE ocr_documents ADD COLUMN store_id VARCHAR(100)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ocr_documents_store_id "
+                              "ON ocr_documents (store_id)"))
+        logger.info("[OCR 스키마] ocr_documents.store_id 컬럼 추가 완료")
+    except Exception as e:
+        logger.warning(f"[OCR 스키마] store_id 보강 실패 — 매장별 OCR 조회가 막힐 수 있습니다: {e}")
 
 
 class GeneratedDocument(Base):
@@ -137,6 +169,24 @@ class AdminNotification(Base):
     target_label: Mapped[str] = mapped_column(String(100), default="전체 사장님")  # 관리자 웹 표시용
     author: Mapped[str] = mapped_column(String(50), default="최고 관리자")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class InsightAck(Base):
+    """선제 인사이트 확인·미루기 기록 — 같은 알림이 계속 다시 뜨지 않게 한다
+
+    인사이트 자체는 저장하지 않는다(매번 DB에서 새로 계산). 여기 남기는 건
+    "사장님이 이 건을 이미 봤다"는 사실뿐이라, 상황이 바뀌면 key가 달라져
+    새 인사이트로 다시 올라온다. snooze_until이 지나면 자동으로 되살아난다.
+    """
+
+    __tablename__ = "insight_acks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    store_id: Mapped[str] = mapped_column(String(100), index=True)
+    insight_key: Mapped[str] = mapped_column(String(200), index=True)  # insight_service가 만든 dedup 키
+    acked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # NULL이면 영구 숨김, 값이 있으면 그 시각 이후 다시 알린다
+    snooze_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class ComplianceItem(Base):

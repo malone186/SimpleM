@@ -46,6 +46,7 @@ from app.schemas.ai import (
 from app.services.ai import (
     document_service,
     forecast_service,
+    insight_service,
     ocr_service,
     price_service,
     report_service,
@@ -480,6 +481,48 @@ def delete_compliance_item(item_id: int, current_user: User = Depends(get_curren
     except document_service.DocumentError as e:
         raise HTTPException(404, str(e))
     return {"deleted": item_id}  # 프론트 apiFetch가 JSON 응답을 기대하므로 204 대신 본문 반환
+
+
+# ---------------------------------------------------------------------------
+# 선제 인사이트 — 사장님이 묻기 전에 시스템이 먼저 찾아내는 "챙길 일"
+# 앱은 이걸 폴링해 알림으로만 띄운다 (먼저 말을 걸지는 않는다)
+# ---------------------------------------------------------------------------
+
+
+class InsightDismissRequest(BaseModel):
+    snooze_days: int = Field(
+        0, ge=0, le=365,
+        description="0이면 영구 확인 처리, 1 이상이면 그 일수만큼 숨겼다가 다시 알림",
+    )
+
+
+@router.get("/insights")
+def get_insights_api(
+    include_dismissed: bool = False,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """지금 챙겨야 할 일을 매장 데이터에서 찾아 돌려준다 (심각한 것부터 정렬).
+
+    재고 소진 예상일, 단가 인상, 잠자는 재고, 확정 안 한 명세서, 진행 안 된 발주,
+    갱신 임박 서류, 세무 신고 기한, 매출 급락, 판매 입력 누락, 주휴수당 발생,
+    근로계약서 미작성, 재고실사·월 장부 미생성, 레시피 없는 메뉴를 검사한다.
+
+    저장된 목록이 아니라 호출 시점에 DB를 훑어 매번 새로 계산한다 —
+    사장님이 조치를 끝내면 다음 호출에서 그 항목은 자연히 사라진다.
+    """
+    return insight_service.scan(current_user.email, include_dismissed=include_dismissed)
+
+
+@router.post("/insights/{insight_key:path}/dismiss")
+def dismiss_insight_api(
+    insight_key: str,
+    body: InsightDismissRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """인사이트 확인 처리 — snooze_days를 주면 그 기간만 숨겼다가 다시 올라온다."""
+    return insight_service.dismiss(
+        current_user.email, insight_key, snooze_days=body.snooze_days
+    )
 
 
 # ---------------------------------------------------------------------------
