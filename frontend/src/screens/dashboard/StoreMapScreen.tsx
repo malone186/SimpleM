@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Linking,
   Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -315,7 +316,9 @@ export default function StoreMapScreen() {
 
       {/* 카페 상세 — 네이버 후기 기반 AI 분석 */}
       <Modal visible={!!selected} animationType="slide" transparent onRequestClose={() => setSelected(null)}>
-        <View style={styles.backdrop}>
+        {/* [FormSheet 패턴] 웹에서 Modal이 뷰포트 전체를 덮으므로 폰 프레임(maxWidth 420)에 가둔다 */}
+        <View style={styles.modalRoot}>
+          <Pressable style={styles.backdrop} onPress={() => setSelected(null)} />
           <View style={styles.sheet}>
             <View style={styles.sheetHead}>
               <View style={{ flex: 1 }}>
@@ -562,7 +565,8 @@ const styles = StyleSheet.create({
   cafeAddress: { ...typography.L5, color: colors.mochaBrown, marginTop: 2 },
   emptyText: { ...typography.L5, color: colors.mochaBrown, textAlign: 'center', paddingVertical: 18 },
 
-  backdrop: { flex: 1, backgroundColor: colors.black40, justifyContent: 'flex-end' },
+  modalRoot: { flex: 1, justifyContent: 'flex-end', width: '100%', maxWidth: 420, alignSelf: 'center' },
+  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: colors.black40 },
   sheet: {
     backgroundColor: colors.creamSand,
     borderTopLeftRadius: 22,

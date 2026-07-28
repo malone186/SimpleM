@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Modal,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -140,7 +141,10 @@ export default function StoreLocationPicker({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.backdrop}>
+      {/* [FormSheet 패턴] Modal은 웹에서 뷰포트 전체를 덮으므로, root에서 폰 프레임(maxWidth 420)
+          안에 시트를 가둔다. 이걸 빼면 데스크톱에서 지도가 화면 폭만큼 늘어나 띠처럼 보인다. */}
+      <View style={styles.root}>
+        <Pressable style={styles.backdrop} onPress={onClose} />
         <View style={styles.sheet}>
           <View style={styles.header}>
             <Text style={styles.title}>매장 위치 {initial ? '변경' : '등록'}</Text>
@@ -225,7 +229,8 @@ export default function StoreLocationPicker({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: colors.black40, justifyContent: 'flex-end' },
+  root: { flex: 1, justifyContent: 'flex-end', width: '100%', maxWidth: 420, alignSelf: 'center' },
+  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: colors.black40 },
   sheet: {
     backgroundColor: colors.creamSand,
     borderTopLeftRadius: 22,
