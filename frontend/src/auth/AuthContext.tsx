@@ -17,6 +17,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -37,7 +38,16 @@ type AuthContextValue = {
   token: string | null; // [한글 주석] 백엔드 API 호출용 Firebase ID Token (Authorization: Bearer ...)
   booting: boolean;
   login: (email: string, password: string, autoLogin: boolean) => Promise<void>;
-  signup: (name: string, email: string, password: string, autoLogin: boolean, acquisitionSource?: string, phone?: string) => Promise<void>;
+  // store: 가입 2단계 지도 핀으로 확정한 매장 고정 위치 — 계정에 저장되어 기기가 바뀌어도 따라간다
+  signup: (
+    name: string,
+    email: string,
+    password: string,
+    autoLogin: boolean,
+    acquisitionSource?: string,
+    phone?: string,
+    store?: { lat?: number; lon?: number; address?: string; bizType?: string },
+  ) => Promise<void>;
   loginWithGoogle: (autoLogin: boolean) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (patch: { name?: string; store_name?: string; password?: string; photo?: string }) => Promise<void>;
@@ -74,6 +84,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [booting, setBooting] = useState(true);
+
+  // 토큰 자동 갱신 콜백에서 "지금 로그인된 상태인가"를 최신 값으로 읽기 위한 참조
+  const userRef = useRef<User | null>(null);
+  userRef.current = user;
 
   // [한글 주석] 자동 로그인 여부에 따라 디스크에 세션을 남기거나 지웁니다.
   const persistSession = useCallback(async (u: User & { token: string }, autoLogin: boolean) => {
@@ -112,10 +126,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // [토큰 자동 갱신] Firebase는 ID 토큰(약 1시간 만료)을 백그라운드에서 자동 갱신한다.
   // 그 변경을 구독해 앱이 들고 있는 토큰과 저장된 세션을 항상 최신으로 유지 → 한 시간 뒤 401 방지.
+  //
+  // [주의] 로그인 화면(user === null)에서는 토큰을 심지 않는다.
+  // Firebase는 자동 로그인을 꺼도 기기에 자체 세션을 남기기 때문에, 앱을 다시 켰을 때
+  // 이 콜백이 살아있는 토큰을 꽂아 넣곤 했다. 그러면 로그인도 안 했는데 알림 감시자가
+  // 돌면서 재고 부족·리포트 토스트가 로그인 화면 위로 튀어나온다.
   useEffect(() => {
     if (!auth) return;
     const unsub = onIdTokenChanged(auth, async (fbUser) => {
       if (!fbUser) return; // Firebase 사용자 없음(로그아웃/백엔드 데모 로그인)엔 관여하지 않는다
+      if (!userRef.current) return; // 앱 세션이 없는 상태(로그인 화면) — 토큰을 되살리지 않는다
       try {
         const fresh = await fbUser.getIdToken(); // 만료 임박이면 갱신된 새 토큰을 돌려준다
         setToken(fresh);
@@ -317,9 +337,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // [한글 주석] Firebase Auth로 계정을 최초 생성하고 닉네임을 설정합니다.
   // 가짜 Firebase 키 상황일 경우 백엔드 자체 로컬 회원가입 API로 즉시 우회합니다.
   const signup = useCallback(
-    async (name: string, email: string, password: string, autoLogin: boolean, acquisitionSource?: string, phone?: string) => {
+    async (
+      name: string,
+      email: string,
+      password: string,
+      autoLogin: boolean,
+      acquisitionSource?: string,
+      phone?: string,
+      store?: { lat?: number; lon?: number; address?: string; bizType?: string },
+    ) => {
       const FIREBASE_API_KEY = process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '';
       const isMockFirebase = FIREBASE_API_KEY.startsWith('mock-') || !FIREBASE_API_KEY;
+
+      // [매장 고정 위치] 좌표는 짝으로만 의미가 있다 — 한쪽만 있으면 보내지 않는다
+      const hasPin = typeof store?.lat === 'number' && typeof store?.lon === 'number';
+      const storePayload = hasPin
+        ? {
+            store_lat: store!.lat,
+            store_lon: store!.lon,
+            ...(store!.address ? { store_address: store!.address } : {}),
+            ...(store!.bizType ? { store_biz_type: store!.bizType } : {}),
+          }
+        : {};
 
       if (isMockFirebase) {
         try {
@@ -336,6 +375,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               ...(phone ? { phone } : {}),
               // [유입 경로] 선택값 — 미선택 시 전송하지 않아 백엔드가 NULL로 저장(추정 폴백)
               ...(acquisitionSource ? { acquisition_source: acquisitionSource } : {}),
+              // [매장 고정 위치] 가입 지도 핀 — 이후 모든 매장 지도가 이 좌표로 고정된다
+              ...storePayload,
             }),
           });
 
@@ -374,17 +415,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // 3. 가입 즉시 로그인을 진행하여 토큰 획득 및 백엔드 데이터베이스 동기화(Lazy Signup) 유도
         await login(email, password, autoLogin);
 
-        // 4. 휴대폰 번호는 Firebase 계정에 없는 정보라 백엔드 프로필에 별도로 심는다 (아이디/비번 찾기용).
+        // 4. 휴대폰 번호와 매장 고정 위치는 Firebase 계정에 없는 정보라 백엔드 프로필에 별도로 심는다.
+        //    (휴대폰 = 아이디/비번 찾기용, 매장 위치 = 매장 지도·상권 분석 기준점)
         //    실패해도 가입은 이미 끝났으므로 배경 전송으로 충분하다.
-        if (phone) {
+        const extraPatch = { ...(phone ? { phone } : {}), ...storePayload };
+        if (Object.keys(extraPatch).length > 0) {
           userCredential.user.getIdToken().then((idToken) =>
             fetch(`${API_BASE_URL}/api/v1/auth/profile`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-              body: JSON.stringify({ phone }),
+              body: JSON.stringify(extraPatch),
             }),
           ).catch(() => {
-            console.warn('휴대폰 번호 동기화 경고: 아이디/비밀번호 찾기에서 상호명으로 본인 확인해야 할 수 있습니다.');
+            console.warn('가입 부가정보(휴대폰·매장 위치) 동기화 경고: 프로필 화면에서 다시 등록할 수 있습니다.');
           });
         }
 

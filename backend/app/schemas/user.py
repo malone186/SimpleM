@@ -18,6 +18,12 @@ class UserCreate(BaseModel):
     acquisition_source: str | None = Field(None, description="유입 채널 키(referral/web_search/instagram/app_store/youtube/naver_blog/etc)")
     acquisition_detail: str | None = Field(None, description="추천코드·캠페인명 등 보조값")
 
+    # [매장 고정 위치] 가입 2단계 지도 핀으로 확정한 좌표 — 로그인 기기와 무관하게 지도가 이 위치를 보여준다.
+    store_lat: float | None = Field(None, ge=-90, le=90, description="매장 위도 (지도 핀)")
+    store_lon: float | None = Field(None, ge=-180, le=180, description="매장 경도 (지도 핀)")
+    store_address: str | None = Field(None, max_length=200, description="매장 주소 (지도 핀 역지오코딩 결과)")
+    store_biz_type: str | None = Field(None, max_length=30, description="상권 유형 (오피스 상권/대학가 등)")
+
 # 2. 로그인 요청 시 프론트엔드가 보내는 '로그인 신청서' 규격입니다.
 class UserLogin(BaseModel):
     email: EmailStr = Field(..., description="로그인용 이메일 아이디")
@@ -32,6 +38,12 @@ class UserResponse(BaseModel):
     phone: str | None = None
     created_at: datetime
     acquisition_source: str | None = None
+
+    # 매장 고정 위치 — 앱이 로그인 직후 이 값으로 매장 지도를 그린다 (기기 GPS 사용 안 함)
+    store_lat: float | None = None
+    store_lon: float | None = None
+    store_address: str | None = None
+    store_biz_type: str | None = None
 
     # SQLAlchemy 모델 객체(데이터베이스 데이터)를 Pydantic JSON 형식으로 자동으로 변환해 주는 옵션입니다.
     model_config = ConfigDict(from_attributes=True)
@@ -55,6 +67,12 @@ class UserUpdate(BaseModel):
     password: str | None = Field(None, min_length=4, description="새로 변경할 비밀번호 (선택사항)")
     store_name: str | None = Field(None, description="수정할 매장/카페 이름")
     phone: str | None = Field(None, description="휴대폰 번호 — 아이디/비밀번호 찾기 본인 확인용")
+
+    # [매장 고정 위치] 가입 후 위치를 옮겼거나, 가입 때 등록하지 않은 계정이 나중에 등록할 때 사용
+    store_lat: float | None = Field(None, ge=-90, le=90, description="매장 위도 (지도 핀)")
+    store_lon: float | None = Field(None, ge=-180, le=180, description="매장 경도 (지도 핀)")
+    store_address: str | None = Field(None, max_length=200, description="매장 주소")
+    store_biz_type: str | None = Field(None, max_length=30, description="상권 유형")
 
 
 # 7. [아이디(이메일) 찾기] 요청/응답 규격 — 상호명+휴대폰으로 조회해 마스킹된 이메일만 돌려준다.

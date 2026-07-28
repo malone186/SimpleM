@@ -46,6 +46,7 @@ from app.schemas.ai import (
 from app.services.ai import (
     document_service,
     forecast_service,
+    nearby_cafe_service,
     ocr_service,
     price_service,
     report_service,
@@ -307,6 +308,12 @@ def get_sales_forecast_api(
     같은 날 만든 캐시가 있으면 즉시 돌려주고, 오래됐으면 백그라운드로 재계산해
     다음 조회부터 최신이 된다 (SARIMAX 적합 + 외부 API 왕복을 사용자가 기다리지 않게).
     """
+    # 좌표 미전달이면 등록된 매장 고정 위치를 쓴다 — 기기 GPS(사장님 현위치)로 날씨를 잡으면
+    # 집에서 앱을 켰을 때 엉뚱한 지역 날씨로 예측이 흔들린다.
+    if lat is None or lon is None:
+        lat = current_user.store_lat if current_user.store_lat is not None else lat
+        lon = current_user.store_lon if current_user.store_lon is not None else lon
+
     cached = forecast_service.peek_forecast_cache(current_user.email, lat=lat, lon=lon, days=days)
     if cached is not None:
         result, fresh = cached
@@ -343,6 +350,92 @@ def reverse_geocode_point(lat: float, lon: float):
     if not address:
         raise HTTPException(404, "이 위치의 주소를 찾지 못했습니다. 주소를 직접 입력해 주세요.")
     return {"lat": lat, "lon": lon, "address": address}
+
+
+# ---------------------------------------------------------------------------
+# 주변 카페 상권 분석 — 매장 고정 위치 기준 (네이버 지역검색 + 블로그 후기 + Gemini)
+# ---------------------------------------------------------------------------
+
+def _store_point(current_user: User, lat: Optional[float], lon: Optional[float]) -> tuple[float, float]:
+    """분석 기준 좌표 — 명시 좌표 > DB에 등록된 매장 고정 위치. 둘 다 없으면 409.
+
+    기기 GPS로 폴백하지 않는다: 사장님이 집에서 앱을 켜도 상권 분석은 '매장' 기준이어야 한다.
+    """
+    if lat is not None and lon is not None:
+        return lat, lon
+    if current_user.store_lat is not None and current_user.store_lon is not None:
+        return current_user.store_lat, current_user.store_lon
+    raise HTTPException(
+        409,
+        "매장 위치가 등록되어 있지 않습니다. 매장 지도 화면에서 '매장 위치 등록'으로 지도 핀을 찍어 주세요.",
+    )
+
+
+@router.get("/nearby-cafes")
+def get_nearby_cafes_api(
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
+    radius_m: int = 1000,
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+):
+    """매장 고정 위치 반경 안의 경쟁 카페 목록 (네이버 지역정보, 거리순).
+
+    lat/lon 생략 시 회원가입 때 등록한 매장 좌표를 사용한다.
+    """
+    p_lat, p_lon = _store_point(current_user, lat, lon)
+    try:
+        return nearby_cafe_service.find_nearby_cafes(
+            p_lat, p_lon,
+            radius_m=max(200, min(radius_m, 3000)),
+            limit=max(1, min(limit, 30)),
+            exclude_name=current_user.store_name or "",
+        )
+    except nearby_cafe_service.NearbyCafeError as e:
+        raise HTTPException(503, str(e))
+
+
+@router.get("/nearby-cafes/insight")
+def get_neighborhood_insight_api(
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
+    radius_m: int = 1000,
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+):
+    """주변 카페 목록 + 상권 AI 분석(경쟁 밀도·트렌드·기회·위협·이번 주 실행안).
+
+    수집(네이버) → 분석(Gemini) 순으로 도는 무거운 호출이라 서비스단에서 캐시한다.
+    Gemini 실패 시 insight=null로 내려가고 카페 목록은 그대로 표시된다.
+    """
+    p_lat, p_lon = _store_point(current_user, lat, lon)
+    try:
+        return nearby_cafe_service.analyze_neighborhood(
+            p_lat, p_lon,
+            store_name=current_user.store_name or current_user.name or "내 매장",
+            biz_type=current_user.store_biz_type or "",
+            radius_m=max(200, min(radius_m, 3000)),
+            limit=max(1, min(limit, 30)),
+        )
+    except nearby_cafe_service.NearbyCafeError as e:
+        raise HTTPException(503, str(e))
+
+
+@router.get("/nearby-cafes/analysis")
+def get_cafe_analysis_api(
+    name: str,
+    address: str = "",
+    category: str = "",
+    distance_m: int = 0,
+    region: str = "",
+    _current_user: User = Depends(get_current_user),
+):
+    """경쟁 카페 한 곳의 네이버 블로그 후기 수집 + AI 분석 (지도에서 마커를 눌렀을 때)."""
+    result = nearby_cafe_service.analyze_cafe(
+        name, address=address, category=category, distance_m=distance_m, region=region)
+    if not result["review_count"]:
+        raise HTTPException(404, f"'{name}'에 대한 네이버 후기를 찾지 못했습니다.")
+    return result
 
 
 class SaleItemIn(BaseModel):

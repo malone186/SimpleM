@@ -20,13 +20,12 @@ import { useAuth } from '../../auth/AuthContext';
 import StoreLocationMap from '../../components/dashboard/StoreLocationMap';
 import { FadeInUp, PressableScale } from '../../components/motion';
 import {
-  cacheStoreLocation,
-  getDevicePosition,
   getSalesForecast,
   getStoredStoreLocation,
   type SalesForecast,
   type StoredStoreLocation,
 } from '../../lib/api/forecast';
+import { resolveStoreLocation } from '../../lib/api/store';
 import { colors, spacing, typography } from '../../theme';
 
 export default function ProfileScreen() {
@@ -38,8 +37,9 @@ export default function ProfileScreen() {
   const [photo, setPhoto] = useState<string | undefined>(user?.photo);
   const [saved, setSaved] = useState(false);
 
-  // [한글 주석] 매장 위치·주변 행사 — 로컬 저장 좌표(가입 핀/예측 캐시)로 지도를 먼저 즉시 띄우고,
-  // 무거운 예측 API는 뒤에서 받아 지역명 보정과 인근 행사 마커만 추가한다
+  // [한글 주석] 매장 위치는 계정에 등록된 고정 좌표(회원가입 지도 핀)를 쓴다 — 기기 GPS를 쓰지 않는다.
+  // 기기 캐시로 지도를 먼저 즉시 띄우고, 계정 값이 오면 그것으로 확정한다.
+  // 예측 API는 지역명 보정과 인근 행사 마커 보강용(실패해도 지도는 그대로).
   const [storedLoc, setStoredLoc] = useState<StoredStoreLocation | null>(null);
   const [forecast, setForecast] = useState<SalesForecast | null>(null);
 
@@ -58,13 +58,11 @@ export default function ProfileScreen() {
     let cancelled = false;
     (async () => {
       try {
-        const pos = await getDevicePosition();
-        const data = await getSalesForecast(token, pos?.lat, pos?.lon);
-        if (!cancelled) {
-          setForecast(data);
-          // 다음 방문부터는 이 좌표로 지도가 즉시 뜨도록 캐시
-          if (data.location) cacheStoreLocation(data.location);
-        }
+        const loc = await resolveStoreLocation(token);
+        if (!cancelled && loc) setStoredLoc(loc);
+        // 인근 행사 마커·지역명은 예측 API에서 — 등록된 매장 좌표를 그대로 넘긴다
+        const data = await getSalesForecast(token, loc?.lat, loc?.lon);
+        if (!cancelled) setForecast(data);
       } catch (e) {
         console.error('프로필 매장 위치 조회 실패:', e);
       }
@@ -74,9 +72,9 @@ export default function ProfileScreen() {
     };
   }, [token]);
 
-  // 예측 응답이 오면 그것을 우선, 오기 전엔 로컬 저장 좌표로 즉시 렌더
-  const mapLocation = forecast?.location ?? storedLoc;
-  const mapRegion = forecast?.location?.region ?? storedLoc?.region ?? '';
+  // 지도 중심은 항상 등록된 매장 좌표. 예측 응답은 지역명 표시에만 쓴다.
+  const mapLocation = storedLoc ?? forecast?.location ?? null;
+  const mapRegion = storedLoc?.region ?? forecast?.location?.region ?? '';
 
   const initial = (user?.name || 'S').charAt(0).toUpperCase();
 

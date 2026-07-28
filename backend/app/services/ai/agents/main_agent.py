@@ -8,6 +8,7 @@
         ├─ inventory_expert  : 재고·재료·메뉴·발주  (백엔드 A 도구 — 구현되면 자동 활성화)
         ├─ document_expert   : 서류 자동화·갱신 알림 (document_tools 15종)
         ├─ ocr_expert        : 영수증/명세서 OCR 문서 조회·수정 (ocr_tools)
+        ├─ market_expert     : 주변 카페·상권 분석 (nearby_cafe_tools — 네이버 지역·후기 수집)
         ├─ operation_expert  : 매출 예측·운영 요약·원두 시세·세금 추정 (백엔드 C 도구)
         └─ report_expert     : 일간·주간·월간 경영 리포트 (report_tools — 전체 데이터 통합)
 
@@ -134,6 +135,24 @@ _DOMAINS: list[dict[str, Any]] = [
         ),
         "modules": ["app.services.ai.ocr_tools"],
         "extra": "- 확정하면 품목이 실제 재고에 더해집니다 — 반영 결과(몇 개 품목 입고)를 보고하세요.",
+    },
+    {
+        # [상권 분석] 등록된 매장 고정 위치 기준으로 주변 카페를 조사·분석하는 전문가
+        "name": "market_expert",
+        "title": "상권·경쟁 분석 전문가",
+        "description": (
+            "매장 주변 상권을 조사한다 — 반경 안의 경쟁 카페 목록(네이버 지역정보), "
+            "특정 카페의 후기 기반 강점·약점·대표 메뉴·가격대 분석, "
+            "동네 전체의 경쟁 밀도·트렌드·기회·위협과 실행안 정리."
+        ),
+        "modules": ["app.services.ai.nearby_cafe_tools"],
+        "extra": (
+            "- 기준 좌표는 사장님이 등록한 매장 위치입니다. 등록이 안 됐다는 안내가 오면 "
+            "매장 지도 화면에서 위치를 등록하시라고 그대로 전하세요.\n"
+            "- 분석 근거는 네이버 지역정보와 블로그 후기입니다 — 도구가 준 사실만 쓰고, "
+            "후기가 없으면 '후기가 적어 판단이 어렵다'고 솔직히 보고하세요.\n"
+            "- 경쟁 카페를 말할 때는 이름과 함께 우리 매장에서 몇 m인지 꼭 붙이세요."
+        ),
     },
     {
         "name": "operation_expert",

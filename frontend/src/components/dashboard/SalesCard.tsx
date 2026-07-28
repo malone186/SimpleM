@@ -9,7 +9,7 @@ import { PressableScale } from '../motion';
 import { useAuth } from '../../auth/AuthContext';
 import { useTranslation } from '../../i18n/translations';
 import {
-  getDevicePosition,
+  getStoredStoreLocation,
   getSalesCalendar,
   getSalesForecast,
   type CalendarDay,
@@ -203,7 +203,10 @@ export default function SalesCard({
     (async () => {
       setLoadingForecast(true);
       try {
-        const pos = await getDevicePosition();
+        // 예측 기준 좌표는 '등록된 매장 위치'다 — 기기 GPS를 기다리지 않는다.
+        // (사장님이 집에서 앱을 켜도 매장 날씨로 예측해야 하고, 측위 대기도 사라진다.
+        //  기기 캐시가 없으면 좌표 없이 부르고 백엔드가 계정의 매장 좌표를 쓴다.)
+        const pos = await getStoredStoreLocation();
         const data = await getSalesForecast(token, pos?.lat, pos?.lon);
         if (!cancelled) {
           setForecast(data);

@@ -13,6 +13,13 @@
       "port": 8099
     },
     {
+      "name": "backend-api",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--port", "8000"],
+      "cwd": "backend",
+      "port": 8000
+    },
+    {
       "name": "frontend-web",
       "runtimeExecutable": "npx",
       "runtimeArgs": ["expo", "start", "--web", "--port", "8081", "--clear"],

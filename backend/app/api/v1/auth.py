@@ -66,6 +66,12 @@ def signup(user_in: UserCreate, db: Session = Depends(get_db)):
         acquisition_source=acq_source,
         acquisition_detail=acq_detail,
         acquisition_at=acq_at,
+        # [매장 고정 위치] 가입 2단계 지도 핀 — 이 좌표가 곧 매장 위치다.
+        # 기기 GPS로 지도를 그리면 사장님이 집에서 앱을 켰을 때 매장이 집으로 옮겨간 것처럼 보인다.
+        store_lat=user_in.store_lat,
+        store_lon=user_in.store_lon,
+        store_address=(user_in.store_address or "").strip() or None,
+        store_biz_type=(user_in.store_biz_type or "").strip() or None,
     )
     db.add(new_user)
     db.commit()  # 데이터베이스에 최종 변경 내용을 확정(커밋)합니다.
@@ -169,6 +175,15 @@ def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
     db.commit()
 
 
+# 2-3. [내 프로필 조회 API 창구]
+# 로그인 직후 앱이 부른다 — 매장 고정 위치(store_lat/lon/address)를 받아 지도를 그리기 위함.
+# 기기가 바뀌어도(재로그인·기기 변경) DB에 등록된 매장 위치가 그대로 따라온다.
+@router.get("/me", response_model=UserResponse)
+def get_my_profile(current_user: User = Depends(get_current_user)):
+    """현재 로그인한 점주님의 프로필(매장 고정 위치 포함)을 돌려줍니다."""
+    return current_user
+
+
 # [관리자 전용] 3. [전체 회원 목록 조회 API 창구]
 @router.get("/users", response_model=list[UserResponse])
 def get_all_users(db: Session = Depends(get_db), _admin: User = Depends(get_current_admin)):
@@ -222,6 +237,16 @@ def update_profile(
     # 3-1. 휴대폰 번호 등록/변경 (아이디·비밀번호 찾기 본인 확인용)
     if user_update.phone is not None:
         current_user.phone = user_update.phone.strip() or None
+
+    # 3-2. [매장 고정 위치] 지도 핀으로 등록/이전한 좌표. 위·경도는 짝으로만 갱신한다
+    #      (한쪽만 바뀌면 엉뚱한 지점이 되므로).
+    if user_update.store_lat is not None and user_update.store_lon is not None:
+        current_user.store_lat = user_update.store_lat
+        current_user.store_lon = user_update.store_lon
+    if user_update.store_address is not None:
+        current_user.store_address = user_update.store_address.strip() or None
+    if user_update.store_biz_type is not None:
+        current_user.store_biz_type = user_update.store_biz_type.strip() or None
 
     # 4. 변경사항을 데이터베이스에 확정(커밋)합니다.
     db.commit()

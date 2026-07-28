@@ -54,17 +54,18 @@ const webSupportsTextSecurity =
   typeof CSS.supports === 'function' &&
   CSS.supports('-webkit-text-security', 'disc');
 
-const passwordFieldProps: Partial<React.ComponentProps<typeof TextInput>> =
+// hidden=false 면 눈 아이콘으로 "보기"를 켠 상태 — 가림 처리를 모두 풀어 평문으로 보여준다.
+const passwordFieldProps = (hidden: boolean): Partial<React.ComponentProps<typeof TextInput>> =>
   Platform.OS === 'web'
     ? webSupportsTextSecurity
       ? {
           secureTextEntry: false,
           autoComplete: 'off',
-          style: { WebkitTextSecurity: 'disc' } as any,
+          style: { WebkitTextSecurity: hidden ? 'disc' : 'none' } as any,
         }
-      : { secureTextEntry: true, autoComplete: 'off' }
+      : { secureTextEntry: hidden, autoComplete: 'off' }
     : {
-        secureTextEntry: true,
+        secureTextEntry: hidden,
         autoComplete: 'off',
         importantForAutofill: 'no',
         textContentType: 'oneTimeCode',
@@ -604,8 +605,15 @@ export default function AuthScreen() {
       }
       setBusy(true);
       try {
-        await signup(name, email, password, autoLogin, acquisition || undefined, phone.trim() || undefined);
-        // 가입 성공 시 매장 위치를 로컬에 저장 — 대시보드/발주 예측이 기기 GPS보다 이 좌표를 우선 사용한다
+        // [매장 고정 위치] 지도 핀 좌표를 계정(DB)에 함께 등록한다 —
+        // 기기가 바뀌어도 매장 지도가 이 좌표로 고정되고, 주변 카페 분석의 기준점이 된다.
+        await signup(name, email, password, autoLogin, acquisition || undefined, phone.trim() || undefined, {
+          lat: coords?.lat,
+          lon: coords?.lon,
+          address: region.trim() || undefined,
+          bizType: bizType || undefined,
+        });
+        // 로컬에도 같은 좌표를 캐시 — 서버 응답 전에 지도를 즉시 그리기 위함
         try {
           await AsyncStorage.setItem(
             'simplem:storeLocation',
@@ -696,7 +704,7 @@ export default function AuthScreen() {
                   placeholder="비밀번호"
                   value={password}
                   onChangeText={setPassword}
-                  {...passwordFieldProps}
+                  secureToggle
                 />
 
                 {/* [한글 주석] 자동 로그인 체크박스 및 아이디/비밀번호 찾기 링크 */}
@@ -751,7 +759,7 @@ export default function AuthScreen() {
                   placeholder="비밀번호"
                   value={password}
                   onChangeText={setPassword}
-                  {...passwordFieldProps}
+                  secureToggle
                 />
                 <Field
                   icon="call-outline"
@@ -1199,7 +1207,7 @@ export default function AuthScreen() {
                   placeholder="새 비밀번호 (4자 이상)"
                   value={findNewPwInput}
                   onChangeText={setFindNewPwInput}
-                  {...passwordFieldProps}
+                  secureToggle
                 />
                 <PressableScale
                   style={[styles.submitBtn, findBusy && { opacity: 0.6 }]}
@@ -1240,16 +1248,37 @@ export default function AuthScreen() {
 function Field({
   icon,
   style,
+  secureToggle,
   ...props
-}: { icon: keyof typeof Ionicons.glyphMap } & React.ComponentProps<typeof TextInput>) {
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  /** 비밀번호 칸 — 가림 처리 + 오른쪽 눈 버튼으로 보기/숨기기 전환 */
+  secureToggle?: boolean;
+} & React.ComponentProps<typeof TextInput>) {
+  const [revealed, setRevealed] = useState(false);
+  // 웹은 style(-webkit-text-security)로 가리므로 style만 따로 떼어 병합한다
+  const { style: maskStyle, ...maskProps } = (
+    secureToggle ? passwordFieldProps(!revealed) : {}
+  ) as React.ComponentProps<typeof TextInput>;
+
   return (
     <View style={styles.field}>
       <Ionicons name={icon} size={18} color={colors.mochaBrown} />
       <TextInput
-        style={[styles.input, style]}
+        style={[styles.input, style, maskStyle]}
         placeholderTextColor={colors.mochaBrown}
         {...props}
+        {...maskProps}
       />
+      {secureToggle && (
+        <PressableScale style={styles.eyeBtn} onPress={() => setRevealed((v) => !v)} to={0.88}>
+          <Ionicons
+            name={revealed ? 'eye-off-outline' : 'eye-outline'}
+            size={19}
+            color={revealed ? colors.pointOrange : colors.mochaBrown}
+          />
+        </PressableScale>
+      )}
     </View>
   );
 }
@@ -1287,6 +1316,8 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: colors.espressoBrown,
   },
+  // 비밀번호 보기/숨기기 눈 버튼 — 손가락으로 누르기 편하게 여백을 넉넉히 준다
+  eyeBtn: { paddingVertical: 10, paddingLeft: 10, paddingRight: 2 },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
   checkbox: {
     width: 22,
