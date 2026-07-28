@@ -16,6 +16,7 @@ import VoiceCommandButton from '../../components/voice/VoiceCommandButton';
 import { FadeInUp, PressableScale } from '../../components/motion';
 import { listCompliance } from '../../lib/api/documents';
 import { listStocks } from '../../lib/api/inventory';
+import { createTodo, deleteTodo, listTodos, updateTodo } from '../../lib/api/todo';
 import { colors, spacing, typography, shadows } from '../../theme';
 
 export default function DashboardScreen() {
@@ -25,17 +26,27 @@ export default function DashboardScreen() {
   const [runId, setRunId] = useState(0);
 
   const { user, token } = useAuth();
+  // 아래 useEffect의 의존성으로 쓰이므로 반드시 그보다 먼저 선언돼야 한다
+  const navigation = useNavigation<any>();
+  const isFocused = useIsFocused();
 
-  // 오늘 할 일 — 실제 재고(안전재고 미달)와 서류 갱신 임박 항목으로 구성 (하드코딩 없음)
+  // 오늘 할 일 — 세 갈래를 합친다.
+  //   ① 재고 안전재고 미달  ② 갱신 임박 서류   ← 조건에서 자동으로 도출 (저장 안 함)
+  //   ③ 서버에 저장된 할 일                    ← 사장님이 적었거나 브루가 추가한 것
+  // ①②를 저장하지 않는 이유: 재고를 채우면 저절로 사라져야 하는데 저장하면 유령 항목이 남는다.
+  //
+  // 화면에 다시 들어올 때도 다시 읽는다 — 챗봇에서 브루가 할 일을 추가하고 홈으로 돌아왔을 때
+  // 바로 보여야 하기 때문이다.
   useEffect(() => {
-    if (!token) return;
+    if (!token || !isFocused) return;
     let cancelled = false;
     (async () => {
       const next: Todo[] = [];
-      // 재고·서류를 병렬로 조회 — 순차 대기(각 ~0.8초)를 한 번의 대기로 줄인다
-      const [stocksResult, complianceResult] = await Promise.allSettled([
+      // 재고·서류·할 일을 병렬로 조회 — 순차 대기(각 ~0.8초)를 한 번의 대기로 줄인다
+      const [stocksResult, complianceResult, serverTodosResult] = await Promise.allSettled([
         listStocks(token),
         listCompliance(token),
+        listTodos(token),
       ]);
       try {
         if (stocksResult.status === 'rejected') throw stocksResult.reason;
@@ -82,14 +93,35 @@ export default function DashboardScreen() {
       } catch (e) {
         console.error('서류 갱신 할 일 조회 실패:', e);
       }
+      try {
+        if (serverTodosResult.status === 'rejected') throw serverTodosResult.reason;
+        serverTodosResult.value.forEach((t) => {
+          next.push({
+            // 'server-' 접두어로 구분해야 완료·수정·삭제를 서버로 보낼지 로컬로 끝낼지 정할 수 있다
+            id: `server-${t.id}`,
+            title: t.title,
+            // 출처는 배지가 맡는다 — note에는 '왜 이 일이 생겼는지'만 남긴다.
+            // 기본 문구("브루가 추가함")는 배지와 같은 말이라 부제에서는 걷어낸다.
+            subtitle:
+              t.note && t.note !== '브루가 추가함'
+                ? t.note
+                : t.source === 'ai'
+                  ? '대화 중 추가됨'
+                  : '사장님 직접 추가',
+            actionable: false,
+            done: t.done,
+            source: t.source,
+          });
+        });
+      } catch (e) {
+        console.error('할 일 조회 실패:', e);
+      }
       if (!cancelled) setTodos(next);
     })();
     return () => {
       cancelled = true;
     };
-  }, [token, runId]);
-  const navigation = useNavigation<any>();
-  const isFocused = useIsFocused();
+  }, [token, runId, isFocused]);
 
   // 홈 헤더 마스코트 — 모자 쓰고 커피 든 바리스타 브루(brew_top)
   const brewMood = 'top';
@@ -105,28 +137,71 @@ export default function DashboardScreen() {
     }, 650);
   }, []);
 
-  const handleAddTodo = (title: string) => {
-    if (!title.trim()) return;
-    const newTodo: Todo = {
-      id: `custom-${Date.now()}`,
-      title: title.trim(),
-      subtitle: '사장님 직접 추가',
-      actionable: false,
-      done: false,
-    };
-    setTodos((prev) => [newTodo, ...prev]);
+  /** 서버에 저장된 할 일인지 — 재고·서류에서 자동 도출된 항목은 서버에 없다 */
+  const serverIdOf = (id: string): number | null =>
+    id.startsWith('server-') ? Number(id.slice('server-'.length)) : null;
+
+  // 아래 핸들러들은 화면을 먼저 바꾸고(낙관적) 서버에 반영한다. 체크 반응이 네트워크
+  // 왕복을 기다리면 굼떠 보이기 때문이다. 실패하면 runId를 올려 서버 상태로 되돌린다.
+  const resync = () => setRunId((x) => x + 1);
+
+  const handleAddTodo = async (title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed || !token) return;
+
+    // 서버가 id를 정해 주므로 임시 항목을 먼저 보여주고 곧바로 목록을 다시 읽는다
+    setTodos((prev) => [
+      { id: `pending-${Date.now()}`, title: trimmed, subtitle: '사장님 직접 추가', actionable: false, done: false },
+      ...prev,
+    ]);
+    try {
+      await createTodo(token, trimmed);
+    } catch (e) {
+      console.error('할 일 추가 실패:', e);
+    }
+    resync();
   };
 
-  const handleEditTodo = (id: string, newTitle: string) => {
+  const handleEditTodo = async (id: string, newTitle: string) => {
     setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, title: newTitle } : t)));
+
+    const serverId = serverIdOf(id);
+    if (serverId === null || !token) return; // 자동 도출 항목 — 서버에 보낼 것이 없다
+    try {
+      await updateTodo(token, serverId, { title: newTitle });
+    } catch (e) {
+      console.error('할 일 수정 실패:', e);
+      resync();
+    }
   };
 
-  const handleDeleteTodo = (id: string) => {
+  const handleDeleteTodo = async (id: string) => {
     setTodos((prev) => prev.filter((t) => t.id !== id));
+
+    const serverId = serverIdOf(id);
+    if (serverId === null || !token) return;
+    try {
+      await deleteTodo(token, serverId);
+    } catch (e) {
+      console.error('할 일 삭제 실패:', e);
+      resync();
+    }
   };
 
-  const toggleDone = (id: string) => {
-    setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
+  const toggleDone = async (id: string) => {
+    // 다음 상태를 지금 값에서 직접 계산한다 — setTodos 콜백 안에서 읽으면
+    // 서버로 보낼 값과 화면 값이 어긋날 수 있다
+    const nextDone = !todos.find((t) => t.id === id)?.done;
+    setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, done: nextDone } : t)));
+
+    const serverId = serverIdOf(id);
+    if (serverId === null || !token) return;
+    try {
+      await updateTodo(token, serverId, { done: nextDone });
+    } catch (e) {
+      console.error('할 일 완료 처리 실패:', e);
+      resync();
+    }
   };
 
   const openOrder = (todo: Todo) => {

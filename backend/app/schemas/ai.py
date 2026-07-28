@@ -244,3 +244,35 @@ class NotificationSettingResponse(NotificationSettingBody):
     store_id: str
     push_configured: bool = Field(description="서버에 FCM 자격증명이 설정돼 실제 발송이 가능한지")
     device_count: int = Field(0, description="이 매장에 등록된 기기 수")
+
+
+# ---------------------------------------------------------------------------
+# 할 일 목록 (대시보드 '오늘 할 일' 중 명시적으로 적어둔 항목)
+# ---------------------------------------------------------------------------
+
+
+class TodoCreate(BaseModel):
+    """할 일 추가 입력 — 사장님 직접 입력과 챗봇 추가가 같은 규격을 쓴다."""
+
+    title: str = Field(min_length=1, max_length=200, description="할 일 제목")
+    note: Optional[str] = Field(None, max_length=255, description="부제 — 왜 추가됐는지")
+    due_date: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$", description="기한 YYYY-MM-DD")
+
+
+class TodoUpdate(BaseModel):
+    """부분 수정 — 보낸 필드만 바뀐다 (done만 토글하는 호출이 가장 흔하다)."""
+
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+    note: Optional[str] = Field(None, max_length=255)
+    due_date: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    done: Optional[bool] = None
+
+
+class TodoResponse(BaseModel):
+    id: int
+    title: str
+    note: Optional[str] = None
+    source: Literal["owner", "ai"] = Field(description="누가 추가했는지 — 대시보드 배지 표시용")
+    done: bool
+    due_date: Optional[str] = None
+    created_at: Optional[str] = None

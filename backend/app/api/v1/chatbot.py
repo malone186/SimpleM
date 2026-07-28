@@ -47,6 +47,9 @@ from app.schemas.ai import (
     OcrDocumentUpdate,
     OcrStatus,
     PayslipRequest,
+    TodoCreate,
+    TodoResponse,
+    TodoUpdate,
 )
 from app.services.ai import (
     document_service,
@@ -59,6 +62,7 @@ from app.services.ai import (
     push_service,
     report_service,
     sales_service,
+    todo_service,
 )
 
 router = APIRouter(prefix="/chatbot", tags=["chatbot"])
@@ -871,3 +875,43 @@ async def chat_message(
         # [한글 주석] 장애 추적을 위해 로컬 콘솔에 상세 예외 Traceback을 기록합니다.
         logger.exception("챗봇 서비스 실행 중 장애 발생")
         raise HTTPException(500, f"챗봇 서비스 실행 중 장애 발생: {str(e)}")
+
+
+# ---------------------------------------------------------------------------
+# 할 일 목록 — 사장님 직접 입력과 브루(AI) 추가가 같은 저장소를 쓴다
+# ---------------------------------------------------------------------------
+
+@router.get("/todos", response_model=list[TodoResponse])
+def list_todos(current_user: User = Depends(get_current_user)):
+    """할 일 목록 조회 — 미완료가 먼저, 기한 임박 순.
+
+    재고 부족·서류 갱신처럼 조건에서 자동으로 도출되는 할 일은 여기 없다.
+    그건 대시보드가 재고·서류 API로 매번 조립한다 (상황이 해소되면 저절로 사라져야 하므로).
+    """
+    return todo_service.list_todos(current_user.email)
+
+
+@router.post("/todos", response_model=TodoResponse, status_code=201)
+def create_todo(body: TodoCreate, current_user: User = Depends(get_current_user)):
+    """할 일 추가 (사장님 직접 입력). 같은 제목의 미완료 항목이 있으면 그것을 돌려준다."""
+    try:
+        return todo_service.add_todo(current_user.email, body, source="owner")
+    except todo_service.TodoError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.patch("/todos/{todo_id}", response_model=TodoResponse)
+def update_todo(todo_id: int, body: TodoUpdate, current_user: User = Depends(get_current_user)):
+    """부분 수정 — 보낸 필드만 바뀐다. 완료 토글이 가장 흔한 용도."""
+    try:
+        return todo_service.update_todo(current_user.email, todo_id, body)
+    except todo_service.TodoError as e:
+        raise HTTPException(404, str(e))
+
+
+@router.delete("/todos/{todo_id}", status_code=204)
+def delete_todo(todo_id: int, current_user: User = Depends(get_current_user)):
+    try:
+        todo_service.delete_todo(current_user.email, todo_id)
+    except todo_service.TodoError as e:
+        raise HTTPException(404, str(e))

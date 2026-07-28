@@ -277,3 +277,32 @@ class SentNotification(Base):
     title: Mapped[str] = mapped_column(String(200))
     body: Mapped[str] = mapped_column(Text, default="")
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+# ---------------------------------------------------------------------------
+# 할 일 목록 — 명시적으로 적어둔 것만 저장한다
+# ---------------------------------------------------------------------------
+
+
+class TodoItem(Base):
+    """대시보드 '오늘 할 일' 중 사장님이 직접 적었거나 브루(AI)가 추가한 항목.
+
+    재고 부족·서류 갱신처럼 '조건에서 자동으로 도출되는' 할 일은 여기 저장하지 않는다.
+    그건 대시보드가 재고·서류 API로 매번 조립하며, 재고를 채우면 저절로 사라져야 하는
+    성질이다. 저장해 두면 상황이 해소된 뒤에도 유령 항목이 남는다.
+
+    반대로 여기 담기는 건 '누군가 명시적으로 적어둔' 일이라 완료 표시 전까지 유지된다.
+    """
+
+    __tablename__ = "todo_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    store_id: Mapped[str] = mapped_column(String(100), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    # 왜 이 일이 생겼는지 — 대시보드 부제로 보인다 ("브루가 추가함", "사장님 직접 추가")
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source: Mapped[str] = mapped_column(String(16), default="owner", index=True)  # owner | ai
+    done: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    due_date: Mapped[str | None] = mapped_column(String(10), nullable=True)  # YYYY-MM-DD
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

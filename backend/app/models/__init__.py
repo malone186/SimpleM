@@ -3,7 +3,7 @@
 # A (ai.py)
 from app.models.ai import (
     ChatSession, ComplianceItem, DeviceToken, GeneratedDocument, NotificationSetting,
-    OcrDocument, OcrItem, SentNotification,
+    OcrDocument, OcrItem, SentNotification, TodoItem,
 )
 
 # I (inquiry.py & inventory.py)
