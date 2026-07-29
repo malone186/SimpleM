@@ -123,6 +123,70 @@ document.addEventListener('DOMContentLoaded', () => {
     if (backend) backend.href = origin;
   })();
 
+  // 비밀번호 변경 — 백엔드에 POST /admin/password가 있는데 화면에 들어올 입구가 없어서,
+  // 관리자가 콘솔에서 자기 비밀번호를 바꿀 방법이 아예 없었다.
+  const _changePwBtn = document.getElementById('change-pw-btn');
+  if (_changePwBtn) _changePwBtn.addEventListener('click', showPasswordChange);
+
+  function showPasswordChange() {
+    if (document.getElementById('admin-pw-overlay')) return;
+    const ov = document.createElement('div');
+    ov.id = 'admin-pw-overlay';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(43,35,32,.6);display:flex;align-items:center;justify-content:center;';
+    ov.innerHTML = `
+      <form id="admin-pw-form" style="background:#fff;border-radius:16px;padding:28px;width:340px;max-width:90%;box-shadow:0 10px 40px rgba(0,0,0,.3);font-family:Pretendard,sans-serif;">
+        <div style="font-size:16px;font-weight:800;color:#3a2e28;margin-bottom:4px;">관리자 비밀번호 변경</div>
+        <div style="font-size:12px;color:#8a7a71;margin-bottom:16px;">공유 DB에 저장되므로 모든 컴퓨터에 즉시 적용됩니다.</div>
+        <input id="admin-pw-cur" type="password" placeholder="현재 비밀번호" autocomplete="current-password"
+          style="width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid #e0d8d2;border-radius:10px;margin-bottom:10px;font-size:13px;" />
+        <input id="admin-pw-new" type="password" placeholder="새 비밀번호 (8자 이상)" autocomplete="new-password"
+          style="width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid #e0d8d2;border-radius:10px;margin-bottom:10px;font-size:13px;" />
+        <input id="admin-pw-new2" type="password" placeholder="새 비밀번호 확인" autocomplete="new-password"
+          style="width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid #e0d8d2;border-radius:10px;margin-bottom:6px;font-size:13px;" />
+        <div id="admin-pw-err" style="color:#c62828;font-size:11.5px;min-height:16px;margin-bottom:8px;"></div>
+        <div style="display:flex;gap:8px;">
+          <button type="button" id="admin-pw-cancel" style="flex:1;padding:11px;border:1px solid #e0d8d2;border-radius:10px;background:#fff;color:#6b5b52;font-weight:700;font-size:13px;cursor:pointer;">취소</button>
+          <button type="submit" id="admin-pw-submit" style="flex:1;padding:11px;border:none;border-radius:10px;background:#6b4a32;color:#fff;font-weight:700;font-size:13px;cursor:pointer;">변경</button>
+        </div>
+      </form>`;
+    document.body.appendChild(ov);
+
+    const close = () => ov.remove();
+    document.getElementById('admin-pw-cancel').addEventListener('click', close);
+    ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+
+    document.getElementById('admin-pw-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const cur = document.getElementById('admin-pw-cur').value;
+      const nw = document.getElementById('admin-pw-new').value;
+      const nw2 = document.getElementById('admin-pw-new2').value;
+      const err = document.getElementById('admin-pw-err');
+
+      // 서버도 8자 이상을 요구한다 — 여기서 먼저 걸러 왕복을 아낀다
+      if (nw.length < 8) { err.textContent = '새 비밀번호는 8자 이상이어야 합니다.'; return; }
+      if (nw !== nw2) { err.textContent = '새 비밀번호가 서로 다릅니다.'; return; }
+
+      const btn = document.getElementById('admin-pw-submit');
+      btn.disabled = true;
+      err.textContent = '변경 중...';
+      try {
+        const res = await fetch(`${ADMIN_API}/admin/password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ current_password: cur, new_password: nw }),
+        });
+        if (!res.ok) throw new Error(await describeError(res));
+        close();
+        alert('비밀번호가 변경되었습니다. 보안을 위해 다시 로그인해 주세요.');
+        localStorage.removeItem(ADMIN_TOKEN_KEY);
+        location.reload();
+      } catch (e2) {
+        err.textContent = String(e2.message || e2);
+        btn.disabled = false;
+      }
+    });
+  }
+
   // 1. 탭 전환 기능 (2개 간소화: 대시보드 / 회원 관리)
   const navItems = document.querySelectorAll('.nav-item');
   const tabContents = document.querySelectorAll('.tab-content');
@@ -580,9 +644,16 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         // 실패해도 아무 반응이 없던 자리 — 성공과 구분이 안 돼 다시 눌러야 할지 알 수 없었다
         if (!res.ok) throw new Error(await describeError(res));
+        const out = await res.json();
         document.getElementById('notif-title').value = '';
         document.getElementById('notif-body').value = '';
-        alert(`📩 [등록 완료] ${targetLabel} 대상 공지가 등록되었습니다.\n사장님 앱이 열려 있으면 홈 화면에서 바로 확인됩니다.`);
+
+        // 몇 대에 실제로 갔는지 그대로 알린다 — '발송 완료'만 띄우면 0대여도 성공으로 읽힌다
+        const d = out.delivery || {};
+        const line = d.pushed > 0
+          ? `푸시 ${d.pushed}대 발송 완료 (대상 ${d.targets}명)`
+          : `푸시 발송 0대 — ${d.detail || '사유 미상'}`;
+        alert(`📩 [공지 등록 완료] ${targetLabel}\n${line}\n\n푸시를 못 받은 사장님도 앱 홈 화면 알림함에서 확인할 수 있습니다.`);
         await loadNotifications();
       } catch (err) {
         console.error('공지 등록 실패:', err);
@@ -710,6 +781,12 @@ document.addEventListener('DOMContentLoaded', () => {
   if (csModalCloseBtn) {
     csModalCloseBtn.addEventListener('click', () => {
       if (csModalOverlay) csModalOverlay.classList.remove('active');
+    });
+  }
+  // 바깥을 눌러도 닫힌다 — 회원 Drawer는 되는데 이 모달만 X 버튼으로만 닫혔다
+  if (csModalOverlay) {
+    csModalOverlay.addEventListener('click', (e) => {
+      if (e.target === csModalOverlay) csModalOverlay.classList.remove('active');
     });
   }
 

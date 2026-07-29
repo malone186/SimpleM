@@ -551,11 +551,46 @@ def get_notifications(db: Session = Depends(get_db), _admin: User = Depends(get_
         return mock_notif_history
 
 
+def _push_notice(db: Session, notif: AdminNotification) -> dict:
+    """등록된 공지를 대상 사장님 기기로 실제 발송한다.
+
+    푸시가 실패해도 공지 등록 자체는 성공이다 — 앱이 폴링으로도 받으므로, 발송 실패를
+    이유로 등록을 되돌리면 오히려 아무 데도 안 남는다. 대신 결과를 그대로 돌려줘서
+    관리자 화면이 '몇 대에 갔는지'와 '왜 0대인지'를 말할 수 있게 한다.
+    """
+    from app.services.ai import push_service
+
+    if not push_service.is_configured():
+        return {"pushed": 0, "targets": 0, "detail": "FCM 미설정 — 앱을 켰을 때만 표시됩니다"}
+
+    try:
+        if notif.target_type == "specific" and notif.target_email:
+            emails = [notif.target_email]
+        else:
+            emails = [u.email for u in db.query(User.email).all()]
+
+        sent = 0
+        for email in emails:
+            sent += push_service.send_to_store(
+                db, email, notif.title, notif.body or "",
+                # 탭하면 앱이 알림함으로 이동한다 (pushRegistration이 screen/params를 읽는다)
+                data={"screen": "Notice", "noticeId": notif.id},
+            )
+        detail = "" if sent else "등록된 기기가 없습니다 (앱에서 알림 권한을 켜야 등록됩니다)"
+        return {"pushed": sent, "targets": len(emails), "detail": detail}
+    except Exception as e:
+        logger.exception("공지 푸시 발송 실패")
+        return {"pushed": 0, "targets": 0, "detail": f"푸시 발송 실패: {str(e)[:80]}"}
+
+
 @router.post("/notifications")
 def create_notification(payload: NotificationCreate, db: Session = Depends(get_db), _admin: User = Depends(get_current_admin)):
     """
-    [공지사항 발송 등록] 사장님들에게 보낼 새로운 긴급 공지 또는 알림을 DB에 영구 등록합니다.
-    등록된 공지는 각 사장님 앱이 /notifications/feed 폴링으로 즉시 수신해 갑니다.
+    [공지 등록 + 푸시 발송] 공지를 DB에 남기고, 대상 사장님 기기로 FCM 푸시를 보낸다.
+
+    예전엔 DB에 행만 넣고 끝이라, 앱을 켜 두고 홈 화면을 보고 있는 사장님만 폴링으로
+    봤다. 관리자 화면 버튼에는 '즉시 발송'이라고 쓰여 있었는데 실제로 나가는 건 없었다.
+    지금은 실제로 보내고, 몇 대에 갔는지 응답에 담아 관리자에게 알려 준다.
     """
     try:
         notif = AdminNotification(
@@ -569,7 +604,8 @@ def create_notification(payload: NotificationCreate, db: Session = Depends(get_d
         db.add(notif)
         db.commit()
         db.refresh(notif)
-        return {"success": True, "item": _notif_to_dict(notif)}
+        delivery = _push_notice(db, notif)
+        return {"success": True, "item": _notif_to_dict(notif), "delivery": delivery}
     except Exception as e:
         db.rollback()
         logger.error(f"공지 DB 저장 오류: {e}")

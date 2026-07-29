@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Image,
   Linking,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -98,16 +99,20 @@ export default function OrderScreen() {
     loadBeans();
   }, []);
 
-  // [한글 주석: 만료된 네이버 스마트스토어 대신 mungmung.site 의 검색 쿼리를 결합해 상세 페이지 링크를 구성합니다]
-  const getNoLoginProductUrl = (bean: RoasteryBean): string => {
-    const keyword = bean.name;
-    return `https://mungmung.site/?q=${encodeURIComponent(keyword)}`;
-  };
+  // 구매 링크 — DB에 수집해 둔 실제 상품 페이지(product_url)를 먼저 쓴다.
+  // 예전엔 그 값을 버리고 무조건 검색 URL로 보냈다. 화면에 띄운 가격은 특정 상품의 것인데
+  // 링크는 동명이인 상품이 잔뜩 나오는 검색 결과로 가서, 사장님이 본 가격을 다시 못 찾았다.
+  // (원두 운영 화면 BeanOperationScreen은 처음부터 product_url을 우선 사용하고 있었다)
+  const getProductUrl = (bean: RoasteryBean): string =>
+    bean.product_url || `https://mungmung.site/?q=${encodeURIComponent(bean.name)}`;
 
-  // 로그인 창 없이 원두 상품 구매 상세 페이지로 직행
   const handleBeanPress = (bean: RoasteryBean) => {
-    const targetUrl = getNoLoginProductUrl(bean);
-    Linking.openURL(targetUrl);
+    const targetUrl = getProductUrl(bean);
+    if (Platform.OS === 'web') {
+      window.open(targetUrl, '_blank');
+    } else {
+      Linking.openURL(targetUrl);
+    }
   };
 
   // 가격 포맷: 예) 32000 → "32,000원"

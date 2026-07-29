@@ -31,6 +31,7 @@ import {
   updateSettlementSettings,
   type SettlementSettings,
 } from '../../lib/api/settlement';
+import { resolveStoreProfile, updateStoreProfile } from '../../lib/api/store';
 import { isNativePushAvailable } from '../../notifications/pushRegistration';
 import { colors, typography } from '../../theme';
 
@@ -235,11 +236,41 @@ export default function SettingsScreen() {
       .catch(() => {});
   }, [user]);
 
+  // 업종·영업 시간은 계정에 저장된 값이 원본이다 (기기 설정은 표시용 캐시).
+  // 예전엔 이 화면이 AsyncStorage만 읽어서, 재설치하거나 다른 기기로 로그인하면
+  // 저장했던 값이 조용히 기본값으로 되돌아가 있었다.
+  useEffect(() => {
+    if (!token || !prefs.ready) return;
+    resolveStoreProfile(token, {
+      business_type: prefs.businessType || '카페',
+      open_hour: prefs.openHour || '09:00',
+      close_hour: prefs.closeHour || '21:00',
+    })
+      .then((p) => {
+        setBusinessType(p.business_type);
+        prefs.setPref('businessType', p.business_type);
+        prefs.setPref('openHour', p.open_hour);
+        prefs.setPref('closeHour', p.close_hour);
+      })
+      .catch((e) => console.error('매장 정보 조회 실패:', e));
+  }, [token, prefs.ready]);
+
   const saveAccount = async () => {
     setSavingAccount(true);
     try {
       await updateProfile({ name, store_name: storeName });
-      prefs.setPref('businessType', businessType);
+      // 서버에 먼저 저장하고, 성공했을 때만 기기 캐시를 갱신한다.
+      // 실패하면 아래 catch로 빠져 "저장 실패"가 뜨므로, 화면이 저장됐다고 거짓말하지 않는다.
+      if (token) {
+        const saved = await updateStoreProfile(token, {
+          business_type: businessType,
+          open_hour: prefs.openHour || '09:00',
+          close_hour: prefs.closeHour || '21:00',
+        });
+        prefs.setPref('businessType', saved.business_type);
+        prefs.setPref('openHour', saved.open_hour);
+        prefs.setPref('closeHour', saved.close_hour);
+      }
       setSavedSuccess(true);
       setIsEditingTime(false); // [한글 주석] 저장 성공 시 시간 변경 모드를 닫고 확정 잠금 상태로 전환
       setIsEditingAccount(false); // [한글 주석] 저장 성공 시 수정 모드를 닫고 정보 고정 상태로 전환
@@ -1079,13 +1110,17 @@ export default function SettingsScreen() {
                 },
                 {
                   id: 2,
-                  q: '알바 스케줄 추천 시 주휴수당도 자동 반영되나요?',
-                  a: '네! 주휴수당이 발생하는 기준 시간(주 15시간)을 초과하지 않도록 각 파트타이머의 근무 일정을 분할 최적화하는 주휴수당 최소화 알고리즘이 내장되어 있습니다.'
+                  q: '알바 스케줄을 짤 때 주휴수당도 계산되나요?',
+                  // '분할 최적화 알고리즘 내장'은 사실이 아니었다 — 실제로 하는 건 주 15시간
+                  // 기준 초과 여부를 계산해 보여주는 것까지다. 없는 기능을 약속하지 않는다.
+                  a: '주 15시간을 넘기면 주휴수당이 발생하므로, 직원별 주간 근무시간과 그에 따른 주휴수당 예상액을 함께 계산해 보여드립니다. 일정을 자동으로 재배치해 드리지는 않고, 기준을 넘는 직원을 짚어 드리면 사장님이 판단하시는 방식이에요.'
                 },
                 {
                   id: 3,
-                  q: 'AI 발주량 추천의 정확도는 어느 정도인가요?',
-                  a: '요일별 매출 흐름, 날씨 예보, 매장 주변 행사 데이터를 결합 분석합니다. 통상 재고 과부족으로 인한 유실 비용을 평균 22% 절감시키는 정밀도를 제공합니다.'
+                  q: 'AI 발주량 추천은 무엇을 보고 계산하나요?',
+                  // '평균 22% 절감'은 측정한 적 없는 수치였다. 근거 없는 성능 수치는 빼고,
+                  // 무엇을 입력으로 쓰는지만 사실대로 적는다.
+                  a: '요일별 판매 흐름, 날씨 예보, 매장 주변 상권 정보를 함께 봅니다. 다만 판매 데이터가 쌓일수록 정확해지는 방식이라, 갓 시작한 매장에서는 추천 폭이 넓게 나올 수 있어요. 추천값은 참고용이고 최종 발주량은 사장님이 정하시면 됩니다.'
                 },
                 {
                   id: 4,

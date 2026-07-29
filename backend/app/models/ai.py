@@ -94,6 +94,34 @@ def ensure_ocr_store_column(engine) -> None:
         logger.warning(f"[OCR 스키마] store_id 보강 실패 — 매장별 OCR 조회가 막힐 수 있습니다: {e}")
 
 
+def ensure_store_profile_columns(engine) -> None:
+    """[자가치유 스키마] 기존 store_profiles 테이블에 configured 컬럼이 없으면 멱등하게 추가한다.
+
+    store_profiles는 configured 없이 먼저 만들어졌다. create_all은 기존 테이블을 ALTER하지
+    않으므로, 컬럼이 빠진 채로 두면 매장 정보 조회가 통째로 500이 난다(실제로 그렇게 터졌다).
+    기존 행은 사장님이 이미 저장한 값이므로 TRUE로 채운다 — FALSE로 두면 앱이
+    '아직 설정 전'으로 보고 기기 기본값을 덮어써 버린다.
+    """
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("store_profiles"):
+            return  # 테이블 자체가 없으면 create_all이 스키마째로 생성한다
+        existing = {c["name"] for c in insp.get_columns("store_profiles")}
+    except Exception as e:
+        logger.warning(f"[매장 스키마] store_profiles 점검 실패 — 건너뜁니다: {e}")
+        return
+    if "configured" in existing:
+        return
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE store_profiles ADD COLUMN configured BOOLEAN NOT NULL DEFAULT TRUE"
+            ))
+        logger.info("[매장 스키마] store_profiles.configured 컬럼 추가 완료")
+    except Exception as e:
+        logger.warning(f"[매장 스키마] configured 보강 실패 — 매장 정보 조회가 막힐 수 있습니다: {e}")
+
+
 class GeneratedDocument(Base):
     """자동 생성 문서 (ERP-12 서류 자동화) — 발주서·임금명세서·장부 등 초안 보관
 
@@ -207,6 +235,36 @@ class SettlementSetting(Base):
     custom_check_fee: Mapped[float | None] = mapped_column(Numeric(5, 3), nullable=True)
     # {"shinhan": 3, "bc": 4} 형태 — 카드사별 입금 소요 영업일 덮어쓰기
     lag_overrides: Mapped[str] = mapped_column(Text, default="{}")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class StoreProfile(Base):
+    """매장 기본 정보 — 업종·영업 시작/종료 시각
+
+    가입할 때 운영 시간을 물어보면서 정작 저장할 곳이 없었다. 입력값은 화면을 벗어나는
+    순간 사라졌고, 설정 화면의 업종·운영시간도 기기 AsyncStorage에만 남아 재설치하면
+    초기화됐다(그런데 화면은 "확정 업데이트됐어요"라고 말했다).
+
+    users 테이블에 붙이는 게 자연스럽지만 그건 백엔드 A 소유이고 공유 DB에서는 postgres
+    소유라 우리 계정으로 ALTER가 안 된다 — 그래서 이메일을 키로 별도 테이블에 둔다.
+    ([[shared-db-table-ownership]]와 같은 이유로 admin_user_notes도 이렇게 분리했다)
+
+    시각은 "HH:MM" 문자열로 둔다. 자정을 넘겨 닫는 가게(예: 10:00~02:00)가 흔해서
+    시간 타입으로 두면 오히려 비교 로직이 꼬인다.
+    """
+
+    __tablename__ = "store_profiles"
+
+    store_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    business_type: Mapped[str] = mapped_column(String(50), default="카페")
+    open_hour: Mapped[str] = mapped_column(String(5), default="09:00")
+    close_hour: Mapped[str] = mapped_column(String(5), default="21:00")
+    # 사장님이 실제로 저장한 적이 있는가. 조회 시 행을 기본값으로 만들어 주기 때문에,
+    # 이 플래그가 없으면 '09:00이 진짜 설정값인지, 아무도 손 안 댄 기본값인지' 구분이 안 된다.
+    # 앱은 이 값이 false일 때만 기기에 남아 있던 값을 서버로 올린다(가입 때 입력한 운영 시간).
+    configured: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

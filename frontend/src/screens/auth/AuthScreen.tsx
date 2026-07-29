@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 
 import { useAuth } from '../../auth/AuthContext';
+import { usePreferences } from '../../preferences/PreferencesContext';
 import { API_BASE_URL } from '../../lib/api/client';
 import { getGpsPosition } from '../../lib/api/forecast';
 import { NAVER_CLIENT_ID, NAVER_MAP_ERROR, loadNaverMaps } from '../../lib/naverMap';
@@ -157,6 +158,7 @@ function ShiftTimePicker({
 export default function AuthScreen() {
   const { login, signup, loginWithGoogle } = useAuth();
   const [mode, setMode] = useState<Mode>('login');
+  const prefs = usePreferences(); // 가입 때 받은 운영 시간을 기기 설정에 남기기 위해
   const [step, setStep] = useState<1 | 2>(1); // [한글 주석] 회원가입 1단계/2단계 구분 상태
 
   // 1단계 기본 정보
@@ -622,6 +624,13 @@ export default function AuthScreen() {
         } catch {
           // 위치 저장 실패는 가입 자체를 막지 않는다 (예측은 GPS로 폴백)
         }
+
+        // 가입 화면에서 받은 운영 시간을 기기 설정에 남긴다.
+        // 예전엔 이 값이 어디에도 저장되지 않아, 화면을 벗어나는 순간 사라졌다(물어본 의미가 없었다).
+        // 계정으로는 설정 화면의 resolveStoreProfile이 최초 1회 올려 준다 — 여기서 바로 못 보내는 건
+        // 가입 직후엔 아직 토큰이 없을 수 있기 때문이다(자동 로그인 미선택).
+        prefs.setPref('openHour', openHour);
+        prefs.setPref('closeHour', closeHour);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         setError(msg || '가입 처리 중 문제가 발생했어요.');

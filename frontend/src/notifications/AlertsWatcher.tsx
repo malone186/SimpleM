@@ -11,7 +11,7 @@
 // (관리자 공지는 홈 화면 강아지 말풍선(WelcomeHeader)이 단독으로 전하므로 여기선 토스트를 띄우지 않는다)
 // 같은 품목·같은 날 중복 알림은 AsyncStorage에 발송 이력을 남겨 1회로 제한한다.
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { useAuth } from '../auth/AuthContext';
 import { usePreferences } from '../preferences/PreferencesContext';
@@ -21,7 +21,7 @@ import { fetchNotifications } from '../lib/api/assistant';
 import { fetchInsights } from '../lib/api/insights';
 import { enqueue as speechEnqueue, canPlayAudio, cancelAll as speechCancelAll } from '../lib/speech/speechPlayer';
 import { toast } from '../components/toast';
-import { updateNotificationSettings } from '../lib/api/push';
+import { getNotificationSettings, updateNotificationSettings } from '../lib/api/push';
 import { getSensorRecommendations } from '../lib/api/sensor';
 import { isNativePushAvailable, usePushRegistration } from './pushRegistration';
 
@@ -113,10 +113,41 @@ export default function AlertsWatcher() {
   //    위 폴링(①~⑥)은 앱이 열려 있을 때만 도는 인앱 토스트라 서로 역할이 다르다.
   usePushRegistration(token);
 
-  // ⑧ 알림 설정 서버 동기화 — 푸시는 서버가 보내므로 방해금지·수신 주기를 서버도 알아야 한다.
-  //    (이 설정들은 기기 로컬 AsyncStorage에만 있어서 서버는 알 길이 없다)
+  // ⑧-a 알림 설정 서버값 내려받기 — 반드시 올려보내기(⑧-b)보다 먼저 한 번 돈다.
+  //     설정은 기기 AsyncStorage에 있는데, 앱을 지웠다 깔면 그게 전부 기본값이 된다.
+  //     그 상태로 곧장 PUT하면 서버에 저장돼 있던 사장님 설정을 기본값으로 덮어쓴다.
+  //     (예전엔 GET을 아무 데서도 호출하지 않아, 화면의 스위치는 실제 발송 여부와 무관한
+  //      장식이었다 — 켜져 있는데 서버는 꺼져 있거나, 그 반대.)
+  const [settingsHydrated, setSettingsHydrated] = useState(false);
+
   useEffect(() => {
-    if (!token || !prefs.ready) return;
+    if (!token || !prefs.ready || settingsHydrated) return;
+    let alive = true;
+    getNotificationSettings(token)
+      .then((s) => {
+        if (!alive) return;
+        prefs.setPref('lowStockAlert', s.stock_alert);
+        prefs.setPref('proactiveInsights', s.compliance_alert);
+        prefs.setPref('reportFrequency', s.report_frequency);
+        prefs.setPref('dndEnabled', s.dnd_enabled);
+        prefs.setPref('dndStart', s.dnd_start);
+        prefs.setPref('dndEnd', s.dnd_end);
+      })
+      .catch((e) => {
+        // 구버전 서버·오프라인이면 기기 값을 그대로 쓴다 (동기화만 미뤄진다)
+        console.warn('알림 설정 서버 조회 실패 — 기기 설정을 사용합니다:', e);
+      })
+      .finally(() => {
+        if (alive) setSettingsHydrated(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [token, prefs.ready, settingsHydrated]);
+
+  // ⑧-b 알림 설정 서버 동기화 — 푸시는 서버가 보내므로 방해금지·수신 주기를 서버도 알아야 한다.
+  useEffect(() => {
+    if (!token || !prefs.ready || !settingsHydrated) return;
     const t = setTimeout(() => {
       // 스위치를 연속으로 토글할 때 매번 PUT하지 않도록 잠깐 모았다 보낸다
       // 설정 화면의 스위치를 실제로 서버에 반영한다.
@@ -143,7 +174,9 @@ export default function AlertsWatcher() {
   }, [
     token,
     prefs.ready,
+    settingsHydrated,
     prefs.lowStockAlert,
+    prefs.proactiveInsights, // 이제 서버로 실제 전달되므로 바뀌면 다시 보내야 한다
     prefs.reportFrequency,
     prefs.dndEnabled,
     prefs.dndStart,
