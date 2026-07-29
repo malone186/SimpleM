@@ -563,21 +563,32 @@ def _push_notice(db: Session, notif: AdminNotification) -> dict:
     if not push_service.is_configured():
         return {"pushed": 0, "targets": 0, "detail": "FCM 미설정 — 앱을 켰을 때만 표시됩니다"}
 
+    from app.models.ai import DeviceToken
+
     try:
         if notif.target_type == "specific" and notif.target_email:
             emails = [notif.target_email]
         else:
-            emails = [u.email for u in db.query(User.email).all()]
+            emails = [row.email for row in db.query(User.email).all()]
+
+        # 기기를 등록한 매장만 골라낸다 (한 번의 쿼리).
+        # 전체 공지에서 회원마다 send_to_store를 부르면 그 안의 list_tokens가 매번 조회를
+        # 날려 회원 수만큼 왕복이 생긴다 — Neon에서는 그대로 응답 지연이 된다.
+        target_set = set(emails)
+        with_devices = {
+            sid for (sid,) in db.query(DeviceToken.store_id).distinct().all()
+            if sid in target_set
+        }
 
         sent = 0
-        for email in emails:
+        for email in with_devices:
             sent += push_service.send_to_store(
                 db, email, notif.title, notif.body or "",
                 # 탭하면 앱이 알림함으로 이동한다 (pushRegistration이 screen/params를 읽는다)
                 data={"screen": "Notice", "noticeId": notif.id},
             )
-        detail = "" if sent else "등록된 기기가 없습니다 (앱에서 알림 권한을 켜야 등록됩니다)"
-        return {"pushed": sent, "targets": len(emails), "detail": detail}
+        detail = "" if sent else "푸시 등록된 기기가 없습니다 (앱에서 알림 권한을 켜야 등록됩니다)"
+        return {"pushed": sent, "targets": len(emails), "devices": len(with_devices), "detail": detail}
     except Exception as e:
         logger.exception("공지 푸시 발송 실패")
         return {"pushed": 0, "targets": 0, "detail": f"푸시 발송 실패: {str(e)[:80]}"}
