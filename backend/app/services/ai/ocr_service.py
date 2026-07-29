@@ -30,6 +30,7 @@ from app.schemas.ai import (
     OcrDocumentUpdate,
     OcrItem,
     OcrResult,
+    OcrVendor,
     RegisterTarget,
 )
 from app.services.ai.vlm_prompt import VLM_PROMPT
@@ -788,6 +789,9 @@ def update_draft(doc_id: str, patch: OcrDocumentUpdate, store_id: Optional[str] 
         draft["suggested_target"] = data.pop("suggested_target")
     if "items" in data:
         result.items = [OcrItem.model_validate(i) for i in data.pop("items")]
+    if "vendor" in data:
+        # setattr로 dict를 그대로 넣으면 검증 없이 들어가 저장 시 .name 접근이 터진다
+        result.vendor = OcrVendor.model_validate(data.pop("vendor"))
     for field, value in data.items():
         setattr(result, field, value)
     if patch.doc_type is not None:
