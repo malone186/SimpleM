@@ -17,7 +17,6 @@ import { apiFetch } from '../../lib/api/client';
 import { getMenuContribution, type ContributionResult } from '../../lib/api/sales';
 import { toast } from '../../components/toast';
 import { colors, typography } from '../../theme';
-import MenuOptimizationCard from '../../components/dashboard/MenuOptimizationCard'; // [한글 주석: AI 메뉴 최적화 진단 카드 컴포넌트 이관 임포트]
 import {
   COST_STANDARDS,
   GRADE_COLOR,
@@ -317,8 +316,13 @@ export default function CostScreen() {
           </Card>
         )}
 
-        {/* [한글 주석] 대시보드에서 이관 배치한 AI 메뉴 최적화 아코디언 카드 */}
-        <MenuOptimizationCard />
+        {/* (삭제됨) AI 메뉴 재구성 카드 — 안에 든 메뉴·판매량·원가율이 전부 지어낸 상수였다.
+            사장님이 등록한 적 없는 '아몬드 크림라떼 원가율 38.1%', '월 1,420잔' 같은 숫자와
+            '월 +₩480,000 추가 순이익' 같은 단정이 본인 매장 분석인 것처럼 떠 있었다.
+            그 카드가 흉내 내던 건 이 화면에 이미 진짜로 있다:
+              · 위 '최근 30일, 실제로 번 돈' — 실제 판매 잔수·마진 (/chatbot/sales/contribution)
+              · 아래 '메뉴별 원가율' — 실제 등록 메뉴의 원가율, 탭하면 실제 대체재 추천
+                (/inventory/menus/{id}/cost-reduction-recommendations) */}
 
         <SectionTitle>{language === 'en' ? 'Cost Ratio by Menu' : '메뉴별 원가율'}</SectionTitle>
 

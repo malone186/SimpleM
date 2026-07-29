@@ -960,7 +960,8 @@ function BrewForecastOverlay({
     ...(growth.includes('%')
       ? [{ icon: '📈', text: `최근 판매 추세가 오늘 대비 ${growthClean} ${growth.includes('▼') ? '내림세' : '오름세'}예요.` }]
       : []),
-    { icon: '🌤️', text: '요일·날씨 패턴도 판매에 유리한 편이에요.' },
+    // (삭제됨) '요일·날씨 패턴도 판매에 유리한 편이에요' — 조건 없이 항상 붙던 문장이라,
+    // 비가 오든 한파든 늘 유리하다고 말했다. 위 두 근거는 실제 데이터가 있을 때만 나온다.
   ];
 
   return (

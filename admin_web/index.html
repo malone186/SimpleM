@@ -53,10 +53,12 @@
 
       <div class="sidebar-footer">
         <div class="admin-profile">
-          <div class="avatar">A</div>
+          <!-- 아바타·이메일은 로그인한 계정으로 JS가 채운다.
+               예전엔 admin@simplem.com이 박혀 있어, 다른 관리자로 로그인해도 이 이름이 떴다. -->
+          <div class="avatar" id="admin-avatar">-</div>
           <div class="profile-info">
             <span class="profile-name">최고 관리자</span>
-            <span class="profile-email">admin@simplem.com</span>
+            <span class="profile-email" id="admin-email">-</span>
           </div>
         </div>
         <button class="logout-btn" id="logout-btn">
@@ -76,11 +78,13 @@
           <p class="page-sub">SimpleM 카페 통합 플랫폼 전체 운영 현황입니다.</p>
         </div>
         <div class="header-right">
-          <a href="https://brewnote-api-915817944047.asia-northeast3.run.app/docs" target="_blank" class="header-btn">
+          <!-- href는 실제로 붙어 있는 백엔드로 JS가 바꾼다 (로컬로 돌려도 링크만 배포본을
+               가리키던 문제). -->
+          <a href="#" id="link-swagger" target="_blank" class="header-btn">
             <i data-lucide="file-code-2"></i>
             <span>Swagger API 문서</span>
           </a>
-          <a href="https://brewnote-api-915817944047.asia-northeast3.run.app" target="_blank" class="header-btn secondary">
+          <a href="#" id="link-backend" target="_blank" class="header-btn secondary">
             <i data-lucide="server"></i>
             <span>백엔드 서버</span>
           </a>
@@ -98,7 +102,8 @@
               <div class="icon-circle brown"><i data-lucide="users"></i></div>
             </div>
             <div class="metric-value" id="stats-total-stores">0<span class="unit">명</span></div>
-            <div class="metric-sub green-text">실시간 연동 중</div>
+            <!-- 갱신 시각(또는 갱신 실패)을 markStatsFresh()가 쓴다 -->
+            <div class="metric-sub green-text" id="stats-total-stores-sub">불러오는 중…</div>
           </div>
 
           <div class="metric-card">
@@ -116,7 +121,7 @@
               <div class="icon-circle orange"><i data-lucide="package"></i></div>
             </div>
             <div class="metric-value" id="stats-total-ingredients">0<span class="unit">품목</span></div>
-            <div class="metric-sub">재고 데이터 동기화 완료</div>
+            <div class="metric-sub">전체 매장 누적</div>
           </div>
 
           <div class="metric-card">
@@ -137,7 +142,7 @@
           <div class="content-box">
             <div class="box-header">
               <h3 class="box-title"><i data-lucide="activity"></i> 실시간 시스템 상태</h3>
-              <span class="live-tag">LIVE</span>
+              <span class="live-tag" id="health-live-tag">LIVE</span>
             </div>
             <div class="status-list">
               <div class="status-row" id="status-api">
@@ -185,7 +190,7 @@
             <div class="box-header">
               <div style="display: flex; align-items: center; gap: 8px;">
                 <h3 class="box-title"><i data-lucide="sparkles"></i> 최근 가입 매장 피드</h3>
-                <span class="live-tag pulse-tag">LIVE</span>
+                <span class="live-tag pulse-tag" id="users-live-tag">LIVE</span>
               </div>
               <button class="link-btn" onclick="switchTab('users')">회원 관리로 이동 →</button>
             </div>
@@ -369,8 +374,11 @@
           <!-- 좌측: 공지사항 및 푸시 알림 발송 폼 -->
           <div class="content-box">
             <div class="box-header">
-              <h3 class="box-title"><i data-lucide="send"></i> 사장님 전용 푸시 알림 전송</h3>
-              <span class="live-tag">PUSH SYSTEM</span>
+              <!-- 이 폼은 공지를 '등록'한다. 앱이 폴링으로 받아 홈 화면에 띄우는 방식이고,
+                   FCM 푸시로 밀어 보내지는 않는다. '즉시 발송/PUSH SYSTEM'이라고 써 두면
+                   앱을 닫아 둔 사장님에게도 간 줄로 오해하게 된다. -->
+              <h3 class="box-title"><i data-lucide="send"></i> 사장님 공지 등록</h3>
+              <span class="live-tag">NOTICE</span>
             </div>
             
             <form id="notif-form" class="notif-form">
@@ -393,21 +401,27 @@
               </div>
 
               <div class="form-group" style="margin-top: 14px;">
-                <label class="form-label">알림 상세 내용</label>
-                <textarea id="notif-body" class="notif-textarea" placeholder="사장님 앱 상단 알림 팝업 및 푸시 메시지에 노출될 상세 내용을 작성하세요..." required></textarea>
+                <label class="form-label">공지 상세 내용</label>
+                <textarea id="notif-body" class="notif-textarea" placeholder="사장님 앱 홈 화면 알림함에 노출될 상세 내용을 작성하세요..." required></textarea>
               </div>
 
               <button type="submit" class="send-notif-btn">
-                <i data-lucide="send"></i> 사장님 전용 푸시 알림 즉시 발송하기
+                <i data-lucide="send"></i> 공지 등록하기
               </button>
+              <p class="form-hint" style="margin-top:8px; font-size:12px; color:var(--mocha-brown); line-height:1.5;">
+                등록한 공지는 사장님 앱 홈 화면의 알림함에 표시됩니다. 앱을 닫아 둔 상태로
+                울리는 푸시 알림은 아직 지원하지 않습니다.
+              </p>
             </form>
           </div>
 
           <!-- 우측: 최근 발송된 알림 내역 타임라인 -->
           <div class="content-box">
             <div class="box-header">
-              <h3 class="box-title"><i data-lucide="history"></i> 최근 발송된 알림 이력</h3>
-              <span class="count-badge" id="notif-history-count">3건 발송 완료</span>
+              <h3 class="box-title"><i data-lucide="history"></i> 등록된 공지 이력</h3>
+              <!-- 값은 renderNotifHistory()가 채운다. '3건'이 박혀 있어서, 조회 실패 시
+                   한 건도 없는데 3건 보냈다고 우겼다. -->
+              <span class="count-badge" id="notif-history-count">불러오는 중…</span>
             </div>
             <div class="notif-history-list" id="notif-history-list">
               <!-- JS 동적 생성 -->

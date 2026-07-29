@@ -2,8 +2,8 @@
 
 확인하는 것:
   1. 앱에서 보낸 문의가 관리자 화면(GET /admin/cs)에 실제로 나온다 (같은 DB, 같은 id)
-  2. 관리자가 단 답변이 사장님 앱(GET /inquiries?user_email=)으로 돌아온다
-  3. 남의 문의는 내 목록에 안 섞인다
+  2. 관리자가 단 답변이 사장님 앱(GET /inquiries)으로 돌아온다
+  3. 남의 문의는 내 목록에 안 섞이고, 이메일을 알아도 훔쳐볼 수 없다
   4. 관리자 화면 값(계정 상태·메모·OCR/재고 건수)이 지어낸 값이 아니라 DB에서 온다
 """
 import pytest
@@ -12,7 +12,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.core.auth import get_current_admin, get_password_hash
+from app.core.auth import get_current_admin, get_current_user, get_password_hash
 from app.core.database import Base, get_db
 from app.main import app
 from app.models.inventory import Ingredient
@@ -20,6 +20,10 @@ from app.models.user import User
 
 OWNER = "owner-a@cafe.com"
 OTHER = "owner-b@cafe.com"
+
+# 지금 로그인한 사장님 — 테스트마다 이 값을 바꿔 '누가 보냈나'를 흉내 낸다.
+# 실제 인증은 test_admin_login.py가 따로 검증한다.
+_signed_in = {"email": OWNER}
 
 
 @pytest.fixture()
@@ -42,16 +46,24 @@ def client():
         ])
         db.commit()
 
+    def current_user():
+        with TestSession() as db:
+            return db.query(User).filter(User.email == _signed_in["email"]).first()
+
     app.dependency_overrides[get_db] = override_get_db
     # 관리자 인증은 이 테스트의 관심사가 아니다 (test_admin_login.py가 따로 검증한다)
     app.dependency_overrides[get_current_admin] = lambda: User(id=99, email="admin@simplem.com")
+    app.dependency_overrides[get_current_user] = current_user
+    _signed_in["email"] = OWNER
     yield TestClient(app), TestSession
     app.dependency_overrides.clear()
     engine.dispose()
 
 
 def _post_inquiry(c, email, title, store_name=None):
-    body = {"user_email": email, "category": "❓ 사용 문의", "title": title, "content": f"{title} 상세 내용"}
+    """email 계정으로 로그인한 상태에서 문의를 넣는다 (보낸 사람은 서버가 토큰에서 정한다)."""
+    _signed_in["email"] = email
+    body = {"category": "❓ 사용 문의", "title": title, "content": f"{title} 상세 내용"}
     if store_name is not None:
         body["store_name"] = store_name
     res = c.post("/api/v1/inquiries", json=body)
@@ -84,7 +96,8 @@ def test_admin_reply_reaches_the_owner_app(client):
     res = c.post(f"/api/v1/admin/cs/{created['id']}/reply", json={"reply": "카드사별 입금일은 설정에서 바꾸실 수 있어요."})
     assert res.status_code == 200
 
-    mine = c.get("/api/v1/inquiries", params={"user_email": OWNER}).json()
+    _signed_in["email"] = OWNER
+    mine = c.get("/api/v1/inquiries").json()
     assert len(mine) == 1
     assert mine[0]["status"] == "answered"
     assert mine[0]["answer"] == "카드사별 입금일은 설정에서 바꾸실 수 있어요."
@@ -96,17 +109,36 @@ def test_my_list_excludes_other_owners(client):
     _post_inquiry(c, OWNER, "내 문의")
     _post_inquiry(c, OTHER, "남의 문의")
 
-    mine = c.get("/api/v1/inquiries", params={"user_email": OWNER}).json()
+    _signed_in["email"] = OWNER
+    mine = c.get("/api/v1/inquiries").json()
     assert [x["title"] for x in mine] == ["내 문의"]
     # 관리자에게는 둘 다 보인다
     assert len(c.get("/api/v1/admin/cs").json()) == 2
 
 
-def test_inquiry_requires_owner_email(client):
-    """이메일 없이 온 문의는 거절한다 — 예전엔 데모 계정(owner@cafe.com) 것으로 저장됐다."""
+def test_cannot_read_someone_elses_inquiries(client):
+    """남의 이메일을 알아도 그 사람 문의는 못 읽는다 — 조회 기준은 토큰이다.
+
+    예전엔 ?user_email=<남의 이메일>만 붙이면 인증 없이 문의 전문과 관리자 답변이 나왔다.
+    """
     c, _ = client
-    res = c.post("/api/v1/inquiries", json={"category": "❓ 사용 문의", "title": "무기명", "content": "..."})
-    assert res.status_code == 422
+    _post_inquiry(c, OTHER, "남의 비밀 문의")
+
+    # OWNER로 로그인한 채 OTHER의 이메일을 넘겨 봐도 내 것(0건)만 나온다
+    _signed_in["email"] = OWNER
+    assert c.get("/api/v1/inquiries", params={"user_email": OTHER}).json() == []
+
+
+def test_sender_comes_from_token_not_body(client):
+    """본문에 남의 이메일을 실어 보내도 보낸 사람은 로그인 계정으로 기록된다."""
+    c, _ = client
+    _signed_in["email"] = OWNER
+    res = c.post("/api/v1/inquiries", json={
+        "user_email": OTHER,  # 사칭 시도
+        "category": "❓ 사용 문의", "title": "사칭", "content": "...",
+    })
+    assert res.status_code == 200
+    assert res.json()["user_email"] == OWNER
 
 
 def test_pending_count_reflects_reality(client):

@@ -290,29 +290,31 @@ export default function SettingsScreen() {
     });
   };
 
-  // [한글 주석] 백엔드에서 1대1 문의 실시간 내역 불러오기 — 내 이메일 것만 (다른 사장님 문의 미노출)
+  // [한글 주석] 백엔드에서 1대1 문의 실시간 내역 불러오기.
+  // 누구 문의인지는 서버가 토큰으로 판단한다 — 이메일을 쿼리로 넘기던 방식은
+  // 인증이 없어 남의 이메일만 알면 그 사람 문의를 읽을 수 있었다.
   const fetchInquiries = async () => {
-    if (!user?.email) return;
+    if (!token) return;
     try {
-      const res = await fetch(
-        `${API_BASE_URL}/api/v1/inquiries?user_email=${encodeURIComponent(user.email)}`,
-      );
+      const res = await fetch(`${API_BASE_URL}/api/v1/inquiries`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (res.ok) {
         const data = await res.json();
         // 빈 배열도 그대로 반영 — 신규 계정에 데모 시드가 남아 보이지 않게
         if (Array.isArray(data)) setInquiries(data);
       }
     } catch {
-      /* 서버 오프라인 시 기본 내역 유지 */
+      /* 서버 오프라인 시 기존 목록 유지 */
     }
   };
 
-  // 최초 로드 + 8초 주기 폴링 — 관리자(3000번 콘솔)가 답변하면 앱에 자동 반영
+  // 최초 로드 + 8초 주기 폴링 — 관리자 콘솔에서 답변하면 앱에 자동 반영
   useEffect(() => {
     fetchInquiries();
     const timer = setInterval(fetchInquiries, 8000);
     return () => clearInterval(timer);
-  }, [user?.email]);
+  }, [token]);
 
   // [한글 주석] 1대1 문의 제출 — 백엔드 /inquiries 한 곳에만 등록 (백엔드가 관리자 CS 리스트에 동일 id로 자동 연동)
   const handleSubmitInquiry = async () => {
@@ -324,15 +326,14 @@ export default function SettingsScreen() {
       toast('입력 확인', '문의 내용을 입력해 주세요.');
       return;
     }
-    // 이메일이 없으면 어느 사장님 문의인지 알 수 없어 관리자 화면에서 답변을 못 보낸다.
-    // 백엔드도 이 경우를 거절하므로, 여기서 먼저 이유를 알려 준다.
-    if (!user?.email) {
+    // 토큰이 없으면 서버가 보낸 사람을 확정할 수 없어 접수 자체가 거절된다.
+    if (!token) {
       toast('로그인 확인', '로그인 정보를 불러오지 못했어요. 다시 로그인한 뒤 시도해 주세요.');
       return;
     }
 
+    // 보낸 사람은 서버가 토큰에서 정한다 — 여기서 이메일을 실어 보내지 않는다.
     const payload = {
-      user_email: user.email,
       store_name: storeName || '',
       category: inquiryCategory,
       title: inquiryTitle.trim(),
@@ -346,7 +347,7 @@ export default function SettingsScreen() {
     try {
       const res = await fetch(`${API_BASE_URL}/api/v1/inquiries`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(payload),
       });
       if (!res.ok) {

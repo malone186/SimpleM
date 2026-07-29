@@ -19,7 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Screen, ScreenTitle } from '../../components/ui';
 import { useTranslation } from '../../i18n/translations';
 import { colors, shadows, spacing, typography } from '../../theme';
-import { listRoasteryBeans, listStocks, DEFAULT_ROASTERY_BEANS, RoasteryBean, StockItem } from '../../lib/api/inventory';
+import { listRoasteryBeans, listStocks, RoasteryBean, StockItem } from '../../lib/api/inventory';
 import BeanDetailModal from '../../components/order/BeanDetailModal';
 import BeanNotepad from '../../components/order/BeanNotepad';
 
@@ -60,14 +60,16 @@ export default function OrderScreen() {
     return null;
   };
 
-  // 백엔드에서 원두 목록 데이터 로드 (실패 시 샘플 원두 목록 폴백)
+  // 백엔드에서 원두 목록 데이터 로드.
+  // 실패하면 빈 목록 + 에러 상태로 둔다 — 예전엔 지어낸 원두 5종을 대신 채워서,
+  // 서버가 죽은 줄도 모르고 존재하지 않는 상품의 가격을 비교하게 됐다.
   const loadBeans = async () => {
     try {
       setLoading(true);
       setError(false);
       const token = await getAuthToken();
       const data = await listRoasteryBeans(token ?? undefined, 10);
-      setBeans(data && data.length > 0 ? data : DEFAULT_ROASTERY_BEANS);
+      setBeans(data ?? []);
       if (token) {
         try {
           const stocks = await listStocks(token);
@@ -84,8 +86,9 @@ export default function OrderScreen() {
         }
       }
     } catch (e) {
-      console.error('[원두 탐색] 원두 목록 로드 실패, 샘플 폴백 사용:', e);
-      setBeans(DEFAULT_ROASTERY_BEANS);
+      console.error('[원두 탐색] 원두 목록 로드 실패:', e);
+      setBeans([]);
+      setError(true);
     } finally {
       setLoading(false);
     }

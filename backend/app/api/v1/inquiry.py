@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core.auth import get_current_user
 from app.core.database import get_db
 from app.models.inquiry import Inquiry
 from app.models.user import User
@@ -19,10 +20,13 @@ class InquiryCreate(BaseModel):
 
     예전엔 user_email·store_name의 기본값이 데모 계정(owner@cafe.com / 포슬카페)이었다.
     앱이 값을 못 보내면 조용히 남의 계정 문의로 저장돼, 정작 보낸 사장님의 '나의 문의
-    내역'에는 안 보이고 관리자 화면에는 엉뚱한 매장 이름이 찍혔다. 이제 이메일은 필수다.
+    내역'에는 안 보이고 관리자 화면에는 엉뚱한 매장 이름이 찍혔다.
+
+    지금은 보낸 사람을 토큰에서 정한다. user_email 필드는 구버전 앱이 계속 보내와도
+    422가 나지 않도록 받아만 두고 쓰지 않는다.
     """
 
-    user_email: str
+    user_email: Optional[str] = None  # (사용 안 함) 보낸 사람은 토큰에서 정한다
     store_name: Optional[str] = None  # 비면 users 테이블에서 찾아 채운다
     category: str
     title: str
@@ -59,18 +63,28 @@ def sync_reply_to_memory(inquiry_id: int, answer: str) -> None:
 
 
 @router.get("")
-def get_inquiries(user_email: Optional[str] = None, db: Session = Depends(get_db)):
-    """[한글 주석] 1대1 문의 내역 최신순 조회
-    user_email을 넘기면 그 사장님 본인 문의만 반환한다 (앱의 '나의 문의 내역'용).
-    파라미터가 없으면 전체를 반환한다 (관리자 웹 호환).
+def get_inquiries(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """[한글 주석] 로그인한 사장님 '본인' 문의 내역만 최신순으로 조회한다.
+
+    예전엔 인증 없이 ?user_email=<남의 이메일>만 붙이면 그 사장님의 문의 전문과 관리자
+    답변이 그대로 나왔다. 이메일은 비밀이 아니므로 사실상 누구나 열람할 수 있었다.
+    이제 토큰의 주인 것만 돌려준다 — 쿼리 파라미터로 남의 것을 지정할 수 없다.
+
+    (관리자는 이 경로가 아니라 관리자 인증이 걸린 GET /admin/cs를 쓴다.)
     """
+    user_email = current_user.email
     res = []
     seen_ids = set()
     try:
-        query = db.query(Inquiry)
-        if user_email:
-            query = query.filter(Inquiry.user_email == user_email)
-        items = query.order_by(Inquiry.id.desc()).all()
+        items = (
+            db.query(Inquiry)
+            .filter(Inquiry.user_email == user_email)
+            .order_by(Inquiry.id.desc())
+            .all()
+        )
         for item in items:
             seen_ids.add(item.id)
             res.append({
@@ -90,7 +104,7 @@ def get_inquiries(user_email: Optional[str] = None, db: Session = Depends(get_db
     for m in GLOBAL_INQUIRIES:
         if m["id"] in seen_ids:
             continue
-        if user_email and m.get("user_email") != user_email:
+        if m.get("user_email") != user_email:
             continue
         res.append({**m, "status": _normalize_status(m.get("status"))})
     return res
@@ -114,12 +128,18 @@ def _resolve_store_name(db: Session, email: str, given: Optional[str]) -> str:
 
 
 @router.post("")
-def create_inquiry(req: InquiryCreate, db: Session = Depends(get_db)):
-    """[한글 주석] 사장님 앱에서 1대1 문의 등록 — DB 저장 후 관리자 CS 리스트 상단에 100% 실시간 연동"""
+def create_inquiry(
+    req: InquiryCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """[한글 주석] 사장님 앱에서 1대1 문의 등록 — DB 저장 후 관리자 CS 리스트에 실시간 연동
+
+    보낸 사람은 토큰에서 정한다. 본문의 user_email은 믿지 않는다 — 그대로 쓰면
+    아무나 남의 이름으로 문의를 넣을 수 있고, 관리자는 그 답변을 엉뚱한 사람에게 보낸다.
+    """
     now = datetime.now()
-    email = req.user_email.strip()
-    if not email:
-        raise HTTPException(status_code=422, detail="문의를 보낸 사장님 이메일이 필요합니다.")
+    email = current_user.email
     store_name = _resolve_store_name(db, email, req.store_name)
 
     inq_id = None

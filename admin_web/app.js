@@ -38,6 +38,24 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   };
 
+  // 실패한 응답을 사람이 읽을 수 있는 한 줄로 바꾼다.
+  // FastAPI는 422일 때 detail을 객체 배열로 주는데, 그대로 문자열에 넣으면
+  // 화면에 '[object Object]'만 뜨고 뭐가 잘못됐는지 알 수 없다.
+  async function describeError(res) {
+    let detail = '';
+    try {
+      const body = await res.json();
+      if (typeof body.detail === 'string') {
+        detail = body.detail;
+      } else if (Array.isArray(body.detail)) {
+        detail = body.detail.map((d) => d.msg || JSON.stringify(d)).join(', ');
+      }
+    } catch (e) {
+      /* 본문이 JSON이 아니면 상태 코드만 쓴다 */
+    }
+    return detail ? `HTTP ${res.status} · ${detail}` : `HTTP ${res.status}`;
+  }
+
   function showAdminLogin(message) {
     if (document.getElementById('admin-login-overlay')) {
       if (message) { const e = document.getElementById('admin-login-err'); if (e) e.textContent = message; }
@@ -86,6 +104,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 토큰이 없으면 로그인 화면만 띄우고 나머지 대시보드 초기화는 중단 (로그인 성공 시 reload로 재실행)
   if (!getAdminToken()) { showAdminLogin(); return; }
+
+  // 로그인한 관리자 계정과 접속 중인 백엔드를 화면에 반영한다 (둘 다 예전엔 하드코딩)
+  (function reflectSession() {
+    try {
+      const email = JSON.parse(atob(getAdminToken().split('.')[1] || '')).sub || '';
+      const emailEl = document.getElementById('admin-email');
+      const avatarEl = document.getElementById('admin-avatar');
+      if (emailEl && email) emailEl.textContent = email;
+      if (avatarEl && email) avatarEl.textContent = email.charAt(0).toUpperCase();
+    } catch (e) {
+      /* 토큰 모양이 예상과 다르면 기본 표시 그대로 둔다 */
+    }
+    const origin = ADMIN_API.replace('/api/v1', '');
+    const swagger = document.getElementById('link-swagger');
+    const backend = document.getElementById('link-backend');
+    if (swagger) swagger.href = `${origin}/docs`;
+    if (backend) backend.href = origin;
+  })();
 
   // 1. 탭 전환 기능 (2개 간소화: 대시보드 / 회원 관리)
   const navItems = document.querySelectorAll('.nav-item');
@@ -198,10 +234,13 @@ document.addEventListener('DOMContentLoaded', () => {
         dbLabel(c.db) || '데이터베이스',
       );
       paintStatus(cards.ocr, c.ocr.ok ? 'ok' : 'fail', c.ocr.ok ? `정상 · ${c.ocr.detail}` : c.ocr.detail || 'API 키 없음');
+      markPanelLive('health-live-tag');
     } catch (err) {
       paintStatus(cards.api, 'fail', '서버 오프라인');
       paintStatus(cards.db, 'unknown', '확인 불가');
       paintStatus(cards.ocr, 'unknown', '확인 불가');
+      // 서버가 죽었는데 'LIVE'가 초록으로 붙어 있으면 그 자체가 오보다
+      markPanelOffline('health-live-tag');
     }
   }
 
@@ -242,11 +281,15 @@ document.addEventListener('DOMContentLoaded', () => {
     recentFeedContainer.innerHTML = currentList
       .map((u, index) => {
         const isNew = highlightFirst && index === 0;
+        // 'NEW'는 최근 7일 안에 가입한 회원에게만 — 예전엔 세 장 모두에 무조건 붙어서
+        // 반년 전에 가입한 매장에도 반짝이가 달렸다
+        const joinedAt = new Date(u.joined);
+        const isRecent = !isNaN(joinedAt) && (Date.now() - joinedAt.getTime()) < 7 * 24 * 60 * 60 * 1000;
         return `
         <div class="feed-card ${isNew ? 'newly-added' : 'feed-slide-down'}" onclick="openUserDrawer(${u.id})">
           <div class="feed-avatar-box">
             <div class="feed-avatar">${u.store.charAt(0)}</div>
-            <span class="new-sparkle-tag">NEW</span>
+            ${isRecent ? '<span class="new-sparkle-tag">NEW</span>' : ''}
           </div>
           <div class="feed-content">
             <div class="feed-top-row">
@@ -410,13 +453,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 11. 로그아웃
-  const logoutBtn = document.getElementById('logout-btn');
-  if (logoutBtn) {
-    logoutBtn.addEventListener('click', () => {
-      alert('관리자 계정에서 로그아웃되었습니다.');
-    });
-  }
+  // 11. (삭제됨) 로그아웃 — 진짜 처리는 맨 위(#logout-btn, 토큰 삭제 후 reload)에 있다.
+  //     여기 있던 두 번째 리스너는 alert만 띄우고 아무것도 안 하면서 reload와 경쟁했다.
 
   // 12. [한글 주석: Drawer 회원 가입 즉시 승인 퀵 처리] — 상태 저장과 같은 API를 쓴다
   const btnApproveUser = document.getElementById('btn-approve-user');
@@ -440,13 +478,13 @@ document.addEventListener('DOMContentLoaded', () => {
             method: 'DELETE'
           });
           if (res.ok) {
-            alert('사장님 회원 계정이 PostgreSQL DB에서 성공적으로 영구 삭제되었습니다.');
+            alert('사장님 회원 계정이 데이터베이스에서 영구 삭제되었습니다.');
             closeUserDrawer();
-            await loadUsers(); // 사장님 목록 다시 리로드
-            await loadDashboardStats(); // 통계 재계산
+            // 삭제된 회원을 계속 세던 패널까지 전부 갱신한다 — 예전엔 목록·통계만 새로
+            // 읽어서 유입 경로 '전체 N명'과 이탈 위험 목록에 없는 회원이 남아 있었다.
+            await Promise.all([loadUsers(), loadDashboardStats(), loadAcquisition(), loadActivity()]);
           } else {
-            const errData = await res.json();
-            alert(`계정 삭제 실패: ${errData.detail}`);
+            alert(`계정 삭제 실패: ${await describeError(res)}`);
           }
         } catch (err) {
           console.error(err);
@@ -540,16 +578,15 @@ document.addEventListener('DOMContentLoaded', () => {
             target_email: targetEmail
           })
         });
-        if (res.ok) {
-          // 성공 시 리스트 다시 불러옴
-          document.getElementById('notif-title').value = '';
-          document.getElementById('notif-body').value = '';
-          alert(`📲 [발송 완료] ${targetLabel} 대상 사장님 알림 발송이 백엔드에 동기화되었습니다!`);
-          await loadNotifications();
-        }
+        // 실패해도 아무 반응이 없던 자리 — 성공과 구분이 안 돼 다시 눌러야 할지 알 수 없었다
+        if (!res.ok) throw new Error(await describeError(res));
+        document.getElementById('notif-title').value = '';
+        document.getElementById('notif-body').value = '';
+        alert(`📩 [등록 완료] ${targetLabel} 대상 공지가 등록되었습니다.\n사장님 앱이 열려 있으면 홈 화면에서 바로 확인됩니다.`);
+        await loadNotifications();
       } catch (err) {
-        console.error(err);
-        alert('알림 전송 중 오류가 발생했습니다.');
+        console.error('공지 등록 실패:', err);
+        alert(`공지를 등록하지 못했습니다 (${err.message}).\n입력 내용은 그대로 두었으니 다시 시도해 주세요.`);
       }
     });
   }
@@ -686,31 +723,28 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
+      // 저장에 실패하면 실패라고 말한다.
+      // 예전엔 응답이 401·404·500이든 네트워크가 끊겼든 전부 "정상 전달되었습니다!"를 띄우고
+      // 화면의 상태만 '처리 완료'로 바꿨다. 관리자는 답변한 줄 알지만 사장님에게는
+      // 아무것도 안 갔고, 4초 뒤 폴링이 그 행을 조용히 '답변 대기'로 되돌렸다.
+      const btn = btnSendCSAnswer;
+      btn.disabled = true;
       try {
         const res = await fetch(`${API_BASE}/admin/cs/${selectedCSItem.id}/reply`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ reply: answerText })
         });
-        if (res.ok) {
-          alert(`💌 [답변 전달 완료] ${selectedCSItem.store} 사장님께 답변이 정상 전달되었습니다!`);
-          if (csModalOverlay) csModalOverlay.classList.remove('active');
-          await loadCSList();
-        } else {
-          // 로컬 업데이트 처리
-          selectedCSItem.reply = answerText;
-          selectedCSItem.status = '처리 완료';
-          alert(`💌 [답변 전달 완료] ${selectedCSItem.store} 사장님께 답변이 전달되었습니다!`);
-          if (csModalOverlay) csModalOverlay.classList.remove('active');
-          renderCSTable();
-        }
-      } catch (err) {
-        console.error(err);
-        selectedCSItem.reply = answerText;
-        selectedCSItem.status = '처리 완료';
+        if (!res.ok) throw new Error(await describeError(res));
         alert(`💌 [답변 전달 완료] ${selectedCSItem.store} 사장님께 답변이 전달되었습니다!`);
         if (csModalOverlay) csModalOverlay.classList.remove('active');
-        renderCSTable();
+        await loadCSList();
+      } catch (err) {
+        console.error('CS 답변 전송 실패:', err);
+        // 모달을 닫지 않는다 — 입력한 답변이 남아 있어야 다시 누를 수 있다
+        alert(`답변을 전송하지 못했습니다 (${err.message}).\n답변 내용은 그대로 두었으니 잠시 후 다시 시도해 주세요.`);
+      } finally {
+        btn.disabled = false;
       }
     });
   }
@@ -724,36 +758,70 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---------------------------------------------------------------------------
   // 🩺 [한글 주석: 백엔드 API로부터 실시간 데이터 로드 함수 정의]
   // ---------------------------------------------------------------------------
+  // 조회에 실패했는데 화면이 그대로면 '0명·0건'이 사실인 줄 알게 된다.
+  // 실패한 영역은 실패했다고 표시한다 (유입 경로·활동 분석이 이미 쓰는 방식).
+  function markPanelOffline(tagId) {
+    const tag = document.getElementById(tagId);
+    if (tag) { tag.textContent = 'OFFLINE'; tag.style.background = '#C62828'; }
+  }
+
+  function markPanelLive(tagId) {
+    const tag = document.getElementById(tagId);
+    if (tag) { tag.textContent = 'LIVE'; tag.style.background = ''; }
+  }
+
   async function loadUsers() {
     try {
       const res = await fetch(`${API_BASE}/admin/users`);
-      if (res.ok) {
-        mockUsers = await res.json();
-        renderUserTable();
-        renderTimelineFeed();
-        updateSpecificUserSelect();
-      }
+      if (!res.ok) throw new Error(await describeError(res));
+      mockUsers = await res.json();
+      renderUserTable();
+      renderTimelineFeed();
+      updateSpecificUserSelect();
+      markPanelLive('users-live-tag');
     } catch (err) {
       console.error('회원 목록 조회 실패:', err);
+      markPanelOffline('users-live-tag');
+      if (userTableBody) {
+        userTableBody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:30px;color:#C62828;">
+          회원 목록을 불러오지 못했습니다 (${err.message}).</td></tr>`;
+      }
     }
   }
 
   async function loadDashboardStats() {
     try {
       const res = await fetch(`${API_BASE}/admin/dashboard/stats`);
-      if (res.ok) {
-        const data = await res.json();
-        document.getElementById('stats-total-stores').innerHTML = `${data.totalStores}<span class="unit">명</span>`;
-        // 프리미엄 비율 자리는 '미답변 문의'로 교체됐다 (유료 플랜 폐지)
-        const pendingEl = document.getElementById('stats-pending-cs');
-        if (pendingEl) pendingEl.innerHTML = `${data.pendingInquiries ?? 0}<span class="unit">건</span>`;
-        document.getElementById('stats-total-ingredients').innerHTML = `${data.totalIngredients}<span class="unit">품목</span>`;
-        // OCR 처리 건수 — 예전엔 (구) activeUsersCount 필드를 읽어 라벨과 값이 어긋났다
-        document.getElementById('stats-ocr-count').innerHTML = `${data.ocrCount ?? 0}<span class="unit">건</span>`;
-      }
+      if (!res.ok) throw new Error(await describeError(res));
+      const data = await res.json();
+      document.getElementById('stats-total-stores').innerHTML = `${data.totalStores}<span class="unit">명</span>`;
+      // 프리미엄 비율 자리는 '미답변 문의'로 교체됐다 (유료 플랜 폐지)
+      const pendingEl = document.getElementById('stats-pending-cs');
+      if (pendingEl) pendingEl.innerHTML = `${data.pendingInquiries ?? 0}<span class="unit">건</span>`;
+      document.getElementById('stats-total-ingredients').innerHTML = `${data.totalIngredients}<span class="unit">품목</span>`;
+      // OCR 처리 건수 — 예전엔 (구) activeUsersCount 필드를 읽어 라벨과 값이 어긋났다
+      document.getElementById('stats-ocr-count').innerHTML = `${data.ocrCount ?? 0}<span class="unit">건</span>`;
+      markStatsFresh(true);
     } catch (err) {
       console.error('통계 로드 실패:', err);
+      // 숫자를 예전 값으로 남겨 두되, 그게 최신이 아니라는 걸 밝힌다
+      markStatsFresh(false, err.message);
     }
+  }
+
+  // 지표 카드 하단 캡션 — 예전엔 '실시간 연동 중'이 무조건 박혀 있어서
+  // 조회가 실패해 옛 숫자가 그대로 떠 있어도 실시간이라고 우겼다.
+  function markStatsFresh(ok, reason) {
+    const el = document.getElementById('stats-total-stores-sub');
+    if (!el) return;
+    el.textContent = ok ? `${nowLabel()} 기준` : `갱신 실패 — ${reason || '연결 확인 필요'}`;
+    el.className = ok ? 'metric-sub green-text' : 'metric-sub';
+    el.style.color = ok ? '' : '#C62828';
+  }
+
+  function nowLabel() {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   }
 
   // (삭제됨) 중복 loadCSList — 같은 스코프에 두 번 선언돼 위 구현을 덮어쓰고,
@@ -762,12 +830,16 @@ document.addEventListener('DOMContentLoaded', () => {
   async function loadNotifications() {
     try {
       const res = await fetch(`${API_BASE}/admin/notifications`);
-      if (res.ok) {
-        mockNotifHistory = await res.json();
-        renderNotifHistory();
-      }
+      if (!res.ok) throw new Error(await describeError(res));
+      mockNotifHistory = await res.json();
+      renderNotifHistory();
     } catch (err) {
-      console.error('알림 조회 실패:', err);
+      console.error('공지 이력 조회 실패:', err);
+      if (notifHistoryCount) notifHistoryCount.textContent = '불러오기 실패';
+      if (notifHistoryContainer) {
+        notifHistoryContainer.innerHTML =
+          `<div style="padding:20px;text-align:center;color:#C62828;">공지 이력을 불러오지 못했습니다 (${err.message}).</div>`;
+      }
     }
   }
 
@@ -1074,21 +1146,37 @@ document.addEventListener('DOMContentLoaded', () => {
     renderAgentTree();
   };
 
-  // [한글 주석: 초기 구동 시 실시간 데이터 전면 동기화 및 4초 주기 사장님 CS 문의 실시간 자동 수신 설정]
+  // [한글 주석: 초기 구동 시 실시간 데이터 전면 동기화 + 주기적 자동 갱신]
   async function initDashboard() {
-    await checkBackendHealth();
-    await loadDashboardStats();
-    await loadUsers();
-    await loadCSList();
-    await loadNotifications();
-    await loadAcquisition();
-    await loadActivity();
-    await loadAgents();
+    // 서로 의존하지 않는 조회라 동시에 보낸다 (하나씩 await하면 Neon RTT가 그대로 쌓인다)
+    await Promise.all([
+      checkBackendHealth(),
+      loadDashboardStats(),
+      loadUsers(),
+      loadCSList(),
+      loadNotifications(),
+      loadAcquisition(),
+      loadActivity(),
+      loadAgents(),
+    ]);
 
-    // 4초 주기 폴링 — 사장님이 앱에서 1대1 문의를 접수하면 관리자 웹페이지를 안 새로고침해도 4초 내에 실시간 노출
+    // 4초 주기 — 사장님이 문의를 접수하면 새로고침 없이 바로 뜬다
+    setInterval(loadCSList, 4000);
+
+    // 나머지 패널도 주기적으로 다시 읽는다.
+    // 예전엔 initDashboard가 딱 한 번만 돌아서, 화면에 'LIVE'와 '실시간'이라고 써 있는데
+    // 실제로는 페이지를 연 순간의 스냅샷이 몇 시간이고 그대로 남아 있었다.
     setInterval(() => {
-      loadCSList();
-    }, 4000);
+      checkBackendHealth();
+      loadDashboardStats();
+      loadUsers();
+      loadNotifications();
+    }, 30000);
+
+    setInterval(() => {
+      loadAcquisition();
+      loadActivity();
+    }, 60000);
   }
 
   initDashboard();

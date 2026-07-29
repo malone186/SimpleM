@@ -119,11 +119,17 @@ export default function AlertsWatcher() {
     if (!token || !prefs.ready) return;
     const t = setTimeout(() => {
       // 스위치를 연속으로 토글할 때 매번 PUT하지 않도록 잠깐 모았다 보낸다
+      // 설정 화면의 스위치를 실제로 서버에 반영한다.
+      // 예전엔 compliance_alert·sensor_alert를 true로 박아 보내서, '놓친 일 먼저 알려주기'를
+      // 꺼도 서버는 계속 그 알림을 보냈다 — 앱 안에서만 꺼진 척했던 것이다.
       updateNotificationSettings(token, {
         push_enabled: true,
-        compliance_alert: true, // 갱신 서류는 별도 스위치가 아직 없어 기본 on
+        // '놓친 일 먼저 알려주기'가 갱신 서류·기한 알림을 관장한다
+        compliance_alert: prefs.proactiveInsights,
         report_alert: true,
         stock_alert: prefs.lowStockAlert,
+        // 센서 알림은 여기서 정하지 않는다 — '매장 센서 연동' 스위치가 서버 쪽 별도 플래그
+        // (GET/PUT /sensor/feature)로 직접 켜고 끄므로, 그 값을 여기서 덮어쓰면 안 된다.
         sensor_alert: true,
         report_frequency: prefs.reportFrequency,
         dnd_enabled: prefs.dndEnabled,
@@ -150,11 +156,11 @@ export default function AlertsWatcher() {
 
     // ⑤ 내 문의에 관리자 답변이 새로 달렸는지 감시 — 답변 완료 id 목록 비교 방식
     const checkInquiryAnswers = async () => {
-      if (!user?.email) return;
+      if (!token) return; // 내 문의 조회는 토큰이 있어야 한다 (서버가 토큰 주인 것만 준다)
       const raw = await AsyncStorage.getItem(INQUIRY_KEY);
       const seen: number[] | null = raw ? JSON.parse(raw) : null;
 
-      const list = await listMyInquiries(user.email);
+      const list = await listMyInquiries(token);
       const answeredIds = list.filter((i) => i.status === 'answered').map((i) => i.id);
 
       // 첫 실행에는 기존 답변을 쏟아내지 않도록 현재 상태를 기준선으로만 저장
