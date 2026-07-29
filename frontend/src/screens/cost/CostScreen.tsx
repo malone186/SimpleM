@@ -18,6 +18,14 @@ import { toast } from '../../components/toast';
 import { colors, typography } from '../../theme';
 import MenuOptimizationCard from '../../components/dashboard/MenuOptimizationCard'; // [한글 주석: AI 메뉴 최적화 진단 카드 컴포넌트 이관 임포트]
 
+// 메뉴 1개의 레시피 한 줄 — 어떤 재료가 몇 g/ml 들어가는지
+type RecipeLine = {
+  ingredient_id: number;
+  ingredient_name: string;
+  quantity: number; // 소요량 (재료 unit 기준, 예: 원두 20g의 20)
+  unit: string;     // g, ml, 개 등
+};
+
 // /inventory/menus 응답 중 원가 분석에 쓰는 필드만
 type MenuRow = {
   id: number;
@@ -25,6 +33,7 @@ type MenuRow = {
   selling_price: number;
   cost_price?: number; // 백엔드가 실시간 계산해 준 총 원재료비 (KRW)
   cost_ratio?: number; // 백엔드가 실시간 계산해 준 최종 원가율 (%)
+  recipes?: RecipeLine[]; // 재료별 소요량 내역 (백엔드가 함께 내려줌)
 };
 
 // [한글 주석: 메뉴 이름을 분석하여 카테고리별로 자동 매칭해주는 헬퍼 함수]
@@ -290,8 +299,30 @@ export default function CostScreen() {
                 <Detail label="원가" value={`₩${cost.toLocaleString()}`} />
                 <Detail label="마진" value={`₩${margin.toLocaleString()}`} accent />
               </View>
+
+              {/* [한글 주석] 재료 구성 — 이 메뉴에 어떤 재료가 몇 g/ml 들어가는지.
+                  백엔드가 recipes로 내려주는 소요량을 그대로 펼쳐 보여준다.
+                  (원가율은 이 소요량 × 재료 단가의 합으로 계산된 값이다) */}
+              {(m.recipes?.length ?? 0) > 0 && (
+                <>
+                  <Divider />
+                  <Text style={styles.recipeHeader}>재료 구성</Text>
+                  {m.recipes!.map((r) => (
+                    <View key={r.ingredient_id} style={styles.recipeRow}>
+                      <Text style={styles.recipeName} numberOfLines={1}>
+                        {r.ingredient_name}
+                      </Text>
+                      <Text style={styles.recipeQty}>
+                        {Number.isInteger(r.quantity) ? r.quantity : r.quantity.toFixed(1)}
+                        {r.unit}
+                      </Text>
+                    </View>
+                  ))}
+                </>
+              )}
+
               <Divider />
-              
+
               {/* [한글 주석: 꾹 눌리는 감각 피드백과 확실한 터치 감지를 위해 PressableScale 컴포넌트로 개조] */}
               <PressableScale
                 style={styles.recommendBtn}
@@ -422,6 +453,15 @@ const styles = StyleSheet.create({
   },
   rate: { ...typography.L2, fontSize: 22 },
   detailRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
+  recipeHeader: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700', marginTop: 10, marginBottom: 4 },
+  recipeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 3,
+  },
+  recipeName: { ...typography.L5, color: colors.espressoBrown, flex: 1, marginRight: 8 },
+  recipeQty: { ...typography.L5, color: colors.espressoBrown, fontWeight: '700' },
   detail: { flex: 1, alignItems: 'center' },
   detailLabel: { ...typography.L5, color: colors.mochaBrown },
   detailValue: { ...typography.L4, color: colors.espressoBrown, marginTop: 3 },
