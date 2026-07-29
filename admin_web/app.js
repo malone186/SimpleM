@@ -515,7 +515,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderNotifHistory() {
     if (!notifHistoryContainer) return;
-    if (notifHistoryCount) notifHistoryCount.textContent = `${mockNotifHistory.length}건 발송 완료`;
+    if (notifHistoryCount) notifHistoryCount.textContent = `${mockNotifHistory.length}건 등록됨`;
 
     notifHistoryContainer.innerHTML = mockNotifHistory
       .map(
