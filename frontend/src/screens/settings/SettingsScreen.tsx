@@ -160,27 +160,12 @@ export default function SettingsScreen() {
   const [inquiryCategory, setInquiryCategory] = useState('💡 기능 요청 / 개선');
   const [inquiryTitle, setInquiryTitle] = useState('');
   const [inquiryContent, setInquiryContent] = useState('');
+  // 서버(GET /inquiries)에서 받은 내 문의만 담는다.
+  // 예전엔 여기에 데모 문의 2건이 시드로 들어 있어, 한 번도 문의한 적 없는 사장님의
+  // '나의 문의 내역'에 보낸 적 없는 문의와 받은 적 없는 관리자 답변이 떠 있었다.
   const [inquiries, setInquiries] = useState<
     Array<{ id: number; category: string; title: string; content: string; date: string; status: 'answered' | 'pending'; answer?: string }>
-  >([
-    {
-      id: 1,
-      category: '💡 기능 요청 / 개선',
-      title: '원두 발주 추천 시 디카페인 자동 추가 기능 요청',
-      content: '주말마다 디카페인 손님이 늘어나고 있어서 AI 추천에 포함되었으면 좋겠습니다.',
-      date: '2026.07.20',
-      status: 'answered',
-      answer: '사장님, 좋은 의견 감사드립니다! 해당 기능은 다음주 알고리즘 업데이트에 자동 반영될 예정입니다.',
-    },
-    {
-      id: 2,
-      category: '❓ 사용 문의',
-      title: '알바생 기피 시간대 자동 반영 범위 문의',
-      content: '기피 시간대를 설정해두면 AI 스케줄 추천 시 자동으로 제외되는지 궁금합니다.',
-      date: '2026.07.21',
-      status: 'pending',
-    },
-  ]);
+  >([]);
 
   const initial = (user?.name || 'S').charAt(0).toUpperCase();
 
@@ -339,44 +324,43 @@ export default function SettingsScreen() {
       toast('입력 확인', '문의 내용을 입력해 주세요.');
       return;
     }
-
-    const newInquiryObj = {
-      id: Date.now(),
-      category: inquiryCategory,
-      title: inquiryTitle.trim(),
-      content: inquiryContent.trim(),
-      date: new Date().toISOString().slice(0, 10).replace(/-/g, '.'),
-      status: 'pending' as const,
-    };
-
-    // 1. 사장님 화면 state에 즉시 접수 카드 반영 (서버 응답 후 실제 id로 교체됨)
-    setInquiries((prev) => [newInquiryObj, ...prev]);
+    // 이메일이 없으면 어느 사장님 문의인지 알 수 없어 관리자 화면에서 답변을 못 보낸다.
+    // 백엔드도 이 경우를 거절하므로, 여기서 먼저 이유를 알려 준다.
+    if (!user?.email) {
+      toast('로그인 확인', '로그인 정보를 불러오지 못했어요. 다시 로그인한 뒤 시도해 주세요.');
+      return;
+    }
 
     const payload = {
-      user_email: user?.email || 'owner@cafe.com',
-      store_name: storeName || '포슬카페',
+      user_email: user.email,
+      store_name: storeName || '',
       category: inquiryCategory,
       title: inquiryTitle.trim(),
       content: inquiryContent.trim(),
     };
 
-    // 2. 백엔드에 등록 → 관리자 콘솔 CS 탭에 실시간 자동 표시 (듀얼 수신 100% 보장)
+    // 접수 경로는 한 곳이다.
+    // 예전엔 /inquiries와 /admin/cs에 동시에 쏴서 문의 1건당 DB 행이 2개씩 생겼고,
+    // 실패해도 화면엔 이미 '접수됨' 카드가 떠 있어서 안 보낸 걸 보낸 줄 알았다.
+    // 서버 응답을 확인한 뒤에만 목록에 넣는다.
     try {
       const res = await fetch(`${API_BASE_URL}/api/v1/inquiries`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      // 관리자 CS 다이렉트 창구로도 동시 수신 보장
-      fetch(`${API_BASE_URL}/api/v1/admin/cs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      }).catch(() => {});
-
-      if (res.ok) await fetchInquiries(); // 서버 확정본(실제 id)으로 목록 동기화
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        throw new Error(`${res.status}${detail ? ` · ${detail.slice(0, 120)}` : ''}`);
+      }
+      await fetchInquiries(); // 서버 확정본(실제 id)으로 목록 동기화
     } catch (err) {
-      console.warn('Inquiries API fetch error:', err);
+      console.error('문의 접수 실패:', err);
+      toast(
+        '문의를 보내지 못했어요',
+        err instanceof Error ? err.message : '잠시 후 다시 시도해 주세요.',
+      );
+      return; // 입력값을 지우지 않는다 — 다시 누르면 되도록
     }
 
     setInquiryTitle('');

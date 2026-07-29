@@ -8,23 +8,50 @@
     {
       "name": "web-dist-sim",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["serve", "dist", "-s", "-l", "8099"],
+      "runtimeArgs": [
+        "serve",
+        "dist",
+        "-s",
+        "-l",
+        "8099"
+      ],
       "cwd": "frontend",
       "port": 8099
     },
     {
       "name": "backend-api",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--port", "8000"],
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "app.main:app",
+        "--port",
+        "8000"
+      ],
       "cwd": "backend",
       "port": 8000
     },
     {
       "name": "frontend-web",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["expo", "start", "--web", "--port", "8081", "--clear"],
+      "runtimeArgs": [
+        "expo",
+        "start",
+        "--web",
+        "--port",
+        "8081",
+        "--clear"
+      ],
       "cwd": "frontend",
       "port": 8081
+    },
+    {
+      "name": "admin-console",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "admin_web/serve.py"
+      ],
+      "port": 3000
     }
   ]
 }

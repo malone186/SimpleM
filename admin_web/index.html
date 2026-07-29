@@ -49,10 +49,6 @@
           <i data-lucide="bell"></i>
           <span>공지 & 알림 발송</span>
         </button>
-        <button class="nav-item" data-tab="payments">
-          <i data-lucide="credit-card"></i>
-          <span>결제 & 매출 관리</span>
-        </button>
       </nav>
 
       <div class="sidebar-footer">
@@ -107,11 +103,11 @@
 
           <div class="metric-card">
             <div class="metric-header">
-              <span class="metric-title">프리미엄 회원 비율</span>
-              <div class="icon-circle green"><i data-lucide="crown"></i></div>
+              <span class="metric-title">미답변 문의</span>
+              <div class="icon-circle green"><i data-lucide="message-circle"></i></div>
             </div>
-            <div class="metric-value" id="stats-premium-ratio">0%<span class="unit"></span></div>
-            <div class="metric-sub green-text" id="stats-premium-sub">전체 회원 대비 비율</div>
+            <div class="metric-value" id="stats-pending-cs">0<span class="unit">건</span></div>
+            <div class="metric-sub green-text" id="stats-pending-cs-sub">답변 대기 중</div>
           </div>
 
           <div class="metric-card">
@@ -125,11 +121,12 @@
 
           <div class="metric-card">
             <div class="metric-header">
-              <span class="metric-title">활성 접속 점포</span>
+              <!-- 라벨은 '활성 접속 점포'였는데 값은 OCR 문서 건수였다 — 값에 맞춰 바로잡음 -->
+              <span class="metric-title">OCR 처리 건수</span>
               <div class="icon-circle blue"><i data-lucide="scan-line"></i></div>
             </div>
-            <div class="metric-value" id="stats-ocr-count">0<span class="unit">개</span></div>
-            <div class="metric-sub">동시 모니터링 세션 수</div>
+            <div class="metric-value" id="stats-ocr-count">0<span class="unit">건</span></div>
+            <div class="metric-sub">누적 영수증·명세서 인식</div>
           </div>
         </div>
 
@@ -145,11 +142,11 @@
             <div class="status-list">
               <div class="status-row" id="status-api">
                 <div class="status-info">
-                  <div class="status-indicator green"></div>
-                  <span class="status-label">FastAPI 서버 (Port 8000)</span>
+                  <div class="status-indicator"></div>
+                  <span class="status-label">FastAPI 서버</span>
                 </div>
                 <div class="status-right-action">
-                  <span class="status-badge green-bg">정상 작동 중</span>
+                  <span class="status-badge">확인 중…</span>
                   <button class="health-refresh-btn" onclick="checkSingleHealth('api')" title="상태 재요청">
                     <i data-lucide="refresh-cw"></i>
                   </button>
@@ -157,11 +154,12 @@
               </div>
               <div class="status-row" id="status-db">
                 <div class="status-info">
-                  <div class="status-indicator green"></div>
-                  <span class="status-label">PostgreSQL 데이터베이스 (simpleM)</span>
+                  <div class="status-indicator"></div>
+                  <!-- 실제 접속한 DB(Neon 리전·DB명)로 JS가 바꿔 쓴다 -->
+                  <span class="status-label">데이터베이스</span>
                 </div>
                 <div class="status-right-action">
-                  <span class="status-badge green-bg">정상 연결됨</span>
+                  <span class="status-badge">확인 중…</span>
                   <button class="health-refresh-btn" onclick="checkSingleHealth('db')" title="상태 재요청">
                     <i data-lucide="refresh-cw"></i>
                   </button>
@@ -169,11 +167,11 @@
               </div>
               <div class="status-row" id="status-ocr">
                 <div class="status-info">
-                  <div class="status-indicator amber"></div>
-                  <span class="status-label">OCR 파이프라인 엔진</span>
+                  <div class="status-indicator"></div>
+                  <span class="status-label">OCR 엔진</span>
                 </div>
                 <div class="status-right-action">
-                  <span class="status-badge amber-bg pulse">대기 상태 (Amber)</span>
+                  <span class="status-badge">확인 중…</span>
                   <button class="health-refresh-btn" onclick="checkSingleHealth('ocr')" title="상태 재요청">
                     <i data-lucide="refresh-cw"></i>
                   </button>
@@ -338,13 +336,6 @@
           <div class="box-header-row">
             <h3 class="box-title"><i data-lucide="users"></i> 전체 사장님 회원 관리</h3>
             
-            <!-- 상단 필터 세그먼트 버튼 (전체 / 프리미엄 회원 / 일반 회원) -->
-            <div class="user-filter-pills">
-              <button class="filter-pill active" data-filter="all">전체 (9명)</button>
-              <button class="filter-pill" data-filter="premium">👑 프리미엄 회원 (4명)</button>
-              <button class="filter-pill" data-filter="general">일반 회원 (5명)</button>
-            </div>
-
             <div class="box-actions">
               <input type="text" id="user-search-input" placeholder="매장명 또는 이메일 검색..." class="search-input">
             </div>
@@ -358,7 +349,6 @@
                   <th>사장님 이름</th>
                   <th>매장명</th>
                   <th>이메일 주소</th>
-                  <th>구독 유형</th>
                   <th>가입 상태</th>
                   <th>관리</th>
                 </tr>
@@ -387,15 +377,13 @@
               <div class="form-group">
                 <label class="form-label">수신 대상 선택</label>
                 <div class="target-pills">
-                  <button type="button" class="target-pill active" data-target="all">전체 사장님 (9명)</button>
-                  <button type="button" class="target-pill" data-target="premium">👑 프리미엄 회원만 (4명)</button>
+                  <button type="button" class="target-pill active" data-target="all" id="target-pill-all">전체 사장님</button>
                   <button type="button" class="target-pill" data-target="specific">특정 매장 선택</button>
                 </div>
+                <!-- 아래 목록은 JS가 실제 가입 회원으로 채운다 (updateSpecificUserSelect).
+                     예전엔 존재하지 않는 매장 4곳이 박혀 있어, 그대로 고르면 아무에게도 안 갔다. -->
                 <select id="specific-user-select" class="specific-user-select" style="display: none; margin-top: 10px;">
-                  <option value="포슬카페">포슬카페 (포슬이 사장님)</option>
-                  <option value="블루보틀 강남">블루보틀 강남 (김철수 사장님)</option>
-                  <option value="성수 로스터스">성수 로스터스 (이영희 사장님)</option>
-                  <option value="카페 민트">카페 민트 (박민수 사장님)</option>
+                  <option value="">-- 수신 점포 선택 --</option>
                 </select>
               </div>
 
@@ -436,9 +424,9 @@
           <div class="box-header-row">
             <h3 class="box-title"><i data-lucide="headset"></i> 사장님 1:1 문의 및 CS 처리</h3>
             <div class="user-filter-pills">
-              <button class="cs-filter-pill active" data-cs-filter="all">전체 문의 (5건)</button>
-              <button class="cs-filter-pill" data-cs-filter="waiting">⏳ 답변 대기 (2건)</button>
-              <button class="cs-filter-pill" data-cs-filter="done">✅ 처리 완료 (3건)</button>
+              <button class="cs-filter-pill active" data-cs-filter="all">전체 문의</button>
+              <button class="cs-filter-pill" data-cs-filter="waiting">⏳ 답변 대기</button>
+              <button class="cs-filter-pill" data-cs-filter="done">✅ 처리 완료</button>
             </div>
           </div>
 
@@ -464,75 +452,7 @@
         </div>
       </section>
 
-      <!-- ━━━ 탭 5: 결제 & 매출 관리 뷰 ━━━ -->
-      <section id="tab-payments" class="tab-content">
-        
-        <!-- 이번 달 누적 구독 매출 요약 카드 4종 -->
-        <div class="metrics-row">
-          <div class="metric-card">
-            <div class="metric-header">
-              <span class="metric-title">이번 달 구독 매출 (MRR)</span>
-              <div class="icon-circle orange"><i data-lucide="credit-card"></i></div>
-            </div>
-            <div class="metric-value">₩79,600</div>
-            <div class="metric-sub green-text">↑ 25.0% 지난달 대비</div>
-          </div>
-
-          <div class="metric-card">
-            <div class="metric-header">
-              <span class="metric-title">이번 달 결제 건수</span>
-              <div class="icon-circle green"><i data-lucide="check-circle"></i></div>
-            </div>
-            <div class="metric-value">4<span class="unit">건</span></div>
-            <div class="metric-sub">프리미엄 4개 매장 자동 결제</div>
-          </div>
-
-          <div class="metric-card">
-            <div class="metric-header">
-              <span class="metric-title">평균 결제 단가 (ARPU)</span>
-              <div class="icon-circle brown"><i data-lucide="coins"></i></div>
-            </div>
-            <div class="metric-value">₩19,900</div>
-            <div class="metric-sub">월정액 요금제 기반</div>
-          </div>
-
-          <div class="metric-card">
-            <div class="metric-header">
-              <span class="metric-title">결제 승인 성공률</span>
-              <div class="icon-circle blue"><i data-lucide="shield-check"></i></div>
-            </div>
-            <div class="metric-value">100<span class="unit">%</span></div>
-            <div class="metric-sub green-text">결제 실패 건수 0건</div>
-          </div>
-        </div>
-
-        <div class="content-box full-width">
-          <div class="box-header-row">
-            <h3 class="box-title"><i data-lucide="receipt"></i> 사장님 프리미엄 요금제 결제 이력</h3>
-            <span class="count-badge" id="payment-count-badge">전체 4건</span>
-          </div>
-
-          <div class="table-container">
-            <table class="desktop-table">
-              <thead>
-                <tr>
-                  <th>결제 ID</th>
-                  <th>결제 일시</th>
-                  <th>매장명 (이메일)</th>
-                  <th>구독 플랜</th>
-                  <th>결제 금액</th>
-                  <th>결제 수단</th>
-                  <th>결제 상태</th>
-                </tr>
-              </thead>
-              <tbody id="payment-table-body">
-                <!-- JS 동적 생성 -->
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-      </section>
+      <!-- (삭제됨) 결제 & 매출 관리 탭 — 유료 플랜 폐지로 구독·결제 개념이 사라졌다 -->
 
     </main>
 
@@ -545,8 +465,9 @@
       <!-- Drawer Header -->
       <div class="drawer-header">
         <div class="drawer-title-box">
-          <span class="drawer-id-badge" id="drawer-user-id">#1</span>
-          <h2 class="drawer-title" id="drawer-store-name">포슬카페</h2>
+          <!-- 아래 값들은 openUserDrawer()가 선택한 회원 정보로 덮어쓴다 -->
+          <span class="drawer-id-badge" id="drawer-user-id">#-</span>
+          <h2 class="drawer-title" id="drawer-store-name">-</h2>
         </div>
         <button class="drawer-close-btn" id="drawer-close-btn">
           <i data-lucide="x"></i>
@@ -564,15 +485,15 @@
           <div class="info-grid">
             <div class="info-item">
               <span class="info-label">사장님 이름</span>
-              <span class="info-value" id="drawer-user-name">포슬이</span>
+              <span class="info-value" id="drawer-user-name">-</span>
             </div>
             <div class="info-item">
               <span class="info-label">이메일 주소</span>
-              <span class="info-value" id="drawer-user-email">owner@cafe.com</span>
+              <span class="info-value" id="drawer-user-email">-</span>
             </div>
             <div class="info-item">
               <span class="info-label">가입 일자</span>
-              <span class="info-value" id="drawer-user-joined">2026-07-01</span>
+              <span class="info-value" id="drawer-user-joined">-</span>
             </div>
             <div class="info-item">
               <span class="info-label">계정 상태 변경</span>
@@ -595,34 +516,7 @@
           </div>
         </div>
 
-        <!-- 2. 동적 멤버십 서비스 현황 카드 -->
-        <div class="drawer-card">
-          <div class="card-section-title">
-            <i data-lucide="crown"></i> 멤버십 서비스 현황
-          </div>
-          <div class="sub-status-box">
-            <div class="sub-row">
-              <span class="sub-label">회원 등급</span>
-              <span class="plan-badge" id="drawer-sub-plan">프리미엄 회원</span>
-            </div>
-            <div class="sub-row">
-              <span class="sub-label">이용 상태 / 이용료</span>
-              <span class="sub-val" id="drawer-sub-price">이용 중 (월 19,900원)</span>
-            </div>
-            <div class="sub-row">
-              <span class="sub-label">다음 결제일</span>
-              <span class="sub-val" id="drawer-sub-next">2026-08-01</span>
-            </div>
-          </div>
-          <div class="sub-action-btns">
-            <button class="action-btn extend" id="btn-extend-sub">
-              <i data-lucide="calendar-plus"></i> 프리미엄 1개월 연장
-            </button>
-            <button class="action-btn cancel" id="btn-cancel-sub">
-              <i data-lucide="slash"></i> 일반 회원으로 해지
-            </button>
-          </div>
-        </div>
+        <!-- (삭제됨) 멤버십 서비스 현황 — 유료 플랜 폐지 -->
 
         <!-- 3. 앱 실시간 사용 통계 카드 -->
         <div class="drawer-card">
@@ -631,11 +525,11 @@
           </div>
           <div class="drawer-stats-grid">
             <div class="stat-box">
-              <div class="stat-num" id="drawer-stat-ocr">14<span class="stat-unit">건</span></div>
+              <div class="stat-num" id="drawer-stat-ocr">-<span class="stat-unit">건</span></div>
               <div class="stat-title">OCR 영수증 인식</div>
             </div>
             <div class="stat-box">
-              <div class="stat-num" id="drawer-stat-stocks">28<span class="stat-unit">개</span></div>
+              <div class="stat-num" id="drawer-stat-stocks">-<span class="stat-unit">개</span></div>
               <div class="stat-title">등록된 재고 품목</div>
             </div>
           </div>
@@ -662,7 +556,8 @@
     <div class="cs-modal-panel">
       <div class="drawer-header">
         <div class="drawer-title-box">
-          <span class="drawer-id-badge" id="cs-modal-id">#CS-101</span>
+          <!-- 아래 값들은 openCSModal()이 선택한 문의 내용으로 덮어쓴다 -->
+          <span class="drawer-id-badge" id="cs-modal-id">#CS-</span>
           <h2 class="drawer-title" id="cs-modal-title">1:1 문의 답변 작성</h2>
         </div>
         <button class="drawer-close-btn" id="cs-modal-close-btn">
@@ -675,10 +570,9 @@
           <div class="card-section-title"><i data-lucide="help-circle"></i> 접수된 사장님 문의 내용</div>
           <div class="cs-info-box" style="margin-top: 8px; background: var(--coffee-cream); border-radius: 12px; padding: 14px;">
             <div class="cs-info-meta" style="font-size: 12px; color: var(--mocha-brown); margin-bottom: 6px;">
-              <strong id="cs-modal-store">포슬카페 (포슬이 사장님)</strong> · <span id="cs-modal-date">2026-07-19 15:30</span>
+              <strong id="cs-modal-store">-</strong> · <span id="cs-modal-date">-</span>
             </div>
             <div class="cs-question-text" id="cs-modal-question" style="font-size: 14px; font-weight: 700; color: var(--espresso-brown); line-height: 1.5;">
-              영수증 OCR 촬영 시 바코드가 약간 구겨져도 제대로 인식이 되는지 궁금합니다!
             </div>
           </div>
         </div>

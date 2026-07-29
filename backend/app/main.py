@@ -1,6 +1,7 @@
 """FastAPI 엔트리포인트 (공동 소유) — 라우터 추가는 알파벳순"""
 
 import logging
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -187,9 +188,77 @@ def test_database_connection(db: Session = Depends(get_db)):
         }
 
 
+def _db_identity() -> dict:
+    """지금 붙어 있는 DB가 무엇인지 — 관리자 콘솔 '시스템 상태'에 그대로 표시된다.
+
+    화면에 'PostgreSQL'이라고만 쓰면 운영 Neon에 붙었는지, 팀원 PC의 로컬 DB에 붙었는지,
+    폴백으로 SQLite 파일에 쓰고 있는지 구분이 안 된다. 잘못된 DB에 붙은 채로 데모를 하면
+    쓴 데이터가 어디로 갔는지 한참 뒤에야 알게 된다.
+
+    접속 정보 중 계정·비밀번호는 절대 내보내지 않는다 — 종류/리전/DB명만 노출한다.
+    """
+    url = engine.url
+    host = url.host or ""
+    database = url.database or ""
+
+    if url.drivername.startswith("sqlite"):
+        # ALLOW_SQLITE_FALLBACK=1 로 켜지는 임시 모드 — 공유 DB에 안 쌓인다는 뜻이라 눈에 띄어야 한다
+        return {"provider": "SQLite (로컬 폴백)", "region": "", "database": database}
+
+    if "neon.tech" in host:
+        # 호스트 모양이 두 가지다:
+        #   ep-xxxx-pooler.ap-southeast-1.aws.neon.tech
+        #   ep-xxxx-pooler.c-3.ap-southeast-1.aws.neon.tech   ← 'c-N'은 컴퓨트 번호지 리전이 아니다
+        # 그냥 두 번째 라벨을 집으면 리전이 'c-3'으로 찍힌다. 리전 모양(xx-yyyy-N)을 찾는다.
+        labels = host.split(".")
+        region = next(
+            (p for p in labels if re.fullmatch(r"[a-z]{2}-[a-z]+-\d+", p)),
+            "",
+        )
+        return {"provider": "Neon PostgreSQL", "region": region, "database": database}
+
+    if host in ("localhost", "127.0.0.1", ""):
+        return {"provider": "로컬 PostgreSQL", "region": "", "database": database}
+
+    return {"provider": "PostgreSQL", "region": "", "database": database}
+
+
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok"}
+    """구성요소별 상태 — 관리자 콘솔의 '시스템 상태'가 읽는다.
+
+    예전엔 {"status":"ok"}만 돌려줘서 화면이 볼 게 없었고, 그래서 DB는 API 상태를 그대로
+    베껴 쓰고 OCR은 아예 '대기'로 하드코딩돼 있었다. 실제로 확인해서 알려준다.
+
+    OCR은 켜 둘 프로세스가 없다 — Gemini REST 호출이라 API 키만 있으면 바로 쓸 수 있다.
+    (로컬 VLM 서빙 시절에는 llama-server 예열을 기다려야 해서 '대기'가 의미 있었다.)
+    """
+    from app.core.database import SessionLocal, engine
+    from app.services.ai import ocr_service
+
+    db_ok = False
+    db_detail = ""
+    try:
+        with SessionLocal() as session:
+            session.execute(text("SELECT 1"))
+        db_ok = True
+    except Exception as e:
+        db_detail = str(e)[:120]
+
+    ocr_ready = bool(ocr_service.GEMINI_API_KEY)
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "components": {
+            "api": {"ok": True},
+            "db": {"ok": db_ok, "detail": db_detail, **_db_identity()},
+            "ocr": {
+                "ok": ocr_ready,
+                # 키가 없으면 업로드해도 502가 나므로 그 사실을 그대로 말한다
+                "detail": ocr_service.GEMINI_MODEL if ocr_ready else "GEMINI_API_KEY 미설정",
+                "backend": ocr_service.OCR_BACKEND,
+            },
+        },
+    }
 
 
 # [웹 앱 서빙 — 반드시 파일 맨 끝에 둘 것] frontend/dist(expo export --platform web 산출물)가

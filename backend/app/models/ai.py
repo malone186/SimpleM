@@ -266,6 +266,27 @@ class AdminNotification(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class AdminUserNote(Base):
+    """관리자가 사장님 계정에 붙이는 운영 상태·CS 메모
+
+    users 테이블은 백엔드 A 소유이고, 공유 DB에서는 postgres 계정 소유라 우리 계정으로
+    ALTER도 안 된다. 그래서 계정 상태(활성/대기/정지)와 관리자 메모는 여기에 따로 둔다.
+    이메일이 키다 — 회원이 탈퇴하면 행이 남지만, 같은 이메일로 재가입하면 이력이 이어진다.
+
+    행이 없는 회원은 '활성 · 메모 없음'으로 본다 (관리자가 손댄 적 없다는 뜻).
+    """
+
+    __tablename__ = "admin_user_notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_email: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(16), default="활성")  # 활성 | 대기 | 정지
+    memo: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class InsightAck(Base):
     """선제 인사이트 확인·미루기 기록 — 같은 알림이 계속 다시 뜨지 않게 한다
 

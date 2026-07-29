@@ -9,13 +9,21 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.inquiry import Inquiry
+from app.models.user import User
 from app.api.v1.admin import mock_cs_list
 
 router = APIRouter(prefix="/inquiries", tags=["Inquiry"])
 
 class InquiryCreate(BaseModel):
-    user_email: Optional[str] = "owner@cafe.com"
-    store_name: Optional[str] = "포슬카페"
+    """앱에서 올라오는 1대1 문의.
+
+    예전엔 user_email·store_name의 기본값이 데모 계정(owner@cafe.com / 포슬카페)이었다.
+    앱이 값을 못 보내면 조용히 남의 계정 문의로 저장돼, 정작 보낸 사장님의 '나의 문의
+    내역'에는 안 보이고 관리자 화면에는 엉뚱한 매장 이름이 찍혔다. 이제 이메일은 필수다.
+    """
+
+    user_email: str
+    store_name: Optional[str] = None  # 비면 users 테이블에서 찾아 채운다
     category: str
     title: str
     content: str
@@ -23,22 +31,10 @@ class InquiryCreate(BaseModel):
 class InquiryReply(BaseModel):
     answer: str
 
-# 글로벌 공유 메모리 리스트 (DB 미생성 또는 세션 에러 대비 100% 수신 보장)
-# 시드 id는 9100번대 — DB inquiries의 실제 id(1부터 증가)와 절대 겹치지 않게 분리
-GLOBAL_INQUIRIES = [
-    {
-        "id": 9101,
-        "user_email": "owner@cafe.com",
-        "store_name": "포슬카페",
-        "category": "💡 기능 요청",
-        "title": "원두 발주 추천 시 디카페인 자동 추가 기능 요청",
-        "content": "주말마다 디카페인 손님이 늘어나고 있어서 AI 추천에 포함되었으면 좋겠습니다.",
-        "status": "answered",
-        "answer": "사장님, 좋은 의견 감사드립니다! 해당 기능은 다음주 알고리즘 업데이트에 자동 반영될 예정입니다.",
-        "date": "2026.07.20"
-    }
-]
-
+# DB 쓰기가 실패했을 때만 채워지는 버퍼 — 평소엔 비어 있는 게 정상이다.
+# 예전엔 여기에 가짜 문의가 시드로 들어 있어, 앱의 '나의 문의 내역'에 보낸 적 없는
+# 문의가 보였다. 진짜 저장소는 DB(inquiries)다.
+GLOBAL_INQUIRIES: list[dict] = []
 
 def _normalize_status(raw: Optional[str]) -> str:
     """[한글 주석] '답변 대기'/'처리 완료' 등 관리자식 표기를 앱이 쓰는 'pending'/'answered'로 통일"""
@@ -86,7 +82,7 @@ def get_inquiries(user_email: Optional[str] = None, db: Session = Depends(get_db
                 "content": item.content,
                 "status": _normalize_status(item.status),
                 "answer": item.answer,
-                "date": item.created_at.strftime("%Y.%m.%d") if item.created_at else "2026.07.21"
+                "date": item.created_at.strftime("%Y.%m.%d") if item.created_at else ""
             })
     except Exception:
         pass
@@ -100,15 +96,37 @@ def get_inquiries(user_email: Optional[str] = None, db: Session = Depends(get_db
     return res
 
 
+def _resolve_store_name(db: Session, email: str, given: Optional[str]) -> str:
+    """매장명을 정한다 — 앱이 보낸 값 우선, 비어 있으면 users 테이블에서 찾는다.
+
+    관리자 화면은 이 값으로 "누가 보낸 문의인지"를 표시한다. 예전처럼 '포슬카페'로
+    고정하면 전부 같은 매장이 보낸 것처럼 보인다.
+    """
+    if given and given.strip():
+        return given.strip()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if user and user.store_name:
+            return user.store_name
+    except Exception:
+        pass
+    return email  # 매장명을 못 찾으면 이메일이라도 그대로 — 지어내지 않는다
+
+
 @router.post("")
 def create_inquiry(req: InquiryCreate, db: Session = Depends(get_db)):
     """[한글 주석] 사장님 앱에서 1대1 문의 등록 — DB 저장 후 관리자 CS 리스트 상단에 100% 실시간 연동"""
     now = datetime.now()
+    email = req.user_email.strip()
+    if not email:
+        raise HTTPException(status_code=422, detail="문의를 보낸 사장님 이메일이 필요합니다.")
+    store_name = _resolve_store_name(db, email, req.store_name)
+
     inq_id = None
     try:
         inq = Inquiry(
-            user_email=req.user_email or "owner@cafe.com",
-            store_name=req.store_name or "포슬카페",
+            user_email=email,
+            store_name=store_name,
             category=req.category,
             title=req.title,
             content=req.content,
@@ -131,8 +149,8 @@ def create_inquiry(req: InquiryCreate, db: Session = Depends(get_db)):
 
     item_dict = {
         "id": final_id,
-        "user_email": req.user_email or "owner@cafe.com",
-        "store_name": req.store_name or "포슬카페",
+        "user_email": email,
+        "store_name": store_name,
         "category": req.category,
         "title": req.title,
         "content": req.content,
@@ -140,23 +158,11 @@ def create_inquiry(req: InquiryCreate, db: Session = Depends(get_db)):
         "answer": None,
         "date": now.strftime("%Y.%m.%d"),
     }
-    GLOBAL_INQUIRIES.insert(0, item_dict)
-
-    # [한글 주석] 관리자 웹 CS 리스트 최상단(0번 인덱스)에 즉시 등록
-    cs_item = {
-        "id": final_id,
-        "name": "포슬이",
-        "store": req.store_name or "포슬카페",
-        "category": req.category,
-        "title": req.title,
-        "date": now.strftime("%Y-%m-%d %H:%M"),
-        "status": "답변 대기",
-        "email": req.user_email or "owner@cafe.com",
-        "content": req.content,
-        "question": req.content,
-        "reply": None,
-    }
-    mock_cs_list.insert(0, cs_item)
+    # DB 저장에 성공했으면 메모리에 또 넣지 않는다 — 조회에서 같은 문의가 두 번 보인다.
+    # 관리자 화면도 같은 DB를 읽으므로 별도 등록이 필요 없다 (예전엔 mock_cs_list에
+    # 따로 넣었는데, 그건 서버 재시작이나 인스턴스 교체로 사라지는 사본이었다).
+    if inq_id is None:
+        GLOBAL_INQUIRIES.insert(0, item_dict)
 
     return item_dict
 
@@ -185,7 +191,7 @@ def reply_inquiry(inquiry_id: int, req: InquiryReply, db: Session = Depends(get_
             "content": inq.content,
             "status": inq.status,
             "answer": inq.answer,
-            "date": inq.created_at.strftime("%Y.%m.%d") if inq.created_at else "2026.07.21"
+            "date": inq.created_at.strftime("%Y.%m.%d") if inq.created_at else ""
         }
 
     # DB에 없으면 메모리 리스트에서 답변 처리 (DB 오프라인 대비)

@@ -7,7 +7,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ━━━ 관리자 로그인 게이트 (A방안: 로그인 → 토큰 발급 → 모든 관리자 API에 자동 첨부) ━━━
   const ADMIN_TOKEN_KEY = 'simplem_admin_token';
-  const ADMIN_API = 'https://brewnote-api-915817944047.asia-northeast3.run.app/api/v1';
+
+  // 백엔드 주소 — 기본은 배포본(Cloud Run).
+  // 로컬 백엔드로 붙이려면 브라우저 콘솔에서 한 줄 실행하고 새로고침하면 된다:
+  //   localStorage.setItem('simplem_admin_api', 'http://localhost:8000/api/v1')
+  // 되돌리려면: localStorage.removeItem('simplem_admin_api')
+  const DEFAULT_API = 'https://brewnote-api-915817944047.asia-northeast3.run.app/api/v1';
+  const ADMIN_API = localStorage.getItem('simplem_admin_api') || DEFAULT_API;
   const getAdminToken = () => localStorage.getItem(ADMIN_TOKEN_KEY) || '';
 
   // 원본 fetch를 감싸 /admin, /auth/users 호출에 Authorization 헤더를 자동으로 실어 준다 (login 제외)
@@ -92,52 +98,19 @@ document.addEventListener('DOMContentLoaded', () => {
     users: '전체 사장님 회원 관리',
     cs: '사장님 1:1 CS 및 문의 관리',
     notifications: '사장님 공지 & 알림 발송',
-    payments: '프리미엄 결제 & 구독 매출 관리',
   };
 
   // 🩺 [한글 주석: 각 개별 항목 수동 헬스체크 재점검 기능]
   window.checkSingleHealth = async function (type) {
     const card = document.getElementById(`status-${type}`);
     if (!card) return;
-
     const btn = card.querySelector('.health-refresh-btn');
     if (btn) btn.classList.add('spinning');
-
-    setTimeout(async () => {
-      if (type === 'api') {
-        try {
-          const res = await fetch('https://brewnote-api-915817944047.asia-northeast3.run.app/health');
-          if (res.ok) {
-            card.querySelector('.status-indicator').className = 'status-indicator green';
-            card.querySelector('.status-badge').className = 'status-badge green-bg';
-            card.querySelector('.status-badge').textContent = '정상 작동 중';
-          }
-        } catch {
-          card.querySelector('.status-indicator').className = 'status-indicator red';
-          card.querySelector('.status-badge').className = 'status-badge red-bg pulse';
-          card.querySelector('.status-badge').textContent = '서버 오프라인 (Red)';
-        }
-      } else if (type === 'db') {
-        try {
-          const dbRes = await fetch('https://brewnote-api-915817944047.asia-northeast3.run.app/db-test');
-          if (dbRes.ok) {
-            card.querySelector('.status-indicator').className = 'status-indicator green';
-            card.querySelector('.status-badge').className = 'status-badge green-bg';
-            card.querySelector('.status-badge').textContent = '정상 연결됨';
-          }
-        } catch {
-          card.querySelector('.status-indicator').className = 'status-indicator red';
-          card.querySelector('.status-badge').className = 'status-badge red-bg pulse';
-          card.querySelector('.status-badge').textContent = 'DB 오류 (Red)';
-        }
-      } else if (type === 'ocr') {
-        card.querySelector('.status-indicator').className = 'status-indicator amber';
-        card.querySelector('.status-badge').className = 'status-badge amber-bg pulse';
-        card.querySelector('.status-badge').textContent = '대기 상태 (Amber)';
-      }
-
-      if (btn) btn.classList.remove('spinning');
-    }, 600);
+    // 셋 다 같은 /health 응답에서 나오므로 한 번 읽어 해당 카드만 갱신한다
+    const only = { api: null, db: null, ocr: null };
+    only[type] = card;
+    await applyHealth(only);
+    if (btn) btn.classList.remove('spinning');
   };
 
   window.switchTab = function (targetTab) {
@@ -169,59 +142,89 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // 2. 백엔드 실시간 헬스 체크
-  async function checkBackendHealth() {
-    const apiStatusCard = document.getElementById('status-api');
-    const dbStatusCard = document.getElementById('status-db');
+  // 2. 백엔드 실시간 헬스 체크 — API·DB·OCR을 /health 한 번으로 확인한다.
+  //    주소는 ADMIN_API를 따라간다 (예전엔 배포 주소가 박혀 있어, 로컬 백엔드로 돌려도
+  //    상태 카드만 배포 서버를 가리켰다).
+  const HEALTH_URL = () => `${API_BASE.replace('/api/v1', '')}/health`;
 
-    try {
-      const res = await fetch('https://brewnote-api-915817944047.asia-northeast3.run.app/health');
-      if (res.ok) {
-        if (apiStatusCard) {
-          apiStatusCard.querySelector('.status-indicator').className = 'status-indicator green';
-          apiStatusCard.querySelector('.status-badge').className = 'status-badge green-bg';
-          apiStatusCard.querySelector('.status-badge').textContent = '정상 작동 중';
-        }
-      }
-    } catch {
-      if (apiStatusCard) {
-        apiStatusCard.querySelector('.status-indicator').className = 'status-indicator brown';
-        apiStatusCard.querySelector('.status-badge').className = 'status-badge brown-bg';
-        apiStatusCard.querySelector('.status-badge').textContent = '서버 오프라인';
-      }
-    }
-
-    try {
-      const dbRes = await fetch('https://brewnote-api-915817944047.asia-northeast3.run.app/db-test');
-      if (dbRes.ok) {
-        const data = await dbRes.json();
-        if (data.database === 'success') {
-          if (dbStatusCard) {
-            dbStatusCard.querySelector('.status-indicator').className = 'status-indicator green';
-            dbStatusCard.querySelector('.status-badge').className = 'status-badge green-bg';
-            dbStatusCard.querySelector('.status-badge').textContent = '정상 연결됨';
-          }
-        }
-      }
-    } catch {
-      // ignore
+  function paintStatus(card, state, label, name) {
+    // state: 'ok' | 'fail' | 'unknown'
+    if (!card) return;
+    const tone = state === 'ok' ? 'green' : state === 'fail' ? 'red' : 'amber';
+    card.querySelector('.status-indicator').className = `status-indicator ${tone}`;
+    const badge = card.querySelector('.status-badge');
+    badge.className = `status-badge ${tone}-bg${state === 'fail' ? ' pulse' : ''}`;
+    badge.textContent = label;
+    // 항목 이름은 서버가 알려준 실제 구성으로 바꾼다 (예: 'Neon PostgreSQL · ap-southeast-1')
+    if (name) {
+      const nameEl = card.querySelector('.status-label');
+      if (nameEl) nameEl.textContent = name;
     }
   }
 
-  checkBackendHealth();
-  setInterval(checkBackendHealth, 10000);
+  // /health의 db 정보를 화면 라벨 문자열로 — 어느 DB에 붙었는지 한눈에 보이게
+  function dbLabel(db) {
+    if (!db || !db.provider) return '';
+    const bits = [db.provider];
+    if (db.region) bits.push(db.region);
+    if (db.database) bits.push(db.database);
+    return bits.join(' · ');
+  }
+
+  async function readHealth() {
+    const res = await fetch(HEALTH_URL());
+    const body = res.ok ? await res.json() : null;
+    return { res, components: body && body.components };
+  }
+
+  async function applyHealth(cards) {
+    try {
+      const { res, components: c } = await readHealth();
+      paintStatus(cards.api, res.ok ? 'ok' : 'fail', res.ok ? '정상 작동 중' : `서버 오류 (${res.status})`);
+
+      if (!c) {
+        // 구버전 백엔드는 {"status":"ok"}만 준다 — 구성요소를 알 수 없다.
+        // 이때 '정상'이나 '대기'라고 단정하면 그게 곧 오보다. 모른다고 말한다.
+        // (배포본이 아직 옛 버전이면 여기로 온다 — 백엔드를 재배포하면 초록으로 바뀐다.)
+        const msg = res.ok ? '구버전 서버 — 확인 불가' : '확인 불가';
+        paintStatus(cards.db, 'unknown', msg);
+        paintStatus(cards.ocr, 'unknown', msg);
+        return;
+      }
+      paintStatus(
+        cards.db,
+        c.db.ok ? 'ok' : 'fail',
+        c.db.ok ? '정상 연결됨' : '연결 실패',
+        dbLabel(c.db) || '데이터베이스',
+      );
+      paintStatus(cards.ocr, c.ocr.ok ? 'ok' : 'fail', c.ocr.ok ? `정상 · ${c.ocr.detail}` : c.ocr.detail || 'API 키 없음');
+    } catch (err) {
+      paintStatus(cards.api, 'fail', '서버 오프라인');
+      paintStatus(cards.db, 'unknown', '확인 불가');
+      paintStatus(cards.ocr, 'unknown', '확인 불가');
+    }
+  }
+
+  const healthCards = () => ({
+    api: document.getElementById('status-api'),
+    db: document.getElementById('status-db'),
+    ocr: document.getElementById('status-ocr'),
+  });
+
+  async function checkBackendHealth() {
+    await applyHealth(healthCards());
+  }
 
   // 3. 실시간 백엔드 API 연동 베이스 URL
-  const API_BASE = 'https://brewnote-api-915817944047.asia-northeast3.run.app/api/v1';
+  const API_BASE = ADMIN_API; // 주소는 ADMIN_API 한 곳에서만 정한다
 
   // [한글 주석: 백엔드 API 호출을 통해 채워질 실시간 데이터 보관함]
   let mockUsers = [];
-  let mockCSList = [];
   let mockNotifHistory = [];
-  let mockPayments = [];
 
   let selectedUser = null;
-  let currentFilter = 'all'; // 'all' | 'premium' | 'general'
+  // (삭제됨) currentFilter — 등급 필터(전체/프리미엄/일반)는 유료 플랜과 함께 사라졌다.
+  // 회원 목록은 검색어로만 좁힌다.
 
   // 4. [한글 주석: 메인 대시보드 최근 가입 타임라인 피드 - DB 최신순 가입 사장님 노출]
   const recentFeedContainer = document.getElementById('recent-users-feed');
@@ -252,7 +255,6 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
             <div class="feed-owner-text">${u.name} 사장님 (${u.email})</div>
             <div class="feed-meta-row">
-              <span class="feed-plan-chip">${u.plan}</span>
               <span class="status-badge ${u.status === '활성' ? 'green-bg' : 'brown-bg'}">${u.status}</span>
             </div>
           </div>
@@ -268,16 +270,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!userTableBody) return;
 
     if (mockUsers.length === 0) {
-      userTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 30px; color: #8A7A71;">가입된 사장님 회원 데이터가 없습니다.</td></tr>';
+      // 열 개수(6)와 맞춰야 안내 문구가 표 전체 폭에 걸린다 — 구독 유형 열이 빠지며 7→6이 됐다
+      userTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 30px; color: #8A7A71;">가입된 사장님 회원 데이터가 없습니다.</td></tr>';
       return;
     }
 
     let items = mockUsers;
-    if (currentFilter === 'premium') {
-      items = mockUsers.filter((u) => u.plan === '프리미엄 회원');
-    } else if (currentFilter === 'general') {
-      items = mockUsers.filter((u) => u.plan === '일반 회원');
-    }
 
     const searchQuery = document.getElementById('user-search-input')?.value.toLowerCase().trim();
     if (searchQuery) {
@@ -294,7 +292,6 @@ document.addEventListener('DOMContentLoaded', () => {
         <td><strong>${u.name}</strong></td>
         <td>${u.store}</td>
         <td>${u.email}</td>
-        <td><span class="status-badge ${u.plan === '프리미엄 회원' ? 'green-bg' : 'brown-bg'}">${u.plan === '프리미엄 회원' ? '★ ' : ''}${u.plan}</span></td>
         <td><span class="status-badge ${u.status === '활성' ? 'green-bg' : u.status === '정지' ? 'cancel' : 'brown-bg'}">${u.status}</span></td>
         <td><button class="link-btn" onclick="event.stopPropagation(); openUserDrawer(${u.id})">상세보기</button></td>
       </tr>
@@ -303,16 +300,7 @@ document.addEventListener('DOMContentLoaded', () => {
       .join('');
   }
 
-  // 상단 필터 탭 (Pill Buttons) 이벤트
-  const filterPills = document.querySelectorAll('.filter-pill');
-  filterPills.forEach((pill) => {
-    pill.addEventListener('click', () => {
-      filterPills.forEach((p) => p.classList.remove('active'));
-      pill.classList.add('active');
-      currentFilter = pill.getAttribute('data-filter');
-      renderUserTable();
-    });
-  });
+  // (삭제됨) 상단 등급 필터 탭 — 버튼 자체가 HTML에서 빠졌다 (유료 플랜 폐지)
 
   // 검색어 입력 이벤트
   const searchInput = document.getElementById('user-search-input');
@@ -342,50 +330,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusSelect = document.getElementById('drawer-user-status-select');
     if (statusSelect) statusSelect.value = user.status;
 
-    // 구독 정보
-    const planBadgeEl = document.getElementById('drawer-sub-plan');
-    const priceEl = document.getElementById('drawer-sub-price');
-    const nextPayEl = document.getElementById('drawer-sub-next');
-    const btnExtend = document.getElementById('btn-extend-sub');
-    const btnCancel = document.getElementById('btn-cancel-sub');
+    // (삭제됨) 구독 정보 — 유료 플랜 폐지
 
-    planBadgeEl.textContent = user.plan;
+    // 실시간 사용 통계 — 백엔드가 센 실제 건수 (예전엔 화면에 14건·28개가 박혀 있었다)
+    document.getElementById('drawer-stat-ocr').innerHTML = `${user.ocrCount ?? 0}<span class="stat-unit">건</span>`;
+    document.getElementById('drawer-stat-stocks').innerHTML = `${user.stockCount ?? 0}<span class="stat-unit">개</span>`;
 
-    if (user.plan === '일반 회원') {
-      planBadgeEl.className = 'plan-badge brown-bg';
-      priceEl.textContent = '무료 이용 중 (월 0원)';
-      nextPayEl.textContent = '- (미구독)';
-      if (btnExtend) {
-        btnExtend.innerHTML = `<i data-lucide="crown"></i> 프리미엄으로 업그레이드`;
-      }
-      if (btnCancel) {
-        btnCancel.style.display = 'none';
-      }
-    } else {
-      planBadgeEl.className = 'plan-badge green-bg';
-      priceEl.textContent = '프리미엄 혜택 이용 중 (월 19,900원)';
-      nextPayEl.textContent = user.nextPay;
-      if (btnExtend) {
-        btnExtend.innerHTML = `<i data-lucide="calendar-plus"></i> 프리미엄 1개월 연장`;
-      }
-      if (btnCancel) {
-        btnCancel.style.display = 'flex';
-        btnCancel.innerHTML = `<i data-lucide="slash"></i> 일반 회원으로 해지`;
-      }
-    }
-
-    if (window.lucide) {
-      lucide.createIcons();
-    }
-
-    // 실시간 통계
-    document.getElementById('drawer-stat-ocr').innerHTML = `${user.ocrCount}<span class="stat-unit">건</span>`;
-    document.getElementById('drawer-stat-stocks').innerHTML = `${user.stockCount}<span class="stat-unit">개</span>`;
-
-    // 관리자 메모
+    // 관리자 메모 — DB(admin_user_notes)에 저장된 값
     document.getElementById('drawer-user-memo').value = user.memo || '';
 
-    // Drawer 표시
+    if (window.lucide) lucide.createIcons();
+
     drawerOverlay.classList.add('active');
   };
 
@@ -401,73 +356,56 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 7. 계정 상태 변경 이벤트
+  // 7. 계정 상태 변경 이벤트 — DB(admin_user_notes)에 저장한다.
+  //    예전엔 화면의 값만 바꾸고 "가상 업데이트되었습니다"라고 알린 뒤, 새로고침하면
+  //    원래대로 돌아왔다. 저장에 실패하면 드롭다운을 원래 값으로 되돌린다.
+  async function saveUserStatus(nextStatus) {
+    if (!selectedUser) return;
+    const prev = selectedUser.status;
+    try {
+      const res = await fetch(`${API_BASE}/admin/users/${selectedUser.id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      selectedUser.status = nextStatus;
+      renderUserTable();
+      renderTimelineFeed();
+      alert(`${selectedUser.name} 사장님의 계정 상태를 '${nextStatus}'(으)로 저장했습니다.`);
+    } catch (err) {
+      console.error('계정 상태 저장 실패:', err);
+      const sel = document.getElementById('drawer-user-status-select');
+      if (sel) sel.value = prev;
+      alert(`계정 상태를 저장하지 못했습니다 (${err.message}). 변경 전 값으로 되돌렸습니다.`);
+    }
+  }
+
   const statusSelect = document.getElementById('drawer-user-status-select');
   if (statusSelect) {
-    statusSelect.addEventListener('change', (e) => {
-      if (selectedUser) {
-        selectedUser.status = e.target.value;
-        renderUserTable();
-        renderTimelineFeed();
-        alert(`${selectedUser.name} 사장님의 계정 상태가 '${e.target.value}'(으)로 가상 업데이트되었습니다.`);
-      }
-    });
+    statusSelect.addEventListener('change', (e) => saveUserStatus(e.target.value));
   }
 
-  // 8. 프리미엄 수동 연장/승격 이벤트
-  const btnExtend = document.getElementById('btn-extend-sub');
-  if (btnExtend) {
-    btnExtend.addEventListener('click', () => {
-      if (selectedUser) {
-        if (selectedUser.plan === '일반 회원') {
-          selectedUser.plan = '프리미엄 회원';
-          selectedUser.subPrice = '월 19,900원';
-          selectedUser.nextPay = '2026-08-15';
-          document.getElementById('drawer-sub-plan').textContent = selectedUser.plan;
-          document.getElementById('drawer-sub-price').textContent = '프리미엄 혜택 이용 중 (월 19,900원)';
-          document.getElementById('drawer-sub-next').textContent = selectedUser.nextPay;
-          renderUserTable();
-          renderTimelineFeed();
-          alert(`${selectedUser.store} 매장이 '프리미엄 회원'으로 승격되었습니다!`);
-        } else {
-          const currentYear = new Date().getFullYear();
-          selectedUser.nextPay = `${currentYear}-09-01`;
-          document.getElementById('drawer-sub-next').textContent = selectedUser.nextPay;
-          renderUserTable();
-          alert(`${selectedUser.store} 매장의 프리미엄 만료일이 1개월 연장되었습니다 (${selectedUser.nextPay}까지).`);
-        }
-      }
-    });
-  }
+  // (삭제됨) 8·9. 프리미엄 연장/해지 — 유료 플랜 폐지
 
-  // 9. 프리미엄 해지 이벤트
-  const btnCancel = document.getElementById('btn-cancel-sub');
-  if (btnCancel) {
-    btnCancel.addEventListener('click', () => {
-      if (selectedUser) {
-        if (confirm(`${selectedUser.store} 매장의 프리미엄 혜택을 해지하고 일반 회원으로 변경하시겠습니까?`)) {
-          selectedUser.plan = '일반 회원';
-          selectedUser.subPrice = '무료 (미구독)';
-          selectedUser.nextPay = '-';
-          document.getElementById('drawer-sub-plan').textContent = selectedUser.plan;
-          document.getElementById('drawer-sub-price').textContent = '무료 이용 중 (월 0원)';
-          document.getElementById('drawer-sub-next').textContent = selectedUser.nextPay;
-          renderUserTable();
-          renderTimelineFeed();
-          alert('일반 회원으로 변경 처리되었습니다.');
-        }
-      }
-    });
-  }
-
-  // 10. 메모 저장 이벤트
+  // 10. 메모 저장 이벤트 — DB에 저장한다 (예전엔 브라우저 메모리에만 남아 새로고침하면 사라졌다)
   const btnSaveMemo = document.getElementById('btn-save-memo');
   if (btnSaveMemo) {
-    btnSaveMemo.addEventListener('click', () => {
-      if (selectedUser) {
-        const memoText = document.getElementById('drawer-user-memo').value;
+    btnSaveMemo.addEventListener('click', async () => {
+      if (!selectedUser) return;
+      const memoText = document.getElementById('drawer-user-memo').value;
+      try {
+        const res = await fetch(`${API_BASE}/admin/users/${selectedUser.id}/memo`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ memo: memoText }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         selectedUser.memo = memoText;
-        alert(`${selectedUser.store} 사장님에 대한 CS 관리자 메모가 로컬에 임시 저장되었습니다.`);
+        alert(`${selectedUser.store} 사장님 관리자 메모를 저장했습니다.`);
+      } catch (err) {
+        console.error('메모 저장 실패:', err);
+        alert(`메모를 저장하지 못했습니다 (${err.message}). 잠시 후 다시 시도해 주세요.`);
       }
     });
   }
@@ -480,18 +418,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 12. [한글 주석: Drawer 회원 가입 즉시 승인 퀵 처리]
+  // 12. [한글 주석: Drawer 회원 가입 즉시 승인 퀵 처리] — 상태 저장과 같은 API를 쓴다
   const btnApproveUser = document.getElementById('btn-approve-user');
   if (btnApproveUser) {
-    btnApproveUser.addEventListener('click', () => {
-      if (selectedUser) {
-        selectedUser.status = '활성';
-        const statusSelect = document.getElementById('drawer-user-status-select');
-        if (statusSelect) statusSelect.value = '활성';
-        renderUserTable();
-        renderTimelineFeed();
-        alert(`🎉 ${selectedUser.name} 사장님(${selectedUser.store})의 가입이 성공적으로 승인 및 활성화되었습니다!`);
-      }
+    btnApproveUser.addEventListener('click', async () => {
+      if (!selectedUser) return;
+      const sel = document.getElementById('drawer-user-status-select');
+      if (sel) sel.value = '활성';
+      await saveUserStatus('활성');
     });
   }
 
@@ -563,6 +497,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 알림 발송 시 특정 사장님 선택 드롭다운 채우기
   function updateSpecificUserSelect() {
+    // 전체 발송 대상 수도 실제 회원 수로 — 예전엔 '(9명)'이 HTML에 박혀 있었다
+    const allPill = document.getElementById('target-pill-all');
+    if (allPill) allPill.textContent = `전체 사장님 (${mockUsers.length}명)`;
+
     if (!specificSelect) return;
     // value에 이메일을 담아야 백엔드가 특정 사장님 계정으로 정확히 매칭해 전달할 수 있다.
     specificSelect.innerHTML = '<option value="">-- 수신 점포 선택 --</option>' +
@@ -579,8 +517,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
       let targetLabel = '전체 사장님';
       let targetEmail = null;
-      if (currentNotifTarget === 'premium') targetLabel = '프리미엄 회원만';
-      else if (currentNotifTarget === 'specific' && specificSelect) {
+      // (프리미엄 회원만 보내기는 삭제됨 — 유료 등급이 없어졌다)
+      if (currentNotifTarget === 'specific' && specificSelect) {
         targetEmail = specificSelect.value;
         if (!targetEmail) {
           alert('수신할 점포를 먼저 선택해 주세요.');
@@ -620,41 +558,33 @@ document.addEventListener('DOMContentLoaded', () => {
   // 14. [한글 주석: CS / 1:1 문의 데이터 백엔드 실시간 API 연동]
   let currentCSFilter = 'all';
   const csTableBody = document.getElementById('cs-table-body');
-  let liveCSList = [
-    {
-      id: 1,
-      store: '포슬카페',
-      name: '포슬이',
-      category: '💡 기능 요청',
-      title: '원두 발주 추천 시 디카페인 자동 추가 기능 요청',
-      date: '2026.07.20',
-      status: '처리 완료',
-      question: '주말마다 디카페인 손님이 늘어나고 있어서 AI 추천에 포함되었으면 좋겠습니다.',
-      reply: '사장님, 좋은 의견 감사드립니다! 해당 기능은 다음주 알고리즘 업데이트에 자동 반영될 예정입니다.',
-    },
-  ];
+  let csLoadError = null; // 조회 실패 사유 — 표에 그대로 보여 준다 (빈 표와 구분되게)
+  // 서버(GET /admin/cs)에서 받은 문의만 담는다.
+  // 예전엔 여기 가짜 문의 1건이 시드로 박혀 있어, 조회에 실패해도 화면엔 뭔가 떠 있었다.
+  let liveCSList = [];
 
   async function loadCSList() {
     try {
-      const res = await fetch('https://brewnote-api-915817944047.asia-northeast3.run.app/api/v1/admin/cs');
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data) && data.length > 0) {
-          liveCSList = data.map(item => ({
-            id: item.id,
-            store: item.store || item.store_name || '포슬카페',
-            name: item.name || '사장님',
-            category: item.category || '💡 기능 요청',
-            title: item.title,
-            date: item.date || '2026-07-21',
-            status: item.status || '답변 대기',
-            question: item.question || item.content || item.title,
-            reply: item.reply || item.answer || '',
-          }));
-        }
-      }
+      const res = await fetch(`${API_BASE}/admin/cs`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      // 빈 배열도 그대로 반영한다 — 예전엔 length > 0일 때만 덮어써서, 문의를 모두
+      // 처리하고 나면 지워진 목록이 계속 남아 있었다.
+      liveCSList = (Array.isArray(data) ? data : []).map(item => ({
+        id: item.id,
+        store: item.store || item.store_name || '-',
+        name: item.name || item.email || '사장님',
+        category: item.category || '문의',
+        title: item.title,
+        date: item.date || '',
+        status: item.status || '답변 대기',
+        question: item.question || item.content || item.title,
+        reply: item.reply || item.answer || '',
+      }));
+      csLoadError = null;
     } catch (err) {
-      console.warn('CS 실시간 목록 조회 실패 (기본값 표시):', err);
+      console.error('CS 목록 조회 실패:', err);
+      csLoadError = err.message || String(err);
     }
     renderCSTable();
   }
@@ -681,10 +611,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (list.length === 0) {
+      // 조회에 실패한 것과 정말 0건인 것은 완전히 다른 상황이다 — 구분해서 말한다
+      const msg = csLoadError
+        ? `문의 목록을 불러오지 못했습니다 (${csLoadError}). 백엔드 주소와 로그인을 확인해 주세요.`
+        : '해당 조건에 해당하는 문의 내역이 없습니다.';
       csTableBody.innerHTML = `
         <tr>
-          <td colspan="7" style="text-align:center; padding:30px; color:#8C6F56;">
-            해당 조건에 해당하는 문의 내역이 없습니다.
+          <td colspan="7" style="text-align:center; padding:30px; color:${csLoadError ? '#c62828' : '#8C6F56'};">
+            ${msg}
           </td>
         </tr>`;
       return;
@@ -696,8 +630,8 @@ document.addEventListener('DOMContentLoaded', () => {
       return `
         <tr class="clickable-row" onclick="openCSModal(${c.id})">
           <td>#CS-${c.id}</td>
-          <td><strong>${c.store || '포슬카페'}</strong> (${c.name || '포슬이'})</td>
-          <td><span class="feed-plan-chip">${c.category || '💡 기능 요청'}</span></td>
+          <td><strong>${c.store}</strong> (${c.name})</td>
+          <td><span class="feed-plan-chip">${c.category}</span></td>
           <td>${c.title}</td>
           <td>${c.date}</td>
           <td><span class="status-badge ${isDone ? 'green-bg' : 'amber-bg pulse'}">${isDone ? '✅ ' : '⏳ '}${statusLabel}</span></td>
@@ -753,7 +687,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       try {
-        const res = await fetch(`https://brewnote-api-915817944047.asia-northeast3.run.app/api/v1/admin/cs/${selectedCSItem.id}/reply`, {
+        const res = await fetch(`${API_BASE}/admin/cs/${selectedCSItem.id}/reply`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ reply: answerText })
@@ -781,28 +715,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 초기 1대1 문의 불러오기 및 3초 자동 동기화
-  loadCSList();
-  setInterval(() => {
-    loadCSList();
-  }, 3000);
+  // 초기 로드와 자동 동기화는 initDashboard() 한 곳에서만 건다.
+  // 예전엔 여기서도 3초 폴링을 걸어 두어 같은 목록을 3초·4초 두 타이머가 동시에
+  // 긁었다 (요청이 두 배).
 
-  // 15. [한글 주석: 결제 & 구독 매출 관리 이력 리스트]
-  const paymentTableBody = document.getElementById('payment-table-body');
-  function renderPaymentsTable() {
-    if (!paymentTableBody) return;
-    paymentTableBody.innerHTML = mockPayments.map(p => `
-      <tr>
-        <td><strong>${p.id}</strong></td>
-        <td>${p.date}</td>
-        <td>${p.store} ${p.owner ? '(' + p.owner + ')' : ''}</td>
-        <td><span class="status-badge green-bg">★ ${p.plan || '프리미엄'}</span></td>
-        <td><strong>${p.amount}</strong></td>
-        <td>${p.method || '신용카드'}</td>
-        <td><span class="status-badge green-bg">✅ ${p.status || '결제 성공'}</span></td>
-      </tr>
-    `).join('');
-  }
+  // (삭제됨) 15. 결제 & 구독 매출 관리 — 유료 플랜 폐지로 탭·테이블이 모두 사라졌다
 
   // ---------------------------------------------------------------------------
   // 🩺 [한글 주석: 백엔드 API로부터 실시간 데이터 로드 함수 정의]
@@ -827,27 +744,20 @@ document.addEventListener('DOMContentLoaded', () => {
       if (res.ok) {
         const data = await res.json();
         document.getElementById('stats-total-stores').innerHTML = `${data.totalStores}<span class="unit">명</span>`;
-        document.getElementById('stats-premium-ratio').innerHTML = `${data.premiumRatio}<span class="unit"></span>`;
-        document.getElementById('stats-premium-sub').textContent = `전체 사장님 대비 프리미엄 비율`;
+        // 프리미엄 비율 자리는 '미답변 문의'로 교체됐다 (유료 플랜 폐지)
+        const pendingEl = document.getElementById('stats-pending-cs');
+        if (pendingEl) pendingEl.innerHTML = `${data.pendingInquiries ?? 0}<span class="unit">건</span>`;
         document.getElementById('stats-total-ingredients').innerHTML = `${data.totalIngredients}<span class="unit">품목</span>`;
-        document.getElementById('stats-ocr-count').innerHTML = `${data.activeUsersCount}<span class="unit">개</span>`;
+        // OCR 처리 건수 — 예전엔 (구) activeUsersCount 필드를 읽어 라벨과 값이 어긋났다
+        document.getElementById('stats-ocr-count').innerHTML = `${data.ocrCount ?? 0}<span class="unit">건</span>`;
       }
     } catch (err) {
       console.error('통계 로드 실패:', err);
     }
   }
 
-  async function loadCSList() {
-    try {
-      const res = await fetch(`${API_BASE}/admin/cs`);
-      if (res.ok) {
-        mockCSList = await res.json();
-        renderCSTable();
-      }
-    } catch (err) {
-      console.error('CS 리스트 조회 실패:', err);
-    }
-  }
+  // (삭제됨) 중복 loadCSList — 같은 스코프에 두 번 선언돼 위 구현을 덮어쓰고,
+  //          아무도 읽지 않는 변수에 담아서 표가 영원히 비어 있었다.
 
   async function loadNotifications() {
     try {
@@ -861,17 +771,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  async function loadPayments() {
-    try {
-      const res = await fetch(`${API_BASE}/admin/payments`);
-      if (res.ok) {
-        mockPayments = await res.json();
-        renderPaymentsTable();
-      }
-    } catch (err) {
-      console.error('결제 조회 실패:', err);
-    }
-  }
+  // (삭제됨) loadPayments — 결제·구독 폐지
 
   // ---------------------------------------------------------------------------
   // 15-b. [유입 경로 분석] 채널별 분포를 도넛 + 막대 범례로 렌더
@@ -1181,7 +1081,6 @@ document.addEventListener('DOMContentLoaded', () => {
     await loadUsers();
     await loadCSList();
     await loadNotifications();
-    await loadPayments();
     await loadAcquisition();
     await loadActivity();
     await loadAgents();
