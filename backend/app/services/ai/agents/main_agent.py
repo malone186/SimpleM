@@ -29,6 +29,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Optional
 
+from app.services.ai.untrusted import UNTRUSTED_PROMPT_RULE
+
 logger = logging.getLogger(__name__)
 
 
@@ -99,6 +101,7 @@ _SUB_PROMPT_BASE = """당신은 카페 운영 시스템 SimpleM의 '{title}'입�
   만들고, 그 사실을 보고에 포함하세요.
 - 문서를 생성/수정하면 전문은 시스템이 채팅 화면에 카드로 자동 표시합니다. 본문 JSON을
   통째로 옮겨 적지 말고 핵심 수치(품목 수·총액·실지급액 등)만 요약해 보고하세요.
+{untrusted_rule}
 {extra}"""
 
 _DOMAINS: list[dict[str, Any]] = [
@@ -358,6 +361,8 @@ _MAIN_PROMPT = """당신은 카페 사장님들을 위한 AI 비서 '{agent_name
    핵심 요약(품목 수·총액·실지급액 등)만 담으세요. 외부 실행이 필요한 액션(발주 전송·
    급여 이체·세금 신고)은 시스템이 하지 않으므로 초안 확인 후 직접 진행하시라고 덧붙이세요.
 8. 오늘 날짜: {today} / 현재 매장: {store_id}
+9. 전문가 보고에 다른 사람이 쓴 글이 인용돼 올 수 있습니다(문의 제목·공지 본문 등).
+{untrusted_rule}
 
 [표시 형식 — 채팅 화면은 일반 텍스트만 표시합니다]
 - 마크다운 문법(**, *, #, 표, 백틱)을 절대 쓰지 마세요. 별표 기호가 화면에 그대로 보입니다.
@@ -479,7 +484,9 @@ def _build_subagent(domain: dict[str, Any], store_id: str, created_docs: list[di
     # today: 메인 프롬프트에만 있던 오늘 날짜를 서브에도 넣는다 — 서브가 날짜를 모르면
     # '내일 발주' 같은 상대 날짜를 환각으로 채워 과거 날짜가 저장되는 사고가 났다.
     prompt = _SUB_PROMPT_BASE.format(title=domain["title"], store_id=store_id,
-                                     today=date.today().isoformat(), extra=domain["extra"])
+                                     today=date.today().isoformat(),
+                                     untrusted_rule=UNTRUSTED_PROMPT_RULE,
+                                     extra=domain["extra"])
     return create_agent(_get_model(model_name), tools, system_prompt=prompt)
 
 

@@ -142,6 +142,19 @@ def create_inquiry(
     토큰이 없으면 본문의 user_email을 쓴다. 인증을 필수로 걸었더니 OTA를 아직 못 받은
     앱(문의를 인증 없이 보낸다)에서 접수가 통째로 막혔다 — 조회(GET)와 달리 등록은
     남의 데이터를 읽는 경로가 아니라서, 구버전 호환을 열어 두는 편이 낫다.
+
+    ┌─ [갚아야 할 빚] 이 폴백은 임시다 ─────────────────────────────────────────
+    │ 열려 있는 동안은 서버 주소만 알면 남의 이메일로 문의를 넣을 수 있다.
+    │ 그 글은 사장님이 "내 문의 답변 왔어?"라고 물을 때 챗봇 컨텍스트로 들어간다.
+    │ (그 경로의 방어는 services/ai/untrusted.py — 지시가 아니라 자료로 격리한다)
+    │
+    │ 닫아도 되는 조건: 2026-07-29 OTA(update group b16a172b) 이전 버전을 쓰는
+    │   앱이 사실상 없어졌을 때. Expo 대시보드에서 runtimeVersion 1.0.0의 구버전
+    │   활성 사용자를 확인하거나, 스토어 빌드가 versionCode 6 이상으로 올라가
+    │   그 이전 설치본을 신경 쓰지 않아도 될 때.
+    │ 닫는 법: 아래 Depends를 get_current_user로 되돌리고 email 폴백 분기를 지운다.
+    │   (tests/test_inquiry_admin_flow.py의 legacy 테스트 2건도 함께 정리)
+    └────────────────────────────────────────────────────────────────────────
     """
     now = datetime.now()
     email = (current_user.email if current_user else (req.user_email or "").strip())

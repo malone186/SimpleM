@@ -26,6 +26,8 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
+from app.services.ai.untrusted import quote_fields
+
 logger = logging.getLogger(__name__)
 
 # 조회 상한 — 챗봇 컨텍스트에 넣을 수 있는 현실적인 크기로 자른다
@@ -461,21 +463,36 @@ def get_notices_and_inquiries(store_id: str, limit: int = 10) -> dict[str, Any]:
             .all()
         )
 
+    # 사람이 쓴 자유 텍스트는 전부 무해화해서 넘긴다.
+    #
+    # 문의 제목은 공격자가 정할 수 있다 — 문의 등록이 구버전 앱 호환 때문에 인증 없이
+    # 열려 있어서, 서버 주소만 알면 남의 이메일로 문의를 넣을 수 있기 때문이다.
+    # 그 글이 "내 문의 답변 왔어?" 한마디에 챗봇 컨텍스트로 들어오는데, 챗봇은 재고
+    # 조회·발주서 작성 도구를 실제로 실행한다. 지시문처럼 읽히면 안 된다.
+    #
+    # 공지·답변은 관리자가 쓴 것이라 상대적으로 안전하지만 같이 감싼다 — 관리자 계정이
+    # 털렸을 때 그 경로로 챗봇을 조종할 수 있으면 안 된다. (untrusted.py 참고)
     return {
         "notices": [
-            {"title": x.title, "body": x.body, "at": _d(x.created_at), "author": x.author}
+            quote_fields(
+                {"title": x.title, "body": x.body, "at": _d(x.created_at), "author": x.author},
+                ("title", "body"),
+            )
             for x in notices
         ],
         "inquiries": [
-            {
-                "id": x.id,
-                "title": x.title,
-                "category": x.category,
-                "status": x.status,
-                "answered": x.status == "answered",
-                "answer": x.answer,
-                "at": _d(x.created_at),
-            }
+            quote_fields(
+                {
+                    "id": x.id,
+                    "title": x.title,
+                    "category": x.category,
+                    "status": x.status,
+                    "answered": x.status == "answered",
+                    "answer": x.answer,
+                    "at": _d(x.created_at),
+                },
+                ("title", "answer"),
+            )
             for x in inquiries
         ],
         "unanswered_count": sum(1 for x in inquiries if x.status != "answered"),
