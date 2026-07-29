@@ -68,7 +68,35 @@ from app.services.ai import (
 router = APIRouter(prefix="/chatbot", tags=["chatbot"])
 
 MAX_IMAGE_BYTES = 15 * 1024 * 1024
-ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+# 사진(촬영·앨범)과 함께 PDF도 받는다 — 거래처 명세서는 이메일 PDF로 오는 일이 더 많다.
+# heic/heif는 아이폰 기본 촬영 포맷이라 파일로 고르면 그대로 올라온다.
+ALLOWED_CONTENT_TYPES = {
+    "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif",
+    "application/pdf",
+}
+# 브라우저·OS가 확장자를 못 알아보면 application/octet-stream으로 올려보낸다.
+# 그때는 파일명 확장자로 판정한다 (그것마저 없으면 415).
+_EXT_MIME = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+    ".webp": "image/webp", ".heic": "image/heic", ".heif": "image/heif",
+    ".pdf": "application/pdf",
+}
+
+
+def _resolve_content_type(file: UploadFile) -> str:
+    """업로드 파일의 실제 형식을 정한다 — content_type 우선, 없으면 확장자."""
+    ctype = (file.content_type or "").split(";")[0].strip().lower()
+    if ctype in ALLOWED_CONTENT_TYPES:
+        return ctype
+    ext = Path(file.filename or "").suffix.lower()
+    guessed = _EXT_MIME.get(ext)
+    if guessed:
+        return guessed
+    raise HTTPException(
+        415,
+        f"지원하지 않는 형식입니다: {file.content_type or ext or '알 수 없음'} "
+        "(사진 jpg·png·webp·heic 또는 PDF만 가능해요)",
+    )
 
 _oauth2_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
@@ -114,17 +142,21 @@ async def analyze_document(
     file: UploadFile = File(...),
     store_id: Optional[str] = Depends(_optional_store_id),
 ) -> OcrDocumentResponse:
-    """거래명세서/영수증 이미지를 OCR해 등록 초안을 만든다. 어떤 시스템에도 아직 반영되지 않는다.
+    """거래명세서/영수증을 OCR해 등록 초안을 만든다. 어떤 시스템에도 아직 반영되지 않는다.
 
+    사진(촬영·앨범)뿐 아니라 PDF도 받는다 — 거래처 명세서는 이메일 PDF로 오는 일이
+    더 많아서, 굳이 화면을 찍어 올릴 필요 없이 파일 그대로 올리면 된다.
     초안에 업로드 매장(store_id)이 새겨져 이후 목록·조회는 그 매장에서만 보인다.
     """
-    if file.content_type not in ALLOWED_CONTENT_TYPES:
-        raise HTTPException(415, f"지원하지 않는 형식: {file.content_type} (jpeg/png/webp만 가능)")
+    content_type = _resolve_content_type(file)
     image_bytes = await file.read()
     if len(image_bytes) > MAX_IMAGE_BYTES:
-        raise HTTPException(413, "이미지가 15MB를 초과합니다")
+        raise HTTPException(413, "파일이 15MB를 초과합니다")
+    if not image_bytes:
+        raise HTTPException(400, "빈 파일입니다")
     try:
-        draft = await ocr_service.analyze_image(image_bytes, filename=file.filename, store_id=store_id)
+        draft = await ocr_service.analyze_image(
+            image_bytes, filename=file.filename, store_id=store_id, mime_type=content_type)
     except ocr_service.OcrError as e:
         raise HTTPException(502, str(e))
     return _to_response(draft)
@@ -485,6 +517,19 @@ def recent_sales_api(
 ):
     """최근 판매 내역 (판매 입력 화면 표시용)."""
     return sales_service.recent_sales(current_user.email, limit=limit)
+
+
+@router.get("/sales/contribution")
+def sales_contribution_api(
+    days: int = 30,
+    current_user: User = Depends(get_current_user),
+):
+    """메뉴별 기여이익 — 잔당 마진 × 실제 판매 잔 수 (원가 분석 화면용).
+
+    원가율만으로는 '무엇이 매장을 먹여 살리는지' 알 수 없어서, 판매량을 곱한
+    실제 벌어들인 금액과 그 비중을 함께 돌려준다.
+    """
+    return sales_service.menu_contribution(current_user.email, days=days)
 
 
 @router.get("/sales/calendar")

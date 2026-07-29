@@ -23,6 +23,9 @@ import { listRoasteryBeans, listStocks, DEFAULT_ROASTERY_BEANS, RoasteryBean, St
 import BeanDetailModal from '../../components/order/BeanDetailModal';
 import BeanNotepad from '../../components/order/BeanNotepad';
 
+// 안전재고를 따로 설정하지 않은 재료에 적용할 기본 부족 기준 (개/단위)
+const DEFAULT_LOW_STOCK = 3;
+
 export default function OrderScreen() {
   // [한글 주석: 전역 다국어 훅 호출]
   const { t, language } = useTranslation();
@@ -68,7 +71,14 @@ export default function OrderScreen() {
       if (token) {
         try {
           const stocks = await listStocks(token);
-          setLowStocks(stocks.filter((st) => st.current_quantity < st.safety_quantity));
+          // 안전재고를 따로 설정한 재료가 거의 없다 — 아무도 초기 세팅을 안 하기 때문이다.
+          // 그래서 설정값이 0이면 '3개 미만'이라는 기본 기준으로 대신 잡아 준다.
+          // (사장님 요청: 거창한 발주 예측 말고 3개 밑으로 떨어지면 알려주는 정도면 된다)
+          setLowStocks(
+            stocks.filter((st) =>
+              st.current_quantity < (st.safety_quantity > 0 ? st.safety_quantity : DEFAULT_LOW_STOCK),
+            ),
+          );
         } catch {
           setLowStocks([]);
         }
@@ -161,8 +171,11 @@ export default function OrderScreen() {
           <View style={styles.defSection}>
             <View style={styles.sectionHeader}>
               <Ionicons name="warning-outline" size={16} color={colors.pointOrange} />
-              <Text style={styles.defSectionTitle}>부족한 재고 발주 추천</Text>
+              <Text style={styles.defSectionTitle}>곧 떨어져요 — 채워 두세요</Text>
             </View>
+            <Text style={styles.defSectionHint}>
+              안전재고를 정한 재료는 그 기준으로, 안 정한 재료는 {DEFAULT_LOW_STOCK}개 미만일 때 알려드려요.
+            </Text>
             <View style={styles.defList}>
               {lowStocks.map((item) => (
                 <TouchableOpacity
@@ -176,7 +189,10 @@ export default function OrderScreen() {
                   <View style={styles.defInfo}>
                     <Text style={styles.defName}>{item.name}</Text>
                     <Text style={styles.defStatus}>
-                      잔여 {item.current_quantity}{item.unit} (안전재고 {item.safety_quantity}{item.unit})
+                      남은 수량 {item.current_quantity}{item.unit}
+                      {item.safety_quantity > 0
+                        ? ` · 안전재고 ${item.safety_quantity}${item.unit}`
+                        : ` · 기본 기준 ${DEFAULT_LOW_STOCK}${item.unit}`}
                     </Text>
                   </View>
                   <View style={styles.defBuyBtn}>
@@ -437,6 +453,7 @@ const styles = StyleSheet.create({
     gap: 6,
     marginBottom: 12,
   },
+  defSectionHint: { ...typography.L5, color: colors.mochaBrown, marginBottom: 8, lineHeight: 15 },
   defSectionTitle: {
     ...typography.L3,
     color: colors.espressoBrown,

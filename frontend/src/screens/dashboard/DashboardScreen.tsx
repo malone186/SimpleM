@@ -6,6 +6,7 @@ import Svg, { Defs, LinearGradient, Stop, Path, Circle, Filter, FeGaussianBlur }
 
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../auth/AuthContext';
+import CardDepositCard from '../../components/dashboard/CardDepositCard';
 import ManagementReportCard from '../../components/dashboard/ManagementReportCard';
 import QuickOrderModal from '../../components/dashboard/QuickOrderModal';
 import SalesCard from '../../components/dashboard/SalesCard';
@@ -316,6 +317,11 @@ export default function DashboardScreen() {
               onEditTodo={handleEditTodo}
               onDeleteTodo={handleDeleteTodo}
             />
+          </FadeInUp>
+
+          {/* 카드 대금 입금 예정 — 카드사마다 입금일이 달라 직접 세기 번거로운 숫자 */}
+          <FadeInUp key={`deposit-${runId}`} delay={110}>
+            <CardDepositCard key={`depositcard-${runId}`} />
           </FadeInUp>
 
           {/* AI 경영 리포트 — 일간/주간/월간 탭을 누르면 홈에서 바로 보인다 */}

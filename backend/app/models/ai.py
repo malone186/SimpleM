@@ -118,6 +118,100 @@ class GeneratedDocument(Base):
     )
 
 
+class DailySalesEntry(Base):
+    """일 매출 수기 입력 — 현금/카드사별 금액을 하루 한 줄씩 저장한다.
+
+    POS 연동이 없는 매장이 현실적으로 계속 입력할 수 있는 최소 단위다. 잔 수를
+    메뉴별로 세는 건 아무도 안 하므로(사장님 피드백), 여기서는 '결제수단별 총액'만
+    필수이고 잔 수(cups)는 선택이다. 메뉴별 판매는 재고 차감이 필요할 때만
+    기존 Sale 테이블로 따로 넣는다.
+
+    카드는 issuer(카드사)별로 나눠 담아야 수수료·입금예정일을 계산할 수 있다.
+    (store_id, entry_date, method, issuer)로 유니크 — 같은 날 같은 카드사를 다시
+    입력하면 덮어쓴다(수정 = 재입력).
+    """
+
+    __tablename__ = "daily_sales_entries"
+    __table_args__ = (
+        UniqueConstraint("store_id", "entry_date", "method", "issuer", "card_type",
+                         name="uq_daily_sales_entry"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    store_id: Mapped[str] = mapped_column(String(100), index=True)
+    entry_date: Mapped[str] = mapped_column(String(10), index=True)  # 매출 발생일 YYYY-MM-DD
+    method: Mapped[str] = mapped_column(String(8), default="card")  # cash | card
+    # 카드사 코드 (shinhan, kb, samsung, ...). 현금이면 빈 문자열
+    issuer: Mapped[str] = mapped_column(String(20), default="")
+    card_type: Mapped[str] = mapped_column(String(8), default="credit")  # credit | check (수수료율이 다르다)
+    amount: Mapped[int] = mapped_column(Integer, default=0)  # 결제 총액 (원, 부가세 포함 실수령 전 금액)
+    cups: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 선택 — 적으면 객단가가 계산된다
+    memo: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class EmployeeProfile(Base):
+    """직원 고용 상세 — 이름·시급만으로는 인건비를 계산할 수 없어서 붙이는 정보.
+
+    사장님이 실제로 구분해야 하는 건 시급이 아니라 '이 사람이 어떤 조건으로 일하는가'다:
+      · 주 15시간 미만이냐(주휴수당·4대보험 대상 아님) 이상이냐
+      · 시급제냐 월급제냐 (매니저는 대개 월급)
+      · 4대보험 / 2대보험(고용·산재만) / 미가입
+    이 세 가지에 따라 같은 시급이라도 실제 나가는 돈이 20% 넘게 차이 난다.
+
+    employees 테이블(백엔드 C 소유)을 건드리지 않고 1:1로 붙이는 별도 테이블이다.
+    """
+
+    __tablename__ = "employee_profiles"
+
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("employees.id", ondelete="CASCADE"), primary_key=True
+    )
+    store_id: Mapped[str] = mapped_column(String(100), index=True)
+    # part_time(주 15시간 미만) | part_time_15(주 15시간 이상) | full_time(정규) | manager(매니저)
+    employment_type: Mapped[str] = mapped_column(String(20), default="part_time")
+    pay_type: Mapped[str] = mapped_column(String(10), default="hourly")  # hourly | monthly
+    monthly_salary: Mapped[int] = mapped_column(Integer, default=0)  # pay_type=monthly일 때 월급(원)
+    weekly_hours: Mapped[float] = mapped_column(Numeric(5, 2), default=0)  # 주 소정근로시간
+    # four(4대보험) | two(고용·산재만) | none(미가입)
+    insurance: Mapped[str] = mapped_column(String(8), default="two")
+    # 주휴수당 지급 여부 — 법정 요건(주 15시간 이상)을 만족해도 계약으로 시급에 포함시킨
+    # 경우가 있어(포괄산정) 매장이 끌 수 있게 둔다
+    weekly_holiday_pay: Mapped[bool] = mapped_column(Boolean, default=True)
+    hired_on: Mapped[str | None] = mapped_column(String(10), nullable=True)  # 입사일 YYYY-MM-DD
+    memo: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class SettlementSetting(Base):
+    """매장별 카드 정산 설정 — 수수료율 구간과 카드사별 입금 소요일.
+
+    수수료율은 연매출 구간(영세/중소1~3/일반)에 따라 법으로 정해진 우대수수료율을
+    쓰지만, 실제 계약은 매장마다 다를 수 있어 직접 입력(custom)도 허용한다.
+    입금 소요일도 카드사·가맹점 등급마다 실무 차이가 있어 사장님이 통장을 보고
+    고칠 수 있게 override를 JSON으로 보관한다.
+    """
+
+    __tablename__ = "settlement_settings"
+
+    store_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    # small(3억 이하) | mid1(3~5억) | mid2(5~10억) | mid3(10~30억) | general(30억 초과) | custom
+    revenue_tier: Mapped[str] = mapped_column(String(16), default="small")
+    # revenue_tier가 custom일 때 쓰는 직접 입력 수수료율 (%)
+    custom_credit_fee: Mapped[float | None] = mapped_column(Numeric(5, 3), nullable=True)
+    custom_check_fee: Mapped[float | None] = mapped_column(Numeric(5, 3), nullable=True)
+    # {"shinhan": 3, "bc": 4} 형태 — 카드사별 입금 소요 영업일 덮어쓰기
+    lag_overrides: Mapped[str] = mapped_column(Text, default="{}")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class ChatSession(Base):
     """챗봇 대화 세션 — 사용자별 대화 기록을 서버에 보관 (기기·브라우저가 바뀌어도 이어보기)
 

@@ -661,42 +661,51 @@ def _hourly_profile(db, store_id: str, target_weekday: int) -> list[float]:
 
 
 def _today_actuals(db, store_id: str) -> dict[str, Any]:
-    """오늘 실제 판매 실적 — 총액·잔 수·시간(0~23시)별 집계 + 어제 총매출(증감 비교용).
+    """오늘 실제 판매 실적 — 총액·잔 수·시간별 집계 + 어제/지난주 같은 요일 총매출.
 
-    대시보드 '오늘 실시간' 그래프용. 기록이 없으면 전부 0 — 경영 리포트와 같은 기준이라
-    리포트가 0원인데 그래프만 매출이 있는 것처럼 보이는 불일치가 생기지 않는다.
+    비교 기준을 두 개 준다. 어제 대비는 요일 효과(월요일이 원래 한산하다) 때문에
+    사장님 체감과 어긋나기 쉬워서, 화면 기본 표시는 '지난주 같은 요일 대비'를 쓴다.
+    어제 값은 참고용으로 남겨 둔다.
+
+    기록이 없으면 전부 0 — 경영 리포트와 같은 기준이라, 리포트가 0원인데 그래프만
+    매출이 있는 것처럼 보이는 불일치가 생기지 않는다.
     """
     from datetime import datetime
     from app.models.inventory import Sale
 
     today = date.today()
-    yesterday_iso = (today - timedelta(days=1)).isoformat()
+    yesterday = today - timedelta(days=1)
+    last_week = today - timedelta(days=7)
 
     rows = (
         db.query(Sale.sold_at, Sale.quantity, Sale.total_price)
-        .filter(Sale.store_id == store_id, Sale.sold_at >= yesterday_iso)
+        .filter(Sale.store_id == store_id, Sale.sold_at >= last_week.isoformat())
         .all()
     )
     hourly = [{"hour": h, "cups": 0, "revenue": 0} for h in range(24)]
-    cups = revenue = yesterday_revenue = 0
+    cups = revenue = yesterday_revenue = last_week_revenue = 0
     for sold_at, qty, price in rows:
         try:
             dt = sold_at if isinstance(sold_at, datetime) else datetime.fromisoformat(str(sold_at))
         except ValueError:
             continue
         dt = _to_kst(dt)
-        if dt.date() == today:
+        d = dt.date()
+        if d == today:
             cups += qty
             revenue += price
             hourly[dt.hour]["cups"] += qty
             hourly[dt.hour]["revenue"] += price
-        else:
+        elif d == yesterday:
             yesterday_revenue += price
+        elif d == last_week:
+            last_week_revenue += price
     return {
         "date": today.isoformat(),
         "cups": round(cups),
         "revenue": round(revenue),
         "yesterday_revenue": round(yesterday_revenue),
+        "last_week_revenue": round(last_week_revenue),
         "hourly": [{"hour": h["hour"], "cups": round(h["cups"]), "revenue": round(h["revenue"])} for h in hourly],
     }
 

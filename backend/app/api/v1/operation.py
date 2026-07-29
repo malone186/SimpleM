@@ -147,11 +147,33 @@ def create_schedule_api(payload: ScheduleCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
 
 @router.get("/schedules", response_model=CommonResponse)
-def get_all_schedules_api(db: Session = Depends(get_db)):
-    """등록된 모든 스케줄 일정을 조회합니다."""
+def get_all_schedules_api(
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """로그인 매장의 근무 스케줄을 조회합니다.
+
+    [매장 스코핑] 예전엔 매장 구분 없이 전체 스케줄을 돌려줬다. 공유 DB라 다른 매장의
+    근무가 내 달력에 섞여 들어왔고, 그 직원은 내 직원 목록에 없으니 화면에서
+    '(삭제된 직원)'으로 표시됐다 — 실측 115건 중 내 것은 25건뿐이었다.
+    """
     try:
-        schedules = OperationService.get_schedules(db)
-        data = [ScheduleResponse.model_validate(s) for s in schedules]
+        store_id = current_user.email if current_user else None
+        schedules = OperationService.get_schedules(db, store_id=store_id)
+        # 직원 이름을 여기서 붙여 보낸다 — 화면이 별도 조회로 맞추려다 실패하면
+        # 근무가 전부 '(삭제된 직원)'으로 보였다. 조회 1번으로 id→이름 맵을 만든다.
+        emp_ids = {s.employee_id for s in schedules}
+        emp_map = {
+            e.id: e for e in db.query(Employee).filter(Employee.id.in_(emp_ids)).all()
+        } if emp_ids else {}
+        data = []
+        for s in schedules:
+            item = ScheduleResponse.model_validate(s)
+            emp = emp_map.get(s.employee_id)
+            if emp is not None:
+                item.employee_name = emp.name
+                item.employee_role = emp.role
+            data.append(item)
         return CommonResponse(success=True, data=data, message="스케줄 조회가 완료되었습니다.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -190,26 +212,61 @@ def update_schedule_api(schedule_id: int, payload: ScheduleUpdate, db: Session =
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
 
+def _assert_schedule_owned(db: Session, schedule_id: int, current_user: Optional[User]) -> None:
+    """이 스케줄이 로그인 매장 직원의 것인지 확인한다.
+
+    공유 DB에 여러 매장이 섞여 있고 schedule_id는 연번이라, 확인 없이 두면 옆 매장의
+    근무를 지우거나 고칠 수 있다. 비로그인 요청은 예전 동작(무검사)을 유지한다.
+    """
+    if current_user is None:
+        return
+    row = (
+        db.query(Employee.store_id)
+        .join(Schedule, Schedule.employee_id == Employee.id)
+        .filter(Schedule.id == schedule_id)
+        .first()
+    )
+    if row is not None and row[0] != current_user.email:
+        raise HTTPException(status_code=404, detail="해당 스케줄을 찾을 수 없습니다.")
+
+
 @router.delete("/schedules/{schedule_id}", response_model=CommonResponse)
-def delete_schedule_api(schedule_id: int, db: Session = Depends(get_db)):
+def delete_schedule_api(
+    schedule_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """특정 근무 스케줄 일정을 영구 삭제(Hard Delete)합니다."""
     try:
+        _assert_schedule_owned(db, schedule_id, current_user)
         success = OperationService.delete_schedule(db, schedule_id)
         if not success:
             raise HTTPException(status_code=404, detail="삭제할 스케줄 정보를 찾을 수 없습니다.")
         return CommonResponse(success=True, data=None, message="스케줄 정보가 성공적으로 삭제되었습니다.")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/schedules/recommend", response_model=CommonResponse)
-def recommend_schedule_api(payload: ScheduleRecommendationRequest, db: Session = Depends(get_db)):
-    """실제 과거 매출 데이터를 시간대별로 분석하여 최적의 알바 근무 스케줄 추천안을 도출합니다."""
+def recommend_schedule_api(
+    payload: ScheduleRecommendationRequest,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """실제 과거 매출 데이터를 시간대별로 분석하여 최적의 알바 근무 스케줄 추천안을 도출합니다.
+
+    [매장 판정] 로그인했다면 payload.store_id를 무시하고 로그인 매장으로 계산한다.
+    예전엔 클라이언트가 보낸 값을 그대로 믿었는데, 프론트 기본값이 데모용
+    'store_gildong'이라 남의 매장 매출·직원으로 추천안이 나왔다.
+    """
     try:
+        store_id = current_user.email if current_user else payload.store_id
         recommendation_result = OperationService.recommend_schedule(
             db=db,
             period_start=payload.target_date,
             period_end=payload.target_date,
-            store_id=payload.store_id
+            store_id=store_id
         )
         data = ScheduleRecommendationResponse(
             target_date=recommendation_result["target_date"],

@@ -92,7 +92,8 @@ export type TodayActuals = {
   date: string;
   cups: number;
   revenue: number;
-  yesterday_revenue: number; // 어제 총매출 (증감률 비교용, 없으면 0)
+  yesterday_revenue: number; // 어제 총매출 (참고용, 없으면 0)
+  last_week_revenue?: number; // 지난주 같은 요일 총매출 — 요일 효과가 없어 사장님 체감과 맞는 기준
   hourly: HourlyPoint[]; // 0~23시 실제 판매 집계
 };
 

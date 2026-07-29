@@ -14,9 +14,19 @@ import { useTranslation } from '../../i18n/translations';
 import { Card, Divider, ProgressBar, Screen, ScreenTitle, SectionTitle, Badge } from '../../components/ui';
 import { PressableScale } from '../../components/motion'; // [한글 주석: 터치 이벤트가 씹히지 않는 최적화 모션 프레스 컴포넌트 추가]
 import { apiFetch } from '../../lib/api/client';
+import { getMenuContribution, type ContributionResult } from '../../lib/api/sales';
 import { toast } from '../../components/toast';
 import { colors, typography } from '../../theme';
 import MenuOptimizationCard from '../../components/dashboard/MenuOptimizationCard'; // [한글 주석: AI 메뉴 최적화 진단 카드 컴포넌트 이관 임포트]
+import {
+  COST_STANDARDS,
+  GRADE_COLOR,
+  GRADE_LABEL,
+  categoryOfMenu,
+  gradeMessage,
+  gradeOf,
+  suggestedPrice,
+} from '../../lib/costStandards';
 
 // /inventory/menus 응답 중 원가 분석에 쓰는 필드만
 type MenuRow = {
@@ -100,6 +110,11 @@ export default function CostScreen() {
   // [한글 주석: 슬라이드 모션을 위한 애니메이션 Y축 오프셋 상태 정의]
   const slideAnim = useRef(new Animated.Value(800)).current;
 
+  // 메뉴별 기여이익(잔당 마진 × 실제 판매량) — 원가율만으로는 안 보이는 '실제로 번 돈'
+  const [contribution, setContribution] = useState<ContributionResult | null>(null);
+  // 원가율 기준 설명 카드 펼침 여부 (원가율 개념이 없는 사장님·예비 창업자용)
+  const [showGuide, setShowGuide] = useState(false);
+
   // [한글 주석: 팝업을 열 때 Y축 오프셋을 0으로 슥 당겨 올리는 애니메이션을 실행합니다]
   const openModal = (menuId: number, menuName: string) => {
     setSelectedMenuName(menuName);
@@ -137,6 +152,12 @@ export default function CostScreen() {
         console.error('메뉴 원가 조회 실패:', e);
         if (!cancelled) setFailed(true);
       });
+    // 기여이익은 원가 목록과 독립 — 실패해도 원가율 화면은 그대로 보여야 한다
+    getMenuContribution(token, 30)
+      .then((c) => {
+        if (!cancelled) setContribution(c);
+      })
+      .catch((e) => console.error('메뉴 기여이익 조회 실패:', e));
     return () => {
       cancelled = true;
     };
@@ -154,6 +175,12 @@ export default function CostScreen() {
   const rateOf = (m: MenuRow) =>
     m.cost_ratio !== undefined ? m.cost_ratio : ((m.cost_price ?? 0) / m.selling_price) * 100;
   const avg = rows.length ? Math.round(rows.reduce((s, m) => s + rateOf(m), 0) / rows.length) : null;
+  // 평균 등급은 음료 기준으로 본다 — 카페 매출의 대부분이 음료라 그 기준이 체감에 맞다
+  const avgGrade = avg !== null ? gradeOf(avg, 'drink') : null;
+  // 위험 구간 메뉴 수 — 목록 위에 먼저 알려준다
+  const riskyCount = rows.filter((m) => gradeOf(rateOf(m), categoryOfMenu(m.name)) === 'bad').length;
+  // 판매량 정보를 메뉴 카드에 얹기 위한 조회용 맵
+  const contribByMenu = new Map((contribution?.menus ?? []).map((c) => [c.menu_id, c]));
 
   // [한글 주석: 특정 상품의 실시간 원가 절감 추천 정보를 백엔드에서 비동기 호출해 오는 함수입니다]
   const fetchRecommendations = async (menuId: number, menuName: string) => {
@@ -183,12 +210,103 @@ export default function CostScreen() {
       <Screen>
         <ScreenTitle title={t('costAnalysisTitle')} subtitle={t('costAnalysisSub')} />
 
-        {/* 요약 */}
+        {/* 요약 — 숫자만 두면 좋은지 나쁜지 알 수 없어, 업종 기준선 대비 등급을 색으로 함께 준다 */}
         <Card>
           <Text style={styles.summaryLabel}>{language === 'en' ? 'Overall Avg. Cost Ratio' : '전체 평균 원가율'}</Text>
-          <Text style={styles.summaryValue}>{avg !== null ? `${avg}%` : '—'}</Text>
-          <Text style={styles.summaryHint}>{language === 'en' ? 'Recommended: 30-35% or lower' : '일반적으로 30~35% 이하를 권장해요'}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10 }}>
+            <Text style={[styles.summaryValue, avgGrade && { color: GRADE_COLOR[avgGrade] }]}>
+              {avg !== null ? `${avg}%` : '—'}
+            </Text>
+            {avgGrade && <Badge label={GRADE_LABEL[avgGrade]} tone={avgGrade === 'good' ? 'green' : avgGrade === 'warn' ? 'orange' : 'danger'} />}
+          </View>
+          {avg !== null && (
+            <View style={styles.gaugeWrap}>
+              <View style={styles.gaugeTrack}>
+                <View style={[styles.gaugeSeg, { flex: COST_STANDARDS.drink.good, backgroundColor: GRADE_COLOR.good }]} />
+                <View style={[styles.gaugeSeg, { flex: COST_STANDARDS.drink.warn - COST_STANDARDS.drink.good, backgroundColor: GRADE_COLOR.warn }]} />
+                <View style={[styles.gaugeSeg, { flex: 50 - COST_STANDARDS.drink.warn, backgroundColor: GRADE_COLOR.bad }]} />
+              </View>
+              {/* 게이지는 0~50% 구간을 그린다 — 그 이상은 어차피 위험 구간 */}
+              <View style={[styles.gaugeMarker, { left: `${Math.min(avg, 50) * 2}%` }]} />
+              <View style={styles.gaugeLabels}>
+                <Text style={styles.gaugeLabel}>0%</Text>
+                <Text style={styles.gaugeLabel}>{COST_STANDARDS.drink.good}%</Text>
+                <Text style={styles.gaugeLabel}>{COST_STANDARDS.drink.warn}%</Text>
+                <Text style={styles.gaugeLabel}>50%+</Text>
+              </View>
+            </View>
+          )}
+          <Text style={styles.summaryHint}>{COST_STANDARDS.drink.note}</Text>
+
+          <PressableScale style={styles.guideToggle} onPress={() => {
+            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            setShowGuide((v) => !v);
+          }}>
+            <Ionicons name="help-circle-outline" size={14} color={colors.pointOrange} />
+            <Text style={styles.guideToggleText}>원가율이 뭔가요? 기준은 어떻게 보나요</Text>
+            <Ionicons name={showGuide ? 'chevron-up' : 'chevron-down'} size={14} color={colors.pointOrange} />
+          </PressableScale>
+
+          {showGuide && (
+            <View style={styles.guideBox}>
+              <Text style={styles.guideBody}>
+                원가율 = 재료비 ÷ 판매가 × 100. 아메리카노 4,000원에 원두·컵·얼음이 800원 들어가면 20%예요.{'\n\n'}
+                여기 안 들어간 비용이 임대료·인건비·카드 수수료·공과금입니다. 그래서 재료 원가율이
+                낮아 보여도 그 뒤 비용을 빼면 남는 게 얼마 없어요. 아래가 업종별 통상 기준선입니다.
+              </Text>
+              {(['drink', 'dessert', 'food'] as const).map((k) => {
+                const s = COST_STANDARDS[k];
+                return (
+                  <View key={k} style={styles.guideRow}>
+                    <Text style={styles.guideCat}>{s.label}</Text>
+                    <View style={styles.guideBars}>
+                      <View style={[styles.guideChip, { backgroundColor: 'rgba(78,125,58,0.12)' }]}>
+                        <Text style={[styles.guideChipText, { color: GRADE_COLOR.good }]}>~{s.good}% 양호</Text>
+                      </View>
+                      <View style={[styles.guideChip, { backgroundColor: 'rgba(201,138,43,0.12)' }]}>
+                        <Text style={[styles.guideChipText, { color: GRADE_COLOR.warn }]}>~{s.warn}% 주의</Text>
+                      </View>
+                      <View style={[styles.guideChip, { backgroundColor: 'rgba(178,59,46,0.12)' }]}>
+                        <Text style={[styles.guideChipText, { color: GRADE_COLOR.bad }]}>{s.warn}%~ 위험</Text>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+              <Text style={styles.guideFoot}>
+                매장 임대료·객단가에 따라 달라질 수 있는 가이드예요. 절대 기준은 아닙니다.
+              </Text>
+            </View>
+          )}
         </Card>
+
+        {/* 실제로 번 돈 — 원가율이 낮아도 안 팔리면 의미가 없다 */}
+        {contribution && contribution.total_qty > 0 && (
+          <Card tone="cream">
+            <View style={styles.head}>
+              <Text style={styles.contribTitle}>최근 30일, 실제로 번 돈</Text>
+              <Text style={styles.contribTotal}>₩{contribution.total_margin.toLocaleString()}</Text>
+            </View>
+            <Text style={styles.contribHint}>
+              잔당 마진 × 실제 판매 잔 수. 원가율이 낮아도 안 팔리면 남는 돈은 적어요.
+            </Text>
+            {contribution.menus
+              .filter((m) => m.sold_qty > 0)
+              .slice(0, 5)
+              .map((m) => (
+                <View key={m.menu_id} style={styles.contribRow}>
+                  <Text style={styles.contribName} numberOfLines={1}>{m.name}</Text>
+                  <Text style={styles.contribQty}>{m.sold_qty}잔</Text>
+                  <View style={{ alignItems: 'flex-end', minWidth: 92 }}>
+                    <Text style={styles.contribAmount}>₩{m.total_margin.toLocaleString()}</Text>
+                    <Text style={styles.contribShare}>
+                      전체의 {m.margin_share}% · 잔당 ₩{m.margin_per_cup.toLocaleString()}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+          </Card>
+        )}
 
         {/* [한글 주석] 대시보드에서 이관 배치한 AI 메뉴 최적화 아코디언 카드 */}
         <MenuOptimizationCard />
@@ -270,26 +388,75 @@ export default function CostScreen() {
           </Card>
         )}
 
+        {/* 위험 메뉴가 있으면 목록을 훑기 전에 먼저 알린다 */}
+        {riskyCount > 0 && (
+          <Card>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Ionicons name="alert-circle" size={18} color={GRADE_COLOR.bad} />
+              <Text style={styles.riskText}>
+                원가율이 위험 구간인 메뉴가 <Text style={{ fontWeight: '900', color: GRADE_COLOR.bad }}>{riskyCount}개</Text> 있어요.
+                판매가를 올리거나 재료 단가를 낮춰야 합니다.
+              </Text>
+            </View>
+          </Card>
+        )}
+
         {filteredRows.map((m) => {
           const cost = m.cost_price ?? 0;
-          const rate = Math.round(rateOf(m));
+          const rate = Math.round(rateOf(m) * 10) / 10;
           const margin = m.selling_price - cost;
-          const high = rate > 35;
+          // 메뉴 종류에 따라 기준선이 다르다 — 디저트를 음료 기준(22%)으로 재면 전부 빨간불이 된다
+          const cat = categoryOfMenu(m.name);
+          const grade = gradeOf(rate, cat);
+          const std = COST_STANDARDS[cat];
+          const sold = contribByMenu.get(m.id);
+          const target = suggestedPrice(cost, cat);
           return (
             <Card key={m.id}>
               <View style={styles.head}>
-                <Text style={styles.name}>{m.name}</Text>
-                <Text style={[styles.rate, { color: high ? '#B23B2E' : colors.trendGreenText }]}>
-                  {rate}%
-                </Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.name}>{m.name}</Text>
+                  <Text style={styles.catHint}>{std.label} 기준 {std.good}% 이하 권장</Text>
+                </View>
+                <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                  <Text style={[styles.rate, { color: GRADE_COLOR[grade] }]}>{rate}%</Text>
+                  <Badge
+                    label={GRADE_LABEL[grade]}
+                    tone={grade === 'good' ? 'green' : grade === 'warn' ? 'orange' : 'danger'}
+                  />
+                </View>
               </View>
-              <ProgressBar ratio={Math.min(rate, 100) / 100} tone={high ? 'danger' : 'green'} />
+              {/* 게이지는 '기준선 대비 어디쯤인지'가 보이게 위험 기준(warn)을 100%로 잡는다 */}
+              <ProgressBar
+                ratio={Math.min(rate / std.warn, 1)}
+                tone={grade === 'good' ? 'green' : grade === 'warn' ? 'mocha' : 'danger'}
+              />
+              <Text style={[styles.gradeMsg, { color: GRADE_COLOR[grade] }]}>
+                {gradeMessage(rate, cat)}
+              </Text>
+              {grade !== 'good' && target > m.selling_price && (
+                <Text style={styles.suggestText}>
+                  💡 {std.good}%를 맞추려면 판매가 ₩{target.toLocaleString()}
+                  {' '}(지금보다 ₩{(target - m.selling_price).toLocaleString()} ↑)
+                </Text>
+              )}
               <Divider />
               <View style={styles.detailRow}>
                 <Detail label="판매가" value={`₩${m.selling_price.toLocaleString()}`} />
                 <Detail label="원가" value={`₩${cost.toLocaleString()}`} />
-                <Detail label="마진" value={`₩${margin.toLocaleString()}`} accent />
+                <Detail label="잔당 마진" value={`₩${margin.toLocaleString()}`} accent />
               </View>
+              {sold && sold.sold_qty > 0 && (
+                <>
+                  <Divider />
+                  <View style={styles.soldRow}>
+                    <Text style={styles.soldLabel}>최근 30일 {sold.sold_qty}잔 판매</Text>
+                    <Text style={styles.soldValue}>
+                      실제로 번 돈 ₩{sold.total_margin.toLocaleString()}
+                    </Text>
+                  </View>
+                </>
+              )}
               <Divider />
               
               {/* [한글 주석: 꾹 눌리는 감각 피드백과 확실한 터치 감지를 위해 PressableScale 컴포넌트로 개조] */}
@@ -421,6 +588,58 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   rate: { ...typography.L2, fontSize: 22 },
+  catHint: { ...typography.L5, color: colors.mochaBrown, marginTop: 3 },
+  gradeMsg: { fontSize: 11.5, fontWeight: '600', lineHeight: 16, marginTop: 8 },
+  suggestText: { ...typography.L5, color: colors.espressoBrown, marginTop: 6, lineHeight: 15 },
+  riskText: { ...typography.L5, color: colors.espressoBrown, flex: 1, lineHeight: 16 },
+  soldRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
+  soldLabel: { ...typography.L5, color: colors.mochaBrown },
+  soldValue: { ...typography.L4, color: colors.trendGreenText },
+
+  // 평균 원가율 게이지 (양호/주의/위험 구간을 색으로 나눈 막대 + 현재 위치 마커)
+  gaugeWrap: { marginTop: 12, marginBottom: 4 },
+  gaugeTrack: { flexDirection: 'row', height: 8, borderRadius: 4, overflow: 'hidden' },
+  gaugeSeg: { height: 8 },
+  gaugeMarker: {
+    position: 'absolute',
+    top: -3,
+    width: 3,
+    height: 14,
+    borderRadius: 2,
+    backgroundColor: colors.espressoBrown,
+    marginLeft: -1.5,
+  },
+  gaugeLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 5 },
+  gaugeLabel: { fontSize: 9, fontWeight: '700', color: colors.mochaBrown },
+
+  // 원가율 개념 설명 (예비 창업자용)
+  guideToggle: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12 },
+  guideToggleText: { fontSize: 11.5, fontWeight: '700', color: colors.pointOrange, flex: 1 },
+  guideBox: {
+    backgroundColor: colors.coffeeCream,
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 10,
+    gap: 10,
+  },
+  guideBody: { fontSize: 11.5, color: colors.espressoBrown, lineHeight: 18 },
+  guideRow: { gap: 5 },
+  guideCat: { ...typography.L4, color: colors.espressoBrown },
+  guideBars: { flexDirection: 'row', gap: 5, flexWrap: 'wrap' },
+  guideChip: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4 },
+  guideChipText: { fontSize: 10, fontWeight: '800' },
+  guideFoot: { ...typography.L5, color: colors.mochaBrown, fontStyle: 'italic' },
+
+  // 실제로 번 돈 (기여이익) 랭킹
+  contribTitle: { ...typography.L3, color: colors.espressoBrown },
+  contribTotal: { ...typography.L3, color: colors.trendGreenText },
+  contribHint: { ...typography.L5, color: colors.mochaBrown, marginTop: -6, marginBottom: 10, lineHeight: 15 },
+  contribRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
+  contribName: { ...typography.L4, color: colors.espressoBrown, flex: 1 },
+  contribQty: { ...typography.L5, color: colors.mochaBrown, minWidth: 38, textAlign: 'right' },
+  contribAmount: { ...typography.L4, color: colors.espressoBrown },
+  contribShare: { fontSize: 9.5, fontWeight: '600', color: colors.mochaBrown, marginTop: 2 },
+
   detailRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
   detail: { flex: 1, alignItems: 'center' },
   detailLabel: { ...typography.L5, color: colors.mochaBrown },

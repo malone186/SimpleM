@@ -73,6 +73,10 @@ GEMINI_MAX_OUTPUT_TOKENS = int(os.getenv("OCR_GEMINI_MAX_TOKENS", "8192"))
 # 1600²(약 1.6배 픽셀)으로 상향 — 전송량은 조금 늘지만 인식 정확도가 우선이다.
 MAX_IMAGE_SIDE = int(os.getenv("OCR_MAX_IMAGE_SIDE", "1600"))
 
+# 거래처 명세서는 사진보다 이메일 PDF로 오는 일이 더 많다. Gemini가 PDF를 네이티브로
+# 읽으므로 래스터화 없이 그대로 올린다 — 텍스트가 살아 있는 전자 명세서는 사진보다 정확하다.
+PDF_MIME = "application/pdf"
+
 UPLOAD_DIR = Path(os.getenv("OCR_UPLOAD_DIR", Path(__file__).resolve().parents[3] / "uploads" / "ocr"))
 
 # 수량×단가=금액 검증 허용 오차: 반올림·부가세 절사 감안
@@ -426,11 +430,15 @@ def _gemini_schema() -> dict[str, Any]:
     }
 
 
-async def _call_gemini(image_bytes: bytes) -> dict[str, Any]:
-    """Gemini 호출 — 이미지 1장을 구조화 JSON으로.
+async def _call_gemini(image_bytes: bytes, mime_type: str = "image/jpeg") -> dict[str, Any]:
+    """Gemini 호출 — 문서 1건(이미지 또는 PDF)을 구조화 JSON으로.
 
     responseMimeType=application/json + responseSchema로 출력 구조를 강제한다.
     429(쿼터)·5xx·타임아웃은 지수 백오프로 재시도한다.
+
+    mime_type이 application/pdf면 PDF를 그대로 올린다 — Gemini가 PDF를 네이티브로 읽는다.
+    래스터화(이미지 변환)를 거치지 않으므로, 이메일로 받는 전자 명세서처럼 텍스트가
+    살아 있는 PDF는 사진보다 훨씬 정확하게 읽힌다.
     """
     if not GEMINI_API_KEY:
         raise OcrError("GEMINI_API_KEY가 설정되어 있지 않습니다 — OCR을 사용할 수 없습니다")
@@ -452,7 +460,7 @@ async def _call_gemini(image_bytes: bytes) -> dict[str, Any]:
 
     payload = {
         "contents": [{"parts": [
-            {"inline_data": {"mime_type": "image/jpeg",
+            {"inline_data": {"mime_type": mime_type,
                              "data": base64.b64encode(image_bytes).decode()}},
             {"text": _PROMPT},
         ]}],
@@ -625,27 +633,43 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-async def _run_backend(backend: str, image_bytes: bytes) -> dict[str, Any]:
-    """Gemini로 구조화 결과를 얻는다. 폴백 없이 실패는 그대로 올린다."""
-    return await _call_gemini(_preprocess_image(image_bytes))
+async def _run_backend(backend: str, image_bytes: bytes, mime_type: str = "image/jpeg") -> dict[str, Any]:
+    """Gemini로 구조화 결과를 얻는다. 폴백 없이 실패는 그대로 올린다.
+
+    PDF는 전처리(EXIF 보정·문서 크롭·리사이즈)를 건너뛴다 — 그건 폰으로 찍은 사진을
+    바로잡는 작업이고, PDF는 이미 반듯한 데다 Pillow로 열리지도 않는다.
+    """
+    if mime_type == PDF_MIME:
+        return await _call_gemini(image_bytes, mime_type=PDF_MIME)
+    processed = _preprocess_image(image_bytes)
+    # 전처리에 실패하면 원본이 그대로 돌아온다 (예: Pillow가 못 여는 HEIC).
+    # 그때 mime을 image/jpeg라고 우기면 Gemini가 디코드에 실패하므로 원래 형식으로 보낸다.
+    if processed is image_bytes and mime_type != "image/jpeg":
+        return await _call_gemini(image_bytes, mime_type=mime_type)
+    return await _call_gemini(processed)
 
 
 async def analyze_image(
-    image_bytes: bytes, filename: Optional[str] = None, store_id: Optional[str] = None
+    image_bytes: bytes,
+    filename: Optional[str] = None,
+    store_id: Optional[str] = None,
+    mime_type: str = "image/jpeg",
 ) -> dict[str, Any]:
-    """이미지 1장을 OCR해 등록 초안을 만든다. 초안은 사람이 확정하기 전까지 아무 데도 반영되지 않는다.
+    """문서 1건(사진 또는 PDF)을 OCR해 등록 초안을 만든다.
+    초안은 사람이 확정하기 전까지 아무 데도 반영되지 않는다.
 
+    거래처 명세서는 사진보다 이메일 PDF로 오는 일이 더 많아서 PDF를 함께 받는다.
     store_id(로그인 이메일)가 초안에 새겨져 이후 목록·조회는 그 매장에서만 보인다.
     """
     # OCR 실패 시에도 원인 분석이 가능하도록 원본을 먼저 저장한다
     doc_id = uuid.uuid4().hex[:12]
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    suffix = Path(filename).suffix if filename else ".jpg"
+    suffix = Path(filename).suffix if filename else (".pdf" if mime_type == PDF_MIME else ".jpg")
     image_path = UPLOAD_DIR / f"{doc_id}{suffix}"
     image_path.write_bytes(image_bytes)
 
     started = time.perf_counter()
-    raw = await _run_backend(OCR_BACKEND, image_bytes)
+    raw = await _run_backend(OCR_BACKEND, image_bytes, mime_type=mime_type)
     elapsed = round(time.perf_counter() - started, 1)
     logger.info("OCR %s 완료 — %.1fs (%s)", doc_id, elapsed, OCR_BACKEND)
 

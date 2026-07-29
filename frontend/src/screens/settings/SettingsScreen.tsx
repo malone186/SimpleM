@@ -26,6 +26,11 @@ import { PressableScale } from '../../components/motion';
 import { confirmDialog, toast } from '../../components/toast';
 import { API_BASE_URL } from '../../lib/api/client';
 import { getSensorFeature, setSensorFeature } from '../../lib/api/sensor';
+import {
+  getSettlementSettings,
+  updateSettlementSettings,
+  type SettlementSettings,
+} from '../../lib/api/settlement';
 import { isNativePushAvailable } from '../../notifications/pushRegistration';
 import { colors, typography } from '../../theme';
 
@@ -183,7 +188,7 @@ export default function SettingsScreen() {
   const { t } = useTranslation();
 
   // [한글 주석: 설정 창 내부 서브 라우팅 뷰 관리 상태 ('main'일 때는 메뉴 목록 노출)]
-  const [subView, setSubView] = useState<'main' | 'account' | 'notification' | 'appearance' | 'inquiry' | 'legal'>('main');
+  const [subView, setSubView] = useState<'main' | 'account' | 'notification' | 'appearance' | 'inquiry' | 'legal' | 'settlement'>('main');
 
   // [한글 주석: 현재 진입한 subView 상태에 맞춰 상단 헤더 타이틀과 뒤로가기 동작을 동적으로 변경]
   useEffect(() => {
@@ -193,6 +198,7 @@ export default function SettingsScreen() {
     else if (subView === 'appearance') title = t('displayAndAccessibility');
     else if (subView === 'inquiry') title = '1대1 CS 문의';
     else if (subView === 'legal') title = '약관 및 정책';
+    else if (subView === 'settlement') title = '카드 정산 설정';
 
     // [한글 주석: 아이폰 iOS / 프리텐다드 미디엄 스타일 자간 및 화살표 간격 띄움 반영]
     navigation.setOptions({
@@ -433,6 +439,30 @@ export default function SettingsScreen() {
             </View>
           </PressableScale>
 
+          {/* 카드 정산 설정 — 수수료율 구간·카드사별 입금 소요일 */}
+          <PressableScale
+            style={styles.menuItemCard}
+            onPress={() => {
+              springTransition();
+              setSubView('settlement');
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={styles.menuIconWrap}>
+                <Ionicons name="card-outline" size={20} color={colors.espressoBrown} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.menuItemTitle}>{prefs.language === 'en' ? 'Card Settlement' : '카드 정산 설정'}</Text>
+                <Text style={styles.menuItemDesc}>
+                  {prefs.language === 'en'
+                    ? 'Fee tier & per-issuer deposit lead time'
+                    : '수수료율 구간, 카드사별 입금 소요일'}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
+            </View>
+          </PressableScale>
+
           {/* 화면 표시 & 접근성 */}
           <PressableScale
             style={styles.menuItemCard}
@@ -664,6 +694,9 @@ export default function SettingsScreen() {
         </View>
       </Card>
       )}
+
+      {/* 카드 정산 설정 — 수수료율 구간과 카드사별 입금 소요일 */}
+      {subView === 'settlement' && <SettlementSettingsPanel />}
 
       {/* ② 알림 설정 */}
       {subView === 'notification' && (
@@ -1172,6 +1205,156 @@ export default function SettingsScreen() {
     </Screen>
   );
 }
+
+// 카드 정산 설정 — 수수료율 구간과 카드사별 입금 소요일.
+//
+// 기본값은 법정 기준(여전법상 지급기일 상한)과 금융위 고시 우대수수료율이지만, 실제 계약과
+// 통장 입금일은 매장마다 다르다. 사장님이 통장을 보고 직접 고칠 수 있어야 예상 입금일이
+// 신뢰할 수 있는 숫자가 된다.
+// 백엔드는 lag_overrides를 통째로 덮어쓴다 — 한 카드사만 보내면 나머지 설정이 날아간다.
+// 그래서 현재 화면에 보이는 전체 값을 함께 실어 보낸다.
+function withLag(data: SettlementSettings, code: string, next: number): Record<string, number> {
+  const clamped = Math.max(0, Math.min(10, next));
+  return Object.fromEntries(
+    data.issuers.map((i) => [i.code, i.code === code ? clamped : i.lag]),
+  );
+}
+
+function SettlementSettingsPanel() {
+  const { token } = useAuth();
+  const [data, setData] = useState<SettlementSettings | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!token) return;
+    getSettlementSettings(token)
+      .then(setData)
+      .catch((e) => console.error('정산 설정 조회 실패:', e));
+  }, [token]);
+
+  const apply = async (body: Parameters<typeof updateSettlementSettings>[1]) => {
+    if (!token || saving) return;
+    setSaving(true);
+    try {
+      setData(await updateSettlementSettings(token, body));
+    } catch (e) {
+      console.error('정산 설정 저장 실패:', e);
+      toast('저장 실패', '잠시 후 다시 시도해 주세요.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!data) {
+    return (
+      <Card>
+        <Text style={styles.rowHint}>정산 설정을 불러오는 중…</Text>
+      </Card>
+    );
+  }
+
+  return (
+    <>
+      <Card>
+        <SectionTitle>카드 수수료율</SectionTitle>
+        <Text style={styles.rowHint}>
+          연매출 구간에 따라 우대수수료율이 정해져 있어요. 계약서에 적힌 요율이 다르면 ‘직접 입력’을 고르세요.
+        </Text>
+        <View style={{ marginTop: 12, gap: 7 }}>
+          {data.tiers.map((tier) => {
+            const active = data.revenue_tier === tier.code;
+            return (
+              <PressableScale
+                key={tier.code}
+                style={[stlStyles.tierRow, active && stlStyles.tierRowActive]}
+                onPress={() => apply({ revenue_tier: tier.code })}
+                to={0.98}
+              >
+                <Ionicons
+                  name={active ? 'radio-button-on' : 'radio-button-off'}
+                  size={17}
+                  color={active ? colors.espressoBrown : colors.mochaBrown}
+                />
+                <Text style={[stlStyles.tierLabel, active && { fontWeight: '800' }]}>{tier.label}</Text>
+                <Text style={stlStyles.tierRate}>
+                  신용 {tier.credit}% / 체크 {tier.check}%
+                </Text>
+              </PressableScale>
+            );
+          })}
+        </View>
+        <Text style={styles.rowHint}>
+          지금 적용 중: 신용 {data.credit_fee_pct}% · 체크 {data.check_fee_pct}%
+        </Text>
+      </Card>
+
+      <Card>
+        <SectionTitle>카드사별 입금 소요일</SectionTitle>
+        <Text style={styles.rowHint}>
+          매출이 발생한 날부터 통장에 들어오기까지 걸리는 영업일 수예요. 주말·공휴일은 자동으로
+          빼고 계산합니다. 통장 입금일과 다르면 여기서 고쳐 주세요.
+        </Text>
+        <View style={{ marginTop: 12 }}>
+          {data.issuers.map((iss) => (
+            <View key={iss.code} style={stlStyles.lagRow}>
+              <View style={[stlStyles.dot, { backgroundColor: iss.color }]} />
+              <Text style={stlStyles.lagName}>{iss.name}</Text>
+              <View style={stlStyles.stepper}>
+                <PressableScale
+                  style={stlStyles.stepBtn}
+                  onPress={() => apply({ lag_overrides: withLag(data, iss.code, iss.lag - 1) })}
+                  to={0.9}
+                >
+                  <Ionicons name="remove" size={15} color={colors.espressoBrown} />
+                </PressableScale>
+                <Text style={stlStyles.lagValue}>D+{iss.lag}</Text>
+                <PressableScale
+                  style={stlStyles.stepBtn}
+                  onPress={() => apply({ lag_overrides: withLag(data, iss.code, iss.lag + 1) })}
+                  to={0.9}
+                >
+                  <Ionicons name="add" size={15} color={colors.espressoBrown} />
+                </PressableScale>
+              </View>
+            </View>
+          ))}
+        </View>
+        <Text style={[styles.rowHint, { marginTop: 12 }]}>
+          기본값은 여신전문금융업법상 지급기일(영세·중소 가맹점 2영업일, 일반 3영업일)을 기준으로
+          한 추정치예요. 확정 금액과 날짜는 카드사 정산 내역을 확인하세요.
+        </Text>
+      </Card>
+    </>
+  );
+}
+
+const stlStyles = StyleSheet.create({
+  tierRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    backgroundColor: colors.creamSand,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+  },
+  tierRowActive: { backgroundColor: colors.coffeeCream },
+  tierLabel: { ...typography.L5, color: colors.espressoBrown, flex: 1 },
+  tierRate: { fontSize: 10, fontWeight: '700', color: colors.mochaBrown },
+  lagRow: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 7 },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  lagName: { ...typography.L4, color: colors.espressoBrown, flex: 1 },
+  stepper: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  stepBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.coffeeCream,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lagValue: { ...typography.L4, color: colors.espressoBrown, minWidth: 34, textAlign: 'center' },
+});
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10 },

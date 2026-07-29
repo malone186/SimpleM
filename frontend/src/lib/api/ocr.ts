@@ -44,17 +44,48 @@ export type OcrDocument = {
 const authHeader = (token?: string | null): Record<string, string> | undefined =>
   token ? { Authorization: `Bearer ${token}` } : undefined;
 
-/** 명세서/영수증 이미지를 업로드해 OCR 초안을 만든다 (자동 확정 없음). 토큰으로 내 매장 소유가 된다. */
+/** 업로드할 파일 한 건 — 촬영·앨범(ImagePicker)과 파일 선택(DocumentPicker) 결과의 공통 모양 */
+export type UploadAsset = {
+  uri: string;
+  mimeType?: string | null;
+  fileName?: string | null;
+};
+
+// 확장자 → MIME. 안드로이드 파일 선택기나 일부 브라우저가 mimeType을 안 주거나
+// application/octet-stream으로 주는 경우가 있어, 그때 파일명으로 되짚는다.
+const MIME_BY_EXT: Record<string, string> = {
+  pdf: 'application/pdf',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  heic: 'image/heic',
+  heif: 'image/heif',
+};
+
+function resolveMime(asset: UploadAsset): string {
+  const given = (asset.mimeType ?? '').split(';')[0].trim().toLowerCase();
+  if (given && given !== 'application/octet-stream') return given;
+  const ext = (asset.fileName ?? asset.uri).split('.').pop()?.toLowerCase() ?? '';
+  return MIME_BY_EXT[ext] ?? 'image/jpeg';
+}
+
+/**
+ * 명세서/영수증을 업로드해 OCR 초안을 만든다 (자동 확정 없음). 토큰으로 내 매장 소유가 된다.
+ * 사진뿐 아니라 PDF도 받는다 — 거래처 명세서는 이메일 PDF로 오는 일이 더 많아서,
+ * 화면을 찍어 올릴 필요 없이 파일 그대로 보내면 인식 정확도도 더 좋다.
+ */
 export async function uploadOcrImage(
-  asset: { uri: string; mimeType?: string | null; fileName?: string | null },
+  asset: UploadAsset,
   token?: string | null,
 ): Promise<OcrDocument> {
   const form = new FormData();
-  const name = asset.fileName ?? 'receipt.jpg';
-  const type = asset.mimeType ?? 'image/jpeg';
+  const type = resolveMime(asset);
+  const name = asset.fileName ?? (type === 'application/pdf' ? 'statement.pdf' : 'receipt.jpg');
 
   if (Platform.OS === 'web') {
-    // 웹: uri(blob/data URL)를 실제 Blob으로 변환해야 multipart로 전송된다
+    // 웹: uri(blob/data URL)를 실제 Blob으로 변환해야 multipart로 전송된다.
+    // blob.type이 비어 있는 경우가 있어 확장자로 되짚은 type을 우선 채운다.
     const blob = await (await fetch(asset.uri)).blob();
     form.append('file', new File([blob], name, { type: blob.type || type }));
   } else {

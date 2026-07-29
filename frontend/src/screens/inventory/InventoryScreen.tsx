@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View, LayoutAnimation, UIManager } from 'react-native';
+import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View, LayoutAnimation, UIManager } from 'react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -12,12 +12,13 @@ import { useNavigation } from '@react-navigation/native';
 
 import { useAuth } from '../../auth/AuthContext';
 import { useTranslation } from '../../i18n/translations';
+import CameraCaptureModal from '../../components/CameraCaptureModal';
 import { PressableScale } from '../../components/motion';
 import { confirmDialog, toast } from '../../components/toast';
 import { Badge, Button, Card, ProgressBar, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
 import { API_BASE_URL } from '../../lib/api/client';
 import { adjustStock, createIngredient, listStocks, StockItem } from '../../lib/api/inventory';
-import { confirmOcrDocument, listOcrDocuments, rejectOcrDocument, uploadOcrImage, OcrDocument, updateOcrDocument, OcrItem } from '../../lib/api/ocr';
+import { confirmOcrDocument, listOcrDocuments, rejectOcrDocument, uploadOcrImage, OcrDocument, updateOcrDocument, OcrItem, type UploadAsset } from '../../lib/api/ocr';
 import { colors, typography } from '../../theme';
 
 const TARGET_LABEL: Record<string, string> = {
@@ -59,6 +60,7 @@ export default function InventoryScreen() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all'); // [한글 주석] 카테고리 필터 상태
   const [drafts, setDrafts] = useState<OcrDocument[]>([]);
   const [scanning, setScanning] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false); // 웹 인앱 카메라 모달
   const [actingDocId, setActingDocId] = useState<string | null>(null); // 반려/확정 요청 진행 중인 초안 ID
 
   // [한글 주석] 영수증(명세서) 초안 수정 상태 관리 변수들
@@ -156,23 +158,16 @@ export default function InventoryScreen() {
     }
   };
 
-  const runOcr = async () => {
-    try {
-      // quality 0.6: 서버가 어차피 1280px대로 축소해 인식하므로 화질 손해 없이
-      // 업로드 용량(12MP 기준 수 MB)을 줄여 모바일 회선에서 전송 시간을 아낀다
-      let picked: ImagePicker.ImagePickerResult;
-      if (Platform.OS === 'web') {
-        picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6 });
-      } else {
-        const perm = await ImagePicker.requestCameraPermissionsAsync();
-        picked = perm.granted
-          ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.6 })
-          : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6 });
-      }
-      if (picked.canceled || !picked.assets?.length) return;
+  // 업로드 소스는 세 가지다. 거래처 명세서는 사진보다 이메일 PDF로 오는 일이 더 많아서
+  // (사장님 피드백: "발주하는 거 거의 이메일로 명세서 오니깐") 파일 선택이 사실상 주 경로다.
+  // PDF는 텍스트가 살아 있어 사진보다 인식 정확도도 높다.
+  type OcrSource = 'camera' | 'album' | 'file';
 
-      setScanning(true);
-      const doc = await uploadOcrImage(picked.assets[0], token);
+  // 업로드는 소스가 무엇이든 여기 한 곳으로 모인다 (촬영·앨범·파일·웹 카메라)
+  const uploadAsset = async (asset: UploadAsset) => {
+    setScanning(true);
+    try {
+      const doc = await uploadOcrImage(asset, token);
       setDrafts((prev) => [doc, ...prev]);
       const secs = doc.elapsed_sec != null ? ` (${doc.elapsed_sec}초)` : '';
       notify('인식 완료' + secs, `${doc.result.items.length}개 품목을 인식했어요. 내용을 확인하고 반영하세요.`);
@@ -180,6 +175,64 @@ export default function InventoryScreen() {
       notify('인식 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
     } finally {
       setScanning(false);
+    }
+  };
+
+  const pickFromFiles = async (): Promise<UploadAsset | null> => {
+    // expo-document-picker는 네이티브 모듈이라 구버전 앱에는 없을 수 있다. 정적 import로
+    // 올리면 그런 빌드에서 화면 진입만으로 앱이 죽으므로 필요할 때만 안전하게 불러온다.
+    let DocumentPicker: typeof import('expo-document-picker');
+    try {
+      DocumentPicker = require('expo-document-picker');
+    } catch {
+      notify('파일 선택을 쓸 수 없어요', '이 버전 앱에는 파일 선택 기능이 없어요. 앱을 업데이트하거나 사진 촬영·앨범을 이용해 주세요.');
+      return null;
+    }
+    const res = await DocumentPicker.getDocumentAsync({
+      type: ['application/pdf', 'image/*'],
+      copyToCacheDirectory: true,
+      multiple: false,
+    });
+    if (res.canceled || !res.assets?.length) return null;
+    const a = res.assets[0];
+    return { uri: a.uri, mimeType: a.mimeType ?? null, fileName: a.name ?? null };
+  };
+
+  const runOcr = async (source: OcrSource) => {
+    if (scanning) return;
+    try {
+      let asset: UploadAsset | null = null;
+
+      if (source === 'file') {
+        asset = await pickFromFiles();
+      } else if (source === 'camera' && Platform.OS === 'web') {
+        // 웹은 OS 카메라 앱을 띄울 수 없어 앱 안에 카메라 화면을 연다.
+        // 실제 업로드는 onCapture 콜백(uploadCaptured)에서 이어진다.
+        setCameraOpen(true);
+        return;
+      } else {
+        // quality 0.6: 서버가 어차피 1600px대로 축소해 인식하므로 화질 손해 없이
+        // 업로드 용량(12MP 기준 수 MB)을 줄여 모바일 회선에서 전송 시간을 아낀다
+        let picked: ImagePicker.ImagePickerResult;
+        if (source === 'camera') {
+          const perm = await ImagePicker.requestCameraPermissionsAsync();
+          if (!perm.granted) {
+            notify('카메라 권한이 필요해요', '설정에서 카메라 권한을 허용하거나 앨범·파일에서 골라 주세요.');
+            return;
+          }
+          picked = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.6 });
+        } else {
+          picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6 });
+        }
+        if (picked.canceled || !picked.assets?.length) return;
+        const a = picked.assets[0];
+        asset = { uri: a.uri, mimeType: a.mimeType ?? null, fileName: a.fileName ?? null };
+      }
+
+      if (!asset) return;
+      await uploadAsset(asset);
+    } catch (e) {
+      notify('인식 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
     }
   };
 
@@ -370,22 +423,45 @@ export default function InventoryScreen() {
         <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown} />
       </PressableScale>
 
-      {/* OCR 입고 */}
+      {/* OCR 입고 — 촬영 / 앨범 / 파일(PDF) 세 경로 */}
       <Card>
         <View style={styles.ocrHead}>
           <View style={{ flex: 1 }}>
-            <SectionTitle>{language === 'en' ? 'Receipt OCR Inbound' : '명세서 촬영 입고'}</SectionTitle>
-            {/* [한글 주석] 인식 중일 때는 텍스트를 변경하여 사용자에게 상태를 피드백합니다 */}
+            <SectionTitle>{language === 'en' ? 'Statement OCR Inbound' : '명세서 자동 입고'}</SectionTitle>
             <Text style={styles.hint}>
               {scanning
                 ? (language === 'en' ? 'Recognizing... (Takes a few seconds)' : '인식 중… (수 초 걸려요)')
-                : (language === 'en' ? 'Take a photo to auto-detect items, prices & quantities for inbound draft' : '사진을 찍으면 상품·단가·수량을 인식해 입고 초안을 만들어요')}
+                : (language === 'en'
+                  ? 'Photo or PDF — items, prices & quantities become an inbound draft'
+                  : '사진이든 이메일로 받은 PDF든, 상품·단가·수량을 읽어 입고 초안을 만들어요')}
             </Text>
           </View>
-          {/* [한글 주석] 우측 상단의 카메라 아이콘에 터치 인터랙션과 촬영 기능(runOcr)을 부여합니다 */}
-          <PressableScale onPress={runOcr} disabled={scanning} to={0.9}>
-            <Ionicons name="camera" size={24} color={scanning ? colors.mutedSand : colors.pointOrange} />
-          </PressableScale>
+          {scanning && <ActivityIndicator color={colors.pointOrange} />}
+        </View>
+
+        <View style={styles.ocrSourceRow}>
+          {/* 네이티브는 OS 카메라 앱, 웹은 앱 안 카메라 화면(CameraCaptureModal) */}
+          <OcrSourceButton
+            icon="camera-outline"
+            label="촬영"
+            hint="지금 찍기"
+            disabled={scanning}
+            onPress={() => runOcr('camera')}
+          />
+          <OcrSourceButton
+            icon="images-outline"
+            label="앨범"
+            hint="저장된 사진"
+            disabled={scanning}
+            onPress={() => runOcr('album')}
+          />
+          <OcrSourceButton
+            icon="document-attach-outline"
+            label="파일 · PDF"
+            hint="이메일 명세서"
+            disabled={scanning}
+            onPress={() => runOcr('file')}
+          />
         </View>
       </Card>
 
@@ -751,12 +827,62 @@ export default function InventoryScreen() {
           })
         )}
       </View>
+
+      {/* 웹 전용 인앱 카메라 — 네이티브에서는 아무것도 렌더하지 않는다 */}
+      <CameraCaptureModal
+        visible={cameraOpen}
+        onClose={() => setCameraOpen(false)}
+        onCapture={(photo) => {
+          setCameraOpen(false);
+          uploadAsset({ uri: photo.uri, mimeType: photo.mimeType, fileName: photo.fileName });
+        }}
+      />
     </Screen>
+  );
+}
+
+// OCR 업로드 소스 버튼 (촬영 / 앨범 / 파일)
+function OcrSourceButton({
+  icon,
+  label,
+  hint,
+  disabled,
+  onPress,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  hint?: string;
+  disabled?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <PressableScale
+      style={[styles.ocrSourceBtn, disabled && { opacity: 0.45 }]}
+      onPress={onPress}
+      disabled={disabled}
+      to={0.95}
+    >
+      <Ionicons name={icon} size={20} color={colors.pointOrange} />
+      <Text style={styles.ocrSourceLabel}>{label}</Text>
+      {hint ? <Text style={styles.ocrSourceHint}>{hint}</Text> : null}
+    </PressableScale>
   );
 }
 
 const styles = StyleSheet.create({
   ocrHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  ocrSourceRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
+  ocrSourceBtn: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.coffeeCream,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 6,
+  },
+  ocrSourceLabel: { ...typography.L5, color: colors.espressoBrown, fontWeight: '800' },
+  ocrSourceHint: { fontSize: 9, color: colors.mochaBrown, fontWeight: '600' },
   hint: { ...typography.L5, color: colors.mochaBrown, marginTop: 4 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   menuNav: {

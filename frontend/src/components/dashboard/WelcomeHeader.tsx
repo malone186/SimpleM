@@ -107,8 +107,8 @@ const NOTICE_ROUTE_RULES: { keywords: string[]; route: string; label: string }[]
   { keywords: ['세금', '세무', '부가세', '신고', '계약서', '서류', '문서', '명세서', '장부'], route: 'Document', label: '서류 자동화' },
   { keywords: ['원가', '마진', '손익'], route: 'Cost', label: '원가 분석' },
   { keywords: ['매출', '판매'], route: 'SalesInput', label: '판매 입력' },
-  { keywords: ['디저트'], route: 'Dessert', label: '디저트 관리' },
-  { keywords: ['메뉴', '레시피'], route: 'Menu', label: '메뉴 관리' },
+  // 디저트는 메뉴 관리 안의 '디저트' 탭으로 합쳐졌다
+  { keywords: ['디저트', '메뉴', '레시피'], route: 'Menu', label: '메뉴 관리' },
   { keywords: ['발주', '주문', '입고', '거래처'], route: 'Order', label: '발주' },
   { keywords: ['재고', '재료', '유통기한', '실사', '원두'], route: 'Inventory', label: '재고' },
   { keywords: ['챗봇', '어시스턴트', 'ai'], route: 'Chatbot', label: '챗봇' },

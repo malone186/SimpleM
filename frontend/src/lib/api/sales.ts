@@ -39,3 +39,31 @@ export const recordSales = (token: string, items: { menu_id: number; quantity: n
 /** 최근 판매 내역 */
 export const listRecentSales = (token: string, limit = 10) =>
   apiFetch<RecentSale[]>(`/api/v1/chatbot/sales/recent?limit=${limit}`, { headers: auth(token) });
+
+/** 메뉴별 기여이익 — 잔당 마진 × 실제 판매 잔 수 (원가율만으로는 안 보이는 '실제로 번 돈') */
+export type MenuContribution = {
+  menu_id: number;
+  name: string;
+  selling_price: number;
+  cost_price: number;
+  cost_ratio: number | null;
+  margin_per_cup: number;
+  sold_qty: number;
+  revenue: number;
+  total_margin: number;
+  margin_share: number;
+  recipe_missing: boolean;
+};
+
+export type ContributionResult = {
+  days: number;
+  menus: MenuContribution[];
+  total_margin: number;
+  total_revenue: number;
+  total_qty: number;
+};
+
+export const getMenuContribution = (token: string, days = 30) =>
+  apiFetch<ContributionResult>(`/api/v1/chatbot/sales/contribution?days=${days}`, {
+    headers: auth(token),
+  });

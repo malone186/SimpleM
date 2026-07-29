@@ -352,12 +352,17 @@ export default function SalesCard({
   const pulseRadius = 4 + pulseVal * 8; // [0, 1] -> [4, 12]
   const pulseOpacity = 0.6 - pulseVal * 0.6; // [0, 1] -> [0.6, 0]
 
-  // 증감 뱃지 — 일간은 어제 매출 대비, 월간은 전월 같은 경과일 대비 (비교 대상 없으면 '비교 없음')
+  // 증감 뱃지 — 일간은 '지난주 같은 요일' 대비가 기본이다.
+  // 어제 대비는 요일 효과(월요일은 원래 한산하다)에 눌려 사장님 체감과 어긋난다는 피드백이 있었다.
+  // 지난주 같은 요일 기록이 아예 없을 때만 어제 값으로 물러선다.
+  const lastWeekRevenue = todayActual?.last_week_revenue ?? 0;
   const yesterdayRevenue = todayActual?.yesterday_revenue ?? 0;
+  const dayBase = lastWeekRevenue > 0 ? lastWeekRevenue : yesterdayRevenue;
+  const comparingLastWeek = lastWeekRevenue > 0;
   const deltaPct = isMonthly
     ? (calendar?.change_pct ?? null)
-    : yesterdayRevenue > 0
-      ? ((todayRevenueTotal - yesterdayRevenue) / yesterdayRevenue) * 100
+    : dayBase > 0
+      ? ((todayRevenueTotal - dayBase) / dayBase) * 100
       : null;
   const badgeText = deltaPct === null ? '비교 없음' : `${deltaPct >= 0 ? '▲' : '▼'} ${Math.abs(deltaPct).toFixed(1)}%`;
   const isBadgeDown = deltaPct !== null && deltaPct < 0;
@@ -366,10 +371,12 @@ export default function SalesCard({
     deltaPct === null
       ? isMonthly
         ? '지난달 기록 없음'
-        : '어제 기록 없음'
+        : '비교할 기록 없음'
       : isMonthly
         ? '지난달 대비'
-        : '어제 대비';
+        : comparingLastWeek
+          ? '지난주 같은 요일 대비'
+          : '어제 대비';
 
   // 하단 세부 요약 수치 — 일간은 오늘 실적, 월간은 이번 달 집계 (데이터 없으면 '—')
   const monthCups = calendar?.month_total.cups ?? 0;

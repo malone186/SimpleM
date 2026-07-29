@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../auth/AuthContext';
 import { useTranslation } from '../../i18n/translations';
 import FormSheet, { LabeledInput } from '../../components/FormSheet';
+import PriceInput from '../../components/PriceInput';
 import { PressableScale } from '../../components/motion';
 import { Badge, Button, Card, Screen, ScreenTitle } from '../../components/ui';
 import { colors, typography } from '../../theme';
@@ -29,7 +30,8 @@ export default function IngredientScreen() {
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
-  const [price, setPrice] = useState('');
+  const [price, setPrice] = useState(''); // 사장님이 실제로 친 금액 (표시·재편집용)
+  const [supplyPrice, setSupplyPrice] = useState(0); // 부가세를 뺀 공급가액 — 원가 계산에 쓰는 값
 
   // 2. [인증 정보] 자동 로그인 여부와 무관하게 항상 유효한 in-memory 토큰 사용
   const { token } = useAuth();
@@ -83,7 +85,8 @@ export default function IngredientScreen() {
 
   // 4. [재료 추가 요청 발송] 입력한 내용을 백엔드 창구에 던집니다.
   const submit = async () => {
-    const p = parseInt(price.replace(/[^0-9]/g, ''), 10) || 0;
+    // 원가에는 부가세를 뺀 공급가액을 저장한다 (PriceInput이 계산해 준 값)
+    const p = supplyPrice || parseInt(price.replace(/[^0-9]/g, ''), 10) || 0;
     const headers = await getAuthHeaders();
     if (!('Authorization' in headers)) {
       toast('로그인이 필요해요', '로그아웃 후 다시 로그인해 주세요.');
@@ -101,6 +104,7 @@ export default function IngredientScreen() {
       });
       setName('');
       setPrice('');
+      setSupplyPrice(0);
       setAdding(false);
       await fetchIngredients();
       toast('추가 완료', `${name.trim()} 재료를 등록했어요.`);
@@ -160,12 +164,15 @@ export default function IngredientScreen() {
         submitDisabled={!canSubmit}
       >
         <LabeledInput label="재료명" value={name} onChangeText={setName} placeholder="예: 에티오피아 예가체프" />
-        <LabeledInput
-          label="단가 (원)"
-          value={price}
-          onChangeText={setPrice}
-          placeholder="예: 28000"
-          keyboardType="number-pad"
+        {/* 영수증 금액을 그대로 치고 칩만 고르면 공급가액은 앱이 뽑는다 (부가세 직접 계산 불필요) */}
+        <PriceInput
+          label="단가"
+          hint="영수증 금액 그대로 적으세요"
+          initialAmount={price}
+          onChange={(supply, raw) => {
+            setSupplyPrice(supply);
+            setPrice(raw ? String(raw) : '');
+          }}
         />
       </FormSheet>
     </>

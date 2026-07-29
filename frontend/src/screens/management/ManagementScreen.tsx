@@ -25,11 +25,11 @@ type Item = {
 
 // 지정 팔레트 — 에스프레소 → 모카 → 토프 → 스톤 베이지 → 페일 아이보리
 // 설정은 카드가 아니라 헤더 우상단 칩으로 들어간다.
+// 디저트 관리는 별도 카드 없이 '메뉴 관리' 안으로 합쳤다 (메뉴/디저트 탭).
 const ITEMS: Item[] = [
-  { label: '디저트 관리', en: 'DESSERT', desc: '소비기한 · 폐기 손실 · 마진 순위', color: '#6B4A32', route: 'Dessert' },
-  { label: '스케줄·급여', en: 'PAYROLL', desc: '알바 스케줄 · 손익 정산', color: '#5B514C', route: 'Operation' },
+  { label: '직원·스케줄', en: 'PAYROLL', desc: '직원 명부 · 인건비 · 근무 달력 · 손익 정산', color: '#5B514C', route: 'Operation' },
   { label: '서류·세금', en: 'DOCUMENTS', desc: '문서 초안 · 세금 관리', color: '#9A8E82', route: 'Document' },
-  { label: '판매 입력', en: 'SALES', desc: 'POS 연동 · 수동 입력', color: '#D1C6B9', route: 'SalesInput' },
+  { label: '판매 입력', en: 'SALES', desc: '현금·카드 입력 · 입금 예정일', color: '#D1C6B9', route: 'SalesInput' },
   { label: '원가 분석', en: 'COST', desc: '메뉴별 원가율 진단', color: '#E1DCD7', route: 'Cost' },
   { label: '법령 검색', en: 'LAW', desc: '노무 · 위생 법령', color: '#F4F1EF', route: 'LawSearch' },
   { label: '운영·원두 분석', en: 'OPERATION', desc: '원두 최저가 시세 · 실리뷰 분석', color: '#463C34', route: 'BeanOperation' },
@@ -93,10 +93,10 @@ export default function ManagementScreen() {
   const navigation = useNavigation<any>();
 
   const itemsList: Item[] = [
-    { label: language === 'en' ? 'Dessert Mgmt' : '디저트 관리', en: 'DESSERT', desc: language === 'en' ? 'Shelf life · Loss · Margin ranking' : '소비기한 · 폐기 손실 · 마진 순위', color: '#6B4A32', route: 'Dessert' },
-    { label: t('employeeManagement'), en: 'PAYROLL', desc: language === 'en' ? 'Employee schedule & Payroll' : '알바 스케줄 · 손익 정산', color: '#5B514C', route: 'Operation' },
+    // 직원·인건비는 별도 카드를 두지 않고 이 화면 안에서 들어간다 (진입로 하나로 통일)
+    { label: language === 'en' ? 'Staff & Schedule' : '직원 · 스케줄', en: 'PAYROLL', desc: language === 'en' ? 'Roster · Labor cost · Calendar · Settlement' : '직원 명부 · 인건비 · 근무 달력 · 손익 정산', color: '#5B514C', route: 'Operation' },
     { label: t('taxDocsTitle'), en: 'DOCUMENTS', desc: t('taxDocsSub'), color: '#9A8E82', route: 'Document' },
-    { label: t('salesInputTitle'), en: 'SALES', desc: t('salesInputSub'), color: '#D1C6B9', route: 'SalesInput' },
+    { label: t('salesInputTitle'), en: 'SALES', desc: language === 'en' ? 'Cash/Card · Payout schedule' : '현금·카드 입력 · 입금 예정일', color: '#D1C6B9', route: 'SalesInput' },
     { label: t('costAnalysisTitle'), en: 'COST', desc: t('costAnalysisSub'), color: '#E1DCD7', route: 'Cost' },
     { label: t('lawSearchTitle'), en: 'LAW', desc: t('lawSearchSub'), color: '#F4F1EF', route: 'LawSearch' },
     { label: language === 'en' ? 'Bean Ops' : '운영·원두 분석', en: 'OPERATION', desc: language === 'en' ? 'Bean market price & Reviews' : '원두 최저가 시세 · 실리뷰 분석', color: '#463C34', route: 'BeanOperation' },
