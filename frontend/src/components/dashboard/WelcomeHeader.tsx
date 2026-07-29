@@ -103,7 +103,6 @@ const READ_MAX_KEY = 'simplem:notice:read-max-id';
 // 매칭되는 규칙이 없으면 카드는 눌러도 이동하지 않는 일반 카드로 남는다.
 const NOTICE_ROUTE_RULES: { keywords: string[]; route: string; label: string }[] = [
   { keywords: ['급여', '알바', '아르바이트', '스케줄', '근무', '인건비', '주휴'], route: 'Operation', label: '스케줄 · 급여' },
-  { keywords: ['법령', '법률', '노무', '근로기준법', '노동법', '위생법'], route: 'LawSearch', label: '법령 검색' },
   { keywords: ['세금', '세무', '부가세', '신고', '계약서', '서류', '문서', '명세서', '장부'], route: 'Document', label: '서류 자동화' },
   { keywords: ['원가', '마진', '손익'], route: 'Cost', label: '원가 분석' },
   { keywords: ['매출', '판매'], route: 'SalesInput', label: '판매 입력' },

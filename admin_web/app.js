@@ -1013,7 +1013,6 @@ document.addEventListener('DOMContentLoaded', () => {
     ocr_expert: 'scan-line',
     operation_expert: 'trending-up',
     report_expert: 'bar-chart-3',
-    law_expert: 'scale',
     search_expert: 'globe',
   };
 

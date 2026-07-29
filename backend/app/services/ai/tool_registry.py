@@ -28,7 +28,6 @@ _TOOL_MODULES = [
     "app.services.operation.assistant_tools",    # 백엔드 B (음성 비서 — 브리핑·다음 할 일·완료/시작)
     "app.services.operation.bean_chatbot_tools", # 백엔드 C (원두 추천·리뷰 RAG·시세 챗봇 도구)
     "app.services.operation.forecasting_tools",  # 백엔드 C
-    "app.services.operation.law_tools",          # 법령 RAG 챗봇 도구 모듈
     "app.services.operation.operation_tools",    # 백엔드 C
     "app.services.operation.roastery_tools",     # 백엔드 C
     "app.services.operation.tax_tools",          # 백엔드 C
