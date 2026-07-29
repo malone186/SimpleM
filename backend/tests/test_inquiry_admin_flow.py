@@ -12,7 +12,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.core.auth import get_current_admin, get_current_user, get_password_hash
+from app.core.auth import (
+    get_current_admin,
+    get_current_user,
+    get_current_user_optional,
+    get_password_hash,
+)
 from app.core.database import Base, get_db
 from app.main import app
 from app.models.inventory import Ingredient
@@ -54,6 +59,11 @@ def client():
     # 관리자 인증은 이 테스트의 관심사가 아니다 (test_admin_login.py가 따로 검증한다)
     app.dependency_overrides[get_current_admin] = lambda: User(id=99, email="admin@simplem.com")
     app.dependency_overrides[get_current_user] = current_user
+    # 문의 등록은 선택적 인증을 쓴다 (구버전 앱 호환) — 로그인 상태를 흉내 내려면 이쪽도 덮어야 한다.
+    # _signed_in["email"]을 None으로 두면 '토큰 없는 구버전 앱'을 재현할 수 있다.
+    app.dependency_overrides[get_current_user_optional] = lambda: (
+        current_user() if _signed_in["email"] else None
+    )
     _signed_in["email"] = OWNER
     yield TestClient(app), TestSession
     app.dependency_overrides.clear()
@@ -198,3 +208,31 @@ def test_user_counts_are_counted_not_invented(client):
     again = next(u for u in c.get("/api/v1/admin/users").json() if u["email"] == OWNER)
     assert again["stockCount"] == 2
     assert next(u for u in c.get("/api/v1/admin/users").json() if u["email"] == OTHER)["stockCount"] == 0
+
+
+def test_legacy_app_without_token_can_still_submit(client):
+    """토큰 없이 보내는 구버전 앱도 문의를 접수할 수 있다.
+
+    인증을 필수로 걸었더니 OTA를 아직 못 받은 앱에서 접수가 통째로 막혔다(401).
+    등록은 남의 데이터를 읽는 경로가 아니라서 본문 이메일 폴백을 열어 둔다.
+    조회(GET)는 여전히 토큰이 필요하다 — 그쪽이 실제 유출 경로였다.
+    """
+    c, _ = client
+    _signed_in["email"] = None  # 토큰 없음 = 구버전 앱
+    res = c.post("/api/v1/inquiries", json={
+        "user_email": OWNER, "category": "❓ 사용 문의",
+        "title": "구버전 앱에서 보낸 문의", "content": "...",
+    })
+    assert res.status_code == 200, res.text
+    assert res.json()["user_email"] == OWNER
+
+    # 관리자 화면에는 정상적으로 뜬다
+    assert any(x["title"] == "구버전 앱에서 보낸 문의" for x in c.get("/api/v1/admin/cs").json())
+
+
+def test_no_token_and_no_email_is_rejected(client):
+    """토큰도 이메일도 없으면 누가 보냈는지 알 수 없으므로 거절한다."""
+    c, _ = client
+    _signed_in["email"] = None
+    res = c.post("/api/v1/inquiries", json={"category": "문의", "title": "무기명", "content": "..."})
+    assert res.status_code == 422

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.auth import get_current_user
+from app.core.auth import get_current_user, get_current_user_optional
 from app.core.database import get_db
 from app.models.inquiry import Inquiry
 from app.models.user import User
@@ -22,11 +22,11 @@ class InquiryCreate(BaseModel):
     앱이 값을 못 보내면 조용히 남의 계정 문의로 저장돼, 정작 보낸 사장님의 '나의 문의
     내역'에는 안 보이고 관리자 화면에는 엉뚱한 매장 이름이 찍혔다.
 
-    지금은 보낸 사람을 토큰에서 정한다. user_email 필드는 구버전 앱이 계속 보내와도
-    422가 나지 않도록 받아만 두고 쓰지 않는다.
+    지금은 토큰이 있으면 토큰의 주인이 보낸 사람이다. user_email은 토큰이 없을 때만
+    쓰는 구버전 앱 호환용 폴백이다 (OTA를 아직 못 받은 앱은 인증 없이 보낸다).
     """
 
-    user_email: Optional[str] = None  # (사용 안 함) 보낸 사람은 토큰에서 정한다
+    user_email: Optional[str] = None  # 토큰이 없을 때만 쓰는 폴백 (구버전 앱 호환)
     store_name: Optional[str] = None  # 비면 users 테이블에서 찾아 채운다
     category: str
     title: str
@@ -130,16 +130,23 @@ def _resolve_store_name(db: Session, email: str, given: Optional[str]) -> str:
 @router.post("")
 def create_inquiry(
     req: InquiryCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db),
 ):
     """[한글 주석] 사장님 앱에서 1대1 문의 등록 — DB 저장 후 관리자 CS 리스트에 실시간 연동
 
-    보낸 사람은 토큰에서 정한다. 본문의 user_email은 믿지 않는다 — 그대로 쓰면
-    아무나 남의 이름으로 문의를 넣을 수 있고, 관리자는 그 답변을 엉뚱한 사람에게 보낸다.
+    보낸 사람은 토큰이 있으면 토큰에서 정한다. 본문의 user_email보다 토큰이 우선이다 —
+    본문을 그대로 믿으면 아무나 남의 이름으로 문의를 넣고, 관리자가 엉뚱한 사람에게
+    답변하게 된다.
+
+    토큰이 없으면 본문의 user_email을 쓴다. 인증을 필수로 걸었더니 OTA를 아직 못 받은
+    앱(문의를 인증 없이 보낸다)에서 접수가 통째로 막혔다 — 조회(GET)와 달리 등록은
+    남의 데이터를 읽는 경로가 아니라서, 구버전 호환을 열어 두는 편이 낫다.
     """
     now = datetime.now()
-    email = current_user.email
+    email = (current_user.email if current_user else (req.user_email or "").strip())
+    if not email:
+        raise HTTPException(status_code=422, detail="문의를 보낸 사장님 이메일이 필요합니다.")
     store_name = _resolve_store_name(db, email, req.store_name)
 
     inq_id = None
