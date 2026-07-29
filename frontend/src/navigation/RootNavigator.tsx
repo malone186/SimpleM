@@ -18,7 +18,6 @@ import DashboardScreen from '../screens/dashboard/DashboardScreen';
 import DocumentScreen from '../screens/document/DocumentScreen';
 import IngredientScreen from '../screens/ingredient/IngredientScreen';
 import InventoryScreen from '../screens/inventory/InventoryScreen';
-import LawSearchScreen from '../screens/law/LawSearchScreen';
 import LegalScreen from '../screens/legal/LegalScreen';
 import ManagementScreen from '../screens/management/ManagementScreen';
 import MenuScreen from '../screens/menu/MenuScreen';
@@ -56,7 +55,6 @@ export type RootStackParamList = {
   Menu: undefined;
   SalesInput: undefined;
   Cost: undefined;
-  LawSearch: undefined;
   Legal: { doc?: 'privacy' | 'terms' } | undefined;
   Document: undefined;
   TaxDraftDetail: { tax: TaxEstimate };
@@ -170,7 +168,6 @@ export default function RootNavigator() {
         <Stack.Screen name="Menu" component={MenuScreen} options={({ navigation }) => erpHeader('메뉴 관리', navigation)} />
         <Stack.Screen name="SalesInput" component={SalesInputScreen} options={({ navigation }) => erpHeader('판매 입력', navigation)} />
         <Stack.Screen name="Cost" component={CostScreen} options={({ navigation }) => erpHeader('원가 분석', navigation)} />
-        <Stack.Screen name="LawSearch" component={LawSearchScreen} options={({ navigation }) => erpHeader('법령 검색', navigation)} />
         <Stack.Screen name="Legal" component={LegalScreen} options={({ navigation }) => erpHeader('약관 및 정책', navigation)} />
         <Stack.Screen name="Document" component={DocumentScreen} options={({ navigation }) => erpHeader('서류 자동화', navigation)} />
         <Stack.Screen name="TaxDraftDetail" component={TaxDraftDetailScreen} options={({ navigation }) => erpHeader('세금 신고 초안', navigation)} />

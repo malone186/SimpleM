@@ -31,7 +31,6 @@ const ITEMS: Item[] = [
   { label: '서류·세금', en: 'DOCUMENTS', desc: '문서 초안 · 세금 관리', color: '#9A8E82', route: 'Document' },
   { label: '판매 입력', en: 'SALES', desc: '현금·카드 입력 · 입금 예정일', color: '#D1C6B9', route: 'SalesInput' },
   { label: '원가 분석', en: 'COST', desc: '메뉴별 원가율 진단', color: '#E1DCD7', route: 'Cost' },
-  { label: '법령 검색', en: 'LAW', desc: '노무 · 위생 법령', color: '#F4F1EF', route: 'LawSearch' },
   { label: '운영·원두 분석', en: 'OPERATION', desc: '원두 최저가 시세 · 실리뷰 분석', color: '#463C34', route: 'BeanOperation' },
 ];
 
@@ -98,7 +97,6 @@ export default function ManagementScreen() {
     { label: t('taxDocsTitle'), en: 'DOCUMENTS', desc: t('taxDocsSub'), color: '#9A8E82', route: 'Document' },
     { label: t('salesInputTitle'), en: 'SALES', desc: language === 'en' ? 'Cash/Card · Payout schedule' : '현금·카드 입력 · 입금 예정일', color: '#D1C6B9', route: 'SalesInput' },
     { label: t('costAnalysisTitle'), en: 'COST', desc: t('costAnalysisSub'), color: '#E1DCD7', route: 'Cost' },
-    { label: t('lawSearchTitle'), en: 'LAW', desc: t('lawSearchSub'), color: '#F4F1EF', route: 'LawSearch' },
     { label: language === 'en' ? 'Bean Ops' : '운영·원두 분석', en: 'OPERATION', desc: language === 'en' ? 'Bean market price & Reviews' : '원두 최저가 시세 · 실리뷰 분석', color: '#463C34', route: 'BeanOperation' },
   ];
 
