@@ -131,7 +131,7 @@ def _scan_stock_runout(db, store_id: str, today: date) -> list[dict[str, Any]]:
                 f"하루 {round(daily, 2)}{unit}씩 나가고 있어요. 이 속도면 "
                 f"{runout_date.isoformat()}쯤 바닥납니다."
             ),
-            action=f"{name} 발주서 초안 만들어줘",
+            action=f"{name} 재고 얼마나 남았어?",
             due_date=runout_date.isoformat(),
             days_left=days_left,
         ))
@@ -233,42 +233,6 @@ def _scan_stale_ocr_drafts(db, store_id: str, today: date) -> list[dict[str, Any
         ),
         action="확정 안 된 OCR 문서 목록 보여줘",
     )]
-
-
-def _scan_pending_orders(db, store_id: str, today: date) -> list[dict[str, Any]]:
-    """만들어만 두고 안 보낸 발주 — 재고가 비는 원인이 되기 쉽다."""
-    from app.models.inventory import Order
-
-    cutoff = _now() - timedelta(days=STALE_DRAFT_DAYS)
-    orders = (
-        db.query(Order)
-        .filter(
-            Order.store_id == store_id,
-            Order.status.in_(["DRAFT", "PENDING"]),
-            Order.created_at <= cutoff,
-        )
-        .order_by(Order.created_at)
-        .limit(20)
-        .all()
-    )
-    if not orders:
-        return []
-    oldest = orders[0]
-    waited = (_now().date() - oldest.created_at.date()).days
-    total = sum(int(o.total_amount or 0) for o in orders)
-    return [_insight(
-        key=f"order_pending:{len(orders)}:{oldest.id}",
-        category="order",
-        severity="medium",
-        title=f"진행 안 된 발주 {len(orders)}건",
-        body=(
-            f"가장 오래된 발주가 {waited}일째 {oldest.status} 상태입니다. "
-            f"합계 {total:,}원 — 실제로 주문을 넣으셨는지 확인이 필요해요."
-        ),
-        action="발주 진행 상황 알려줘",
-    )]
-
-
 def _scan_price_surge(db, store_id: str, today: date) -> list[dict[str, Any]]:
     """매입 단가 인상 — 원가율에 바로 영향을 준다."""
     from app.models.inventory import Ingredient, IngredientPriceHistory
@@ -596,7 +560,6 @@ _SCANNERS: list[tuple[str, Callable]] = [
     ("renewals", _scan_renewals),
     ("tax_deadlines", _scan_tax_deadlines),
     ("stale_ocr", _scan_stale_ocr_drafts),
-    ("pending_orders", _scan_pending_orders),
     ("price_surge", _scan_price_surge),
     ("sales_anomaly", _scan_sales_anomaly),
     ("staff_hours", _scan_staff_hours),
