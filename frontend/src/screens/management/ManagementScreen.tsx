@@ -48,6 +48,7 @@ const LAYOUT = [
 const CARD_H = 132; // 카드 높이 (스크롤이 있으므로 넉넉하게)
 const GAP = -8; // 음수 간격 — 뒤 카드가 앞 카드 위로 살짝 올라타는 스택 느낌 (zIndex로 아래 카드가 위에 쌓인다)
 const DECK_PAD_MIN = 18; // 카드가 시트보다 길어져 스크롤이 생길 때의 최소 위·아래 여백
+const DECK_LIFT = 6; // 정중앙에서 이만큼만 위로 — 위 여백을 덜고 아래에 더한다 (총 높이는 그대로)
 
 // 상태바(시계·카메라 노치)에 가리지 않을 만큼만 띄운다.
 const TOP_INSET = Platform.select({
@@ -119,6 +120,10 @@ export default function ManagementScreen() {
   // 카드가 시트보다 길면 (작은 기기·항목 추가) 최소 여백으로 되돌아가 스크롤에 맡긴다.
   const deckH = itemsList.length * CARD_H + (itemsList.length - 1) * GAP;
   const deckPad = sheetH > 0 ? Math.max(DECK_PAD_MIN, (sheetH - deckH) / 2) : DECK_PAD_MIN;
+  // 반씩 나눈 값에서 위쪽만 살짝 덜어 카드 묶음을 들어올린다.
+  // 스크롤이 생기는 상황(deckPad가 최소값)에서는 위 여백을 더 깎지 않는다.
+  const deckTop = Math.max(DECK_PAD_MIN, deckPad - DECK_LIFT);
+  const deckBottom = deckPad + (deckPad - deckTop);
 
   return (
     <View style={styles.root}>
@@ -164,7 +169,7 @@ export default function ManagementScreen() {
       <View style={styles.body}>
         <Animated.ScrollView
           style={styles.scroll}
-          contentContainerStyle={[styles.deck, { paddingTop: deckPad, paddingBottom: deckPad }]}
+          contentContainerStyle={[styles.deck, { paddingTop: deckTop, paddingBottom: deckBottom }]}
           showsVerticalScrollIndicator={false}
           onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
             useNativeDriver: true,
@@ -178,7 +183,7 @@ export default function ManagementScreen() {
 
             // 카드 상단의 콘텐츠 좌표 — 높이·간격이 고정이라 정확히 계산된다
             const STEP = CARD_H + GAP;
-            const ct = i * STEP + deckPad; // deck paddingTop 포함
+            const ct = i * STEP + deckTop; // deck paddingTop 포함
             // 위 경계 구간: 카드가 시트 상단에 닿아 빨려드는 스크롤 범위
             const t0 = ct;
             const t1 = ct + CARD_H;
