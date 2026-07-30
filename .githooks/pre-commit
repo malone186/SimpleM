@@ -1,0 +1,19 @@
+#!/bin/sh
+# [pre-commit] 병합 충돌 마커가 스테이징된 채 커밋되는 것을 막는다.
+# (실제 사고: 충돌 마커가 그대로 커밋돼 main 빌드가 깨진 일이 반복됨)
+# 빠른 검사만 한다 — 타입체크는 무거우므로 pre-push에서 돈다.
+
+# 스테이징된 '추가 라인' 중 충돌 마커(<<<<<<< / ======= / >>>>>>>)가 있는지 검사
+marker=$(git diff --cached --unified=0 --no-color | grep -nE '^\+(<{7}|={7}|>{7})( |$)')
+
+if [ -n "$marker" ]; then
+  echo "✖ 커밋 거부: 병합 충돌 마커가 남아 있습니다."
+  echo "  아래 파일에서 <<<<<<< / ======= / >>>>>>> 를 정리한 뒤 다시 커밋하세요:"
+  git diff --cached --name-only | while IFS= read -r f; do
+    [ -f "$f" ] && grep -lE '^(<{7}|={7}|>{7})( |$)' "$f" 2>/dev/null | sed 's/^/    - /'
+  done
+  echo "  (긴급 시 우회: git commit --no-verify)"
+  exit 1
+fi
+
+exit 0
