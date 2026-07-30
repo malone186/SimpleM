@@ -91,13 +91,17 @@ export default function TodoList({
   const isToday = !selectedDateInfo || selectedDateInfo.isToday;
 
   const handleCreateTodo = () => {
-    if (!newTitle.trim()) return;
+    // [한글 주석] 업무 제목이 비어있으면 세부 메모 내용을 제목으로 자동 사용하여 등록 실패 방지
+    const titleText = newTitle.trim() || newSub.trim();
+    if (!titleText) return;
+
     const catMeta = CATEGORIES.find((c) => c.id === selectedCategory);
-    let fullTitle = newTitle.trim();
+    let fullTitle = titleText;
     if (selectedCategory !== 'daily' && catMeta) {
       fullTitle = `[${catMeta.tag}] ${fullTitle}`;
     }
-    if (newSub.trim()) {
+    // [한글 주석] 제목과 메모가 둘 다 존재할 경우에만 연결 기호(·) 추가
+    if (newTitle.trim() && newSub.trim()) {
       fullTitle += ` · ${newSub.trim()}`;
     }
 
@@ -197,26 +201,26 @@ export default function TodoList({
           />
           
           <SlideUp style={styles.modalContainer}>
-            {/* 모달 헤더 */}
+            {/* 모달 헤더 - [한글 주석] 군더더기 수식어('새 매장', '진행 업무' 등)를 없애고 날짜와 '업무 등록'만 깔끔하게 표기 */}
             <View style={styles.modalHeader}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.modalTitle}>✨ 새 매장 업무 등록</Text>
-                <Text style={styles.modalSub}>
-                  {dateLabel} ({selectedDateInfo?.dayName || '오늘'}) 진행할 업무를 등록하세요
+                <Text style={styles.modalDateText}>
+                  {dateLabel} ({selectedDateInfo?.dayName || '오늘'})
                 </Text>
+                <Text style={styles.modalTitle}>업무 등록</Text>
               </View>
               <PressableScale
                 onPress={() => setModalVisible(false)}
                 style={styles.modalCloseBtn}
-                to={0.85}
+                to={0.88}
               >
-                <Ionicons name="close" size={18} color="#71717A" />
+                <Ionicons name="close" size={16} color="#52525B" />
               </PressableScale>
             </View>
 
-            {/* 업무 카테고리 선택 칩 */}
+            {/* 업무 카테고리 선택 칩 (2x2 세련된 그리드 배치) */}
             <Text style={styles.inputFieldLabel}>카테고리 선택</Text>
-            <View style={styles.modalCategoryRow}>
+            <View style={styles.modalCategoryGrid}>
               {CATEGORIES.map((cat) => {
                 const isSelected = selectedCategory === cat.id;
                 return (
@@ -224,7 +228,7 @@ export default function TodoList({
                     key={cat.id}
                     onPress={() => setSelectedCategory(cat.id)}
                     style={[styles.modalCatChip, isSelected && styles.modalCatChipActive]}
-                    to={0.92}
+                    to={0.94}
                   >
                     <Ionicons
                       name={cat.icon as any}
@@ -271,8 +275,11 @@ export default function TodoList({
               </PressableScale>
               <PressableScale
                 onPress={handleCreateTodo}
-                style={[styles.modalSubmitBtn, !newTitle.trim() && { opacity: 0.5 }]}
-                disabled={!newTitle.trim()}
+                style={[
+                  styles.modalSubmitBtn,
+                  !newTitle.trim() && !newSub.trim() && { opacity: 0.5 },
+                ]}
+                disabled={!newTitle.trim() && !newSub.trim()}
                 to={0.95}
               >
                 <Text style={styles.modalSubmitText}>업무 추가하기</Text>
@@ -479,23 +486,23 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.45)',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
   },
   modalBackdropPress: {
     ...StyleSheet.absoluteFillObject,
   },
   modalContainer: {
     width: '100%',
-    maxWidth: 420,
+    maxWidth: 350,
     backgroundColor: '#FFFFFF',
-    borderRadius: 26,
-    padding: 22,
+    borderRadius: 22,
+    padding: 18,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 10,
-    gap: 12,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 8,
+    gap: 10,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -503,51 +510,63 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: 4,
   },
+  modalDateText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#71717A',
+    marginBottom: 1,
+  },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '900',
     color: '#18181B',
-    letterSpacing: -0.4,
+    letterSpacing: -0.5,
   },
   modalSub: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '500',
     color: '#71717A',
-    marginTop: 3,
+    marginTop: 2,
   },
   modalCloseBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: '#F4F4F5',
     justifyContent: 'center',
     alignItems: 'center',
   },
 
   inputFieldLabel: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '800',
     color: '#3F3F46',
     marginTop: 2,
   },
 
-  // 모달 카테고리
-  modalCategoryRow: {
+  // 모달 카테고리 (2x2 대칭 세련된 그리드)
+  modalCategoryGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
   },
   modalCatChip: {
+    width: '48.5%', // [한글 주석] 2x2 대칭 배치로 화면 깨짐 없는 깔끔한 세그먼트
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 5,
     backgroundColor: '#F4F4F5',
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    borderRadius: 10,
+    paddingVertical: 8,
   },
   modalCatChipActive: {
     backgroundColor: colors.espressoBrown,
+    shadowColor: colors.espressoBrown,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 3,
   },
   modalCatChipText: {
     fontSize: 11,
@@ -561,11 +580,11 @@ const styles = StyleSheet.create({
 
   // 텍스트 입력창
   modalTextInput: {
-    height: 42,
+    height: 38,
     backgroundColor: '#F4F4F5',
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    fontSize: 12.5,
+    borderRadius: 12,
+    paddingHorizontal: 11,
+    fontSize: 11.5,
     fontWeight: '600',
     color: '#18181B',
   },
@@ -573,32 +592,32 @@ const styles = StyleSheet.create({
   // 액션 버튼
   modalActionRow: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 8,
+    gap: 8,
+    marginTop: 6,
   },
   modalCancelBtn: {
     flex: 1,
-    height: 44,
-    borderRadius: 14,
+    height: 38,
+    borderRadius: 12,
     backgroundColor: '#F4F4F5',
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalCancelText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
     color: '#71717A',
   },
   modalSubmitBtn: {
     flex: 2,
-    height: 44,
-    borderRadius: 14,
+    height: 38,
+    borderRadius: 12,
     backgroundColor: colors.espressoBrown,
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalSubmitText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
     color: '#FFFFFF',
   },
