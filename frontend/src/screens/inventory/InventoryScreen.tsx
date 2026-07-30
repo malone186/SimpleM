@@ -461,7 +461,7 @@ export default function InventoryScreen() {
           <Text style={styles.brownHeaderSub}>{t('inventorySubtitle')}</Text>
         </FadeInUp>
         <View style={styles.brownHeaderRight}>
-          <Brew mood="clipboard" size={96} />
+          <Brew mood="welcome" size={140} style={{ transform: [{ translateY: 12 }] }} />
         </View>
       </View>
 
