@@ -48,12 +48,10 @@ type AdminStats = {
 // GET /health 의 components — 구성요소별 실제 상태
 type HealthComponents = {
   api: { ok: boolean };
-  // provider/region/database — 지금 붙어 있는 DB가 운영 Neon인지 로컬인지 구분하려고 받는다
   db: { ok: boolean; detail?: string; provider?: string; region?: string; database?: string };
   ocr: { ok: boolean; detail?: string; backend?: string };
 };
 
-// '시스템 상태'에 표시할 DB 이름 — 예: 'Neon PostgreSQL · ap-southeast-1 · neondb'
 function dbLabel(db: HealthComponents['db']): string {
   return [db.provider, db.region, db.database].filter(Boolean).join(' · ');
 }

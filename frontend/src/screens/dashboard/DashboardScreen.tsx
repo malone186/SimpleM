@@ -36,12 +36,34 @@ export default function DashboardScreen() {
   //
   // 화면에 다시 들어올 때도 다시 읽는다 — 챗봇에서 브루가 할 일을 추가하고 홈으로 돌아왔을 때
   // 바로 보여야 하기 때문이다.
+  const notifiedStocksRef = useRef<Set<string>>(new Set());
+
+  // [한글 주석] 재고 부족 시 브라우저/OS 데스크톱 푸시 알림 전송
+  const sendStockPushNotification = useCallback((stockItem: { name: string; current_quantity: number; safety_quantity: number; unit: string }) => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'granted') {
+        new Notification(`⚠️ [SimpleM] ${stockItem.name} 재고 부족 알림`, {
+          body: `현재 잔여 재고가 ${stockItem.current_quantity}${stockItem.unit}입니다. (안전재고: ${stockItem.safety_quantity}${stockItem.unit})`,
+          icon: '/favicon.ico',
+        });
+      } else if (Notification.permission !== 'denied') {
+        Notification.requestPermission().then((permission) => {
+          if (permission === 'granted') {
+            new Notification(`⚠️ [SimpleM] ${stockItem.name} 재고 부족 알림`, {
+              body: `현재 잔여 재고가 ${stockItem.current_quantity}${stockItem.unit}입니다. (안전재고: ${stockItem.safety_quantity}${stockItem.unit})`,
+              icon: '/favicon.ico',
+            });
+          }
+        });
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (!token || !isFocused) return;
     let cancelled = false;
     (async () => {
       const next: Todo[] = [];
-      // 재고·서류·할 일을 병렬로 조회 — 순차 대기(각 ~0.8초)를 한 번의 대기로 줄인다
       const [stocksResult, complianceResult, serverTodosResult] = await Promise.allSettled([
         listStocks(token),
         listCompliance(token),
@@ -50,9 +72,17 @@ export default function DashboardScreen() {
       try {
         if (stocksResult.status === 'rejected') throw stocksResult.reason;
         const stocks = stocksResult.value;
-        stocks
-          // 안전재고를 따로 설정한 매장이 거의 없다 — 미설정(0)이면 3개 미만을 부족으로 본다
-          .filter((s) => s.current_quantity <= (s.safety_quantity > 0 ? s.safety_quantity : 3))
+        const lowStocks = stocks.filter((s) => s.current_quantity <= (s.safety_quantity > 0 ? s.safety_quantity : 3));
+
+        lowStocks.forEach((s) => {
+          const idStr = String(s.ingredient_id);
+          if (!notifiedStocksRef.current.has(idStr)) {
+            notifiedStocksRef.current.add(idStr);
+            sendStockPushNotification(s);
+          }
+        });
+
+        lowStocks
           .sort(
             (a, b) =>
               a.current_quantity / (a.safety_quantity || 1) -
@@ -68,11 +98,9 @@ export default function DashboardScreen() {
                 ? `잔여 ${s.current_quantity}${s.unit} · 안전재고 ${s.safety_quantity}${s.unit}`
                 : `잔여 ${s.current_quantity}${s.unit} · 기준 3${s.unit} 미만`,
               actionable: true,
-              // 누르면 브루 챗봇이 열리며 이 질문이 자동 전송된다.
               chatPrefill: `${s.name} 재고 어떻게 할까?`,
-              // 브루(AI)가 재고를 자동 점검해 알려주는 항목 — 'ai' 출처라 '브루' 배지가 붙는다.
-              // DB에 저장하지 않으므로 재고를 채우면 다음 조회에서 저절로 사라진다(유령 항목 방지).
               source: 'ai',
+              qty: `${Math.max(Math.ceil(s.safety_quantity * 2 - s.current_quantity), 1)} ${s.unit}`,
             });
           });
       } catch (e) {

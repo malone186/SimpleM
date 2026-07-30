@@ -183,7 +183,7 @@ export default function InventoryScreen() {
   const pickFromFiles = async (): Promise<UploadAsset | null> => {
     // expo-document-picker는 네이티브 모듈이라 구버전 앱에는 없을 수 있다. 정적 import로
     // 올리면 그런 빌드에서 화면 진입만으로 앱이 죽으므로 필요할 때만 안전하게 불러온다.
-    let DocumentPicker: typeof import('expo-document-picker');
+    let DocumentPicker: any;
     try {
       DocumentPicker = require('expo-document-picker');
     } catch {
