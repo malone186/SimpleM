@@ -1,7 +1,7 @@
 // 공동 소유 — 탭 추가 시 알파벳순 정렬, 팀 공지
 // PRD §6 화면 5개: 대시보드 / 재고 / 발주 / 챗봇 / 운영
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator, LayoutAnimation, Platform, View } from 'react-native';
+import { ActivityIndicator, Easing, LayoutAnimation, Platform, View } from 'react-native';
 import { PressableScale } from '../components/motion';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -206,7 +206,19 @@ function TabsNavigator() {
       initialRouteName="Dashboard"
       screenOptions={({ route }) => ({
         headerShown: false,
-        animation: 'shift', // 탭 전환 시 콘텐츠가 스르륵 밀려 들어옴
+        // [애플 OS 느낌] 탭 전환 — 크로스디졸브(페이드) + 미세한 줌(0.94→1.0)으로 깊이감 + 부드러운 이징
+        transitionSpec: {
+          animation: 'timing',
+          config: { duration: 300, easing: Easing.bezier(0.33, 1, 0.68, 1) },
+        },
+        sceneStyleInterpolator: ({ current }) => ({
+          sceneStyle: {
+            opacity: current.progress.interpolate({ inputRange: [-1, 0, 1], outputRange: [0, 1, 0] }),
+            transform: [
+              { scale: current.progress.interpolate({ inputRange: [-1, 0, 1], outputRange: [0.94, 1, 0.94] }) },
+            ],
+          },
+        }),
         tabBarActiveTintColor: colors.pointOrange, // [아이폰 스타일] 웰컴 테마와 매칭되는 활기찬 포인트 오렌지 적용
         tabBarInactiveTintColor: colors.mochaBrown,
         tabBarStyle: {
