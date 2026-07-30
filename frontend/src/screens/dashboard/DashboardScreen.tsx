@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import Svg, { Defs, LinearGradient, Stop, Path, Circle, Filter, FeGaussianBlur } from 'react-native-svg';
-
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../auth/AuthContext';
 import CardDepositCard from '../../components/dashboard/CardDepositCard';
@@ -18,6 +18,9 @@ import { listCompliance } from '../../lib/api/documents';
 import { listStocks } from '../../lib/api/inventory';
 import { createTodo, deleteTodo, listTodos, updateTodo } from '../../lib/api/todo';
 import { colors, spacing, typography, shadows } from '../../theme';
+
+// [한글 주석: 삭제 처리된 투두 항목 ID 저장 키 (AsyncStorage 영구 보관)]
+const DISMISSED_TODOS_KEY = '@simplem_dismissed_todos';
 
 // [한글 주석: 웹/앱 푸시 알림 권한 요청 및 재고 부족 푸시 알림 발송 함수]
 function sendStockPushNotification(item: { name: string; current_quantity: number; safety_quantity: number; unit: string }) {
@@ -64,14 +67,25 @@ export default function DashboardScreen() {
     if (!token || !isFocused) return;
     let cancelled = false;
     (async () => {
+      // [한글 주석: 사장님이 이미 삭제한 투두 ID 목록을 AsyncStorage에서 불러와 중복 생성을 방지합니다]
+      let dismissedSet = new Set<string>();
+      try {
+        const rawDismissed = await AsyncStorage.getItem(DISMISSED_TODOS_KEY);
+        if (rawDismissed) {
+          dismissedSet = new Set(JSON.parse(rawDismissed));
+        }
+      } catch (e) {
+        console.error('삭제된 투두 목록 읽기 실패:', e);
+      }
+
       const next: Todo[] = [];
 
-      // [한글 주석: 어제 날짜(과거) 테스트용 실제 수행했던 매장 업무 샘플 3종 자동 생성]
+      // [한글 주석: 어제 날짜(과거) 테스트용 매장 업무 샘플 3종 자동 생성 (삭제한 적 없는 항목만)]
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
       const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
 
-      next.push(
+      const mockItems: Todo[] = [
         {
           id: 'mock-yesterday-1',
           title: '[일일업무] 에스프레소 머신 스팀 노즐 소독 및 마감',
@@ -96,7 +110,13 @@ export default function DashboardScreen() {
           source: 'owner',
           dateKey: yesterdayKey,
         },
-      );
+      ];
+
+      mockItems.forEach((item) => {
+        if (!dismissedSet.has(item.id)) {
+          next.push(item);
+        }
+      });
 
       const [stocksResult, complianceResult, serverTodosResult] = await Promise.allSettled([
         listStocks(token),
@@ -124,6 +144,7 @@ export default function DashboardScreen() {
           )
           .slice(0, 4)
           .forEach((s) => {
+<<<<<<< Updated upstream
             const soldOut = s.current_quantity <= 0;
             next.push({
               id: `stock-${s.ingredient_id}`,
@@ -135,6 +156,22 @@ export default function DashboardScreen() {
               // [한글 주석] 브루(AI)가 재고를 자동 점검해 알려주는 항목 — 'ai' 출처라 '브루' 배지가 붙는다.
               source: 'ai',
             });
+=======
+            const stockId = `stock-${s.ingredient_id}`;
+            if (!dismissedSet.has(stockId)) {
+              const soldOut = s.current_quantity <= 0;
+              next.push({
+                id: stockId,
+                title: soldOut ? `${s.name} 재고 소진` : `${s.name} 재고 부족`,
+                subtitle: s.safety_quantity > 0
+                  ? `잔여 ${s.current_quantity}${s.unit} · 안전재고 ${s.safety_quantity}${s.unit}`
+                  : `잔여 ${s.current_quantity}${s.unit} · 기준 3${s.unit} 미만`,
+                actionable: true,
+                chatPrefill: `${s.name} 재고 어떻게 할까?`,
+                source: 'ai',
+              });
+            }
+>>>>>>> Stashed changes
           });
       } catch (e) {
         console.error('재고 할 일 조회 실패:', e);
@@ -146,15 +183,19 @@ export default function DashboardScreen() {
           .filter((c) => c.status !== 'ok')
           .slice(0, 2)
           .forEach((c) => {
-            next.push({
-              id: `comp-${c.id}`,
-              title: c.status === 'expired' ? `${c.name} 만료됨` : `${c.name} 갱신 임박`,
-              subtitle:
-                c.status === 'expired'
-                  ? `만료일 ${c.expiry_date} 경과 — 챗봇에서 갱신 안내 확인`
-                  : `D-${c.days_left} · 만료일 ${c.expiry_date}`,
-              actionable: false,
-            });
+            const compId = `comp-${c.id}`;
+            if (!dismissedSet.has(compId)) {
+              next.push({
+                id: compId,
+                title: c.status === 'expired' ? `${c.name} 만료됨` : `${c.name} 갱신 임박`,
+                subtitle:
+                  c.status === 'expired'
+                    ? `만료일 ${c.expiry_date} 경과 — 챗봇에서 갱신 안내 확인`
+                    : `D-${c.days_left} · 만료일 ${c.expiry_date}`,
+                actionable: false,
+                source: 'ai',
+              });
+            }
           });
       } catch (e) {
         console.error('서류 갱신 할 일 조회 실패:', e);
@@ -162,21 +203,24 @@ export default function DashboardScreen() {
       try {
         if (serverTodosResult.status === 'rejected') throw serverTodosResult.reason;
         serverTodosResult.value.forEach((t: any) => {
-          const parsedKey = t.date_key || (t.created_at ? t.created_at.split('T')[0] : undefined);
-          next.push({
-            id: `server-${t.id}`,
-            title: t.title,
-            subtitle:
-              t.note && t.note !== '브루가 추가함'
-                ? t.note
-                : t.source === 'ai'
-                  ? '대화 중 추가됨'
-                  : '사장님 직접 추가',
-            actionable: false,
-            done: t.done,
-            source: t.source,
-            dateKey: parsedKey,
-          });
+          const serverIdStr = `server-${t.id}`;
+          if (!dismissedSet.has(serverIdStr)) {
+            const parsedKey = t.date_key || (t.created_at ? t.created_at.split('T')[0] : undefined);
+            next.push({
+              id: serverIdStr,
+              title: t.title,
+              subtitle:
+                t.note && t.note !== '브루가 추가함'
+                  ? t.note
+                  : t.source === 'ai'
+                    ? '대화 중 추가됨'
+                    : '사장님 직접 추가',
+              actionable: false,
+              done: t.done,
+              source: t.source,
+              dateKey: parsedKey,
+            });
+          }
         });
       } catch (e) {
         console.error('할 일 조회 실패:', e);
@@ -197,8 +241,6 @@ export default function DashboardScreen() {
   const brewMood = 'top';
   const scrollY = useRef(new Animated.Value(0)).current;
 
-
-
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     setTimeout(() => {
@@ -211,8 +253,7 @@ export default function DashboardScreen() {
   const serverIdOf = (id: string): number | null =>
     id.startsWith('server-') ? Number(id.slice('server-'.length)) : null;
 
-  // 아래 핸들러들은 화면을 먼저 바꾸고(낙관적) 서버에 반영한다. 체크 반응이 네트워크
-  // 왕복을 기다리면 굼떠 보이기 때문이다. 실패하면 runId를 올려 서버 상태로 되돌린다.
+  // 아래 핸들러들은 화면을 먼저 바꾸고(낙관적) 서버에 반영한다.
   const resync = () => setRunId((x) => x + 1);
 
   const handleAddTodo = async (title: string, dateKey?: string) => {
@@ -221,21 +262,28 @@ export default function DashboardScreen() {
 
     const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
     const targetKey = dateKey || todayStr;
+    const tempLocalId = `local-${Date.now()}`;
 
     const newTodo: Todo = {
-      id: `local-${Date.now()}`,
+      id: tempLocalId,
       title: trimmed,
       subtitle: '사장님 직접 추가',
       actionable: false,
       done: false,
       dateKey: targetKey,
+      source: 'owner',
     };
 
     setTodos((prev) => [newTodo, ...prev]);
 
     if (token) {
       try {
-        await createTodo(token, trimmed);
+        const created = await createTodo(token, trimmed);
+        const realServerId = `server-${created.id}`;
+        // [한글 주석] 서버 등록 완료 후 local- ID를 server- ID로 교체하여 삭제 시 서버 연동이 정상 동작하게 함
+        setTodos((prev) =>
+          prev.map((t) => (t.id === tempLocalId ? { ...t, id: realServerId } : t))
+        );
       } catch (e) {
         console.error('할 일 추가 실패:', e);
       }
@@ -256,15 +304,28 @@ export default function DashboardScreen() {
   };
 
   const handleDeleteTodo = async (id: string) => {
+    // 1. [한글 주석] 화면 상태에서 즉시 삭제
     setTodos((prev) => prev.filter((t) => t.id !== id));
 
-    const serverId = serverIdOf(id);
-    if (serverId === null || !token) return;
+    // 2. [한글 주석] 삭제된 항목의 ID를 AsyncStorage에 추가하여 탭 이동 후 재생성되는 현상을 방지
     try {
-      await deleteTodo(token, serverId);
+      const raw = await AsyncStorage.getItem(DISMISSED_TODOS_KEY);
+      const set = new Set<string>(raw ? JSON.parse(raw) : []);
+      set.add(id);
+      await AsyncStorage.setItem(DISMISSED_TODOS_KEY, JSON.stringify(Array.from(set)));
     } catch (e) {
-      console.error('할 일 삭제 실패:', e);
-      resync();
+      console.error('삭제 항목 영구 보관 실패:', e);
+    }
+
+    // 3. [한글 주석] 서버 DB 항목인 경우 서버에서도 삭제 API 호출
+    const serverId = serverIdOf(id);
+    if (serverId !== null && token) {
+      try {
+        await deleteTodo(token, serverId);
+      } catch (e) {
+        console.error('할 일 삭제 실패:', e);
+        resync();
+      }
     }
   };
 

@@ -204,11 +204,16 @@ function DateStripCell({
       style={styles.dateStripItem}
       to={0.82}
     >
-      <View style={styles.dateDayBox}>
-        <Text style={[styles.dateDayText, isSelected && styles.dateDayTextActive]}>
-          {item.dayName}
-        </Text>
-      </View>
+      {/* [한글 주석: 요일 라벨 - 지나간 날(isPast)은 연한 톤, 오늘~미래는 또렷하고 선명한 톤] */}
+      <Text
+        style={[
+          styles.dateDayText,
+          item.isPast && styles.dateDayTextPast,
+          isSelected && styles.dateDayTextActive,
+        ]}
+      >
+        {item.dayName}
+      </Text>
 
       <Animated.View
         style={[
@@ -218,9 +223,11 @@ function DateStripCell({
           { transform: [{ scale: scaleAnim }] },
         ]}
       >
+        {/* [한글 주석: 날짜 숫자 - 지나간 날은 소프트 연한 톤, 오늘부터는 또렷하게 진한 톤] */}
         <Text
           style={[
             styles.dateNumberText,
+            item.isPast && styles.dateNumberTextPast,
             item.isToday && styles.dateNumberTextToday,
             isSelected && styles.dateNumberTextActive,
           ]}
@@ -228,14 +235,6 @@ function DateStripCell({
           {item.dateNum}
         </Text>
       </Animated.View>
-
-      <View style={styles.dateCheckArea}>
-        {item.isPast && (
-          <View style={styles.dateCheckBadge}>
-            <Ionicons name="checkmark" size={10} color={colors.mochaBrown} />
-          </View>
-        )}
-      </View>
     </PressableScale>
   );
 }
@@ -1709,39 +1708,49 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
-    paddingHorizontal: 2,
+    marginBottom: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(110, 85, 68, 0.04)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(110, 85, 68, 0.07)',
+  },
+  todoWrapper: {
+    backgroundColor: '#FAF8F5',
+    borderRadius: 22,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(110, 85, 68, 0.08)',
   },
   dateStripItem: {
     alignItems: 'center',
-    width: 42,
-  },
-  dateDayBox: {
-    height: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 4,
+    width: 40,
+    gap: 3,
   },
   dateDayText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#A1A1AA',
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#3F3F46', // 오늘부터(미래)는 또렷한 색상
     textAlign: 'center',
   },
+  dateDayTextPast: {
+    color: '#D4D4D8', // 지나간 날짜 요일은 은은하고 연한 톤
+    fontWeight: '600',
+  },
   dateDayTextActive: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '900',
     color: colors.espressoBrown,
     textAlign: 'center',
   },
   dateCircle: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 0,
   },
   dateCircleToday: {
     borderWidth: 1.5,
@@ -1755,17 +1764,21 @@ const styles = StyleSheet.create({
     shadowColor: colors.espressoBrown,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 6,
+    shadowRadius: 8,
+    elevation: 5,
   },
   dateNumberText: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: '#3F3F46',
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#18181B', // 오늘부터(미래)는 또렷하고 진한 숫자 색상
     textAlign: 'center',
   },
+  dateNumberTextPast: {
+    color: '#A1A1AA', // 지나간 날짜 숫자는 은은하게 연한 톤
+    fontWeight: '600',
+  },
   dateNumberTextToday: {
-    fontSize: 13.5,
+    fontSize: 14,
     fontWeight: '900',
     color: colors.espressoBrown,
     textAlign: 'center',
@@ -1775,19 +1788,5 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#FFFFFF',
     textAlign: 'center',
-  },
-  dateCheckArea: {
-    height: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  dateCheckBadge: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#F4F4F5',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
 });

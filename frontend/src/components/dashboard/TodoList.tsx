@@ -407,7 +407,7 @@ function TodoItem({
           <Ionicons
             name={disabled ? 'checkmark-circle' : 'ellipse-outline'}
             size={22}
-            color={disabled ? '#16A34A' : '#D4D4D8'}
+            color={disabled ? colors.espressoBrown : '#C4B5A5'}
           />
         </PressableScale>
 
@@ -458,19 +458,20 @@ const styles = StyleSheet.create({
   emptyStateContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 22,
+    paddingVertical: 24,
     paddingHorizontal: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FFFDF9',
     borderRadius: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.05)',
+    borderWidth: 1.2,
+    borderColor: '#EFECE6',
+    borderStyle: 'dashed',
     gap: 6,
     marginBottom: 4,
   },
   emptyStateText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#71717A',
+    color: '#8C827A',
     textAlign: 'center',
   },
 
@@ -482,12 +483,12 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: colors.espressoBrown,
     borderRadius: 18,
-    paddingVertical: 13,
-    marginTop: 4,
+    paddingVertical: 14,
+    marginTop: 6,
     shadowColor: colors.espressoBrown,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
     elevation: 4,
   },
   openModalBtnText: {
@@ -511,7 +512,7 @@ const styles = StyleSheet.create({
   modalContainer: {
     width: '100%',
     maxWidth: 350,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FFFDF9',
     borderRadius: 22,
     padding: 18,
     shadowColor: '#000',
@@ -520,6 +521,8 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 8,
     gap: 10,
+    borderWidth: 1,
+    borderColor: '#EFECE6',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -530,26 +533,26 @@ const styles = StyleSheet.create({
   modalDateText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#71717A',
+    color: '#8C827A',
     marginBottom: 1,
   },
   modalTitle: {
     fontSize: 17,
     fontWeight: '900',
-    color: '#18181B',
+    color: '#2C221E',
     letterSpacing: -0.5,
   },
   modalSub: {
     fontSize: 11,
     fontWeight: '500',
-    color: '#71717A',
+    color: '#8C827A',
     marginTop: 2,
   },
   modalCloseBtn: {
     width: 26,
     height: 26,
     borderRadius: 13,
-    backgroundColor: '#F4F4F5',
+    backgroundColor: '#F4F1EA',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -573,7 +576,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5,
-    backgroundColor: '#F4F4F5',
+    backgroundColor: '#F4F1EA',
     borderRadius: 10,
     paddingVertical: 8,
   },
@@ -598,12 +601,12 @@ const styles = StyleSheet.create({
   // 텍스트 입력창
   modalTextInput: {
     height: 38,
-    backgroundColor: '#F4F4F5',
+    backgroundColor: '#F4F1EA',
     borderRadius: 12,
     paddingHorizontal: 11,
     fontSize: 11.5,
     fontWeight: '600',
-    color: '#18181B',
+    color: '#2C221E',
   },
 
   // 액션 버튼
@@ -616,7 +619,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 38,
     borderRadius: 12,
-    backgroundColor: '#F4F4F5',
+    backgroundColor: '#F4F1EA',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -639,29 +642,34 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  // 할 일 항목 카드
+  // 메모장 감성 투두 할 일 항목 카드
   taskCardItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    marginBottom: 8,
+    backgroundColor: '#FFFDF9', // 클래식 아날로그 크림 메모지 톤
+    borderRadius: 16,
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    marginBottom: 9,
     borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.05)',
-    shadowColor: '#000',
+    borderColor: '#EFECE6', // 따뜻하고 은은한 메모지 테두리
+    borderLeftWidth: 4,
+    borderLeftColor: colors.espressoBrown, // 메모지 좌측 감성 마진 라인
+    shadowColor: '#4E3629',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
+    shadowOpacity: 0.04,
     shadowRadius: 6,
     elevation: 2,
   },
   itemDone: {
-    backgroundColor: '#F9FAFB',
-    opacity: 0.6,
+    backgroundColor: '#F5F2EB', // 완료 시 차분한 에이징 노트 배경
+    borderLeftColor: colors.espressoBrown, // 완료 시 클래식 에스프레소 갈색 라인
+    borderColor: '#E7E2D8',
+    opacity: 0.75,
   },
   checkTouch: {
     padding: 2,
+    marginRight: 2,
   },
   taskIconBadge: {
     width: 28,
@@ -672,19 +680,21 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   taskItemTitle: {
-    fontSize: 13,
+    fontSize: 13.5,
     fontWeight: '700',
-    color: '#18181B',
+    color: '#2C221E', // 에스프레소 잉크 톤
     letterSpacing: -0.3,
   },
   taskItemSub: {
     fontSize: 11.5,
     fontWeight: '500',
-    color: '#71717A',
+    color: '#8C827A',
     flexShrink: 1,
   },
   strike: {
     textDecorationLine: 'line-through',
+    color: '#8C827A',
+    textDecorationColor: colors.espressoBrown, // 에스프레소 갈색 취소선
   },
   titleRow: {
     flexDirection: 'row',
@@ -701,7 +711,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   aiBadgeDone: {
-    backgroundColor: '#F4F4F5',
+    backgroundColor: '#EFECE6',
   },
   aiBadgeText: {
     fontSize: 9,
@@ -709,7 +719,7 @@ const styles = StyleSheet.create({
     color: '#A855F7',
   },
   aiBadgeTextDone: {
-    color: '#71717A',
+    color: '#8C827A',
   },
   actionsRight: {
     flexDirection: 'row',
@@ -718,16 +728,16 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
 
-  // 발주 칩 & 완료 배지
+  // 발주 칩 & 완료 배지 (에스프레소 갈색 톤 통합)
   actionHint: {
-    backgroundColor: '#DCFCE7',
+    backgroundColor: 'rgba(110, 85, 68, 0.12)',
     borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 3.5,
   },
   actionHintText: {
     fontSize: 9.5,
-    color: '#16A34A',
+    color: colors.espressoBrown,
     fontWeight: '800',
     letterSpacing: -0.1,
   },
@@ -752,12 +762,12 @@ const styles = StyleSheet.create({
   editInput: {
     flex: 1,
     height: 32,
-    backgroundColor: '#F4F4F5',
+    backgroundColor: '#F4F1EA',
     borderRadius: 8,
     paddingHorizontal: 8,
     fontSize: 12,
     fontWeight: '700',
-    color: '#18181B',
+    color: '#2C221E',
   },
   iconBtn: {
     padding: 4,
