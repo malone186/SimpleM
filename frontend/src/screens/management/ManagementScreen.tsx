@@ -26,12 +26,12 @@ type Item = {
 // 지정 팔레트 — 에스프레소 → 모카 → 토프 → 스톤 베이지 → 페일 아이보리
 // 설정은 카드가 아니라 헤더 우상단 칩으로 들어간다.
 // 디저트 관리는 별도 카드 없이 '메뉴 관리' 안으로 합쳤다 (메뉴/디저트 탭).
+// '운영·원두 분석' 카드는 화면에서 뺐다 — 백엔드/DB(roastery·bean_reviews)와 BeanOperationScreen은 그대로 둔다.
 const ITEMS: Item[] = [
   { label: '직원·스케줄', en: 'PAYROLL', desc: '직원 명부 · 인건비 · 근무 달력 · 손익 정산', color: '#5B514C', route: 'Operation' },
   { label: '서류·세금', en: 'DOCUMENTS', desc: '문서 초안 · 세금 관리', color: '#9A8E82', route: 'Document' },
   { label: '판매 입력', en: 'SALES', desc: '현금·카드 입력 · 입금 예정일', color: '#D1C6B9', route: 'SalesInput' },
   { label: '원가 분석', en: 'COST', desc: '메뉴별 원가율 진단', color: '#E1DCD7', route: 'Cost' },
-  { label: '운영·원두 분석', en: 'OPERATION', desc: '원두 최저가 시세 · 실리뷰 분석', color: '#463C34', route: 'BeanOperation' },
 ];
 
 // 좌우로 번갈아 기울이고 밀어 지그재그를 만든다
@@ -97,7 +97,6 @@ export default function ManagementScreen() {
     { label: t('taxDocsTitle'), en: 'DOCUMENTS', desc: t('taxDocsSub'), color: '#9A8E82', route: 'Document' },
     { label: t('salesInputTitle'), en: 'SALES', desc: language === 'en' ? 'Cash/Card · Payout schedule' : '현금·카드 입력 · 입금 예정일', color: '#D1C6B9', route: 'SalesInput' },
     { label: t('costAnalysisTitle'), en: 'COST', desc: t('costAnalysisSub'), color: '#E1DCD7', route: 'Cost' },
-    { label: language === 'en' ? 'Bean Ops' : '운영·원두 분석', en: 'OPERATION', desc: language === 'en' ? 'Bean market price & Reviews' : '원두 최저가 시세 · 실리뷰 분석', color: '#463C34', route: 'BeanOperation' },
   ];
 
   // 탭에 다시 들어올 때마다 카드 등장 애니메이션을 재생한다 (홈 화면과 같은 방식)

@@ -16,6 +16,7 @@ import CameraCaptureModal from '../../components/CameraCaptureModal';
 import { PressableScale } from '../../components/motion';
 import { confirmDialog, toast } from '../../components/toast';
 import { Badge, Button, Card, ProgressBar, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
+import { SwipeDownModal } from '../../components/ui/SwipeDownModal';
 import { API_BASE_URL } from '../../lib/api/client';
 import { adjustStock, createIngredient, listStocks, StockItem } from '../../lib/api/inventory';
 import { confirmOcrDocument, listOcrDocuments, rejectOcrDocument, uploadOcrImage, OcrDocument, updateOcrDocument, OcrItem, type UploadAsset } from '../../lib/api/ocr';
@@ -61,6 +62,7 @@ export default function InventoryScreen() {
   const [drafts, setDrafts] = useState<OcrDocument[]>([]);
   const [scanning, setScanning] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false); // 웹 인앱 카메라 모달
+  const [sourceSheetOpen, setSourceSheetOpen] = useState(false); // 업로드 소스(촬영/앨범/PDF) 선택 시트
   const [actingDocId, setActingDocId] = useState<string | null>(null); // 반려/확정 요청 진행 중인 초안 ID
 
   // [한글 주석] 영수증(명세서) 초안 수정 상태 관리 변수들
@@ -234,6 +236,14 @@ export default function InventoryScreen() {
     } catch (e) {
       notify('인식 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
     }
+  };
+
+  // 시트에서 소스를 고르면 시트를 먼저 닫고 피커를 띄운다.
+  // 바로 띄우면 iOS에서 RN 모달과 OS 카메라/파일 창이 겹쳐 아무것도 안 뜨는 일이 있어
+  // 닫힘 애니메이션(약 250ms)이 끝난 뒤로 한 틱 미룬다.
+  const chooseSource = (source: OcrSource) => {
+    setSourceSheetOpen(false);
+    setTimeout(() => runOcr(source), 280);
   };
 
   // 문서 종류별 확정 대상 — 매입 명세서는 재고 입고, 영수증은 지출, 일마감표는 판매 기록
@@ -423,46 +433,31 @@ export default function InventoryScreen() {
         <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown} />
       </PressableScale>
 
-      {/* OCR 입고 — 촬영 / 앨범 / 파일(PDF) 세 경로 */}
+      {/* OCR 입고 — 카드를 누르면 소스 선택 시트(촬영/앨범/PDF)가 열린다 */}
       <Card>
-        <View style={styles.ocrHead}>
+        <PressableScale
+          style={styles.ocrHead}
+          onPress={() => setSourceSheetOpen(true)}
+          disabled={scanning}
+          to={0.98}
+        >
+          <View style={styles.ocrHeadIcon}>
+            <Ionicons name="scan-outline" size={20} color={colors.pointOrange} />
+          </View>
           <View style={{ flex: 1 }}>
             <SectionTitle>{language === 'en' ? 'Statement OCR Inbound' : '명세서 자동 입고'}</SectionTitle>
             <Text style={styles.hint}>
               {scanning
                 ? (language === 'en' ? 'Recognizing... (Takes a few seconds)' : '인식 중… (수 초 걸려요)')
                 : (language === 'en'
-                  ? 'Photo or PDF — items, prices & quantities become an inbound draft'
-                  : '사진이든 이메일로 받은 PDF든, 상품·단가·수량을 읽어 입고 초안을 만들어요')}
+                  ? 'Tap to pick a photo or PDF — items, prices & quantities become an inbound draft'
+                  : '눌러서 사진이나 PDF를 고르면, 상품·단가·수량을 읽어 입고 초안을 만들어요')}
             </Text>
           </View>
-          {scanning && <ActivityIndicator color={colors.pointOrange} />}
-        </View>
-
-        <View style={styles.ocrSourceRow}>
-          {/* 네이티브는 OS 카메라 앱, 웹은 앱 안 카메라 화면(CameraCaptureModal) */}
-          <OcrSourceButton
-            icon="camera-outline"
-            label="촬영"
-            hint="지금 찍기"
-            disabled={scanning}
-            onPress={() => runOcr('camera')}
-          />
-          <OcrSourceButton
-            icon="images-outline"
-            label="앨범"
-            hint="저장된 사진"
-            disabled={scanning}
-            onPress={() => runOcr('album')}
-          />
-          <OcrSourceButton
-            icon="document-attach-outline"
-            label="파일 · PDF"
-            hint="이메일 명세서"
-            disabled={scanning}
-            onPress={() => runOcr('file')}
-          />
-        </View>
+          {scanning
+            ? <ActivityIndicator color={colors.pointOrange} />
+            : <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown} />}
+        </PressableScale>
       </Card>
 
       {/* OCR 인식 초안 확인 */}
@@ -828,6 +823,44 @@ export default function InventoryScreen() {
         )}
       </View>
 
+      {/* 명세서 소스 선택 시트 — 촬영 / 앨범 / 파일(PDF) */}
+      <SwipeDownModal visible={sourceSheetOpen} onClose={() => setSourceSheetOpen(false)}>
+        <Text style={styles.sheetTitle}>
+          {language === 'en' ? 'Add a statement' : '명세서 불러오기'}
+        </Text>
+        <Text style={styles.sheetSub}>
+          {language === 'en'
+            ? 'Pick where the statement comes from'
+            : '명세서를 어디서 가져올지 골라 주세요'}
+        </Text>
+
+        <View style={styles.sheetList}>
+          {/* 네이티브는 OS 카메라 앱, 웹은 앱 안 카메라 화면(CameraCaptureModal) */}
+          <OcrSourceRow
+            icon="camera-outline"
+            label={language === 'en' ? 'Camera' : '촬영'}
+            hint={language === 'en' ? 'Shoot the statement now' : '지금 카메라로 찍기'}
+            onPress={() => chooseSource('camera')}
+          />
+          <OcrSourceRow
+            icon="images-outline"
+            label={language === 'en' ? 'Photo library' : '앨범'}
+            hint={language === 'en' ? 'Pick a saved photo' : '저장된 사진에서 고르기'}
+            onPress={() => chooseSource('album')}
+          />
+          <OcrSourceRow
+            icon="document-attach-outline"
+            label={language === 'en' ? 'File · PDF' : '파일 · PDF'}
+            hint={language === 'en' ? 'PDF received by email' : '이메일로 받은 PDF 명세서'}
+            onPress={() => chooseSource('file')}
+          />
+        </View>
+
+        <PressableScale style={styles.sheetCancel} onPress={() => setSourceSheetOpen(false)} to={0.97}>
+          <Text style={styles.sheetCancelText}>{language === 'en' ? 'Close' : '닫기'}</Text>
+        </PressableScale>
+      </SwipeDownModal>
+
       {/* 웹 전용 인앱 카메라 — 네이티브에서는 아무것도 렌더하지 않는다 */}
       <CameraCaptureModal
         visible={cameraOpen}
@@ -841,48 +874,68 @@ export default function InventoryScreen() {
   );
 }
 
-// OCR 업로드 소스 버튼 (촬영 / 앨범 / 파일)
-function OcrSourceButton({
+// 소스 선택 시트의 한 줄 (촬영 / 앨범 / 파일)
+function OcrSourceRow({
   icon,
   label,
   hint,
-  disabled,
   onPress,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   hint?: string;
-  disabled?: boolean;
   onPress: () => void;
 }) {
   return (
-    <PressableScale
-      style={[styles.ocrSourceBtn, disabled && { opacity: 0.45 }]}
-      onPress={onPress}
-      disabled={disabled}
-      to={0.95}
-    >
-      <Ionicons name={icon} size={20} color={colors.pointOrange} />
-      <Text style={styles.ocrSourceLabel}>{label}</Text>
-      {hint ? <Text style={styles.ocrSourceHint}>{hint}</Text> : null}
+    <PressableScale style={styles.ocrSourceRowBtn} onPress={onPress} to={0.97}>
+      <View style={styles.ocrSourceRowIcon}>
+        <Ionicons name={icon} size={20} color={colors.pointOrange} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.ocrSourceLabel}>{label}</Text>
+        {hint ? <Text style={styles.ocrSourceHint}>{hint}</Text> : null}
+      </View>
+      <Ionicons name="chevron-forward" size={16} color={colors.mochaBrown} />
     </PressableScale>
   );
 }
 
 const styles = StyleSheet.create({
-  ocrHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  ocrSourceRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
-  ocrSourceBtn: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 4,
+  ocrHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  ocrHeadIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     backgroundColor: colors.coffeeCream,
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  ocrSourceLabel: { ...typography.L5, color: colors.espressoBrown, fontWeight: '800' },
-  ocrSourceHint: { fontSize: 9, color: colors.mochaBrown, fontWeight: '600' },
+  ocrSourceRowBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: colors.white,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  ocrSourceRowIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    backgroundColor: colors.coffeeCream,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ocrSourceLabel: { ...typography.L3, fontSize: 14, color: colors.espressoBrown, fontWeight: '800' },
+  ocrSourceHint: { ...typography.L5, color: colors.mochaBrown, fontWeight: '600', marginTop: 2 },
+  sheetTitle: { ...typography.L3, fontSize: 17, color: colors.espressoBrown, fontWeight: '800' },
+  sheetSub: { ...typography.L5, color: colors.mochaBrown, marginTop: 4 },
+  sheetList: { gap: 10, marginTop: 16 },
+  sheetCancel: { alignItems: 'center', paddingVertical: 14, marginTop: 6 },
+  sheetCancelText: { ...typography.L3, fontSize: 14, color: colors.mochaBrown, fontWeight: '700' },
   hint: { ...typography.L5, color: colors.mochaBrown, marginTop: 4 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   menuNav: {

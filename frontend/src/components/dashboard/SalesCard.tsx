@@ -18,6 +18,7 @@ import {
   type SalesCalendar,
   type SalesForecast,
 } from '../../lib/api/forecast';
+import { describeApiFailure, type ApiFailure } from '../../lib/api/errors';
 import Brew from '../brew/Brew';
 import TodoList, { type Todo } from './TodoList';
 
@@ -149,6 +150,9 @@ export default function SalesCard({
   const [forecast, setForecast] = useState<SalesForecast | null>(null);
   const [calendar, setCalendar] = useState<SalesCalendar | null>(null); // 이번 달 일별 실판매 집계
   const [loadingForecast, setLoadingForecast] = useState(false);
+  // 예측을 못 받은 이유 — 신규 계정은 판매 기록이 14일 미만이라 백엔드가 409로 조건을 알려준다.
+  // 예전엔 콘솔에만 남겨서 화면에는 예측이 조용히 사라졌고, 미래 날짜를 누르면 '불러오는 중'만 돌았다.
+  const [forecastFailure, setForecastFailure] = useState<ApiFailure | null>(null);
 
   const [activeTab, setActiveTab] = useState<SalesTab>('day');
   const isMonthly = activeTab === 'month'; // 월간 탭 여부 — 실데이터 집계 분기에 사용
@@ -210,9 +214,13 @@ export default function SalesCard({
         const data = await getSalesForecast(token, pos?.lat, pos?.lon);
         if (!cancelled) {
           setForecast(data);
+          setForecastFailure(null);
         }
       } catch (e) {
         console.error('대시보드 판매 예측 조회 실패:', e);
+        if (!cancelled) {
+          setForecastFailure(describeApiFailure(e, language === 'en' ? 'forecast' : '예측', language));
+        }
       } finally {
         if (!cancelled) setLoadingForecast(false);
       }
@@ -493,17 +501,34 @@ export default function SalesCard({
               <View style={[styles.legendColorDot, { backgroundColor: colors.espressoBrown }]} />
               <Text style={styles.legendText}>{t('todayLive')}</Text>
             </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendColorDot, { backgroundColor: colors.mochaBrown, opacity: 0.5 }]} />
-              <Text style={styles.legendText}>{language === 'en' ? 'Tomorrow AI' : '내일 AI 예측'}</Text>
-            </View>
+            {/* 예측이 없으면 범례와 '예측 이유'도 감춘다 — 없는 선의 범례가 남으면 고장처럼 보인다 */}
+            {forecast && (
+              <>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendColorDot, { backgroundColor: colors.mochaBrown, opacity: 0.5 }]} />
+                  <Text style={styles.legendText}>{language === 'en' ? 'Tomorrow AI' : '내일 AI 예측'}</Text>
+                </View>
 
-            {/* [브루] 예측 원인 설명 트리거 버튼 */}
-            <PressableScale style={styles.brewCta} onPress={() => setShowBrew(true)} to={0.95}>
-              <Ionicons name="cafe" size={12} color={colors.pointOrange} />
-              <Text style={styles.brewCtaText}>{language === 'en' ? 'Reason' : '예측 이유'}</Text>
-            </PressableScale>
+                {/* [브루] 예측 원인 설명 트리거 버튼 */}
+                <PressableScale style={styles.brewCta} onPress={() => setShowBrew(true)} to={0.95}>
+                  <Ionicons name="cafe" size={12} color={colors.pointOrange} />
+                  <Text style={styles.brewCtaText}>{language === 'en' ? 'Reason' : '예측 이유'}</Text>
+                </PressableScale>
+              </>
+            )}
           </View>
+
+          {/* AI 예측이 아직 열리지 않은 이유 — 백엔드가 준 조건 문장(예: 최소 14일) 그대로 */}
+          {!forecast && !loadingForecast && forecastFailure && (
+            <View style={styles.forecastNotice}>
+              <Ionicons
+                name={forecastFailure.kind === 'needs_data' ? 'hourglass-outline' : 'alert-circle-outline'}
+                size={14}
+                color={colors.mochaBrown}
+              />
+              <Text style={styles.forecastNoticeText}>{forecastFailure.message}</Text>
+            </View>
+          )}
 
           <View 
             style={styles.chartWrap}
@@ -820,11 +845,28 @@ export default function SalesCard({
                   </Pressable>
                 </View>
 
-                {/* 데이터가 없거나 로딩 중일 때 */}
+                {/* 데이터가 없거나 로딩 중일 때 — 예측이 아예 안 열린 계정에서는
+                    영원히 도는 스피너 대신 열리는 조건(판매 기록 14일 등)을 알려준다 */}
                 {!futureForecasts[selectedFutureDate] ? (
-                  <View style={{ paddingVertical: 32, alignItems: 'center', justifyContent: 'center' }}>
-                    <ActivityIndicator size="small" color={colors.mochaBrown} style={{ marginBottom: 12 }} />
-                    <Text style={{ ...typography.L5, color: colors.mochaBrown }}>예측 정보를 불러오는 중입니다...</Text>
+                  <View style={{ paddingVertical: 32, paddingHorizontal: 8, alignItems: 'center', justifyContent: 'center' }}>
+                    {forecastFailure && !loadingForecast ? (
+                      <>
+                        <Ionicons
+                          name={forecastFailure.kind === 'needs_data' ? 'hourglass-outline' : 'alert-circle-outline'}
+                          size={22}
+                          color={colors.mochaBrown}
+                          style={{ marginBottom: 10 }}
+                        />
+                        <Text style={{ ...typography.L5, color: colors.mochaBrown, textAlign: 'center', lineHeight: 16 }}>
+                          {forecastFailure.message}
+                        </Text>
+                      </>
+                    ) : (
+                      <>
+                        <ActivityIndicator size="small" color={colors.mochaBrown} style={{ marginBottom: 12 }} />
+                        <Text style={{ ...typography.L5, color: colors.mochaBrown }}>예측 정보를 불러오는 중입니다...</Text>
+                      </>
+                    )}
                   </View>
                 ) : (
                   (() => {
@@ -1093,6 +1135,25 @@ const styles = StyleSheet.create({
   legendText: {
     fontSize: 10.5,
     fontWeight: '700',
+    color: colors.mochaBrown,
+  },
+
+  // AI 예측이 아직 열리지 않았을 때의 안내 줄 (판매 기록 14일 조건 등)
+  forecastNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    backgroundColor: colors.coffeeCream,
+    borderRadius: 12,
+    paddingVertical: 9,
+    paddingHorizontal: 11,
+    marginBottom: 8,
+  },
+  forecastNoticeText: {
+    flex: 1,
+    fontSize: 10.5,
+    fontWeight: '600',
+    lineHeight: 15,
     color: colors.mochaBrown,
   },
 
