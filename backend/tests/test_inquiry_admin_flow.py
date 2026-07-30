@@ -6,7 +6,7 @@
   3. 남의 문의는 내 목록에 안 섞이고, 이메일을 알아도 훔쳐볼 수 없다
   4. 관리자 화면 값(계정 상태·메모·OCR/재고 건수)이 지어낸 값이 아니라 DB에서 온다
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -260,6 +260,40 @@ def test_reception_time_is_shown_in_kst(client):
     mine = next(x for x in c.get("/api/v1/inquiries").json() if x["id"] == created["id"])
     assert mine["date"] == expected.strftime("%Y.%m.%d")
     assert created["date"] == mine["date"]  # 접수 응답과 목록이 같은 날짜를 말한다
+
+
+def test_db_write_failure_still_reaches_both_screens(client, monkeypatch):
+    """DB 쓰기가 실패해도 접수는 되고, 사장님 앱과 관리자 화면 양쪽에 같이 뜬다.
+
+    폴백 경로는 평소 안 도는 분기라 여기서만 깨진 적이 있다 — 관리자 사본에 넣던
+    시각 변수가 없어져 접수 자체가 500으로 죽었다. 두 화면의 일시도 같이 본다.
+    """
+    from app.api.v1 import inquiry as inquiry_api
+    from app.api.v1.admin import mock_cs_list
+
+    c, _ = client
+
+    def boom(**kwargs):
+        raise RuntimeError("DB 다운")
+
+    monkeypatch.setattr(inquiry_api, "Inquiry", boom)
+    # 두 리스트 모두 모듈 전역이라 테스트 사이에 남으면 안 된다.
+    # GLOBAL_INQUIRIES는 monkeypatch가 되돌려 주고, mock_cs_list는 직접 비운다.
+    monkeypatch.setattr(inquiry_api, "GLOBAL_INQUIRIES", [])
+    try:
+        created = _post_inquiry(c, OWNER, "DB 꺼진 동안 보낸 문의")
+
+        mine = next(x for x in c.get("/api/v1/inquiries").json() if x["id"] == created["id"])
+        row = next(x for x in c.get("/api/v1/admin/cs").json() if x["id"] == created["id"])
+        assert row["title"] == "DB 꺼진 동안 보낸 문의"
+        assert row["status"] == "답변 대기"
+
+        # 두 화면이 같은 접수 시각을 말한다 (관리자는 분까지, 앱은 날짜까지)
+        now = datetime.now(timezone(timedelta(hours=9)))
+        assert row["date"].startswith(now.strftime("%Y-%m-%d"))
+        assert mine["date"] == now.strftime("%Y.%m.%d")
+    finally:
+        mock_cs_list.clear()
 
 
 def test_no_token_and_no_email_is_rejected(client):
