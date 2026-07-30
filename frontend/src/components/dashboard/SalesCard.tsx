@@ -1295,11 +1295,6 @@ const styles = StyleSheet.create({
     color: colors.mochaBrown,
   },
 
-  todoWrapper: {
-    marginTop: 2,
-    alignItems: 'stretch',
-    justifyContent: 'flex-start',
-  },
   toggleTrack: {
     // 고정폭(200)은 카드 폭보다 좁아 금액·달력과 정렬이 어긋났다(세그먼트만 왼쪽에 치우침).
     // 카드 콘텐츠 폭을 그대로 쓰게 해 세 요소의 좌우 기준선을 맞춘다.

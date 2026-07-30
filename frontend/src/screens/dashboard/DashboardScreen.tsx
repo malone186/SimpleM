@@ -154,7 +154,6 @@ export default function DashboardScreen() {
                   ? `잔여 ${s.current_quantity}${s.unit} · 안전재고 ${s.safety_quantity}${s.unit}`
                   : `잔여 ${s.current_quantity}${s.unit} · 기준 3${s.unit} 미만`,
                 actionable: true,
-                chatPrefill: `${s.name} 재고 어떻게 할까?`,
                 source: 'ai',
               });
             }
