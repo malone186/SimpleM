@@ -1269,14 +1269,6 @@ export default function SettingsScreen() {
         />
       )}
 
-      {subView === 'main' && (
-        <Button
-          label={prefs.language === 'en' ? 'Return to Management' : '관리로 돌아가기'}
-          variant="secondary"
-          style={{ marginTop: 14 }}
-          onPress={() => navigation.goBack()}
-        />
-      )}
     </Screen>
   );
 }
