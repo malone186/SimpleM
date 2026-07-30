@@ -161,7 +161,10 @@ export default function ManagementScreen() {
             <Ionicons name="settings-outline" size={15} color={colors.creamSand} />
             <Text style={styles.gearText}>{t('settings')}</Text>
           </PressableScale>
-          <Brew mood="clipboard" size={96} />
+          {/* [한글 주석] 브루 둥둥 애니메이션 동작 시 설정 버튼과 닿지 않도록 살짝 아래로 내림 */}
+          <View style={{ marginTop: 6 }}>
+            <Brew mood="clipboard" size={96} />
+          </View>
         </View>
       </View>
 
@@ -274,8 +277,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   headerText: { flex: 1, paddingRight: 8 },
-  // 설정 칩을 마스코트 위에 얹어 세로로 쌓지 않는다 (헤더 높이 절약)
-  headerRight: { alignItems: 'flex-end', gap: 2 },
+  // 설정 칩을 마스코트 위에 얹어 세로로 쌓지 않는다 — [한글 주석] 브루 애니메이션 유격 확보 (gap: 12)
+  headerRight: { alignItems: 'flex-end', gap: 12 },
   bigTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
   sub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
   gearBtn: {
