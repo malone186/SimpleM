@@ -144,19 +144,6 @@ export default function DashboardScreen() {
           )
           .slice(0, 4)
           .forEach((s) => {
-<<<<<<< Updated upstream
-            const soldOut = s.current_quantity <= 0;
-            next.push({
-              id: `stock-${s.ingredient_id}`,
-              title: soldOut ? `${s.name} 재고 소진` : `${s.name} 재고 부족`,
-              subtitle: s.safety_quantity > 0
-                ? `잔여 ${s.current_quantity}${s.unit} · 안전재고 ${s.safety_quantity}${s.unit}`
-                : `잔여 ${s.current_quantity}${s.unit} · 기준 3${s.unit} 미만`,
-              actionable: false,
-              // [한글 주석] 브루(AI)가 재고를 자동 점검해 알려주는 항목 — 'ai' 출처라 '브루' 배지가 붙는다.
-              source: 'ai',
-            });
-=======
             const stockId = `stock-${s.ingredient_id}`;
             if (!dismissedSet.has(stockId)) {
               const soldOut = s.current_quantity <= 0;
@@ -171,7 +158,6 @@ export default function DashboardScreen() {
                 source: 'ai',
               });
             }
->>>>>>> Stashed changes
           });
       } catch (e) {
         console.error('재고 할 일 조회 실패:', e);
