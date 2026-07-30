@@ -245,7 +245,9 @@ export default function ChatbotScreen() {
             <Text style={styles.brownHeaderSub}>{language === 'en' ? 'Your cafe AI assistant' : '카페 운영을 돕는 AI 비서'}</Text>
           </FadeInUp>
         </View>
-        <Brew mood="greet" size={120} />
+        <View style={styles.brownHeaderRight}>
+          <Brew mood="greet" size={120} />
+        </View>
       </View>
 
       <View style={styles.brownSheet}>
@@ -413,6 +415,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   brownHeaderLeft: { flex: 1, justifyContent: 'center' },
+  // 관리 탭 헤더 높이(설정칩+마스코트 ~153)에 맞춰 마스코트를 하단 정렬 — 챗봇 헤더엔 버튼이 없어 minHeight로 확보
+  brownHeaderRight: { alignItems: 'flex-end', justifyContent: 'flex-end', minHeight: 154 },
   brownHeaderTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
   brownHeaderSub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
   // 새 채팅/기록 — 브라운 헤더 아래 크림 시트 상단 섹션의 칩 (크림 배경이라 어두운 글씨)
