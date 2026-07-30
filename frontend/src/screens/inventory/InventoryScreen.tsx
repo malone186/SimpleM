@@ -733,7 +733,7 @@ export default function InventoryScreen() {
           </SectionTitle>
           <PressableScale style={styles.addBtn} onPress={() => setFormOpen((v) => !v)} to={0.92}>
             <Ionicons name={formOpen ? 'remove' : 'add'} size={16} color={colors.white} />
-            <Text style={styles.confirmText}>{formOpen ? (language === 'en' ? 'Close' : '닫기') : (language === 'en' ? '+ Add Ingredient Directly' : '+ 재료 직접 등록')}</Text>
+            <Text style={styles.confirmText}>{formOpen ? (language === 'en' ? 'Close' : '닫기') : (language === 'en' ? 'Add Ingredient Directly' : '재료 직접 등록')}</Text>
           </PressableScale>
         </View>
 
@@ -823,7 +823,7 @@ export default function InventoryScreen() {
             <Text style={styles.hint}>
               {selectedCategory === 'all'
                 ? (language === 'en'
-                    ? 'No stock registered yet. Take a receipt photo or tap "+ Add Ingredient Directly" to start.'
+                    ? 'No stock registered yet. Take a receipt photo or tap "Add Ingredient Directly" to start.'
                     : '아직 등록된 재고가 없어요. 영수증을 촬영해 입고하거나 "재료 직접 등록"으로 시작해 보세요.')
                 : (language === 'en' ? 'No stock found in this category.' : '해당 카테고리에 속하는 재고가 없어요.')}
             </Text>
