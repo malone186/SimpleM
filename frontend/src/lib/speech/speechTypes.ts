@@ -40,8 +40,8 @@ export type SpeechPlayer = {
   isEarphoneConnected: () => Promise<EarphoneStatus>;
   /** 지금 음성을 재생해도 되는지 판단합니다 (정책 — 호출부는 이것만 보면 됩니다) */
   canPlayAudio: () => Promise<AudioPlaybackPermission>;
-  /** 텍스트를 즉시 음성으로 읽습니다 (이어폰 미착용 시 스킵) */
-  speak: (text: string) => Promise<void>;
+  /** 텍스트를 즉시 음성으로 읽습니다 (이어폰 미착용 시 스킵, overrideVoiceType 지원) */
+  speak: (text: string, overrideVoiceType?: string) => Promise<void>;
   /** 큐에 추가하고 순서대로 재생합니다 (겹침 방지) */
   enqueue: (text: string, id?: string) => void;
   /** 큐 전체를 비우고 현재 재생도 중단합니다 */

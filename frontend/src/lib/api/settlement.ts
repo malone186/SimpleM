@@ -29,6 +29,30 @@ export type SettlementSettings = {
   tiers: RevenueTier[];
 };
 
+export const DEFAULT_SETTLEMENT_SETTINGS: SettlementSettings = {
+  revenue_tier: 'under_300m',
+  tier_label: '영세 (3억원 이하)',
+  credit_fee_pct: 0.5,
+  check_fee_pct: 0.25,
+  tiers: [
+    { code: 'under_300m', label: '영세 (3억원 이하)', credit: 0.5, check: 0.25 },
+    { code: '300m_500m', label: '중소1 (3억~5억원)', credit: 1.1, check: 0.85 },
+    { code: '500m_1b', label: '중소2 (5억~10억원)', credit: 1.25, check: 1.0 },
+    { code: '1b_3b', label: '중소3 (10억~30억원)', credit: 1.5, check: 1.25 },
+    { code: 'general', label: '일반 가맹점', credit: 2.2, check: 1.5 },
+  ],
+  issuers: [
+    { code: 'shinhan', name: '신한카드', default_lag: 2, lag: 2, color: '#0046FF', selectable: true },
+    { code: 'kb', name: 'KB국민카드', default_lag: 2, lag: 2, color: '#FFBC00', selectable: true },
+    { code: 'hyundai', name: '현대카드', default_lag: 2, lag: 2, color: '#000000', selectable: true },
+    { code: 'samsung', name: '삼성카드', default_lag: 2, lag: 2, color: '#0A2540', selectable: true },
+    { code: 'lotte', name: '롯데카드', default_lag: 2, lag: 2, color: '#ED1C24', selectable: true },
+    { code: 'woori', name: '우리카드', default_lag: 2, lag: 2, color: '#0066B3', selectable: true },
+    { code: 'hana', name: '하나카드', default_lag: 2, lag: 2, color: '#008485', selectable: true },
+    { code: 'bc', name: 'BC/IBK', default_lag: 2, lag: 2, color: '#E60012', selectable: true },
+  ],
+};
+
 export type CardDetail = {
   issuer: string;
   issuer_name: string;

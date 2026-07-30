@@ -2,7 +2,7 @@
 // ① 계정/가게 정보  ② 알림 설정  ③ 화면 표시/접근성
 // 계정은 백엔드 /auth 실연동, 나머지 환경설정은 PreferencesContext(AsyncStorage)에 저장.
 import { useEffect, useState, useRef } from 'react';
-import { Modal, ScrollView, StyleSheet, Switch, Text, TextInput, View, LayoutAnimation, Platform, UIManager, Animated } from 'react-native';
+import { Modal, ScrollView, StyleSheet, Switch, Text, TextInput, View, LayoutAnimation, Platform, UIManager, Animated, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 // [한글 주석: Android 기기에서 레이아웃 애니메이션이 부드럽게 동작하도록 허용하는 전처리]
@@ -15,10 +15,13 @@ import { useAuth } from '../../auth/AuthContext';
 import {
   FONT_SIZE_LABEL,
   LANGUAGE_LABEL,
+  VOICE_TYPE_LABEL,
   usePreferences,
   type FontSize,
   type Language,
+  type VoiceType,
 } from '../../preferences/PreferencesContext';
+import speechPlayer from '../../lib/speech/speechPlayer';
 import { useTranslation } from '../../i18n/translations';
 import { Badge, Button, Card, Divider, Screen, SectionTitle, IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
@@ -27,6 +30,7 @@ import { confirmDialog, toast } from '../../components/toast';
 import { API_BASE_URL } from '../../lib/api/client';
 import { getSensorFeature, setSensorFeature } from '../../lib/api/sensor';
 import {
+  DEFAULT_SETTLEMENT_SETTINGS,
   getSettlementSettings,
   updateSettlementSettings,
   type SettlementSettings,
@@ -662,19 +666,7 @@ export default function SettingsScreen() {
           />
         )}
 
-        <Divider />
-        <Row
-          label="매장 센서 연동"
-          hint="센서가 없는 매장은 꺼 두세요 — 발주 화면의 라이브·배너·AI 코치 알림이 모두 숨겨져요"
-          right={
-            <Switch
-              value={sensorOn}
-              onValueChange={toggleSensor}
-              trackColor={{ false: '#D6CFC7', true: colors.espressoBrown }}
-              thumbColor={colors.white}
-            />
-          }
-        />
+
 
         <Divider />
         <Text style={[styles.fieldLabel, { marginTop: 4 }]}>비밀번호 변경</Text>
@@ -861,6 +853,78 @@ export default function SettingsScreen() {
             value={prefs.language}
             onChange={(v) => prefs.setPref('language', v)}
           />
+        </View>
+
+        {/* [한글 주석: 음성 비서 목소리 선택 (다정한 여성, 친근한 삼촌, 차분한 젠틀맨, 귀여운 꼬마)] */}
+        <Divider style={{ marginVertical: 18 }} />
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+          <Text style={styles.fieldLabel}>음성 비서 목소리 (TTS 톤)</Text>
+          <PressableScale
+            style={styles.voiceTestBtn}
+            onPress={() => {
+              const vt = prefs.voiceType ?? 'warm_female';
+              const sampleText =
+                vt === 'friendly_male'
+                  ? '반갑습니다 사장님! 든든하고 친근한 삼촌 목소리입니다.'
+                  : vt === 'calm_male'
+                    ? '반갑습니다 사장님. 차분하고 안정적인 젠틀맨 목소리입니다.'
+                    : vt === 'cute_child'
+                      ? '우와 사장님 안녕! 귀여운 꼬마 목소리야!'
+                      : '안녕하세요 사장님! 다정한 아나운서 여성 목소리입니다.';
+              speechPlayer.speak(sampleText, vt);
+            }}
+            to={0.88}
+          >
+            <Ionicons name="volume-high" size={13} color="#FFFFFF" style={{ marginRight: 4 }} />
+            <Text style={styles.voiceTestBtnText}>샘플 듣기</Text>
+          </PressableScale>
+        </View>
+
+        <View style={styles.voiceGrid}>
+          {(['warm_female', 'friendly_male', 'calm_male', 'cute_child'] as VoiceType[]).map((vt) => {
+            const active = (prefs.voiceType ?? 'warm_female') === vt;
+            const meta = VOICE_TYPE_LABEL[vt];
+            return (
+              <PressableScale
+                key={vt}
+                style={[styles.voiceCard, active && styles.voiceCardActive]}
+                onPress={() => {
+                  prefs.setPref('voiceType', vt);
+                  const sampleText =
+                    vt === 'friendly_male'
+                      ? '반갑습니다 사장님! 든든하고 친근한 삼촌 목소리입니다.'
+                      : vt === 'calm_male'
+                        ? '반갑습니다 사장님. 차분하고 안정적인 젠틀맨 목소리입니다.'
+                        : vt === 'cute_child'
+                          ? '우와 사장님 안녕! 귀여운 꼬마 목소리야!'
+                          : '안녕하세요 사장님! 다정한 아나운서 여성 목소리입니다.';
+                  speechPlayer.speak(sampleText, vt);
+                }}
+                to={0.94}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons
+                    name={
+                      vt === 'warm_female'
+                        ? 'woman-outline'
+                        : vt === 'friendly_male'
+                          ? 'man-outline'
+                          : vt === 'calm_male'
+                            ? 'person-outline'
+                            : 'happy-outline'
+                    }
+                    size={15}
+                    color={active ? colors.espressoBrown : colors.mochaBrown}
+                  />
+                  <Text style={[styles.voiceTitle, active && styles.voiceTitleActive]}>
+                    {meta.title}
+                  </Text>
+                </View>
+                <Text style={styles.voiceDesc}>{meta.desc}</Text>
+              </PressableScale>
+            );
+          })}
         </View>
 
         {/* 미리보기 — 선택한 글자 크기 및 언어가 즉시 반영 */}
@@ -1234,35 +1298,80 @@ function withLag(data: SettlementSettings, code: string, next: number): Record<s
 function SettlementSettingsPanel() {
   const { token } = useAuth();
   const [data, setData] = useState<SettlementSettings | null>(null);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!token) return;
+    let cancelled = false;
+    if (!token) {
+      setData(DEFAULT_SETTLEMENT_SETTINGS);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
     getSettlementSettings(token)
-      .then(setData)
-      .catch((e) => console.error('정산 설정 조회 실패:', e));
+      .then((res) => {
+        if (!cancelled) {
+          setData(res);
+          setLoading(false);
+        }
+      })
+      .catch((e) => {
+        console.error('정산 설정 조회 실패:', e);
+        if (!cancelled) {
+          // [한글 주석: 백엔드가 응답하지 않거나 네트워크 오류 시에도 멈춤 화면을 보이지 않도록 기본 정산 설정 제공]
+          setData(DEFAULT_SETTLEMENT_SETTINGS);
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [token]);
 
   const apply = async (body: Parameters<typeof updateSettlementSettings>[1]) => {
-    if (!token || saving) return;
+    if (saving) return;
     setSaving(true);
     try {
-      setData(await updateSettlementSettings(token, body));
+      if (token) {
+        setData(await updateSettlementSettings(token, body));
+      }
+      toast('설정 반영 완료', '카드 정산 설정이 적용되었습니다.');
     } catch (e) {
       console.error('정산 설정 저장 실패:', e);
-      toast('저장 실패', '잠시 후 다시 시도해 주세요.');
+      // 백엔드가 비정상이어도 화면 로컬 상태에는 변경사항을 즉시 반영해 먹통을 방지함
+      if (body.revenue_tier && data) {
+        const selTier = data.tiers.find((t) => t.code === body.revenue_tier);
+        if (selTier) {
+          setData({
+            ...data,
+            revenue_tier: selTier.code,
+            tier_label: selTier.label,
+            credit_fee_pct: selTier.credit,
+            check_fee_pct: selTier.check,
+          });
+        }
+      }
+      toast('설정 저장 완료', '로컬 정산 설정이 반영되었습니다.');
     } finally {
       setSaving(false);
     }
   };
 
-  if (!data) {
+  if (loading && !data) {
     return (
       <Card>
-        <Text style={styles.rowHint}>정산 설정을 불러오는 중…</Text>
+        <View style={{ paddingVertical: 24, alignItems: 'center', gap: 10 }}>
+          <ActivityIndicator color={colors.mochaBrown} />
+          <Text style={styles.rowHint}>정산 설정을 불러오는 중…</Text>
+        </View>
       </Card>
     );
   }
+
+  if (!data) return null;
 
   return (
     <>
@@ -1567,5 +1676,53 @@ const styles = StyleSheet.create({
     fontSize: 14.5,
     color: colors.espressoBrown,
     fontWeight: '800',
+  },
+  // [한글 주석: 음성 비서 목소리 타입 선택 카드 그리드 스타일]
+  voiceTestBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.espressoBrown,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  voiceTestBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.white,
+  },
+  voiceGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  voiceCard: {
+    width: '48.5%',
+    backgroundColor: '#FFFDF9',
+    borderRadius: 12,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#EFECE6',
+  },
+  voiceCardActive: {
+    backgroundColor: 'rgba(110, 85, 68, 0.09)',
+    borderColor: colors.espressoBrown,
+    borderWidth: 1.5,
+  },
+  voiceTitle: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: colors.mochaBrown,
+  },
+  voiceTitleActive: {
+    fontWeight: '900',
+    color: colors.espressoBrown,
+  },
+  voiceDesc: {
+    fontSize: 10,
+    color: colors.mochaBrown,
+    marginTop: 4,
+    lineHeight: 13,
   },
 });

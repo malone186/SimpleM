@@ -115,9 +115,38 @@ function isSpeaking(): boolean {
   return _speaking;
 }
 
-/** 실제 expo-speech 호출 (콜백을 Promise로 감쌈) */
+/** [한글 주석] AsyncStorage에서 목소리 설정타입을 읽어와 pitch/rate 속성 반환 */
+async function getVoiceAudioConfig(overrideVoiceType?: string): Promise<{ pitch: number; rate: number }> {
+  try {
+    let voiceType = overrideVoiceType;
+    if (!voiceType) {
+      const raw = await AsyncStorage.getItem('@simplem_user_prefs');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.voiceType) voiceType = parsed.voiceType;
+      }
+    }
+    if (!voiceType) voiceType = 'warm_female';
+
+    switch (voiceType) {
+      case 'friendly_male':
+        return { pitch: 0.82, rate: 0.92 }; // 묵직하고 친근한 삼촌/아저씨 톤
+      case 'calm_male':
+        return { pitch: 0.92, rate: 0.88 }; // 차분한 젠틀맨 톤
+      case 'cute_child':
+        return { pitch: 1.48, rate: 0.98 }; // 톡톡 튀는 꼬마/아이 톤
+      case 'warm_female':
+      default:
+        return { pitch: 1.08, rate: 0.93 }; // 다정한 여성 톤
+    }
+  } catch {
+    return { pitch: 1.08, rate: 0.93 };
+  }
+}
+
+/** 실제 Expo Speech API 호출 (Promise 래핑) */
 function _speakInternal(text: string): Promise<void> {
-  return new Promise<void>((resolve) => {
+  return new Promise<void>(async (resolve) => {
     let settled = false;
     // onDone/onStopped/onError가 겹쳐 호출돼도 한 번만 진행하도록 보호
     const finish = () => {
@@ -130,7 +159,8 @@ function _speakInternal(text: string): Promise<void> {
     _speaking = true;
 
     try {
-      // [한글 주석] 사람이 말하듯 자연스러운 억양과 호흡 가공 (pitch 1.08, rate 0.93)
+      const config = await getVoiceAudioConfig();
+      // [한글 주석] 사람이 말하듯 자연스러운 억양과 호흡 가공
       const humanized = text
         .replace(/([.!?])\s*/g, '$1 , ')
         .replace(/입니다\./g, '입니다.. , ')
@@ -140,8 +170,8 @@ function _speakInternal(text: string): Promise<void> {
 
       Speech.speak(humanized, {
         language: 'ko-KR',
-        pitch: 1.08,
-        rate: 0.93,
+        pitch: config.pitch,
+        rate: config.rate,
         onDone: finish,
         onStopped: finish,
         // 에러 시에도 resolve하여 큐 진행이 막히지 않도록 함 (웹 구현과 동일)

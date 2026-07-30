@@ -7,9 +7,10 @@
 //     달라 사장님이 직접 계산하기 번거로운, 실제로 매일 궁금한 숫자다.
 //   · 입력란이 어디 있는지 헤매지 않도록 화면 최상단에 큰 금액 필드를 고정 배치했다.
 //   · 메뉴별 판매 등록(재고 자동 차감)은 필요한 사람만 쓰도록 맨 아래 접이식으로 내렸다.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   LayoutAnimation,
   Platform,
   StyleSheet,
@@ -294,23 +295,14 @@ export default function SalesInputScreen() {
         subtitle="현금·카드만 적으면 수수료와 입금 예정일까지 계산해 드려요"
       />
 
-      {/* ── 날짜 선택 ─────────────────────────────── */}
-      <View style={styles.dateBar}>
-        <TouchableOpacity onPress={() => setTarget((d) => shiftDays(d, -1))} style={styles.dateArrow}>
-          <Ionicons name="chevron-back" size={18} color={colors.espressoBrown} />
-        </TouchableOpacity>
-        <View style={styles.dateCenter}>
-          <Text style={styles.dateLabel}>{dateLabel(target)}</Text>
-          <Text style={styles.dateSub}>{target}</Text>
-        </View>
-        <TouchableOpacity
-          onPress={() => setTarget((d) => (d >= iso(new Date()) ? d : shiftDays(d, 1)))}
-          style={[styles.dateArrow, target >= iso(new Date()) && { opacity: 0.25 }]}
-          disabled={target >= iso(new Date())}
-        >
-          <Ionicons name="chevron-forward" size={18} color={colors.espressoBrown} />
-        </TouchableOpacity>
-      </View>
+      {/* ── 날짜 선택 (아이폰 물방울 쫀득 Bouncy Elastic 스위처) ── */}
+      <BouncyDateBar
+        target={target}
+        dateLabel={dateLabel(target)}
+        onPrev={() => setTarget((d) => shiftDays(d, -1))}
+        onNext={() => setTarget((d) => (d >= iso(new Date()) ? d : shiftDays(d, 1)))}
+        isMaxDate={target >= iso(new Date())}
+      />
 
       {/* ── 현금 / 카드 입력 (이 화면의 본체) ───────── */}
       <Card>
@@ -700,22 +692,118 @@ function MoneyField({
   );
 }
 
+// ── [한글 주석: 아이폰 물방울처럼 쫀득하고 통통 튀는 Bouncy Elastic 날짜 선택바] ──
+function BouncyDateBar({
+  target,
+  dateLabel,
+  onPrev,
+  onNext,
+  isMaxDate,
+}: {
+  target: string;
+  dateLabel: string;
+  onPrev: () => void;
+  onNext: () => void;
+  isMaxDate: boolean;
+}) {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const slideAnim = useRef(new Animated.Value(0)).current;
+
+  const triggerBouncy = (direction: -1 | 1) => {
+    // 쫀득하게 0.85까지 당겨졌다가 1.0으로 통통 튀어오르는 물방울 스프링 애니메이션
+    scaleAnim.setValue(0.85);
+    slideAnim.setValue(direction * 16);
+
+    Animated.parallel([
+      Animated.spring(scaleAnim, {
+        toValue: 1.0,
+        friction: 3.5,
+        tension: 210,
+        useNativeDriver: true,
+      }),
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        friction: 4.2,
+        tension: 180,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const handlePrev = () => {
+    triggerBouncy(-1);
+    onPrev();
+  };
+
+  const handleNext = () => {
+    if (isMaxDate) return;
+    triggerBouncy(1);
+    onNext();
+  };
+
+  return (
+    <View style={styles.dateBar}>
+      <PressableScale
+        onPress={handlePrev}
+        style={styles.dateArrowBtn}
+        to={0.82}
+      >
+        <Ionicons name="chevron-back" size={18} color={colors.espressoBrown} />
+      </PressableScale>
+
+      <Animated.View
+        style={[
+          styles.dateCenter,
+          {
+            transform: [{ scale: scaleAnim }, { translateX: slideAnim }],
+          },
+        ]}
+      >
+        <Text style={styles.dateLabel}>{dateLabel}</Text>
+        <Text style={styles.dateSub}>{target}</Text>
+      </Animated.View>
+
+      <PressableScale
+        onPress={handleNext}
+        disabled={isMaxDate}
+        style={[styles.dateArrowBtn, isMaxDate && { opacity: 0.25 }]}
+        to={0.82}
+      >
+        <Ionicons name="chevron-forward" size={18} color={colors.espressoBrown} />
+      </PressableScale>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   dateBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: colors.white,
-    borderRadius: 16,
+    backgroundColor: '#FFFDF9',
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: colors.mutedSand,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
+    borderColor: 'rgba(140, 111, 86, 0.16)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 16,
+    shadowColor: '#4E3629',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
   },
-  dateArrow: { padding: 8 },
+  dateArrowBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F4F1EA',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   dateCenter: { alignItems: 'center' },
-  dateLabel: { ...typography.L3, color: colors.espressoBrown },
-  dateSub: { ...typography.L5, color: colors.mochaBrown, marginTop: 2 },
+  dateLabel: { fontSize: 16, fontWeight: '900', color: colors.espressoBrown, letterSpacing: -0.4 },
+  dateSub: { fontSize: 11, fontWeight: '600', color: colors.mochaBrown, marginTop: 1 },
 
   inputHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
   inputHeadTitle: { fontSize: 17, fontWeight: '900', color: colors.espressoBrown },
@@ -732,17 +820,20 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 14,
     height: 52,
+    overflow: 'hidden',
   },
   fieldInput: {
     flex: 1,
+    minWidth: 0, // [한글 주석: 웹 flexbox 가변 대응으로 원 단위가 밖으로 밀려나가지 않게 방지]
     fontSize: 22,
     fontWeight: '900',
     color: colors.espressoBrown,
     textAlign: 'right',
     padding: 0,
+    marginRight: 4,
     ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : null),
   },
-  fieldSuffix: { ...typography.L3, color: colors.mochaBrown, marginLeft: 6 },
+  fieldSuffix: { ...typography.L3, color: colors.mochaBrown, marginLeft: 2, flexShrink: 0 },
 
   issuerRow: {
     flexDirection: 'row',

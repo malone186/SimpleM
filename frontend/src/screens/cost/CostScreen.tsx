@@ -301,14 +301,30 @@ export default function CostScreen() {
             {contribution.menus
               .filter((m) => m.sold_qty > 0)
               .slice(0, 5)
-              .map((m) => (
-                <View key={m.menu_id} style={styles.contribRow}>
-                  <Text style={styles.contribName} numberOfLines={1}>{m.name}</Text>
-                  <Text style={styles.contribQty}>{m.sold_qty}잔</Text>
-                  <View style={{ alignItems: 'flex-end', minWidth: 92 }}>
+              .map((m, index) => (
+                <View key={m.menu_id} style={styles.contribCardItem}>
+                  {/* [한글 주석: 메뉴명 + 판매 잔수 배지 + 마진 합계] */}
+                  <View style={styles.contribMainRow}>
+                    <View style={styles.contribLeftWrap}>
+                      <View style={[styles.rankBadge, index === 0 && styles.rankBadgeTop]}>
+                        <Text style={[styles.rankBadgeText, index === 0 && styles.rankBadgeTextTop]}>{index + 1}</Text>
+                      </View>
+                      <Text style={styles.contribName} numberOfLines={1}>{m.name}</Text>
+                      <View style={styles.qtyBadge}>
+                        <Text style={styles.qtyBadgeText}>{m.sold_qty.toLocaleString()}잔</Text>
+                      </View>
+                    </View>
                     <Text style={styles.contribAmount}>₩{m.total_margin.toLocaleString()}</Text>
-                    <Text style={styles.contribShare}>
-                      전체의 {m.margin_share}% · 잔당 ₩{m.margin_per_cup.toLocaleString()}
+                  </View>
+
+                  {/* [한글 주석: 하단 세부 정보 - 전체 비중 및 잔당 마진 깔끔 수납] */}
+                  <View style={styles.contribSubRow}>
+                    <Text style={styles.contribSubDetail}>
+                      전체 기여 <Text style={styles.contribSubBold}>{m.margin_share}%</Text>
+                    </Text>
+                    <Text style={styles.contribSubDot}>·</Text>
+                    <Text style={styles.contribSubDetail}>
+                      잔당 순익 <Text style={styles.contribSubBold}>₩{m.margin_per_cup.toLocaleString()}</Text>
                     </Text>
                   </View>
                 </View>
@@ -426,12 +442,14 @@ export default function CostScreen() {
           const target = suggestedPrice(cost, cat);
           return (
             <Card key={m.id}>
+              {/* [한글 주석: 상단 헤더 - 메뉴명 + 권장선과 우측의 원가율 숫자는 옆으로 뱃지와 일렬 배치] */}
               <View style={styles.head}>
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, marginRight: 8 }}>
                   <Text style={styles.name}>{m.name}</Text>
                   <Text style={styles.catHint}>{std.label} 기준 {std.good}% 이하 권장</Text>
                 </View>
-                <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                {/* [한글 주석: 원가율 숫자와 주의/위험 배지가 우측 상단에 나란히 일렬 수평 정렬] */}
+                <View style={styles.rateRowRight}>
                   <Text style={[styles.rate, { color: GRADE_COLOR[grade] }]}>{rate}%</Text>
                   <Badge
                     label={GRADE_LABEL[grade]}
@@ -439,69 +457,94 @@ export default function CostScreen() {
                   />
                 </View>
               </View>
-              {/* 게이지는 '기준선 대비 어디쯤인지'가 보이게 위험 기준(warn)을 100%로 잡는다 */}
+
+              {/* 게이지 바 */}
               <ProgressBar
                 ratio={Math.min(rate / std.warn, 1)}
                 tone={grade === 'good' ? 'green' : grade === 'warn' ? 'mocha' : 'danger'}
               />
-              <Text style={[styles.gradeMsg, { color: GRADE_COLOR[grade] }]}>
-                {gradeMessage(rate, cat)}
-              </Text>
-              {grade !== 'good' && target > m.selling_price && (
-                <Text style={styles.suggestText}>
-                  💡 {std.good}%를 맞추려면 판매가 ₩{target.toLocaleString()}
-                  {' '}(지금보다 ₩{(target - m.selling_price).toLocaleString()} ↑)
-                </Text>
+
+              {/* [한글 주석: 주의/위험 알림 및 권장선 제안 문구를 정돈된 틴트 박스로 수납] */}
+              {grade !== 'good' && (
+                <View
+                  style={[
+                    styles.gradeAlertBox,
+                    grade === 'warn' ? styles.gradeAlertBoxWarn : styles.gradeAlertBoxDanger,
+                  ]}
+                >
+                  <View style={styles.gradeAlertTitleRow}>
+                    <Ionicons
+                      name={grade === 'warn' ? 'warning' : 'alert-circle'}
+                      size={15}
+                      color={GRADE_COLOR[grade]}
+                    />
+                    <Text style={[styles.gradeAlertTitle, { color: GRADE_COLOR[grade] }]}>
+                      {gradeMessage(rate, cat)}
+                    </Text>
+                  </View>
+
+                  {target > m.selling_price && (
+                    <View style={styles.suggestBoxInner}>
+                      <Text style={styles.suggestTextMain}>
+                        💡 권장 원가율({std.good}%) 달성 제안:{' '}
+                        <Text style={styles.suggestPriceHighlight}>
+                          판매가 ₩{target.toLocaleString()}
+                        </Text>
+                        <Text style={styles.suggestDiffText}>
+                          {' '}(+₩{(target - m.selling_price).toLocaleString()} 인상 권장)
+                        </Text>
+                      </Text>
+                    </View>
+                  )}
+                </View>
               )}
-              <Divider />
-              <View style={styles.detailRow}>
+
+              {/* [한글 주석: 판매가/원가/잔당 마진 정돈된 금융 지표 카운터 그리드] */}
+              <View style={styles.detailBoxGrid}>
                 <Detail label="판매가" value={`₩${m.selling_price.toLocaleString()}`} />
+                <View style={styles.detailGridDivider} />
                 <Detail label="원가" value={`₩${cost.toLocaleString()}`} />
+                <View style={styles.detailGridDivider} />
                 <Detail label="잔당 마진" value={`₩${margin.toLocaleString()}`} accent />
               </View>
-              {/* [한글 주석] 재료 구성 — 이 메뉴에 어떤 재료가 몇 g/ml 들어가는지.
-                  백엔드가 recipes로 내려주는 소요량을 그대로 펼쳐 보여준다.
-                  (원가율은 이 소요량 × 재료 단가의 합으로 계산된 값이다) */}
+
+              {/* [한글 주석: 재료 구성 목록] */}
               {(m.recipes?.length ?? 0) > 0 && (
-                <>
-                  <Divider />
+                <View style={styles.recipeSection}>
                   <Text style={styles.recipeHeader}>재료 구성</Text>
                   {m.recipes!.map((r) => (
                     <View key={r.ingredient_id} style={styles.recipeRow}>
                       <Text style={styles.recipeName} numberOfLines={1}>
                         {r.ingredient_name}
                       </Text>
-                      <Text style={styles.recipeQty}>
-                        {Number.isInteger(r.quantity) ? r.quantity : r.quantity.toFixed(1)}
-                        {r.unit}
-                      </Text>
+                      <View style={styles.recipeQtyBadge}>
+                        <Text style={styles.recipeQtyText}>
+                          {Number.isInteger(r.quantity) ? r.quantity : r.quantity.toFixed(1)}
+                          {r.unit}
+                        </Text>
+                      </View>
                     </View>
                   ))}
-                </>
+                </View>
               )}
 
-              {/* 재료 구성이 '원가가 왜 이 금액인지'를 설명하고, 그 아래에서 그 원가로
-                  실제 얼마를 벌었는지로 이어진다 — 위에서 아래로 읽으면 근거→결과 순서다 */}
+              {/* [한글 주석: 최근 30일 실제 번 돈 현황] */}
               {sold && sold.sold_qty > 0 && (
-                <>
-                  <Divider />
-                  <View style={styles.soldRow}>
-                    <Text style={styles.soldLabel}>최근 30일 {sold.sold_qty}잔 판매</Text>
-                    <Text style={styles.soldValue}>
-                      실제로 번 돈 ₩{sold.total_margin.toLocaleString()}
-                    </Text>
-                  </View>
-                </>
+                <View style={styles.soldRow}>
+                  <Text style={styles.soldLabel}>최근 30일 {sold.sold_qty}잔 판매</Text>
+                  <Text style={styles.soldValue}>
+                    실제로 번 돈 <Text style={styles.soldValueHighlight}>₩{sold.total_margin.toLocaleString()}</Text>
+                  </Text>
+                </View>
               )}
 
-              <Divider />
-
-              {/* [한글 주석: 꾹 눌리는 감각 피드백과 확실한 터치 감지를 위해 PressableScale 컴포넌트로 개조] */}
+              {/* [한글 주석: AI 원가 절감 추천 버튼] */}
               <PressableScale
                 style={styles.recommendBtn}
                 onPress={() => openModal(m.id, m.name)}
+                to={0.96}
               >
-                <Ionicons name="sparkles" size={13} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Ionicons name="sparkles" size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
                 <Text style={styles.recommendBtnText}>AI 원가 절감 추천</Text>
               </PressableScale>
             </Card>
@@ -614,9 +657,9 @@ const styles = StyleSheet.create({
   head: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'baseline',
+    alignItems: 'center',
     marginBottom: 12,
-    paddingHorizontal: 2
+    paddingHorizontal: 2,
   },
   name: {
     ...typography.L3,
@@ -624,14 +667,155 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '800',
   },
-  rate: { ...typography.L2, fontSize: 22 },
   catHint: { ...typography.L5, color: colors.mochaBrown, marginTop: 3 },
-  gradeMsg: { fontSize: 11.5, fontWeight: '600', lineHeight: 16, marginTop: 8 },
-  suggestText: { ...typography.L5, color: colors.espressoBrown, marginTop: 6, lineHeight: 15 },
-  riskText: { ...typography.L5, color: colors.espressoBrown, flex: 1, lineHeight: 16 },
-  soldRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
-  soldLabel: { ...typography.L5, color: colors.mochaBrown },
-  soldValue: { ...typography.L4, color: colors.trendGreenText },
+  rateRowRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  rate: {
+    ...typography.L2,
+    fontSize: 22,
+    fontWeight: '900',
+  },
+
+  // 정돈된 경고/위험 박스
+  gradeAlertBox: {
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 10,
+    marginBottom: 6,
+    gap: 6,
+  },
+  gradeAlertBoxWarn: {
+    backgroundColor: 'rgba(234, 88, 12, 0.07)',
+    borderLeftWidth: 3,
+    borderLeftColor: '#EA580C',
+  },
+  gradeAlertBoxDanger: {
+    backgroundColor: 'rgba(220, 38, 38, 0.07)',
+    borderLeftWidth: 3,
+    borderLeftColor: '#DC2626',
+  },
+  gradeAlertTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  gradeAlertTitle: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    flex: 1,
+    lineHeight: 17,
+  },
+  suggestBoxInner: {
+    paddingTop: 4,
+  },
+  suggestTextMain: {
+    fontSize: 11.5,
+    color: colors.espressoBrown,
+    lineHeight: 16,
+  },
+  suggestPriceHighlight: {
+    fontWeight: '900',
+    color: colors.espressoBrown,
+  },
+  suggestDiffText: {
+    fontWeight: '700',
+    color: '#EA580C',
+  },
+
+  // 수치 3단 그리드 카운터 박스
+  detailBoxGrid: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FBF8F3',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(140, 111, 86, 0.12)',
+  },
+  detailGridDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: 'rgba(140, 111, 86, 0.12)',
+  },
+
+  // 재료 구성
+  recipeSection: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#EFECE6',
+  },
+  recipeHeader: {
+    fontSize: 12,
+    color: colors.mochaBrown,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  recipeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 3.5,
+  },
+  recipeName: {
+    fontSize: 12.5,
+    color: colors.espressoBrown,
+    fontWeight: '600',
+    flex: 1,
+    marginRight: 8,
+  },
+  recipeQtyBadge: {
+    backgroundColor: '#F4F1EA',
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  recipeQtyText: {
+    fontSize: 11,
+    color: colors.espressoBrown,
+    fontWeight: '700',
+  },
+
+  // 최근 30일 실적
+  soldRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#EFECE6',
+  },
+  soldLabel: { fontSize: 11.5, color: colors.mochaBrown, fontWeight: '600' },
+  soldValue: { fontSize: 12, color: colors.mochaBrown, fontWeight: '600' },
+  soldValueHighlight: { fontSize: 13, fontWeight: '900', color: colors.trendGreenText },
+
+  recommendBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.espressoBrown,
+    borderRadius: 14,
+    paddingVertical: 12,
+    marginTop: 12,
+    shadowColor: colors.espressoBrown,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  recommendBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
 
   // 평균 원가율 게이지 (양호/주의/위험 구간을 색으로 나눈 막대 + 현재 위치 마커)
   gaugeWrap: { marginTop: 12, marginBottom: 4 },
@@ -667,15 +851,95 @@ const styles = StyleSheet.create({
   guideChipText: { fontSize: 10, fontWeight: '800' },
   guideFoot: { ...typography.L5, color: colors.mochaBrown, fontStyle: 'italic' },
 
-  // 실제로 번 돈 (기여이익) 랭킹
+  // 실제로 번 돈 (기여이익) 랭킹 리뉴얼
   contribTitle: { ...typography.L3, color: colors.espressoBrown },
-  contribTotal: { ...typography.L3, color: colors.trendGreenText },
-  contribHint: { ...typography.L5, color: colors.mochaBrown, marginTop: -6, marginBottom: 10, lineHeight: 15 },
-  contribRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
-  contribName: { ...typography.L4, color: colors.espressoBrown, flex: 1 },
-  contribQty: { ...typography.L5, color: colors.mochaBrown, minWidth: 38, textAlign: 'right' },
-  contribAmount: { ...typography.L4, color: colors.espressoBrown },
-  contribShare: { fontSize: 9.5, fontWeight: '600', color: colors.mochaBrown, marginTop: 2 },
+  contribTotal: { fontSize: 18, fontWeight: '900', color: colors.trendGreenText },
+  contribHint: { ...typography.L5, color: colors.mochaBrown, marginTop: -4, marginBottom: 12, lineHeight: 16 },
+
+  contribCardItem: {
+    backgroundColor: '#FFFDF9',
+    borderRadius: 14,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#EFECE6',
+  },
+  contribMainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  contribLeftWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    flex: 1,
+    marginRight: 8,
+  },
+  rankBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#EFECE6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  rankBadgeTop: {
+    backgroundColor: colors.espressoBrown,
+  },
+  rankBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.mochaBrown,
+  },
+  rankBadgeTextTop: {
+    color: '#FFFFFF',
+  },
+  contribName: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.espressoBrown,
+  },
+  qtyBadge: {
+    backgroundColor: 'rgba(110, 85, 68, 0.08)',
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+  },
+  qtyBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: colors.mochaBrown,
+  },
+  contribAmount: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: colors.espressoBrown,
+  },
+  contribSubRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 6,
+    marginTop: 6,
+    paddingTop: 5,
+    borderTopWidth: 0.5,
+    borderTopColor: 'rgba(140, 111, 86, 0.08)',
+  },
+  contribSubDetail: {
+    fontSize: 11,
+    color: colors.mochaBrown,
+    fontWeight: '500',
+  },
+  contribSubBold: {
+    fontWeight: '800',
+    color: colors.espressoBrown,
+  },
+  contribSubDot: {
+    fontSize: 10,
+    color: '#C4B5A5',
+  },
 
   detailRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
   recipeHeader: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700', marginTop: 10, marginBottom: 4 },

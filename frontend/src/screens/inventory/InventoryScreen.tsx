@@ -1046,6 +1046,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.mutedSand,
     padding: 14,
+    marginTop: 12,
+    marginBottom: 10,
   },
   menuNavIcon: {
     width: 40,
