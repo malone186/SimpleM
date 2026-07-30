@@ -237,29 +237,29 @@ export default function ChatbotScreen() {
         </Svg>
       </View>
 
-      {/* 브라운 헤더 — 재고 탭과 동일 크기 (새 채팅/기록 칩 + 마스코트) */}
+      {/* 브라운 헤더 — 관리 탭과 동일 (제목/부제 + 마스코트만). 새 채팅/기록은 헤더 밖 시트 상단으로 이동 */}
       <View style={styles.brownHeader}>
         <View style={styles.brownHeaderLeft}>
           <FadeInUp>
             <Text style={styles.brownHeaderTitle}>{language === 'en' ? 'Brew AI Assistant' : '브루 챗봇'}</Text>
             <Text style={styles.brownHeaderSub}>{language === 'en' ? 'Your cafe AI assistant' : '카페 운영을 돕는 AI 비서'}</Text>
           </FadeInUp>
-          {/* 새 채팅/기록 — 헤더 왼쪽 하단 (마스코트와 겹치지 않게) */}
-          <View style={styles.brownHeaderButtons}>
-            <PressableScale style={styles.brownChip} onPress={startNewChat} disabled={sending}>
-              <Ionicons name="add" size={16} color={colors.creamSand} />
-              <Text style={styles.brownChipText}>{language === 'en' ? 'New' : '새 채팅'}</Text>
-            </PressableScale>
-            <PressableScale style={styles.brownChip} onPress={openHistory}>
-              <Ionicons name="time-outline" size={14} color={colors.creamSand} />
-              <Text style={styles.brownChipText}>{language === 'en' ? 'History' : '기록'}</Text>
-            </PressableScale>
-          </View>
         </View>
         <Brew mood="greet" size={120} />
       </View>
 
       <View style={styles.brownSheet}>
+      {/* 새 채팅/기록 — 브라운 헤더 아래 별도 섹션 (크림 시트 상단) */}
+      <View style={styles.chatActionsRow}>
+        <PressableScale style={styles.sheetChip} onPress={startNewChat} disabled={sending}>
+          <Ionicons name="add" size={16} color={colors.espressoBrown} />
+          <Text style={styles.sheetChipText}>{language === 'en' ? 'New' : '새 채팅'}</Text>
+        </PressableScale>
+        <PressableScale style={styles.sheetChip} onPress={openHistory}>
+          <Ionicons name="time-outline" size={14} color={colors.espressoBrown} />
+          <Text style={styles.sheetChipText}>{language === 'en' ? 'History' : '기록'}</Text>
+        </PressableScale>
+      </View>
       <ScrollView
         ref={scrollRef}
         style={styles.list}
@@ -412,25 +412,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     gap: 10,
   },
-  brownHeaderLeft: { flex: 1, justifyContent: 'space-between', paddingBottom: 2 },
-  brownHeaderButtons: { flexDirection: 'row', gap: 8 },
-  brownHeaderText: { flex: 1, paddingRight: 8 },
-  brownHeaderRight: { alignItems: 'flex-end', justifyContent: 'flex-end', minHeight: 162, gap: 8 },
+  brownHeaderLeft: { flex: 1, justifyContent: 'center' },
   brownHeaderTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
   brownHeaderSub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
-  chatHeaderChips: { flexDirection: 'row', gap: 6 },
-  brownChip: {
+  // 새 채팅/기록 — 브라운 헤더 아래 크림 시트 상단 섹션의 칩 (크림 배경이라 어두운 글씨)
+  chatActionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: spacing.globalPadding,
+    paddingTop: 14,
+    paddingBottom: 2,
+  },
+  sheetChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: colors.coffeeCream,
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderWidth: 0.8,
-    borderColor: 'rgba(255,255,255,0.14)',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
   },
-  brownChipText: { color: colors.creamSand, fontSize: 11.5, fontWeight: '700' },
+  sheetChipText: { color: colors.espressoBrown, fontSize: 12, fontWeight: '700' },
   brownSheet: {
     flex: 1,
     backgroundColor: colors.creamSand,

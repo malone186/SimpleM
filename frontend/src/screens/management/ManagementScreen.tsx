@@ -150,20 +150,21 @@ export default function ManagementScreen() {
 
       {/* 헤더 — ScrollView 밖에 있어 카드가 흘러도 제자리에 고정된다 */}
       <View style={styles.header}>
+        {/* 제목 — 다른 탭(재고·챗봇)들과 동일하게 세로축 중앙 정렬 */}
         <View style={styles.headerLeft}>
           <FadeInUp key={`title-${runId}`}>
             <Text style={styles.bigTitle}>{t('tabManagement')}</Text>
             <Text style={styles.sub}>{t('managementHubSubtitle')}</Text>
           </FadeInUp>
-          {/* 설정 버튼 — 헤더 왼쪽 하단 (마스코트와 겹치지 않게) */}
-          <View style={styles.headerButtons}>
-            <PressableScale style={styles.headerChip} onPress={() => navigation.navigate('Settings')} to={0.9}>
-              <Ionicons name="settings-outline" size={15} color={colors.creamSand} />
-              <Text style={styles.headerChipText}>{t('settings')}</Text>
-            </PressableScale>
-          </View>
         </View>
-        <Brew mood="clipboard" size={120} />
+        {/* 우측 세로열 — 설정 버튼(오른쪽 위) + 마스코트(그 아래) */}
+        <View style={styles.headerRight}>
+          <PressableScale style={styles.gearBtn} onPress={() => navigation.navigate('Settings')} to={0.9}>
+            <Ionicons name="settings-outline" size={15} color={colors.creamSand} />
+            <Text style={styles.gearText}>{t('settings')}</Text>
+          </PressableScale>
+          <Brew mood="clipboard" size={120} />
+        </View>
       </View>
 
       {/* [둥근 크림 시트] 시트 자체는 고정, 그 안에서 카드만 스크롤한다 */}
@@ -276,20 +277,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     gap: 10,
   },
-  headerLeft: { flex: 1, justifyContent: 'space-between', paddingBottom: 2 },
-  headerButtons: { flexDirection: 'row', gap: 8 },
-  headerChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderWidth: 0.8,
-    borderColor: 'rgba(255,255,255,0.14)',
-  },
-  headerChipText: { color: colors.creamSand, fontSize: 11.5, fontWeight: '700' },
+  headerLeft: { flex: 1, justifyContent: 'center' },
+  // 우측 세로열 — 설정 버튼(위) + 마스코트(아래). 설정을 오른쪽 위에 둔다.
+  headerRight: { alignItems: 'flex-end', gap: 6 },
   bigTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
   sub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
   gearBtn: {

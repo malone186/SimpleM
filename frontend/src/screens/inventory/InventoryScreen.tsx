@@ -989,7 +989,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     gap: 10,
   },
-  brownHeaderLeft: { flex: 1, justifyContent: 'space-between', paddingBottom: 2 },
+  brownHeaderLeft: { flex: 1, justifyContent: 'center' },
   brownHeaderText: { flex: 1, paddingRight: 8 },
   // 관리 탭 헤더와 같은 높이 — 관리는 우측에 (설정 칩 + 마스코트)가 세로로 쌓여 ~126px다.
   // 재고엔 설정 칩이 없으므로 같은 높이를 확보하고 마스코트를 하단 정렬해 브라운 밴드 높이를 맞춘다.
