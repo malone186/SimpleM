@@ -1,8 +1,8 @@
 // 재고 (프론트 A) — PRD ERP-4/7, AI-2: 재고 조회 + 직접 등록 + 안전재고 알림 + OCR 입고 확인
-import { useCallback, useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { ActivityIndicator, Alert, Platform, RefreshControl, ScrollView, StatusBar, StyleSheet, Text, TextInput, View, LayoutAnimation, UIManager } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Platform, RefreshControl, ScrollView, StatusBar, StyleSheet, Text, TextInput, View, LayoutAnimation, UIManager } from 'react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -431,6 +431,11 @@ export default function InventoryScreen() {
     return stocks.filter((s) => getCategory(s.name) === selectedCategory);
   }, [stocks, selectedCategory]);
 
+  // 스크롤에 따라 브라운 헤더가 천천히 올라가며 투명해지는 패럴럭스+페이드 (홈 화면과 동일)
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const headerTranslate = scrollY.interpolate({ inputRange: [0, 300], outputRange: [0, 140], extrapolateLeft: 'clamp' });
+  const headerOpacity = scrollY.interpolate({ inputRange: [0, 180], outputRange: [1, 0.35], extrapolate: 'clamp' });
+
   return (
     <View style={styles.brownRoot}>
       {/* [딥브라운 오로라 배경] 관리 탭과 동일 — 상단 딥브라운에서 하단 크림으로 녹아든다 */}
@@ -454,32 +459,38 @@ export default function InventoryScreen() {
         </Svg>
       </View>
 
-      {/* 브라운 헤더 — 관리 탭과 동일 톤 (스크롤 밖 고정) */}
-      <View style={styles.brownHeader}>
-        <FadeInUp style={styles.brownHeaderText}>
-          <Text style={styles.brownHeaderTitle}>{t('inventoryTitle')}</Text>
-          <Text style={styles.brownHeaderSub}>{t('inventorySubtitle')}</Text>
-        </FadeInUp>
-        <View style={styles.brownHeaderRight}>
-          <Brew mood="welcome" size={140} style={{ transform: [{ translateY: 12 }] }} />
-        </View>
-      </View>
+      {/* 헤더를 스크롤 안에 두고, 스크롤 시 천천히 위로+페이드 (홈 화면과 동일) */}
+      <Animated.ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ flexGrow: 1 }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        scrollEventThrottle={16}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onHeaderRefresh}
+            tintColor={colors.mochaBrown}
+            colors={[colors.pointOrange]}
+          />
+        }
+      >
+        {/* 브라운 헤더 — 스크롤 시 패럴럭스(천천히 위로) + 페이드 */}
+        <Animated.View style={{ transform: [{ translateY: headerTranslate }], opacity: headerOpacity }}>
+          <View style={styles.brownHeader}>
+            <View style={styles.brownHeaderText}>
+              <Text style={styles.brownHeaderTitle}>{t('inventoryTitle')}</Text>
+              <Text style={styles.brownHeaderSub}>{t('inventorySubtitle')}</Text>
+            </View>
+            <View style={styles.brownHeaderRight}>
+              <Brew mood="welcome" size={140} style={{ transform: [{ translateY: 12 }] }} />
+            </View>
+          </View>
+        </Animated.View>
 
-      {/* 둥근 크림 시트 — 시트는 고정, 내부 콘텐츠만 스크롤 */}
-      <View style={styles.brownSheet}>
-        <ScrollView
-          contentContainerStyle={styles.brownSheetContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onHeaderRefresh}
-              tintColor={colors.mochaBrown}
-              colors={[colors.pointOrange]}
-            />
-          }
-        >
+        {/* 둥근 크림 시트 — 콘텐츠가 위로 올라오며 헤더를 덮는다 */}
+        <View style={styles.brownSheet}>
           {/* 메뉴·레시피 관리 진입 */}
       <PressableScale style={styles.menuNav} onPress={() => navigation.navigate('Menu')} to={0.97}>
         <View style={styles.menuNavIcon}>
@@ -929,8 +940,8 @@ export default function InventoryScreen() {
           uploadAsset({ uri: photo.uri, mimeType: photo.mimeType, fileName: photo.fileName });
         }}
       />
-        </ScrollView>
-      </View>
+        </View>
+      </Animated.ScrollView>
     </View>
   );
 }
@@ -979,11 +990,13 @@ const styles = StyleSheet.create({
   brownHeaderTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
   brownHeaderSub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
   brownSheet: {
-    flex: 1,
+    flexGrow: 1,
     backgroundColor: colors.creamSand,
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
-    overflow: 'hidden',
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 24,
   },
   brownSheetContent: { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 24 },
   ocrHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
