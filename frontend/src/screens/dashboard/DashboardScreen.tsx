@@ -65,6 +65,39 @@ export default function DashboardScreen() {
     let cancelled = false;
     (async () => {
       const next: Todo[] = [];
+
+      // [한글 주석: 어제 날짜(과거) 테스트용 실제 수행했던 매장 업무 샘플 3종 자동 생성]
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+
+      next.push(
+        {
+          id: 'mock-yesterday-1',
+          title: '[일일업무] 에스프레소 머신 스팀 노즐 소독 및 마감',
+          subtitle: '마감 전 스팀 소독 완결 · 정기 점검 완료',
+          done: true,
+          source: 'owner',
+          dateKey: yesterdayKey,
+        },
+        {
+          id: 'mock-yesterday-2',
+          title: '[발주·재고] 서울우유 20L 입고 및 검수 완료',
+          subtitle: '잔여 20L 채움 완료 · 입고 검수 완료',
+          done: true,
+          source: 'ai',
+          dateKey: yesterdayKey,
+        },
+        {
+          id: 'mock-yesterday-3',
+          title: '[서류·행정] 7월 매장 지출 명세서 입고 점검',
+          subtitle: '명세서 OCR 3건 정산 반영 완료',
+          done: true,
+          source: 'owner',
+          dateKey: yesterdayKey,
+        },
+      );
+
       const [stocksResult, complianceResult, serverTodosResult] = await Promise.allSettled([
         listStocks(token),
         listCompliance(token),
@@ -98,9 +131,7 @@ export default function DashboardScreen() {
               subtitle: s.safety_quantity > 0
                 ? `잔여 ${s.current_quantity}${s.unit} · 안전재고 ${s.safety_quantity}${s.unit}`
                 : `잔여 ${s.current_quantity}${s.unit} · 기준 3${s.unit} 미만`,
-              actionable: true,
-              // [한글 주석] 누르면 브루 챗봇이 열리며 이 질문이 자동 전송된다.
-              chatPrefill: `${s.name} 재고 어떻게 할까?`,
+              actionable: false,
               // [한글 주석] 브루(AI)가 재고를 자동 점검해 알려주는 항목 — 'ai' 출처라 '브루' 배지가 붙는다.
               source: 'ai',
             });
@@ -253,12 +284,6 @@ export default function DashboardScreen() {
     }
   };
 
-  // 재고 부족 등 브루가 올린 항목을 누르면 챗봇이 열리며 질문이 자동 전송된다.
-  const openChat = (todo: Todo) => {
-    if (!todo.chatPrefill) return;
-    navigation.navigate('Chatbot', { prefill: todo.chatPrefill, ts: Date.now() });
-  };
-
   // 스크롤에 따라 헤더가 반 속도로 따라오는 패럴럭스 + 부드러운 페이드
   const headerTranslate = scrollY.interpolate({
     inputRange: [0, 300],
@@ -342,7 +367,7 @@ export default function DashboardScreen() {
             <SalesCard
               key={`salescard-${runId}`}
               todos={todos}
-              onPressTodo={openChat}
+              onPressTodo={() => {}}
               onToggleDone={toggleDone}
               onAddTodo={handleAddTodo}
               onEditTodo={handleEditTodo}

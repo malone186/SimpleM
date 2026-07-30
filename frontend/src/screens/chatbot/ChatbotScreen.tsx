@@ -10,11 +10,13 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import Svg, { Circle, Defs, FeGaussianBlur, Filter, LinearGradient, Path, Stop } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute, type RouteProp } from '@react-navigation/native';
 
@@ -38,6 +40,9 @@ import {
   type ChatSession,
 } from '../../lib/chatSessions';
 import { colors, spacing, typography } from '../../theme';
+
+// 상단 브라운 헤더의 상태바 여백 (재고/관리 탭과 동일 계산)
+const TOP_INSET = (Platform.select({ android: (StatusBar.currentHeight ?? 24) + 4, default: 12 }) ?? 12) as number;
 
 const SUGGESTIONS = [
   '이번 주 경영 리포트 만들어줘',
@@ -207,26 +212,49 @@ export default function ChatbotScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
-      <View style={styles.header}>
-        <Brew mood="welcome" size={34} />
-        <Text style={styles.headerTitle}>{language === 'en' ? 'Brew AI Assistant' : '브루 챗봇'}</Text>
-        <View style={styles.headerActions}>
-          {/* [한글 주석: 대화 유무와 상관없이 사용자가 언제든 새 채팅을 열 수 있도록 disabled 및 딤 처리를 해제합니다] */}
-          <PressableScale
-            style={styles.headerBtn}
-            onPress={startNewChat}
-            disabled={sending}
-          >
-            <Ionicons name="add" size={20} color={colors.espressoBrown} />
-            <Text style={styles.headerBtnText}>{language === 'en' ? 'New Chat' : '새 채팅'}</Text>
-          </PressableScale>
-          <PressableScale style={styles.headerBtn} onPress={openHistory}>
-            <Ionicons name="time-outline" size={18} color={colors.espressoBrown} />
-            <Text style={styles.headerBtnText}>{language === 'en' ? 'History' : '기록'}</Text>
-          </PressableScale>
+      {/* [딥브라운 오로라 배경] 재고/관리 탭과 동일 — 상단 딥브라운에서 하단 크림으로 */}
+      <View style={StyleSheet.absoluteFill}>
+        <Svg width="100%" height="100%" preserveAspectRatio="none">
+          <Defs>
+            <LinearGradient id="chatAurora" x1="0%" y1="0%" x2="0%" y2="100%">
+              <Stop offset="0%" stopColor="#1E1612" />
+              <Stop offset="35%" stopColor="#251C17" />
+              <Stop offset="70%" stopColor="#6E5544" stopOpacity="0.35" />
+              <Stop offset="100%" stopColor={colors.creamSand} />
+            </LinearGradient>
+            <Filter id="chatGlow" x="-50%" y="-50%" width="200%" height="200%">
+              <FeGaussianBlur stdDeviation="70" />
+            </Filter>
+          </Defs>
+          <Path d="M0 0 H2000 V2000 H0 Z" fill="url(#chatAurora)" />
+          <Circle cx="85%" cy="12%" r="140" fill="#E28257" filter="url(#chatGlow)" opacity="0.25" />
+          <Circle cx="15%" cy="22%" r="130" fill="#C29D7A" filter="url(#chatGlow)" opacity="0.2" />
+          <Circle cx="60%" cy="4%" r="120" fill="#88BCB5" filter="url(#chatGlow)" opacity="0.16" />
+        </Svg>
+      </View>
+
+      {/* 브라운 헤더 — 재고 탭과 동일 크기 (새 채팅/기록 칩 + 마스코트) */}
+      <View style={styles.brownHeader}>
+        <FadeInUp style={styles.brownHeaderText}>
+          <Text style={styles.brownHeaderTitle}>{language === 'en' ? 'Brew AI Assistant' : '브루 챗봇'}</Text>
+          <Text style={styles.brownHeaderSub}>{language === 'en' ? 'Your cafe AI assistant' : '카페 운영을 돕는 AI 비서'}</Text>
+        </FadeInUp>
+        <View style={styles.brownHeaderRight}>
+          <View style={styles.chatHeaderChips}>
+            <PressableScale style={styles.brownChip} onPress={startNewChat} disabled={sending}>
+              <Ionicons name="add" size={16} color={colors.creamSand} />
+              <Text style={styles.brownChipText}>{language === 'en' ? 'New' : '새 채팅'}</Text>
+            </PressableScale>
+            <PressableScale style={styles.brownChip} onPress={openHistory}>
+              <Ionicons name="time-outline" size={14} color={colors.creamSand} />
+              <Text style={styles.brownChipText}>{language === 'en' ? 'History' : '기록'}</Text>
+            </PressableScale>
+          </View>
+          <Brew mood="greet" size={96} />
         </View>
       </View>
 
+      <View style={styles.brownSheet}>
       <ScrollView
         ref={scrollRef}
         style={styles.list}
@@ -308,6 +336,7 @@ export default function ChatbotScreen() {
           <Ionicons name="arrow-up" size={20} color={colors.white} />
         </PressableScale>
       </View>
+      </View>
 
       {/* 과거 채팅 목록 — 탭하면 복원, 휴지통으로 개별 삭제 */}
       <Modal
@@ -367,6 +396,39 @@ export default function ChatbotScreen() {
 }
 
 const styles = StyleSheet.create({
+  // [재고/관리 탭과 동일] 딥브라운 오로라 + 고정 브라운 헤더 + 둥근 크림 시트
+  brownHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: TOP_INSET,
+    paddingBottom: 8,
+    paddingHorizontal: 18,
+  },
+  brownHeaderText: { flex: 1, paddingRight: 8 },
+  brownHeaderRight: { alignItems: 'flex-end', justifyContent: 'flex-end', minHeight: 162, gap: 8 },
+  brownHeaderTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
+  brownHeaderSub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
+  chatHeaderChips: { flexDirection: 'row', gap: 6 },
+  brownChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 0.8,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  brownChipText: { color: colors.creamSand, fontSize: 11.5, fontWeight: '700' },
+  brownSheet: {
+    flex: 1,
+    backgroundColor: colors.creamSand,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    overflow: 'hidden',
+  },
   root: { flex: 1, backgroundColor: colors.creamSand },
   header: {
     flexDirection: 'row',
