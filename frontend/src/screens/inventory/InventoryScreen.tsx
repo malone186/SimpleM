@@ -32,8 +32,12 @@ const TARGET_LABEL: Record<string, string> = {
 
 const notify = (title: string, message: string) => toast(title, message);
 
-// 상단 브라운 헤더의 상태바 여백 (관리 탭과 동일 계산)
-const TOP_INSET = (Platform.select({ android: (StatusBar.currentHeight ?? 24) + 4, default: 12 }) ?? 12) as number;
+// 상단 브라운 헤더의 상태바 여백 (관리 탭과 동일 계산 — 세 탭 헤더 높이·글씨 가림 통일)
+const TOP_INSET = Platform.select({
+  android: (StatusBar.currentHeight ?? 24) + 4,
+  ios: 56,
+  default: 44, // 웹(디바이스 프레임)
+}) as number;
 
 // [한글 주석] 재고 카테고리 정의
 const CATEGORIES = [
