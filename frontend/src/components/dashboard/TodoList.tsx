@@ -13,8 +13,7 @@ export type Todo = {
   id: string;
   title: string;
   subtitle: string;
-  actionable?: boolean; // [한글 주석] 누르면 동작하는 항목 (예: 재고 부족 → 브루 챗봇 열기)
-  chatPrefill?: string; // [한글 주석] 누르면 챗봇 입력창에 미리 채워 보낼 질문
+  actionable?: boolean; // [한글 주석] 카테고리 판별 등에 쓰는 플래그 (재고·발주성 항목)
   done?: boolean;
   qty?: string;
   // [한글 주석] 누가 넣었는지 — 'ai'면 챗봇(브루)이 대화 중 추가한 항목이라 배지를 붙인다.
@@ -431,12 +430,6 @@ function TodoItem({
         {/* [3. 우측 액션 버튼 - [한글 주석] 지난 날짜(isPastDate)일 때는 수정/삭제 버튼 숨김] */}
         {!isPastDate && (
           <View style={styles.actionsRight}>
-            {!disabled && todo.actionable ? (
-              <View style={styles.actionHint}>
-                <Text style={styles.actionHintText}>브루에게 ›</Text>
-              </View>
-            ) : null}
-
             {/* 수정 연필 버튼 (클릭 시 팝업 모달이 수정 모드로 열림) */}
             <PressableScale
               onPress={() => startEdit(todo)}

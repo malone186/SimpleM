@@ -131,9 +131,7 @@ export default function DashboardScreen() {
               subtitle: s.safety_quantity > 0
                 ? `잔여 ${s.current_quantity}${s.unit} · 안전재고 ${s.safety_quantity}${s.unit}`
                 : `잔여 ${s.current_quantity}${s.unit} · 기준 3${s.unit} 미만`,
-              actionable: true,
-              // [한글 주석] 누르면 브루 챗봇이 열리며 이 질문이 자동 전송된다.
-              chatPrefill: `${s.name} 재고 어떻게 할까?`,
+              actionable: false,
               // [한글 주석] 브루(AI)가 재고를 자동 점검해 알려주는 항목 — 'ai' 출처라 '브루' 배지가 붙는다.
               source: 'ai',
             });
@@ -286,12 +284,6 @@ export default function DashboardScreen() {
     }
   };
 
-  // 재고 부족 등 브루가 올린 항목을 누르면 챗봇이 열리며 질문이 자동 전송된다.
-  const openChat = (todo: Todo) => {
-    if (!todo.chatPrefill) return;
-    navigation.navigate('Chatbot', { prefill: todo.chatPrefill, ts: Date.now() });
-  };
-
   // 스크롤에 따라 헤더가 반 속도로 따라오는 패럴럭스 + 부드러운 페이드
   const headerTranslate = scrollY.interpolate({
     inputRange: [0, 300],
@@ -375,7 +367,7 @@ export default function DashboardScreen() {
             <SalesCard
               key={`salescard-${runId}`}
               todos={todos}
-              onPressTodo={openChat}
+              onPressTodo={() => {}}
               onToggleDone={toggleDone}
               onAddTodo={handleAddTodo}
               onEditTodo={handleEditTodo}
