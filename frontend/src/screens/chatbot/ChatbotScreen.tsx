@@ -235,12 +235,13 @@ export default function ChatbotScreen() {
 
       {/* 브라운 헤더 — 재고 탭과 동일 크기 (새 채팅/기록 칩 + 마스코트) */}
       <View style={styles.brownHeader}>
-        <FadeInUp style={styles.brownHeaderText}>
-          <Text style={styles.brownHeaderTitle}>{language === 'en' ? 'Brew AI Assistant' : '브루 챗봇'}</Text>
-          <Text style={styles.brownHeaderSub}>{language === 'en' ? 'Your cafe AI assistant' : '카페 운영을 돕는 AI 비서'}</Text>
-        </FadeInUp>
-        <View style={styles.brownHeaderRight}>
-          <View style={styles.chatHeaderChips}>
+        <View style={styles.brownHeaderLeft}>
+          <FadeInUp>
+            <Text style={styles.brownHeaderTitle}>{language === 'en' ? 'Brew AI Assistant' : '브루 챗봇'}</Text>
+            <Text style={styles.brownHeaderSub}>{language === 'en' ? 'Your cafe AI assistant' : '카페 운영을 돕는 AI 비서'}</Text>
+          </FadeInUp>
+          {/* 새 채팅/기록 — 헤더 왼쪽 하단 (마스코트와 겹치지 않게) */}
+          <View style={styles.brownHeaderButtons}>
             <PressableScale style={styles.brownChip} onPress={startNewChat} disabled={sending}>
               <Ionicons name="add" size={16} color={colors.creamSand} />
               <Text style={styles.brownChipText}>{language === 'en' ? 'New' : '새 채팅'}</Text>
@@ -250,8 +251,8 @@ export default function ChatbotScreen() {
               <Text style={styles.brownChipText}>{language === 'en' ? 'History' : '기록'}</Text>
             </PressableScale>
           </View>
-          <Brew mood="greet" size={96} />
         </View>
+        <Brew mood="greet" size={120} />
       </View>
 
       <View style={styles.brownSheet}>
@@ -397,14 +398,18 @@ export default function ChatbotScreen() {
 
 const styles = StyleSheet.create({
   // [재고/관리 탭과 동일] 딥브라운 오로라 + 고정 브라운 헤더 + 둥근 크림 시트
+  // [세 탭 헤더 통일] 좌측 세로열(제목 위·버튼 아래) + 우측 마스코트, 마스코트 높이가 헤더 높이를 정한다
   brownHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'stretch',
     justifyContent: 'space-between',
     paddingTop: TOP_INSET,
-    paddingBottom: 8,
+    paddingBottom: 12,
     paddingHorizontal: 18,
+    gap: 10,
   },
+  brownHeaderLeft: { flex: 1, justifyContent: 'space-between', paddingBottom: 2 },
+  brownHeaderButtons: { flexDirection: 'row', gap: 8 },
   brownHeaderText: { flex: 1, paddingRight: 8 },
   brownHeaderRight: { alignItems: 'flex-end', justifyContent: 'flex-end', minHeight: 162, gap: 8 },
   brownHeaderTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },

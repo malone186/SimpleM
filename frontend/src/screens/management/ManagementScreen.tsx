@@ -150,22 +150,20 @@ export default function ManagementScreen() {
 
       {/* 헤더 — ScrollView 밖에 있어 카드가 흘러도 제자리에 고정된다 */}
       <View style={styles.header}>
-        <FadeInUp key={`title-${runId}`} style={styles.headerText}>
-          <Text style={styles.bigTitle}>{t('tabManagement')}</Text>
-          <Text style={styles.sub}>{t('managementHubSubtitle')}</Text>
-        </FadeInUp>
-
-        <View style={styles.headerRight}>
-          {/* 설정 진입 — 카드가 아니라 헤더 안에 둔다 */}
-          <PressableScale style={styles.gearBtn} onPress={() => navigation.navigate('Settings')} to={0.9}>
-            <Ionicons name="settings-outline" size={15} color={colors.creamSand} />
-            <Text style={styles.gearText}>{t('settings')}</Text>
-          </PressableScale>
-          {/* [한글 주석] 브루 둥둥 애니메이션 동작 시 설정 버튼과 닿지 않도록 살짝 아래로 내림 */}
-          <View style={{ marginTop: 6 }}>
-            <Brew mood="clipboard" size={96} />
+        <View style={styles.headerLeft}>
+          <FadeInUp key={`title-${runId}`}>
+            <Text style={styles.bigTitle}>{t('tabManagement')}</Text>
+            <Text style={styles.sub}>{t('managementHubSubtitle')}</Text>
+          </FadeInUp>
+          {/* 설정 버튼 — 헤더 왼쪽 하단 (마스코트와 겹치지 않게) */}
+          <View style={styles.headerButtons}>
+            <PressableScale style={styles.headerChip} onPress={() => navigation.navigate('Settings')} to={0.9}>
+              <Ionicons name="settings-outline" size={15} color={colors.creamSand} />
+              <Text style={styles.headerChipText}>{t('settings')}</Text>
+            </PressableScale>
           </View>
         </View>
+        <Brew mood="clipboard" size={120} />
       </View>
 
       {/* [둥근 크림 시트] 시트 자체는 고정, 그 안에서 카드만 스크롤한다 */}
@@ -268,17 +266,30 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#1E1612' },
 
   // [홈 웰컴 헤더와 같은 톤] 딥브라운 오로라 위 밝은 텍스트 + 우측 마스코트
+  // [세 탭 헤더 통일] 좌측 세로열(제목 위·버튼 아래) + 우측 마스코트, 마스코트 높이가 헤더 높이를 정한다
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'stretch',
     justifyContent: 'space-between',
     paddingTop: TOP_INSET,
-    paddingBottom: 8,
+    paddingBottom: 12,
     paddingHorizontal: 18,
+    gap: 10,
   },
-  headerText: { flex: 1, paddingRight: 8 },
-  // 설정 칩을 마스코트 위에 얹어 세로로 쌓지 않는다 — [한글 주석] 브루 애니메이션 유격 확보 (gap: 12)
-  headerRight: { alignItems: 'flex-end', gap: 12 },
+  headerLeft: { flex: 1, justifyContent: 'space-between', paddingBottom: 2 },
+  headerButtons: { flexDirection: 'row', gap: 8 },
+  headerChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 0.8,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  headerChipText: { color: colors.creamSand, fontSize: 11.5, fontWeight: '700' },
   bigTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
   sub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
   gearBtn: {

@@ -479,13 +479,13 @@ export default function InventoryScreen() {
         {/* 브라운 헤더 — 스크롤 시 패럴럭스(천천히 위로) + 페이드 */}
         <Animated.View style={{ transform: [{ translateY: headerTranslate }], opacity: headerOpacity }}>
           <View style={styles.brownHeader}>
-            <View style={styles.brownHeaderText}>
-              <Text style={styles.brownHeaderTitle}>{t('inventoryTitle')}</Text>
-              <Text style={styles.brownHeaderSub}>{t('inventorySubtitle')}</Text>
+            <View style={styles.brownHeaderLeft}>
+              <View>
+                <Text style={styles.brownHeaderTitle}>{t('inventoryTitle')}</Text>
+                <Text style={styles.brownHeaderSub}>{t('inventorySubtitle')}</Text>
+              </View>
             </View>
-            <View style={styles.brownHeaderRight}>
-              <Brew mood="welcome" size={140} style={{ transform: [{ translateY: 12 }] }} />
-            </View>
+            <Brew mood="welcome" size={120} />
           </View>
         </Animated.View>
 
@@ -975,14 +975,17 @@ function OcrSourceRow({
 const styles = StyleSheet.create({
   // [관리 탭과 동일] 딥브라운 오로라 루트 + 고정 브라운 헤더 + 둥근 크림 시트
   brownRoot: { flex: 1, backgroundColor: '#1E1612' },
+  // [세 탭 헤더 통일] 좌측 세로열 + 우측 마스코트, 마스코트 높이가 헤더 높이를 정한다
   brownHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'stretch',
     justifyContent: 'space-between',
     paddingTop: TOP_INSET,
-    paddingBottom: 8,
+    paddingBottom: 12,
     paddingHorizontal: 18,
+    gap: 10,
   },
+  brownHeaderLeft: { flex: 1, justifyContent: 'space-between', paddingBottom: 2 },
   brownHeaderText: { flex: 1, paddingRight: 8 },
   // 관리 탭 헤더와 같은 높이 — 관리는 우측에 (설정 칩 + 마스코트)가 세로로 쌓여 ~126px다.
   // 재고엔 설정 칩이 없으므로 같은 높이를 확보하고 마스코트를 하단 정렬해 브라운 밴드 높이를 맞춘다.
