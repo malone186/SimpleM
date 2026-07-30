@@ -975,7 +975,7 @@ const styles = StyleSheet.create({
   brownHeaderText: { flex: 1, paddingRight: 8 },
   // 관리 탭 헤더와 같은 높이 — 관리는 우측에 (설정 칩 + 마스코트)가 세로로 쌓여 ~126px다.
   // 재고엔 설정 칩이 없으므로 같은 높이를 확보하고 마스코트를 하단 정렬해 브라운 밴드 높이를 맞춘다.
-  brownHeaderRight: { alignItems: 'flex-end', justifyContent: 'flex-end', minHeight: 126 },
+  brownHeaderRight: { alignItems: 'flex-end', justifyContent: 'flex-end', minHeight: 150 },
   brownHeaderTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
   brownHeaderSub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
   brownSheet: {
