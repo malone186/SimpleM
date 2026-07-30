@@ -1721,6 +1721,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(110, 85, 68, 0.07)',
   },
+  todoWrapper: {
+    backgroundColor: '#FAF8F5',
+    borderRadius: 22,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(110, 85, 68, 0.08)',
+  },
 
   dateStripItem: {
     alignItems: 'center',
