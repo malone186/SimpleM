@@ -68,6 +68,9 @@ export default function DashboardScreen() {
                 ? `잔여 ${s.current_quantity}${s.unit} · 안전재고 ${s.safety_quantity}${s.unit}`
                 : `잔여 ${s.current_quantity}${s.unit} · 기준 3${s.unit} 미만`,
               actionable: false,
+              // 브루(AI)가 재고를 자동 점검해 알려주는 항목 — 'ai' 출처라 '브루' 배지가 붙는다.
+              // DB에 저장하지 않으므로 재고를 채우면 다음 조회에서 저절로 사라진다(유령 항목 방지).
+              source: 'ai',
             });
           });
       } catch (e) {
