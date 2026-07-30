@@ -256,11 +256,11 @@ export default function ChatbotScreen() {
       {/* 새 채팅/기록 — 브라운 헤더 아래 별도 섹션 (크림 시트 상단) */}
       <View style={styles.chatActionsRow}>
         <PressableScale style={styles.sheetChip} onPress={startNewChat} disabled={sending}>
-          <Ionicons name="add" size={16} color={colors.espressoBrown} />
+          <Ionicons name="add" size={16} color={colors.creamSand} />
           <Text style={styles.sheetChipText}>{language === 'en' ? 'New' : '새 채팅'}</Text>
         </PressableScale>
         <PressableScale style={styles.sheetChip} onPress={openHistory}>
-          <Ionicons name="time-outline" size={14} color={colors.espressoBrown} />
+          <Ionicons name="time-outline" size={14} color={colors.creamSand} />
           <Text style={styles.sheetChipText}>{language === 'en' ? 'History' : '기록'}</Text>
         </PressableScale>
       </View>
@@ -433,14 +433,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: colors.coffeeCream,
+    backgroundColor: colors.espressoBrown, // 예시 질문 칩(coffeeCream)과 구분되는 진한 액션 버튼
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 7,
-    borderWidth: 1,
-    borderColor: colors.mutedSand,
   },
-  sheetChipText: { color: colors.espressoBrown, fontSize: 12, fontWeight: '700' },
+  sheetChipText: { color: colors.creamSand, fontSize: 12, fontWeight: '700' },
   brownSheet: {
     flex: 1,
     backgroundColor: colors.creamSand,
