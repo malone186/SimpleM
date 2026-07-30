@@ -1,4 +1,4 @@
-// 할 일 목록 (Design Spec §4-③ 연동 — iOS 팝업 모달 기반 새 업무 등록 UI 및 1줄 세련 레이아웃)
+// 할 일 목록 (Design Spec §4-③ 연동 — iOS 팝업 모달 기반 새 업무 등록 및 1줄 세련 레이아웃 최종)
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { Animated, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -428,58 +428,8 @@ function TodoItem({
           </View>
         </View>
 
-<<<<<<< Updated upstream
-        {/* [3. 타이틀 및 하단 조그마한 카테고리 텍스트 라벨] */}
-        <View style={{ flex: 1, marginLeft: 10 }}>
-          {isEditing ? (
-            <View style={styles.editRow}>
-              <TextInput
-                style={styles.editInput}
-                value={editingText}
-                onChangeText={setEditingText}
-                autoFocus
-                onSubmitEditing={() => saveEdit(todo.id)}
-              />
-              <PressableScale onPress={() => saveEdit(todo.id)} style={styles.iconBtn}>
-                <Ionicons name="checkmark" size={16} color="#16A34A" />
-              </PressableScale>
-              <PressableScale onPress={() => setEditingId(null)} style={styles.iconBtn}>
-                <Ionicons name="close" size={16} color="#71717A" />
-              </PressableScale>
-            </View>
-          ) : (
-            <>
-              <View style={styles.titleRow}>
-                <Text style={[styles.taskItemTitle, disabled && styles.strike]} numberOfLines={1}>
-                  {todo.title}
-                </Text>
-                {/* AI 출처 배지 */}
-                {todo.source === 'ai' && (
-                  <View style={[styles.aiBadge, disabled && styles.aiBadgeDone]}>
-                    <Ionicons name="sparkles" size={9} color={disabled ? '#71717A' : '#A855F7'} />
-                    <Text style={[styles.aiBadgeText, disabled && styles.aiBadgeTextDone]}>브루</Text>
-                  </View>
-                )}
-              </View>
-
-              {/* [하단 부제 — 카테고리 라벨 텍스트는 제거하고 부제만 한 줄로 표시] */}
-              {todo.subtitle ? (
-                <View style={{ marginTop: 2 }}>
-                  <Text style={[styles.taskItemSub, disabled && styles.strike]} numberOfLines={1}>
-                    {todo.subtitle}
-                  </Text>
-                </View>
-              ) : null}
-            </>
-          )}
-        </View>
-
-        {/* [4. 우측 액션 기능 모음] */}
-        {!isEditing && (
-=======
         {/* [3. 우측 액션 버튼 - [한글 주석] 지난 날짜(isPastDate)일 때는 수정/삭제 버튼 숨김] */}
         {!isPastDate && (
->>>>>>> Stashed changes
           <View style={styles.actionsRight}>
             {!disabled && todo.actionable ? (
               <View style={styles.actionHint}>
@@ -729,21 +679,13 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   taskItemTitle: {
-<<<<<<< Updated upstream
-    fontSize: 12.5,
-=======
     fontSize: 13,
->>>>>>> Stashed changes
     fontWeight: '700',
     color: '#18181B',
     letterSpacing: -0.3,
   },
   taskItemSub: {
-<<<<<<< Updated upstream
-    fontSize: 10,
-=======
     fontSize: 11.5,
->>>>>>> Stashed changes
     fontWeight: '500',
     color: '#71717A',
     flexShrink: 1,
