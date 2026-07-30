@@ -65,6 +65,39 @@ export default function DashboardScreen() {
     let cancelled = false;
     (async () => {
       const next: Todo[] = [];
+
+      // [한글 주석: 어제 날짜(과거) 테스트용 실제 수행했던 매장 업무 샘플 3종 자동 생성]
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+
+      next.push(
+        {
+          id: 'mock-yesterday-1',
+          title: '[일일업무] 에스프레소 머신 스팀 노즐 소독 및 마감',
+          subtitle: '마감 전 스팀 소독 완결 · 정기 점검 완료',
+          done: true,
+          source: 'owner',
+          dateKey: yesterdayKey,
+        },
+        {
+          id: 'mock-yesterday-2',
+          title: '[발주·재고] 서울우유 20L 입고 및 검수 완료',
+          subtitle: '잔여 20L 채움 완료 · 입고 검수 완료',
+          done: true,
+          source: 'ai',
+          dateKey: yesterdayKey,
+        },
+        {
+          id: 'mock-yesterday-3',
+          title: '[서류·행정] 7월 매장 지출 명세서 입고 점검',
+          subtitle: '명세서 OCR 3건 정산 반영 완료',
+          done: true,
+          source: 'owner',
+          dateKey: yesterdayKey,
+        },
+      );
+
       const [stocksResult, complianceResult, serverTodosResult] = await Promise.allSettled([
         listStocks(token),
         listCompliance(token),

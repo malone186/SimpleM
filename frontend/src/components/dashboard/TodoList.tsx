@@ -1,4 +1,4 @@
-// 할 일 목록 (Design Spec §4-③ 연동 — iOS 팝업 모달 기반 새 업무 등록 UI)
+// 할 일 목록 (Design Spec §4-③ 연동 — iOS 팝업 모달 기반 새 업무 등록 UI 및 1줄 세련 레이아웃)
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { Animated, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -30,6 +30,57 @@ const CATEGORIES: { id: TodoCategory; label: string; icon: string; tag: string }
   { id: 'hygiene', label: '위생·청소', icon: 'sparkles-outline', tag: '위생·청소' },
   { id: 'admin', label: '서류·행정', icon: 'document-text-outline', tag: '서류·행정' },
 ];
+
+// ── [한글 주석: 쫀득하고 부드러운 iOS 물방울 Bouncy Spring 모션 카테고리 칩 컴포넌트] ──
+function CategoryChipCell({
+  cat,
+  isSelected,
+  onPress,
+}: {
+  cat: { id: TodoCategory; label: string; icon: string; tag: string };
+  isSelected: boolean;
+  onPress: () => void;
+}) {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  const handlePress = () => {
+    // 쫀득하게 축소되었다 퐁~ 하고 튀어 오르는 물방울 스프링 애니메이션
+    Animated.sequence([
+      Animated.spring(scaleAnim, {
+        toValue: 0.88,
+        friction: 4,
+        tension: 240,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 3.5,
+        tension: 190,
+        useNativeDriver: true,
+      }),
+    ]).start();
+    onPress();
+  };
+
+  return (
+    <Animated.View style={{ width: '48.5%', transform: [{ scale: scaleAnim }] }}>
+      <PressableScale
+        onPress={handlePress}
+        style={[styles.modalCatChip, isSelected && styles.modalCatChipActive]}
+        to={0.92}
+      >
+        <Ionicons
+          name={cat.icon as any}
+          size={13}
+          color={isSelected ? '#FFFFFF' : '#71717A'}
+        />
+        <Text style={[styles.modalCatChipText, isSelected && styles.modalCatChipTextActive]}>
+          {cat.label}
+        </Text>
+      </PressableScale>
+    </Animated.View>
+  );
+}
 
 function getCategoryMeta(todo: Todo): { label: string; icon: string; color: string; bg: string } {
   const text = (todo.title + ' ' + todo.subtitle).toLowerCase();
@@ -64,11 +115,11 @@ export default function TodoList({
   hideCard?: boolean;
 }) {
   const [modalVisible, setModalVisible] = useState(false);
+  // [한글 주석] 수정 중인 Todo 대상 상태 (null이면 신규 등록 모드, 존재하면 팝업 모달 수정 모드)
+  const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
   const [newTitle, setNewTitle] = useState('');
-  const [newSub, setNewSub] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<TodoCategory>('daily');
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingText, setEditingText] = useState('');
+  // [한글 주석] 초기 카테고리는 선택되지 않은 null 상태 (아무 카테고리 칩도 누르지 않고 등록 시 태그 없이 생성)
+  const [selectedCategory, setSelectedCategory] = useState<TodoCategory | null>(null);
 
   // 선택된 날짜에 맞게 투두 목록 필터링 (각 요일별 개별 독립 투두 리스트)
   const dateFilteredTodos = useMemo(() => {
@@ -90,39 +141,57 @@ export default function TodoList({
 
   const isToday = !selectedDateInfo || selectedDateInfo.isToday;
 
-  const handleCreateTodo = () => {
-    // [한글 주석] 업무 제목이 비어있으면 세부 메모 내용을 제목으로 자동 사용하여 등록 실패 방지
-    const titleText = newTitle.trim() || newSub.trim();
+  // 신규 등록 팝업 모달 열기 (카테고리 미선택 상태로 초기화)
+  const openCreateModal = () => {
+    setEditingTodo(null);
+    setNewTitle('');
+    setSelectedCategory(null);
+    setModalVisible(true);
+  };
+
+  // 연필(수정) 버튼 클릭 시 동일한 팝업 모달을 '수정 모드'로 채워서 열기
+  const startEdit = (todo: Todo) => {
+    setEditingTodo(todo);
+    let rawTitle = todo.title;
+    let foundCat: TodoCategory | null = null;
+    for (const cat of CATEGORIES) {
+      if (rawTitle.startsWith(`[${cat.tag}]`)) {
+        foundCat = cat.id;
+        rawTitle = rawTitle.replace(`[${cat.tag}]`, '').trim();
+        break;
+      }
+    }
+    setSelectedCategory(foundCat);
+    setNewTitle(rawTitle);
+    setModalVisible(true);
+  };
+
+  // 모달에서 추가하기 또는 수정하기 저장 처리
+  const handleSaveTodo = () => {
+    const titleText = newTitle.trim();
     if (!titleText) return;
 
-    const catMeta = CATEGORIES.find((c) => c.id === selectedCategory);
     let fullTitle = titleText;
-    if (selectedCategory !== 'daily' && catMeta) {
-      fullTitle = `[${catMeta.tag}] ${fullTitle}`;
-    }
-    // [한글 주석] 제목과 메모가 둘 다 존재할 경우에만 연결 기호(·) 추가
-    if (newTitle.trim() && newSub.trim()) {
-      fullTitle += ` · ${newSub.trim()}`;
+    // [한글 주석] 사용자가 카테고리 칩을 선택한 경우에만 해당 카테고리 태그(예: [일일업무], [발주·재고])를 앞머리에 부여
+    if (selectedCategory) {
+      const catMeta = CATEGORIES.find((c) => c.id === selectedCategory);
+      if (catMeta) {
+        fullTitle = `[${catMeta.tag}] ${fullTitle}`;
+      }
     }
 
-    // 선택된 요일의 dateKey를 함께 전달하여 해당 날짜에만 귀속되도록 처리
-    onAddTodo?.(fullTitle, selectedDateInfo?.dateKey);
+    if (editingTodo) {
+      // [한글 주석] 수정 모드일 때 해당 ID의 투두 내용 업데이트
+      onEditTodo?.(editingTodo.id, fullTitle);
+    } else {
+      // [한글 주석] 신규 등록 모드일 때 새로 추가
+      onAddTodo?.(fullTitle, selectedDateInfo?.dateKey);
+    }
+
     setNewTitle('');
-    setNewSub('');
-    setSelectedCategory('daily');
+    setEditingTodo(null);
+    setSelectedCategory(null);
     setModalVisible(false);
-  };
-
-  const startEdit = (todo: Todo) => {
-    setEditingId(todo.id);
-    setEditingText(todo.title);
-  };
-
-  const saveEdit = (id: string) => {
-    if (editingText.trim() && onEditTodo) {
-      onEditTodo(id, editingText.trim());
-    }
-    setEditingId(null);
   };
 
   const fadeAnim = useRef(new Animated.Value(1)).current;
@@ -148,46 +217,60 @@ export default function TodoList({
     ]).start();
   }, [selectedDateInfo?.dateKey]);
 
+  const isPastDate = selectedDateInfo?.isPast ?? false;
+
   return (
     <View style={{ gap: 8 }}>
       {/* ── [통합 업무 목록 (날짜 변경 시 부드러운 패이드+슬라이딩 전환)] ── */}
       <Animated.View style={{ opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
-        {dateFilteredTodos.map((todo) => {
-          const disabled = !!todo.done;
-          const isEditing = editingId === todo.id;
+        {dateFilteredTodos.length === 0 ? (
+          /* [한글 주석] 해당 날짜에 등록된 업무가 없을 때 깔끔하게 안내하는 빈 뷰 */
+          <View style={styles.emptyStateContainer}>
+            <Ionicons
+              name={isPastDate ? "calendar-clear-outline" : "sparkles-outline"}
+              size={24}
+              color="#A1A1AA"
+            />
+            <Text style={styles.emptyStateText}>
+              {isPastDate
+                ? `${dateLabel}에는 기록된 업무가 없습니다`
+                : `${dateLabel} 진행할 업무를 새로 등록해 보세요`}
+            </Text>
+          </View>
+        ) : (
+          dateFilteredTodos.map((todo) => {
+            const disabled = !!todo.done;
 
-          return (
-            <SlideUp key={todo.id}>
-              <TodoItem
-                todo={todo}
-                onPressAction={onPressAction}
-                onToggleDone={onToggleDone}
-                onEditTodo={onEditTodo}
-                onDeleteTodo={onDeleteTodo}
-                disabled={disabled}
-                isEditing={isEditing}
-                startEdit={startEdit}
-                editingText={editingText}
-                setEditingText={setEditingText}
-                saveEdit={saveEdit}
-                setEditingId={setEditingId}
-              />
-            </SlideUp>
-          );
-        })}
+            return (
+              <SlideUp key={todo.id}>
+                <TodoItem
+                  todo={todo}
+                  isPastDate={isPastDate}
+                  onPressAction={onPressAction}
+                  onToggleDone={onToggleDone}
+                  onDeleteTodo={onDeleteTodo}
+                  disabled={disabled}
+                  startEdit={startEdit}
+                />
+              </SlideUp>
+            );
+          })
+        )}
       </Animated.View>
 
-      {/* ── [새 업무 등록 모달 오픈 트리거 버튼 - 단일 깔끔 아이콘] ── */}
-      <PressableScale
-        onPress={() => setModalVisible(true)}
-        style={styles.openModalBtn}
-        to={0.96}
-      >
-        <Ionicons name="add-circle" size={18} color="#FFFFFF" />
-        <Text style={styles.openModalBtnText}>새 업무 등록하기</Text>
-      </PressableScale>
+      {/* ── [새 업무 등록 모달 오픈 트리거 버튼 - 지난 날짜(isPast)일 때는 숨김] ── */}
+      {!isPastDate && (
+        <PressableScale
+          onPress={openCreateModal}
+          style={styles.openModalBtn}
+          to={0.96}
+        >
+          <Ionicons name="add-circle" size={18} color="#FFFFFF" />
+          <Text style={styles.openModalBtnText}>새 업무 등록하기</Text>
+        </PressableScale>
+      )}
 
-      {/* ── [iOS 팝업 모달 다이얼로그: 새 업무 등록] ── */}
+      {/* ── [iOS 팝업 모달 다이얼로그: 새 업무 등록 / 업무 수정 통합 모달] ── */}
       <Modal
         visible={modalVisible}
         transparent
@@ -201,13 +284,13 @@ export default function TodoList({
           />
           
           <SlideUp style={styles.modalContainer}>
-            {/* 모달 헤더 - [한글 주석] 군더더기 수식어('새 매장', '진행 업무' 등)를 없애고 날짜와 '업무 등록'만 깔끔하게 표기 */}
+            {/* 모달 헤더 - [한글 주석] 등록/수정 모드에 따라 타이틀('업무 등록' / '업무 수정') 자동 변경 */}
             <View style={styles.modalHeader}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.modalDateText}>
                   {dateLabel} ({selectedDateInfo?.dayName || '오늘'})
                 </Text>
-                <Text style={styles.modalTitle}>업무 등록</Text>
+                <Text style={styles.modalTitle}>{editingTodo ? '업무 수정' : '업무 등록'}</Text>
               </View>
               <PressableScale
                 onPress={() => setModalVisible(false)}
@@ -218,29 +301,16 @@ export default function TodoList({
               </PressableScale>
             </View>
 
-            {/* 업무 카테고리 선택 칩 (2x2 세련된 그리드 배치) */}
-            <Text style={styles.inputFieldLabel}>카테고리 선택</Text>
+            {/* [한글 주석] 군더더기 '카테고리 선택' 라벨 제거 후 쫀득한 물방울 스프링 칩 그리드배치 */}
             <View style={styles.modalCategoryGrid}>
-              {CATEGORIES.map((cat) => {
-                const isSelected = selectedCategory === cat.id;
-                return (
-                  <PressableScale
-                    key={cat.id}
-                    onPress={() => setSelectedCategory(cat.id)}
-                    style={[styles.modalCatChip, isSelected && styles.modalCatChipActive]}
-                    to={0.94}
-                  >
-                    <Ionicons
-                      name={cat.icon as any}
-                      size={13}
-                      color={isSelected ? '#FFFFFF' : '#71717A'}
-                    />
-                    <Text style={[styles.modalCatChipText, isSelected && styles.modalCatChipTextActive]}>
-                      {cat.label}
-                    </Text>
-                  </PressableScale>
-                );
-              })}
+              {CATEGORIES.map((cat) => (
+                <CategoryChipCell
+                  key={cat.id}
+                  cat={cat}
+                  isSelected={selectedCategory === cat.id}
+                  onPress={() => setSelectedCategory((prev) => (prev === cat.id ? null : cat.id))}
+                />
+              ))}
             </View>
 
             {/* 업무 제목 입력 */}
@@ -254,16 +324,6 @@ export default function TodoList({
               autoFocus
             />
 
-            {/* 세부 내용 / 메모 입력 (선택) */}
-            <Text style={styles.inputFieldLabel}>세부 메모 (선택)</Text>
-            <TextInput
-              style={styles.modalTextInput}
-              placeholder="예: 마감 전 소독 후 인증 사진 촬영"
-              placeholderTextColor="#A1A1AA"
-              value={newSub}
-              onChangeText={setNewSub}
-            />
-
             {/* 모달 하단 액션 버튼 */}
             <View style={styles.modalActionRow}>
               <PressableScale
@@ -274,15 +334,17 @@ export default function TodoList({
                 <Text style={styles.modalCancelText}>취소</Text>
               </PressableScale>
               <PressableScale
-                onPress={handleCreateTodo}
+                onPress={handleSaveTodo}
                 style={[
                   styles.modalSubmitBtn,
-                  !newTitle.trim() && !newSub.trim() && { opacity: 0.5 },
+                  !newTitle.trim() && { opacity: 0.5 },
                 ]}
-                disabled={!newTitle.trim() && !newSub.trim()}
+                disabled={!newTitle.trim()}
                 to={0.95}
               >
-                <Text style={styles.modalSubmitText}>업무 추가하기</Text>
+                <Text style={styles.modalSubmitText}>
+                  {editingTodo ? '업무 수정하기' : '업무 추가하기'}
+                </Text>
               </PressableScale>
             </View>
           </SlideUp>
@@ -295,30 +357,20 @@ export default function TodoList({
 // ── [개별 할 일 아이템 컴포넌트] ──
 function TodoItem({
   todo,
+  isPastDate,
   onPressAction,
   onToggleDone,
-  onEditTodo,
   onDeleteTodo,
   disabled,
-  isEditing,
   startEdit,
-  editingText,
-  setEditingText,
-  saveEdit,
-  setEditingId,
 }: {
   todo: Todo;
+  isPastDate?: boolean;
   onPressAction: (todo: Todo) => void;
   onToggleDone?: (id: string) => void;
-  onEditTodo?: (id: string, newTitle: string) => void;
   onDeleteTodo?: (id: string) => void;
   disabled: boolean;
-  isEditing: boolean;
   startEdit: (todo: Todo) => void;
-  editingText: string;
-  setEditingText: (val: string) => void;
-  saveEdit: (id: string) => void;
-  setEditingId: (id: string | null) => void;
 }) {
   const animX = useRef(new Animated.Value(0)).current;
   const animOpacity = useRef(new Animated.Value(1)).current;
@@ -340,8 +392,6 @@ function TodoItem({
     });
   };
 
-  const catMeta = getCategoryMeta(todo);
-
   return (
     <Animated.View style={{ transform: [{ translateX: animX }], opacity: animOpacity }}>
       <PressableScale
@@ -362,15 +412,23 @@ function TodoItem({
           />
         </PressableScale>
 
-        {/* [2. 카테고리 소형 아이콘 뱃지] */}
-        <View style={[styles.taskIconBadge, { backgroundColor: disabled ? '#F4F4F5' : catMeta.bg }]}>
-          <Ionicons
-            name={catMeta.icon as any}
-            size={14}
-            color={disabled ? '#71717A' : catMeta.color}
-          />
+        {/* [2. 한 줄로 깔끔하게 정돈된 타이틀 텍스트] */}
+        <View style={{ flex: 1, marginLeft: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+            <Text style={[styles.taskItemTitle, disabled && styles.strike]} numberOfLines={1}>
+              {todo.title}
+            </Text>
+            {/* AI 출처 배지 */}
+            {todo.source === 'ai' && (
+              <View style={[styles.aiBadge, disabled && styles.aiBadgeDone]}>
+                <Ionicons name="sparkles" size={9} color={disabled ? '#71717A' : '#A855F7'} />
+                <Text style={[styles.aiBadgeText, disabled && styles.aiBadgeTextDone]}>브루</Text>
+              </View>
+            )}
+          </View>
         </View>
 
+<<<<<<< Updated upstream
         {/* [3. 타이틀 및 하단 조그마한 카테고리 텍스트 라벨] */}
         <View style={{ flex: 1, marginLeft: 10 }}>
           {isEditing ? (
@@ -404,35 +462,32 @@ function TodoItem({
                 )}
               </View>
 
-              {/* [하단 조그마한 카테고리 소텍스트 라벨] */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                <Text style={[styles.categorySubText, disabled && styles.strike]}>
-                  {catMeta.label}
-                </Text>
-                {todo.subtitle ? (
+              {/* [하단 부제 — 카테고리 라벨 텍스트는 제거하고 부제만 한 줄로 표시] */}
+              {todo.subtitle ? (
+                <View style={{ marginTop: 2 }}>
                   <Text style={[styles.taskItemSub, disabled && styles.strike]} numberOfLines={1}>
-                    · {todo.subtitle}
+                    {todo.subtitle}
                   </Text>
-                ) : null}
-              </View>
+                </View>
+              ) : null}
             </>
           )}
         </View>
 
         {/* [4. 우측 액션 기능 모음] */}
         {!isEditing && (
+=======
+        {/* [3. 우측 액션 버튼 - [한글 주석] 지난 날짜(isPastDate)일 때는 수정/삭제 버튼 숨김] */}
+        {!isPastDate && (
+>>>>>>> Stashed changes
           <View style={styles.actionsRight}>
-            {disabled ? (
-              <PopIn style={styles.doneBadge}>
-                <Text style={styles.doneBadgeText}>✓ 완료</Text>
-              </PopIn>
-            ) : todo.actionable ? (
+            {!disabled && todo.actionable ? (
               <View style={styles.actionHint}>
                 <Text style={styles.actionHintText}>브루에게 ›</Text>
               </View>
             ) : null}
 
-            {/* 수정 연필 버튼 */}
+            {/* 수정 연필 버튼 (클릭 시 팝업 모달이 수정 모드로 열림) */}
             <PressableScale
               onPress={() => startEdit(todo)}
               style={styles.iconBtn}
@@ -457,6 +512,25 @@ function TodoItem({
 }
 
 const styles = StyleSheet.create({
+  emptyStateContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 22,
+    paddingHorizontal: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.05)',
+    gap: 6,
+    marginBottom: 4,
+  },
+  emptyStateText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#71717A',
+    textAlign: 'center',
+  },
+
   // 트리거 버튼
   openModalBtn: {
     flexDirection: 'row',
@@ -551,7 +625,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   modalCatChip: {
-    width: '48.5%', // [한글 주석] 2x2 대칭 배치로 화면 깨짐 없는 깔끔한 세그먼트
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -655,20 +729,24 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   taskItemTitle: {
-    fontSize: 13.5,
+<<<<<<< Updated upstream
+    fontSize: 12.5,
+=======
+    fontSize: 13,
+>>>>>>> Stashed changes
     fontWeight: '700',
     color: '#18181B',
     letterSpacing: -0.3,
   },
-  categorySubText: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    color: '#71717A',
-  },
   taskItemSub: {
-    fontSize: 10.5,
+<<<<<<< Updated upstream
+    fontSize: 10,
+=======
+    fontSize: 11.5,
+>>>>>>> Stashed changes
     fontWeight: '500',
-    color: '#A1A1AA',
+    color: '#71717A',
+    flexShrink: 1,
   },
   strike: {
     textDecorationLine: 'line-through',
@@ -713,7 +791,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3.5,
   },
   actionHintText: {
-    fontSize: 10.5,
+    fontSize: 9.5,
     color: '#16A34A',
     fontWeight: '800',
     letterSpacing: -0.1,

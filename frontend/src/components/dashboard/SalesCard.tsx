@@ -166,6 +166,80 @@ function SlidingTabToggle({
   );
 }
 
+// [한글 주석: 아이폰 물방울처럼 쫀득하고 통통 튀는 Bouncy Elastic Spring 애니메이션의 날짜 선택 셀]
+function DateStripCell({
+  item,
+  isSelected,
+  onSelect,
+}: {
+  item: WeekDayItem;
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
+  const scaleAnim = useRef(new Animated.Value(isSelected ? 1.08 : 1.0)).current;
+
+  useEffect(() => {
+    if (isSelected) {
+      // 선택되는 순간 순간적으로 0.85까지 축소되었다가 1.15로 퐁 튀어오른 후 1.08에 쫀득하게 안착
+      scaleAnim.setValue(0.85);
+      Animated.spring(scaleAnim, {
+        toValue: 1.08,
+        friction: 3.8,
+        tension: 190,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.spring(scaleAnim, {
+        toValue: 1.0,
+        friction: 6,
+        tension: 140,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [isSelected]);
+
+  return (
+    <PressableScale
+      onPress={onSelect}
+      style={styles.dateStripItem}
+      to={0.82}
+    >
+      <View style={styles.dateDayBox}>
+        <Text style={[styles.dateDayText, isSelected && styles.dateDayTextActive]}>
+          {item.dayName}
+        </Text>
+      </View>
+
+      <Animated.View
+        style={[
+          styles.dateCircle,
+          item.isToday && styles.dateCircleToday,
+          isSelected && styles.dateCircleActive,
+          { transform: [{ scale: scaleAnim }] },
+        ]}
+      >
+        <Text
+          style={[
+            styles.dateNumberText,
+            item.isToday && styles.dateNumberTextToday,
+            isSelected && styles.dateNumberTextActive,
+          ]}
+        >
+          {item.dateNum}
+        </Text>
+      </Animated.View>
+
+      <View style={styles.dateCheckArea}>
+        {item.isPast && (
+          <View style={styles.dateCheckBadge}>
+            <Ionicons name="checkmark" size={10} color={colors.mochaBrown} />
+          </View>
+        )}
+      </View>
+    </PressableScale>
+  );
+}
+
 // [한글 주석] onPressReport 콜백, todos 리스트, onPressTodo, onToggleDone, onAddTodo, onEditTodo, onDeleteTodo 핸들러를 바인딩합니다.
 export default function SalesCard({
   onPressReport,
@@ -479,35 +553,12 @@ export default function SalesCard({
         {weekDays.map((item) => {
           const isSelected = selectedDateKey === item.dateKey;
           return (
-            <PressableScale
+            <DateStripCell
               key={item.dateKey}
-              onPress={() => setSelectedDateKey(item.dateKey)}
-              style={styles.dateStripItem}
-              to={0.88}
-            >
-              {/* 깔끔한 미니멀 요일 라벨 (100% 칼정렬) */}
-              <View style={styles.dateDayBox}>
-                <Text style={[styles.dateDayText, isSelected && styles.dateDayTextActive]}>
-                  {item.dayName}
-                </Text>
-              </View>
-
-              {/* 42x42 고정 서클 */}
-              <View style={[styles.dateCircle, isSelected && styles.dateCircleActive]}>
-                <Text style={[styles.dateNumberText, isSelected && styles.dateNumberTextActive]}>
-                  {item.dateNum}
-                </Text>
-              </View>
-
-              {/* 고정 높이 18px 영역으로 체크 유무와 무관하게 서클 높이 덜컹거림 제거 */}
-              <View style={styles.dateCheckArea}>
-                {item.isPast && (
-                  <View style={styles.dateCheckBadge}>
-                    <Ionicons name="checkmark" size={10} color={colors.mochaBrown} />
-                  </View>
-                )}
-              </View>
-            </PressableScale>
+              item={item}
+              isSelected={isSelected}
+              onSelect={() => setSelectedDateKey(item.dateKey)}
+            />
           );
         })}
       </View>
@@ -1687,17 +1738,20 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.06)',
+    borderWidth: 0,
+  },
+  dateCircleToday: {
+    borderWidth: 1.5,
+    borderColor: colors.espressoBrown,
+    backgroundColor: 'transparent',
   },
   dateCircleActive: {
     backgroundColor: colors.espressoBrown,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.25)',
-    transform: [{ scale: 1.10 }],
+    borderWidth: 0,
+    borderColor: 'transparent',
     shadowColor: colors.espressoBrown,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
@@ -1708,6 +1762,12 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     fontWeight: '700',
     color: '#3F3F46',
+    textAlign: 'center',
+  },
+  dateNumberTextToday: {
+    fontSize: 13.5,
+    fontWeight: '900',
+    color: colors.espressoBrown,
     textAlign: 'center',
   },
   dateNumberTextActive: {
