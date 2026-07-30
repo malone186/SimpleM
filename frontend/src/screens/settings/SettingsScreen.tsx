@@ -161,9 +161,7 @@ export default function SettingsScreen() {
   const [inquiryCategory, setInquiryCategory] = useState('💡 기능 요청 / 개선');
   const [inquiryTitle, setInquiryTitle] = useState('');
   const [inquiryContent, setInquiryContent] = useState('');
-  // 서버(GET /inquiries)에서 받은 내 문의만 담는다.
-  // 예전엔 여기에 데모 문의 2건이 시드로 들어 있어, 한 번도 문의한 적 없는 사장님의
-  // '나의 문의 내역'에 보낸 적 없는 문의와 받은 적 없는 관리자 답변이 떠 있었다.
+  const [isSubmittingInquiry, setIsSubmittingInquiry] = useState(false);
   const [inquiries, setInquiries] = useState<
     Array<{ id: number; category: string; title: string; content: string; date: string; status: 'answered' | 'pending'; answer?: string }>
   >([]);
@@ -363,7 +361,8 @@ export default function SettingsScreen() {
       return;
     }
 
-    // 보낸 사람은 서버가 토큰에서 정한다 — 여기서 이메일을 실어 보내지 않는다.
+    setIsSubmittingInquiry(true);
+
     const payload = {
       store_name: storeName || '',
       category: inquiryCategory,
@@ -371,35 +370,27 @@ export default function SettingsScreen() {
       content: inquiryContent.trim(),
     };
 
-    // 접수 경로는 한 곳이다.
-    // 예전엔 /inquiries와 /admin/cs에 동시에 쏴서 문의 1건당 DB 행이 2개씩 생겼고,
-    // 실패해도 화면엔 이미 '접수됨' 카드가 떠 있어서 안 보낸 걸 보낸 줄 알았다.
-    // 서버 응답을 확인한 뒤에만 목록에 넣는다.
     try {
       const res = await fetch(`${API_BASE_URL}/api/v1/inquiries`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) {
-        const detail = await res.text().catch(() => '');
-        throw new Error(`${res.status}${detail ? ` · ${detail.slice(0, 120)}` : ''}`);
-      }
-      await fetchInquiries(); // 서버 확정본(실제 id)으로 목록 동기화
-    } catch (err) {
-      console.error('문의 접수 실패:', err);
-      toast(
-        '문의를 보내지 못했어요',
-        err instanceof Error ? err.message : '잠시 후 다시 시도해 주세요.',
-      );
-      return; // 입력값을 지우지 않는다 — 다시 누르면 되도록
-    }
 
-    setInquiryTitle('');
-    setInquiryContent('');
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setInquiryTab('list'); // 문의 완료 후 나의 문의 내역 탭으로 자동 이동
-    toast('접수 완료', '1대1 문의 및 요청사항이 관리자에게 전달되었어요.');
+      if (res.ok) {
+        await fetchInquiries();
+        setInquiryTitle('');
+        setInquiryContent('');
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setInquiryTab('list');
+        toast('접수 완료', '1대1 문의 및 요청사항이 관리자 콘솔에 전달되었어요.');
+      } else {
+        toast('접수 실패', '서버 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
+      }
+    } catch (err) {
+      console.warn('Inquiries API fetch error:', err);
+      toast('접수 실패', '네트워크 연결 상태를 확인 후 다시 시도해 주세요.');
+    }
   };
 
   return (

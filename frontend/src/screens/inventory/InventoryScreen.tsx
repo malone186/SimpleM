@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View, LayoutAnimation, UIManager } from 'react-native';
+import { ActivityIndicator, Alert, Platform, RefreshControl, ScrollView, StatusBar, StyleSheet, Text, TextInput, View, LayoutAnimation, UIManager } from 'react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -13,9 +13,11 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../auth/AuthContext';
 import { useTranslation } from '../../i18n/translations';
 import CameraCaptureModal from '../../components/CameraCaptureModal';
-import { PressableScale } from '../../components/motion';
+import { FadeInUp, PressableScale } from '../../components/motion';
+import Svg, { Circle, Defs, FeGaussianBlur, Filter, LinearGradient, Path, Stop } from 'react-native-svg';
+import Brew from '../../components/brew/Brew';
 import { confirmDialog, toast } from '../../components/toast';
-import { Badge, Button, Card, ProgressBar, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
+import { Badge, Button, Card, ProgressBar, SectionTitle } from '../../components/ui';
 import { SwipeDownModal } from '../../components/ui/SwipeDownModal';
 import { API_BASE_URL } from '../../lib/api/client';
 import { adjustStock, createIngredient, listStocks, StockItem } from '../../lib/api/inventory';
@@ -29,6 +31,9 @@ const TARGET_LABEL: Record<string, string> = {
 };
 
 const notify = (title: string, message: string) => toast(title, message);
+
+// 상단 브라운 헤더의 상태바 여백 (관리 탭과 동일 계산)
+const TOP_INSET = (Platform.select({ android: (StatusBar.currentHeight ?? 24) + 4, default: 12 }) ?? 12) as number;
 
 // [한글 주석] 재고 카테고리 정의
 const CATEGORIES = [
@@ -112,6 +117,15 @@ export default function InventoryScreen() {
     listOcrDocuments('draft', token).then(setDrafts).catch(() => {});
   }, [token]);
 
+  // 헤더 시트에서 아래로 당겨 새로고침 — Screen 래퍼를 걷어낸 대신 재고·초안을 다시 부른다
+  const [refreshing, setRefreshing] = useState(false);
+  const onHeaderRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadStocks();
+    loadDrafts();
+    setTimeout(() => setRefreshing(false), 650);
+  }, [loadStocks, loadDrafts]);
+
   useEffect(() => {
     loadStocks();
     loadDrafts();
@@ -183,7 +197,7 @@ export default function InventoryScreen() {
   const pickFromFiles = async (): Promise<UploadAsset | null> => {
     // expo-document-picker는 네이티브 모듈이라 구버전 앱에는 없을 수 있다. 정적 import로
     // 올리면 그런 빌드에서 화면 진입만으로 앱이 죽으므로 필요할 때만 안전하게 불러온다.
-    let DocumentPicker: typeof import('expo-document-picker');
+    let DocumentPicker: any;
     try {
       DocumentPicker = require('expo-document-picker');
     } catch {
@@ -418,8 +432,55 @@ export default function InventoryScreen() {
   }, [stocks, selectedCategory]);
 
   return (
-    <Screen>
-      {/* 메뉴·레시피 관리 진입 */}
+    <View style={styles.brownRoot}>
+      {/* [딥브라운 오로라 배경] 관리 탭과 동일 — 상단 딥브라운에서 하단 크림으로 녹아든다 */}
+      <View style={StyleSheet.absoluteFill}>
+        <Svg width="100%" height="100%" preserveAspectRatio="none">
+          <Defs>
+            <LinearGradient id="invAurora" x1="0%" y1="0%" x2="0%" y2="100%">
+              <Stop offset="0%" stopColor="#1E1612" />
+              <Stop offset="35%" stopColor="#251C17" />
+              <Stop offset="70%" stopColor="#6E5544" stopOpacity="0.35" />
+              <Stop offset="100%" stopColor={colors.creamSand} />
+            </LinearGradient>
+            <Filter id="invGlow" x="-50%" y="-50%" width="200%" height="200%">
+              <FeGaussianBlur stdDeviation="70" />
+            </Filter>
+          </Defs>
+          <Path d="M0 0 H2000 V2000 H0 Z" fill="url(#invAurora)" />
+          <Circle cx="85%" cy="12%" r="140" fill="#E28257" filter="url(#invGlow)" opacity="0.25" />
+          <Circle cx="15%" cy="22%" r="130" fill="#C29D7A" filter="url(#invGlow)" opacity="0.2" />
+          <Circle cx="60%" cy="4%" r="120" fill="#88BCB5" filter="url(#invGlow)" opacity="0.16" />
+        </Svg>
+      </View>
+
+      {/* 브라운 헤더 — 관리 탭과 동일 톤 (스크롤 밖 고정) */}
+      <View style={styles.brownHeader}>
+        <FadeInUp style={styles.brownHeaderText}>
+          <Text style={styles.brownHeaderTitle}>{t('inventoryTitle')}</Text>
+          <Text style={styles.brownHeaderSub}>{t('inventorySubtitle')}</Text>
+        </FadeInUp>
+        <View style={styles.brownHeaderRight}>
+          <Brew mood="clipboard" size={96} />
+        </View>
+      </View>
+
+      {/* 둥근 크림 시트 — 시트는 고정, 내부 콘텐츠만 스크롤 */}
+      <View style={styles.brownSheet}>
+        <ScrollView
+          contentContainerStyle={styles.brownSheetContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onHeaderRefresh}
+              tintColor={colors.mochaBrown}
+              colors={[colors.pointOrange]}
+            />
+          }
+        >
+          {/* 메뉴·레시피 관리 진입 */}
       <PressableScale style={styles.menuNav} onPress={() => navigation.navigate('Menu')} to={0.97}>
         <View style={styles.menuNavIcon}>
           <Ionicons name="cafe-outline" size={20} color={colors.espressoBrown} />
@@ -868,7 +929,9 @@ export default function InventoryScreen() {
           uploadAsset({ uri: photo.uri, mimeType: photo.mimeType, fileName: photo.fileName });
         }}
       />
-    </Screen>
+        </ScrollView>
+      </View>
+    </View>
   );
 }
 
@@ -899,6 +962,28 @@ function OcrSourceRow({
 }
 
 const styles = StyleSheet.create({
+  // [관리 탭과 동일] 딥브라운 오로라 루트 + 고정 브라운 헤더 + 둥근 크림 시트
+  brownRoot: { flex: 1, backgroundColor: '#1E1612' },
+  brownHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: TOP_INSET,
+    paddingBottom: 8,
+    paddingHorizontal: 18,
+  },
+  brownHeaderText: { flex: 1, paddingRight: 8 },
+  brownHeaderRight: { alignItems: 'flex-end' },
+  brownHeaderTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
+  brownHeaderSub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
+  brownSheet: {
+    flex: 1,
+    backgroundColor: colors.creamSand,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    overflow: 'hidden',
+  },
+  brownSheetContent: { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 24 },
   ocrHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   ocrHeadIcon: {
     width: 40,
