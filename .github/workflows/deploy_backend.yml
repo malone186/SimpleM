@@ -29,6 +29,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 배포 전 문법 게이트 — 충돌 마커 잔재 같은 파싱 불가 코드가 리비전으로 올라가는 걸 막는다.
+      # 의존성 설치 없이 컴파일만 하므로 수 초면 끝난다 (import 오류는 배포 후 smoke test가 잡는다).
+      - name: 파이썬 문법 게이트
+        run: python -m compileall -q backend/app
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
