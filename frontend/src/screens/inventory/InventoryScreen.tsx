@@ -417,9 +417,43 @@ export default function InventoryScreen() {
     return stocks.filter((s) => getCategory(s.name) === selectedCategory);
   }, [stocks, selectedCategory]);
 
+  // 안전재고 미달(미설정 시 3개 기준) 품목만 모은 '부족 재고' 목록.
+  // 삭제된 발주 탭에 있던 "3개 밑으로 떨어지면 알려주는" 기능을 재고 탭으로 옮겨 온 것.
+  const LOW_STOCK_FALLBACK = 3;
+  const lowStocks = useMemo(
+    () => stocks.filter((s) => s.current_quantity < (s.safety_quantity > 0 ? s.safety_quantity : LOW_STOCK_FALLBACK)),
+    [stocks],
+  );
+
   return (
     <Screen>
       <ScreenTitle title={t('inventoryTitle')} subtitle={t('inventorySubtitle')} />
+
+      {/* 부족한 재고 요약 — 안전재고 미달(미설정 시 3개 기준) 품목만 먼저 모아 보여준다.
+          삭제된 발주 탭의 '부족 재고 알림'을 이곳으로 옮겨 왔다. */}
+      {token && lowStocks.length > 0 && (
+        <Card>
+          <SectionTitle>
+            {language === 'en' ? `Low Stock (${lowStocks.length})` : `부족한 재고 (${lowStocks.length}건)`}
+          </SectionTitle>
+          {lowStocks.map((s) => (
+            <View key={`low-${s.ingredient_id}`} style={styles.rowBetween}>
+              <Text style={styles.stockName}>{s.name}</Text>
+              <Text style={styles.safetyText}>
+                {s.current_quantity}{s.unit}
+                {s.safety_quantity > 0
+                  ? ` / 안전 ${s.safety_quantity}${s.unit}`
+                  : ` / 기준 ${LOW_STOCK_FALLBACK}${s.unit}`}
+              </Text>
+            </View>
+          ))}
+          <Text style={[styles.hint, { marginTop: 8 }]}>
+            {language === 'en'
+              ? 'Reorder from your supplier, then update the quantity in the stock list below.'
+              : '외부 공급처로 주문한 뒤 아래 재고 현황에서 수량을 업데이트하세요.'}
+          </Text>
+        </Card>
+      )}
 
       {/* 메뉴·레시피 관리 진입 */}
       <PressableScale style={styles.menuNav} onPress={() => navigation.navigate('Menu')} to={0.97}>

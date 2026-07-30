@@ -238,12 +238,6 @@ async def reject_document(
 # 매장별 데이터이므로 로그인 필수 (store_id = 로그인 이메일)
 # ---------------------------------------------------------------------------
 
-@router.post("/documents/purchase-order", response_model=GeneratedDocumentResponse, status_code=201)
-def create_purchase_order_draft(current_user: User = Depends(get_current_user)):
-    """발주서 초안 — 안전재고 이하 재료를 자동 추출해 발주 수량을 제안한다."""
-    return document_service.draft_purchase_order(current_user.email)
-
-
 @router.post("/documents/stocktake", response_model=GeneratedDocumentResponse, status_code=201)
 def create_stocktake_sheet(current_user: User = Depends(get_current_user)):
     """재고실사표 — 장부상 수량이 채워진 실사용 시트."""

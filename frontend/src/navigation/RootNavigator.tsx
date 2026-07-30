@@ -22,7 +22,6 @@ import LegalScreen from '../screens/legal/LegalScreen';
 import ManagementScreen from '../screens/management/ManagementScreen';
 import MenuScreen from '../screens/menu/MenuScreen';
 import OperationScreen from '../screens/operation/OperationScreen';
-import OrderScreen from '../screens/order/OrderScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 import SalesInputScreen from '../screens/sales/SalesInputScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
@@ -34,7 +33,6 @@ import type { TaxEstimate } from '../lib/api/operation';
 export type RootTabParamList = {
   Dashboard: undefined;
   Inventory: undefined;
-  Order: undefined;
   // prefill: 다른 화면(경영 리포트 등)에서 버튼으로 넘어올 때 입력창에 미리 채울 질문
   //   ts: 같은 질문을 다시 눌러도 파라미터가 바뀌어 재입력되도록 하는 클릭 시각
   Chatbot: { prefill?: string; ts?: number } | undefined;
@@ -70,7 +68,6 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 const ICONS: Record<keyof RootTabParamList, keyof typeof Ionicons.glyphMap> = {
   Dashboard: 'home',
   Inventory: 'file-tray-stacked',
-  Order: 'cart',
   Chatbot: 'chatbubble-ellipses',
   Management: 'grid',
 };
@@ -78,7 +75,6 @@ const ICONS: Record<keyof RootTabParamList, keyof typeof Ionicons.glyphMap> = {
 const LABELS: Record<keyof RootTabParamList, string> = {
   Dashboard: '홈',
   Inventory: '재고',
-  Order: '발주',
   Chatbot: '챗봇',
   Management: '관리',
 };
@@ -188,7 +184,6 @@ import { useTranslation, type TranslationKey } from '../i18n/translations';
 const TAB_LABEL_KEYS: Record<keyof RootTabParamList, TranslationKey> = {
   Dashboard: 'tabHome',
   Inventory: 'tabInventory',
-  Order: 'tabOrder',
   Chatbot: 'tabChatbot',
   Management: 'tabManagement',
 };
@@ -249,7 +244,6 @@ function TabsNavigator() {
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
       <Tab.Screen name="Inventory" component={InventoryScreen} />
-      <Tab.Screen name="Order" component={OrderScreen} />
       <Tab.Screen name="Chatbot" component={ChatbotScreen} />
       <Tab.Screen name="Management" component={ManagementScreen} />
     </Tab.Navigator>

@@ -124,46 +124,6 @@ def update_document(store_id: str, doc_id: str, content: dict[str, Any],
 # 매일·매주 — 구매·재고
 # ---------------------------------------------------------------------------
 
-def draft_purchase_order(store_id: str) -> dict[str, Any]:
-    """발주서 초안 — 안전재고 이하로 떨어진 재료를 모아 발주 품목을 제안한다.
-
-    초안일 뿐 실제 발주(전송)는 하지 않는다. 제안 수량 = 안전재고의 2배 - 현재고.
-    """
-    from app.models.inventory import Ingredient, Stock
-
-    with _session() as db:
-        rows = (
-            db.query(Ingredient, Stock)
-            .join(Stock, Stock.ingredient_id == Ingredient.id)
-            .filter(Ingredient.store_id == store_id)
-            .filter(Stock.safety_quantity > 0)
-            .filter(Stock.current_quantity <= Stock.safety_quantity)
-            .order_by(Ingredient.id)
-            .all()
-        )
-        items = []
-        for ing, stock in rows:
-            suggested = max(round(stock.safety_quantity * 2 - stock.current_quantity, 2), 1)
-            items.append({
-                "name": ing.name, "unit": ing.unit,
-                "current_quantity": stock.current_quantity,
-                "safety_quantity": stock.safety_quantity,
-                "suggested_quantity": suggested,
-                "unit_price": ing.current_price,
-                "estimated_amount": round(suggested * ing.current_price),
-            })
-
-    today = date.today().isoformat()
-    content = {
-        "date": today,
-        "items": items,
-        "total_estimated": sum(i["estimated_amount"] for i in items),
-        "note": "안전재고 이하 품목 자동 추출 초안입니다. 수량·거래처 확인 후 직접 발주하세요."
-        if items else "안전재고 이하로 떨어진 재료가 없습니다. (안전재고가 설정된 재료만 검사)",
-    }
-    return _save_document(store_id, "purchase_order", f"발주서 초안 ({today})", content, period=today)
-
-
 def generate_stocktake_sheet(store_id: str) -> dict[str, Any]:
     """재고실사표 — 장부상 수량을 채워 넣은 실사용 시트 (실사 수량은 현장에서 기입)."""
     from app.models.inventory import Ingredient, Stock
