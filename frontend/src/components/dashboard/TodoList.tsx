@@ -1,4 +1,4 @@
-// 할 일 목록 (Design Spec §4-③ 연동 — iOS 팝업 모달 기반 새 업무 등록 UI 및 1줄 세련 레이아웃)
+// 할 일 목록 (Design Spec §4-③ 연동 — iOS 팝업 모달 기반 새 업무 등록 및 1줄 세련 레이아웃 최종)
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { Animated, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
