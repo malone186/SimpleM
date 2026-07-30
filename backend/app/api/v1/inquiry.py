@@ -198,11 +198,31 @@ def create_inquiry(
         "answer": None,
         "date": now.strftime("%Y.%m.%d"),
     }
-    # DB 저장에 성공했으면 메모리에 또 넣지 않는다 — 조회에서 같은 문의가 두 번 보인다.
-    # 관리자 화면도 같은 DB를 읽으므로 별도 등록이 필요 없다 (예전엔 mock_cs_list에
-    # 따로 넣었는데, 그건 서버 재시작이나 인스턴스 교체로 사라지는 사본이었다).
+    # DB 저장에 성공했으면 메모리에 넣지 않는다 — 관리자·앱 모두 같은 DB를 읽으므로
+    # 넣으면 조회에서 같은 문의가 두 번 보인다.
+    #
+    # 실패한 경우에만 메모리 폴백에 넣는다. 이때 사장님 앱이 읽는 GLOBAL_INQUIRIES뿐
+    # 아니라 관리자 화면(GET /admin/cs)이 읽는 mock_cs_list에도 같이 넣어야 한다 —
+    # 한쪽만 넣으면 사장님에겐 '접수 완료'로 보이는데 관리자는 문의가 온 줄도 모르고,
+    # 메모리에만 남아 인스턴스 교체 시 통째로 유실된다(사장님은 답변을 계속 기다린다).
+    # 답변이 달리면 sync_reply_to_memory가 두 리스트를 함께 갱신한다.
     if inq_id is None:
         GLOBAL_INQUIRIES.insert(0, item_dict)
+        # 관리자 화면 형식(admin/cs)에 맞춘 사본. DB가 없어 사장님 이름을 못 찾으므로
+        # name은 이메일로 대체한다 (admin/cs의 이름 폴백과 동일).
+        mock_cs_list.insert(0, {
+            "id": final_id,
+            "name": email,
+            "store": store_name,
+            "category": req.category,
+            "title": req.title,
+            "date": now.strftime("%Y-%m-%d %H:%M"),
+            "status": "답변 대기",
+            "email": email,
+            "content": req.content,
+            "question": req.content,
+            "reply": None,
+        })
 
     return item_dict
 
