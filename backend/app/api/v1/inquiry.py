@@ -1,7 +1,6 @@
 """
 1대1 문의 및 요청사항 API 엔드포인트 (한글 주석 적용)
 """
-from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -11,7 +10,11 @@ from app.core.auth import get_current_user, get_current_user_optional
 from app.core.database import get_db
 from app.models.inquiry import Inquiry
 from app.models.user import User
+from app.utils.datetime_kst import fmt_kst, now_kst, utc_now
 from app.api.v1.admin import mock_cs_list
+
+# 앱 '나의 문의 내역'이 쓰는 날짜 표기 (관리자 화면은 분까지 보여 준다)
+APP_DATE_FMT = "%Y.%m.%d"
 
 router = APIRouter(prefix="/inquiries", tags=["Inquiry"])
 
@@ -96,7 +99,7 @@ def get_inquiries(
                 "content": item.content,
                 "status": _normalize_status(item.status),
                 "answer": item.answer,
-                "date": item.created_at.strftime("%Y.%m.%d") if item.created_at else ""
+                "date": fmt_kst(item.created_at, APP_DATE_FMT),
             })
     except Exception:
         pass
@@ -156,13 +159,13 @@ def create_inquiry(
     │   (tests/test_inquiry_admin_flow.py의 legacy 테스트 2건도 함께 정리)
     └────────────────────────────────────────────────────────────────────────
     """
-    now = datetime.now()
     email = (current_user.email if current_user else (req.user_email or "").strip())
     if not email:
         raise HTTPException(status_code=422, detail="문의를 보낸 사장님 이메일이 필요합니다.")
     store_name = _resolve_store_name(db, email, req.store_name)
 
     inq_id = None
+    created_at = None
     try:
         inq = Inquiry(
             user_email=email,
@@ -176,6 +179,9 @@ def create_inquiry(
         db.commit()
         db.refresh(inq)
         inq_id = inq.id
+        # 접수 일시는 DB에 실제로 박힌 값을 그대로 되돌려준다 — 여기서 따로 시각을
+        # 찍으면 방금 접수한 화면과 새로고침한 목록의 시각이 미세하게 어긋난다.
+        created_at = inq.created_at
     except Exception:
         try:
             db.rollback()
@@ -196,7 +202,8 @@ def create_inquiry(
         "content": req.content,
         "status": "pending",
         "answer": None,
-        "date": now.strftime("%Y.%m.%d"),
+        # DB에 들어갔으면 그 행의 시각(UTC)을 KST로, 못 들어갔으면 지금(KST)
+        "date": fmt_kst(created_at, APP_DATE_FMT) if created_at else now_kst().strftime(APP_DATE_FMT),
     }
     # DB 저장에 성공했으면 메모리에 또 넣지 않는다 — 조회에서 같은 문의가 두 번 보인다.
     # 관리자 화면도 같은 DB를 읽으므로 별도 등록이 필요 없다 (예전엔 mock_cs_list에
@@ -218,7 +225,7 @@ def reply_inquiry(inquiry_id: int, req: InquiryReply, db: Session = Depends(get_
     if inq:
         inq.answer = req.answer
         inq.status = "answered"
-        inq.answered_at = datetime.utcnow()
+        inq.answered_at = utc_now()
         db.commit()
         db.refresh(inq)
         sync_reply_to_memory(inquiry_id, req.answer)  # 메모리 사본도 함께 갱신 (표시 불일치 방지)
@@ -231,7 +238,7 @@ def reply_inquiry(inquiry_id: int, req: InquiryReply, db: Session = Depends(get_
             "content": inq.content,
             "status": inq.status,
             "answer": inq.answer,
-            "date": inq.created_at.strftime("%Y.%m.%d") if inq.created_at else ""
+            "date": fmt_kst(inq.created_at, APP_DATE_FMT),
         }
 
     # DB에 없으면 메모리 리스트에서 답변 처리 (DB 오프라인 대비)

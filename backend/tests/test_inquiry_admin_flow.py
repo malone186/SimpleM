@@ -6,6 +6,8 @@
   3. 남의 문의는 내 목록에 안 섞이고, 이메일을 알아도 훔쳐볼 수 없다
   4. 관리자 화면 값(계정 상태·메모·OCR/재고 건수)이 지어낸 값이 아니라 DB에서 온다
 """
+from datetime import datetime, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -228,6 +230,36 @@ def test_legacy_app_without_token_can_still_submit(client):
 
     # 관리자 화면에는 정상적으로 뜬다
     assert any(x["title"] == "구버전 앱에서 보낸 문의" for x in c.get("/api/v1/admin/cs").json())
+
+
+def test_reception_time_is_shown_in_kst(client):
+    """관리자 화면의 '접수 일시'는 사장님이 실제로 보낸 한국 시각이다.
+
+    저장은 UTC(datetime.utcnow)로 하는데 예전엔 화면에도 UTC를 그대로 찍어서,
+    낮 12시 40분에 들어온 문의가 03:40으로 보였다. 밤에 들어온 문의는 날짜까지
+    하루 앞으로 밀렸다.
+    """
+    from app.models.inquiry import Inquiry
+    from app.utils.datetime_kst import KST
+
+    c, TestSession = client
+    created = _post_inquiry(c, OWNER, "접수 시각 확인")
+
+    with TestSession() as db:
+        stored = db.query(Inquiry).filter(Inquiry.id == created["id"]).first().created_at
+
+    # 저장은 그대로 UTC — 이미 쌓인 행들과 기준이 같아야 목록 정렬·표시가 안 섞인다
+    assert stored.tzinfo is None
+    assert abs((stored - datetime.now(timezone.utc).replace(tzinfo=None)).total_seconds()) < 60
+
+    expected = stored.replace(tzinfo=timezone.utc).astimezone(KST)
+    row = next(x for x in c.get("/api/v1/admin/cs").json() if x["id"] == created["id"])
+    assert row["date"] == expected.strftime("%Y-%m-%d %H:%M")
+
+    # 앱의 '나의 문의 내역'도 같은 기준(KST) — 자정 근처에 날짜가 하루 어긋나면 안 된다
+    mine = next(x for x in c.get("/api/v1/inquiries").json() if x["id"] == created["id"])
+    assert mine["date"] == expected.strftime("%Y.%m.%d")
+    assert created["date"] == mine["date"]  # 접수 응답과 목록이 같은 날짜를 말한다
 
 
 def test_no_token_and_no_email_is_rejected(client):

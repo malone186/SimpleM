@@ -27,6 +27,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
 from app.services.ai.untrusted import quote_fields
+from app.utils.datetime_kst import KST, to_kst
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +41,22 @@ def _db():
     return SessionLocal()
 
 
+def _local(value: datetime) -> datetime:
+    """tz가 붙은 값(Neon timestamptz는 UTC로 온다)은 KST로 옮긴다.
+
+    그대로 두면 사장님이 "어제 넣은 문의"라고 기억하는 걸 챗봇이 그제로 말한다
+    (밤 9시 이후 KST = 그날 UTC 낮 → 날짜가 하루 밀린다).
+    naive 값은 이미 매장 시각으로 보고 건드리지 않는다 — 로컬 DB 시절 데이터가 그렇다.
+    """
+    return value.astimezone(KST) if value.tzinfo else value
+
+
 def _d(value: Any) -> Optional[str]:
-    """datetime/date/문자열을 YYYY-MM-DD 문자열로 통일한다."""
+    """datetime/date/문자열을 YYYY-MM-DD(KST 기준) 문자열로 통일한다."""
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value.date().isoformat()
+        return _local(value).date().isoformat()
     if isinstance(value, date):
         return value.isoformat()
     return str(value)[:10]
@@ -55,7 +66,7 @@ def _dt(value: Any) -> Optional[str]:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value.isoformat(timespec="minutes")
+        return _local(value).isoformat(timespec="minutes")
     return str(value)
 
 
@@ -489,7 +500,9 @@ def get_notices_and_inquiries(store_id: str, limit: int = 10) -> dict[str, Any]:
                     "status": x.status,
                     "answered": x.status == "answered",
                     "answer": x.answer,
-                    "at": _d(x.created_at),
+                    # inquiries.created_at은 tz 없는 UTC라 _d의 naive 규칙에 안 걸린다 —
+                    # 여기서 명시적으로 KST로 옮긴다 (utils/datetime_kst.py 참고)
+                    "at": _d(to_kst(x.created_at)),
                 },
                 ("title", "answer"),
             )

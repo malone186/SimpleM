@@ -28,6 +28,8 @@ from app.models.ai import (
     OcrDocument,
 )
 from app.models.tracking import TrackingEvent
+# 관리자 화면에 찍히는 일시는 전부 KST로 통일한다 — DB에는 UTC로 쌓인다.
+from app.utils.datetime_kst import fmt_kst, now_kst, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -197,7 +199,7 @@ def get_admin_users(db: Session = Depends(get_db), _admin: User = Depends(get_cu
                 "email": user.email,
                 # 관리자가 손댄 적 없으면 '활성' (admin_user_notes에 행이 없는 상태)
                 "status": note.status if note else "활성",
-                "joined": user.created_at.strftime("%Y-%m-%d %H:%M") if user.created_at else "-",
+                "joined": fmt_kst(user.created_at, default="-"),
                 "ocrCount": int(ocr_counts.get(user.email, 0)),
                 "docCount": int(doc_counts.get(user.email, 0)),
                 "stockCount": int(stock_counts.get(user.email, 0)),
@@ -405,7 +407,8 @@ def get_cs_list(db: Session = Depends(get_db), _admin: User = Depends(get_curren
                 "store": item.store_name or "-",
                 "category": item.category or "문의",
                 "title": item.title,
-                "date": item.created_at.strftime("%Y-%m-%d %H:%M") if item.created_at else "",
+                # 접수 일시는 사장님이 실제로 보낸 한국 시각으로 — created_at은 UTC다
+                "date": fmt_kst(item.created_at),
                 "status": "처리 완료" if item.status == "answered" else "답변 대기",
                 "email": item.user_email,
                 "content": item.content,
@@ -439,6 +442,7 @@ def create_cs_from_app(req: dict, db: Session = Depends(get_db)):
     user_email = req.get("user_email", "")
 
     new_inq_id = None
+    created_at = None
     try:
         db_inq = Inquiry(
             user_email=user_email,
@@ -452,6 +456,7 @@ def create_cs_from_app(req: dict, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(db_inq)
         new_inq_id = db_inq.id
+        created_at = db_inq.created_at  # 목록 조회와 같은 값을 돌려주기 위해 DB 값을 쓴다
     except Exception as e:
         logger.error(f"Inquiry DB 저장 중 오류: {e}")
         try:
@@ -466,7 +471,7 @@ def create_cs_from_app(req: dict, db: Session = Depends(get_db)):
         "store": store_name,
         "category": category,
         "title": title,
-        "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "date": fmt_kst(created_at) if created_at else now_kst().strftime("%Y-%m-%d %H:%M"),
         "status": "답변 대기",
         "email": user_email,
         "content": content,
@@ -494,7 +499,7 @@ def reply_to_cs(cs_id: int, payload: CSReplyPayload, db: Session = Depends(get_d
         if inq:
             inq.answer = payload.reply
             inq.status = "answered"
-            inq.answered_at = datetime.utcnow()
+            inq.answered_at = utc_now()
             db.commit()
             db.refresh(inq)
             sync_reply_to_memory(cs_id, payload.reply)
@@ -504,7 +509,7 @@ def reply_to_cs(cs_id: int, payload: CSReplyPayload, db: Session = Depends(get_d
                 "name": "사장님",
                 "category": inq.category,
                 "title": inq.title,
-                "date": inq.created_at.strftime("%Y-%m-%d %H:%M") if inq.created_at else "2026-07-21 12:00",
+                "date": fmt_kst(inq.created_at),
                 "status": "처리 완료",
                 "question": inq.content,
                 "reply": inq.answer
@@ -532,7 +537,7 @@ def _notif_to_dict(n: AdminNotification) -> dict:
         "body": n.body or "",
         "target": n.target_label,
         "target_type": n.target_type,
-        "date": n.created_at.strftime("%Y-%m-%d %H:%M") if n.created_at else "",
+        "date": fmt_kst(n.created_at),
         "author": n.author,
     }
 
@@ -627,7 +632,7 @@ def create_notification(payload: NotificationCreate, db: Session = Depends(get_d
             "body": payload.body,
             "target": payload.target,
             "target_type": payload.target_type,
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "date": now_kst().strftime("%Y-%m-%d %H:%M"),
             "author": "최고 관리자",
         }
         mock_notif_history.insert(0, new_notif)
@@ -826,7 +831,8 @@ def get_activity_breakdown(db: Session = Depends(get_db), _admin: User = Depends
                     "name": u.name,
                     "store": u.store_name,
                     "email": u.email,
-                    "last_active": la.strftime("%Y-%m-%d %H:%M") if la else None,
+                    # 경과일 계산은 UTC끼리(위 days_inactive), 화면 표시만 KST
+                    "last_active": fmt_kst(la) if la else None,
                     "days_inactive": days_inactive,  # None = 접속 이력 없음
                 })
         # 접속 이력 없음(None)을 맨 앞으로, 그 다음 오래 안 온 순
