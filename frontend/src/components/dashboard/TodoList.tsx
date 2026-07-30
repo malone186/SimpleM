@@ -21,7 +21,6 @@ export type Todo = {
   timeGroup?: string;
   dateKey?: string;
   category?: TodoCategory;
-  chatPrefill?: string;
 };
 
 const CATEGORIES: { id: TodoCategory; label: string; icon: string; tag: string }[] = [
