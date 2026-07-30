@@ -47,11 +47,18 @@ def _create_db_engine():
         logger.info("[DB 연결 성공] PostgreSQL 데이터베이스에 정상 연결되었습니다.")
         return eng
     except Exception as e:
-        # [한글 주석: 로컬 개발 시 PostgreSQL 연결 실패 시 기본적으로 안전한 로컬 SQLite(simplem.db)로 전환합니다]
-        logger.info(
-            f"[DB 폴백] PostgreSQL 미연결 ({e}) -> 로컬 SQLite(simplem.db) 기반으로 작동을 재개합니다."
-        )
-        return create_engine("sqlite:///./simplem.db", connect_args={"check_same_thread": False})
+        if os.getenv("ALLOW_SQLITE_FALLBACK") == "1":
+            logger.error(
+                f"[DB 폴백] PostgreSQL 연결 실패 ({e}) -> ALLOW_SQLITE_FALLBACK=1 이므로 로컬 SQLite로 전환합니다. "
+                "이 모드의 쓰기 데이터는 공유 DB에 반영되지 않습니다."
+            )
+            return create_engine("sqlite:///./simplem.db", connect_args={"check_same_thread": False})
+        # 폴백 미허용(기본값): 장애를 감추지 않고 즉시 중단시켜 운영자가 인지하게 한다.
+        raise RuntimeError(
+            f"PostgreSQL 연결에 실패했습니다: {e}\n"
+            "DATABASE_URL과 DB 서버 상태를 확인하세요. "
+            "개발 중 로컬 SQLite 폴백이 필요하면 환경변수 ALLOW_SQLITE_FALLBACK=1 을 설정하세요."
+        ) from e
 
 engine = _create_db_engine()
 

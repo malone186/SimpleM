@@ -1,7 +1,7 @@
 // 관리자 화면 — 일반 앱과 완전히 다른 다크 테마 개발자/운영 콘솔
 // 관리자 계정(admin@simplem.com)으로 로그인했을 때만 노출 (RootNavigator에서 분기)
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../../auth/AuthContext';
@@ -32,7 +32,6 @@ const INITIAL_MEMBERS: Member[] = [];
 // 유료 플랜(Free/Basic/Pro)은 앱에서 폐지됐다 — 등급·구독·매출 개념을 전부 걷어냈다.
 type View3 = 'dash' | 'members';
 
-<<<<<<< Updated upstream
 // GET /admin/stats — 대시보드 지표 (전부 DB 집계값)
 type AdminStats = {
   users: number;
@@ -58,9 +57,6 @@ type HealthComponents = {
 function dbLabel(db: HealthComponents['db']): string {
   return [db.provider, db.region, db.database].filter(Boolean).join(' · ');
 }
-=======
-type View3 = 'dash' | 'members' | 'subs' | 'revenue' | 'cs';
->>>>>>> Stashed changes
 
 
 export default function AdminScreen() {
@@ -156,7 +152,6 @@ export default function AdminScreen() {
         <Text style={styles.sub}>{user?.email}</Text>
       </View>
 
-<<<<<<< Updated upstream
       <View style={styles.seg}>
         {([['dash', '대시보드'], ['members', '회원 관리']] as [View3, string][]).map(([v, label]) => (
           <Pressable key={v} style={[styles.segItem, view === v && styles.segActive]} onPress={() => setView(v)}>
@@ -168,34 +163,6 @@ export default function AdminScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {view === 'dash' && <Dashboard apiUp={apiUp} health={health} stats={stats} />}
         {view === 'members' && <Members members={members} onWithdraw={withdraw} />}
-=======
-      {/* 세그먼트 (매출 상세일 땐 뒤로가기) */}
-      {view === 'revenue' ? (
-        <Pressable style={styles.backRow} onPress={() => setView('subs')}>
-          <Ionicons name="chevron-back" size={20} color={A.text} />
-          <Text style={styles.backText}>구독 관리</Text>
-        </Pressable>
-      ) : (
-        <View style={styles.seg}>
-          {([['dash', '대시보드'], ['members', '회원'], ['subs', '구독'], ['cs', 'CS 문의']] as [View3, string][]).map(
-            ([v, label]) => (
-              <Pressable key={v} style={[styles.segItem, view === v && styles.segActive]} onPress={() => setView(v)}>
-                <Text style={[styles.segText, view === v && styles.segTextActive]}>{label}</Text>
-              </Pressable>
-            )
-          )}
-        </View>
-      )}
-
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {view === 'dash' && <Dashboard apiUp={apiUp} memberCount={members.length} />}
-        {view === 'members' && <Members members={members} onWithdraw={withdraw} onChangePlan={changePlan} />}
-        {view === 'subs' && (
-          <Subs members={members} feed={feed} onOpenRevenue={() => setView('revenue')} />
-        )}
-        {view === 'revenue' && <Revenue members={members} feed={feed} />}
-        {view === 'cs' && <CSManagement />}
->>>>>>> Stashed changes
 
         <PressableScale style={styles.logoutBtn} onPress={logout} to={0.98}>
           <Ionicons name="log-out-outline" size={18} color={A.red} />
@@ -415,271 +382,4 @@ const styles = StyleSheet.create({
   planCount: { color: A.sub, fontSize: 11, marginTop: 2 },
   logoutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 16, marginTop: 12 },
   logoutText: { color: A.red, fontSize: 14, fontWeight: '700' },
-  // CS 관리
-  csFilterRow: { flexDirection: 'row', gap: 6, marginVertical: 4 },
-  csFilterBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, backgroundColor: A.card, borderWidth: 1, borderColor: A.border },
-  csFilterBtnActive: { backgroundColor: A.accent, borderColor: A.accent },
-  csFilterText: { color: A.sub, fontSize: 11, fontWeight: '700' },
-  csFilterTextActive: { color: A.onAccent },
-  emptyCsCard: { backgroundColor: A.card, borderRadius: 16, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: A.border },
-  emptyCsText: { color: A.sub, fontSize: 13 },
-  csCard: { backgroundColor: A.card, borderWidth: 1, borderColor: A.border, borderRadius: 16, padding: 14, gap: 8 },
-  csCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  csStoreName: { color: A.text, fontSize: 14, fontWeight: '900' },
-  csSubName: { color: A.sub, fontSize: 11, fontWeight: '500' },
-  csMeta: { color: A.sub, fontSize: 11, marginTop: 2 },
-  csBadge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
-  csBadgeWaiting: { backgroundColor: 'rgba(217,119,6,0.15)' },
-  csBadgeDone: { backgroundColor: 'rgba(34,197,94,0.15)' },
-  csBadgeText: { fontSize: 10, fontWeight: '800' },
-  csBadgeTextWaiting: { color: '#B45309' },
-  csBadgeTextDone: { color: '#15803D' },
-  csTitle: { color: A.text, fontSize: 13, fontWeight: '800', marginTop: 2 },
-  csQuestion: { color: A.sub, fontSize: 12, lineHeight: 17 },
-  csAnswerBox: { backgroundColor: A.cardAlt, borderRadius: 10, padding: 10, marginTop: 4, borderWidth: 1, borderColor: A.border },
-  csAnswerHeader: { color: A.accent, fontSize: 11, fontWeight: '800', marginBottom: 2 },
-  csAnswerText: { color: A.text, fontSize: 12, lineHeight: 16 },
-  csReplyActionBtn: { backgroundColor: A.accent, borderRadius: 10, paddingVertical: 8, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, marginTop: 4 },
-  csReplyActionBtnEdit: { backgroundColor: A.text },
-  csReplyActionText: { color: A.onAccent, fontSize: 12, fontWeight: '800' },
-  // 모달
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
-  modalPanel: { backgroundColor: A.card, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: A.border },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  modalTitle: { color: A.text, fontSize: 17, fontWeight: '900' },
-  modalInfoBox: { backgroundColor: A.cardAlt, borderRadius: 12, padding: 12, marginBottom: 12, gap: 4 },
-  modalInfoStore: { color: A.sub, fontSize: 11, fontWeight: '700' },
-  modalInfoTitle: { color: A.text, fontSize: 13, fontWeight: '800' },
-  modalInfoQuestion: { color: A.text, fontSize: 12, lineHeight: 16 },
-  modalInputLabel: { color: A.text, fontSize: 12, fontWeight: '800', marginBottom: 6 },
-  modalTextInput: { backgroundColor: A.bg, borderRadius: 12, padding: 12, color: A.text, fontSize: 13, minHeight: 90, textAlignVertical: 'top', borderWidth: 1, borderColor: A.border, marginBottom: 12 },
-  modalSubmitBtn: { backgroundColor: A.accent, borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
-  modalSubmitText: { color: A.onAccent, fontSize: 14, fontWeight: '800' },
 });
-
-// ── CS 문의 관리 (백엔드 1대1 문의 실시간 조회 & 관리자 답변 작성) ──
-type CSItem = {
-  id: number;
-  store: string;
-  name: string;
-  category: string;
-  title: string;
-  date: string;
-  status: '답변 대기' | '처리 완료';
-  question: string;
-  reply?: string | null;
-  email?: string;
-};
-
-function CSManagement() {
-  const [csList, setCsList] = useState<CSItem[]>([]);
-  const [filter, setFilter] = useState<'all' | 'waiting' | 'done'>('all');
-  const [selectedItem, setSelectedItem] = useState<CSItem | null>(null);
-  const [replyInput, setReplyInput] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // [한글 주석] 백엔드에서 1대1 CS 문의 목록 실시간 동기화 (앱/웹 공용)
-  const fetchCSList = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/v1/admin/cs`);
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          setCsList(
-            data.map((x: any) => ({
-              id: x.id,
-              store: x.store || x.store_name || '포슬카페',
-              name: x.name || '사장님',
-              category: x.category || '💡 기능 요청',
-              title: x.title,
-              date: x.date || '2026-07-21',
-              status: x.status === 'answered' || x.status === '처리 완료' ? '처리 완료' : '답변 대기',
-              question: x.question || x.content || x.title,
-              reply: x.reply || x.answer || null,
-              email: x.email || x.user_email,
-            })),
-          );
-        }
-      }
-    } catch (err) {
-      console.warn('CS 목록 불러오기 실패:', err);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchCSList();
-    const timer = setInterval(fetchCSList, 5000); // [한글 주석] 5초마다 실시간 문의 수신 자동 갱신
-    return () => clearInterval(timer);
-  }, [fetchCSList]);
-
-  // [한글 주석] 문의 답변 제출 (백엔드 DB & 인메모리 리스트 일괄 반영)
-  const submitReply = async () => {
-    if (!selectedItem || !replyInput.trim() || isSubmitting) return;
-    setIsSubmitting(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/v1/inquiries/${selectedItem.id}/reply`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answer: replyInput.trim(), reply: replyInput.trim() }),
-      });
-      if (res.ok) {
-        toast('답변 완료 🎉', `${selectedItem.store} 사장님께 답변이 전달되었어요.`);
-        setSelectedItem(null);
-        setReplyInput('');
-        fetchCSList();
-      } else {
-        toast('답변 실패', '서버에서 답변 저장을 실패했습니다.');
-      }
-    } catch (err) {
-      toast('답변 실패', '네트워크 통신 중 오류가 발생했습니다.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const filtered = csList.filter((item) => {
-    if (filter === 'waiting') return item.status === '답변 대기';
-    if (filter === 'done') return item.status === '처리 완료';
-    return true;
-  });
-
-  const waitingCount = csList.filter((x) => x.status === '답변 대기').length;
-  const doneCount = csList.filter((x) => x.status === '처리 완료').length;
-
-  return (
-    <>
-      <Text style={styles.sectionTitle}>1대1 CS 문의 관리 ({csList.length}건)</Text>
-
-      {/* 필터 알약 뱃지 */}
-      <View style={styles.csFilterRow}>
-        <Pressable
-          style={[styles.csFilterBtn, filter === 'all' && styles.csFilterBtnActive]}
-          onPress={() => setFilter('all')}>
-          <Text style={[styles.csFilterText, filter === 'all' && styles.csFilterTextActive]}>
-            전체 ({csList.length})
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[styles.csFilterBtn, filter === 'waiting' && styles.csFilterBtnActive]}
-          onPress={() => setFilter('waiting')}>
-          <Text style={[styles.csFilterText, filter === 'waiting' && styles.csFilterTextActive]}>
-            ⏳ 답변 대기 ({waitingCount})
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[styles.csFilterBtn, filter === 'done' && styles.csFilterBtnActive]}
-          onPress={() => setFilter('done')}>
-          <Text style={[styles.csFilterText, filter === 'done' && styles.csFilterTextActive]}>
-            ✅ 처리 완료 ({doneCount})
-          </Text>
-        </Pressable>
-      </View>
-
-      {/* 문의 목록 */}
-      {filtered.length === 0 ? (
-        <View style={styles.emptyCsCard}>
-          <Text style={styles.emptyCsText}>접수된 문의사항이 없습니다.</Text>
-        </View>
-      ) : (
-        filtered.map((item) => (
-          <View key={item.id} style={styles.csCard}>
-            <View style={styles.csCardHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.csStoreName}>
-                  {item.store} <Text style={styles.csSubName}>({item.email || item.name})</Text>
-                </Text>
-                <Text style={styles.csMeta}>
-                  {item.category} · {item.date}
-                </Text>
-              </View>
-              <View
-                style={[
-                  styles.csBadge,
-                  item.status === '처리 완료' ? styles.csBadgeDone : styles.csBadgeWaiting,
-                ]}>
-                <Text
-                  style={[
-                    styles.csBadgeText,
-                    item.status === '처리 완료' ? styles.csBadgeTextDone : styles.csBadgeTextWaiting,
-                  ]}>
-                  {item.status}
-                </Text>
-              </View>
-            </View>
-
-            <Text style={styles.csTitle}>{item.title}</Text>
-            <Text style={styles.csQuestion}>{item.question}</Text>
-
-            {item.reply ? (
-              <View style={styles.csAnswerBox}>
-                <Text style={styles.csAnswerHeader}>💬 관리자 답변</Text>
-                <Text style={styles.csAnswerText}>{item.reply}</Text>
-              </View>
-            ) : null}
-
-            <PressableScale
-              style={[styles.csReplyActionBtn, item.reply && styles.csReplyActionBtnEdit]}
-              onPress={() => {
-                setSelectedItem(item);
-                setReplyInput(item.reply || '');
-              }}
-              to={0.97}>
-              <Ionicons
-                name={item.reply ? 'create-outline' : 'chatbubble-ellipses-outline'}
-                size={14}
-                color={A.onAccent}
-              />
-              <Text style={styles.csReplyActionText}>{item.reply ? '답변 수정하기' : '답변 작성하기'}</Text>
-            </PressableScale>
-          </View>
-        ))
-      )}
-
-      {/* 답변 작성 팝업 모달 */}
-      <Modal visible={!!selectedItem} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalPanel}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>CS 문의 답변 작성</Text>
-              <Pressable onPress={() => setSelectedItem(null)}>
-                <Ionicons name="close-circle-outline" size={24} color={A.sub} />
-              </Pressable>
-            </View>
-
-            {selectedItem && (
-              <ScrollView style={{ maxHeight: 400 }}>
-                <View style={styles.modalInfoBox}>
-                  <Text style={styles.modalInfoStore}>
-                    {selectedItem.store} ({selectedItem.email})
-                  </Text>
-                  <Text style={styles.modalInfoTitle}>{selectedItem.title}</Text>
-                  <Text style={styles.modalInfoQuestion}>{selectedItem.question}</Text>
-                </View>
-
-                <Text style={styles.modalInputLabel}>관리자 답변 입력</Text>
-                <TextInput
-                  style={styles.modalTextInput}
-                  multiline
-                  placeholder="사장님께 전달할 친절하고 명확한 답변을 작성해 주세요..."
-                  placeholderTextColor={A.sub}
-                  value={replyInput}
-                  onChangeText={setReplyInput}
-                />
-
-                <PressableScale
-                  style={[styles.modalSubmitBtn, isSubmitting && { opacity: 0.6 }]}
-                  onPress={submitReply}
-                  disabled={isSubmitting}
-                  to={0.97}>
-                  <Text style={styles.modalSubmitText}>
-                    {isSubmitting ? '답변 전송 중...' : '답변 등록하기'}
-                  </Text>
-                </PressableScale>
-              </ScrollView>
-            )}
-          </View>
-        </View>
-      </Modal>
-    </>
-  );
-}
