@@ -10,7 +10,13 @@
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Pretendard:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
-  <link rel="stylesheet" href="style.css?v=1.0.7">
+  {# Jinja 템플릿 — FastAPI(/console)가 렌더링한다. asset_version은 서버 기동 시각이라 배포마다 캐시가 자동 무효화된다. #}
+  <script>
+    // [한글 주석] 페이지를 서빙하는 FastAPI가 곧 관리자 API 서버이므로 같은 origin의 상대 경로를 쓴다.
+    // 로컬(uvicorn)이든 Cloud Run이든 주소 하드코딩 없이 그대로 동작한다.
+    window.__ADMIN_API_BASE__ = "{{ api_base }}";
+  </script>
+  <link rel="stylesheet" href="{{ url_for('console_static', path='style.css') }}?v={{ asset_version }}">
 </head>
 <body>
   <div class="desktop-layout">
@@ -607,6 +613,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=1.0.7"></script>
+  <script src="{{ url_for('console_static', path='app.js') }}?v={{ asset_version }}"></script>
 </body>
 </html>

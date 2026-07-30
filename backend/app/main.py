@@ -2,12 +2,14 @@
 
 import logging
 import re
+import time as _time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -172,6 +174,26 @@ app.mount("/legal", StaticFiles(directory=str(_LEGAL_DIR), html=True), name="leg
 # NCP 콘솔 Maps Application의 "Web 서비스 URL"에 이 API 도메인을 등록해야 동작한다.
 _MAP_DIR = Path(__file__).parent / "static" / "map"
 app.mount("/map", StaticFiles(directory=str(_MAP_DIR), html=True), name="map")
+
+# [관리자 콘솔] 예전 admin_web/(별도 http.server, 포트 3000)을 FastAPI가 직접 서빙한다 —
+# 백엔드 배포(--source backend)에 같이 실려 Cloud Run에서도 /console로 접근 가능.
+# 페이지는 Jinja 템플릿: 같은 origin의 API 상대 경로와 캐시 무효화 버전을 주입한다.
+# 인증은 페이지가 아니라 API가 담당한다(/api/v1/admin/* 토큰 게이트) — 페이지 자체는 로그인 화면만 노출.
+_CONSOLE_DIR = Path(__file__).parent / "admin_console"
+app.mount("/console/static", StaticFiles(directory=str(_CONSOLE_DIR / "static")), name="console_static")
+_console_templates = Jinja2Templates(directory=str(_CONSOLE_DIR / "templates"))
+# 기동 시각을 asset 버전으로 → 재배포마다 브라우저 캐시가 자동 갱신된다 (수동 ?v= 올리기 불필요)
+_CONSOLE_ASSET_VERSION = str(int(_time.time()))
+
+
+@app.get("/console", include_in_schema=False)
+def admin_console_page(request: Request):
+    """관리자 데스크톱 콘솔 — Jinja 렌더링 (api_base=''는 같은 origin 상대 경로를 뜻한다)."""
+    return _console_templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={"api_base": "", "asset_version": _CONSOLE_ASSET_VERSION},
+    )
 
 
 # 1. 데이터베이스 접속이 실제로 잘 되는지 테스트해보는 맛보기 API

@@ -1,55 +1,51 @@
-"""SimpleM 관리자 콘솔 정적 서버 — http://localhost:3000
+"""SimpleM 관리자 콘솔 런처 — 이제 콘솔은 FastAPI가 직접 서빙한다 (http://localhost:8000/console)
 
-사용법:  python admin_web/serve.py   (또는 admin_web 폴더에서 python serve.py)
-사장님 앱에서 제출한 1대1 문의는 백엔드(8000)를 거쳐 이 페이지 CS 탭에 3초 내 자동 표시된다.
+예전에는 이 폴더의 정적 파일(index.html·app.js·style.css)을 포트 3000으로 따로 서빙했지만,
+콘솔이 backend/app/admin_console/(Jinja 템플릿 + static)으로 이사해 백엔드와 한 몸이 됐다.
+Cloud Run 배포본에서도 같은 경로다: https://brewnote-api-….run.app/console
+
+이 스크립트는 호환용 런처로만 남는다:
+  1) 백엔드(uvicorn, 포트 8000)가 안 떠 있으면 띄우고
+  2) 브라우저로 /console 을 연다
 """
-import functools
-import http.server
 import os
+import socket
+import subprocess
+import sys
 import webbrowser
 
-import sys
-
-PORT = 3000
-ROOT = os.path.dirname(os.path.abspath(__file__))
+BACKEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend")
+URL = "http://localhost:8000/console"
 
 
-class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
-    """[한글 주석] 개발 중 수정사항이 새로고침만으로 바로 반영되도록 캐시를 끈다."""
-
-    def end_headers(self):
-        self.send_header("Cache-Control", "no-store")
-        super().end_headers()
-
-    def do_GET(self):
-        # favicon이 없어 매 접속마다 404 로그가 찍히던 것을 빈 응답으로 조용히 처리
-        if self.path == "/favicon.ico":
-            self.send_response(204)
-            self.end_headers()
-            return
-        super().do_GET()
+def backend_running() -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.5)
+        return s.connect_ex(("127.0.0.1", 8000)) == 0
 
 
 def main() -> None:
     # [한글 주석] 윈도우 콘솔에서 유니코드 출력 시 cp949 인코딩 에러가 발생하지 않도록 UTF-8로 지정
-    if hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8')
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
 
-    handler = functools.partial(NoCacheHandler, directory=ROOT)
-    server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), handler)
-    url = f"http://localhost:{PORT}"
-    print(f"[SimpleM] 관리자 콘솔 실행 중: {url}  (종료: Ctrl+C)")
+    if backend_running():
+        print(f"[SimpleM] 백엔드가 이미 떠 있습니다 → {URL}")
+        webbrowser.open(URL)
+        return
+
+    print(f"[SimpleM] 백엔드(uvicorn)를 띄우고 콘솔을 엽니다 → {URL}  (종료: Ctrl+C)")
     try:
-        webbrowser.open(url)
+        webbrowser.open(URL)
     except Exception:
         pass
     try:
-        server.serve_forever()
+        subprocess.call(
+            [sys.executable, "-m", "uvicorn", "app.main:app", "--port", "8000"],
+            cwd=os.path.abspath(BACKEND_DIR),
+        )
     except KeyboardInterrupt:
-        # Ctrl+C 종료는 정상 동작 — 트레이스백 없이 조용히 닫는다
         print("\n[SimpleM] 관리자 콘솔을 종료합니다.")
-    finally:
-        server.server_close()
 
 
 if __name__ == "__main__":

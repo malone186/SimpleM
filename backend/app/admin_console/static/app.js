@@ -8,11 +8,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // ━━━ 관리자 로그인 게이트 (A방안: 로그인 → 토큰 발급 → 모든 관리자 API에 자동 첨부) ━━━
   const ADMIN_TOKEN_KEY = 'simplem_admin_token';
 
-  // 백엔드 주소 — 기본은 배포본(Cloud Run).
-  // 로컬 백엔드로 붙이려면 브라우저 콘솔에서 한 줄 실행하고 새로고침하면 된다:
+  // 백엔드 주소 — 이 페이지는 FastAPI(/console)가 직접 서빙하므로 기본은 같은 origin의
+  // 상대 경로다 (Jinja 템플릿이 window.__ADMIN_API_BASE__로 주입). 로컬 uvicorn이든
+  // Cloud Run이든 하드코딩 없이 동작하고, 예전처럼 다른 백엔드로 붙이려면:
   //   localStorage.setItem('simplem_admin_api', 'http://localhost:8000/api/v1')
   // 되돌리려면: localStorage.removeItem('simplem_admin_api')
-  const DEFAULT_API = 'https://brewnote-api-915817944047.asia-northeast3.run.app/api/v1';
+  const DEFAULT_API = `${window.__ADMIN_API_BASE__ ?? ''}/api/v1`;
   const ADMIN_API = localStorage.getItem('simplem_admin_api') || DEFAULT_API;
   const getAdminToken = () => localStorage.getItem(ADMIN_TOKEN_KEY) || '';
 
