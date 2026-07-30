@@ -1295,6 +1295,16 @@ const styles = StyleSheet.create({
     color: colors.mochaBrown,
   },
 
+  todoWrapper: {
+    marginTop: 2,
+    alignItems: 'stretch',
+    justifyContent: 'flex-start',
+    backgroundColor: '#FAF8F5',
+    borderRadius: 22,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(110, 85, 68, 0.08)',
+  },
   toggleTrack: {
     // 고정폭(200)은 카드 폭보다 좁아 금액·달력과 정렬이 어긋났다(세그먼트만 왼쪽에 치우침).
     // 카드 콘텐츠 폭을 그대로 쓰게 해 세 요소의 좌우 기준선을 맞춘다.
@@ -1711,13 +1721,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(110, 85, 68, 0.07)',
   },
-  todoWrapper: {
-    backgroundColor: '#FAF8F5',
-    borderRadius: 22,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(110, 85, 68, 0.08)',
-  },
+
   dateStripItem: {
     alignItems: 'center',
     width: 40,
