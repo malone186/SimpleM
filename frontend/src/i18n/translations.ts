@@ -100,6 +100,7 @@ export const translations = {
     pairSensorTip: "원두 카드의 '센서 연결'에서 무게센서를 페어링하면 실측기반으로 정확해져요.",
     roasteryStoreLink: '스마트스토어 구매 페이지 이동',
     roasteryBeanDetails: '원두 상세 스펙 정보',
+    recommendRoasteryBeans: '취향 원두 추천받기',
     sensorStationTitle: 'IoT 센서 스테이션 페어링',
     sensorStationSub: '매장 센서를 페어링하고 실시간 잔량을 추적하세요',
 
@@ -251,6 +252,7 @@ export const translations = {
     pairSensorTip: "Pair weight sensors via 'Connect Sensor' for exact measurements.",
     roasteryStoreLink: 'Go to SmartStore Product Page',
     roasteryBeanDetails: 'Bean Detailed Specs',
+    recommendRoasteryBeans: 'Get Bean Recommendations',
     sensorStationTitle: 'IoT Sensor Station Pairing',
     sensorStationSub: 'Pair store sensors to track real-time stock levels',
 
