@@ -474,6 +474,41 @@ def _bind_store(t, store_id: str, created_docs: list[dict[str, Any]]):
     )
 
 
+# ---------------------------------------------------------------------------
+# 시스템 프롬프트 렌더링 — format 인자를 이 두 함수에만 둔다.
+#
+# 프롬프트에 {자리표시자}를 추가하고 format 인자를 빠뜨리면 KeyError로 모든 대화가
+# 즉시 실패하는데, generate_response가 예외를 삼켜 "문제가 생겼어요"만 나가고
+# /chatbot/agents 헬스체크는 여전히 정상을 보고한다 — 통째로 죽어도 신호가 없다.
+# tests/test_agent_prompt_format.py가 이 함수들을 직접 호출해 그 사고를 막는다.
+# ---------------------------------------------------------------------------
+
+def render_main_prompt(experts: str, store_id: str) -> str:
+    """메인 오케스트레이터(브루)의 시스템 프롬프트를 채운다."""
+    return _MAIN_PROMPT.format(
+        agent_name=_MAIN_AGENT["name"],
+        experts=experts,
+        today=date.today().isoformat(),
+        store_id=store_id,
+        untrusted_rule=UNTRUSTED_PROMPT_RULE,
+    )
+
+
+def render_sub_prompt(domain: dict[str, Any], store_id: str) -> str:
+    """서브에이전트(전문가) 하나의 시스템 프롬프트를 채운다.
+
+    today: 메인 프롬프트에만 있던 오늘 날짜를 서브에도 넣는다 — 서브가 날짜를 모르면
+    '내일 발주' 같은 상대 날짜를 환각으로 채워 과거 날짜가 저장되는 사고가 났다.
+    """
+    return _SUB_PROMPT_BASE.format(
+        title=domain["title"],
+        store_id=store_id,
+        today=date.today().isoformat(),
+        untrusted_rule=UNTRUSTED_PROMPT_RULE,
+        extra=domain["extra"],
+    )
+
+
 def _build_subagent(domain: dict[str, Any], store_id: str, created_docs: list[dict[str, Any]], model_name: str = ""):
     """도메인 하나의 서브에이전트를 만든다. 도구가 하나도 없으면 None (비활성 도메인)."""
     from langchain.agents import create_agent
@@ -483,11 +518,8 @@ def _build_subagent(domain: dict[str, Any], store_id: str, created_docs: list[di
         return None
     # today: 메인 프롬프트에만 있던 오늘 날짜를 서브에도 넣는다 — 서브가 날짜를 모르면
     # '내일 발주' 같은 상대 날짜를 환각으로 채워 과거 날짜가 저장되는 사고가 났다.
-    prompt = _SUB_PROMPT_BASE.format(title=domain["title"], store_id=store_id,
-                                     today=date.today().isoformat(),
-                                     untrusted_rule=UNTRUSTED_PROMPT_RULE,
-                                     extra=domain["extra"])
-    return create_agent(_get_model(model_name), tools, system_prompt=prompt)
+    return create_agent(_get_model(model_name), tools,
+                        system_prompt=render_sub_prompt(domain, store_id))
 
 
 def _last_text(result: dict[str, Any]) -> str:
@@ -618,12 +650,7 @@ async def generate_response(
         main = create_agent(
             _get_model(model_name),
             delegate_tools,
-            system_prompt=_MAIN_PROMPT.format(
-                agent_name=_MAIN_AGENT["name"],
-                experts="\n".join(expert_lines),
-                today=date.today().isoformat(),
-                store_id=store_id,
-            ),
+            system_prompt=render_main_prompt("\n".join(expert_lines), store_id),
         )
 
         # 3) 실행
