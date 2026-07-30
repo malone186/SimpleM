@@ -303,15 +303,6 @@ def delete_menu(db: Session, store_id: str, menu_id: int) -> None:
     db.commit()
 
 
-def get_roastery_beans(db: Session, limit: int = 10):
-    """
-    [한글 주석: 로스터리 원두 목록 조회 서비스]
-    데이터베이스에 저장된 외부 로스터리 원두 상품 목록을 로스터리 정보와 함께 가져옵니다.
-    """
-    from app.models.roastery import RoasteryBean
-    return db.query(RoasteryBean).order_by(RoasteryBean.id.asc()).limit(limit).all()
-
-
 def get_menu_cost_reduction_recommendations(db: Session, store_id: str, menu_id: int) -> dict:
     """
     [한글 주석: AI 원가 절감 추천 엔진 서비스]

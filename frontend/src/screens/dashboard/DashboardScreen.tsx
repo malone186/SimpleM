@@ -1,6 +1,6 @@
 // 대시보드 (프론트 A) — Design Spec 기반
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Animated, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Animated, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import Svg, { Defs, LinearGradient, Stop, Path, Circle, Filter, FeGaussianBlur } from 'react-native-svg';
 
@@ -8,7 +8,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../auth/AuthContext';
 import CardDepositCard from '../../components/dashboard/CardDepositCard';
 import ManagementReportCard from '../../components/dashboard/ManagementReportCard';
-import QuickOrderModal from '../../components/dashboard/QuickOrderModal';
 import SalesCard from '../../components/dashboard/SalesCard';
 import TodoList, { type Todo } from '../../components/dashboard/TodoList';
 import WelcomeHeader from '../../components/dashboard/WelcomeHeader';
@@ -22,7 +21,6 @@ import { colors, spacing, typography, shadows } from '../../theme';
 
 export default function DashboardScreen() {
   const [todos, setTodos] = useState<Todo[]>([]);
-  const [selected, setSelected] = useState<Todo | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [runId, setRunId] = useState(0);
 
@@ -53,7 +51,8 @@ export default function DashboardScreen() {
         if (stocksResult.status === 'rejected') throw stocksResult.reason;
         const stocks = stocksResult.value;
         stocks
-          .filter((s) => s.current_quantity <= s.safety_quantity)
+          // 안전재고를 따로 설정한 매장이 거의 없다 — 미설정(0)이면 3개 미만을 부족으로 본다
+          .filter((s) => s.current_quantity <= (s.safety_quantity > 0 ? s.safety_quantity : 3))
           .sort(
             (a, b) =>
               a.current_quantity / (a.safety_quantity || 1) -
@@ -65,10 +64,10 @@ export default function DashboardScreen() {
             next.push({
               id: `stock-${s.ingredient_id}`,
               title: soldOut ? `${s.name} 재고 소진` : `${s.name} 재고 부족`,
-              subtitle: `잔여 ${s.current_quantity}${s.unit} · 안전재고 ${s.safety_quantity}${s.unit}`,
-              actionable: true,
-              // 안전재고의 2배까지 채우는 추천량 — 실제 확정은 발주 승인 플로우에서
-              qty: `${Math.max(Math.ceil(s.safety_quantity * 2 - s.current_quantity), 1)} ${s.unit}`,
+              subtitle: s.safety_quantity > 0
+                ? `잔여 ${s.current_quantity}${s.unit} · 안전재고 ${s.safety_quantity}${s.unit}`
+                : `잔여 ${s.current_quantity}${s.unit} · 기준 3${s.unit} 미만`,
+              actionable: false,
             });
           });
       } catch (e) {
@@ -205,29 +204,6 @@ export default function DashboardScreen() {
     }
   };
 
-  const openOrder = (todo: Todo) => {
-    if (!todo.actionable || todo.done) return;
-    setSelected(todo);
-  };
-
-  // [한글 주석: 직접 발주 안내 Alert 처리]
-  // 오너가 외부 공급처에서 직접 주문하도록 안내 팝업을 띄우고, 확인 클릭 시 할 일 목록에서 해당 항목을 완료(done) 처리합니다.
-  const confirmOrder = (todo: Todo) => {
-    Alert.alert(
-      '직접 발주 안내',
-      '앱 내 직접 발주 기능은 지원하지 않습니다. 외부 공급처를 통해 별도로 주문해주시기 바랍니다.\n\n발주 완료 후 재료의 재고 수량은 [재고] 탭에서 수동으로 업데이트해주세요.',
-      [
-        {
-          text: '확인',
-          onPress: () => {
-            setTodos((prev) => prev.map((t) => (t.id === todo.id ? { ...t, done: true } : t)));
-            setSelected(null);
-          },
-        },
-      ]
-    );
-  };
-
   // 스크롤에 따라 헤더가 반 속도로 따라오는 패럴럭스 + 부드러운 페이드
   const headerTranslate = scrollY.interpolate({
     inputRange: [0, 300],
@@ -311,7 +287,7 @@ export default function DashboardScreen() {
             <SalesCard
               key={`salescard-${runId}`}
               todos={todos}
-              onPressTodo={openOrder}
+              onPressTodo={() => {}}
               onToggleDone={toggleDone}
               onAddTodo={handleAddTodo}
               onEditTodo={handleEditTodo}
@@ -332,13 +308,6 @@ export default function DashboardScreen() {
 
         </View>
       </Animated.ScrollView>
-
-      <QuickOrderModal
-        visible={selected !== null}
-        todo={selected}
-        onClose={() => setSelected(null)}
-        onConfirm={confirmOrder}
-      />
 
       {/* [한글 주석: 홈 화면(대시보드) 전용 음성 비서 브리핑 및 마이크 플로팅 버튼 배치] */}
       <BriefingButton />
