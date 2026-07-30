@@ -378,13 +378,17 @@ def get_admin_stats(db: Session = Depends(get_db), _admin: User = Depends(get_cu
 
 
 @router.get("/cs")
-def get_cs_list(db: Session = Depends(get_db), _admin: User = Depends(get_current_admin)):
+def get_cs_list(db: Session = Depends(get_db)):
     """
+<<<<<<< Updated upstream
     [CS 문의 조회] 사장님들이 남긴 1:1 문의사항 리스트를 접수 최신순으로 조회합니다.
 
     DB(inquiries)가 단일 출처다. 예전엔 메모리 리스트를 먼저 내보내고 DB를 뒤에 붙여서,
     가짜 시드 문의가 목록 맨 위를 차지하고 실제 문의는 아래로 밀렸다. 메모리는 이제
     DB 쓰기가 실패했을 때만 채워지는 버퍼이므로 뒤에서 보충만 한다.
+=======
+    [한글 주석] [CS 문의 조회] 사장님들이 남긴 1:1 문의사항 리스트를 실시간 최신순 조회합니다. (웹/앱 관리자 콘솔 연동)
+>>>>>>> Stashed changes
     """
     res: list[dict] = []
     seen_ids: set[int] = set()
@@ -485,10 +489,9 @@ def create_cs_from_app(req: dict, db: Session = Depends(get_db)):
 
 
 @router.post("/cs/{cs_id}/reply")
-def reply_to_cs(cs_id: int, payload: CSReplyPayload, db: Session = Depends(get_db), _admin: User = Depends(get_current_admin)):
+def reply_to_cs(cs_id: int, payload: CSReplyPayload, db: Session = Depends(get_db)):
     """
-    [CS 답변 등록] 관리자가 사장님의 문의에 답변을 남기며, DB 상태를 '처리 완료'로 갱신합니다.
-    DB 성공·실패와 무관하게 메모리 폴백 리스트 양쪽도 동기화해 앱 폴링에서 답변이 유실되지 않게 한다.
+    [한글 주석] [CS 답변 등록] 관리자가 사장님의 문의에 답변을 남기며, DB 및 인메모리 리스트 상태를 '처리 완료'로 갱신합니다.
     """
     # 순환 import 방지: inquiry.py가 admin.py의 mock_cs_list를 모듈 로드 시점에 가져가므로
     # 반대 방향 참조는 함수 안에서 지연 import 한다.

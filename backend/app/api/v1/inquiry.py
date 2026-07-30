@@ -81,6 +81,7 @@ def get_inquiries(
     user_email = current_user.email
     res = []
     seen_ids = set()
+    seen_keys = set()
     try:
         items = (
             db.query(Inquiry)
@@ -90,6 +91,10 @@ def get_inquiries(
         )
         for item in items:
             seen_ids.add(item.id)
+            key = (item.user_email, item.title, item.content)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
             res.append({
                 "id": item.id,
                 "user_email": item.user_email,
@@ -109,6 +114,10 @@ def get_inquiries(
             continue
         if m.get("user_email") != user_email:
             continue
+        key = (m.get("user_email"), m.get("title"), m.get("content"))
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
         res.append({**m, "status": _normalize_status(m.get("status"))})
     return res
 

@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ━━━ 관리자 로그인 게이트 (A방안: 로그인 → 토큰 발급 → 모든 관리자 API에 자동 첨부) ━━━
   const ADMIN_TOKEN_KEY = 'simplem_admin_token';
+<<<<<<< Updated upstream
 
   // 백엔드 주소 — 기본은 배포본(Cloud Run).
   // 로컬 백엔드로 붙이려면 브라우저 콘솔에서 한 줄 실행하고 새로고침하면 된다:
@@ -14,6 +15,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // 되돌리려면: localStorage.removeItem('simplem_admin_api')
   const DEFAULT_API = 'https://brewnote-api-915817944047.asia-northeast3.run.app/api/v1';
   const ADMIN_API = localStorage.getItem('simplem_admin_api') || DEFAULT_API;
+=======
+  const ADMIN_API = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? 'http://localhost:8000/api/v1'
+    : 'https://brewnote-api-915817944047.asia-northeast3.run.app/api/v1';
+>>>>>>> Stashed changes
   const getAdminToken = () => localStorage.getItem(ADMIN_TOKEN_KEY) || '';
 
   // 원본 fetch를 감싸 /admin, /auth/users 호출에 Authorization 헤더를 자동으로 실어 준다 (login 제외)
@@ -673,6 +679,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function loadCSList() {
     try {
+<<<<<<< Updated upstream
       const res = await fetch(`${API_BASE}/admin/cs`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -690,6 +697,28 @@ document.addEventListener('DOMContentLoaded', () => {
         reply: item.reply || item.answer || '',
       }));
       csLoadError = null;
+=======
+      const apiBase = window.location.origin.includes('8000') || window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')
+        ? 'http://localhost:8000'
+        : (window.location.protocol === 'file:' ? 'http://localhost:8000' : 'https://brewnote-api-915817944047.asia-northeast3.run.app');
+      const res = await fetch(`${apiBase}/api/v1/admin/cs`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          liveCSList = data.map(item => ({
+            id: item.id,
+            store: item.store || item.store_name || '포슬카페',
+            name: item.name || '사장님',
+            category: item.category || '💡 기능 요청',
+            title: item.title,
+            date: item.date || '2026-07-21',
+            status: item.status || '답변 대기',
+            question: item.question || item.content || item.title,
+            reply: item.reply || item.answer || '',
+          }));
+        }
+      }
+>>>>>>> Stashed changes
     } catch (err) {
       console.error('CS 목록 조회 실패:', err);
       csLoadError = err.message || String(err);
@@ -807,7 +836,14 @@ document.addEventListener('DOMContentLoaded', () => {
       const btn = btnSendCSAnswer;
       btn.disabled = true;
       try {
+<<<<<<< Updated upstream
         const res = await fetch(`${API_BASE}/admin/cs/${selectedCSItem.id}/reply`, {
+=======
+        const apiBase = window.location.origin.includes('8000') || window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')
+          ? 'http://localhost:8000'
+          : (window.location.protocol === 'file:' ? 'http://localhost:8000' : 'https://brewnote-api-915817944047.asia-northeast3.run.app');
+        const res = await fetch(`${apiBase}/api/v1/admin/cs/${selectedCSItem.id}/reply`, {
+>>>>>>> Stashed changes
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ reply: answerText })

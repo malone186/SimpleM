@@ -57,6 +57,44 @@ const WEATHER_ICON: Record<string, keyof typeof Ionicons.glyphMap> = {
   안개: 'cloud-outline',
 };
 
+export type DateInfo = {
+  dayName: string;
+  dateNum: number;
+  monthNum: number;
+  dateKey: string;
+  isToday: boolean;
+  isPast: boolean;
+};
+
+// [한글 주석: 동적 주간 날짜 계산 함수 - 오늘 기준 이번 주 월~일 7일 구하기]
+function getWeekDays(referenceDate: Date = new Date()): DateInfo[] {
+  const current = new Date(referenceDate);
+  const day = current.getDay(); // 0: 일, 1: 월 ... 6: 토
+  const diffToMon = current.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(current.setDate(diffToMon));
+
+  const dayNames = ['월', '화', '수', '목', '금', '토', '일'];
+  const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    const year = d.getFullYear();
+    const monthNum = d.getMonth() + 1;
+    const dateNum = d.getDate();
+    const dateKey = `${year}-${String(monthNum).padStart(2, '0')}-${String(dateNum).padStart(2, '0')}`;
+
+    return {
+      dayName: dayNames[i],
+      dateNum,
+      monthNum,
+      dateKey,
+      isToday: dateKey === todayStr,
+      isPast: dateKey < todayStr,
+    };
+  });
+}
+
 // 월간 캘린더 그리드 — 실제 연·월 기준으로 셀을 만든다 (월요일 시작, 앞쪽 공백 포함)
 function buildMonthCells(year: number, month0: number): (number | null)[] {
   const firstOffset = (new Date(year, month0, 1).getDay() + 6) % 7; // 월=0 … 일=6
@@ -142,7 +180,7 @@ export default function SalesCard({
   todos?: Todo[];
   onPressTodo?: (todo: Todo) => void;
   onToggleDone?: (id: string) => void;
-  onAddTodo?: (title: string) => void;
+  onAddTodo?: (title: string, dateKey?: string) => void;
   onEditTodo?: (id: string, newTitle: string) => void;
   onDeleteTodo?: (id: string) => void;
 }) {
@@ -154,7 +192,15 @@ export default function SalesCard({
   // 예전엔 콘솔에만 남겨서 화면에는 예측이 조용히 사라졌고, 미래 날짜를 누르면 '불러오는 중'만 돌았다.
   const [forecastFailure, setForecastFailure] = useState<ApiFailure | null>(null);
 
-  const [activeTab, setActiveTab] = useState<SalesTab>('day');
+  const weekDays = useMemo(() => getWeekDays(), []);
+  const todayKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+  const [selectedDateKey, setSelectedDateKey] = useState<string>(todayKey);
+
+  const selectedDateInfo = useMemo(() => {
+    return weekDays.find((w) => w.dateKey === selectedDateKey) || weekDays.find((w) => w.isToday) || weekDays[0];
+  }, [weekDays, selectedDateKey]);
+
+  const [activeTab, setActiveTab] = useState<SalesTab>('todo');
   const isMonthly = activeTab === 'month'; // 월간 탭 여부 — 실데이터 집계 분기에 사용
   const [selectedDate, setSelectedDate] = useState<number | null>(null); // 선택한 날짜(일)의 상세 매출 분석 모달
   const [selectedFutureDate, setSelectedFutureDate] = useState<number | null>(null);
@@ -248,9 +294,21 @@ export default function SalesCard({
     return () => clearInterval(timer);
   }, []);
 
-  // [한글 주석] 카페 대표 운영 시간대(09시, 13시, 17시, 21시)를 X축 표준 4지점으로 설정합니다
-  const axisHours = [9, 13, 17, 21];
-  const currentHour = now.getHours(); // [한글 주석] 실제 로컬 현재 시각 (예: 오전 9시)
+  const currentHour = now.getHours(); // [한글 주석] 실제 로컬 현재 시각
+
+  // [한글 주석] 현재 시각에 따라 4개 시간 지점을 동적으로 자동 변환하는 헬퍼 연산
+  // 1) 12시 이전 (오전): 9시, 10시, 11시, 12시 (1시간 단위 촘촘한 간격)
+  // 2) 12시 ~ 15시 (점심/초오후): 9시, 11시, 13시, 16시 (주요 시간 흐름)
+  // 3) 16시 이후 (오후 4시~마감): 9시, 13시, 18시, 21시 (전체 영업 관점 넓은 간격)
+  const axisHours = useMemo(() => {
+    if (currentHour < 12) {
+      return [9, 10, 11, 12];
+    } else if (currentHour < 16) {
+      return [9, 11, 13, 16];
+    } else {
+      return [9, 13, 18, 21];
+    }
+  }, [currentHour]);
 
   // [한글 주석] 현재 시간(currentHour)에 가장 근접한 X축 시간대 지점 인덱스를 실시간 연산합니다
   let currentAxisIndex = 0;
@@ -407,22 +465,51 @@ export default function SalesCard({
 
 
   return (
-    <View style={styles.card}>
-      {/* 헤더 영역 */}
-      <View style={styles.headRow}>
-        <View style={{ flex: 1, alignItems: 'flex-start' }}>
-          {/* [한글 주석] 위치 칩은 웰컴 헤더(말풍선 아래)로 이동 — 탭 토글이 그 자리까지 넓게 쓴다 */}
-          <SlidingTabToggle value={activeTab} onChange={setActiveTab} />
-          {/* [한글 주석] todo 탭일 때는 매출 문구와 대비 퍼센트를 표시하지 않음 */}
-          {activeTab !== 'todo' && (
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 10 }}>
-              <Text style={styles.amount}>₩ {amount.toLocaleString()}</Text>
-              <Text style={{ ...typography.L5, fontSize: 11.5, fontWeight: '800', color: isBadgeDown ? '#B23B2E' : colors.trendGreenText }}>
-                {badgeHint} {badgeText}
-              </Text>
-            </View>
-          )}
+    <View style={styles.cardContainer}>
+      {/* ── [한글 주석: iOS 카드 레이아웃 기반 대시보드 헤더 & 한국어 3D 주간 날짜 선택기] ── */}
+      <View style={styles.journeyHeader}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.journeyTitle}>오늘의 할 일</Text>
+          <Text style={styles.journeySub}>매장 관리와 오늘의 업무를 한눈에 확인하세요</Text>
         </View>
+      </View>
+
+      {/* 3D 블랙 서클 주간 날짜 선택기 (월~일 동적 계산 및 픽셀 칼정렬) */}
+      <View style={styles.dateStripRow}>
+        {weekDays.map((item) => {
+          const isSelected = selectedDateKey === item.dateKey;
+          return (
+            <PressableScale
+              key={item.dateKey}
+              onPress={() => setSelectedDateKey(item.dateKey)}
+              style={styles.dateStripItem}
+              to={0.88}
+            >
+              {/* 깔끔한 미니멀 요일 라벨 (100% 칼정렬) */}
+              <View style={styles.dateDayBox}>
+                <Text style={[styles.dateDayText, isSelected && styles.dateDayTextActive]}>
+                  {item.dayName}
+                </Text>
+              </View>
+
+              {/* 42x42 고정 서클 */}
+              <View style={[styles.dateCircle, isSelected && styles.dateCircleActive]}>
+                <Text style={[styles.dateNumberText, isSelected && styles.dateNumberTextActive]}>
+                  {item.dateNum}
+                </Text>
+              </View>
+
+              {/* 고정 높이 18px 영역으로 체크 유무와 무관하게 서클 높이 덜컹거림 제거 */}
+              <View style={styles.dateCheckArea}>
+                {item.isPast && (
+                  <View style={styles.dateCheckBadge}>
+                    <Ionicons name="checkmark" size={10} color={colors.mochaBrown} />
+                  </View>
+                )}
+              </View>
+            </PressableScale>
+          );
+        })}
       </View>
 
       {/* 실시간 차트 / 토스 달력 / 할 일 목록 전환 영역 */}
@@ -485,12 +572,13 @@ export default function SalesCard({
           {/* [한글 주석: todo 탭 선택 시 완료/추가/수정/삭제 핸들러를 전달합니다] */}
           <TodoList
             todos={todos}
+            selectedDateInfo={selectedDateInfo}
             onPressAction={onPressTodo || (() => {})}
             onToggleDone={onToggleDone}
             onAddTodo={onAddTodo}
             onEditTodo={onEditTodo}
             onDeleteTodo={onDeleteTodo}
-            hideCard={true}
+            hideCard={false}
           />
         </View>
       ) : (
@@ -1158,10 +1246,8 @@ const styles = StyleSheet.create({
   },
 
   todoWrapper: {
-    paddingTop: 28,
-    paddingBottom: 12,
-    paddingHorizontal: 4,
-    minHeight: 180,
+    marginTop: 2,
+    alignItems: 'stretch',
     justifyContent: 'flex-start',
   },
   toggleTrack: {
@@ -1529,5 +1615,119 @@ const styles = StyleSheet.create({
     height: 7,
     backgroundColor: colors.espressoBrown,
     transform: [{ rotate: '45deg' }],
+  },
+  cardContainer: {
+    paddingHorizontal: 2,
+    marginBottom: 16,
+  },
+  journeyHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginTop: 6,
+    marginBottom: 16,
+    paddingHorizontal: 4,
+  },
+  journeyTitle: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: '#18181B',
+    letterSpacing: -0.6,
+  },
+  journeySub: {
+    fontSize: 12.5,
+    fontWeight: '500',
+    color: '#71717A',
+    marginTop: 3,
+    letterSpacing: -0.2,
+  },
+  floatingAddBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#18181B',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  dateStripRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+    paddingHorizontal: 2,
+  },
+  dateStripItem: {
+    alignItems: 'center',
+    width: 42,
+  },
+  dateDayBox: {
+    height: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  dateDayText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#A1A1AA',
+    textAlign: 'center',
+  },
+  dateDayTextActive: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: colors.espressoBrown,
+    textAlign: 'center',
+  },
+  dateCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
+  },
+  dateCircleActive: {
+    backgroundColor: colors.espressoBrown,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+    transform: [{ scale: 1.10 }],
+    shadowColor: colors.espressoBrown,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  dateNumberText: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#3F3F46',
+    textAlign: 'center',
+  },
+  dateNumberTextActive: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  dateCheckArea: {
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  dateCheckBadge: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#F4F4F5',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

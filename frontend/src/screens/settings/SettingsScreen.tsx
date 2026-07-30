@@ -161,9 +161,13 @@ export default function SettingsScreen() {
   const [inquiryCategory, setInquiryCategory] = useState('💡 기능 요청 / 개선');
   const [inquiryTitle, setInquiryTitle] = useState('');
   const [inquiryContent, setInquiryContent] = useState('');
+<<<<<<< Updated upstream
   // 서버(GET /inquiries)에서 받은 내 문의만 담는다.
   // 예전엔 여기에 데모 문의 2건이 시드로 들어 있어, 한 번도 문의한 적 없는 사장님의
   // '나의 문의 내역'에 보낸 적 없는 문의와 받은 적 없는 관리자 답변이 떠 있었다.
+=======
+  const [isSubmittingInquiry, setIsSubmittingInquiry] = useState(false); // [한글 주석] 중복 전송(연타) 방지용 상태값
+>>>>>>> Stashed changes
   const [inquiries, setInquiries] = useState<
     Array<{ id: number; category: string; title: string; content: string; date: string; status: 'answered' | 'pending'; answer?: string }>
   >([]);
@@ -347,8 +351,10 @@ export default function SettingsScreen() {
     return () => clearInterval(timer);
   }, [token]);
 
-  // [한글 주석] 1대1 문의 제출 — 백엔드 /inquiries 한 곳에만 등록 (백엔드가 관리자 CS 리스트에 동일 id로 자동 연동)
+  // [한글 주석] 1대1 문의 제출 — 백엔드 /inquiries 한 곳에만 등록 (중복 전송/연타 방지 처리 적용)
   const handleSubmitInquiry = async () => {
+    if (isSubmittingInquiry) return;
+
     if (!inquiryTitle.trim()) {
       toast('입력 확인', '문의 제목을 입력해 주세요.');
       return;
@@ -363,7 +369,12 @@ export default function SettingsScreen() {
       return;
     }
 
+<<<<<<< Updated upstream
     // 보낸 사람은 서버가 토큰에서 정한다 — 여기서 이메일을 실어 보내지 않는다.
+=======
+    setIsSubmittingInquiry(true);
+
+>>>>>>> Stashed changes
     const payload = {
       store_name: storeName || '',
       category: inquiryCategory,
@@ -371,16 +382,21 @@ export default function SettingsScreen() {
       content: inquiryContent.trim(),
     };
 
+<<<<<<< Updated upstream
     // 접수 경로는 한 곳이다.
     // 예전엔 /inquiries와 /admin/cs에 동시에 쏴서 문의 1건당 DB 행이 2개씩 생겼고,
     // 실패해도 화면엔 이미 '접수됨' 카드가 떠 있어서 안 보낸 걸 보낸 줄 알았다.
     // 서버 응답을 확인한 뒤에만 목록에 넣는다.
+=======
+>>>>>>> Stashed changes
     try {
+      // [한글 주석] 백엔드 /api/v1/inquiries 엔드포인트로 문의 접수 요청 (DB 저장 및 관리자 콘솔 즉시 연동)
       const res = await fetch(`${API_BASE_URL}/api/v1/inquiries`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(payload),
       });
+<<<<<<< Updated upstream
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
         throw new Error(`${res.status}${detail ? ` · ${detail.slice(0, 120)}` : ''}`);
@@ -393,13 +409,25 @@ export default function SettingsScreen() {
         err instanceof Error ? err.message : '잠시 후 다시 시도해 주세요.',
       );
       return; // 입력값을 지우지 않는다 — 다시 누르면 되도록
-    }
+=======
 
-    setInquiryTitle('');
-    setInquiryContent('');
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setInquiryTab('list'); // 문의 완료 후 나의 문의 내역 탭으로 자동 이동
-    toast('접수 완료', '1대1 문의 및 요청사항이 관리자에게 전달되었어요.');
+      if (res.ok) {
+        await fetchInquiries(); // [한글 주석] 서버 등록 확정 후 목록 최신화
+        setInquiryTitle('');
+        setInquiryContent('');
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setInquiryTab('list'); // [한글 주석] 접수 완료 후 '나의 문의 내역' 탭으로 이동
+        toast('접수 완료', '1대1 문의 및 요청사항이 관리자 콘솔에 전달되었어요.');
+      } else {
+        toast('접수 실패', '서버 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
+      }
+    } catch (err) {
+      console.warn('Inquiries API fetch error:', err);
+      toast('접수 실패', '네트워크 연결 상태를 확인 후 다시 시도해 주세요.');
+    } finally {
+      setIsSubmittingInquiry(false);
+>>>>>>> Stashed changes
+    }
   };
 
   return (
@@ -423,8 +451,8 @@ export default function SettingsScreen() {
                 <Text style={styles.menuItemTitle}>{prefs.language === 'en' ? 'Store & Account Settings' : '가게 & 계정 설정'}</Text>
                 <Text style={styles.menuItemDesc}>
                   {prefs.language === 'en'
-                    ? 'Store name, Manager name, Sensors & Password'
-                    : '매장명, 사장님 이름, 센서 연동, 비밀번호 변경'}
+                    ? 'Store name, Manager name & Password'
+                    : '매장명, 사장님 이름, 비밀번호 변경'}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
@@ -671,19 +699,6 @@ export default function SettingsScreen() {
           />
         )}
 
-        <Divider />
-        <Row
-          label="매장 센서 연동"
-          hint="센서가 없는 매장은 꺼 두세요 — 발주 화면의 라이브·배너·AI 코치 알림이 모두 숨겨져요"
-          right={
-            <Switch
-              value={sensorOn}
-              onValueChange={toggleSensor}
-              trackColor={{ false: '#D6CFC7', true: colors.espressoBrown }}
-              thumbColor={colors.white}
-            />
-          }
-        />
 
         <Divider />
         <Text style={[styles.fieldLabel, { marginTop: 4 }]}>비밀번호 변경</Text>
@@ -1023,7 +1038,8 @@ export default function SettingsScreen() {
               />
 
               <Button
-                label="문의 제출하기"
+                label={isSubmittingInquiry ? '접수 처리 중...' : '문의 제출하기'}
+                disabled={isSubmittingInquiry}
                 style={{ marginTop: 16 }}
                 onPress={handleSubmitInquiry}
               />

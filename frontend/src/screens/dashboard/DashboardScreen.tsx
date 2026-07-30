@@ -19,29 +19,52 @@ import { listStocks } from '../../lib/api/inventory';
 import { createTodo, deleteTodo, listTodos, updateTodo } from '../../lib/api/todo';
 import { colors, spacing, typography, shadows } from '../../theme';
 
+// [한글 주석: 웹/앱 푸시 알림 권한 요청 및 재고 부족 푸시 알림 발송 함수]
+function sendStockPushNotification(item: { name: string; current_quantity: number; safety_quantity: number; unit: string }) {
+  if (typeof window === 'undefined' || !('Notification' in window)) return;
+
+  const triggerNotif = () => {
+    const soldOut = item.current_quantity <= 0;
+    const title = soldOut ? `🚨 [SimpleM] ${item.name} 재고 소진!` : `⚠️ [SimpleM] ${item.name} 재고 부족 알림`;
+    const body = `잔여: ${item.current_quantity}${item.unit} (안전재고: ${item.safety_quantity}${item.unit})\n자동 생성된 투두에서 바로 발주할 수 있습니다 ☕`;
+
+    try {
+      new window.Notification(title, {
+        body,
+        icon: '/favicon.ico',
+        tag: `stock-${item.name}`,
+      });
+    } catch (e) {
+      console.warn('푸시 알림 발송 실패:', e);
+    }
+  };
+
+  if (window.Notification.permission === 'granted') {
+    triggerNotif();
+  } else if (window.Notification.permission !== 'denied') {
+    window.Notification.requestPermission().then((permission) => {
+      if (permission === 'granted') {
+        triggerNotif();
+      }
+    });
+  }
+}
+
 export default function DashboardScreen() {
   const [todos, setTodos] = useState<Todo[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [runId, setRunId] = useState(0);
+  const notifiedStocksRef = useRef<Set<string>>(new Set());
 
   const { user, token } = useAuth();
-  // 아래 useEffect의 의존성으로 쓰이므로 반드시 그보다 먼저 선언돼야 한다
   const navigation = useNavigation<any>();
   const isFocused = useIsFocused();
 
-  // 오늘 할 일 — 세 갈래를 합친다.
-  //   ① 재고 안전재고 미달  ② 갱신 임박 서류   ← 조건에서 자동으로 도출 (저장 안 함)
-  //   ③ 서버에 저장된 할 일                    ← 사장님이 적었거나 브루가 추가한 것
-  // ①②를 저장하지 않는 이유: 재고를 채우면 저절로 사라져야 하는데 저장하면 유령 항목이 남는다.
-  //
-  // 화면에 다시 들어올 때도 다시 읽는다 — 챗봇에서 브루가 할 일을 추가하고 홈으로 돌아왔을 때
-  // 바로 보여야 하기 때문이다.
   useEffect(() => {
     if (!token || !isFocused) return;
     let cancelled = false;
     (async () => {
       const next: Todo[] = [];
-      // 재고·서류·할 일을 병렬로 조회 — 순차 대기(각 ~0.8초)를 한 번의 대기로 줄인다
       const [stocksResult, complianceResult, serverTodosResult] = await Promise.allSettled([
         listStocks(token),
         listCompliance(token),
@@ -50,9 +73,23 @@ export default function DashboardScreen() {
       try {
         if (stocksResult.status === 'rejected') throw stocksResult.reason;
         const stocks = stocksResult.value;
+<<<<<<< Updated upstream
         stocks
           // 안전재고를 따로 설정한 매장이 거의 없다 — 미설정(0)이면 3개 미만을 부족으로 본다
           .filter((s) => s.current_quantity <= (s.safety_quantity > 0 ? s.safety_quantity : 3))
+=======
+        const lowStocks = stocks.filter((s) => s.current_quantity <= s.safety_quantity);
+
+        lowStocks.forEach((s) => {
+          const idStr = String(s.ingredient_id);
+          if (!notifiedStocksRef.current.has(idStr)) {
+            notifiedStocksRef.current.add(idStr);
+            sendStockPushNotification(s);
+          }
+        });
+
+        lowStocks
+>>>>>>> Stashed changes
           .sort(
             (a, b) =>
               a.current_quantity / (a.safety_quantity || 1) -
@@ -68,11 +105,15 @@ export default function DashboardScreen() {
                 ? `잔여 ${s.current_quantity}${s.unit} · 안전재고 ${s.safety_quantity}${s.unit}`
                 : `잔여 ${s.current_quantity}${s.unit} · 기준 3${s.unit} 미만`,
               actionable: true,
+<<<<<<< Updated upstream
               // 누르면 브루 챗봇이 열리며 이 질문이 자동 전송된다.
               chatPrefill: `${s.name} 재고 어떻게 할까?`,
               // 브루(AI)가 재고를 자동 점검해 알려주는 항목 — 'ai' 출처라 '브루' 배지가 붙는다.
               // DB에 저장하지 않으므로 재고를 채우면 다음 조회에서 저절로 사라진다(유령 항목 방지).
               source: 'ai',
+=======
+              qty: `${Math.max(Math.ceil(s.safety_quantity * 2 - s.current_quantity), 1)} ${s.unit}`,
+>>>>>>> Stashed changes
             });
           });
       } catch (e) {
@@ -100,13 +141,11 @@ export default function DashboardScreen() {
       }
       try {
         if (serverTodosResult.status === 'rejected') throw serverTodosResult.reason;
-        serverTodosResult.value.forEach((t) => {
+        serverTodosResult.value.forEach((t: any) => {
+          const parsedKey = t.date_key || (t.created_at ? t.created_at.split('T')[0] : undefined);
           next.push({
-            // 'server-' 접두어로 구분해야 완료·수정·삭제를 서버로 보낼지 로컬로 끝낼지 정할 수 있다
             id: `server-${t.id}`,
             title: t.title,
-            // 출처는 배지가 맡는다 — note에는 '왜 이 일이 생겼는지'만 남긴다.
-            // 기본 문구("브루가 추가함")는 배지와 같은 말이라 부제에서는 걷어낸다.
             subtitle:
               t.note && t.note !== '브루가 추가함'
                 ? t.note
@@ -116,12 +155,18 @@ export default function DashboardScreen() {
             actionable: false,
             done: t.done,
             source: t.source,
+            dateKey: parsedKey,
           });
         });
       } catch (e) {
         console.error('할 일 조회 실패:', e);
       }
-      if (!cancelled) setTodos(next);
+      if (!cancelled) {
+        setTodos((prev) => {
+          const localItems = prev.filter((p) => p.id.startsWith('local-'));
+          return [...localItems, ...next];
+        });
+      }
     })();
     return () => {
       cancelled = true;
@@ -150,21 +195,31 @@ export default function DashboardScreen() {
   // 왕복을 기다리면 굼떠 보이기 때문이다. 실패하면 runId를 올려 서버 상태로 되돌린다.
   const resync = () => setRunId((x) => x + 1);
 
-  const handleAddTodo = async (title: string) => {
+  const handleAddTodo = async (title: string, dateKey?: string) => {
     const trimmed = title.trim();
-    if (!trimmed || !token) return;
+    if (!trimmed) return;
 
-    // 서버가 id를 정해 주므로 임시 항목을 먼저 보여주고 곧바로 목록을 다시 읽는다
-    setTodos((prev) => [
-      { id: `pending-${Date.now()}`, title: trimmed, subtitle: '사장님 직접 추가', actionable: false, done: false },
-      ...prev,
-    ]);
-    try {
-      await createTodo(token, trimmed);
-    } catch (e) {
-      console.error('할 일 추가 실패:', e);
+    const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+    const targetKey = dateKey || todayStr;
+
+    const newTodo: Todo = {
+      id: `local-${Date.now()}`,
+      title: trimmed,
+      subtitle: '사장님 직접 추가',
+      actionable: false,
+      done: false,
+      dateKey: targetKey,
+    };
+
+    setTodos((prev) => [newTodo, ...prev]);
+
+    if (token) {
+      try {
+        await createTodo(token, trimmed);
+      } catch (e) {
+        console.error('할 일 추가 실패:', e);
+      }
     }
-    resync();
   };
 
   const handleEditTodo = async (id: string, newTitle: string) => {
