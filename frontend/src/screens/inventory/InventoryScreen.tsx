@@ -997,6 +997,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 18,
     paddingBottom: 24,
+    gap: 18, // 메뉴관리 · 명세서 입고 · 재고현황 세 섹션 사이 간격
   },
   brownSheetContent: { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 24 },
   ocrHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
