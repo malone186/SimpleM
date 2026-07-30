@@ -1,7 +1,7 @@
 // 공동 소유 — 탭 추가 시 알파벳순 정렬, 팀 공지
 // PRD §6 화면 5개: 대시보드 / 재고 / 발주 / 챗봇 / 운영
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator, LayoutAnimation, Platform, View } from 'react-native';
+import { ActivityIndicator, Easing, LayoutAnimation, Platform, useWindowDimensions, View } from 'react-native';
 import { PressableScale } from '../components/motion';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -193,6 +193,8 @@ function TabsNavigator() {
   const { t } = useTranslation();
   // [한글 주석: 갤럭시 등 안드로이드 하단 소프트키/제스처 바 영역 높이 동적 측정 훅]
   const insets = useSafeAreaInsets();
+  // 탭 전환 좌우 슬라이드 거리 — 화면 너비만큼 밀어 페이지 넘기듯 완전히 슬라이드
+  const { width: screenW } = useWindowDimensions();
 
   // [한글 주석: 기기별 하단 안전 여백 보정 — 갤럭시 시스템 소프트키와 탭 바가 겹치지 않게 여백 확보]
   const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 16 : 10);
@@ -206,16 +208,15 @@ function TabsNavigator() {
       initialRouteName="Dashboard"
       screenOptions={({ route }) => ({
         headerShown: false,
-        // [탭 전환] 아래에서 스르륵 올라오는 슬라이드업 + 페이드 + 스프링 settle (생동감 있는 카드 느낌)
+        // [탭 전환] 좌우 슬라이드 — 탭 순서에 따라 새 화면이 좌/우에서 밀려 들어온다 (페이지 넘기듯)
         transitionSpec: {
-          animation: 'spring',
-          config: { stiffness: 140, damping: 18, mass: 1 },
+          animation: 'timing',
+          config: { duration: 280, easing: Easing.out(Easing.cubic) },
         },
         sceneStyleInterpolator: ({ current }) => ({
           sceneStyle: {
-            opacity: current.progress.interpolate({ inputRange: [-1, 0, 1], outputRange: [0, 1, 0] }),
             transform: [
-              { translateY: current.progress.interpolate({ inputRange: [-1, 0, 1], outputRange: [26, 0, 26] }) },
+              { translateX: current.progress.interpolate({ inputRange: [-1, 0, 1], outputRange: [screenW, 0, -screenW] }) },
             ],
           },
         }),
