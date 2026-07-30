@@ -433,7 +433,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: colors.espressoBrown, // 예시 질문 칩(coffeeCream)과 구분되는 진한 액션 버튼
+    backgroundColor: colors.mochaBrown, // 헤더(진한 브라운)·예시 질문 칩(밝은 크림) 둘 다와 구분되는 중간 톤
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 7,
