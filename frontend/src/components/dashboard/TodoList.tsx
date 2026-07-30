@@ -404,17 +404,14 @@ function TodoItem({
                 )}
               </View>
 
-              {/* [하단 조그마한 카테고리 소텍스트 라벨] */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                <Text style={[styles.categorySubText, disabled && styles.strike]}>
-                  {catMeta.label}
-                </Text>
-                {todo.subtitle ? (
+              {/* [하단 부제 — 카테고리 라벨 텍스트는 제거하고 부제만 한 줄로 표시] */}
+              {todo.subtitle ? (
+                <View style={{ marginTop: 2 }}>
                   <Text style={[styles.taskItemSub, disabled && styles.strike]} numberOfLines={1}>
-                    · {todo.subtitle}
+                    {todo.subtitle}
                   </Text>
-                ) : null}
-              </View>
+                </View>
+              ) : null}
             </>
           )}
         </View>
@@ -655,18 +652,13 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   taskItemTitle: {
-    fontSize: 13.5,
+    fontSize: 12.5,
     fontWeight: '700',
     color: '#18181B',
     letterSpacing: -0.3,
   },
-  categorySubText: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    color: '#71717A',
-  },
   taskItemSub: {
-    fontSize: 10.5,
+    fontSize: 10,
     fontWeight: '500',
     color: '#A1A1AA',
   },
@@ -713,7 +705,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3.5,
   },
   actionHintText: {
-    fontSize: 10.5,
+    fontSize: 9.5,
     color: '#16A34A',
     fontWeight: '800',
     letterSpacing: -0.1,
