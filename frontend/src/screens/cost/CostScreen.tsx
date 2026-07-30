@@ -942,34 +942,11 @@ const styles = StyleSheet.create({
   },
 
   detailRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
-  recipeHeader: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700', marginTop: 10, marginBottom: 4 },
-  recipeRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 3,
-  },
-  recipeName: { ...typography.L5, color: colors.espressoBrown, flex: 1, marginRight: 8 },
   recipeQty: { ...typography.L5, color: colors.espressoBrown, fontWeight: '700' },
+  riskText: { ...typography.L5, color: colors.espressoBrown, flex: 1, lineHeight: 18 },
   detail: { flex: 1, alignItems: 'center' },
   detailLabel: { ...typography.L5, color: colors.mochaBrown },
   detailValue: { ...typography.L4, color: colors.espressoBrown, marginTop: 3 },
-  
-  // [한글 주석: AI 원가 절감 추천용 신규 추가 버튼 스타일시트]
-  recommendBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#6D4C41',
-    borderRadius: 8,
-    paddingVertical: 8,
-    marginTop: 10,
-  },
-  recommendBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12.5,
-    fontWeight: '700',
-  },
 
   // [한글 주석: 웹 컴파일 시 기기 스크린을 탈출하는 현상을 막기 위한 절대 좌표 스타일시트]
   modalOverlay: {
