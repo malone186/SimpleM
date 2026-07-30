@@ -1,0 +1,36 @@
+name: CI
+
+# push/PR마다 서버에서 자동으로 빌드 검사 — 깨진 코드가 main에 올라오면 빨간 X로 표시된다.
+# (반복된 broken-main 사고 방지: 각자 로컬 훅을 안 켜도 예외 없이 적용됨)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  frontend-typecheck:
+    name: 프론트 타입체크 (tsc)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+
+  backend-compile:
+    name: 백엔드 컴파일 체크
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m compileall -q backend/app
