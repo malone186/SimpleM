@@ -10,9 +10,9 @@ export type Todo = {
   id: string;
   title: string;
   subtitle: string;
-  actionable?: boolean; // 발주 액션 대상
+  actionable?: boolean; // 누르면 동작하는 항목 (예: 재고 부족 → 브루 챗봇 열기)
+  chatPrefill?: string; // 누르면 챗봇 입력창에 미리 채워 보낼 질문
   done?: boolean;
-  qty?: string; // 발주 추천 수량 (예: "5 kg") — 재고 API 기준 계산값
   // 누가 넣었는지 — 'ai'면 챗봇(브루)이 대화 중 추가한 항목이라 배지를 붙인다.
   // subtitle로 대신할 수 없다: 브루가 배경 설명을 note에 담으면 부제가 그 문장으로
   // 채워져 출처가 화면에서 사라진다. 사장님이 적지 않은 항목이 설명 없이 홈에 떠 있으면
@@ -246,7 +246,7 @@ function TodoItem({
               </PopIn>
             ) : todo.actionable ? (
               <View style={styles.actionHint}>
-                <Text style={styles.actionHintText}>발주 ›</Text>
+                <Text style={styles.actionHintText}>브루에게 ›</Text>
               </View>
             ) : null}
 
