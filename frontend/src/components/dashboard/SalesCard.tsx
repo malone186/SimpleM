@@ -172,7 +172,7 @@ function DateStripCell({
   isSelected,
   onSelect,
 }: {
-  item: WeekDayItem;
+  item: DateInfo;
   isSelected: boolean;
   onSelect: () => void;
 }) {
