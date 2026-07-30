@@ -47,6 +47,7 @@ const LAYOUT = [
 
 const CARD_H = 132; // 카드 높이 (스크롤이 있으므로 넉넉하게)
 const GAP = -14; // 음수 간격 — 뒤 카드가 앞 카드 위로 살짝 올라타는 스택 느낌 (zIndex로 아래 카드가 위에 쌓인다)
+const DECK_PAD_MIN = 18; // 카드가 시트보다 길어져 스크롤이 생길 때의 최소 위·아래 여백
 
 // 상태바(시계·카메라 노치)에 가리지 않을 만큼만 띄운다.
 const TOP_INSET = Platform.select({
@@ -114,6 +115,11 @@ export default function ManagementScreen() {
   const [sheetH, setSheetH] = useState(0);
   const H = Math.max(sheetH, 300);
 
+  // [위·아래 여백 맞추기] 카드 묶음을 시트 위쪽에 붙이지 않고 남는 높이를 위아래로 반씩 나눈다.
+  // 카드가 시트보다 길면 (작은 기기·항목 추가) 최소 여백으로 되돌아가 스크롤에 맡긴다.
+  const deckH = itemsList.length * CARD_H + (itemsList.length - 1) * GAP;
+  const deckPad = sheetH > 0 ? Math.max(DECK_PAD_MIN, (sheetH - deckH) / 2) : DECK_PAD_MIN;
+
   return (
     <View style={styles.root}>
       {/* [전역 오로라 배경] 홈(대시보드)과 동일 — 상단 딥브라운에서 하단 크림으로 녹아든다 */}
@@ -158,7 +164,7 @@ export default function ManagementScreen() {
       <View style={styles.body}>
         <Animated.ScrollView
           style={styles.scroll}
-          contentContainerStyle={styles.deck}
+          contentContainerStyle={[styles.deck, { paddingTop: deckPad, paddingBottom: deckPad }]}
           showsVerticalScrollIndicator={false}
           onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
             useNativeDriver: true,
@@ -172,7 +178,7 @@ export default function ManagementScreen() {
 
             // 카드 상단의 콘텐츠 좌표 — 높이·간격이 고정이라 정확히 계산된다
             const STEP = CARD_H + GAP;
-            const ct = i * STEP + 18; // deck paddingTop 포함
+            const ct = i * STEP + deckPad; // deck paddingTop 포함
             // 위 경계 구간: 카드가 시트 상단에 닿아 빨려드는 스크롤 범위
             const t0 = ct;
             const t1 = ct + CARD_H;
@@ -291,7 +297,8 @@ const styles = StyleSheet.create({
   },
   scroll: { flex: 1 },
   // 기울인 카드의 모서리가 잘리지 않도록 좌우로 숨통을 준다
-  deck: { paddingHorizontal: 22, paddingTop: 18, paddingBottom: 24 },
+  // paddingTop/Bottom은 시트 높이에 맞춰 런타임에 계산해 덮어쓴다 (deckPad)
+  deck: { paddingHorizontal: 22 },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
