@@ -250,7 +250,7 @@ export default function ChatbotScreen() {
               <Text style={styles.brownChipText}>{language === 'en' ? 'History' : '기록'}</Text>
             </PressableScale>
           </View>
-          <Brew mood="welcome" size={96} />
+          <Brew mood="greet" size={96} />
         </View>
       </View>
 
