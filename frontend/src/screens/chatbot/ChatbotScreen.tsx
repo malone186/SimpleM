@@ -246,7 +246,9 @@ export default function ChatbotScreen() {
           </FadeInUp>
         </View>
         <View style={styles.brownHeaderRight}>
-          <Brew mood="greet" size={120} />
+          {/* greet 일러스트는 clipboard(317)보다 프레임 여백이 커(380) 작아 보인다 —
+              캐릭터 크기를 관리 탭과 맞추려고 프레임 비율(380/317)만큼 키운다 */}
+          <Brew mood="greet" size={144} />
         </View>
       </View>
 
