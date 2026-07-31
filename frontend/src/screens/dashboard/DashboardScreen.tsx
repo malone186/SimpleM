@@ -21,6 +21,8 @@ import { colors, spacing, typography, shadows } from '../../theme';
 
 // [한글 주석: 삭제 처리된 투두 항목 ID 저장 키 (AsyncStorage 영구 보관)]
 const DISMISSED_TODOS_KEY = '@simplem_dismissed_todos';
+// [한글 주석: 완료 처리(체크 표시)된 투두 항목 ID 저장 키 (AsyncStorage 영구 보관)]
+const COMPLETED_TODOS_KEY = '@simplem_completed_todos';
 
 // [한글 주석: 웹/앱 푸시 알림 권한 요청 및 재고 부족 푸시 알림 발송 함수]
 function sendStockPushNotification(item: { name: string; current_quantity: number; safety_quantity: number; unit: string }) {
@@ -67,15 +69,18 @@ export default function DashboardScreen() {
     if (!token || !isFocused) return;
     let cancelled = false;
     (async () => {
-      // [한글 주석: 사장님이 이미 삭제한 투두 ID 목록을 AsyncStorage에서 불러와 중복 생성을 방지합니다]
+      // [한글 주석: 사장님이 이미 삭제한 투두 ID 목록 및 완료한 투두 ID 목록을 AsyncStorage에서 불러옵니다]
       let dismissedSet = new Set<string>();
+      let completedSet = new Set<string>();
       try {
-        const rawDismissed = await AsyncStorage.getItem(DISMISSED_TODOS_KEY);
-        if (rawDismissed) {
-          dismissedSet = new Set(JSON.parse(rawDismissed));
-        }
+        const [rawDismissed, rawCompleted] = await Promise.all([
+          AsyncStorage.getItem(DISMISSED_TODOS_KEY),
+          AsyncStorage.getItem(COMPLETED_TODOS_KEY),
+        ]);
+        if (rawDismissed) dismissedSet = new Set(JSON.parse(rawDismissed));
+        if (rawCompleted) completedSet = new Set(JSON.parse(rawCompleted));
       } catch (e) {
-        console.error('삭제된 투두 목록 읽기 실패:', e);
+        console.error('투두 보관소 읽기 실패:', e);
       }
 
       const next: Todo[] = [];
@@ -114,7 +119,7 @@ export default function DashboardScreen() {
 
       mockItems.forEach((item) => {
         if (!dismissedSet.has(item.id)) {
-          next.push(item);
+          next.push({ ...item, done: completedSet.has(item.id) || item.done });
         }
       });
 
@@ -154,6 +159,7 @@ export default function DashboardScreen() {
                   ? `잔여 ${s.current_quantity}${s.unit} · 안전재고 ${s.safety_quantity}${s.unit}`
                   : `잔여 ${s.current_quantity}${s.unit} · 기준 3${s.unit} 미만`,
                 actionable: true,
+                done: completedSet.has(stockId), // [한글 주석] 기존 완료 기록이 있으면 체크 상태 유지
                 source: 'ai',
               });
             }
@@ -178,6 +184,7 @@ export default function DashboardScreen() {
                     ? `만료일 ${c.expiry_date} 경과 — 챗봇에서 갱신 안내 확인`
                     : `D-${c.days_left} · 만료일 ${c.expiry_date}`,
                 actionable: false,
+                done: completedSet.has(compId), // [한글 주석] 기존 완료 기록이 있으면 체크 상태 유지
                 source: 'ai',
               });
             }
@@ -201,7 +208,7 @@ export default function DashboardScreen() {
                     ? '대화 중 추가됨'
                     : '사장님 직접 추가',
               actionable: false,
-              done: t.done,
+              done: completedSet.has(serverIdStr) || t.done,
               source: t.source,
               dateKey: parsedKey,
             });
@@ -319,6 +326,20 @@ export default function DashboardScreen() {
     // 서버로 보낼 값과 화면 값이 어긋날 수 있다
     const nextDone = !todos.find((t) => t.id === id)?.done;
     setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, done: nextDone } : t)));
+
+    // [한글 주석] 완료(done) 상태 변경 시 기기 보관소(AsyncStorage)에 영구 저장하여 자동 갱신 시에도 체크가 풀리지 않게 보정
+    try {
+      const raw = await AsyncStorage.getItem(COMPLETED_TODOS_KEY);
+      const set = new Set<string>(raw ? JSON.parse(raw) : []);
+      if (nextDone) {
+        set.add(id);
+      } else {
+        set.delete(id);
+      }
+      await AsyncStorage.setItem(COMPLETED_TODOS_KEY, JSON.stringify(Array.from(set)));
+    } catch (e) {
+      console.error('완료 상태 보관소 저장 실패:', e);
+    }
 
     const serverId = serverIdOf(id);
     if (serverId === null || !token) return;

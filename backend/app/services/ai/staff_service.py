@@ -81,7 +81,7 @@ WEEKS_PER_MONTH = 4.345  # 1개월 평균 주 수 (365 ÷ 7 ÷ 12)
 # 프로필 조회·저장
 # ---------------------------------------------------------------------------
 
-def _profile_dict(p) -> dict[str, Any]:
+def _profile_dict(p, windows: Optional[list[dict[str, int]]] = None) -> dict[str, Any]:
     return {
         "employee_id": p.employee_id,
         "employment_type": p.employment_type,
@@ -92,7 +92,20 @@ def _profile_dict(p) -> dict[str, Any]:
         "weekly_holiday_pay": p.weekly_holiday_pay,
         "hired_on": p.hired_on,
         "memo": p.memo,
+        "color": getattr(p, "color", None),
+        # 근무 요일 코드 — 근무 달력 화면(직원·스케줄)이 요일 선을 그릴 때 쓴다.
+        # 별도 입력을 또 받지 않고 '근무 가능 시간'에서 뽑는다 (출처가 둘이면 반드시 어긋난다).
+        "work_days": work_day_codes(windows or []),
     }
+
+
+WEEKDAY_CODES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]  # 0=월 … 6=일
+
+
+def work_day_codes(windows: list[dict[str, int]]) -> list[str]:
+    """가능 시간대가 걸쳐 있는 요일 코드 목록 (월요일부터 순서대로)."""
+    days = sorted({w["day_of_week"] for w in windows})
+    return [WEEKDAY_CODES[d] for d in days if 0 <= d <= 6]
 
 
 def _default_profile(employee_id: int) -> dict[str, Any]:
@@ -107,12 +120,14 @@ def _default_profile(employee_id: int) -> dict[str, Any]:
         "weekly_holiday_pay": True,
         "hired_on": None,
         "memo": None,
+        "color": None,
+        "work_days": [],
         "unset": True,  # 화면에서 "상세 정보를 채워 주세요"를 띄우기 위한 표시
     }
 
 
 PROFILE_FIELDS = {"employment_type", "pay_type", "monthly_salary", "weekly_hours",
-                  "insurance", "weekly_holiday_pay", "hired_on", "memo"}
+                  "insurance", "weekly_holiday_pay", "hired_on", "memo", "color"}
 # 직원 기본 정보(employees 테이블) — 이름·시급·직책은 프로필과 한 화면에서 같이 고치므로
 # 여기서 함께 받는다. 따로 두면 "시급만 저장이 안 됐다" 같은 반쪽 저장이 생긴다.
 BASIC_FIELDS = {"name", "hourly_rate", "role"}
@@ -179,6 +194,7 @@ def create_staff(store_id: str, name: str, hourly_rate: int = 0,
 
         base = _default_profile(emp.id)
         base.pop("unset", None)
+        base.pop("work_days", None)  # 저장 컬럼이 아니라 가능 시간에서 뽑는 파생값이다
         base.update({k: v for k, v in fields.items() if k in PROFILE_FIELDS and v is not None})
         p = EmployeeProfile(store_id=store_id, **base)
         db.add(p)
@@ -189,7 +205,7 @@ def create_staff(store_id: str, name: str, hourly_rate: int = 0,
         db.commit()
         db.refresh(emp)
         db.refresh(p)
-        return _staff_entry(db, emp, _profile_dict(p))
+        return _staff_entry(db, emp, _profile_dict(p, windows))
     finally:
         db.close()
 
@@ -242,7 +258,8 @@ def save_profile(store_id: str, employee_id: int, **fields) -> dict[str, Any]:
         db.commit()
         db.refresh(emp)
         db.refresh(p)
-        return _staff_entry(db, emp, _profile_dict(p))
+        saved = _availability_by_employee(db, [employee_id]).get(employee_id, [])
+        return _staff_entry(db, emp, _profile_dict(p, saved))
     finally:
         db.close()
 
@@ -395,15 +412,15 @@ def list_staff(store_id: str, month: Optional[str] = None) -> dict[str, Any]:
                     "employment_types": EMPLOYMENT_TYPES,
                     "insurance_types": INSURANCE_TYPES, "min_wage": MIN_WAGE_2026}
         emp_ids = [e.id for e in employees]
+        availability = _availability_by_employee(db, emp_ids)
         profiles = {
-            p.employee_id: _profile_dict(p)
+            p.employee_id: _profile_dict(p, availability.get(p.employee_id, []))
             for p in db.query(EmployeeProfile)
             .filter(EmployeeProfile.employee_id.in_(emp_ids))
             .all()
         }
         # 근무 달력에 등록된 이번 달 시간 — 인건비 계산의 1순위 근거
         scheduled = _scheduled_hours_by_employee(db, emp_ids, target_month)
-        availability = _availability_by_employee(db, emp_ids)
     finally:
         db.close()
 
@@ -541,7 +558,7 @@ def _covers(windows: list[dict[str, int]], dow: int, start_hour: float, end_hour
 # 근무 달력 — 배정된 근무 + 그날 가능한 직원 + 교대
 # ---------------------------------------------------------------------------
 
-def _shift_dict(s, emp, windows: list[dict[str, int]]) -> dict[str, Any]:
+def _shift_dict(s, emp, windows: list[dict[str, int]], color: Optional[str] = None) -> dict[str, Any]:
     st, et = s.start_time, s.end_time
     hours = round((et - st).total_seconds() / 3600, 1) if st and et else 0.0
     if hours < 0:
@@ -560,6 +577,8 @@ def _shift_dict(s, emp, windows: list[dict[str, int]]) -> dict[str, Any]:
         "start": st.strftime("%H:%M") if st else "",
         "end": et.strftime("%H:%M") if et else "",
         "hours": hours,
+        # 직원 대표 색 — 달력 점과 직원·스케줄 화면의 요일 선이 같은 색이어야 한 사람으로 읽힌다
+        "color": color,
         # True=가능 시간 안 / False=가능 시간 밖(교대 필요할 수 있음) / None=가능 시간 미입력
         "fits_availability": fits,
     }
@@ -571,6 +590,7 @@ def month_calendar(store_id: str, month: Optional[str] = None) -> dict[str, Any]
     달력이 배정만 보여주면 빈 날에 누구를 넣어야 할지 매번 직원 목록을 뒤져야 한다.
     그날 요일에 가능하다고 적어 둔 직원을 같이 실어 보내면 바로 고를 수 있다.
     """
+    from app.models.ai import EmployeeProfile
     from app.models.operation import Employee, Schedule
 
     target = month or date.today().strftime("%Y-%m")
@@ -587,6 +607,10 @@ def month_calendar(store_id: str, month: Optional[str] = None) -> dict[str, Any]
         emp_ids = [e.id for e in employees]
         emp_map = {e.id: e for e in employees}
         avail = _availability_by_employee(db, emp_ids)
+        colors = {
+            p.employee_id: getattr(p, "color", None)
+            for p in db.query(EmployeeProfile).filter(EmployeeProfile.employee_id.in_(emp_ids)).all()
+        } if emp_ids else {}
         rows = (
             db.query(Schedule)
             .filter(Schedule.employee_id.in_(emp_ids), Schedule.date.like(f"{target}%"))
@@ -596,7 +620,8 @@ def month_calendar(store_id: str, month: Optional[str] = None) -> dict[str, Any]
         shifts_by_date: dict[str, list[dict[str, Any]]] = {}
         for s in rows:
             shifts_by_date.setdefault(s.date, []).append(
-                _shift_dict(s, emp_map.get(s.employee_id), avail.get(s.employee_id, []))
+                _shift_dict(s, emp_map.get(s.employee_id), avail.get(s.employee_id, []),
+                            colors.get(s.employee_id))
             )
     finally:
         db.close()
@@ -613,6 +638,7 @@ def month_calendar(store_id: str, month: Optional[str] = None) -> dict[str, Any]
                 "employee_id": e.id,
                 "name": e.name,
                 "role": e.role,
+                "color": colors.get(e.id),
                 "windows": [w for w in avail.get(e.id, []) if w["day_of_week"] == dow],
                 "already_assigned": e.id in assigned,
             }
@@ -637,6 +663,7 @@ def month_calendar(store_id: str, month: Optional[str] = None) -> dict[str, Any]
                 "id": e.id,
                 "name": e.name,
                 "role": e.role,
+                "color": colors.get(e.id),
                 "availability": avail.get(e.id, []),
                 "availability_text": describe_windows(avail.get(e.id, [])),
             }
@@ -788,8 +815,9 @@ def weekly_payroll(store_id: str, week_start: Optional[str] = None) -> dict[str,
                     Schedule.date <= end.isoformat())
             .all()
         ) if emp_ids else []
+        avail = _availability_by_employee(db, emp_ids) if emp_ids else {}
         profiles = {
-            p.employee_id: _profile_dict(p)
+            p.employee_id: _profile_dict(p, avail.get(p.employee_id, []))
             for p in db.query(EmployeeProfile).filter(EmployeeProfile.employee_id.in_(emp_ids)).all()
         } if emp_ids else {}
     finally:

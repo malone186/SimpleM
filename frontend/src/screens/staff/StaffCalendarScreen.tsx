@@ -34,9 +34,10 @@ const ymd = (d: Date) =>
 
 const hhmm = (h: number) => `${String(h).padStart(2, '0')}:00`;
 
-/** 직원마다 고정된 파스텔 색 — 달력 점과 목록 아바타가 같은 색이어야 눈으로 이어진다 */
-const DOT_COLORS = ['#C9A227', '#7FA98B', '#B07C6B', '#8A9BC4', '#C48A9E', '#8FA6A0', '#C6A38A'];
-const colorOf = (id: number) => DOT_COLORS[id % DOT_COLORS.length];
+/** 직원 대표 색 — 사장님이 고른 색(profile.color)이 1순위, 없으면 id로 팔레트를 돌린다.
+ *  달력 점·아바타·직원·스케줄 화면의 요일 선이 모두 같은 색이어야 한 사람으로 읽힌다. */
+const DOT_COLORS = ['#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#8C6F56'];
+const colorOf = (id: number, picked?: string | null) => picked || DOT_COLORS[id % DOT_COLORS.length];
 
 export default function StaffCalendarScreen() {
   const { token } = useAuth();
@@ -248,7 +249,7 @@ export default function StaffCalendarScreen() {
                         key={s.id}
                         style={[
                           styles.dot,
-                          { backgroundColor: colorOf(s.employee_id) },
+                          { backgroundColor: colorOf(s.employee_id, s.color) },
                           s.fits_availability === false && styles.dotWarn,
                         ]}
                       />
@@ -314,7 +315,7 @@ export default function StaffCalendarScreen() {
             ) : (
               day!.shifts.map((s) => (
                 <View key={s.id} style={styles.shiftRow}>
-                  <View style={[styles.avatar, { backgroundColor: colorOf(s.employee_id) }]}>
+                  <View style={[styles.avatar, { backgroundColor: colorOf(s.employee_id, s.color) }]}>
                     <Text style={styles.avatarText}>{s.name.charAt(0)}</Text>
                   </View>
                   <View style={{ flex: 1 }}>
@@ -361,7 +362,7 @@ export default function StaffCalendarScreen() {
                   setSheet({ mode: 'add' });
                 }}
               >
-                <View style={[styles.avatarSmall, { backgroundColor: colorOf(a.employee_id) }]}>
+                <View style={[styles.avatarSmall, { backgroundColor: colorOf(a.employee_id, a.color) }]}>
                   <Text style={styles.avatarText}>{a.name.charAt(0)}</Text>
                 </View>
                 <Text style={styles.availName}>{a.name}</Text>
@@ -385,7 +386,7 @@ export default function StaffCalendarScreen() {
             <Text style={styles.cardHead}>직원별 근무 가능 시간</Text>
             {data.staff.map((s) => (
               <View key={s.id} style={styles.staffRow}>
-                <View style={[styles.avatarSmall, { backgroundColor: colorOf(s.id) }]}>
+                <View style={[styles.avatarSmall, { backgroundColor: colorOf(s.id, s.color) }]}>
                   <Text style={styles.avatarText}>{s.name.charAt(0)}</Text>
                 </View>
                 <Text style={styles.availName}>{s.name}</Text>
@@ -441,7 +442,7 @@ export default function StaffCalendarScreen() {
                       }
                     }}
                   >
-                    <View style={[styles.pickDot, { backgroundColor: colorOf(s.id) }]} />
+                    <View style={[styles.pickDot, { backgroundColor: colorOf(s.id, s.color) }]} />
                     <Text style={[styles.pickText, on && styles.pickTextOn]}>{s.name}</Text>
                     <Text style={[styles.pickTag, on && { color: 'rgba(255,255,255,0.75)' }]}>
                       {can ? '가능' : s.availability.length === 0 ? '미입력' : '가능 시간 밖'}

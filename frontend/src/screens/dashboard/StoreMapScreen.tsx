@@ -249,21 +249,24 @@ export default function StoreMapScreen() {
 
   return (
     <View style={styles.root}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 28 }}>
-        {/* 지도 — 브라운 핀=내 매장(고정), 초록 핀=주변 카페, 오렌지 핀=인근 행사 */}
-        <View style={styles.mapBox}>
-          <StoreLocationMap
-            lat={store.lat}
-            lon={store.lon}
-            regionName={nearby?.region ?? store.region ?? ''}
-            shopLabel={user?.name ? `내 매장 (${user.name})` : '내 매장'}
-            nearbyCafes={nearby?.cafes ?? []}
-            nearbyEvents={mapEvents}
-            onCafePress={openCafe}
-            containerId="standalone-store-map"
-          />
-        </View>
+      {/* [한글 주석: 지도 상단 고정(Fixed) — 스크롤 시에도 지도는 고정되고 하단 UI만 독립 스크롤됨]
+          핀 색: 브라운=내 매장(고정), 초록=주변 카페, 오렌지=인근 행사 */}
+      <View style={styles.mapBox}>
+        <StoreLocationMap
+          lat={store.lat}
+          lon={store.lon}
+          regionName={nearby?.region ?? store.region ?? ''}
+          shopLabel={user?.name ? `내 매장 (${user.name})` : '내 매장'}
+          nearbyCafes={nearby?.cafes ?? []}
+          nearbyEvents={mapEvents}
+          onCafePress={openCafe}
+          containerId="standalone-store-map"
+          radius={radius}
+        />
+      </View>
 
+      {/* 하단 상권 분석 및 주변 카페 목록 정보 UI만 독립적으로 스크롤 */}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 28 }} showsVerticalScrollIndicator={false}>
         <View style={styles.body}>
           {/* 등록된 매장 위치 + 변경 버튼 */}
           <View style={styles.storeRow}>

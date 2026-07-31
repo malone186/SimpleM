@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, Platform, Pressable, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from '../../i18n/translations';
+import BeanAlternativeModal from '../../components/operation/BeanAlternativeModal';
+import BeanReviewModal from '../../components/operation/BeanReviewModal';
 import { Badge, Card, Screen, ScreenTitle } from '../../components/ui';
 import { colors } from '../../theme';
 import {
@@ -103,6 +105,10 @@ export default function BeanOperationScreen() {
   const [market, setMarket] = useState<MarketSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 후기 원문 모달 대상 (null이면 닫힘)
+  const [reviewTarget, setReviewTarget] = useState<{ id: number; name: string } | null>(null);
+  // 대체 추천 모달 대상
+  const [altTarget, setAltTarget] = useState<{ id: number; name: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -318,17 +324,46 @@ export default function BeanOperationScreen() {
                 </Text>
               )}
 
-              {/* 리뷰 통계 바 */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 12, backgroundColor: '#F8F6F4', padding: 8, borderRadius: 6 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Ionicons name="star" size={14} color="#FFB800" />
-                  <Text style={{ fontSize: 13, fontWeight: 'bold', color: colors.espressoBrown }}>{bean.rating.toFixed(1)}</Text>
-                  <Text style={{ fontSize: 12, color: '#888' }}>({bean.review_count}개 리뷰)</Text>
-                </View>
-                <Text style={{ fontSize: 12, fontWeight: '600', color: bean.positive_ratio >= 80 ? '#2E7D32' : bean.positive_ratio >= 50 ? '#B8860B' : '#B23B2E' }}>
-                  긍정 비율 {bean.positive_ratio}%
-                </Text>
-              </View>
+              {/* 리뷰 통계 바 — 누르면 후기 원문을 볼 수 있다.
+                  숫자만으로는 왜 그 평점인지 알 수 없어서, 원문 열람 경로를 만들었다. */}
+              <Pressable
+                onPress={() => bean.review_count > 0 && setReviewTarget({ id: bean.id, name: bean.name })}
+                disabled={bean.review_count === 0}
+                style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 12, backgroundColor: '#F8F6F4', padding: 8, borderRadius: 6 }}
+              >
+                {/* [한글 주석] 별점을 카드에서 뺐다.
+                    별점과 긍정비율은 같은 감성 분석 결과에서 나오므로 나란히 두면
+                    같은 근거를 두 번 세는 것이 된다. 게다가 블로그 글에는 별점이 없어
+                    우리가 역산한 값이라 3.5~4.5에 뭉쳐 변별력이 없다.
+                    ★3.6과 ★3.8을 비교하는 건 노이즈를 읽는 것이므로,
+                    실제로 판단에 쓸 수 있는 '근거의 양(건수)'을 앞세운다. */}
+                {bean.review_count === 0 ? (
+                  /* [한글 주석] 후기가 없는 원두가 전체의 44%다.
+                     '후기 0건 · 긍정 0%'로 두면 평가가 나쁜 것처럼 읽힌다.
+                     없는 것과 나쁜 것은 다르므로 문구로 구분한다. */
+                  <Text style={{ fontSize: 12, color: '#B0A79E' }}>수집된 후기 없음</Text>
+                ) : (
+                  <>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Ionicons name="chatbubble-ellipses-outline" size={13} color={colors.mochaBrown} />
+                      <Text style={{ fontSize: 13, fontWeight: 'bold', color: colors.espressoBrown }}>후기 {bean.review_count}건</Text>
+                    </View>
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: bean.positive_ratio >= 80 ? '#2E7D32' : bean.positive_ratio >= 50 ? '#B8860B' : '#B23B2E' }}>
+                      긍정 {bean.positive_ratio}%
+                    </Text>
+                    {/* 표본이 적으면 비율 자체를 믿기 어렵다 — 숫자 옆에 바로 알려준다 */}
+                    {bean.review_count < 5 && (
+                      <Text style={{ fontSize: 11, color: '#B0A79E' }}>표본 적음</Text>
+                    )}
+                  </>
+                )}
+                {bean.review_count > 0 && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, marginLeft: 'auto' }}>
+                    <Text style={{ fontSize: 11, color: colors.pointOrange, fontWeight: '700' }}>후기 보기</Text>
+                    <Ionicons name="chevron-forward" size={12} color={colors.pointOrange} />
+                  </View>
+                )}
+              </Pressable>
 
               {/* 키워드 태그 */}
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
@@ -363,11 +398,51 @@ export default function BeanOperationScreen() {
                 <Ionicons name="cart-outline" size={14} color="#FFF" />
                 <Text style={{ color: '#FFF', fontSize: 12.5, fontWeight: 'bold' }}>바로 구매</Text>
               </Pressable>
+
+              {/* [추가] 대체 추천 — 사기 전에 "더 싼 대안"을 먼저 볼 수 있게 구매 버튼 아래 배치 */}
+              {bean.price_per_gram != null && (
+                <Pressable
+                  onPress={() => setAltTarget({ id: bean.id, name: bean.name })}
+                  style={{
+                    marginTop: 6,
+                    borderRadius: 8,
+                    paddingVertical: 8,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 5,
+                    borderWidth: 1,
+                    borderColor: '#CDE5D3',
+                    backgroundColor: '#F2F9F4',
+                  }}
+                >
+                  <Ionicons name="swap-horizontal" size={14} color="#2E7D32" />
+                  <Text style={{ color: '#2E7D32', fontSize: 12, fontWeight: '700' }}>
+                    더 저렴한 대체 원두 찾기
+                  </Text>
+                </Pressable>
+              )}
             </View>
             );
           })}
         </View>
       </Card>
+
+      {/* 후기 원문 모달 — 수집한 블로그·카페 글을 그대로 보여준다 */}
+      <BeanReviewModal
+        visible={reviewTarget !== null}
+        beanId={reviewTarget?.id ?? null}
+        beanName={reviewTarget?.name ?? ''}
+        onClose={() => setReviewTarget(null)}
+      />
+
+      {/* 대체 추천 모달 — 비슷하면서 더 싼 원두 */}
+      <BeanAlternativeModal
+        visible={altTarget !== null}
+        beanId={altTarget?.id ?? null}
+        beanName={altTarget?.name ?? ''}
+        onClose={() => setAltTarget(null)}
+      />
     </Screen>
   );
 }

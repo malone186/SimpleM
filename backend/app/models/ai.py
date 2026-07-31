@@ -211,9 +211,35 @@ class EmployeeProfile(Base):
     weekly_holiday_pay: Mapped[bool] = mapped_column(Boolean, default=True)
     hired_on: Mapped[str | None] = mapped_column(String(10), nullable=True)  # 입사일 YYYY-MM-DD
     memo: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # 직원 대표 색(#RRGGBB) — 근무 달력의 점·선과 아바타가 같은 색이어야 한 사람으로 읽힌다
+    color: Mapped[str | None] = mapped_column(String(9), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+def ensure_employee_profile_columns(engine) -> None:
+    """[자가치유 스키마] employee_profiles에 color 컬럼이 없으면 보강한다.
+
+    create_all은 기존 테이블을 ALTER하지 않는다 — 공유 DB에는 이미 이 테이블이 있어서
+    컬럼만 추가하려면 여기서 직접 붙여야 한다(안 붙이면 저장 시 500).
+    """
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("employee_profiles"):
+            return
+        existing = {c["name"] for c in insp.get_columns("employee_profiles")}
+    except Exception as e:
+        logger.warning(f"[직원 프로필 스키마] 점검 실패 — 건너뜁니다: {e}")
+        return
+    if "color" in existing:
+        return
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE employee_profiles ADD COLUMN color VARCHAR(9)"))
+        logger.info("[직원 프로필 스키마] employee_profiles.color 컬럼 추가 완료")
+    except Exception as e:
+        logger.warning(f"[직원 프로필 스키마] color 보강 실패: {e}")
 
 
 class EmployeeAvailability(Base):

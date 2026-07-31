@@ -18,6 +18,8 @@ export type StaffProfile = {
   hired_on: string | null;
   memo: string | null;
   unset?: boolean; // 아직 상세를 채우지 않은 직원
+  work_days?: string[];
+  color?: string;
 };
 
 export type LaborCost = {
@@ -73,6 +75,8 @@ export type Shift = {
   start: string; // HH:MM
   end: string;   // HH:MM
   hours: number;
+  /** 직원 대표 색 (없으면 화면이 팔레트에서 배정) */
+  color: string | null;
   /** true=가능 시간 안 / false=가능 시간 밖 / null=가능 시간 미입력 */
   fits_availability: boolean | null;
 };
@@ -87,6 +91,7 @@ export type CalendarDay = {
     employee_id: number;
     name: string;
     role: string;
+    color: string | null;
     windows: AvailabilityWindow[];
     already_assigned: boolean;
   }[];
@@ -99,6 +104,7 @@ export type StaffCalendar = {
     id: number;
     name: string;
     role: string;
+    color: string | null;
     availability: AvailabilityWindow[];
     availability_text: string;
   }[];
@@ -150,6 +156,8 @@ export type StaffEditable = {
   hourly_rate: number;
   /** 보낸 경우에만 통째로 교체된다 (빈 배열이면 가능 시간 전부 삭제) */
   availability: AvailabilityWindow[];
+  /** 직원 대표 색 (#RRGGBB) — 달력의 점·선과 아바타를 같은 색으로 묶는다 */
+  color: string;
   employment_type: EmploymentType;
   pay_type: 'hourly' | 'monthly';
   monthly_salary: number;

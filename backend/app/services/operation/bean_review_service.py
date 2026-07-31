@@ -310,6 +310,38 @@ def embed_new_reviews_to_chromadb(db: Session, bean_id: int) -> int:
 
 
 
+# [한글 주석] 질문에서 걷어낼 의문·요청 표현.
+# "맛이 어떤가요" 같은 질문에서 '어떤가요'는 후기 본문에 나올 이유가 없다.
+# 반대로 '맛', '산미'는 남겨야 하므로 의문·요청 어휘만 좁게 지운다.
+_QUESTION_NOISE = re.compile(
+    r"(어떤가요|어떤지|어떤가|어때요|어때|어떰|알려줘|알려주세요|궁금해요|궁금해|"
+    r"인가요|인가|일까요|일까|나요|까요|해줘|해주세요|주세요|입니까|습니까|"
+    r"좀|정말|진짜|그리고|그럼|혹시|저기|이거|그거)"
+)
+
+
+def _query_tokens(query: str) -> List[str]:
+    """질문을 검색 가능한 단어들로 쪼갠다.
+
+    [한글 주석] 기존 구현은 질문 문장 전체를 ILIKE '%...%'로 걸었다.
+    "에티오피아 첼베사 맛이 어떤가요"가 후기 본문에 통째로 들어있어야
+    매칭되므로 자연어 질문은 사실상 항상 0건이었다.
+    단어 단위로 쪼개 하나라도 걸리면 후보로 삼는다.
+    """
+    if not query:
+        return []
+    cleaned = _QUESTION_NOISE.sub(" ", query)
+    raw = re.split(r"[^0-9A-Za-z가-힣]+", cleaned)
+    tokens = []
+    for t in raw:
+        t = t.strip()
+        # 한 글자는 아무 데나 걸려서 검색이 무의미해진다
+        if len(t) < 2 or t.isdigit():
+            continue
+        tokens.append(t)
+    return tokens
+
+
 def hybrid_rag_review_search(
     db: Session,
     query: str,
@@ -328,13 +360,29 @@ def hybrid_rag_review_search(
         q_filter.append(BeanReview.bean_id == bean_id)
 
     reviews_query = db.query(BeanReview).filter(*q_filter)
-    
-    # 키워드 검색 적용
-    if query and query.strip():
-        kw = query.strip()
-        reviews_query = reviews_query.filter(BeanReview.content.ilike(f"%{kw}%"))
 
-    db_reviews = reviews_query.limit(limit).all()
+    tokens = _query_tokens(query)
+
+    # [한글 주석] 어떤 원두인지 이미 아는 경우(bean_id)는 본문 매칭을 강제하지 않는다.
+    # "이 원두 맛 어때?"처럼 후기 본문에 없는 단어로 물어도 답할 수 있어야 한다.
+    # 대신 아래에서 질문 단어와 겹치는 후기를 위로 올린다.
+    if tokens and not bean_id:
+        reviews_query = reviews_query.filter(
+            or_(*[BeanReview.content.ilike(f"%{t}%") for t in tokens])
+        )
+
+    # 겹치는 단어 수로 순위를 매기려면 후보를 넉넉히 받아야 한다
+    candidates = reviews_query.limit(max(limit * 20, 100)).all()
+
+    if tokens and candidates:
+        def _overlap(r):
+            c = r.content or ""
+            return sum(1 for t in tokens if t in c)
+
+        # 겹치는 단어 많은 순 → 평점 높은 순
+        candidates.sort(key=lambda r: (_overlap(r), r.rating or 0), reverse=True)
+
+    db_reviews = candidates[:limit]
 
     # 2. 결과 데이터 검증
     if not db_reviews:

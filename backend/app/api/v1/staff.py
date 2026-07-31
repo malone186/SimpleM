@@ -37,6 +37,8 @@ class ProfileUpdate(BaseModel):
     name: Optional[str] = None
     hourly_rate: Optional[int] = Field(None, ge=0)
     role: Optional[str] = None
+    # 직원 대표 색 (#RRGGBB) — 근무 달력의 점·선과 아바타를 같은 색으로 맞추는 데 쓴다
+    color: Optional[str] = Field(None, max_length=9)
     employment_type: Optional[str] = Field(None, description="part_time | part_time_15 | full_time | manager")
     pay_type: Optional[str] = Field(None, description="hourly | monthly")
     monthly_salary: Optional[int] = Field(None, ge=0)

@@ -1,69 +1,101 @@
 <!DOCTYPE html>
-<html>
+<html lang="ko">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<style>html,body,#map{margin:0;padding:0;width:100%;height:100%;background:#F8F6F2;}</style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>매장 고정 위치 지도</title>
+<style>
+  html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background: #F8F6F2; }
+  #map { width: 100%; height: 100%; }
+  ::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
+  * { -ms-overflow-style: none !important; scrollbar-width: none !important; }
+</style>
 </head>
 <body>
-<!--
-  [매장 위치 지도 — 백엔드 서빙본]
-
-  앱(WebView)이 HTML 문자열을 baseUrl과 함께 로드하면 iOS가 하위 리소스 요청에
-  Referer를 붙이지 않는다. 네이버 지도는 Referer로 등록 도메인을 검증하므로
-  authFailure가 나고 지도가 뜨지 않는다.
-  이 파일을 실제 URL(https://<api-domain>/map/)에서 로드하면 Referer가 정상 전송되어
-  네이버 지도 인증이 통과한다. NCP 콘솔의 Web 서비스 URL에 이 API 도메인을 등록할 것.
-
-  쿼리 파라미터:
-    d   = JSON {lat, lon, regionName, shopLabel,
-                events:[{lat,lon,name,place,distance_km,date}],
-                cafes:[{lat,lon,name,category,distance_m}]}
-          (cafes = 주변 경쟁 카페 — 초록 마커, 탭하면 앱으로 {type:'cafe', name} 전달)
-    key = NCP Maps Client ID (Web Dynamic Map)
--->
 <div id="map"></div>
 <script>
 var params = new URLSearchParams(location.search);
-var D = { lat: 37.5665, lon: 126.9780, regionName: '', shopLabel: '', events: [], cafes: [] };
+var rawD = params.get('d') || '';
+var D = { lat: 37.6543, lon: 127.042, regionName: '', shopLabel: '내 매장', radius: 1000, events: [], cafes: [] };
 try {
-  var raw = params.get('d');
-  if (raw) {
-    var parsed = JSON.parse(raw);
+  if (rawD) {
+    var parsed = JSON.parse(decodeURIComponent(rawD));
     D.lat = Number(parsed.lat) || D.lat;
     D.lon = Number(parsed.lon) || D.lon;
     D.regionName = String(parsed.regionName || '');
     D.shopLabel = String(parsed.shopLabel || '');
     D.events = Array.isArray(parsed.events) ? parsed.events : [];
     D.cafes = Array.isArray(parsed.cafes) ? parsed.cafes : [];
+    var rad = Number(parsed.radius) || 1000;
+    D.radius = rad;
   }
-} catch (e) { /* 파라미터가 깨져도 기본 좌표로 지도는 뜨게 둔다 */ }
+} catch (e) {}
 var CLIENT_ID = params.get('key') || '';
 
-// 앱(WebView) 콘솔에서 실제 사용 중인 지도 엔진을 확인할 수 있게 알린다
+var gMap = null;
+var gCircles = [];
+
 function reportEngine(name) {
   if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage(name); }
 }
 
 function initNaver() {
   try {
-    if (!window.naver || !window.naver.maps) { showError('SDK 로드 안 됨'); return; }
-    var container = document.getElementById('map');
-    container.innerHTML = '';
-    reportEngine('naver');
-    var map = new naver.maps.Map(container, {
-      center: new naver.maps.LatLng(D.lat, D.lon),
-      zoom: 15,
+    if (!window.naver || !window.naver.maps) { showError('SDK 로드 실패'); return; }
+
+    var zoomLevel = D.radius <= 500 ? 16 : D.radius <= 1000 ? 15 : 14;
+    var centerLatLng = new naver.maps.LatLng(D.lat, D.lon);
+
+    gMap = new naver.maps.Map('map', {
+      center: centerLatLng,
+      zoom: zoomLevel,
       zoomControl: false,
     });
+
+    var circleConfigs = [
+      { r: 2000, color: '#8C7968', fill: '#D8CFC4' },
+      { r: 1000, color: '#A38F7B', fill: '#B5A493' },
+      { r: 500, color: '#E28257', fill: '#E28257' },
+    ];
+
+    gCircles = circleConfigs.map(function (cfg) {
+      var isSelected = D.radius === cfg.r;
+      return new naver.maps.Circle({
+        map: gMap,
+        center: centerLatLng,
+        radius: cfg.r,
+        fillColor: cfg.fill,
+        fillOpacity: isSelected ? 0.20 : 0.05,
+        strokeColor: cfg.color,
+        strokeOpacity: isSelected ? 0.85 : 0.25,
+        strokeWeight: isSelected ? 2.5 : 1,
+        strokeStyle: isSelected ? 'solid' : 'shortdash',
+      });
+    });
+
+    var shopMarkerContent = `
+      <div style="position:relative;display:flex;align-items:center;justify-content:center;width:28px;height:28px;">
+        <style>
+          @keyframes shopRippleAura {
+            0% { transform: scale(0.6); opacity: 0.85; }
+            100% { transform: scale(2.2); opacity: 0; }
+          }
+        </style>
+        <div style="position:absolute;width:24px;height:24px;border-radius:50%;background:rgba(226,130,87,0.45);animation:shopRippleAura 1.8s infinite ease-out;border:none;"></div>
+        <div style="position:relative;z-index:2;width:12px;height:12px;border-radius:50%;background:#3B2314;box-shadow:0 2px 6px rgba(0,0,0,0.35);border:2px solid #FFFFFF;"></div>
+      </div>
+    `;
+
     var shopMarker = new naver.maps.Marker({
-      position: new naver.maps.LatLng(D.lat, D.lon),
-      map: map,
+      position: centerLatLng,
+      map: gMap,
+      zIndex: 500,
       icon: {
-        content: '<div style="width:16px;height:16px;background:#4E3629;border:3px solid #FFFFFF;border-radius:50%;box-shadow:0 2px 5px rgba(0,0,0,0.3)"></div>',
-        anchor: new naver.maps.Point(8, 8),
+        content: shopMarkerContent,
+        anchor: new naver.maps.Point(14, 14),
       },
     });
+
     var infoWindow = new naver.maps.InfoWindow({
       content: '<div style="padding:10px;min-width:140px;line-height:140%;font-size:11px;font-family:-apple-system,sans-serif"><b>📍 ' + D.shopLabel + '</b><br/>' + D.regionName + '</div>',
       borderWidth: 1,
@@ -72,18 +104,22 @@ function initNaver() {
       backgroundColor: '#FFFFFF',
       anchorSize: new naver.maps.Size(10, 10),
     });
+
     naver.maps.Event.addListener(shopMarker, 'click', function () {
-      if (infoWindow.getMap()) { infoWindow.close(); } else { infoWindow.open(map, shopMarker); }
+      if (infoWindow.getMap()) { infoWindow.close(); } else { infoWindow.open(gMap, shopMarker); }
     });
+
     var eventWindows = [];
+
     D.events.forEach(function (e) {
       if (e.lat && e.lon) {
         var eventMarker = new naver.maps.Marker({
           position: new naver.maps.LatLng(e.lat, e.lon),
-          map: map,
+          map: gMap,
+          zIndex: 300,
           icon: {
-            content: '<div style="width:12px;height:12px;background:#E28257;border:2.5px solid #FFFFFF;border-radius:50%;box-shadow:0 2px 4px rgba(0,0,0,0.3)"></div>',
-            anchor: new naver.maps.Point(6, 6),
+            content: '<div style="width:10px;height:10px;background:#E28257;border-radius:50%;border:1.5px solid #FFFFFF;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></div>',
+            anchor: new naver.maps.Point(5, 5),
           },
         });
         var eWindow = new naver.maps.InfoWindow({
@@ -95,43 +131,47 @@ function initNaver() {
         });
         eventWindows.push(eWindow);
         naver.maps.Event.addListener(eventMarker, 'click', function () {
-          if (eWindow.getMap()) { eWindow.close(); } else { eWindow.open(map, eventMarker); }
+          if (eWindow.getMap()) { eWindow.close(); } else { eWindow.open(gMap, eventMarker); }
         });
       }
     });
-    // 주변 경쟁 카페 마커(초록) — 탭하면 앱에 알려 리뷰 분석 카드를 띄운다
+
     D.cafes.forEach(function (c) {
       if (!c.lat || !c.lon) return;
+      var cafeMarkerContent = `
+        <div title="${c.name}" style="width:9px;height:9px;background:#7A6250;border-radius:50%;border:1.5px solid #FFFFFF;cursor:pointer;box-shadow:0 1.5px 3.5px rgba(0,0,0,0.3);"></div>
+      `;
       var cafeMarker = new naver.maps.Marker({
         position: new naver.maps.LatLng(c.lat, c.lon),
-        map: map,
+        map: gMap,
+        zIndex: 400,
         icon: {
-          content: '<div style="width:11px;height:11px;background:#3F8F6B;border:2.5px solid #FFFFFF;border-radius:50%;box-shadow:0 2px 4px rgba(0,0,0,0.25)"></div>',
-          anchor: new naver.maps.Point(5.5, 5.5),
+          content: cafeMarkerContent,
+          anchor: new naver.maps.Point(4.5, 4.5),
         },
       });
+
       var cWindow = new naver.maps.InfoWindow({
         content: '<div style="padding:9px 11px;min-width:150px;line-height:150%;font-size:11px;font-family:-apple-system,sans-serif">'
           + '<b>☕ ' + c.name + '</b><br/>' + (c.category || '카페') + '<br/>내 매장에서 ' + (c.distance_m || 0) + 'm</div>',
         borderWidth: 1,
-        borderColor: '#3F8F6B',
+        borderColor: '#10B981',
         borderRadius: 8,
         backgroundColor: '#FFFFFF',
       });
       eventWindows.push(cWindow);
+
       naver.maps.Event.addListener(cafeMarker, 'click', function () {
-        if (cWindow.getMap()) { cWindow.close(); } else { cWindow.open(map, cafeMarker); }
+        if (cWindow.getMap()) { cWindow.close(); } else { cWindow.open(gMap, cafeMarker); }
         if (window.ReactNativeWebView) {
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'cafe', name: c.name }));
         }
       });
     });
-    naver.maps.Event.addListener(map, 'click', function () {
+
+    naver.maps.Event.addListener(gMap, 'click', function () {
       eventWindows.forEach(function (w) { if (w.getMap()) w.close(); });
     });
-    // [현위치 표시 없음] 이 지도는 등록된 매장 고정 위치만 보여 준다.
-    // 예전엔 기기 GPS를 파란 점으로 함께 찍었는데, 사장님이 집에서 앱을 켜면 매장이 아닌 곳이
-    // 강조돼 매장 위치가 움직이는 것처럼 보였다.
   } catch (err) { showError('초기화 예외: ' + err); }
 }
 
@@ -141,24 +181,23 @@ function showError(reason) {
   c.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;'
     + 'height:100%;padding:20px;box-sizing:border-box;text-align:center;font-family:-apple-system,sans-serif;'
     + 'color:#8C6F56;background:#F8F6F2">'
-    + '<div style="font-size:26px;margin-bottom:10px">🗺️</div>'
+    + '<div style="font-size:26px;margin-bottom:10px">⚠️</div>'
     + '<div style="font-size:13px;font-weight:700;line-height:1.5">네이버 지도를 불러오지 못했습니다.</div>'
-    + '<div style="font-size:11px;margin-top:6px;line-height:1.5;color:#A99C90">네트워크 상태를 확인한 뒤 다시 시도해 주세요.</div>'
+    + '<div style="font-size:11px;margin-top:6px;line-height:1.5;color:#A99C90">네트워크 상태를 확인하고 다시 시도해 주세요.</div>'
     + '</div>';
 }
 
-// 네이버 지도 전용 — 다른 지도로 폴백하지 않는다. 키가 없으면 바로 실패를 알린다.
 if (!CLIENT_ID) {
   showError('Client ID 없음');
 } else {
   window.navermap_authFailure = function () {
-    showError('인증 실패(키/도메인 미등록) origin=' + location.origin);
+    showError('인증 실패(웹 도메인 미등록 origin=' + location.origin + ')');
   };
   var s = document.createElement('script');
   s.src = 'https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=' + encodeURIComponent(CLIENT_ID);
   s.onload = initNaver;
   s.onerror = function () {
-    showError('스크립트 로드 실패(네트워크/차단) origin=' + location.origin);
+    showError('스크립트 로드 실패(네트워크/차단 origin=' + location.origin + ')');
   };
   document.head.appendChild(s);
 }

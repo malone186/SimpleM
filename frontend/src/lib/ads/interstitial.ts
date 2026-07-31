@@ -44,7 +44,7 @@ export function preloadInterstitial(): void {
         }),
       );
       unsubscribe.push(
-        ad.addAdEventListener(AdEventType.ERROR, (error) => {
+        ad.addAdEventListener(AdEventType.ERROR, (error: any) => {
           // 노필(no-fill)은 정상적인 상황이다 — 재고가 없으면 그냥 광고를 건너뛴다.
           if (__DEV__) console.warn('[ads] 전면 광고 로드 실패:', error?.message);
           loading = false;

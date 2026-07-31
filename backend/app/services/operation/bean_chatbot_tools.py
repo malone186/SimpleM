@@ -25,6 +25,7 @@ from app.services.operation.bean_review_service import (
     normalize_product_url
 )
 from app.services.operation.bean_rag_service import generate_grounded_answer_service
+from app.services.operation.bean_alternative_service import find_alternatives
 from app.models.roastery import RoasteryBean, ProductOffer
 
 logger = logging.getLogger(__name__)
@@ -170,6 +171,87 @@ def get_bean_review_rag_tool(query: str, bean_id: Optional[int] = None) -> Dict[
             "data": {},
             "documents": [],
             "message": f"리뷰 RAG 조회 중 오류가 발생했습니다: {str(e)}"
+        }
+    finally:
+        db.close()
+
+
+@tool
+def find_cheaper_bean_alternatives_tool(bean_name: str, limit: int = 5) -> Dict[str, Any]:
+    """[한글 주석] 지금 쓰는 원두와 맛이 비슷하면서 더 저렴한 대체 원두를 찾아 잔당 절감액과 함께 알려줍니다.
+    원가를 낮추고 싶을 때 사용합니다 (예: '예가체프 쓰는데 더 싼 거 없어?', '원두값 좀 줄이고 싶어').
+    - bean_name: 현재 쓰고 있는 원두 이름 (예: '에티오피아 첼베사', '예가체프')
+    - limit: 추천 개수 (기본 5)
+    """
+    db = SessionLocal()
+    try:
+        bean = (
+            db.query(RoasteryBean)
+            .filter(RoasteryBean.name.ilike(f"%{bean_name.strip()}%"))
+            .filter(RoasteryBean.price_per_gram.isnot(None))
+            .first()
+        )
+        if not bean:
+            return {
+                "success": False,
+                "data": {},
+                "documents": [],
+                "message": f"'{bean_name}' 이름과 일치하는 원두를 찾을 수 없습니다.",
+            }
+
+        result = find_alternatives(db, bean.id, limit=limit)
+        if not result:
+            return {
+                "success": False,
+                "data": {},
+                "documents": [],
+                "message": f"'{bean.name}' 원두 정보를 불러오지 못했습니다.",
+            }
+
+        # [한글 주석] 챗봇이 그대로 읽어줄 수 있도록 숫자에 단위를 붙여 넘긴다.
+        items = [
+            {
+                "name": a["name"],
+                "roastery_name": a["roastery_name"],
+                "price": f"{a['price']:,}원",
+                "weight": f"{a['grams']}g" if a.get("grams") else None,
+                "price_per_gram": f"{a['price_per_gram']}원/g",
+                "saving_per_shot": f"{a['saving_per_shot']:,}원",
+                "saving_pct": f"{a['saving_pct']}%",
+                "country": a["country"],
+                "process": a["process"],
+                "cup_notes": a["cup_notes"],
+                "reasons": a["reasons"],
+                "review_count": a["review_count"],
+                "product_url": a["product_url"],
+            }
+            for a in result["alternatives"]
+        ]
+
+        return {
+            "success": True,
+            "data": {
+                "bean_id": bean.id,
+                "bean_name": result["bean_name"],
+                "base_price_per_gram": f"{result['base_price_per_gram']}원/g",
+                "base_weight": f"{result['base_grams']}g" if result.get("base_grams") else None,
+                "grams_per_shot": result["grams_per_shot"],
+                "alternatives": items,
+                "disclaimer": (
+                    "절감액은 1잔 20g 기준 환산값입니다. 포장 용량이 비슷한 원두끼리만 비교하며, "
+                    "실제 맛은 로스팅에 따라 다를 수 있어 샘플 확인을 권합니다."
+                ),
+            },
+            "documents": [],
+            "message": result["message"],
+        }
+    except Exception as e:
+        logger.error("find_cheaper_bean_alternatives_tool 오류: %s", str(e))
+        return {
+            "success": False,
+            "data": {},
+            "documents": [],
+            "message": f"대체 원두 추천 중 오류 발생: {str(e)}",
         }
     finally:
         db.close()

@@ -105,7 +105,19 @@ type Draft = {
   weekly_holiday_pay: boolean;
   /** 근무 가능 시간 — 화면에서는 "요일 여러 개 + 시간대 하나"가 한 줄이다 */
   avail: AvailRow[];
+  /** 직원 대표 색 — 근무 달력의 점·선과 아바타가 같은 색으로 묶인다 */
+  color: string;
 };
+
+// 달력에서 서로 구분되는 색만 고른다 (직원·스케줄 화면의 팔레트와 같은 값)
+const PALETTE = [
+  { code: '#F59E0B', label: '오렌지' },
+  { code: '#10B981', label: '에메랄드' },
+  { code: '#3B82F6', label: '인디고' },
+  { code: '#8B5CF6', label: '퍼플' },
+  { code: '#EC4899', label: '핑크' },
+  { code: '#8C6F56', label: '모카' },
+];
 
 /** '월·수 09~14시'를 한 줄로 편집하기 위한 모양. 저장할 땐 요일마다 한 칸으로 펼친다. */
 type AvailRow = { days: number[]; start: number; end: number };
@@ -147,6 +159,7 @@ const EMPTY_DRAFT: Draft = {
   insurance: 'two',
   weekly_holiday_pay: true,
   avail: [],
+  color: PALETTE[0].code,
 };
 
 const draftOf = (m: StaffMember): Draft => ({
@@ -160,6 +173,8 @@ const draftOf = (m: StaffMember): Draft => ({
   insurance: m.profile.insurance,
   weekly_holiday_pay: m.profile.weekly_holiday_pay,
   avail: rowsFromWindows(m.availability),
+  // 색을 아직 안 고른 직원은 id로 팔레트를 돌려 배정한다 (달력에서 서로 안 겹치게)
+  color: m.profile.color || PALETTE[m.id % PALETTE.length].code,
 });
 
 /** 화면의 문자열 입력값을 서버가 받는 숫자/불리언으로 바꾼다 (보낸 키만 저장된다) */
@@ -175,6 +190,7 @@ function toApi(patch: Partial<Draft>): Partial<StaffEditable> {
   if (patch.insurance !== undefined) body.insurance = patch.insurance;
   if (patch.weekly_holiday_pay !== undefined) body.weekly_holiday_pay = patch.weekly_holiday_pay;
   if (patch.avail !== undefined) body.availability = windowsFromRows(patch.avail);
+  if (patch.color !== undefined) body.color = patch.color;
   return body;
 }
 
@@ -529,8 +545,8 @@ export default function StaffScreen() {
                     setOpenId(expanded ? null : emp.id);
                   }}
                 >
-                  <View style={[styles.avatar, { backgroundColor: d.pay_type === 'monthly' ? '#E7DFD4' : colors.coffeeCream }]}>
-                    <Ionicons name={TYPE_ICON[d.employment_type] ?? 'person-outline'} size={17} color={colors.espressoBrown} />
+                  <View style={[styles.avatar, { backgroundColor: d.color }]}>
+                    <Ionicons name={TYPE_ICON[d.employment_type] ?? 'person-outline'} size={17} color={colors.white} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.name}>
@@ -806,6 +822,29 @@ function StaffFields({
       <Text style={styles.optionNote}>
         {insuranceTypes.find((t) => t.code === draft.insurance)?.note}
       </Text>
+
+      <Divider />
+
+      {/* 대표 색 — 근무 달력에서 이 사람의 점·선이 이 색으로 그려진다 */}
+      <Text style={styles.fieldLabel}>달력 표시 색</Text>
+      <View style={styles.optionWrap}>
+        {PALETTE.map((c) => {
+          const on = draft.color === c.code;
+          return (
+            <TouchableOpacity
+              key={c.code}
+              activeOpacity={0.7}
+              style={[styles.colorChip, { backgroundColor: c.code }, on && styles.colorChipOn]}
+              onPress={() => {
+                onChange({ color: c.code });
+                commit({ color: c.code });
+              }}
+            >
+              {on && <Ionicons name="checkmark" size={14} color={colors.white} />}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
 
       <Divider />
 
@@ -1138,6 +1177,16 @@ const styles = StyleSheet.create({
 
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
 
+  colorChip: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  colorChipOn: { borderColor: colors.espressoBrown },
   availSummary: { ...typography.L5, color: colors.pointOrange, fontWeight: '800', flexShrink: 1, textAlign: 'right' },
   availRow: {
     backgroundColor: colors.white,

@@ -56,7 +56,7 @@ export default function FormSheet({
           <View style={styles.sheet}>
             <View style={styles.handle} />
             <Text style={styles.title}>{title}</Text>
-            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 20 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               {children}
             </ScrollView>
             <PressableScale
@@ -96,8 +96,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     padding: spacing.globalPadding,
-    paddingBottom: 32,
-    maxHeight: 620,
+    paddingBottom: 24,
+    maxHeight: '85%',
   },
   handle: { alignSelf: 'center', width: 44, height: 5, borderRadius: 3, backgroundColor: colors.mutedSand, marginBottom: 16 },
   title: { ...typography.L1, color: colors.espressoBrown, marginBottom: 16 },
