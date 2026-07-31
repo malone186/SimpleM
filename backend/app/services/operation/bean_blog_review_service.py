@@ -172,6 +172,23 @@ def _token_in(token: str, content: str) -> bool:
     return any(v in content for v in _SPELLING_VARIANTS.get(token, []))
 
 
+# [한글 주석] 커피 글이라면 흔히 등장하는 일반 단어들.
+# '에티오피아'만 맞아도 통과시키면 그 원두와 무관한 커피 블로그 글이 딸려온다
+# (실측: '드립백 16종 후기', '카페 향미사 후기' 같은 글이 특정 원두에 붙었다).
+# 진짜 그 원두를 다룬 글이라면 농장·지역명 같은 고유 단어가 나온다.
+_GENERIC_TOKENS = {
+    "에티오피아", "에디오피아", "콜롬비아", "콜럼비아", "브라질", "과테말라", "케냐",
+    "코스타리카", "페루", "파나마", "인도네시아", "온두라스", "볼리비아", "르완다",
+    "예멘", "자메이카", "탄자니아", "엘살바도르", "니카라과", "멕시코", "베트남",
+    "디카페인", "워시드", "내추럴", "내츄럴", "허니", "블렌드", "블랜드", "무산소",
+}
+
+
+def _specific_tokens(core_tokens: List[str]) -> List[str]:
+    """원두를 특정할 수 있는 고유 토큰만 남긴다 (농장·지역·로트명)."""
+    return [t for t in core_tokens if t not in _GENERIC_TOKENS]
+
+
 def is_relevant(content: str, core_tokens: List[str]) -> bool:
     """수집한 글이 이 원두에 대한 후기가 맞는지 판정한다.
 
@@ -192,10 +209,18 @@ def is_relevant(content: str, core_tokens: List[str]) -> bool:
         return False
 
     # 3) 식별 토큰이 본문에 실제로 있는지 (부분 문자열이 아니라 토큰 전체)
-    if core_tokens and not any(_token_in(t, content) for t in core_tokens):
-        return False
+    if not core_tokens:
+        return True
 
-    return True
+    # [한글 주석] 고유 토큰(농장·지역명)이 있으면 그것으로만 판정한다.
+    # '에티오피아' 같은 흔한 단어는 아무 커피 글에나 나와서, 그걸 허용하면
+    # 다른 원두를 다룬 글이 이 원두의 후기로 둔갑한다 — 평점·키워드가 오염된다.
+    specific = _specific_tokens(core_tokens)
+    if specific:
+        return any(_token_in(t, content) for t in specific)
+
+    # 고유 토큰이 없는 원두(예: '콜롬비아 디카페인')는 일반 토큰으로 판정할 수밖에 없다.
+    return any(_token_in(t, content) for t in core_tokens)
 
 
 def build_query(bean_name: str, roastery_name: str = "") -> str:
