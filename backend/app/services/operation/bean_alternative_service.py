@@ -82,6 +82,44 @@ def _similarity(base: RoasteryBean, cand: RoasteryBean,
 _MAX_SAVING_PCT = 70.0
 _MIN_SAVING_PCT = 3.0
 
+# [한글 주석] 중량대 가드 — 소포장과 대용량을 비교하지 않기 위한 배수 범위.
+#
+#   실측 사례: 100g 소포장(65원/g)에 추천을 돌리니 1위~3위가 전부
+#   1kg 대용량(19~20원/g)이었다. 절감률도 68~70%로 상한에 몰렸다.
+#   소포장은 g당 단가가 원래 비싸므로, 중량을 무시하면 추천이
+#   "더 싼 원두"가 아니라 "더 큰 봉지"만 찾아낸다.
+#
+#   그건 틀린 조언은 아니지만 이 기능이 답하려는 질문이 아니고,
+#   무엇보다 진짜 원두 대 원두 대안을 목록 밖으로 밀어낸다.
+#   0.5~2배로 묶어 같은 구매 단위 안에서 비교한다.
+_MIN_WEIGHT_RATIO = 0.5
+_MAX_WEIGHT_RATIO = 2.0
+
+
+def _estimate_grams(bean: RoasteryBean) -> Optional[float]:
+    """가격과 g당 단가로 포장 중량을 역산한다.
+
+    [한글 주석] 중량 컬럼이 따로 없어 price / price_per_gram으로 구한다.
+    price_per_gram 자체가 상품명의 중량 표기에서 계산된 값이라 역산이 성립한다.
+    """
+    if not bean.price or not bean.price_per_gram:
+        return None
+    return bean.price / bean.price_per_gram
+
+
+def _no_result_message(base_grams: Optional[float], skipped_weight: int) -> str:
+    """결과가 0건일 때 '왜 없는지'를 알려준다.
+
+    [한글 주석] 그냥 "없습니다"라고만 하면 기능이 고장난 것처럼 보인다.
+    중량대가 달라 걸러진 게 많으면 그 사실을 밝혀야 납득이 된다.
+    """
+    if skipped_weight and base_grams:
+        return (
+            f"이 원두({int(round(base_grams))}g)와 비슷한 용량의 대체 원두를 찾지 못했습니다. "
+            f"용량이 크게 다른 {skipped_weight}개는 g당 단가 비교가 공정하지 않아 제외했습니다."
+        )
+    return "조건에 맞는 대체 원두를 찾지 못했습니다. (원산지·가공방식이 비슷하면서 더 싼 원두가 없음)"
+
 
 def find_alternatives(
     db: Session,
@@ -108,6 +146,7 @@ def find_alternatives(
         }
 
     base_notes = _parse_notes(base.description)
+    base_grams = _estimate_grams(base)
 
     # 후보군: g당 단가가 있고, 더 저렴하고, 자기 자신이 아닌 원두
     candidates = (
@@ -120,7 +159,19 @@ def find_alternatives(
     )
 
     scored: List[Dict[str, Any]] = []
+    skipped_weight = 0
     for cand in candidates:
+        # 같은 구매 단위끼리만 비교한다 (소포장 vs 대용량 비교 방지)
+        if base_grams:
+            cand_grams = _estimate_grams(cand)
+            if cand_grams and not (
+                base_grams * _MIN_WEIGHT_RATIO
+                <= cand_grams
+                <= base_grams * _MAX_WEIGHT_RATIO
+            ):
+                skipped_weight += 1
+                continue
+
         score, reasons = _similarity(base, cand, base_notes)
         if score < min_similarity:
             continue
@@ -159,6 +210,7 @@ def find_alternatives(
             "roastery_name": rmap.get(x["bean"].roastery_id, ""),
             "price": x["bean"].price,
             "price_per_gram": x["bean"].price_per_gram,
+            "grams": int(round(_estimate_grams(x["bean"]) or 0)) or None,
             "country": x["bean"].country,
             "process": x["bean"].process,
             "cup_notes": x["bean"].description,
@@ -178,12 +230,13 @@ def find_alternatives(
         "bean_id": bean_id,
         "bean_name": base.name,
         "base_price_per_gram": base.price_per_gram,
+        "base_grams": int(round(base_grams)) if base_grams else None,
         "grams_per_shot": GRAMS_PER_SHOT,
         "candidates_considered": len(candidates),
         "alternatives": items,
         "message": (
             f"비슷하면서 더 저렴한 원두 {len(items)}건"
             if items
-            else "조건에 맞는 대체 원두를 찾지 못했습니다. (원산지·가공방식이 비슷하면서 더 싼 원두가 없음)"
+            else _no_result_message(base_grams, skipped_weight)
         ),
     }

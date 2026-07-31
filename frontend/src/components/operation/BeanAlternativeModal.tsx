@@ -31,6 +31,7 @@ type Props = {
 export default function BeanAlternativeModal({ visible, beanId, beanName, onClose }: Props) {
   const [items, setItems] = useState<BeanAlternative[]>([]);
   const [basePpg, setBasePpg] = useState<number | null>(null);
+  const [baseGrams, setBaseGrams] = useState<number | null>(null);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +44,7 @@ export default function BeanAlternativeModal({ visible, beanId, beanName, onClos
       const res = await fetchBeanAlternatives(beanId, 5);
       setItems(res.alternatives ?? []);
       setBasePpg(res.base_price_per_gram ?? null);
+      setBaseGrams(res.base_grams ?? null);
       setMessage(res.message ?? '');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -71,6 +73,7 @@ export default function BeanAlternativeModal({ visible, beanId, beanName, onClos
               <Text style={styles.title}>더 저렴한 대체 원두</Text>
               <Text style={styles.subtitle} numberOfLines={1}>
                 {beanName}
+                {baseGrams != null ? ` · ${baseGrams}g` : ''}
                 {basePpg != null ? ` · ${basePpg}원/g` : ''}
               </Text>
             </View>
@@ -117,8 +120,10 @@ export default function BeanAlternativeModal({ visible, beanId, beanName, onClos
                   <Text style={styles.meta}>
                     {[a.roastery_name, a.country, a.process].filter(Boolean).join(' · ')}
                   </Text>
+                  {/* 중량을 함께 보여준다 — 어떤 포장끼리 비교했는지 보여야 신뢰가 된다 */}
                   <Text style={styles.price}>
-                    {a.price.toLocaleString()}원 · {a.price_per_gram}원/g
+                    {a.price.toLocaleString()}원
+                    {a.grams != null ? ` / ${a.grams}g` : ''} · {a.price_per_gram}원/g
                   </Text>
 
                   {!!a.cup_notes && (
@@ -150,7 +155,7 @@ export default function BeanAlternativeModal({ visible, beanId, beanName, onClos
           )}
 
           <Text style={styles.disclaimer}>
-            같은 원산지·가공방식·풍미를 공유하는 원두 중 g당 단가가 낮은 순입니다.
+            같은 원산지·가공방식·풍미를 공유하면서 포장 용량이 비슷한 원두만 비교합니다.
             실제 맛은 로스팅에 따라 다를 수 있어 샘플 확인을 권합니다.
           </Text>
         </View>

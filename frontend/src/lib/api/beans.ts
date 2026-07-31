@@ -97,6 +97,7 @@ export type BeanAlternative = {
   roastery_name: string;
   price: number;
   price_per_gram: number;
+  grams: number | null;   // 포장 중량 (비교 기준을 보여주기 위해 함께 노출)
   country: string | null;
   process: string | null;
   cup_notes: string | null;
@@ -114,6 +115,7 @@ export type BeanAlternativesResponse = {
   bean_id: number;
   bean_name: string;
   base_price_per_gram: number;
+  base_grams: number | null;
   grams_per_shot: number;
   candidates_considered: number;
   alternatives: BeanAlternative[];
