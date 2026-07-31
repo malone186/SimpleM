@@ -52,11 +52,11 @@ export function Segmented<T extends string>({
 const styles = StyleSheet.create({
   track: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(140, 111, 86, 0.08)', // [글라스모피즘 트랙] 부드러운 반투명 베이지
+    backgroundColor: 'rgba(60, 60, 67, 0.08)', // [글라스모피즘 트랙] 부드러운 반투명 베이지
     borderRadius: 12,
     padding: 4,
     borderWidth: 0.8,
-    borderColor: 'rgba(140, 111, 86, 0.05)',
+    borderColor: 'rgba(60, 60, 67, 0.05)',
     position: 'relative',
   },
   pill: {
@@ -67,13 +67,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.pointOrange, // [iOS 스타일] 사장님이 선택하신 딥 토프 브라운 (#6B5E55) 탑재
     borderRadius: 9,
     // [한글 주석: 안심 그림자 기입] 웹 런타임 스타일 붕괴를 예방하기 위한 직접 기입그림자
-    shadowColor: '#4E3629',
+    shadowColor: '#1C1C1E',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
     shadowRadius: 6,
     elevation: 2,
   },
   item: { flex: 1, paddingVertical: 9, borderRadius: 9, alignItems: 'center' },
-  text: { fontSize: 12, fontWeight: '700', color: '#9C8875', letterSpacing: -0.2 }, // 비선택 텍스트
+  text: { fontSize: 12, fontWeight: '700', color: '#8E8E93', letterSpacing: -0.2 }, // 비선택 텍스트
   textActive: { color: colors.white, fontWeight: '800' }, // 선택 텍스트 (딥 브라운 캡슐 위에 하얗게 선명히 안착)
 });

@@ -383,7 +383,7 @@ function ScheduleCalendarCard({
       </View>
 
       {/* 달력 날짜 그리드 (일 숫자 투명 미니멀 + 텍스트 없는 끊김 없는 파스텔 연속 선) */}
-      <Animated.View style={{ opacity: fadeAnim, flexDirection: 'row', flexWrap: 'wrap', backgroundColor: '#FFF', borderRadius: 16, paddingVertical: 8, paddingHorizontal: 0, borderWidth: 1, borderColor: '#EFEAE6' }}>
+      <Animated.View style={{ opacity: fadeAnim, flexDirection: 'row', flexWrap: 'wrap', backgroundColor: '#FFF', borderRadius: 16, paddingVertical: 8, paddingHorizontal: 0, borderWidth: 1, borderColor: '#F0F0F2' }}>
         {(calendarDays as any[]).map((item, index) => {
           if (item.type === 'empty') {
             return <View key={`empty-${index}`} style={{ width: '14.28%', height: 52 }} />;
@@ -589,7 +589,7 @@ function ScheduleCalendarCard({
                     padding: 10,
                     borderRadius: 10,
                     borderWidth: 1,
-                    borderColor: '#EFEAE6',
+                    borderColor: '#F0F0F2',
                   }}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
@@ -613,7 +613,7 @@ function ScheduleCalendarCard({
                     <View style={{ flex: 1 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <Text style={{ fontSize: 14, fontWeight: 'bold', color: colors.espressoBrown }}>{name}</Text>
-                        <View style={{ backgroundColor: '#EFEAE6', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                        <View style={{ backgroundColor: '#F0F0F2', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
                           <Text style={{ fontSize: 10, color: '#665C54', fontWeight: '600' }}>{role}</Text>
                         </View>
                       </View>
@@ -970,7 +970,7 @@ const liveStyles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.white,
     borderWidth: 1,
-    borderColor: 'rgba(140,111,86,0.18)',
+    borderColor: 'rgba(60, 60, 67,0.18)',
     borderRadius: 999,
     paddingVertical: 7,
   },
@@ -988,7 +988,7 @@ const liveStyles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 12,
     borderWidth: 1,
-    borderColor: 'rgba(140,111,86,0.10)',
+    borderColor: 'rgba(60, 60, 67,0.10)',
   },
   kpiProfit: { backgroundColor: '#F1F6EE', borderColor: 'rgba(62,142,90,0.22)' },
   kpiLabel: { ...typography.L5, color: colors.mochaBrown },
@@ -996,7 +996,7 @@ const liveStyles = StyleSheet.create({
   forecastRow: {
     flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12,
     backgroundColor: colors.white, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12,
-    borderWidth: 1, borderColor: 'rgba(140,111,86,0.10)',
+    borderWidth: 1, borderColor: 'rgba(60, 60, 67,0.10)',
   },
   forecastText: { ...typography.L4, color: colors.espressoBrown, fontWeight: '700', flex: 1 },
   subHead: { ...typography.L4, color: colors.espressoBrown, fontWeight: '800', marginTop: 18, marginBottom: 6 },
@@ -1331,7 +1331,7 @@ const unavStyles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderWidth: 1,
-    borderColor: 'rgba(140,111,86,0.12)',
+    borderColor: 'rgba(60, 60, 67,0.12)',
   },
   itemTitle: { ...typography.L4, color: colors.espressoBrown, fontWeight: '700' },
   itemSub: { ...typography.L5, color: colors.mochaBrown, marginTop: 2 },
@@ -1479,7 +1479,7 @@ const staffLinkStyles = StyleSheet.create({
     backgroundColor: colors.white,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(140,111,86,0.14)',
+    borderColor: 'rgba(60, 60, 67,0.14)',
     paddingHorizontal: 14,
     paddingVertical: 14,
     marginTop: 12, // AI 추천 카드 바로 아래
@@ -1505,7 +1505,7 @@ const styles = StyleSheet.create({
   scheduleCard: {
     padding: 12,
     borderWidth: 1,
-    borderColor: 'rgba(140,111,86,0.12)',
+    borderColor: 'rgba(60, 60, 67,0.12)',
   },
   initialAvatar: {
     width: 38,
@@ -1515,7 +1515,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(140,111,86,0.08)',
+    borderColor: 'rgba(60, 60, 67,0.08)',
   },
   avatarText: {
     ...typography.L4,

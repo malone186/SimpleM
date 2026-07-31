@@ -450,7 +450,7 @@ function TodoItem({
             <Ionicons
               name={disabled ? 'checkmark-circle' : 'ellipse-outline'}
               size={23}
-              color={disabled ? colors.espressoBrown : '#C4B5A5'}
+              color={disabled ? colors.espressoBrown : '#C7C7CC'}
             />
           </Pressable>
         </Animated.View>
@@ -504,10 +504,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 24,
     paddingHorizontal: 16,
-    backgroundColor: '#FFFDF9',
+    backgroundColor: '#FFFFFF',
     borderRadius: 18,
     borderWidth: 1.2,
-    borderColor: '#EFECE6',
+    borderColor: '#F0F0F2',
     borderStyle: 'dashed',
     gap: 6,
     marginBottom: 4,
@@ -515,7 +515,7 @@ const styles = StyleSheet.create({
   emptyStateText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#8C827A',
+    color: '#8E8E93',
     textAlign: 'center',
   },
 
@@ -556,7 +556,7 @@ const styles = StyleSheet.create({
   modalContainer: {
     width: '100%',
     maxWidth: 350,
-    backgroundColor: '#FFFDF9',
+    backgroundColor: '#FFFFFF',
     borderRadius: 22,
     padding: 18,
     shadowColor: '#000',
@@ -566,7 +566,7 @@ const styles = StyleSheet.create({
     elevation: 8,
     gap: 10,
     borderWidth: 1,
-    borderColor: '#EFECE6',
+    borderColor: '#F0F0F2',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -577,26 +577,26 @@ const styles = StyleSheet.create({
   modalDateText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#8C827A',
+    color: '#8E8E93',
     marginBottom: 1,
   },
   modalTitle: {
     fontSize: 17,
     fontWeight: '900',
-    color: '#2C221E',
+    color: '#222226',
     letterSpacing: -0.5,
   },
   modalSub: {
     fontSize: 11,
     fontWeight: '500',
-    color: '#8C827A',
+    color: '#8E8E93',
     marginTop: 2,
   },
   modalCloseBtn: {
     width: 26,
     height: 26,
     borderRadius: 13,
-    backgroundColor: '#F4F1EA',
+    backgroundColor: '#F0F0F2',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -620,7 +620,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5,
-    backgroundColor: '#F4F1EA',
+    backgroundColor: '#F0F0F2',
     borderRadius: 10,
     paddingVertical: 8,
   },
@@ -645,12 +645,12 @@ const styles = StyleSheet.create({
   // 텍스트 입력창
   modalTextInput: {
     height: 38,
-    backgroundColor: '#F4F1EA',
+    backgroundColor: '#F0F0F2',
     borderRadius: 12,
     paddingHorizontal: 11,
     fontSize: 11.5,
     fontWeight: '600',
-    color: '#2C221E',
+    color: '#222226',
   },
 
   // 액션 버튼
@@ -663,7 +663,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 38,
     borderRadius: 12,
-    backgroundColor: '#F4F1EA',
+    backgroundColor: '#F0F0F2',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -690,16 +690,16 @@ const styles = StyleSheet.create({
   taskCardItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFDF9', // 클래식 아날로그 크림 메모지 톤
+    backgroundColor: '#FFFFFF', // 클래식 아날로그 크림 메모지 톤
     borderRadius: 16,
     paddingVertical: 13,
     paddingHorizontal: 14,
     marginBottom: 9,
     borderWidth: 1,
-    borderColor: '#EFECE6', // 따뜻하고 은은한 메모지 테두리
+    borderColor: '#F0F0F2', // 따뜻하고 은은한 메모지 테두리
     borderLeftWidth: 4,
     borderLeftColor: colors.espressoBrown, // 메모지 좌측 감성 마진 라인
-    shadowColor: '#4E3629',
+    shadowColor: '#1C1C1E',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
     shadowRadius: 6,
@@ -726,18 +726,18 @@ const styles = StyleSheet.create({
   taskItemTitle: {
     fontSize: 13.5,
     fontWeight: '700',
-    color: '#2C221E', // 에스프레소 잉크 톤
+    color: '#222226', // 에스프레소 잉크 톤
     letterSpacing: -0.3,
   },
   taskItemSub: {
     fontSize: 11.5,
     fontWeight: '500',
-    color: '#8C827A',
+    color: '#8E8E93',
     flexShrink: 1,
   },
   strike: {
     textDecorationLine: 'line-through',
-    color: '#8C827A',
+    color: '#8E8E93',
     textDecorationColor: colors.espressoBrown, // 에스프레소 갈색 취소선
   },
   titleRow: {
@@ -755,7 +755,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   aiBadgeDone: {
-    backgroundColor: '#EFECE6',
+    backgroundColor: '#F0F0F2',
   },
   aiBadgeText: {
     fontSize: 9,
@@ -763,7 +763,7 @@ const styles = StyleSheet.create({
     color: '#A855F7',
   },
   aiBadgeTextDone: {
-    color: '#8C827A',
+    color: '#8E8E93',
   },
   actionsRight: {
     flexDirection: 'row',
@@ -806,12 +806,12 @@ const styles = StyleSheet.create({
   editInput: {
     flex: 1,
     height: 32,
-    backgroundColor: '#F4F1EA',
+    backgroundColor: '#F0F0F2',
     borderRadius: 8,
     paddingHorizontal: 8,
     fontSize: 12,
     fontWeight: '700',
-    color: '#2C221E',
+    color: '#222226',
   },
   iconBtn: {
     padding: 4,

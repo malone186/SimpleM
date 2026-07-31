@@ -167,7 +167,7 @@ export default function BeanOperationScreen() {
             paddingVertical: 8,
             fontSize: 14,
             borderWidth: 1,
-            borderColor: '#E1DCD7',
+            borderColor: '#E9E9EB',
             marginBottom: 12,
           }}
           placeholder="원두명 또는 로스터리 검색 (예: 에티오피아)"
@@ -185,7 +185,7 @@ export default function BeanOperationScreen() {
                 paddingHorizontal: 10,
                 paddingVertical: 5,
                 borderRadius: 14,
-                backgroundColor: selectedCategory === cat ? colors.espressoBrown : '#EFEAE6',
+                backgroundColor: selectedCategory === cat ? colors.espressoBrown : '#F0F0F2',
               }}
             >
               <Text style={{ color: selectedCategory === cat ? '#FFF' : colors.espressoBrown, fontSize: 12, fontWeight: '600' }}>
@@ -199,13 +199,13 @@ export default function BeanOperationScreen() {
         {loading && (
           <View style={{ alignItems: 'center', gap: 8, paddingVertical: 24 }}>
             <ActivityIndicator color={colors.espressoBrown} />
-            <Text style={{ fontSize: 12, color: '#7A6E65' }}>원두 시세를 불러오는 중…</Text>
+            <Text style={{ fontSize: 12, color: '#6E6E73' }}>원두 시세를 불러오는 중…</Text>
           </View>
         )}
 
         {!loading && error && (
           <View style={{ alignItems: 'center', gap: 8, paddingVertical: 24 }}>
-            <Text style={{ fontSize: 12, color: '#7A6E65', textAlign: 'center' }}>
+            <Text style={{ fontSize: 12, color: '#6E6E73', textAlign: 'center' }}>
               원두 정보를 불러오지 못했어요.{'\n'}{error}
             </Text>
             <Pressable
@@ -219,7 +219,7 @@ export default function BeanOperationScreen() {
 
         {!loading && !error && filteredBeans.length === 0 && (
           <View style={{ alignItems: 'center', paddingVertical: 24 }}>
-            <Text style={{ fontSize: 12, color: '#7A6E65' }}>조건에 맞는 원두가 없어요.</Text>
+            <Text style={{ fontSize: 12, color: '#6E6E73' }}>조건에 맞는 원두가 없어요.</Text>
           </View>
         )}
 
@@ -243,7 +243,7 @@ export default function BeanOperationScreen() {
                 {bean.name}
               </Text>
               {/* [추가] 가공방식(process)을 로스터리·원산지 줄에 덧붙임 */}
-              <Text style={{ fontSize: 12, color: '#7A6E65', marginTop: 3 }}>
+              <Text style={{ fontSize: 12, color: '#6E6E73', marginTop: 3 }}>
                 {[bean.roastery, bean.country, bean.process].filter(Boolean).join(' · ')}
               </Text>
 
@@ -257,7 +257,7 @@ export default function BeanOperationScreen() {
                   marginTop: 8,
                   paddingTop: 8,
                   borderTopWidth: 1,
-                  borderTopColor: '#F0ECE8',
+                  borderTopColor: '#F2F2F4',
                 }}
               >
                 <Text style={{ fontSize: 15, fontWeight: 'bold', color: colors.pointOrange }}>
@@ -270,12 +270,12 @@ export default function BeanOperationScreen() {
                   </Text>
                 )}
                 {bean.price_per_gram != null && (
-                  <Text style={{ fontSize: 12, color: '#7A6E65' }}>
+                  <Text style={{ fontSize: 12, color: '#6E6E73' }}>
                     g당 {bean.price_per_gram.toFixed(1)}원
                   </Text>
                 )}
                 {bean.offer_count > 1 && (
-                  <Text style={{ fontSize: 11, color: '#7A6E65' }}>{bean.offer_count}곳 비교</Text>
+                  <Text style={{ fontSize: 11, color: '#6E6E73' }}>{bean.offer_count}곳 비교</Text>
                 )}
                 {bean.sold_out && (
                   <Text style={{ fontSize: 11, color: '#B23B2E', fontWeight: '700' }}>품절</Text>
@@ -291,7 +291,7 @@ export default function BeanOperationScreen() {
                       paddingVertical: 3,
                       borderRadius: 10,
                       backgroundColor:
-                        pos.tone === 'cheap' ? '#E6F4EA' : pos.tone === 'pricey' ? '#FBE9E7' : '#F0ECE8',
+                        pos.tone === 'cheap' ? '#E6F4EA' : pos.tone === 'pricey' ? '#FBE9E7' : '#F2F2F4',
                     }}
                   >
                     <Text
@@ -299,13 +299,13 @@ export default function BeanOperationScreen() {
                         fontSize: 11,
                         fontWeight: '800',
                         color:
-                          pos.tone === 'cheap' ? '#2E7D32' : pos.tone === 'pricey' ? '#B23B2E' : '#7A6E65',
+                          pos.tone === 'cheap' ? '#2E7D32' : pos.tone === 'pricey' ? '#B23B2E' : '#6E6E73',
                       }}
                     >
                       {pos.label}
                     </Text>
                   </View>
-                  <Text style={{ fontSize: 11, color: '#7A6E65' }}>
+                  <Text style={{ fontSize: 11, color: '#6E6E73' }}>
                     {pos.peer} 시세 대비 {pos.diffPct > 0 ? '+' : ''}{pos.diffPct}%
                   </Text>
                 </View>
@@ -313,7 +313,7 @@ export default function BeanOperationScreen() {
 
               {/* [추가] 컵노트 / 로스터리 설명 */}
               {!!bean.description && (
-                <Text style={{ fontSize: 11.5, color: '#7A6E65', marginTop: 8, lineHeight: 17 }} numberOfLines={2}>
+                <Text style={{ fontSize: 11.5, color: '#6E6E73', marginTop: 8, lineHeight: 17 }} numberOfLines={2}>
                   ☕ {bean.description}
                 </Text>
               )}
@@ -333,7 +333,7 @@ export default function BeanOperationScreen() {
               {/* 키워드 태그 */}
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
                 {bean.keywords.map((kw, i) => (
-                  <Text key={i} style={{ fontSize: 11, color: colors.espressoBrown, backgroundColor: '#F0ECE8', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                  <Text key={i} style={{ fontSize: 11, color: colors.espressoBrown, backgroundColor: '#F2F2F4', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
                     {kw}
                   </Text>
                 ))}

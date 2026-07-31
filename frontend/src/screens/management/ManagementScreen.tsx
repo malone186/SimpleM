@@ -11,8 +11,8 @@ import { colors } from '../../theme';
 import { useTranslation } from '../../i18n/translations';
 import Brew from '../../components/brew/Brew';
 
-const IVORY = '#F4F1EF';
-const DARKTX = '#463C34'; // 밝은 카드용 진한 텍스트
+const IVORY = '#F5F5F7';
+const DARKTX = '#1C1C1E'; // 밝은 카드용 진한 텍스트
 
 type Item = {
   label: string;
@@ -62,21 +62,21 @@ function scheme(color: string) {
   if (isDark(color)) {
     return {
       border: 'transparent',
-      ghost: 'rgba(244,241,239,0.12)',
-      en: 'rgba(244,241,239,0.62)',
+      ghost: 'rgba(255, 255, 255,0.12)',
+      en: 'rgba(255, 255, 255,0.62)',
       label: IVORY,
-      desc: 'rgba(244,241,239,0.74)',
-      arrowBg: 'rgba(244,241,239,0.16)',
+      desc: 'rgba(255, 255, 255,0.74)',
+      arrowBg: 'rgba(255, 255, 255,0.16)',
       arrowFg: IVORY,
     };
   }
   return {
-    border: 'rgba(70,60,52,0.16)',
-    ghost: 'rgba(70,60,52,0.10)',
-    en: 'rgba(70,60,52,0.55)',
+    border: 'rgba(60, 60, 67,0.16)',
+    ghost: 'rgba(60, 60, 67,0.10)',
+    en: 'rgba(60, 60, 67,0.55)',
     label: DARKTX,
-    desc: 'rgba(70,60,52,0.66)',
-    arrowBg: '#5B514C',
+    desc: 'rgba(60, 60, 67,0.66)',
+    arrowBg: '#2C2C2E',
     arrowFg: IVORY,
   };
 }
@@ -88,12 +88,12 @@ export default function ManagementScreen() {
 
   const itemsList: Item[] = [
     // 직원·인건비는 별도 카드를 두지 않고 이 화면 안에서 들어간다 (진입로 하나로 통일)
-    { label: language === 'en' ? 'Staff & Schedule' : '직원 · 스케줄', en: 'PAYROLL', desc: language === 'en' ? 'Roster · Labor cost · Calendar · Settlement' : '직원 명부 · 인건비 · 근무 달력 · 손익 정산', color: '#5B514C', route: 'Operation' },
-    { label: t('taxDocsTitle'), en: 'DOCUMENTS', desc: t('taxDocsSub'), color: '#9A8E82', route: 'Document' },
-    { label: t('salesInputTitle'), en: 'SALES', desc: language === 'en' ? 'Cash/Card · Payout schedule' : '현금·카드 입력 · 입금 예정일', color: '#D1C6B9', route: 'SalesInput' },
-    { label: t('costAnalysisTitle'), en: 'COST', desc: t('costAnalysisSub'), color: '#E1DCD7', route: 'Cost' },
-    { label: language === 'en' ? 'Marketing Studio' : '홍보 스튜디오', en: 'MARKETING', desc: language === 'en' ? 'AI promo copy & social image' : 'AI 홍보 문구 · SNS 이미지 생성', color: '#8A6F5A', route: 'Marketing' },
-    { label: language === 'en' ? 'Bean Ops' : '운영·원두 분석', en: 'OPERATION', desc: language === 'en' ? 'Bean market price & Reviews' : '원두 최저가 시세 · 실리뷰 분석', color: '#463C34', route: 'BeanOperation' },
+    { label: language === 'en' ? 'Staff & Schedule' : '직원 · 스케줄', en: 'PAYROLL', desc: language === 'en' ? 'Roster · Labor cost · Calendar · Settlement' : '직원 명부 · 인건비 · 근무 달력 · 손익 정산', color: '#2C2C2E', route: 'Operation' },
+    { label: t('taxDocsTitle'), en: 'DOCUMENTS', desc: t('taxDocsSub'), color: '#8E8E93', route: 'Document' },
+    { label: t('salesInputTitle'), en: 'SALES', desc: language === 'en' ? 'Cash/Card · Payout schedule' : '현금·카드 입력 · 입금 예정일', color: '#D1D1D6', route: 'SalesInput' },
+    { label: t('costAnalysisTitle'), en: 'COST', desc: t('costAnalysisSub'), color: '#E9E9EB', route: 'Cost' },
+    { label: language === 'en' ? 'Marketing Studio' : '홍보 스튜디오', en: 'MARKETING', desc: language === 'en' ? 'AI promo copy & social image' : 'AI 홍보 문구 · SNS 이미지 생성', color: '#48484A', route: 'Marketing' },
+    { label: language === 'en' ? 'Bean Ops' : '운영·원두 분석', en: 'OPERATION', desc: language === 'en' ? 'Bean market price & Reviews' : '원두 최저가 시세 · 실리뷰 분석', color: '#1C1C1E', route: 'BeanOperation' },
   ];
 
   // 탭에 다시 들어올 때마다 카드 등장 애니메이션을 재생한다 (홈 화면과 같은 방식)
@@ -118,9 +118,9 @@ export default function ManagementScreen() {
         <Svg width="100%" height="100%" preserveAspectRatio="none">
           <Defs>
             <LinearGradient id="mgmtAurora" x1="0%" y1="0%" x2="0%" y2="100%">
-              <Stop offset="0%" stopColor="#1E1612" />
-              <Stop offset="35%" stopColor="#251C17" />
-              <Stop offset="70%" stopColor="#6E5544" stopOpacity="0.35" />
+              <Stop offset="0%" stopColor="#131315" />
+              <Stop offset="35%" stopColor="#1A1A1D" />
+              <Stop offset="70%" stopColor="#55555C" stopOpacity="0.35" />
               <Stop offset="100%" stopColor={colors.creamSand} />
             </LinearGradient>
             <Filter id="mgmtGlow" x="-50%" y="-50%" width="200%" height="200%">
@@ -128,8 +128,8 @@ export default function ManagementScreen() {
             </Filter>
           </Defs>
           <Path d="M0 0 H2000 V2000 H0 Z" fill="url(#mgmtAurora)" />
-          <Circle cx="85%" cy="12%" r="140" fill="#E28257" filter="url(#mgmtGlow)" opacity="0.25" />
-          <Circle cx="15%" cy="22%" r="130" fill="#C29D7A" filter="url(#mgmtGlow)" opacity="0.2" />
+          <Circle cx="85%" cy="12%" r="140" fill="#8E8E93" filter="url(#mgmtGlow)" opacity="0.25" />
+          <Circle cx="15%" cy="22%" r="130" fill="#A5A5AD" filter="url(#mgmtGlow)" opacity="0.2" />
           <Circle cx="60%" cy="4%" r="120" fill="#88BCB5" filter="url(#mgmtGlow)" opacity="0.16" />
         </Svg>
       </View>
@@ -250,7 +250,7 @@ export default function ManagementScreen() {
 
 const styles = StyleSheet.create({
   // Svg 로딩 지연 중 어두운 광원을 채우기 위한 딥 브라운 루트
-  root: { flex: 1, backgroundColor: '#1E1612' },
+  root: { flex: 1, backgroundColor: '#131315' },
 
   // [홈 웰컴 헤더와 같은 톤] 딥브라운 오로라 위 밝은 텍스트 + 우측 마스코트
   // [세 탭 헤더 통일] 좌측 세로열(제목 위·버튼 아래) + 우측 마스코트, 마스코트 높이가 헤더 높이를 정한다
@@ -266,7 +266,7 @@ const styles = StyleSheet.create({
   headerLeft: { flex: 1, justifyContent: 'center' },
   headerRight: { alignItems: 'flex-end', gap: 6 },
   bigTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
-  sub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
+  sub: { fontSize: 11.5, color: '#B9B9BF', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
   gearBtn: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -1,45 +1,46 @@
-// 디자인 스펙 기반 테마 (Design Specification §1, §3)
-// 커피 전문점 아이덴티티 — Mocha & Espresso Brown + Cream White + Terracotta Orange
+// 디자인 스펙 기반 테마 — Manus/Apple 스타일 클린 미니멀 (2026-08 리스타일)
+// 흰 배경 + 뉴트럴 그레이 위계 + 블랙 잉크/CTA. 색은 절제하고 여백·타이포로 위계를 만든다.
+// [주의] 토큰 이름은 기존(커피 테마 시절) 그대로다 — 50여 개 화면이 참조하므로
+// 이름을 바꾸지 않고 값만 바꿔 전체 앱을 한 번에 전환한다.
 
 export const colors = {
-  creamSand: '#FAF9F6', // [배경색] 노랑기를 걷어내고 밝고 투명함을 더한 소프트 베이지-그레이 오프화이트
-  coffeeCream: '#F2ECE0', // [카드 배경] 약간의 투명감을 살리기 좋은 부드러운 밀크커피 톤
-  mutedSand: 'rgba(140, 111, 86, 0.12)', // [초슬림 테두리] 투박한 단색 대신 자연스러운 반투명 브라운
-  mochaBrown: '#8C6F56', // 그래프 라인, 서브 포인트 텍스트
-  espressoBrown: '#4E3629', // 대표 타이틀, 본문, 메인 아이콘
-  pointOrange: '#2E2521', // [핵심 포인트 컬러] 웜 그레이에서 블랙에 가까우면서 에스프레소 톤이 도는 극초콜릿 블랙으로 업그레이드
-  trendGreenBg: 'rgba(78, 125, 58, 0.08)', // [상승 배지 배경] 자연스러운 녹색 투명화
-  trendGreenText: '#4E7D3A', // 매출 상승 배지 텍스트 / 그래프 피크
+  creamSand: '#F7F7F8', // [배경색] 애플 systemGroupedBackground 계열의 뉴트럴 오프화이트
+  coffeeCream: '#F0F0F2', // [카드/필 배경] 은은한 뉴트럴 그레이 필
+  mutedSand: 'rgba(60, 60, 67, 0.10)', // [초슬림 테두리] 애플 separator 계열 헤어라인
+  mochaBrown: '#6E6E73', // 보조 텍스트 (secondary label)
+  espressoBrown: '#141416', // 대표 타이틀·본문·다크 서피스 (near-black ink)
+  pointOrange: '#111113', // [핵심 CTA] manus식 블랙 버튼 — 색 대신 명도로 시선을 끈다
+  trendGreenBg: 'rgba(52, 199, 89, 0.10)', // [상승 배지 배경]
+  trendGreenText: '#1F7A3D', // 매출 상승 배지 텍스트 / 그래프 피크
   white: '#FFFFFF',
-  stone300: '#D6D3D1', // 디바이스 프레임 테두리
+  stone300: '#E5E5EA', // 디바이스 프레임 테두리
   black40: 'rgba(0,0,0,0.4)', // 모달 딤드 배경
 } as const;
 
-// [iOS 스타일 은은한 섀도우 시스템]
-// 카드가 배경 위에 부드럽게 떠 있는 듯한 입체감을 연출하여 투박한 보더라인을 보완합니다.
+// [애플식 섀도우] 색조 없는 순수 블랙 섀도우를 아주 옅게 — 떠 있되 티 나지 않게.
 export const shadows = {
   soft: {
-    shadowColor: '#4E3629',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.04,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
     shadowRadius: 12,
     elevation: 2,
   },
   medium: {
-    shadowColor: '#4E3629',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.07,
-    shadowRadius: 18,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 20,
     elevation: 4,
   },
 } as const;
 
-// 타이포그래피 계층 (§3)
+// 타이포그래피 계층 — 900 블랙 대신 700~800 + 타이트한 자간으로 산뜻한 애플 무드
 export const typography = {
-  L1: { fontSize: 20, fontWeight: '900' as const }, // 대표 강조 헤더
-  L2: { fontSize: 30, fontWeight: '900' as const }, // 실시간 숫자 금액
-  L3: { fontSize: 16, fontWeight: '700' as const }, // 카드 내부 값
-  L4: { fontSize: 12, fontWeight: '700' as const }, // 주요 알림 타이틀
+  L1: { fontSize: 20, fontWeight: '800' as const, letterSpacing: -0.4 }, // 대표 강조 헤더
+  L2: { fontSize: 30, fontWeight: '800' as const, letterSpacing: -0.6 }, // 실시간 숫자 금액
+  L3: { fontSize: 16, fontWeight: '700' as const, letterSpacing: -0.3 }, // 카드 내부 값
+  L4: { fontSize: 12, fontWeight: '600' as const, letterSpacing: -0.1 }, // 주요 알림 타이틀
   L5: { fontSize: 10, fontWeight: '500' as const }, // 캡션 & 서브 정보
 } as const;
 
@@ -49,4 +50,3 @@ export const spacing = {
   verticalGap: 20, // space-y-5
   gridGap: 10, // gap-2.5
 } as const;
-

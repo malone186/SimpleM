@@ -187,7 +187,7 @@ const styles = StyleSheet.create({
   screenTitle: { ...typography.L1, color: colors.espressoBrown },
   screenSubtitle: { ...typography.L5, color: colors.mochaBrown, marginTop: 4 },
   card: { borderRadius: 20, padding: spacing.globalPadding, borderWidth: 1 },
-  cardWhite: { backgroundColor: colors.white, borderColor: 'rgba(140,111,86,0.18)' },
+  cardWhite: { backgroundColor: colors.white, borderColor: 'rgba(60, 60, 67,0.18)' },
   cardCream: { backgroundColor: colors.coffeeCream, borderColor: colors.mutedSand },
   sectionTitle: {
     ...typography.L3,

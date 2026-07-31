@@ -399,7 +399,7 @@ export default function AuthScreen() {
           draggable: true,
           icon: {
             content:
-              '<div style="width:18px;height:18px;background:#E28257;border:3px solid #FFFFFF;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.35)"></div>',
+              '<div style="width:18px;height:18px;background:#8E8E93;border:3px solid #FFFFFF;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.35)"></div>',
             anchor: new naverObj.maps.Point(9, 9),
           },
         });
@@ -1358,7 +1358,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: 'rgba(140, 111, 86, 0.12)',
+    borderColor: 'rgba(60, 60, 67, 0.12)',
     padding: 16,
     gap: 14,
   },
@@ -1393,7 +1393,7 @@ const styles = StyleSheet.create({
   mapHintText: {
     fontSize: 10.5,
     lineHeight: 15,
-    color: '#A99C90',
+    color: '#AEAEB2',
     fontWeight: '600',
     marginTop: 5,
     marginLeft: 3,
@@ -1416,7 +1416,7 @@ const styles = StyleSheet.create({
   shiftTimeCard: {
     flex: 1,
     borderWidth: 1.5,
-    borderColor: 'rgba(140, 111, 86, 0.2)',
+    borderColor: 'rgba(60, 60, 67, 0.2)',
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -1446,7 +1446,7 @@ const styles = StyleSheet.create({
     padding: 12,
     marginTop: 8,
     borderWidth: 1,
-    borderColor: 'rgba(140, 111, 86, 0.15)',
+    borderColor: 'rgba(60, 60, 67, 0.15)',
   },
   shiftSubLabel: {
     fontSize: 11,
@@ -1463,7 +1463,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: 'rgba(242, 236, 224, 0.6)',
     borderWidth: 1,
-    borderColor: 'rgba(140, 111, 86, 0.15)',
+    borderColor: 'rgba(60, 60, 67, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1477,7 +1477,7 @@ const styles = StyleSheet.create({
   acqChip: { paddingHorizontal: 2 },
   acqChipText: { fontSize: 9 },
   backBtn: {
-    backgroundColor: 'rgba(140, 111, 86, 0.1)',
+    backgroundColor: 'rgba(60, 60, 67, 0.1)',
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
@@ -1562,7 +1562,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 12,
     borderWidth: 1,
-    borderColor: 'rgba(140, 111, 86, 0.15)',
+    borderColor: 'rgba(60, 60, 67, 0.15)',
     marginTop: 4,
   },
   termRowAll: {
@@ -1579,7 +1579,7 @@ const styles = StyleSheet.create({
   },
   termDivider: {
     height: 1,
-    backgroundColor: 'rgba(140, 111, 86, 0.12)',
+    backgroundColor: 'rgba(60, 60, 67, 0.12)',
     marginVertical: 8,
   },
   termRowItem: {

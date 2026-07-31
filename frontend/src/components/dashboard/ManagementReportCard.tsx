@@ -372,7 +372,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: 'rgba(140,111,86,0.25)', // SalesCard와 동일한 카드 테두리 톤
+    borderColor: 'rgba(60, 60, 67,0.25)', // SalesCard와 동일한 카드 테두리 톤
     padding: spacing.globalPadding,
     gap: 14,
   },
@@ -438,7 +438,7 @@ const styles = StyleSheet.create({
   tileActive: {
     backgroundColor: colors.coffeeCream,
     borderWidth: 1,
-    borderColor: 'rgba(140,111,86,0.3)',
+    borderColor: 'rgba(60, 60, 67,0.3)',
   },
   tileLabel: { ...typography.L5, color: colors.mochaBrown },
   tileValue: { ...typography.L3, color: colors.espressoBrown },
@@ -456,7 +456,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(140, 111, 86, 0.2)',
+    borderColor: 'rgba(60, 60, 67, 0.2)',
     padding: 18,
     gap: 12,
     shadowColor: '#3A271D',

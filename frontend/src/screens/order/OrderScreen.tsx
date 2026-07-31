@@ -231,7 +231,7 @@ const BADGE_COLORS = {
   orange: { bg: 'rgba(212,120,50,0.12)', text: '#C07030' },
   green: { bg: 'rgba(78,125,58,0.12)', text: '#4E7D3A' },
   blue: { bg: 'rgba(60,100,180,0.10)', text: '#3C64B4' },
-  gray: { bg: 'rgba(140,111,86,0.10)', text: '#8C6F56' },
+  gray: { bg: 'rgba(60, 60, 67,0.10)', text: '#6E6E73' },
 };
 
 const styles = StyleSheet.create({

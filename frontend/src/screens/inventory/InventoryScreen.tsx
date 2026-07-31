@@ -456,9 +456,9 @@ export default function InventoryScreen() {
         <Svg width="100%" height="100%" preserveAspectRatio="none">
           <Defs>
             <LinearGradient id="invAurora" x1="0%" y1="0%" x2="0%" y2="100%">
-              <Stop offset="0%" stopColor="#1E1612" />
-              <Stop offset="35%" stopColor="#251C17" />
-              <Stop offset="70%" stopColor="#6E5544" stopOpacity="0.35" />
+              <Stop offset="0%" stopColor="#131315" />
+              <Stop offset="35%" stopColor="#1A1A1D" />
+              <Stop offset="70%" stopColor="#55555C" stopOpacity="0.35" />
               <Stop offset="100%" stopColor={colors.creamSand} />
             </LinearGradient>
             <Filter id="invGlow" x="-50%" y="-50%" width="200%" height="200%">
@@ -466,8 +466,8 @@ export default function InventoryScreen() {
             </Filter>
           </Defs>
           <Path d="M0 0 H2000 V2000 H0 Z" fill="url(#invAurora)" />
-          <Circle cx="85%" cy="12%" r="140" fill="#E28257" filter="url(#invGlow)" opacity="0.25" />
-          <Circle cx="15%" cy="22%" r="130" fill="#C29D7A" filter="url(#invGlow)" opacity="0.2" />
+          <Circle cx="85%" cy="12%" r="140" fill="#8E8E93" filter="url(#invGlow)" opacity="0.25" />
+          <Circle cx="15%" cy="22%" r="130" fill="#A5A5AD" filter="url(#invGlow)" opacity="0.2" />
           <Circle cx="60%" cy="4%" r="120" fill="#88BCB5" filter="url(#invGlow)" opacity="0.16" />
         </Svg>
       </View>
@@ -991,7 +991,7 @@ function OcrSourceRow({
 
 const styles = StyleSheet.create({
   // [관리 탭과 동일] 딥브라운 오로라 루트 + 고정 브라운 헤더 + 둥근 크림 시트
-  brownRoot: { flex: 1, backgroundColor: '#1E1612' },
+  brownRoot: { flex: 1, backgroundColor: '#131315' },
   // [세 탭 헤더 통일] 좌측 세로열 + 우측 마스코트, 마스코트 높이가 헤더 높이를 정한다
   brownHeader: {
     flexDirection: 'row',
@@ -1009,7 +1009,7 @@ const styles = StyleSheet.create({
   // 관리 탭 헤더 높이(설정칩+마스코트 ~153)에 맞춰 마스코트를 하단 정렬 — 재고엔 설정칩이 없어 minHeight로 확보
   brownHeaderRight: { alignItems: 'flex-end', justifyContent: 'flex-end', minHeight: 154 },
   brownHeaderTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
-  brownHeaderSub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
+  brownHeaderSub: { fontSize: 11.5, color: '#B9B9BF', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
   brownSheet: {
     flexGrow: 1,
     backgroundColor: colors.creamSand,
@@ -1178,7 +1178,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: 'rgba(242, 236, 224, 0.6)',
     borderWidth: 1,
-    borderColor: 'rgba(140, 111, 86, 0.15)',
+    borderColor: 'rgba(60, 60, 67, 0.15)',
   },
   categoryChipActive: {
     backgroundColor: colors.espressoBrown,
@@ -1210,8 +1210,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: colors.white,
     borderWidth: 1.2,
-    borderColor: 'rgba(140, 111, 86, 0.18)',
-    shadowColor: '#4E3629',
+    borderColor: 'rgba(60, 60, 67, 0.18)',
+    shadowColor: '#1C1C1E',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
     shadowRadius: 4,
@@ -1228,9 +1228,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: colors.white,
     borderWidth: 1.2,
-    borderColor: 'rgba(140, 111, 86, 0.18)',
+    borderColor: 'rgba(60, 60, 67, 0.18)',
     padding: 6,
-    shadowColor: '#4E3629',
+    shadowColor: '#1C1C1E',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.08,
     shadowRadius: 12,
@@ -1246,7 +1246,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   dropdownItemActive: {
-    backgroundColor: 'rgba(140, 111, 86, 0.06)',
+    backgroundColor: 'rgba(60, 60, 67, 0.06)',
   },
   dropdownItemText: {
     ...typography.L4,

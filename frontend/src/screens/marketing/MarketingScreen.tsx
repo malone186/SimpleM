@@ -396,7 +396,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: colors.white,
     borderWidth: 1,
-    borderColor: 'rgba(140,111,86,0.25)',
+    borderColor: 'rgba(60, 60, 67,0.25)',
   },
   channelChipActive: {
     backgroundColor: colors.espressoBrown,
@@ -413,7 +413,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   input: {
-    backgroundColor: 'rgba(140,111,86,0.07)',
+    backgroundColor: 'rgba(60, 60, 67,0.07)',
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: Platform.OS === 'web' ? 10 : 9,
@@ -427,9 +427,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: 'rgba(140,111,86,0.07)',
+    backgroundColor: 'rgba(60, 60, 67,0.07)',
     borderWidth: 1,
-    borderColor: 'rgba(140,111,86,0.18)',
+    borderColor: 'rgba(60, 60, 67,0.18)',
   },
   styleChipActive: {
     backgroundColor: colors.pointOrange,
@@ -451,7 +451,7 @@ const styles = StyleSheet.create({
     width: '100%',
     borderRadius: 14,
     marginBottom: 12,
-    backgroundColor: 'rgba(140,111,86,0.08)',
+    backgroundColor: 'rgba(60, 60, 67,0.08)',
   },
   imagePlaceholder: {
     aspectRatio: 1,
@@ -478,7 +478,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 6,
-    backgroundColor: 'rgba(140,111,86,0.08)',
+    backgroundColor: 'rgba(60, 60, 67,0.08)',
     borderRadius: 10,
     padding: 10,
     marginTop: 12,
@@ -496,7 +496,7 @@ const styles = StyleSheet.create({
   historyRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   historyThumb: { width: 44, height: 44, borderRadius: 10 },
   historyThumbEmpty: {
-    backgroundColor: 'rgba(140,111,86,0.1)',
+    backgroundColor: 'rgba(60, 60, 67,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
   },

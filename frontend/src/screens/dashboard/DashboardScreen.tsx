@@ -353,9 +353,9 @@ export default function DashboardScreen() {
           <Defs>
             {/* [한글 주석: 수직 오로라 그라데이션] 상단은 딥 브라운이나 아래로 갈수록 바디 시트 색상(creamSand)으로 자연스럽게 녹아듭니다 */}
             <LinearGradient id="auroraGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-              <Stop offset="0%" stopColor="#1E1612" />
-              <Stop offset="35%" stopColor="#251C17" />
-              <Stop offset="60%" stopColor="#6E5544" stopOpacity="0.35" />
+              <Stop offset="0%" stopColor="#131315" />
+              <Stop offset="35%" stopColor="#1A1A1D" />
+              <Stop offset="60%" stopColor="#55555C" stopOpacity="0.35" />
               {/* 하단 25%는 완전 불투명 크림 — 바운스로 배경이 드러나도 갈색이 비치지 않게 */}
               <Stop offset="75%" stopColor={colors.creamSand} />
               <Stop offset="100%" stopColor={colors.creamSand} />
@@ -367,8 +367,8 @@ export default function DashboardScreen() {
           </Defs>
           <Path d="M0 0 H2000 V2000 H0 Z" fill="url(#auroraGrad)" />
           {/* 글로우 원들을 상부 웰컴 영역에만 배치하여 하부 화이트 카드 부근엔 맑게 스며들도록 함 */}
-          <Circle cx="85%" cy="12%" r="140" fill="#E28257" filter="url(#auroraGlow)" opacity="0.25" />
-          <Circle cx="15%" cy="22%" r="130" fill="#C29D7A" filter="url(#auroraGlow)" opacity="0.2" />
+          <Circle cx="85%" cy="12%" r="140" fill="#8E8E93" filter="url(#auroraGlow)" opacity="0.25" />
+          <Circle cx="15%" cy="22%" r="130" fill="#A5A5AD" filter="url(#auroraGlow)" opacity="0.2" />
           <Circle cx="60%" cy="4%" r="120" fill="#88BCB5" filter="url(#auroraGlow)" opacity="0.16" />
         </Svg>
       </View>

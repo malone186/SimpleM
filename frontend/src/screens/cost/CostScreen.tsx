@@ -730,18 +730,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#FBF8F3',
+    backgroundColor: '#F5F5F7',
     borderRadius: 12,
     paddingVertical: 10,
     paddingHorizontal: 12,
     marginTop: 10,
     borderWidth: 1,
-    borderColor: 'rgba(140, 111, 86, 0.12)',
+    borderColor: 'rgba(60, 60, 67, 0.12)',
   },
   detailGridDivider: {
     width: 1,
     height: 24,
-    backgroundColor: 'rgba(140, 111, 86, 0.12)',
+    backgroundColor: 'rgba(60, 60, 67, 0.12)',
   },
 
   // 재료 구성
@@ -749,7 +749,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
     paddingTop: 10,
     borderTopWidth: 1,
-    borderTopColor: '#EFECE6',
+    borderTopColor: '#F0F0F2',
   },
   recipeHeader: {
     fontSize: 12,
@@ -771,7 +771,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   recipeQtyBadge: {
-    backgroundColor: '#F4F1EA',
+    backgroundColor: '#F0F0F2',
     borderRadius: 6,
     paddingHorizontal: 7,
     paddingVertical: 2,
@@ -790,7 +790,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
     paddingTop: 10,
     borderTopWidth: 1,
-    borderTopColor: '#EFECE6',
+    borderTopColor: '#F0F0F2',
   },
   soldLabel: { fontSize: 11.5, color: colors.mochaBrown, fontWeight: '600' },
   soldValue: { fontSize: 12, color: colors.mochaBrown, fontWeight: '600' },
@@ -857,13 +857,13 @@ const styles = StyleSheet.create({
   contribHint: { ...typography.L5, color: colors.mochaBrown, marginTop: -4, marginBottom: 12, lineHeight: 16 },
 
   contribCardItem: {
-    backgroundColor: '#FFFDF9',
+    backgroundColor: '#FFFFFF',
     borderRadius: 14,
     paddingHorizontal: 13,
     paddingVertical: 11,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#EFECE6',
+    borderColor: '#F0F0F2',
   },
   contribMainRow: {
     flexDirection: 'row',
@@ -881,7 +881,7 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: '#EFECE6',
+    backgroundColor: '#F0F0F2',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -925,7 +925,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
     paddingTop: 5,
     borderTopWidth: 0.5,
-    borderTopColor: 'rgba(140, 111, 86, 0.08)',
+    borderTopColor: 'rgba(60, 60, 67, 0.08)',
   },
   contribSubDetail: {
     fontSize: 11,
@@ -938,7 +938,7 @@ const styles = StyleSheet.create({
   },
   contribSubDot: {
     fontSize: 10,
-    color: '#C4B5A5',
+    color: '#C7C7CC',
   },
 
   detailRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
@@ -975,7 +975,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#EFECE6',
+    borderBottomColor: '#F0F0F2',
   },
   modalTitle: {
     fontSize: 18,
@@ -1011,7 +1011,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#EFECE6',
+    borderColor: '#F0F0F2',
   },
   simTitle: {
     fontSize: 13.5,
@@ -1059,7 +1059,7 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#EFECE6',
+    borderColor: '#F0F0F2',
   },
   recHeader: {
     flexDirection: 'row',
@@ -1122,7 +1122,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     marginTop: 8,
-    shadowColor: 'rgba(140, 111, 86, 0.25)',
+    shadowColor: 'rgba(60, 60, 67, 0.25)',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.1,
     shadowRadius: 6,
@@ -1154,10 +1154,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 0.5,
-    borderBottomColor: 'rgba(140, 111, 86, 0.04)',
+    borderBottomColor: 'rgba(60, 60, 67, 0.04)',
   },
   dropdownItemActive: {
-    backgroundColor: 'rgba(140, 111, 86, 0.07)', // 부드러운 틴트 배경색
+    backgroundColor: 'rgba(60, 60, 67, 0.07)', // 부드러운 틴트 배경색
   },
   dropdownItemText: {
     ...typography.L5,

@@ -138,7 +138,7 @@ export default function StoreLocationMap({
         map,
         zIndex: 400,
         icon: {
-          content: '<div style="width:16px;height:16px;background:#4E3629;border:3px solid #FFFFFF;border-radius:50%;box-shadow:0 2px 5px rgba(0,0,0,0.3)"></div>',
+          content: '<div style="width:16px;height:16px;background:#1C1C1E;border:3px solid #FFFFFF;border-radius:50%;box-shadow:0 2px 5px rgba(0,0,0,0.3)"></div>',
           anchor: new naverObj.maps.Point(8, 8),
         },
       });
@@ -146,7 +146,7 @@ export default function StoreLocationMap({
       const infoWindow = new naverObj.maps.InfoWindow({
         content: '<div style="padding:10px;min-width:140px;line-height:140%;font-size:11px;font-family:-apple-system,sans-serif"><b>📍 ' + shopLabel + '</b><br/>' + regionName + '</div>',
         borderWidth: 1,
-        borderColor: '#8C6F56',
+        borderColor: '#6E6E73',
         borderRadius: 8,
         backgroundColor: '#FFFFFF',
         anchorSize: new naverObj.maps.Size(10, 10),

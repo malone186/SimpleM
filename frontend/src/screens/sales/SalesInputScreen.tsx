@@ -401,7 +401,7 @@ export default function SalesInputScreen() {
                             value={menuPrices[m.name] ?? (m.suggested ? String(m.suggested) : '')}
                             onChangeText={(v) => setMenuPrices((p) => ({ ...p, [m.name]: onlyDigits(v) }))}
                             placeholder="0"
-                            placeholderTextColor="#C4B5A5"
+                            placeholderTextColor="#C7C7CC"
                           />
                           <Text style={styles.regWon}>원</Text>
                         </View>
@@ -572,7 +572,7 @@ export default function SalesInputScreen() {
               value={posToken}
               onChangeText={setPosToken}
               placeholder="developer.squareup.com에서 발급"
-              placeholderTextColor="#C4B5A5"
+              placeholderTextColor="#C7C7CC"
               autoCapitalize="none"
               secureTextEntry
             />
@@ -582,7 +582,7 @@ export default function SalesInputScreen() {
               value={posSigKey}
               onChangeText={setPosSigKey}
               placeholder="Square Webhooks 구독의 서명 키"
-              placeholderTextColor="#C4B5A5"
+              placeholderTextColor="#C7C7CC"
               autoCapitalize="none"
               secureTextEntry
             />

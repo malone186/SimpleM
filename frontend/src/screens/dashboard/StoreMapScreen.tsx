@@ -526,7 +526,7 @@ const styles = StyleSheet.create({
   hintText: {
     fontSize: 11.5,
     lineHeight: 18,
-    color: '#A99C90',
+    color: '#AEAEB2',
     fontWeight: '600',
     textAlign: 'center',
     paddingHorizontal: 20,
@@ -665,7 +665,7 @@ const styles = StyleSheet.create({
   moreBtnText: { ...typography.L5, color: colors.espressoBrown, fontWeight: '800' },
 
   listTitle: { ...typography.L4, color: colors.espressoBrown, marginBottom: 6 },
-  aiNote: { ...typography.L5, color: '#A99C90', marginTop: 12, lineHeight: 15 },
+  aiNote: { ...typography.L5, color: '#AEAEB2', marginTop: 12, lineHeight: 15 },
 
   cafeCard: {
     flexDirection: 'row',
@@ -735,5 +735,5 @@ const styles = StyleSheet.create({
   },
   reviewTitle: { ...typography.L4, color: colors.espressoBrown },
   reviewSnippet: { ...typography.L5, color: colors.mochaBrown, lineHeight: 16, marginTop: 3 },
-  reviewMeta: { ...typography.L5, color: '#A99C90', marginTop: 5 },
+  reviewMeta: { ...typography.L5, color: '#AEAEB2', marginTop: 5 },
 });

@@ -76,7 +76,7 @@ function Field({
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="rgba(140,111,86,0.5)"
+        placeholderTextColor="rgba(60, 60, 67,0.5)"
         secureTextEntry={secure}
         keyboardType={keyboardType ?? 'default'}
         autoCapitalize="none"
@@ -560,7 +560,7 @@ export default function SettingsScreen() {
                 setIsEditingAccount(!isEditingAccount);
               }}
               style={{
-                backgroundColor: isEditingAccount ? colors.pointOrange + '20' : 'rgba(140, 111, 86, 0.1)',
+                backgroundColor: isEditingAccount ? colors.pointOrange + '20' : 'rgba(60, 60, 67, 0.1)',
                 paddingHorizontal: 10,
                 paddingVertical: 5,
                 borderRadius: 8,
@@ -682,7 +682,7 @@ export default function SettingsScreen() {
             <Switch
               value={sensorOn}
               onValueChange={toggleSensor}
-              trackColor={{ false: '#D6CFC7', true: colors.espressoBrown }}
+              trackColor={{ false: '#D1D1D6', true: colors.espressoBrown }}
               thumbColor={colors.white}
             />
           }
@@ -696,7 +696,7 @@ export default function SettingsScreen() {
             value={newPw}
             onChangeText={setNewPw}
             placeholder="새 비밀번호 (4자 이상)"
-            placeholderTextColor="rgba(140,111,86,0.5)"
+            placeholderTextColor="rgba(60, 60, 67,0.5)"
             secureTextEntry
             autoCapitalize="none"
           />
@@ -736,7 +736,7 @@ export default function SettingsScreen() {
             <Switch
               value={prefs.lowStockAlert}
               onValueChange={(v) => prefs.setPref('lowStockAlert', v)}
-              trackColor={{ false: '#D6CFC7', true: colors.espressoBrown }}
+              trackColor={{ false: '#D1D1D6', true: colors.espressoBrown }}
               thumbColor={colors.white}
             />
           }
@@ -749,7 +749,7 @@ export default function SettingsScreen() {
             <Switch
               value={prefs.priceSurgeAlert}
               onValueChange={(v) => prefs.setPref('priceSurgeAlert', v)}
-              trackColor={{ false: '#D6CFC7', true: colors.espressoBrown }}
+              trackColor={{ false: '#D1D1D6', true: colors.espressoBrown }}
               thumbColor={colors.white}
             />
           }
@@ -762,7 +762,7 @@ export default function SettingsScreen() {
             <Switch
               value={prefs.proactiveInsights}
               onValueChange={(v) => prefs.setPref('proactiveInsights', v)}
-              trackColor={{ false: '#D6CFC7', true: colors.espressoBrown }}
+              trackColor={{ false: '#D1D1D6', true: colors.espressoBrown }}
               thumbColor={colors.white}
             />
           }
@@ -775,7 +775,7 @@ export default function SettingsScreen() {
             <Switch
               value={prefs.voiceAlertEnabled}
               onValueChange={(v) => prefs.setPref('voiceAlertEnabled', v)}
-              trackColor={{ false: '#D6CFC7', true: colors.espressoBrown }}
+              trackColor={{ false: '#D1D1D6', true: colors.espressoBrown }}
               thumbColor={colors.white}
             />
           }
@@ -788,7 +788,7 @@ export default function SettingsScreen() {
             <Switch
               value={prefs.voiceAssistantEnabled}
               onValueChange={(v) => prefs.setPref('voiceAssistantEnabled', v)}
-              trackColor={{ false: '#D6CFC7', true: colors.espressoBrown }}
+              trackColor={{ false: '#D1D1D6', true: colors.espressoBrown }}
               thumbColor={colors.white}
             />
           }
@@ -813,7 +813,7 @@ export default function SettingsScreen() {
             <Switch
               value={prefs.dndEnabled}
               onValueChange={(v) => prefs.setPref('dndEnabled', v)}
-              trackColor={{ false: '#D6CFC7', true: colors.espressoBrown }}
+              trackColor={{ false: '#D1D1D6', true: colors.espressoBrown }}
               thumbColor={colors.white}
             />
           }
@@ -825,7 +825,7 @@ export default function SettingsScreen() {
               value={prefs.dndStart}
               onChangeText={(t) => prefs.setPref('dndStart', t)}
               placeholder="22:00"
-              placeholderTextColor="rgba(140,111,86,0.5)"
+              placeholderTextColor="rgba(60, 60, 67,0.5)"
               maxLength={5}
             />
             <Text style={styles.dndTilde}>~</Text>
@@ -834,7 +834,7 @@ export default function SettingsScreen() {
               value={prefs.dndEnd}
               onChangeText={(t) => prefs.setPref('dndEnd', t)}
               placeholder="08:00"
-              placeholderTextColor="rgba(140,111,86,0.5)"
+              placeholderTextColor="rgba(60, 60, 67,0.5)"
               maxLength={5}
             />
           </View>
@@ -1051,7 +1051,7 @@ export default function SettingsScreen() {
                         borderRadius: 999,
                         backgroundColor: active ? colors.pointOrange : 'rgba(242, 236, 224, 0.6)',
                         borderWidth: 1,
-                        borderColor: active ? colors.pointOrange : 'rgba(140, 111, 86, 0.15)',
+                        borderColor: active ? colors.pointOrange : 'rgba(60, 60, 67, 0.15)',
                         alignItems: 'center',
                         justifyContent: 'center',
                       }}
@@ -1077,7 +1077,7 @@ export default function SettingsScreen() {
               <TextInput
                 style={[styles.input, { marginTop: 4 }]}
                 placeholder="제목을 입력해 주세요 (예: 발주 추천 단위 변경 요청)"
-                placeholderTextColor="rgba(140,111,86,0.5)"
+                placeholderTextColor="rgba(60, 60, 67,0.5)"
                 value={inquiryTitle}
                 onChangeText={setInquiryTitle}
               />
@@ -1090,7 +1090,7 @@ export default function SettingsScreen() {
                   { marginTop: 4, height: 110, textAlignVertical: 'top', paddingTop: 10, paddingBottom: 10 },
                 ]}
                 placeholder="관리자에게 전달하실 내용을 상세히 작성해 주세요. 소중히 검토하여 빠르게 답변드릴게요."
-                placeholderTextColor="rgba(140,111,86,0.5)"
+                placeholderTextColor="rgba(60, 60, 67,0.5)"
                 multiline
                 numberOfLines={4}
                 value={inquiryContent}
@@ -1121,7 +1121,7 @@ export default function SettingsScreen() {
                       borderRadius: 14,
                       padding: 14,
                       borderWidth: 1,
-                      borderColor: 'rgba(140, 111, 86, 0.1)',
+                      borderColor: 'rgba(60, 60, 67, 0.1)',
                       shadowColor: '#000',
                       shadowOffset: { width: 0, height: 2 },
                       shadowOpacity: 0.05,
@@ -1211,7 +1211,7 @@ export default function SettingsScreen() {
                       backgroundColor: colors.white,
                       borderRadius: 14,
                       borderWidth: 1,
-                      borderColor: 'rgba(140, 111, 86, 0.1)',
+                      borderColor: 'rgba(60, 60, 67, 0.1)',
                       overflow: 'hidden'
                     }}
                   >
@@ -1241,7 +1241,7 @@ export default function SettingsScreen() {
                     </PressableScale>
                     
                     {expanded && (
-                      <View style={{ paddingHorizontal: 16, paddingVertical: 14, borderTopWidth: 0.5, borderTopColor: 'rgba(140, 111, 86, 0.08)', backgroundColor: colors.white }}>
+                      <View style={{ paddingHorizontal: 16, paddingVertical: 14, borderTopWidth: 0.5, borderTopColor: 'rgba(60, 60, 67, 0.08)', backgroundColor: colors.white }}>
                         <Text style={{ ...typography.L4, fontSize: 12.5, color: colors.mochaBrown, lineHeight: 18 }}>
                           {faq.a}
                         </Text>
@@ -1553,7 +1553,7 @@ const styles = StyleSheet.create({
 
   noteBox: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 6,
-    backgroundColor: 'rgba(140,111,86,0.06)', borderRadius: 10, padding: 10, marginTop: 12,
+    backgroundColor: 'rgba(60, 60, 67,0.06)', borderRadius: 10, padding: 10, marginTop: 12,
   },
   noteText: { ...typography.L5, color: colors.mochaBrown, flex: 1, lineHeight: 16 },
 
@@ -1598,7 +1598,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderRadius: 16,
     padding: 16,
-    shadowColor: 'rgba(140, 111, 86, 0.15)',
+    shadowColor: 'rgba(60, 60, 67, 0.15)',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.08,
     shadowRadius: 6,
@@ -1628,7 +1628,7 @@ const styles = StyleSheet.create({
   // [한글 주석: 1대1 CS 탭 컴포넌트 스타일군 추가]
   tabContainer: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(140, 111, 86, 0.08)',
+    backgroundColor: 'rgba(60, 60, 67, 0.08)',
     borderRadius: 10,
     padding: 3,
     marginBottom: 12,
@@ -1711,11 +1711,11 @@ const styles = StyleSheet.create({
   },
   voiceCard: {
     width: '48.5%',
-    backgroundColor: '#FFFDF9',
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 10,
     borderWidth: 1,
-    borderColor: '#EFECE6',
+    borderColor: '#F0F0F2',
   },
   voiceCardActive: {
     backgroundColor: 'rgba(110, 85, 68, 0.09)',

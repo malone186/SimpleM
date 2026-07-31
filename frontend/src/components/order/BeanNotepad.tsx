@@ -1090,7 +1090,7 @@ export default function BeanNotepad() {
               },
             ]).map((chip) => {
               const isLive = !!sensor.live_metrics?.[chip.metric];
-              const color = chip.alert ? '#C0392B' : isLive ? chip.activeColor : '#A8A29E';
+              const color = chip.alert ? '#C0392B' : isLive ? chip.activeColor : '#A6A6AB';
               return (
                 <TouchableOpacity
                   key={chip.metric}
@@ -1109,7 +1109,7 @@ export default function BeanNotepad() {
                     {chip.text}
                   </Text>
                   {!isLive && (
-                    <Ionicons name="add-circle-outline" size={10} color="#A8A29E" />
+                    <Ionicons name="add-circle-outline" size={10} color="#A6A6AB" />
                   )}
                 </TouchableOpacity>
               );
@@ -1715,7 +1715,7 @@ const styles = StyleSheet.create({
   noteName: { ...typography.L4, color: colors.espressoBrown, maxWidth: '60%', fontWeight: '700' },
 
   countBadge: {
-    backgroundColor: 'rgba(140, 111, 86, 0.08)',
+    backgroundColor: 'rgba(60, 60, 67, 0.08)',
     borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 2,
@@ -1731,13 +1731,13 @@ const styles = StyleSheet.create({
   noteDate: { ...typography.L5, fontSize: 9, color: colors.stone300 },
 
   memoBox: {
-    backgroundColor: 'rgba(140, 111, 86, 0.05)',
+    backgroundColor: 'rgba(60, 60, 67, 0.05)',
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 8,
     marginTop: 6,
     borderWidth: 0.5,
-    borderColor: 'rgba(140, 111, 86, 0.08)',
+    borderColor: 'rgba(60, 60, 67, 0.08)',
   },
   memoFooter: {
     flexDirection: 'row',
@@ -1834,7 +1834,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   emptyResult: {
-    backgroundColor: 'rgba(140, 111, 86, 0.04)',
+    backgroundColor: 'rgba(60, 60, 67, 0.04)',
     borderWidth: 1,
     borderColor: colors.mutedSand,
     borderRadius: 12,
@@ -1874,7 +1874,7 @@ const styles = StyleSheet.create({
     color: colors.white,
   },
   matchRateBadge: {
-    backgroundColor: 'rgba(140, 111, 86, 0.08)',
+    backgroundColor: 'rgba(60, 60, 67, 0.08)',
     borderRadius: 6,
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -1907,8 +1907,8 @@ const styles = StyleSheet.create({
     marginVertical: 4,
   },
   resultTagChip: {
-    backgroundColor: 'rgba(140, 111, 86, 0.06)',
-    borderColor: 'rgba(140, 111, 86, 0.12)',
+    backgroundColor: 'rgba(60, 60, 67, 0.06)',
+    borderColor: 'rgba(60, 60, 67, 0.12)',
     borderWidth: 0.5,
     borderRadius: 4,
     paddingHorizontal: 6,
@@ -2204,7 +2204,7 @@ const liveComponentStyles = StyleSheet.create({
     flex: 1,
   },
   shotBadge: {
-    backgroundColor: 'rgba(140, 111, 86, 0.10)',
+    backgroundColor: 'rgba(60, 60, 67, 0.10)',
     borderRadius: 6,
     paddingHorizontal: 7,
     paddingVertical: 2,
@@ -2215,7 +2215,7 @@ const liveComponentStyles = StyleSheet.create({
     color: colors.espressoBrown,
   },
   shotBadgeDecaf: {
-    backgroundColor: 'rgba(140, 111, 86, 0.08)',
+    backgroundColor: 'rgba(60, 60, 67, 0.08)',
     borderRadius: 6,
     paddingHorizontal: 7,
     paddingVertical: 2,
@@ -2256,7 +2256,7 @@ const liveComponentStyles = StyleSheet.create({
     borderColor: 'rgba(120, 113, 108, 0.18)',
   },
   pulseDotOff: {
-    backgroundColor: '#A8A29E',
+    backgroundColor: '#A6A6AB',
   },
   pulseTextOff: {
     color: '#78716C',
@@ -2321,7 +2321,7 @@ const liveComponentStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(140, 111, 86, 0.05)',
+    backgroundColor: 'rgba(60, 60, 67, 0.05)',
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 7,
@@ -2385,9 +2385,9 @@ const liveComponentStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(140, 111, 86, 0.05)',
+    backgroundColor: 'rgba(60, 60, 67, 0.05)',
     borderWidth: 0.5,
-    borderColor: 'rgba(140, 111, 86, 0.12)',
+    borderColor: 'rgba(60, 60, 67, 0.12)',
     borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -2408,7 +2408,7 @@ const liveComponentStyles = StyleSheet.create({
     borderColor: 'rgba(120, 113, 108, 0.35)',
   },
   equipChipTextDemo: {
-    color: '#A8A29E',
+    color: '#A6A6AB',
   },
 });
 
@@ -2466,7 +2466,7 @@ const coachStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(140, 111, 86, 0.07)',
+    backgroundColor: 'rgba(60, 60, 67, 0.07)',
     borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 6,

@@ -667,7 +667,7 @@ export default function SalesCard({
                           style={[
                             styles.calendarCell,
                             isToday && styles.calendarTodayCell,
-                            isFuture && { backgroundColor: 'rgba(140, 111, 86, 0.04)' },
+                            isFuture && { backgroundColor: 'rgba(60, 60, 67, 0.04)' },
                             !hasData && !isFuture && { opacity: 0.35 }
                           ]}
                           to={0.9}
@@ -1267,7 +1267,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: 'rgba(140,111,86,0.25)', // ManagementReportCard와 동일 톤
+    borderColor: 'rgba(60, 60, 67,0.25)', // ManagementReportCard와 동일 톤
     padding: spacing.globalPadding,
     ...shadows.soft, // [iOS 스타일] 부드럽게 매끄러운 섀도우 탑재
   },
@@ -1335,11 +1335,11 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 34,
     borderRadius: 999,
-    backgroundColor: 'rgba(140, 111, 86, 0.08)', // [iOS 스타일] 투명감 도는 탭 트랙
+    backgroundColor: 'rgba(60, 60, 67, 0.08)', // [iOS 스타일] 투명감 도는 탭 트랙
     position: 'relative',
     justifyContent: 'center',
     borderWidth: 0.8,
-    borderColor: 'rgba(140, 111, 86, 0.04)',
+    borderColor: 'rgba(60, 60, 67, 0.04)',
     // 음수 마진(왼쪽·위 -8)은 세그먼트를 카드 콘텐츠 영역 밖으로 밀어 테두리와 어긋나고
     // 위 요소와 겹치게 만들었다 — 제거해 카드 콘텐츠(매출 숫자 등)와 왼쪽 정렬을 맞춘다.
   },
@@ -1349,7 +1349,7 @@ const styles = StyleSheet.create({
     height: 28,
     borderRadius: 999,
     backgroundColor: colors.white, // [iOS 스타일] 깨끗하고 정교한 화이트 캡슐
-    shadowColor: '#4E3629',
+    shadowColor: '#1C1C1E',
     shadowOffset: { width: 0, height: 1.5 },
     shadowOpacity: 0.12,
     shadowRadius: 2,
@@ -1372,7 +1372,7 @@ const styles = StyleSheet.create({
   toggleLabelText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#9C8875', // 차분하게 뭉갠 비활성 텍스트
+    color: '#8E8E93', // 차분하게 뭉갠 비활성 텍스트
   },
   toggleLabelTextActive: {
     color: colors.espressoBrown, // 캡슐 위의 어두운 활성 텍스트
@@ -1380,7 +1380,7 @@ const styles = StyleSheet.create({
   },
   chartToggleContainer: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(140, 111, 86, 0.06)',
+    backgroundColor: 'rgba(60, 60, 67, 0.06)',
     borderRadius: 10,
     padding: 2,
     alignSelf: 'flex-start',
@@ -1393,7 +1393,7 @@ const styles = StyleSheet.create({
   },
   chartToggleBtnActive: {
     backgroundColor: colors.white,
-    shadowColor: '#4E3629',
+    shadowColor: '#1C1C1E',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 1.5,
@@ -1402,7 +1402,7 @@ const styles = StyleSheet.create({
   chartToggleText: {
     fontSize: 10,
     fontWeight: '600',
-    color: '#9C8875',
+    color: '#8E8E93',
   },
   chartToggleTextActive: {
     color: colors.espressoBrown,
@@ -1413,13 +1413,13 @@ const styles = StyleSheet.create({
     marginTop: 14,
     paddingTop: 12,
     borderTopWidth: 0.8,
-    borderTopColor: 'rgba(140, 111, 86, 0.08)', // 매출 카드 내부의 일부 영역처럼 배경을 통합하고 실선으로 구분
+    borderTopColor: 'rgba(60, 60, 67, 0.08)', // 매출 카드 내부의 일부 영역처럼 배경을 통합하고 실선으로 구분
   },
   calendarHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     borderBottomWidth: 0.8,
-    borderBottomColor: 'rgba(140, 111, 86, 0.06)',
+    borderBottomColor: 'rgba(60, 60, 67, 0.06)',
     paddingBottom: 8,
     marginBottom: 6,
   },
@@ -1511,7 +1511,7 @@ const styles = StyleSheet.create({
     // [여백 비율 재조정] X축 라벨과 구분선 사이, 구분선과 요약 수치 사이 모두 여유 있게
     marginTop: 22,
     borderTopWidth: 0.8,
-    borderTopColor: 'rgba(140, 111, 86, 0.08)',
+    borderTopColor: 'rgba(60, 60, 67, 0.08)',
     paddingTop: 14,
   },
   footItem: { alignItems: 'center', flex: 1 },
@@ -1553,7 +1553,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.creamSand, // 깔끔한 배경색
     borderRadius: 24,
     padding: 20,
-    shadowColor: '#4E3629',
+    shadowColor: '#1C1C1E',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.15,
     shadowRadius: 20,
@@ -1564,7 +1564,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     borderBottomWidth: 0.8,
-    borderBottomColor: 'rgba(140, 111, 86, 0.08)',
+    borderBottomColor: 'rgba(60, 60, 67, 0.08)',
     paddingBottom: 12,
   },
   modalDateTitle: {
@@ -1573,7 +1573,7 @@ const styles = StyleSheet.create({
     color: colors.espressoBrown,
   },
   modalIncomeBox: {
-    backgroundColor: 'rgba(140, 111, 86, 0.06)',
+    backgroundColor: 'rgba(60, 60, 67, 0.06)',
     borderRadius: 16,
     padding: 14,
     alignItems: 'center',
@@ -1673,7 +1673,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#4E3629',
+    shadowColor: '#1C1C1E',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.18,
     shadowRadius: 5,
@@ -1857,7 +1857,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(140, 111, 86, 0.08)',
+    borderBottomColor: 'rgba(60, 60, 67, 0.08)',
   },
   modalAmountText: {
     fontSize: 26,
@@ -1869,7 +1869,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: 'transparent',
     borderBottomWidth: 1.5,
-    borderBottomColor: 'rgba(140, 111, 86, 0.1)',
+    borderBottomColor: 'rgba(60, 60, 67, 0.1)',
     marginBottom: 16,
   },
   fullTabCell: {
@@ -1901,19 +1901,19 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     padding: 20,
     borderWidth: 1,
-    borderColor: 'rgba(140, 111, 86, 0.15)',
-    shadowColor: '#4E3629',
+    borderColor: 'rgba(60, 60, 67, 0.15)',
+    shadowColor: '#1C1C1E',
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.18,
     shadowRadius: 24,
     elevation: 12,
   },
   chartCanvasCard: {
-    backgroundColor: 'rgba(140, 111, 86, 0.04)',
+    backgroundColor: 'rgba(60, 60, 67, 0.04)',
     borderRadius: 22,
     padding: 14,
     borderWidth: 1,
-    borderColor: 'rgba(140, 111, 86, 0.11)',
+    borderColor: 'rgba(60, 60, 67, 0.11)',
     marginBottom: 4,
   },
   modalFootCardRow: {
@@ -1923,13 +1923,13 @@ const styles = StyleSheet.create({
   },
   modalFootChip: {
     flex: 1,
-    backgroundColor: 'rgba(140, 111, 86, 0.04)',
+    backgroundColor: 'rgba(60, 60, 67, 0.04)',
     borderRadius: 14,
     paddingVertical: 10,
     paddingHorizontal: 6,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(140, 111, 86, 0.07)',
+    borderColor: 'rgba(60, 60, 67, 0.07)',
   },
   reportTitle: {
     fontSize: 13,
