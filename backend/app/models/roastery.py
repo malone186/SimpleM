@@ -192,3 +192,34 @@ class ProductOffer(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     bean = relationship("RoasteryBean", back_populates="offers")
+
+
+# [한글 주석] 5. 원두 가격 이력 (시세 추이 = 트렌드의 원천 데이터)
+class BeanPriceHistory(Base):
+    """원두 가격 스냅샷 이력 — 하루 1회 append하여 시세 추이를 만든다.
+
+    [한글 주석] ProductOffer는 가격을 덮어써서(onupdate) 과거가 남지 않는다.
+    추이 그래프를 그리려면 과거 값이 필요하므로, 이 테이블에 append-only로 쌓는다.
+    수집을 시작한 날부터 데이터가 생기므로 '오늘 시작해야 다음 주에 추이가 보인다'.
+    """
+    __tablename__ = "bean_price_histories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    bean_id = Column(Integer, ForeignKey("roastery_beans.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # 그 시점의 판매가 (원) — 여러 판매처가 있으면 최저가 기준
+    price = Column(Integer, nullable=False, default=0)
+
+    # 그 시점의 g당 단가 (용량이 달라도 비교 가능하게)
+    price_per_gram = Column(Float, nullable=True)
+
+    # 가격 출처 (어느 판매처의 값인지)
+    source_site = Column(String(50), nullable=True)
+
+    # 그 시점의 품절 여부 — 품절이면 가격이 의미 없으므로 추이에서 제외할 때 사용
+    sold_out = Column(Boolean, nullable=False, default=False)
+
+    # 기록 시각 (하루 1회 스냅샷)
+    recorded_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    bean = relationship("RoasteryBean")
