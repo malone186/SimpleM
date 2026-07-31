@@ -95,7 +95,6 @@ export default function ManagementScreen() {
     // 직원·인건비는 별도 카드를 두지 않고 이 화면 안에서 들어간다 (진입로 하나로 통일)
     { label: language === 'en' ? 'Staff & Schedule' : '직원 · 스케줄', en: 'PAYROLL', desc: language === 'en' ? 'Roster · Labor cost · Calendar · Settlement' : '직원 명부 · 인건비 · 근무 달력 · 손익 정산', color: '#5B514C', route: 'Operation' },
     { label: t('taxDocsTitle'), en: 'DOCUMENTS', desc: t('taxDocsSub'), color: '#9A8E82', route: 'Document' },
-    { label: language === 'en' ? 'Promotion Studio' : '홍보 스튜디오', en: 'MARKETING', desc: language === 'en' ? 'AI copy · AI promo images · Share' : 'AI 홍보 문구 · 홍보 이미지 생성 · 공유', color: '#B79F8A', route: 'Marketing' },
     { label: t('salesInputTitle'), en: 'SALES', desc: language === 'en' ? 'Cash/Card · Payout schedule' : '현금·카드 입력 · 입금 예정일', color: '#D1C6B9', route: 'SalesInput' },
     { label: t('costAnalysisTitle'), en: 'COST', desc: t('costAnalysisSub'), color: '#E1DCD7', route: 'Cost' },
     { label: language === 'en' ? 'Bean Ops' : '운영·원두 분석', en: 'OPERATION', desc: language === 'en' ? 'Bean market price & Reviews' : '원두 최저가 시세 · 실리뷰 분석', color: '#463C34', route: 'BeanOperation' },
@@ -269,7 +268,6 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   headerLeft: { flex: 1, justifyContent: 'center' },
-  // 우측 세로열 — 설정 버튼(위) + 마스코트(아래). 설정을 오른쪽 위에 둔다.
   headerRight: { alignItems: 'flex-end', gap: 6 },
   bigTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
   sub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
