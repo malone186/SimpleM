@@ -15,14 +15,33 @@ from typing import Dict, Any, Tuple, Optional
 logger = logging.getLogger(__name__)
 
 # [한글 주석] 이모지 및 특수 이모티콘 제거용 정규표현식
+# [한글 주석] 이모지 제거 패턴.
+#
+# 예전 패턴에는 "\U000024C2-\U0001F251" 이라는 범위가 있었다.
+# U+24C2부터 U+1F251까지를 통째로 지우는데, 한글 음절이 U+AC00~U+D7A3이라
+# 이 범위 안에 완전히 들어간다. 즉 이모지를 지우려던 정규식이 한글을 다 지웠다.
+#
+#   원문   : "택배 언박싱 에티오피아 구지 우라가 시코 내추럴 디카페인 후기..."
+#   전처리 : ". :) ... : (Ethiopia Guji Uraga Siko Natural Decaf) :"
+#
+# 그 결과 본문이 평균 19% 길이로 줄었고, 산미/바디 추출이 49% -> 0%가 됐다.
+# 큐레이션 스냅샷이 계속 비어 있던 진짜 원인이다.
+#
+# 아래는 실제 이모지 블록만 열거한다. 한글(AC00~D7A3), 한글 자모(1100~11FF,
+# 3130~318F), 한자(4E00~9FFF) 구간은 어디에도 포함되지 않는다.
 EMOJI_PATTERN = re.compile(
     "["
-    "\U0001F600-\U0001F64F"  # emoticons
-    "\U0001F300-\U0001F5FF"  # symbols & pictographs
-    "\U0001F680-\U0001F6FF"  # transport & map symbols
-    "\U0001F1E0-\U0001F1FF"  # flags (iOS)
-    "\U00002702-\U000027B0"
-    "\U000024C2-\U0001F251"
+    "\U0001F300-\U0001FAFF"  # 그림문자·이모티콘·교통·기호 (대부분의 이모지)
+    "\U0001F000-\U0001F0FF"  # 마작·카드
+    "\U0001F1E6-\U0001F1FF"  # 국기 (regional indicator)
+    "\U00002600-\U000027BF"  # 기타 기호 + 딩벳
+    "\U00002B00-\U00002BFF"  # 화살표·도형
+    "\U00002190-\U000021FF"  # 화살표
+    "\U0000FE00-\U0000FE0F"  # variation selector
+    "\U0000200D"             # zero width joiner
+    "\U000024C2"             # Ⓜ
+    "\U00002049\U0000203C"   # ⁉ ‼
+    "\U00003030\U0000303D"   # 〰 〽
     "]+",
     flags=re.UNICODE
 )

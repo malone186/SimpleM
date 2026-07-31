@@ -94,6 +94,16 @@ function getPosition(bean: BeanRow, market: MarketSummary | null): Position | nu
   return { label, diffPct, peer: group ? country : '전체', tone };
 }
 
+/** 외부 링크 열기 — 웹은 새 탭, 앱은 기본 브라우저 */
+function openUrl(url: string) {
+  if (!url) return;
+  if (Platform.OS === 'web') {
+    window.open(url, '_blank');
+  } else {
+    Linking.openURL(url);
+  }
+}
+
 export default function BeanOperationScreen() {
   // [한글 주석: 전역 다국어 번역 훅 연동]
   const { t, language } = useTranslation();
@@ -331,14 +341,32 @@ export default function BeanOperationScreen() {
                 disabled={bean.review_count === 0}
                 style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 12, backgroundColor: '#F8F6F4', padding: 8, borderRadius: 6 }}
               >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Ionicons name="star" size={14} color="#FFB800" />
-                  <Text style={{ fontSize: 13, fontWeight: 'bold', color: colors.espressoBrown }}>{bean.rating.toFixed(1)}</Text>
-                  <Text style={{ fontSize: 12, color: '#888' }}>({bean.review_count}개 리뷰)</Text>
-                </View>
-                <Text style={{ fontSize: 12, fontWeight: '600', color: bean.positive_ratio >= 80 ? '#2E7D32' : bean.positive_ratio >= 50 ? '#B8860B' : '#B23B2E' }}>
-                  긍정 비율 {bean.positive_ratio}%
-                </Text>
+                {/* [한글 주석] 별점을 카드에서 뺐다.
+                    별점과 긍정비율은 같은 감성 분석 결과에서 나오므로 나란히 두면
+                    같은 근거를 두 번 세는 것이 된다. 게다가 블로그 글에는 별점이 없어
+                    우리가 역산한 값이라 3.5~4.5에 뭉쳐 변별력이 없다.
+                    ★3.6과 ★3.8을 비교하는 건 노이즈를 읽는 것이므로,
+                    실제로 판단에 쓸 수 있는 '근거의 양(건수)'을 앞세운다. */}
+                {bean.review_count === 0 ? (
+                  /* [한글 주석] 후기가 없는 원두가 전체의 44%다.
+                     '후기 0건 · 긍정 0%'로 두면 평가가 나쁜 것처럼 읽힌다.
+                     없는 것과 나쁜 것은 다르므로 문구로 구분한다. */
+                  <Text style={{ fontSize: 12, color: '#B0A79E' }}>수집된 후기 없음</Text>
+                ) : (
+                  <>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Ionicons name="chatbubble-ellipses-outline" size={13} color={colors.mochaBrown} />
+                      <Text style={{ fontSize: 13, fontWeight: 'bold', color: colors.espressoBrown }}>후기 {bean.review_count}건</Text>
+                    </View>
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: bean.positive_ratio >= 80 ? '#2E7D32' : bean.positive_ratio >= 50 ? '#B8860B' : '#B23B2E' }}>
+                      긍정 {bean.positive_ratio}%
+                    </Text>
+                    {/* 표본이 적으면 비율 자체를 믿기 어렵다 — 숫자 옆에 바로 알려준다 */}
+                    {bean.review_count < 5 && (
+                      <Text style={{ fontSize: 11, color: '#B0A79E' }}>표본 적음</Text>
+                    )}
+                  </>
+                )}
                 {bean.review_count > 0 && (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, marginLeft: 'auto' }}>
                     <Text style={{ fontSize: 11, color: colors.pointOrange, fontWeight: '700' }}>후기 보기</Text>
@@ -356,16 +384,14 @@ export default function BeanOperationScreen() {
                 ))}
               </View>
 
-              {/* 바로 구매 — 카드 하단으로 이동 */}
+              {/* [한글 주석] 구매 버튼을 '최저가 검색'으로 바꿨다.
+                  원두 판매처의 상당수가 생두 도매상이라 상품 페이지를 보려면
+                  사업자 회원 로그인을 요구한다. 눌렀더니 로그인 화면이 뜨면
+                  구매로 이어지지 않고, 우리가 보여준 가격을 확인할 방법도 없다.
+                  네이버쇼핑 검색은 로그인이 필요 없고 여러 판매처 가격을 함께 보여준다.
+                  판매처 직링크는 아래 보조 링크로 남겨 선택할 수 있게 했다. */}
               <Pressable
-                onPress={() => {
-                  const targetUrl = bean.product_url || `https://search.shopping.naver.com/search/all?query=${encodeURIComponent(bean.name)}`;
-                  if (Platform.OS === 'web') {
-                    window.open(targetUrl, '_blank');
-                  } else {
-                    Linking.openURL(targetUrl);
-                  }
-                }}
+                onPress={() => openUrl(`https://search.shopping.naver.com/search/all?query=${encodeURIComponent(bean.name)}`)}
                 style={{
                   backgroundColor: colors.pointOrange,
                   paddingVertical: 9,
@@ -377,9 +403,22 @@ export default function BeanOperationScreen() {
                   marginTop: 10,
                 }}
               >
-                <Ionicons name="cart-outline" size={14} color="#FFF" />
-                <Text style={{ color: '#FFF', fontSize: 12.5, fontWeight: 'bold' }}>바로 구매</Text>
+                <Ionicons name="search" size={14} color="#FFF" />
+                <Text style={{ color: '#FFF', fontSize: 12.5, fontWeight: 'bold' }}>최저가 검색 · 구매</Text>
               </Pressable>
+
+              {/* 판매처 원본 페이지 — 로그인이 필요할 수 있음을 미리 알린다 */}
+              {!!bean.product_url && (
+                <Pressable
+                  onPress={() => openUrl(bean.product_url)}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: 7 }}
+                >
+                  <Ionicons name="open-outline" size={11} color="#9A8F86" />
+                  <Text style={{ fontSize: 11, color: '#9A8F86' }}>
+                    판매처 페이지 열기 (로그인 필요할 수 있음)
+                  </Text>
+                </Pressable>
+              )}
 
               {/* [추가] 대체 추천 — 사기 전에 "더 싼 대안"을 먼저 볼 수 있게 구매 버튼 아래 배치 */}
               {bean.price_per_gram != null && (

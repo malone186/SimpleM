@@ -89,11 +89,20 @@ export default function BeanReviewModal({ visible, beanId, beanName, onClose }: 
           <View style={styles.header}>
             <View style={{ flex: 1, marginRight: 8 }}>
               <Text style={styles.title} numberOfLines={2}>{beanName}</Text>
+              {/* [한글 주석] 건수·긍정비율을 앞에 두고, 추정 별점은 뒤로 뺐다.
+                  별점은 감성 분석에서 역산한 값이라 긍정비율과 같은 근거를 쓴다.
+                  지우지는 않되(정렬·비교에 익숙한 지표라) 크기와 색으로 위계를 낮춘다. */}
               {summary && summary.review_count > 0 && (
-                <Text style={styles.subtitle}>
-                  ★ {summary.avg_rating.toFixed(1)} · 후기 {summary.review_count}건 · 긍정{' '}
-                  {Math.round((summary.positive_ratio ?? 0) * 100)}%
-                </Text>
+                <>
+                  <Text style={styles.subtitle}>
+                    후기 {summary.review_count}건 · 긍정{' '}
+                    {Math.round((summary.positive_ratio ?? 0) * 100)}%
+                    {summary.review_count < 5 ? ' · 표본 적음' : ''}
+                  </Text>
+                  <Text style={styles.ratingHint}>
+                    추정 별점 {summary.avg_rating.toFixed(1)} (감성 분석 환산값)
+                  </Text>
+                </>
               )}
             </View>
             <Pressable onPress={onClose} hitSlop={10}>
@@ -211,6 +220,8 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
   title: { fontSize: 15, fontWeight: 'bold', color: colors.espressoBrown, lineHeight: 20 },
   subtitle: { fontSize: 12, color: '#7A6E65', marginTop: 4 },
+  // 별점은 보조 지표로 내렸다 — 더 작게, 더 흐리게
+  ratingHint: { fontSize: 10.5, color: '#B0A79E', marginTop: 2 },
 
   filterRow: { flexDirection: 'row', gap: 6, marginBottom: 10 },
   filterChip: {
