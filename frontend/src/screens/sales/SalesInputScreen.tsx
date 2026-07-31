@@ -30,6 +30,9 @@ export default function SalesInputScreen() {
   // 미등록 메뉴 등록용 — 이름별 편집 중인 판매가, 등록 진행 상태
   const [menuPrices, setMenuPrices] = useState<Record<string, string>>({});
   const [registering, setRegistering] = useState(false);
+  // 버리기로 결정한 미등록 메뉴 이름들 — 미매칭은 말없이 버려지지 않는다.
+  // 모든 미등록 메뉴가 '등록' 또는 '버리기'로 결정돼야 저장할 수 있다.
+  const [discardedMenus, setDiscardedMenus] = useState<Set<string>>(new Set());
 
   // 미리보기에서 미매칭(=미등록) 메뉴를 중복 없이 모으고, 파일의 단가(금액/수량)로 판매가 추정
   const unmatchedMenus = useMemo(() => {
@@ -43,6 +46,38 @@ export default function SalesInputScreen() {
     return [...seen.entries()].map(([name, suggested]) => ({ name, suggested }));
   }, [importPreview]);
 
+  // 아직 등록도 버리기도 결정 안 된 미등록 메뉴 (등록 버튼의 대상)
+  const pendingMenus = useMemo(
+    () => unmatchedMenus.filter((m) => !discardedMenus.has(m.name)),
+    [unmatchedMenus, discardedMenus],
+  );
+
+  // 행 단위 집계 — 버리기로 결정된 행 수 / 아직 결정 안 된 미매칭 행 수
+  const { discardedRows, undecidedRows } = useMemo(() => {
+    let d = 0, u = 0;
+    for (const r of importPreview?.rows ?? []) {
+      if (r.menu_id != null) continue;
+      if (discardedMenus.has(r.menu_name)) d += 1;
+      else u += 1;
+    }
+    return { discardedRows: d, undecidedRows: u };
+  }, [importPreview, discardedMenus]);
+
+  const toggleDiscard = (name: string) =>
+    setDiscardedMenus((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+
+  const discardAllPending = () =>
+    setDiscardedMenus((prev) => {
+      const next = new Set(prev);
+      for (const m of unmatchedMenus) next.add(m.name);
+      return next;
+    });
+
   // ---- 파일 선택 → LLM 매핑 미리보기 (DB 저장은 아직 안 함) ----
   // 웹에서는 네이티브 모듈 없이 <input type="file">로 바로 고른다.
   // 네이티브(안드로이드)에서는 expo-document-picker를 쓰는데, 이 네이티브 모듈이
@@ -52,6 +87,7 @@ export default function SalesInputScreen() {
     setImporting(true);
     setImportPreview(null);
     setMenuPrices({});
+    setDiscardedMenus(new Set());
     setImportedName(picked.fileName ?? '');
     try {
       const pv = await previewSalesImport(picked, token);
@@ -103,8 +139,9 @@ export default function SalesInputScreen() {
 
   // ---- 파일에서 발견된 미등록 메뉴를 메뉴로 등록 → 해당 행을 매칭으로 전환 ----
   const registerUnmatched = async () => {
-    if (!token || !importPreview || registering || unmatchedMenus.length === 0) return;
-    const payload = unmatchedMenus.map((m) => ({
+    if (!token || !importPreview || registering || pendingMenus.length === 0) return;
+    // 버리기로 결정한 메뉴는 등록하지 않는다 — 남은(결정 대기) 메뉴만 등록
+    const payload = pendingMenus.map((m) => ({
       name: m.name,
       selling_price: Number(menuPrices[m.name] ?? String(m.suggested)) || 0,
     }));
@@ -148,21 +185,32 @@ export default function SalesInputScreen() {
   };
 
   // ---- 미리보기에서 확인한 (매칭된) 행만 실제 매출로 저장 ----
+  // 미매칭 행은 말없이 버리지 않는다 — 모든 미등록 메뉴가 '등록' 또는 '버리기'로
+  // 결정되기 전에는 저장을 막아, 수백 행이 사장님 모르게 사라지는 일을 방지한다.
   const submitImport = async () => {
     if (!token || !importPreview) return;
+    if (undecidedRows > 0) {
+      toast(
+        '미매칭 메뉴를 먼저 결정해 주세요',
+        `미매칭 ${undecidedRows}행이 남아 있어요. 위 목록에서 메뉴를 등록하거나 [버리기]를 눌러야 저장할 수 있어요.`,
+      );
+      return;
+    }
     const rows = importPreview.rows
       .filter((r) => r.menu_id != null)
       .map((r) => ({ menu_id: r.menu_id as number, quantity: r.quantity, total_price: r.total_price, sold_at: r.sold_at }));
     if (rows.length === 0) {
-      toast('저장할 항목이 없어요', '메뉴가 매칭된 행이 없어요. 미매칭 메뉴는 메뉴 관리에 먼저 등록해 주세요.');
+      toast('저장할 항목이 없어요', '메뉴가 매칭된 행이 없어요. 미등록 메뉴를 등록하면 저장에 포함됩니다.');
       return;
     }
     setImporting(true);
     try {
       const result = await confirmSalesImport(token, rows);
-      toast('매출을 저장했어요', `${result.created}건 · ${result.total.toLocaleString()}원 반영 (재고 자동 차감)`);
+      const dropped = discardedRows > 0 ? ` · 버리기 ${discardedRows}행 제외` : '';
+      toast('매출을 저장했어요', `${result.created}건 · ${result.total.toLocaleString()}원 반영 (재고 자동 차감)${dropped}`);
       setImportPreview(null);
       setImportedName('');
+      setDiscardedMenus(new Set());
     } catch (e) {
       toast('저장 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
     } finally {
@@ -227,65 +275,129 @@ export default function SalesInputScreen() {
               <Text style={styles.engineWarn}>AI 분석 실패로 간이 분석 사용 — {importPreview.mapping_error}</Text>
             )}
             <Text style={styles.fileSummary}>
-              총 {importPreview.summary.total_rows}행 · 매칭 {importPreview.summary.matched} · 미매칭 {importPreview.summary.unmatched} · 합계 {importPreview.summary.sum_amount.toLocaleString()}원
+              총 {importPreview.summary.total_rows}행 · 매칭 {importPreview.summary.matched} · 미매칭 {importPreview.summary.unmatched}
+              {discardedRows > 0 ? ` (버리기 ${discardedRows})` : ''} · 합계 {importPreview.summary.sum_amount.toLocaleString()}원
             </Text>
-            {/* 미등록 메뉴 등록: 파일에 있는데 앱에 없는 메뉴를 판매가 확인 후 바로 등록 → 매칭 전환 */}
+            {/* 미등록 메뉴 처리: 등록(→매칭 전환) 또는 버리기 — 결정 전에는 저장이 막힌다.
+                미매칭 행이 사장님 모르게 조용히 사라지지 않게 하기 위한 명시적 결정 단계. */}
             {unmatchedMenus.length > 0 && (
               <View style={styles.regBox}>
                 <View style={styles.regHead}>
                   <Ionicons name="add-circle-outline" size={16} color={colors.pointOrange} />
-                  <Text style={styles.regTitle}>미등록 메뉴 {unmatchedMenus.length}개 — 등록할까요?</Text>
+                  <Text style={styles.regTitle}>미등록 메뉴 {unmatchedMenus.length}개 — 등록하거나 버려주세요</Text>
                 </View>
                 <Text style={styles.regSub}>
-                  파일엔 있지만 앱에 없는 메뉴예요. 판매가를 확인하고 등록하면 매칭돼 저장에 포함됩니다.
-                  (재고 자동 차감은 나중에 레시피를 넣어야 동작해요.)
+                  파일엔 있지만 앱에 없는 메뉴예요. 등록하면 매칭돼 저장에 포함되고, [버리기]를 누르면
+                  그 메뉴의 판매 행은 저장에서 제외돼요. 샷추가·사이즈업 같은 옵션은 버리는 걸 추천해요.
+                  모든 메뉴를 결정해야 저장할 수 있어요.
                 </Text>
-                {unmatchedMenus.map((m) => (
-                  <View key={m.name} style={styles.regRow}>
-                    <Text style={styles.regName} numberOfLines={1}>{m.name}</Text>
-                    <View style={styles.regPriceBox}>
-                      <TextInput
-                        style={styles.regPriceInput}
-                        keyboardType="number-pad"
-                        inputMode="numeric"
-                        value={menuPrices[m.name] ?? (m.suggested ? String(m.suggested) : '')}
-                        onChangeText={(v) => setMenuPrices((p) => ({ ...p, [m.name]: onlyDigits(v) }))}
-                        placeholder="0"
-                        placeholderTextColor="#C4B5A5"
-                      />
-                      <Text style={styles.regWon}>원</Text>
+                {unmatchedMenus.map((m) => {
+                  const isDiscarded = discardedMenus.has(m.name);
+                  return (
+                    <View key={m.name} style={styles.regRow}>
+                      <Text
+                        style={[styles.regName, isDiscarded && styles.regNameDiscarded]}
+                        numberOfLines={1}
+                      >
+                        {m.name}
+                      </Text>
+                      {!isDiscarded && (
+                        <View style={styles.regPriceBox}>
+                          <TextInput
+                            style={styles.regPriceInput}
+                            keyboardType="number-pad"
+                            inputMode="numeric"
+                            value={menuPrices[m.name] ?? (m.suggested ? String(m.suggested) : '')}
+                            onChangeText={(v) => setMenuPrices((p) => ({ ...p, [m.name]: onlyDigits(v) }))}
+                            placeholder="0"
+                            placeholderTextColor="#C4B5A5"
+                          />
+                          <Text style={styles.regWon}>원</Text>
+                        </View>
+                      )}
+                      <PressableScale
+                        style={[styles.discardBtn, isDiscarded && styles.discardBtnActive]}
+                        onPress={() => toggleDiscard(m.name)}
+                        to={0.92}
+                      >
+                        <Ionicons
+                          name={isDiscarded ? 'arrow-undo-outline' : 'trash-outline'}
+                          size={13}
+                          color={isDiscarded ? colors.mochaBrown : '#B23B2E'}
+                        />
+                        <Text style={[styles.discardBtnText, isDiscarded && styles.discardBtnTextActive]}>
+                          {isDiscarded ? '되돌리기' : '버리기'}
+                        </Text>
+                      </PressableScale>
                     </View>
-                  </View>
-                ))}
-                <PressableScale
-                  style={[styles.regBtn, registering && { opacity: 0.6 }]}
-                  onPress={registerUnmatched}
-                  disabled={registering}
-                  to={0.97}
-                >
-                  <Ionicons name="checkmark-circle-outline" size={16} color={colors.white} />
-                  <Text style={styles.regBtnText}>{registering ? '등록 중…' : `${unmatchedMenus.length}개 메뉴 등록`}</Text>
-                </PressableScale>
+                  );
+                })}
+                <View style={styles.regActions}>
+                  {pendingMenus.length > 0 && (
+                    <PressableScale
+                      style={[styles.regBtn, registering && { opacity: 0.6 }]}
+                      onPress={registerUnmatched}
+                      disabled={registering}
+                      to={0.97}
+                    >
+                      <Ionicons name="checkmark-circle-outline" size={16} color={colors.white} />
+                      <Text style={styles.regBtnText}>{registering ? '등록 중…' : `${pendingMenus.length}개 메뉴 등록`}</Text>
+                    </PressableScale>
+                  )}
+                  {pendingMenus.length > 0 && (
+                    <PressableScale style={styles.discardAllBtn} onPress={discardAllPending} to={0.97}>
+                      <Ionicons name="trash-outline" size={14} color="#B23B2E" />
+                      <Text style={styles.discardAllText}>남은 {pendingMenus.length}개 모두 버리기</Text>
+                    </PressableScale>
+                  )}
+                </View>
               </View>
             )}
-            {importPreview.rows.slice(0, 30).map((r, i) => (
-              <View key={i} style={[styles.fileRow, r.menu_id == null && styles.fileRowUnmatched]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.fileRowName}>
-                    {r.menu_name}{r.matched_name && r.matched_name !== r.menu_name ? ` → ${r.matched_name}` : ''}
-                  </Text>
-                  <Text style={styles.fileRowMeta}>
-                    {r.quantity}개 · {(r.total_price ?? 0).toLocaleString()}원{r.sold_at ? ` · ${r.sold_at.slice(0, 16).replace('T', ' ')}` : ''}
-                  </Text>
+            {importPreview.rows.slice(0, 30).map((r, i) => {
+              const isDiscarded = r.menu_id == null && discardedMenus.has(r.menu_name);
+              return (
+                <View
+                  key={i}
+                  style={[
+                    styles.fileRow,
+                    r.menu_id == null && !isDiscarded && styles.fileRowUnmatched,
+                    isDiscarded && styles.fileRowDiscarded,
+                  ]}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.fileRowName, isDiscarded && styles.regNameDiscarded]}>
+                      {r.menu_name}{r.matched_name && r.matched_name !== r.menu_name ? ` → ${r.matched_name}` : ''}
+                    </Text>
+                    <Text style={styles.fileRowMeta}>
+                      {r.quantity}개 · {(r.total_price ?? 0).toLocaleString()}원{r.sold_at ? ` · ${r.sold_at.slice(0, 16).replace('T', ' ')}` : ''}
+                    </Text>
+                  </View>
+                  <Badge
+                    label={r.menu_id != null ? '매칭' : isDiscarded ? '버림' : '미매칭'}
+                    tone={r.menu_id != null ? 'green' : isDiscarded ? 'neutral' : 'danger'}
+                  />
                 </View>
-                <Badge label={r.menu_id == null ? '미매칭' : '매칭'} tone={r.menu_id == null ? 'danger' : 'green'} />
-              </View>
-            ))}
+              );
+            })}
             {importPreview.rows.length > 30 && (
               <Text style={styles.fileSub}>…외 {importPreview.rows.length - 30}행 (저장은 전체 반영)</Text>
             )}
-            <PressableScale style={styles.fileSaveBtn} onPress={submitImport} disabled={importing} to={0.97}>
-              <Text style={styles.fileSaveText}>매칭된 {importPreview.summary.matched}건 저장 (재고 자동 차감)</Text>
+            {undecidedRows > 0 && (
+              <Text style={styles.fileWarn}>
+                미매칭 {undecidedRows}행이 결정을 기다려요 — 위에서 등록하거나 [버리기]를 눌러야 저장할 수 있어요.
+              </Text>
+            )}
+            <PressableScale
+              style={[styles.fileSaveBtn, undecidedRows > 0 && styles.fileSaveBtnBlocked]}
+              onPress={submitImport}
+              disabled={importing}
+              to={0.97}
+            >
+              <Text style={styles.fileSaveText}>
+                {undecidedRows > 0
+                  ? `미매칭 ${undecidedRows}행 결정 후 저장 가능`
+                  : `매칭된 ${importPreview.summary.matched}건 저장 (재고 자동 차감)`}
+              </Text>
             </PressableScale>
           </View>
         )}
@@ -361,23 +473,41 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : null),
   },
   regWon: { ...typography.L5, color: colors.mochaBrown },
+  regNameDiscarded: { textDecorationLine: 'line-through', color: colors.mochaBrown, opacity: 0.55 },
+  // 메뉴별 버리기/되돌리기 토글
+  discardBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    borderWidth: 1, borderColor: 'rgba(178, 59, 46, 0.35)', borderRadius: 9,
+    paddingHorizontal: 9, height: 38,
+  },
+  discardBtnActive: { borderColor: colors.mutedSand, backgroundColor: colors.coffeeCream },
+  discardBtnText: { fontSize: 12, fontWeight: '800', color: '#B23B2E' },
+  discardBtnTextActive: { color: colors.mochaBrown },
+  regActions: { gap: 6, marginTop: 2 },
   regBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    backgroundColor: colors.pointOrange, borderRadius: 11, paddingVertical: 11, marginTop: 2,
+    backgroundColor: colors.pointOrange, borderRadius: 11, paddingVertical: 11,
   },
   regBtnText: { color: colors.white, fontSize: 13.5, fontWeight: '800' },
+  discardAllBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5,
+    borderWidth: 1, borderColor: 'rgba(178, 59, 46, 0.35)', borderRadius: 11, paddingVertical: 10,
+  },
+  discardAllText: { fontSize: 12.5, fontWeight: '800', color: '#B23B2E' },
   fileRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingVertical: 8, paddingHorizontal: 10, borderRadius: 10,
     backgroundColor: colors.coffeeCream,
   },
   fileRowUnmatched: { backgroundColor: 'rgba(178, 59, 46, 0.06)' },
+  fileRowDiscarded: { opacity: 0.55 },
   fileRowName: { ...typography.L5, color: colors.espressoBrown, fontWeight: '700' },
   fileRowMeta: { ...typography.L5, color: colors.mochaBrown, marginTop: 2 },
   fileSaveBtn: {
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: colors.trendGreenText, borderRadius: 12, paddingVertical: 12, marginTop: 4,
   },
+  fileSaveBtnBlocked: { backgroundColor: colors.mochaBrown, opacity: 0.75 },
   fileSaveText: { color: colors.white, fontSize: 14, fontWeight: '800' },
 
   // ── 직접 입력 진입 버튼 ──
