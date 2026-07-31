@@ -248,6 +248,7 @@ export default function SalesCard({
   onAddTodo,
   onEditTodo,
   onDeleteTodo,
+  onRestoreAiTodos,
 }: {
   onPressReport?: () => void;
   todos?: Todo[];
@@ -256,6 +257,7 @@ export default function SalesCard({
   onAddTodo?: (title: string, dateKey?: string) => void;
   onEditTodo?: (id: string, newTitle: string) => void;
   onDeleteTodo?: (id: string) => void;
+  onRestoreAiTodos?: () => void;
 }) {
   const { token } = useAuth();
   const [forecast, setForecast] = useState<SalesForecast | null>(null);
@@ -589,6 +591,7 @@ export default function SalesCard({
           onAddTodo={onAddTodo}
           onEditTodo={onEditTodo}
           onDeleteTodo={onDeleteTodo}
+          onRestoreAiTodos={onRestoreAiTodos}
           hideCard={false}
         />
       </View>

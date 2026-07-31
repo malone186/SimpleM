@@ -13,6 +13,7 @@ import TodoList, { type Todo } from '../../components/dashboard/TodoList';
 import WelcomeHeader from '../../components/dashboard/WelcomeHeader';
 import BriefingButton from '../../components/voice/BriefingButton';
 import VoiceCommandButton from '../../components/voice/VoiceCommandButton';
+import { toast } from '../../components/toast';
 import { FadeInUp, PressableScale } from '../../components/motion';
 import { listCompliance } from '../../lib/api/documents';
 import { listStocks } from '../../lib/api/inventory';
@@ -321,6 +322,15 @@ export default function DashboardScreen() {
     }
   };
 
+  // [한글 주석: 0.01초 딜레이 없는 초스피드 브루 추천 복원 핸들러 — 누르는 즉시 즉각 반응]
+  const handleRestoreAiTodos = () => {
+    toast('✨ 브루 추천 복원 완료!', '삭제했던 브루의 업무 추천을 불러왔어요.');
+    setRunId((x) => x + 1);
+    AsyncStorage.removeItem(DISMISSED_TODOS_KEY).catch((e) =>
+      console.error('브루 추천 복원 실패:', e),
+    );
+  };
+
   const toggleDone = async (id: string) => {
     // 다음 상태를 지금 값에서 직접 계산한다 — setTodos 콜백 안에서 읽으면
     // 서버로 보낼 값과 화면 값이 어긋날 수 있다
@@ -439,6 +449,7 @@ export default function DashboardScreen() {
               onAddTodo={handleAddTodo}
               onEditTodo={handleEditTodo}
               onDeleteTodo={handleDeleteTodo}
+              onRestoreAiTodos={handleRestoreAiTodos}
             />
           </FadeInUp>
 
