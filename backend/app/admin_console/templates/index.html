@@ -16,7 +16,9 @@
     // 로컬(uvicorn)이든 Cloud Run이든 주소 하드코딩 없이 그대로 동작한다.
     window.__ADMIN_API_BASE__ = "{{ api_base }}";
   </script>
-  <link rel="stylesheet" href="{{ url_for('console_static', path='style.css') }}?v={{ asset_version }}">
+  {# url_for는 절대 URL을 만드는데 Cloud Run(TLS 프록시 종료) 뒤에선 스킴이 http로 잡혀
+     https 페이지에서 mixed content로 차단된다 — 루트 상대 경로로 스킴을 물려받는다. #}
+  <link rel="stylesheet" href="/console/static/style.css?v={{ asset_version }}">
 </head>
 <body>
   <div class="desktop-layout">
@@ -613,6 +615,6 @@
     </div>
   </div>
 
-  <script src="{{ url_for('console_static', path='app.js') }}?v={{ asset_version }}"></script>
+  <script src="/console/static/app.js?v={{ asset_version }}"></script>
 </body>
 </html>
