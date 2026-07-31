@@ -21,6 +21,12 @@ from app.schemas.bean_review import (
 
 logger = logging.getLogger(__name__)
 
+# [한글 주석] 데모/테스트용으로 생성한 리뷰의 출처 라벨.
+# 실제 수집 리뷰와 반드시 구분되어야 한다 — 과거에 이 구분이 없어서
+# 하드코딩 문장 14개가 'Naver Shopping'으로 저장됐고, 그 위에 산미/바디 점수와
+# 추천 로직이 전부 얹히는 사고가 있었다. 집계·추천은 이 라벨을 제외한다.
+SAMPLE_SOURCE_SITE = "Sample"
+
 # --- [1. URL 정규화 헬퍼 (Canonical URL Normalization)] ---
 
 # 추적 파라미터 (UTM, 광고 마케팅, 세션 ID 등) 필터링 목록
@@ -115,8 +121,18 @@ def update_bean_review_summary(db: Session, bean_id: int) -> BeanReviewSummaryRe
     """
     [한글 주석]
     특정 원두의 리뷰 집계 데이터(평균 평점, 총 리뷰 수, 긍정 리뷰 비율, 대표 키워드)를 계산하고 DB를 업데이트합니다.
+
+    [중요] 샘플(데모용 생성) 리뷰는 집계에서 제외합니다.
+    과거에 크롤링 실패 시 하드코딩 문장을 'Naver Shopping'으로 저장하는 폴백이 있었고,
+    그 결과 산미/바디 점수·키워드·긍정비율이 전부 14개 문장에서 파생되어 있었습니다.
+    실데이터만으로 집계해야 이 숫자들이 의미를 갖습니다.
     """
-    reviews = db.query(BeanReview).filter(BeanReview.bean_id == bean_id).all()
+    reviews = (
+        db.query(BeanReview)
+        .filter(BeanReview.bean_id == bean_id)
+        .filter(BeanReview.source_site != SAMPLE_SOURCE_SITE)
+        .all()
+    )
     bean = db.query(RoasteryBean).filter(RoasteryBean.id == bean_id).first()
 
     if not reviews or not bean:
@@ -384,6 +400,10 @@ def collect_and_process_reviews(
     bean.product_url = canonical_url
 
     # 2. 샘플 리뷰 데이터 생성 (크롤링 파이프라인 시뮬레이션)
+    # [한글 주석] 이 함수가 만드는 것은 실제 수집 리뷰가 아니라 데모용 문장이다.
+    # 아래에서 source_site를 SAMPLE_SOURCE_SITE로 강제해, 집계·추천에서 제외되도록 한다.
+    # (호출자가 "Naver Shopping"을 넘겨도 무시한다 — 가짜가 진짜로 위장되면 안 되므로)
+    source_site = SAMPLE_SOURCE_SITE
     sample_review_texts = [
         f"{bean.name} 원두 고소하고 산미가 적어서 매장 대표 메뉴용으로 딱 좋습니다!",
         "가격 대비 가성비가 훌륭합니다. 향이 오랫동안 유지되어 만족스럽습니다.",
