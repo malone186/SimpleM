@@ -146,6 +146,22 @@ export default function SalesInputScreen() {
 
         {importPreview && (
           <View style={{ gap: 8, marginTop: 12 }}>
+            {/* 어떤 엔진으로 열을 분석했는지 표시 — 조용한 폴백을 눈에 보이게 */}
+            <View style={styles.engineRow}>
+              <View style={[styles.engineBadge, importPreview.source === 'ai' ? styles.engineAi : styles.engineHeur]}>
+                <Ionicons
+                  name={importPreview.source === 'ai' ? 'sparkles' : 'construct-outline'}
+                  size={12}
+                  color={importPreview.source === 'ai' ? colors.white : colors.espressoBrown}
+                />
+                <Text style={[styles.engineBadgeText, { color: importPreview.source === 'ai' ? colors.white : colors.espressoBrown }]}>
+                  {importPreview.source === 'ai' ? 'AI 자동 분석' : '간이 분석 (AI 미사용)'}
+                </Text>
+              </View>
+            </View>
+            {importPreview.source !== 'ai' && importPreview.mapping_error && (
+              <Text style={styles.engineWarn}>AI 분석 실패로 간이 분석 사용 — {importPreview.mapping_error}</Text>
+            )}
             <Text style={styles.fileSummary}>
               총 {importPreview.summary.total_rows}행 · 매칭 {importPreview.summary.matched} · 미매칭 {importPreview.summary.unmatched} · 합계 {importPreview.summary.sum_amount.toLocaleString()}원
             </Text>
@@ -216,6 +232,12 @@ const styles = StyleSheet.create({
   filePickText: { color: colors.white, fontSize: 14.5, fontWeight: '800' },
   fileRowCenter: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10 },
   fileSub: { ...typography.L5, color: colors.mochaBrown },
+  engineRow: { flexDirection: 'row', alignItems: 'center' },
+  engineBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999 },
+  engineAi: { backgroundColor: colors.espressoBrown },
+  engineHeur: { backgroundColor: colors.coffeeCream, borderWidth: 1, borderColor: colors.mutedSand },
+  engineBadgeText: { fontSize: 11, fontWeight: '800' },
+  engineWarn: { ...typography.L5, color: colors.pointOrange, fontWeight: '600' },
   fileSummary: { ...typography.L5, color: colors.espressoBrown, fontWeight: '800' },
   fileWarn: { ...typography.L5, color: colors.pointOrange, fontWeight: '600' },
   fileRow: {

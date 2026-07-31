@@ -82,6 +82,11 @@ export type ImportPreviewRow = {
 
 export type ImportPreview = {
   mapping: Record<string, any>;
+  // 열 매핑에 어떤 엔진이 쓰였는지 — 'ai'(Gemini) | 'heuristic'(키워드). 실패 시 mapping_error에 사유.
+  source?: 'ai' | 'heuristic';
+  mapping_note?: string | null;
+  mapping_error?: string | null;
+  confidence?: number | null;
   rows: ImportPreviewRow[];
   summary: { total_rows: number; matched: number; unmatched: number; sum_amount: number };
 };

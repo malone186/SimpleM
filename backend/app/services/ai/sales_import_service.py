@@ -140,8 +140,9 @@ def _heuristic_mapping(grid: list[list[str]]) -> dict[str, Any]:
             best_hits, best_row = hits, i
     header = [str(c).lower() for c in grid[best_row]]
     mapping: dict[str, Any] = {"header_row": best_row, "date_format": None,
+                               "source": "heuristic",
                                "confidence": 0.4 if best_hits > 0 else 0.1,
-                               "notes": "키워드 휴리스틱 (LLM 미사용)"}
+                               "notes": "키워드 휴리스틱 (AI 미사용)"}
     for field, kws in KEYS.items():
         idx = None
         for ci, col in enumerate(header):
@@ -153,9 +154,15 @@ def _heuristic_mapping(grid: list[list[str]]) -> dict[str, Any]:
 
 
 async def infer_mapping(grid: list[list[str]]) -> dict[str, Any]:
-    """열 매핑을 LLM으로 추론. 키가 없거나 실패하면 휴리스틱으로 폴백."""
+    """열 매핑을 LLM으로 추론. 키가 없거나 실패하면 휴리스틱으로 폴백.
+
+    어떤 엔진이 왜 쓰였는지 결과에 남긴다(source/notes/error) — 폴백이 조용히 일어나
+    "무엇이 문제인지" 알기 어렵던 걸, 미리보기에서 바로 보이게 하기 위함.
+    """
     if not GEMINI_API_KEY:
-        return _heuristic_mapping(grid)
+        m = _heuristic_mapping(grid)
+        m["notes"] = "AI 키 없음 → 키워드 휴리스틱"
+        return m
     payload = {
         "contents": [{"parts": [{"text": _MAPPING_PROMPT + _sample_text(grid)}]}],
         "generationConfig": {
@@ -176,11 +183,14 @@ async def infer_mapping(grid: list[list[str]]) -> dict[str, Any]:
             data = json.loads(content)
             data.setdefault("header_row", 0)
             data.setdefault("confidence", 0.5)
+            data["source"] = "ai"
+            data.setdefault("notes", "AI 자동 분석")
             return data
     except Exception as e:
         logger.warning(f"[매출 임포트] LLM 매핑 실패 — 휴리스틱 폴백: {e}")
         fallback = _heuristic_mapping(grid)
-        fallback["notes"] = f"LLM 실패로 휴리스틱 폴백 ({e})"
+        fallback["notes"] = "AI 분석 실패 → 키워드 휴리스틱 폴백"
+        fallback["error"] = str(e)[:200]
         return fallback
 
 
@@ -289,6 +299,11 @@ def build_preview(store_id: str, grid: list[list[str]], mapping: dict[str, Any])
     matched_cnt = sum(1 for x in rows if x["menu_id"] is not None)
     return {
         "mapping": mapping,
+        # 어떤 엔진으로 열을 매핑했는지 한눈에 (미리보기 배지·디버깅용)
+        "source": mapping.get("source", "heuristic"),  # 'ai' | 'heuristic'
+        "mapping_note": mapping.get("notes"),
+        "mapping_error": mapping.get("error"),          # AI 실패 사유(있을 때만)
+        "confidence": mapping.get("confidence"),
         "rows": rows,
         "summary": {
             "total_rows": len(rows),
