@@ -69,11 +69,9 @@
             <span class="profile-email" id="admin-email">-</span>
           </div>
         </div>
-        <!-- 비밀번호 변경 — POST /admin/password가 있는데 여기로 들어올 입구가 없었다 -->
-        <button class="logout-btn" id="change-pw-btn" style="margin-bottom:6px;">
-          <i data-lucide="key-round"></i>
-          <span>비밀번호 변경</span>
-        </button>
+        <!-- 비밀번호 변경 버튼은 7/31 제거 — 관리자 자격증명을 고정하기로 결정(백엔드도 403으로 잠금).
+             다시 열려면 이 버튼 복구 + admin.py의 ADMIN_PASSWORD_LOCK 해제. -->
+
         <button class="logout-btn" id="logout-btn">
           <i data-lucide="log-out"></i>
           <span>로그아웃</span>

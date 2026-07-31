@@ -1,6 +1,7 @@
 # c:\STUDY\SimpleM\backend\app\api\v1\admin.py
 import hashlib
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, List
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -78,13 +79,27 @@ class AdminPasswordChange(BaseModel):
     new_password: str
 
 
+# [자격증명 고정] 7/31 관리자 아이디·비밀번호를 고정하기로 결정 — 콘솔의 변경 버튼도 제거됨.
+# 팀원 누구든 로그인만 하면 비밀번호를 바꿔버릴 수 있어, 정작 주인이 잠기는 사고를 막는다.
+# 다시 열려면 배포 환경변수 ADMIN_PASSWORD_LOCK=0 (코드 수정 불필요).
+ADMIN_PASSWORD_LOCKED = os.getenv("ADMIN_PASSWORD_LOCK", "1") != "0"
+
+
 @router.post("/password")
 def change_admin_password(
     payload: AdminPasswordChange,
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ):
-    """[관리자 비밀번호 변경] 공유 DB에 저장되므로 모든 컴퓨터에 즉시 적용된다."""
+    """[관리자 비밀번호 변경] 공유 DB에 저장되므로 모든 컴퓨터에 즉시 적용된다.
+
+    현재는 자격증명 고정 정책으로 잠겨 있다(403) — ADMIN_PASSWORD_LOCK=0으로만 해제.
+    """
+    if ADMIN_PASSWORD_LOCKED:
+        raise HTTPException(
+            status_code=403,
+            detail="관리자 비밀번호는 고정되어 있습니다. 변경이 필요하면 서버 관리자에게 요청하세요.",
+        )
     if len(payload.new_password) < 8:
         raise HTTPException(status_code=422, detail="새 비밀번호는 8자 이상이어야 합니다.")
     account = db.query(AdminAccount).filter(AdminAccount.email == current_admin.email).first()
