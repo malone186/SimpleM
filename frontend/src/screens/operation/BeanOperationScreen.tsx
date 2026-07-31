@@ -331,14 +331,32 @@ export default function BeanOperationScreen() {
                 disabled={bean.review_count === 0}
                 style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 12, backgroundColor: '#F8F6F4', padding: 8, borderRadius: 6 }}
               >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Ionicons name="star" size={14} color="#FFB800" />
-                  <Text style={{ fontSize: 13, fontWeight: 'bold', color: colors.espressoBrown }}>{bean.rating.toFixed(1)}</Text>
-                  <Text style={{ fontSize: 12, color: '#888' }}>({bean.review_count}개 리뷰)</Text>
-                </View>
-                <Text style={{ fontSize: 12, fontWeight: '600', color: bean.positive_ratio >= 80 ? '#2E7D32' : bean.positive_ratio >= 50 ? '#B8860B' : '#B23B2E' }}>
-                  긍정 비율 {bean.positive_ratio}%
-                </Text>
+                {/* [한글 주석] 별점을 카드에서 뺐다.
+                    별점과 긍정비율은 같은 감성 분석 결과에서 나오므로 나란히 두면
+                    같은 근거를 두 번 세는 것이 된다. 게다가 블로그 글에는 별점이 없어
+                    우리가 역산한 값이라 3.5~4.5에 뭉쳐 변별력이 없다.
+                    ★3.6과 ★3.8을 비교하는 건 노이즈를 읽는 것이므로,
+                    실제로 판단에 쓸 수 있는 '근거의 양(건수)'을 앞세운다. */}
+                {bean.review_count === 0 ? (
+                  /* [한글 주석] 후기가 없는 원두가 전체의 44%다.
+                     '후기 0건 · 긍정 0%'로 두면 평가가 나쁜 것처럼 읽힌다.
+                     없는 것과 나쁜 것은 다르므로 문구로 구분한다. */
+                  <Text style={{ fontSize: 12, color: '#B0A79E' }}>수집된 후기 없음</Text>
+                ) : (
+                  <>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Ionicons name="chatbubble-ellipses-outline" size={13} color={colors.mochaBrown} />
+                      <Text style={{ fontSize: 13, fontWeight: 'bold', color: colors.espressoBrown }}>후기 {bean.review_count}건</Text>
+                    </View>
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: bean.positive_ratio >= 80 ? '#2E7D32' : bean.positive_ratio >= 50 ? '#B8860B' : '#B23B2E' }}>
+                      긍정 {bean.positive_ratio}%
+                    </Text>
+                    {/* 표본이 적으면 비율 자체를 믿기 어렵다 — 숫자 옆에 바로 알려준다 */}
+                    {bean.review_count < 5 && (
+                      <Text style={{ fontSize: 11, color: '#B0A79E' }}>표본 적음</Text>
+                    )}
+                  </>
+                )}
                 {bean.review_count > 0 && (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, marginLeft: 'auto' }}>
                     <Text style={{ fontSize: 11, color: colors.pointOrange, fontWeight: '700' }}>후기 보기</Text>

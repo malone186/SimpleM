@@ -139,8 +139,12 @@ export default function BeanAlternativeModal({ visible, beanId, beanName, onClos
                     </View>
                   )}
 
+                  {/* 별점 대신 근거의 양을 보여준다 — 별점은 감성에서 역산한 값이라
+                      원두 간 비교에 쓸 만한 변별력이 없다 */}
                   {a.review_count > 0 && (
-                    <Text style={styles.review}>★ {a.avg_rating.toFixed(1)} · 후기 {a.review_count}건</Text>
+                    <Text style={styles.review}>
+                      후기 {a.review_count}건{a.review_count < 5 ? ' · 표본 적음' : ''}
+                    </Text>
                   )}
 
                   {!!a.product_url && (
