@@ -661,18 +661,18 @@ function ScheduleCalendarCard({
       {/* ── 선택한 날짜의 근무 ── */}
       <View style={{ marginTop: 14, backgroundColor: '#FFF', borderRadius: 16, borderWidth: 1, borderColor: '#EFEAE6', padding: 14 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 16, fontWeight: '800', color: colors.espressoBrown }}>
+          {/* minWidth 0 + 한 줄 고정 — 안 그러면 설명이 접히면서 버튼을 밀어낸다 */}
+          <View style={{ flex: 1, minWidth: 0, paddingRight: 10 }}>
+            <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '800', color: colors.espressoBrown }}>
               {Number(selectedDate.slice(5, 7))}월 {Number(selectedDate.slice(8, 10))}일 ({WEEK_LABEL[new Date(selectedDate).getDay()]})
             </Text>
-            <Text style={{ fontSize: 12.5, color: '#8C7E74', marginTop: 3 }}>
+            <Text numberOfLines={1} style={{ fontSize: 12.5, color: '#8C7E74', marginTop: 3 }}>
               근무 {selectedDateSchedules.length}명 · 합계 {selectedDayHours}시간
-              {selectedDateSchedules.length > 0 ? '  ·  ⇄ 교대 / 🗑 삭제' : ''}
             </Text>
           </View>
           <PressableScale
             onPress={() => setModalVisible(true)}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.espressoBrown, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10 }}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0, backgroundColor: colors.espressoBrown, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10 }}
             to={0.95}
           >
             <Ionicons name="add" size={15} color="#FFF" />
@@ -693,7 +693,9 @@ function ScheduleCalendarCard({
           </View>
         ) : (
           <View style={{ gap: 10, marginTop: 12 }}>
-            {/* 아이콘 뜻: ⇄ 교대(담당자 바꾸기) · 휴지통 삭제 */}
+            <Text style={{ fontSize: 11, color: '#A2938A' }}>
+              ⇄ 다른 직원으로 교대 · 휴지통 근무 삭제
+            </Text>
             {selectedDateSchedules.map((s: Schedule) => {
               const empColor = getEmployeeColor(s.employee_id, dynamicColorMap);
               const matched = dbEmployees.find((e) => e.id === s.employee_id);
