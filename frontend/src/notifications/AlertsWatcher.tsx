@@ -19,7 +19,7 @@ import { listMyInquiries } from '../lib/api/inquiry';
 import { listStocks, type StockItem } from '../lib/api/inventory';
 import { fetchNotifications } from '../lib/api/assistant';
 import { fetchInsights } from '../lib/api/insights';
-import { enqueue as speechEnqueue, canPlayAudio, cancelAll as speechCancelAll } from '../lib/speech/speechPlayer';
+import { enqueue as speechEnqueue, canPlayAudio, cancelAll as speechCancelAll, setAuthToken as speechSetAuthToken } from '../lib/speech/speechPlayer';
 import { toast } from '../components/toast';
 import { getNotificationSettings, updateNotificationSettings } from '../lib/api/push';
 import { getSensorRecommendations } from '../lib/api/sensor';
@@ -351,6 +351,12 @@ export default function AlertsWatcher() {
   useEffect(() => {
     if (!signedIn || !prefs.voiceAlertEnabled) speechCancelAll();
   }, [signedIn, prefs.voiceAlertEnabled]);
+
+  // 서버 TTS(진짜 다른 목소리 4종) 호출용 토큰을 플레이어에 넣어준다.
+  // 이게 없으면 speechPlayer는 기기 내장 TTS로만 말한다 (웹은 한국어 보이스가 1개뿐).
+  useEffect(() => {
+    speechSetAuthToken(signedIn ? token : null);
+  }, [signedIn, token]);
 
   // ⑥ 음성 비서 알림 — 30초 주기로 새 완료 이벤트를 폴링하고, 이어폰 착용 시 음성 재생
   useEffect(() => {

@@ -68,6 +68,7 @@ from app.services.ai import (
     sales_import_service,
     sales_service,
     todo_service,
+    tts_service,
 )
 
 router = APIRouter(prefix="/chatbot", tags=["chatbot"])
@@ -694,6 +695,37 @@ def get_marketing_image(filename: str) -> FileResponse:
     except marketing_service.MarketingError as e:
         raise HTTPException(404, str(e))
     return FileResponse(path, headers={"Cache-Control": "public, max-age=86400"})
+
+
+# ---------------------------------------------------------------------------
+# 음성 합성 (TTS) — 목소리 4종을 '진짜 다른' Gemini 보이스로 (알림 읽어주기·샘플 듣기)
+# ---------------------------------------------------------------------------
+
+class TtsRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=600, description="읽어줄 한국어 문장")
+    voice_type: str = Field("warm_female",
+                            description="warm_female | friendly_male | calm_male | cute_child")
+
+
+@router.post("/tts")
+def synthesize_speech_api(
+    body: TtsRequest,
+    _current_user: User = Depends(get_current_user),
+):
+    """텍스트를 WAV 오디오로 합성한다 — 설정의 목소리 4종이 실제 다른 음색으로 나온다.
+
+    같은 (목소리, 문장)은 서버 디스크 캐시에서 즉시 반환된다 (팀 공유 쿼터 절약).
+    실패(쿼터·오프라인) 시 프론트 speechPlayer가 기기 로컬 TTS로 폴백하므로
+    알림이 끊기지는 않는다. 로그인 필수 — 익명 호출로 쿼터가 새지 않게 한다.
+    """
+    from fastapi.responses import Response
+
+    try:
+        wav = tts_service.synthesize(body.text, voice_type=body.voice_type)
+    except tts_service.TtsError as e:
+        raise HTTPException(503, str(e))
+    return Response(content=wav, media_type="audio/wav",
+                    headers={"Cache-Control": "private, max-age=3600"})
 
 
 # ---------------------------------------------------------------------------

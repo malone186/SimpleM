@@ -50,6 +50,9 @@ export type SpeechPlayer = {
   cancelAll: () => void;
   /** 현재 재생 중인지 여부 */
   isSpeaking: () => boolean;
+  /** 서버 TTS(/chatbot/tts) 호출용 로그인 토큰 주입 — AlertsWatcher가 로그인/로그아웃 시 호출.
+   *  토큰이 없으면(비로그인) 서버 TTS를 건너뛰고 기기 로컬 TTS로만 말한다. */
+  setAuthToken: (token: string | null) => void;
 };
 
 

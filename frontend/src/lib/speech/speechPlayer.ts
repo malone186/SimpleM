@@ -113,6 +113,51 @@ const _queue: SpeechQueueItem[] = [];
 let _speaking = false;
 let _seq = 0;
 
+// [한글 주석] 서버 TTS용 토큰 자리 — 웹 구현과 인터페이스를 맞추기 위한 저장만 한다.
+// 네이티브는 오디오 파일 재생 모듈(expo-audio)이 현재 빌드에 없어 서버 TTS(WAV)를
+// 재생할 수 없다 — 기기 내장 expo-speech로 말하되, 아래에서 기기의 한국어 보이스를
+// 목소리 타입별로 다르게 배정해 차이를 만든다. (expo-audio를 넣은 새 빌드가 나오면
+// 웹처럼 서버 TTS 1순위로 전환할 것)
+let _authToken: string | null = null;
+
+function setAuthToken(token: string | null): void {
+  _authToken = token;
+}
+
+// ═══════════════════════════════════════════════════
+// [한글 주석] 기기 한국어 보이스 배정 — "여러 목소리"를 최대한 진짜로.
+// Google/Samsung TTS는 한국어 변형 보이스가 여러 개 설치된 경우가 많다
+// (예: ko-kr-x-ism, ko-kr-x-kob, ko-kr-x-koc, ko-kr-x-kod).
+// 목소리 타입마다 다른 변형을 고정 배정해, 피치만 바꾸던 예전보다 실제로 다르게 들린다.
+// 변형이 1개뿐인 기기에서는 피치·속도 차이만 남는다 (기기 한계).
+// ═══════════════════════════════════════════════════
+
+const VOICE_ORDER = ['warm_female', 'friendly_male', 'calm_male', 'cute_child'];
+let _koreanVoiceIds: string[] | null = null; // 최초 1회만 조회
+
+async function _getKoreanVoiceIds(): Promise<string[]> {
+  if (_koreanVoiceIds) return _koreanVoiceIds;
+  let ids: string[] = [];
+  try {
+    const voices = (await Speech.getAvailableVoicesAsync?.()) ?? [];
+    ids = voices
+      .filter((v: any) => String(v.language || '').toLowerCase().startsWith('ko'))
+      .map((v: any) => String(v.identifier))
+      .sort(); // 정렬로 배정을 기기 재부팅 후에도 안정적으로
+  } catch {
+    ids = [];
+  }
+  _koreanVoiceIds = ids;
+  return ids;
+}
+
+async function _voiceIdFor(voiceType: string): Promise<string | undefined> {
+  const ids = await _getKoreanVoiceIds();
+  if (ids.length < 2) return undefined; // 변형이 없으면 시스템 기본에 맡긴다
+  const idx = Math.max(0, VOICE_ORDER.indexOf(voiceType));
+  return ids[idx % ids.length];
+}
+
 /** 현재 재생 중인지 확인 (동기) */
 function isSpeaking(): boolean {
   return _speaking;
@@ -123,7 +168,9 @@ function isSpeaking(): boolean {
  * 반드시 PreferencesContext와 같은 저장 키를 읽어야 한다 — 예전엔 존재하지 않는
  * '@simplem_user_prefs' 키를 읽어서, 설정에서 어떤 목소리를 골라도 알림 TTS는
  * 항상 기본(다정한 여성) 톤으로만 나오던 버그가 있었다. */
-async function getVoiceAudioConfig(overrideVoiceType?: string): Promise<{ pitch: number; rate: number }> {
+async function getVoiceAudioConfig(
+  overrideVoiceType?: string
+): Promise<{ pitch: number; rate: number; voiceType: string }> {
   try {
     let voiceType = overrideVoiceType;
     if (!voiceType) {
@@ -135,19 +182,20 @@ async function getVoiceAudioConfig(overrideVoiceType?: string): Promise<{ pitch:
     }
     if (!voiceType) voiceType = 'warm_female';
 
+    // 피치는 자연스러운 범위 안에서만 — 극단값은 목소리가 아니라 기계음처럼 들린다
     switch (voiceType) {
       case 'friendly_male':
-        return { pitch: 0.82, rate: 0.92 }; // 묵직하고 친근한 삼촌/아저씨 톤
+        return { pitch: 0.85, rate: 0.95, voiceType }; // 묵직하고 친근한 삼촌/아저씨 톤
       case 'calm_male':
-        return { pitch: 0.92, rate: 0.88 }; // 차분한 젠틀맨 톤
+        return { pitch: 0.9, rate: 0.88, voiceType }; // 차분한 젠틀맨 톤
       case 'cute_child':
-        return { pitch: 1.48, rate: 0.98 }; // 톡톡 튀는 꼬마/아이 톤
+        return { pitch: 1.3, rate: 1.0, voiceType }; // 톡톡 튀는 꼬마/아이 톤
       case 'warm_female':
       default:
-        return { pitch: 1.08, rate: 0.93 }; // 다정한 여성 톤
+        return { pitch: 1.08, rate: 0.95, voiceType }; // 다정한 여성 톤
     }
   } catch {
-    return { pitch: 1.08, rate: 0.93 };
+    return { pitch: 1.08, rate: 0.95, voiceType: 'warm_female' };
   }
 }
 
@@ -167,18 +215,17 @@ function _speakInternal(text: string, overrideVoiceType?: string): Promise<void>
 
     try {
       const config = await getVoiceAudioConfig(overrideVoiceType);
-      // [한글 주석] 사람이 말하듯 자연스러운 억양과 호흡 가공
-      const humanized = text
-        .replace(/([.!?])\s*/g, '$1 , ')
-        .replace(/입니다\./g, '입니다.. , ')
-        .replace(/있습니다\./g, '있습니다.. , ')
-        .replace(/에요\./g, '에요.. , ')
-        .replace(/요\./g, '요.. , ');
+      // 목소리 타입별로 기기의 다른 한국어 보이스를 배정 (변형이 여러 개인 기기 한정)
+      const voiceId = await _voiceIdFor(config.voiceType);
 
-      Speech.speak(humanized, {
+      // [한글 주석] 예전의 '자연스러운 호흡 가공'(문장부호를 ".. , "로 치환)은 제거했다 —
+      // TTS 엔진이 이상한 지점에서 끊거나 더듬어 오히려 기계처럼 들리는 원인이었다.
+      // 원문 그대로 읽는 쪽이 엔진의 기본 억양을 살려 훨씬 자연스럽다.
+      Speech.speak(text, {
         language: 'ko-KR',
         pitch: config.pitch,
         rate: config.rate,
+        ...(voiceId ? { voice: voiceId } : {}),
         onDone: finish,
         onStopped: finish,
         // 에러 시에도 resolve하여 큐 진행이 막히지 않도록 함 (웹 구현과 동일)
@@ -254,7 +301,8 @@ const speechPlayer: SpeechPlayer = {
   enqueue,
   cancelAll,
   isSpeaking,
+  setAuthToken,
 };
 
 export default speechPlayer;
-export { isEarphoneConnected, canPlayAudio, speak, enqueue, cancelAll, isSpeaking };
+export { isEarphoneConnected, canPlayAudio, speak, enqueue, cancelAll, isSpeaking, setAuthToken };
