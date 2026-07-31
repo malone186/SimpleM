@@ -358,6 +358,43 @@ def build_preview(store_id: str, grid: list[list[str]], mapping: dict[str, Any])
 
 
 # ---------------------------------------------------------------------------
+# 3.5) 미등록 메뉴 등록 — 파일에서 처음 발견된 메뉴를 매출로 넣기 전에 메뉴로 만든다.
+#      미매칭 행이 그냥 버려지지 않도록, 확인 후 등록하면 다음 저장에서 매칭된다.
+#      레시피는 없이 이름·판매가만 생성 — 재고 차감은 나중에 레시피를 넣어야 동작한다.
+# ---------------------------------------------------------------------------
+
+def register_menus(store_id: str, items: list[dict[str, Any]]) -> dict[str, Any]:
+    """[{name, selling_price}] 목록을 메뉴로 등록한다. 이미 있는(정규화 동일) 이름은 건너뛴다.
+
+    반환: {"menus": [{name, menu_id, selling_price, created}]} — created=False면 기존 메뉴 재사용.
+    """
+    from app.models.inventory import Menu
+    from app.services.ai.document_service import _session
+
+    out: list[dict[str, Any]] = []
+    with _session() as db:
+        existing = {_norm(m.name): m for m in db.query(Menu).filter(Menu.store_id == store_id).all()}
+        for it in items:
+            name = str(it.get("name") or "").strip()
+            if not name:
+                continue
+            price = max(0, int(it.get("selling_price") or 0))
+            key = _norm(name)
+            hit = existing.get(key)
+            if hit is not None:
+                out.append({"name": name, "menu_id": hit.id,
+                            "selling_price": hit.selling_price, "created": False})
+                continue
+            m = Menu(name=name, selling_price=price, store_id=store_id)
+            db.add(m)
+            db.flush()
+            existing[key] = m
+            out.append({"name": name, "menu_id": m.id, "selling_price": price, "created": True})
+        db.commit()
+    return {"menus": out}
+
+
+# ---------------------------------------------------------------------------
 # 4) 확정 저장 — 사용자가 확인·수정한 행만 받는다. 파일의 실제 금액·날짜 보존.
 #    Sale 생성 + 레시피 재고 차감(record_sales와 동일 정책).
 # ---------------------------------------------------------------------------
