@@ -56,7 +56,9 @@ export default function FormSheet({
           <View style={styles.sheet}>
             <View style={styles.handle} />
             <Text style={styles.title}>{title}</Text>
-            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 20 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            {/* 항목이 많은 폼(직원 추가)은 스크롤이 필요하다. 스크롤바까지 숨기면
+                아래에 더 있다는 걸 알 수 없어 '잘린 화면'으로 보인다 — 그래서 표시한다. */}
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 20 }} showsVerticalScrollIndicator keyboardShouldPersistTaps="handled">
               {children}
             </ScrollView>
             <PressableScale

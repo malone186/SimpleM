@@ -667,6 +667,7 @@ function ScheduleCalendarCard({
             </Text>
             <Text style={{ fontSize: 12.5, color: '#8C7E74', marginTop: 3 }}>
               근무 {selectedDateSchedules.length}명 · 합계 {selectedDayHours}시간
+              {selectedDateSchedules.length > 0 ? '  ·  ⇄ 교대 / 🗑 삭제' : ''}
             </Text>
           </View>
           <PressableScale
@@ -692,6 +693,7 @@ function ScheduleCalendarCard({
           </View>
         ) : (
           <View style={{ gap: 10, marginTop: 12 }}>
+            {/* 아이콘 뜻: ⇄ 교대(담당자 바꾸기) · 휴지통 삭제 */}
             {selectedDateSchedules.map((s: Schedule) => {
               const empColor = getEmployeeColor(s.employee_id, dynamicColorMap);
               const matched = dbEmployees.find((e) => e.id === s.employee_id);
@@ -706,10 +708,11 @@ function ScheduleCalendarCard({
                   style={{
                     flexDirection: 'row',
                     alignItems: 'center',
-                    gap: 10,
+                    gap: 9,
                     backgroundColor: '#FBF9F7',
-                    padding: 12,
-                    borderRadius: 12,
+                    paddingVertical: 11,
+                    paddingHorizontal: 11,
+                    borderRadius: 14,
                     borderWidth: 1,
                     borderColor: '#EFEAE6',
                   }}
@@ -717,25 +720,31 @@ function ScheduleCalendarCard({
                   <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: empColor, alignItems: 'center', justifyContent: 'center' }}>
                     <Text style={{ fontSize: 15, fontWeight: '900', color: '#FFF' }}>{name.charAt(0)}</Text>
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 14.5, fontWeight: '800', color: colors.espressoBrown }}>
+                  {/* minWidth 0이 없으면 이름·시간이 버튼을 밀어내고 '(5
+시간)'처럼 잘려 접힌다 */}
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text numberOfLines={1} style={{ fontSize: 14.5, fontWeight: '800', color: colors.espressoBrown }}>
                       {name} <Text style={{ fontSize: 11.5, fontWeight: '600', color: '#8C7E74' }}>· {role}</Text>
                     </Text>
-                    <Text style={{ fontSize: 13.5, fontWeight: '700', color: '#4A3B32', marginTop: 3 }}>
+                    <Text numberOfLines={1} style={{ fontSize: 13.5, fontWeight: '700', color: '#4A3B32', marginTop: 3 }}>
                       {startStr} ~ {endStr}
-                      <Text style={{ fontSize: 12, fontWeight: '600', color: '#8C7E74' }}>{hours ? `  (${hours}시간)` : ''}</Text>
+                      <Text style={{ fontSize: 12, fontWeight: '600', color: '#8C7E74' }}>{hours ? ` · ${hours}시간` : ''}</Text>
                     </Text>
                   </View>
+                  {/* 아이콘 버튼 두 개 — 글자 버튼은 좁은 화면에서 이름 칸을 잡아먹는다 */}
                   <PressableScale
                     onPress={() => openSwap(s)}
-                    style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E3DAD2', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10 }}
-                    to={0.95}
+                    style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E3DAD2', alignItems: 'center', justifyContent: 'center' }}
+                    to={0.92}
                   >
-                    <Ionicons name="swap-horizontal" size={14} color={colors.espressoBrown} />
-                    <Text style={{ fontSize: 12, fontWeight: '800', color: colors.espressoBrown }}>교대</Text>
+                    <Ionicons name="swap-horizontal" size={17} color={colors.espressoBrown} />
                   </PressableScale>
-                  <PressableScale onPress={() => handleDeleteSchedule(s.id)} style={{ padding: 7 }} to={0.9}>
-                    <Ionicons name="trash-outline" size={18} color="#B23B2E" />
+                  <PressableScale
+                    onPress={() => handleDeleteSchedule(s.id)}
+                    style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(178,59,46,0.07)', alignItems: 'center', justifyContent: 'center' }}
+                    to={0.92}
+                  >
+                    <Ionicons name="trash-outline" size={17} color="#B23B2E" />
                   </PressableScale>
                 </View>
               );

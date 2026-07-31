@@ -13,7 +13,7 @@
 //
 // 선택은 서버 응답을 기다리지 않고 화면에 먼저 반영한다(낙관적 갱신). 공유 DB 왕복이
 // 0.5~2초라 예전엔 칩을 눌러도 한참 그대로여서 "선택이 안 된다"고 느껴졌다.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   LayoutAnimation,
@@ -739,245 +739,270 @@ function StaffFields({
   const belowMin = draft.pay_type === 'hourly' && toNum(draft.hourly_rate) > 0 && toNum(draft.hourly_rate) < minWage;
 
   return (
-    <View>
-      {/* 이름·직책도 여기서 고친다 — 등록 화면과 상세 화면이 같은 항목을 다뤄야
-          "이름을 잘못 넣었는데 어디서 고치지?"가 안 생긴다 */}
-      <TextField
-        label="이름"
-        value={draft.name}
-        placeholder="예: 김바리"
-        onChangeText={(v) => onChange({ name: v })}
-        onCommit={(v) => commit({ name: v })}
-      />
-      <TextField
-        label="직책"
-        value={draft.role}
-        placeholder="예: 바리스타 / 매니저 (비우면 '알바')"
-        onChangeText={(v) => onChange({ role: v })}
-        onCommit={(v) => commit({ role: v })}
-      />
-
-      <Divider />
-
-      {/* 고용형태 */}
-      <Text style={styles.fieldLabel}>고용형태</Text>
-      <View style={styles.optionWrap}>
-        {employmentTypes.map((t) => {
-          const active = draft.employment_type === t.code;
-          return (
-            <TouchableOpacity
-              key={t.code}
-              activeOpacity={0.7}
-              style={[styles.option, active && styles.optionActive]}
-              onPress={() => {
-                const patch = presetFor(t.code, draft);
-                onChange(patch);
-                commit(patch);
-              }}
-            >
-              <Text style={[styles.optionText, active && styles.optionTextActive]}>{t.label}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-      <Text style={styles.optionNote}>
-        {employmentTypes.find((t) => t.code === draft.employment_type)?.note}
-      </Text>
-
-      <Divider />
-
-      {/* 급여형태 */}
-      <Text style={styles.fieldLabel}>급여형태</Text>
-      <View style={styles.optionWrap}>
-        {(['hourly', 'monthly'] as const).map((k) => {
-          const active = draft.pay_type === k;
-          return (
-            <TouchableOpacity
-              key={k}
-              activeOpacity={0.7}
-              style={[styles.option, active && styles.optionActive]}
-              onPress={() => {
-                onChange({ pay_type: k });
-                commit({ pay_type: k });
-              }}
-            >
-              <Text style={[styles.optionText, active && styles.optionTextActive]}>
-                {k === 'hourly' ? '시급제' : '월급제'}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {scheduleNote ? <Text style={styles.scheduleNote}>{scheduleNote}</Text> : null}
-
-      {/* 시급은 월급제에서도 최저임금 환산 근거로 쓰이므로 항상 받는다 */}
-      <NumberField
-        label={draft.pay_type === 'monthly' ? '월급 (원)' : '시급 (원)'}
-        suffix="원"
-        value={draft.pay_type === 'monthly' ? draft.monthly_salary : draft.hourly_rate}
-        onChangeText={(v) => onChange(draft.pay_type === 'monthly' ? { monthly_salary: v } : { hourly_rate: v })}
-        onCommit={(v) => commit(draft.pay_type === 'monthly' ? { monthly_salary: v } : { hourly_rate: v })}
-      />
-      {belowMin && (
-        <Text style={styles.minWageNote}>
-          2026년 최저임금 {won(minWage)}보다 낮아요. 계약 전에 한 번 확인해 주세요.
-        </Text>
-      )}
-      <NumberField
-        label={draft.pay_type === 'monthly' ? '주 소정근로시간 (최저임금 확인용)' : '주 소정근로시간'}
-        suffix="시간"
-        value={draft.weekly_hours}
-        onChangeText={(v) => onChange({ weekly_hours: v })}
-        onCommit={(v) => commit({ weekly_hours: v })}
-      />
-
-      <Divider />
-
-      {/* 보험 */}
-      <Text style={styles.fieldLabel}>보험 가입</Text>
-      <View style={styles.optionWrap}>
-        {insuranceTypes.map((t) => {
-          const active = draft.insurance === t.code;
-          return (
-            <TouchableOpacity
-              key={t.code}
-              activeOpacity={0.7}
-              style={[styles.option, active && styles.optionActive]}
-              onPress={() => {
-                onChange({ insurance: t.code });
-                commit({ insurance: t.code });
-              }}
-            >
-              <Text style={[styles.optionText, active && styles.optionTextActive]}>{t.label}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-      <Text style={styles.optionNote}>
-        {insuranceTypes.find((t) => t.code === draft.insurance)?.note}
-      </Text>
-
-      <Divider />
-
-      {/* 대표 색 — 근무 달력에서 이 사람의 점·선이 이 색으로 그려진다 */}
-      <Text style={styles.fieldLabel}>달력 표시 색</Text>
-      <View style={styles.optionWrap}>
-        {PALETTE.map((c) => {
-          const on = draft.color === c.code;
-          return (
-            <TouchableOpacity
-              key={c.code}
-              activeOpacity={0.7}
-              style={[styles.colorChip, { backgroundColor: c.code }, on && styles.colorChipOn]}
-              onPress={() => {
-                onChange({ color: c.code });
-                commit({ color: c.code });
-              }}
-            >
-              {on && <Ionicons name="checkmark" size={14} color={colors.white} />}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      <Divider />
-
-      {/* 근무 가능 시간 — 알바를 받을 때 실제로 가장 먼저 묻는 질문 */}
-      <View style={styles.rowBetween}>
-        <Text style={styles.fieldLabel}>근무 가능 시간</Text>
-        <Text style={styles.availSummary}>{describeRows(draft.avail)}</Text>
-      </View>
-      <Text style={[styles.optionNote, { marginTop: 0, marginBottom: 8 }]}>
-        요일을 고르고 시간대를 맞춰 주세요. 달력에서 이 시간에 맞춰 근무를 넣을 수 있어요.
-      </Text>
-
-      {draft.avail.map((row, i) => (
-        <View key={i} style={styles.availRow}>
-          <View style={styles.dayWrap}>
-            {WEEKDAY_LABELS.map((label, dow) => {
-              const on = row.days.includes(dow);
-              return (
-                <TouchableOpacity
-                  key={label}
-                  activeOpacity={0.7}
-                  style={[styles.dayChip, on && styles.dayChipOn]}
-                  onPress={() => {
-                    const days = on ? row.days.filter((d) => d !== dow) : [...row.days, dow].sort((a, b) => a - b);
-                    onChange({ avail: draft.avail.map((r, j) => (j === i ? { ...r, days } : r)) });
-                  }}
-                >
-                  <Text style={[styles.dayChipText, on && styles.dayChipTextOn]}>{label}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-          <View style={styles.hourRow}>
-            <HourStepper
-              label="시작"
-              value={row.start}
-              min={0}
-              max={23}
-              onChange={(v) =>
-                onChange({
-                  avail: draft.avail.map((r, j) =>
-                    j === i ? { ...r, start: v, end: Math.max(r.end, v + 1) } : r,
-                  ),
-                })
-              }
-            />
-            <HourStepper
-              label="종료"
-              value={row.end}
-              min={1}
-              max={24}
-              onChange={(v) =>
-                onChange({
-                  avail: draft.avail.map((r, j) =>
-                    j === i ? { ...r, end: v, start: Math.min(r.start, v - 1) } : r,
-                  ),
-                })
-              }
-            />
-            <TouchableOpacity
-              activeOpacity={0.7}
-              style={styles.availDelete}
-              onPress={() => onChange({ avail: draft.avail.filter((_, j) => j !== i) })}
-            >
-              <Ionicons name="close" size={14} color="#B23B2E" />
-            </TouchableOpacity>
-          </View>
-        </View>
-      ))}
-
-      <TouchableOpacity
-        activeOpacity={0.7}
-        style={styles.availAdd}
-        onPress={() => onChange({ avail: [...draft.avail, { days: [], start: 9, end: 18 }] })}
-      >
-        <Ionicons name="add" size={14} color={colors.espressoBrown} />
-        <Text style={styles.availAddText}>
-          {draft.avail.length === 0 ? '가능 시간 추가' : '다른 시간대 추가 (주말은 따로 등)'}
-        </Text>
-      </TouchableOpacity>
-
-      {/* 주휴수당 토글 */}
-      <View style={styles.switchRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.fieldLabel}>주휴수당 지급</Text>
-          <Text style={styles.optionNote}>
-            주 15시간 이상이면 법적으로 지급 대상이에요. 시급에 이미 포함해 계약했다면 꺼 두세요.
-          </Text>
-        </View>
-        <Switch
-          value={draft.weekly_holiday_pay}
-          onValueChange={(v) => {
-            onChange({ weekly_holiday_pay: v });
-            commit({ weekly_holiday_pay: v });
-          }}
-          trackColor={{ true: colors.espressoBrown, false: colors.mutedSand }}
+    <View style={{ gap: 12 }}>
+      {/* 1. 누구인가 — 이름·직책은 등록과 상세 어느 쪽에서든 같은 자리에 있다 */}
+      <Group title="기본 정보">
+        <TextField
+          label="이름"
+          value={draft.name}
+          placeholder="예: 김바리"
+          onChangeText={(v) => onChange({ name: v })}
+          onCommit={(v) => commit({ name: v })}
         />
+        <TextField
+          label="직책"
+          value={draft.role}
+          placeholder="예: 바리스타 / 매니저 (비우면 '알바')"
+          onChangeText={(v) => onChange({ role: v })}
+          onCommit={(v) => commit({ role: v })}
+        />
+      </Group>
+
+      {/* 2. 어떤 조건으로 일하는가 — 인건비가 여기서 갈린다 */}
+      <Group title="고용 조건" hint="고르면 인건비가 바로 다시 계산돼요.">
+        <Text style={styles.fieldLabel}>고용형태</Text>
+        <View style={styles.optionWrap}>
+          {employmentTypes.map((t) => {
+            const active = draft.employment_type === t.code;
+            return (
+              <TouchableOpacity
+                key={t.code}
+                activeOpacity={0.7}
+                style={[styles.option, active && styles.optionActive]}
+                onPress={() => {
+                  const patch = presetFor(t.code, draft);
+                  onChange(patch);
+                  commit(patch);
+                }}
+              >
+                <Text style={[styles.optionText, active && styles.optionTextActive]}>{t.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        <Text style={styles.optionNote}>
+          {employmentTypes.find((t) => t.code === draft.employment_type)?.note}
+        </Text>
+
+        <View style={styles.groupLine} />
+
+        <Text style={styles.fieldLabel}>급여형태</Text>
+        <View style={styles.optionWrap}>
+          {(['hourly', 'monthly'] as const).map((k) => {
+            const active = draft.pay_type === k;
+            return (
+              <TouchableOpacity
+                key={k}
+                activeOpacity={0.7}
+                style={[styles.option, active && styles.optionActive]}
+                onPress={() => {
+                  onChange({ pay_type: k });
+                  commit({ pay_type: k });
+                }}
+              >
+                <Text style={[styles.optionText, active && styles.optionTextActive]}>
+                  {k === 'hourly' ? '시급제' : '월급제'}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {scheduleNote ? <Text style={styles.scheduleNote}>{scheduleNote}</Text> : null}
+
+        {/* 시급은 월급제에서도 최저임금 환산 근거로 쓰이므로 항상 받는다 */}
+        <NumberField
+          label={draft.pay_type === 'monthly' ? '월급 (원)' : '시급 (원)'}
+          suffix="원"
+          value={draft.pay_type === 'monthly' ? draft.monthly_salary : draft.hourly_rate}
+          onChangeText={(v) => onChange(draft.pay_type === 'monthly' ? { monthly_salary: v } : { hourly_rate: v })}
+          onCommit={(v) => commit(draft.pay_type === 'monthly' ? { monthly_salary: v } : { hourly_rate: v })}
+        />
+        {belowMin && (
+          <Text style={styles.minWageNote}>
+            2026년 최저임금 {won(minWage)}보다 낮아요. 계약 전에 한 번 확인해 주세요.
+          </Text>
+        )}
+        <NumberField
+          label={draft.pay_type === 'monthly' ? '주 소정근로시간 (최저임금 확인용)' : '주 소정근로시간'}
+          suffix="시간"
+          value={draft.weekly_hours}
+          onChangeText={(v) => onChange({ weekly_hours: v })}
+          onCommit={(v) => commit({ weekly_hours: v })}
+        />
+      </Group>
+
+      {/* 3. 언제 나올 수 있는가 — 달력 배정의 근거 */}
+      <Group
+        title="근무 가능 시간"
+        badge={describeRows(draft.avail)}
+        hint="요일을 고르고 시간대를 맞춰 주세요. 이 시간대로 근무 달력이 채워집니다."
+      >
+        {draft.avail.map((row, i) => (
+          <View key={i} style={styles.availRow}>
+            <View style={styles.dayWrap}>
+              {WEEKDAY_LABELS.map((label, dow) => {
+                const on = row.days.includes(dow);
+                return (
+                  <TouchableOpacity
+                    key={label}
+                    activeOpacity={0.7}
+                    style={[styles.dayChip, on && styles.dayChipOn]}
+                    onPress={() => {
+                      const days = on ? row.days.filter((d) => d !== dow) : [...row.days, dow].sort((a, b) => a - b);
+                      onChange({ avail: draft.avail.map((r, j) => (j === i ? { ...r, days } : r)) });
+                    }}
+                  >
+                    <Text style={[styles.dayChipText, on && styles.dayChipTextOn]}>{label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <View style={styles.hourRow}>
+              <HourStepper
+                label="시작"
+                value={row.start}
+                min={0}
+                max={23}
+                onChange={(v) =>
+                  onChange({
+                    avail: draft.avail.map((r, j) =>
+                      j === i ? { ...r, start: v, end: Math.max(r.end, v + 1) } : r,
+                    ),
+                  })
+                }
+              />
+              <HourStepper
+                label="종료"
+                value={row.end}
+                min={1}
+                max={24}
+                onChange={(v) =>
+                  onChange({
+                    avail: draft.avail.map((r, j) =>
+                      j === i ? { ...r, end: v, start: Math.min(r.start, v - 1) } : r,
+                    ),
+                  })
+                }
+              />
+              <TouchableOpacity
+                activeOpacity={0.7}
+                style={styles.availDelete}
+                onPress={() => onChange({ avail: draft.avail.filter((_, j) => j !== i) })}
+              >
+                <Ionicons name="close" size={15} color="#B23B2E" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        ))}
+
+        <TouchableOpacity
+          activeOpacity={0.7}
+          style={styles.availAdd}
+          onPress={() => onChange({ avail: [...draft.avail, { days: [], start: 9, end: 18 }] })}
+        >
+          <Ionicons name="add" size={15} color={colors.espressoBrown} />
+          <Text style={styles.availAddText}>
+            {draft.avail.length === 0 ? '가능 시간 추가' : '다른 시간대 추가 (주말은 따로)'}
+          </Text>
+        </TouchableOpacity>
+      </Group>
+
+      {/* 4. 보험·수당 */}
+      <Group title="보험 · 수당">
+        <Text style={styles.fieldLabel}>보험 가입</Text>
+        <View style={styles.optionWrap}>
+          {insuranceTypes.map((t) => {
+            const active = draft.insurance === t.code;
+            return (
+              <TouchableOpacity
+                key={t.code}
+                activeOpacity={0.7}
+                style={[styles.option, active && styles.optionActive]}
+                onPress={() => {
+                  onChange({ insurance: t.code });
+                  commit({ insurance: t.code });
+                }}
+              >
+                <Text style={[styles.optionText, active && styles.optionTextActive]}>{t.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        <Text style={styles.optionNote}>
+          {insuranceTypes.find((t) => t.code === draft.insurance)?.note}
+        </Text>
+
+        <View style={styles.groupLine} />
+
+        <View style={styles.switchRow}>
+          <View style={{ flex: 1, paddingRight: 10 }}>
+            <Text style={styles.fieldLabel}>주휴수당 지급</Text>
+            <Text style={[styles.optionNote, { marginTop: 2 }]}>
+              주 15시간 이상이면 법적으로 지급 대상이에요. 시급에 포함해 계약했다면 꺼 두세요.
+            </Text>
+          </View>
+          <Switch
+            value={draft.weekly_holiday_pay}
+            onValueChange={(v) => {
+              onChange({ weekly_holiday_pay: v });
+              commit({ weekly_holiday_pay: v });
+            }}
+            trackColor={{ true: colors.espressoBrown, false: colors.mutedSand }}
+          />
+        </View>
+      </Group>
+
+      {/* 5. 달력에서 이 사람을 알아보는 색 */}
+      <Group title="달력 표시 색" hint="근무 달력의 선·아바타가 이 색으로 표시돼요.">
+        <View style={styles.colorWrap}>
+          {PALETTE.map((c) => {
+            const on = draft.color === c.code;
+            return (
+              <TouchableOpacity
+                key={c.code}
+                activeOpacity={0.7}
+                style={[styles.colorChip, { backgroundColor: c.code }, on && styles.colorChipOn]}
+                onPress={() => {
+                  onChange({ color: c.code });
+                  commit({ color: c.code });
+                }}
+              >
+                {on && <Ionicons name="checkmark" size={16} color={colors.white} />}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </Group>
+    </View>
+  );
+}
+
+/** 입력 묶음 한 덩어리 — 제목 한 줄, 흰 카드, 그 안에 컨트롤.
+ *  예전엔 라벨·칩·설명이 한 흐름으로 붙어 있어 어디까지가 한 항목인지 안 보였다. */
+function Group({
+  title,
+  badge,
+  hint,
+  children,
+}: {
+  title: string;
+  badge?: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <View>
+      <View style={styles.groupHead}>
+        <Text style={styles.groupTitle}>{title}</Text>
+        {badge ? (
+          <Text style={styles.groupBadge} numberOfLines={1}>
+            {badge}
+          </Text>
+        ) : null}
       </View>
+      {hint ? <Text style={styles.groupHint}>{hint}</Text> : null}
+      <View style={styles.groupBody}>{children}</View>
     </View>
   );
 }
@@ -1195,53 +1220,71 @@ const styles = StyleSheet.create({
   dangerText: { ...typography.L5, color: '#B23B2E', fontWeight: '700', flex: 1 },
 
   detail: { marginTop: 14, backgroundColor: colors.creamSand, borderRadius: 12, padding: 12 },
-  fieldLabel: { ...typography.L4, color: colors.espressoBrown, marginBottom: 6 },
+
+  groupHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  groupTitle: { fontSize: 13.5, fontWeight: '900', color: colors.espressoBrown, letterSpacing: -0.2 },
+  groupBadge: { fontSize: 11.5, fontWeight: '800', color: colors.pointOrange, flexShrink: 1, textAlign: 'right' },
+  groupHint: { fontSize: 11, color: colors.mochaBrown, marginTop: 3, lineHeight: 15 },
+  groupBody: {
+    backgroundColor: colors.white,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    padding: 12,
+    marginTop: 8,
+    gap: 4,
+  },
+  groupLine: { height: 1, backgroundColor: colors.mutedSand, marginVertical: 12 },
+
+  fieldLabel: { fontSize: 12.5, fontWeight: '800', color: colors.espressoBrown, marginBottom: 7 },
   optionWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   option: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.creamSand,
     borderWidth: 1,
     borderColor: colors.mutedSand,
     borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
   },
   optionActive: { backgroundColor: colors.espressoBrown, borderColor: colors.espressoBrown },
-  optionText: { fontSize: 11.5, fontWeight: '700', color: colors.mochaBrown },
+  optionText: { fontSize: 12.5, fontWeight: '700', color: '#6B5D54' },
   optionTextActive: { color: colors.white },
-  optionNote: { ...typography.L5, color: colors.mochaBrown, marginTop: 7, lineHeight: 15 },
+  optionNote: { fontSize: 11, color: colors.mochaBrown, marginTop: 8, lineHeight: 16 },
 
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
 
+  colorWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   colorChip: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: 'transparent',
   },
-  colorChipOn: { borderColor: colors.espressoBrown },
-  availSummary: { ...typography.L5, color: colors.pointOrange, fontWeight: '800', flexShrink: 1, textAlign: 'right' },
+  colorChipOn: { borderColor: colors.espressoBrown, borderWidth: 3 },
   availRow: {
-    backgroundColor: colors.white,
-    borderRadius: 10,
+    backgroundColor: colors.creamSand,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.mutedSand,
-    padding: 8,
+    padding: 10,
     marginBottom: 8,
-    gap: 8,
+    gap: 10,
   },
   dayWrap: { flexDirection: 'row', gap: 4 },
   dayChip: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: colors.creamSand,
+    paddingVertical: 8,
+    borderRadius: 9,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
   },
-  dayChipOn: { backgroundColor: colors.espressoBrown },
-  dayChipText: { fontSize: 11, fontWeight: '800', color: colors.mochaBrown },
+  dayChipOn: { backgroundColor: colors.espressoBrown, borderColor: colors.espressoBrown },
+  dayChipText: { fontSize: 12, fontWeight: '800', color: '#6B5D54' },
   dayChipTextOn: { color: colors.white },
   hourRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   stepper: {
@@ -1249,20 +1292,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: colors.creamSand,
-    borderRadius: 8,
-    paddingHorizontal: 4,
-    paddingVertical: 4,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    paddingVertical: 5,
   },
   stepBtn: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: colors.white,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.creamSand,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepLabel: { fontSize: 9, color: colors.mochaBrown },
+  stepLabel: { fontSize: 10, color: colors.mochaBrown },
   stepValue: { ...typography.L4, color: colors.espressoBrown },
   availDelete: {
     width: 28,
@@ -1277,24 +1322,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5,
-    backgroundColor: colors.white,
-    borderRadius: 10,
+    backgroundColor: colors.creamSand,
+    borderRadius: 11,
     borderWidth: 1,
     borderColor: colors.mutedSand,
     borderStyle: 'dashed',
-    paddingVertical: 10,
+    paddingVertical: 12,
   },
   availAddText: { ...typography.L5, color: colors.espressoBrown, fontWeight: '800' },
 
   numBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.white,
+    backgroundColor: colors.creamSand,
     borderWidth: 1,
     borderColor: colors.mutedSand,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    height: 44,
+    borderRadius: 11,
+    paddingHorizontal: 13,
+    height: 46,
   },
   numInput: {
     flex: 1,
