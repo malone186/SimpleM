@@ -314,6 +314,25 @@ def collect_blog_reviews_for_bean(
             collected += 1
 
     db.commit()
+
+    # [한글 주석] 저장만 하고 끝내면 roastery_beans의 review_count/avg_rating이 0인 채로 남아
+    # 화면에는 "리뷰 0개"로 보인다. 실제로 30건을 모으고도 집계가 0이던 버그가 있었다.
+    # 수집 직후 집계를 갱신해 저장과 표시가 어긋나지 않게 한다.
+    summary = None
+    if collected:
+        try:
+            from app.services.operation.bean_review_service import update_bean_review_summary
+            s = update_bean_review_summary(db, bean_id)
+            summary = {
+                "review_count": s.review_count,
+                "avg_rating": s.avg_rating,
+                "positive_ratio": s.positive_ratio,
+                "top_keywords": s.top_keywords,
+            }
+        except Exception as e:
+            # 집계 실패가 수집 자체를 무효로 만들지는 않는다 — 다만 조용히 넘기지 않는다.
+            logger.warning("리뷰 집계 갱신 실패 (bean_id=%s): %s", bean_id, e)
+
     return {
         "bean_id": bean_id,
         "query": query,
@@ -321,6 +340,7 @@ def collect_blog_reviews_for_bean(
         "collected": collected,
         "skipped_ads": skipped_ads,
         "skipped_irrelevant": skipped_irrelevant,
+        "summary": summary,
         "message": (
             f"후기 {collected}건 수집 "
             f"(광고 {skipped_ads}건, 무관한 글 {skipped_irrelevant}건 제외)"
