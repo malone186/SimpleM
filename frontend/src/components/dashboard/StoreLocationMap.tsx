@@ -7,7 +7,8 @@
 // 예전엔 GPS 파란 점을 함께 찍었는데, 사장님이 집에서 앱을 켜면 매장이 아닌 곳이 강조돼
 // 매장 위치가 흔들리는 것처럼 보였다. 매장은 등록된 그 자리에 고정된다.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, Text, View } from 'react-native';
+import { Platform, Text, TouchableOpacity, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 
 import { API_BASE_URL } from '../../lib/api/client';
@@ -44,13 +45,54 @@ export default function StoreLocationMap({
   const [mapError, setMapError] = useState<string | null>(null);
 
   const mapRef = useRef<any>(null);
+  const naverRef = useRef<any>(null);
+  const webviewRef = useRef<WebView>(null);
   const circlesRef = useRef<any[]>([]);
   const shopMarkerRef = useRef<any>(null);
   const eventMarkersRef = useRef<any[]>([]);
   const cafeMarkersRef = useRef<any[]>([]);
   const openWindowsRef = useRef<any[]>([]);
 
-  // 네이티브 WebView가 로드할 백엔드 지도 URL (최초 1회 고정)
+  const recenterToStore = () => {
+    if (Platform.OS === 'web') {
+      const n = naverRef.current;
+      const m = mapRef.current;
+      if (n && m) {
+        m.setCenter(new n.maps.LatLng(lat, lon));
+        m.setZoom(15);
+      }
+    } else {
+      webviewRef.current?.reload();
+    }
+  };
+
+  const RecenterButton = () => (
+    <TouchableOpacity
+      onPress={recenterToStore}
+      accessibilityLabel="내 매장 위치로 돌아가기"
+      activeOpacity={0.85}
+      style={{
+        position: 'absolute',
+        right: 12,
+        bottom: 12,
+        width: 42,
+        height: 42,
+        borderRadius: 21,
+        backgroundColor: '#FFFFFF',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: 'rgba(78,54,41,0.12)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 4,
+      }}
+    >
+      <Ionicons name="locate" size={20} color={colors.espressoBrown} />
+    </TouchableOpacity>
+  );
   const mapUri = useMemo(() => {
     const payload = encodeURIComponent(
       JSON.stringify({
@@ -77,9 +119,11 @@ export default function StoreLocationMap({
     if (Platform.OS !== 'web') return;
     let disposed = false;
 
+    setMapError(null);
     loadNaverMaps()
       .then((naverObj) => {
         if (disposed) return;
+        naverRef.current = naverObj;
         const container = document.getElementById(containerId);
         if (!container) return;
 
@@ -283,6 +327,7 @@ export default function StoreLocationMap({
     return (
       <View style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
         <WebView
+          ref={webviewRef}
           originWhitelist={['*']}
           // [중요] HTML 문자열 + baseUrl 방식(loadHTMLString)은 iOS가 하위 리소스에 Referer를
           // 붙이지 않아, Referer로 도메인을 검증하는 네이버 지도가 인증을 거부한다.
@@ -306,6 +351,7 @@ export default function StoreLocationMap({
           }}
           style={{ flex: 1, backgroundColor: '#F8F6F2' }}
         />
+        <RecenterButton />
       </View>
     );
   }
@@ -330,5 +376,10 @@ export default function StoreLocationMap({
     );
   }
 
-  return <View id={containerId} style={{ width: '100%', height: '100%' }} />;
+  return (
+    <View style={{ width: '100%', height: '100%' }}>
+      <View id={containerId} style={{ width: '100%', height: '100%' }} />
+      <RecenterButton />
+    </View>
+  );
 }

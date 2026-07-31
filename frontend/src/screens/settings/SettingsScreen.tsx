@@ -480,7 +480,6 @@ export default function SettingsScreen() {
           </PressableScale>
 
 
-
           {/* 화면 표시 & 접근성 */}
           <PressableScale
             style={styles.menuItemCard}

@@ -410,6 +410,145 @@ def check_sensor(db, store_id: str, settings, now: datetime) -> list[str]:
 # 실행 진입점 — 스케줄러(Cloud Scheduler 등)가 부른다
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# 규칙 5 — 오늘 마감 리포트 (매장 마감 시간 이후 하루 한 번)
+# ---------------------------------------------------------------------------
+
+def _closing_send_hour(db, store_id: str) -> int:
+    """마감 리포트 발송 시각 = 매장 마감 시간. 프로필이 없거나 새벽 마감(자정 넘김)이면
+    22시로 — 날짜 경계를 넘기면 dedupe(하루 1회)와 '오늘 매출' 집계가 어긋난다."""
+    try:
+        from app.models.ai import StoreProfile
+
+        profile = db.get(StoreProfile, store_id)
+        if profile and profile.close_hour:
+            h = _parse_hhmm(profile.close_hour)
+            if h is not None:
+                hour = h // 60
+                if 6 <= hour <= 23:
+                    return hour
+    except Exception:
+        pass
+    return 22
+
+
+def check_closing(db, store_id: str, settings, now: datetime) -> list[str]:
+    """마감 후 '오늘 하루' 요약 한 장 — 매출(어제 대비)·베스트 메뉴·재고 주의.
+
+    매출이 아직 입력되지 않은 날은 요약 대신 입력 리마인더를 보낸다(같은 dedupe 키) —
+    이 알림의 목적이 '하루를 닫는 습관'이라 빈 날에도 한 번은 두드린다.
+    """
+    if not settings.report_alert:
+        return []
+    if now.hour < _closing_send_hour(db, store_id):
+        return []
+
+    today = now.date()
+    dedupe_key = f"closing:{today.isoformat()}"
+    if _already_sent(db, store_id, dedupe_key):
+        return []
+
+    # ① 오늘/어제 매출 — 정산 입력(현금+카드)이 원본, 없으면 메뉴별 판매(Sale) 합계로
+    total = prev_total = 0
+    try:
+        from app.services.ai import settlement_service
+
+        day = settlement_service.get_day(store_id, today.isoformat())
+        total = int(day.get("total") or 0)
+        prev = settlement_service.get_day(store_id, (today - timedelta(days=1)).isoformat())
+        prev_total = int(prev.get("total") or 0)
+    except Exception:
+        logger.debug("마감 리포트: 정산 조회 실패 — Sale 합계로 폴백", exc_info=True)
+
+    best_menu, menu_qty, sale_total = "", 0, 0
+    try:
+        from sqlalchemy import func as sa_func
+
+        from app.models.inventory import Menu, Sale
+
+        rows = (
+            db.query(Menu.name, sa_func.sum(Sale.quantity), sa_func.sum(Sale.total_price))
+            .join(Menu, Sale.menu_id == Menu.id)
+            .filter(Sale.store_id == store_id,
+                    Sale.sold_at >= today.isoformat(),
+                    Sale.sold_at < (today + timedelta(days=1)).isoformat())
+            .group_by(Menu.name)
+            .order_by(sa_func.sum(Sale.quantity).desc())
+            .all()
+        )
+        if rows:
+            best_menu, menu_qty = rows[0][0], int(rows[0][1] or 0)
+            sale_total = sum(int(r[2] or 0) for r in rows)
+    except Exception:
+        logger.debug("마감 리포트: Sale 집계 실패", exc_info=True)
+
+    if total <= 0:
+        total = sale_total
+
+    lines: list[str] = []
+    if total > 0:
+        head = f"오늘 매출 ₩{total:,}"
+        if prev_total > 0:
+            pct = round((total - prev_total) / prev_total * 100)
+            head += f" (어제 대비 {'+' if pct >= 0 else ''}{pct}%)"
+        lines.append(head)
+        if best_menu:
+            lines.append(f"베스트 메뉴 {best_menu} {menu_qty}잔")
+    else:
+        lines.append("오늘 매출이 아직 입력되지 않았어요. 30초면 끝나요 ☕")
+
+    try:
+        low = _scan_low_quantity(db, store_id)[:2]
+        if low:
+            lines.append("재고 주의: " + ", ".join(
+                f"{r['ingredient']} {r['current_quantity']:g}{r['unit']}" for r in low))
+    except Exception:
+        pass
+
+    if _dispatch(db, store_id, "report", dedupe_key,
+                 "🌙 오늘 마감 리포트", "\n".join(lines), {"screen": "Dashboard"}):
+        return [dedupe_key]
+    return []
+
+
+# ---------------------------------------------------------------------------
+# 규칙 6 — 원두 시세 하락 (전 매장 공통 시장 소식, 하루 한 번)
+# ---------------------------------------------------------------------------
+
+def check_bean_price(db, store_id: str, settings, now: datetime) -> list[str]:
+    """생두모아 시세를 갱신해 크게 내린 원두가 있으면 알린다 — 구매(발주) 계열이라
+    stock_alert 설정을 따른다. 하락이 없는 날은 침묵(이력도 안 남겨 내일 다시 본다)."""
+    if not settings.stock_alert:
+        return []
+    if now.hour < 10:  # 시세 갱신은 오전 장 이후에
+        return []
+
+    dedupe_key = f"beanprice:{now.date().isoformat()}"
+    if _already_sent(db, store_id, dedupe_key):
+        return []
+
+    try:
+        from app.services.ai import bean_price_watch_service
+
+        drops = bean_price_watch_service.get_today_drops(db)
+    except Exception:
+        logger.exception("원두 시세 확인 실패 (%s)", store_id)
+        return []
+    if not drops:
+        return []
+
+    top = drops[0]
+    body = f"{top['name']} −{top['drop_pct']:g}% ({top['old_price']:,}→{top['new_price']:,}원/kg)"
+    if len(drops) > 1:
+        body += f" 외 {len(drops) - 1}건 하락"
+
+    if _dispatch(db, store_id, "stock", dedupe_key,
+                 "📉 원두 시세가 내렸어요", body,
+                 {"screen": "BeanOperation"}):
+        return [dedupe_key]
+    return []
+
+
 def run_for_store(db, store_id: str, now: Optional[datetime] = None) -> dict[str, Any]:
     """한 매장의 Tier 1 규칙을 모두 평가하고 발송한다."""
     now = now or datetime.now(KST)
@@ -430,6 +569,8 @@ def run_for_store(db, store_id: str, now: Optional[datetime] = None) -> dict[str
     sent += check_compliance(db, store_id, settings)
     sent += check_report(db, store_id, settings, now)
     sent += check_stock(db, store_id, settings, now)
+    sent += check_closing(db, store_id, settings, now)      # 규칙 5 — 마감 리포트
+    sent += check_bean_price(db, store_id, settings, now)   # 규칙 6 — 원두 시세 하락
     return {"store_id": store_id, "sent": sent}
 
 

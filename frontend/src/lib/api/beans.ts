@@ -62,6 +62,32 @@ export type BeanSearchParams = {
   limit?: number;
 };
 
+/** 원산지·가공방식 그룹별 g당 단가 통계 */
+export type MarketStats = {
+  count: number;
+  avg: number;
+  median: number;
+  min: number;
+  max: number;
+};
+
+export type MarketSummary = {
+  overall: MarketStats | null;
+  by_country: Record<string, MarketStats>;
+  by_process: Record<string, MarketStats>;
+  min_group_size: number;
+};
+
+/**
+ * 시세표를 가져옵니다 (원산지별 g당 단가 통계).
+ *
+ * [한글 주석] 원두마다 API를 부르면 50번 호출이 되므로, 그룹 통계만 한 번 받아
+ * 각 원두의 g당 단가와 화면에서 비교합니다.
+ */
+export async function fetchMarketSummary(): Promise<MarketSummary> {
+  return apiFetch<MarketSummary>('/api/v1/roastery/market/summary');
+}
+
 /** 원두 목록을 실제 DB에서 검색합니다 (이름·원산지·풍미 텍스트 + 정렬/필터) */
 export async function searchBeans(params: BeanSearchParams = {}): Promise<BeanSearchResponse> {
   const q = new URLSearchParams();

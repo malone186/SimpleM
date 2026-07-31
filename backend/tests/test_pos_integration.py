@@ -235,3 +235,55 @@ def test_webhook_records_order_once(client, monkeypatch):
     r3 = client.post("/api/v1/pos/webhook/square", content=event,
                      headers={"x-square-hmacsha256-signature": "forged", "content-type": "application/json"})
     assert r3.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# 4) 챗봇 도구 — 미연결 안내 · 상태 조회 · 즉시 동기화 (async 경로)
+# ---------------------------------------------------------------------------
+
+def test_chatbot_tools_status_and_sync(monkeypatch):
+    import asyncio
+
+    from app.services.ai.pos_tools import get_pos_status, sync_pos_now
+
+    # 미연결: 상태는 connected=False, 동기화는 안내 문구를 돌려준다
+    out = json.loads(get_pos_status.invoke({"store_id": STORE}))
+    assert out["connected"] is False
+    msg = asyncio.run(sync_pos_now.ainvoke({"store_id": STORE}))
+    assert "연결" in msg
+
+    # 연결 후: 상태 조회가 연결 정보를 주고, 동기화가 실제 매출을 기록한다
+    _seed_menu_with_recipe()
+    with SessionLocal() as db:
+        db.add(PosConnection(store_id=STORE, provider="square", environment="sandbox",
+                             access_token_enc=pos_service.encrypt("sq-tok-tooltool"),
+                             merchant_id="MERCH_TOOL", auto_sync=True))
+        db.commit()
+
+    async def fake_orders(token, env, start_at, end_at):
+        return [_order("TOOL_ORDER_1")]
+
+    monkeypatch.setattr(pos_service, "_fetch_orders", fake_orders)
+
+    status = json.loads(get_pos_status.invoke({"store_id": STORE}))
+    assert status["connected"] is True and status["environment"] == "sandbox"
+
+    res = json.loads(asyncio.run(sync_pos_now.ainvoke({"store_id": STORE, "hours": 24})))
+    assert res["sales_created"] == 1 and res["total_amount"] == 8000
+    with SessionLocal() as db:
+        assert db.query(Sale).filter(Sale.store_id == STORE).count() == 1
+
+
+def test_bind_store_wraps_async_tool(monkeypatch):
+    """_bind_store가 코루틴 경로를 지원해야 async 도구가 챗봇에서 실제로 돈다.
+
+    store_id를 엉뚱한 값으로 넣어도 로그인 매장으로 강제 덮어써지는지 함께 확인한다.
+    """
+    import asyncio
+
+    from app.services.ai.agents.main_agent import _bind_store
+    from app.services.ai.pos_tools import sync_pos_now
+
+    bound = _bind_store(sync_pos_now, STORE, [])
+    msg = asyncio.run(bound.ainvoke({"store_id": "other@evil.com"}))
+    assert "연결" in msg  # STORE에는 연결이 없으므로 미연결 안내 = STORE로 실행됐다는 증거

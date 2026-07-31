@@ -85,9 +85,11 @@ TIER_BY_CODE = {t["code"]: t for t in REVENUE_TIERS}
 # ---------------------------------------------------------------------------
 
 def _holidays() -> dict[str, str]:
-    from app.services.ai.forecast_service import KR_HOLIDAYS_2026
+    # 입금 예정일이 연말에 다음 해로 넘어갈 수 있어 올해·내년 두 해를 함께 본다
+    from app.services.ai.forecast_service import kr_holidays
 
-    return KR_HOLIDAYS_2026
+    y = date.today().year
+    return kr_holidays(y, y + 1)
 
 
 def is_business_day(d: date) -> bool:
