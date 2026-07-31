@@ -78,8 +78,8 @@ async def _lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="SimpleM 카페 통합 플랫폼 API",
-    description="재고·발주·운영·AI(챗봇/OCR/리포트) 기능을 제공하는 SimpleM 백엔드 API",
+    title="브루노트 카페 통합 플랫폼 API",
+    description="재고·발주·운영·AI(챗봇/OCR/리포트) 기능을 제공하는 브루노트 백엔드 API",
     version="1.0.0",
     lifespan=_lifespan,
 )
@@ -297,6 +297,6 @@ else:
     @app.get("/")
     def read_root():
         return {
-            "message": "SimpleM 카페 통합 플랫폼 백엔드 서버에 오신 것을 환영합니다!",
+            "message": "브루노트 카페 통합 플랫폼 백엔드 서버에 오신 것을 환영합니다!",
             "status": "online",
         }

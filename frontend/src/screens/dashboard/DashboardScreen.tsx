@@ -28,7 +28,7 @@ function sendStockPushNotification(item: { name: string; current_quantity: numbe
 
   const triggerNotif = () => {
     const soldOut = item.current_quantity <= 0;
-    const title = soldOut ? `🚨 [SimpleM] ${item.name} 재고 소진!` : `⚠️ [SimpleM] ${item.name} 재고 부족 알림`;
+    const title = soldOut ? `🚨 [브루노트] ${item.name} 재고 소진!` : `⚠️ [브루노트] ${item.name} 재고 부족 알림`;
     const body = `잔여: ${item.current_quantity}${item.unit} (안전재고: ${item.safety_quantity}${item.unit})\n자동 생성된 투두에서 바로 발주할 수 있습니다 ☕`;
 
     try {
