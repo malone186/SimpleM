@@ -31,6 +31,7 @@ from app.services.operation.bean_blog_review_service import (
     collect_blog_reviews_bulk,
 )
 from app.services.operation.unspecialty_collect_service import collect_unspecialty
+from app.services.operation.bean_alternative_service import find_alternatives
 
 router = APIRouter(prefix="/roastery", tags=["로스터리 원두 마켓 & 리뷰 검색 (Roastery Search)"])
 
@@ -243,6 +244,29 @@ def collect_blog_reviews_bulk_api(
         return collect_blog_reviews_bulk(db, limit=limit, display=display, only_missing=only_missing)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"후기 일괄 수집 중 오류: {str(e)}")
+
+
+@router.get("/beans/{bean_id}/alternatives", summary="이 원두와 비슷하면서 더 저렴한 대체 원두")
+def bean_alternatives_api(
+    bean_id: int,
+    limit: int = Query(5, ge=1, le=20, description="추천 개수"),
+    db: Session = Depends(get_db),
+):
+    """[한글 주석] 같은 원산지·가공방식·풍미를 공유하면서 g당 단가가 더 싼 원두를 찾습니다.
+
+    · '더 싸다'는 절대가격이 아니라 g당 단가 기준입니다.
+      200g과 1kg의 절대가격을 비교하면 대용량이 무조건 비싸 보이기 때문입니다.
+    · 절감률 3~70% 범위만 추천합니다. 70%를 넘으면 대체품이 아니라
+      아예 다른 등급의 제품이고(예: 17g 게이샤 샘플 vs 일반 원두),
+      3% 미만이면 원두를 바꿀 이유가 되지 못합니다.
+    · 포장 용량이 기준 원두의 0.5~2배인 것만 비교합니다. 소포장은 g당 단가가
+      원래 비싸서, 용량을 무시하면 추천이 "더 싼 원두"가 아니라
+      "더 큰 봉지"만 찾아냅니다(실측: 100g 원두의 1~3위가 전부 1kg이었습니다).
+    """
+    result = find_alternatives(db, bean_id, limit=limit)
+    if result is None:
+        raise HTTPException(status_code=404, detail="원두를 찾을 수 없습니다.")
+    return result
 
 
 @router.post("/collect/unspecialty", summary="언스페셜티에서 원두 시세 수집 (robots.txt 허용 확인됨)")
