@@ -479,7 +479,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.2,
-    borderColor: '#131315',
+    borderColor: '#1E1612',
   },
   badgeText: { color: colors.white, fontSize: 9, fontWeight: '900' },
   mainRow: {
@@ -493,12 +493,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(60, 60, 67, 0.15)', // 테마의 mutedSand 계열 적용
+    borderColor: 'rgba(140, 111, 86, 0.15)', // 테마의 mutedSand 계열 적용
     paddingHorizontal: 16,
     paddingVertical: 12,
     marginRight: 12,
     position: 'relative',
-    shadowColor: '#1C1C1E',
+    shadowColor: '#4E3629',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.05,
     shadowRadius: 12,
@@ -568,7 +568,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 9,
     borderTopColor: 'transparent',
     borderBottomColor: 'transparent',
-    borderLeftColor: 'rgba(60, 60, 67, 0.15)',
+    borderLeftColor: 'rgba(140, 111, 86, 0.15)',
   },
   mascot: { marginRight: 2 },
 
@@ -607,7 +607,7 @@ const styles = StyleSheet.create({
     borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(60, 60, 67,0.10)',
+    backgroundColor: 'rgba(140,111,86,0.10)',
     marginLeft: -2,
   },
   // [한글 주석: 빈 알림 안내 영역 - 패널 크기 축소에 맞춰 상하 여백을 24px로 슬림하게 맞춤]
@@ -618,7 +618,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(60, 60, 67,0.14)',
+    borderColor: 'rgba(140,111,86,0.14)',
     paddingHorizontal: 13,
     paddingVertical: 11,
   },
@@ -638,7 +638,7 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 7,
   },
-  noticeCardMeta: { flex: 1, fontSize: 10, color: '#AEAEB2', fontWeight: '600' },
+  noticeCardMeta: { flex: 1, fontSize: 10, color: '#A99C90', fontWeight: '600' },
   // 이동 힌트 — "재고 ›" 형태로 어디로 가는지 미리 알려 준다
   noticeCardCta: { flexDirection: 'row', alignItems: 'center', gap: 1 },
   noticeCardCtaText: { fontSize: 10.5, fontWeight: '800', color: colors.pointOrange, letterSpacing: -0.2 },
@@ -660,15 +660,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(60, 60, 67,0.14)',
+    borderColor: 'rgba(140,111,86,0.14)',
     paddingHorizontal: 15,
     paddingVertical: 14,
     marginTop: 4,
   },
   detailTop: { flexDirection: 'row', alignItems: 'flex-start' },
   detailTitle: { flex: 1, fontSize: 14.5, fontWeight: '900', color: colors.espressoBrown, lineHeight: 20, letterSpacing: -0.3 },
-  detailMeta: { fontSize: 10.5, color: '#AEAEB2', fontWeight: '600', marginTop: 6 },
-  detailDivider: { height: 1, backgroundColor: 'rgba(60, 60, 67,0.12)', marginVertical: 11 },
+  detailMeta: { fontSize: 10.5, color: '#A99C90', fontWeight: '600', marginTop: 6 },
+  detailDivider: { height: 1, backgroundColor: 'rgba(140,111,86,0.12)', marginVertical: 11 },
   detailBody: { fontSize: 12.5, color: '#5C4F46', lineHeight: 19, letterSpacing: -0.2 },
   // 공지 주제와 이어지는 화면으로 보내는 주 버튼 — 상세에서 가장 눈에 띄어야 한다
   detailGoBtn: {
@@ -691,7 +691,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingVertical: 10,
     borderRadius: 13,
-    backgroundColor: 'rgba(60, 60, 67,0.10)',
+    backgroundColor: 'rgba(140,111,86,0.10)',
   },
   detailBackText: { fontSize: 12, fontWeight: '800', color: colors.espressoBrown, letterSpacing: -0.2 },
 });

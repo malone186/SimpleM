@@ -139,7 +139,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#55555C', // [한글 주석: 세련된 모카 브라운 원형 뱃지]
+    backgroundColor: '#6E5544', // [한글 주석: 세련된 모카 브라운 원형 뱃지]
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'flex-end',

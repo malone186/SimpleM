@@ -369,7 +369,7 @@ export default function ManualSalesScreen() {
                     keyboardType="number-pad"
                     inputMode="numeric"
                     placeholder="0"
-                    placeholderTextColor="#C7C7CC"
+                    placeholderTextColor="#BBAA99"
                     value={r.amount}
                     onChangeText={(v) =>
                       setRows((rs) => rs.map((x) => (x.issuer === r.issuer ? { ...x, amount: comma(v) } : x)))
@@ -692,7 +692,7 @@ function MoneyField({
           keyboardType="number-pad"
           inputMode="numeric"
           placeholder="0"
-          placeholderTextColor="#C7C7CC"
+          placeholderTextColor="#C4B5A5"
           value={value}
           onChangeText={onChange}
         />
@@ -935,14 +935,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FFFDF9',
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(60, 60, 67, 0.16)',
+    borderColor: 'rgba(140, 111, 86, 0.16)',
     paddingHorizontal: 12,
     paddingVertical: 10,
     marginBottom: 16,
-    shadowColor: '#1C1C1E',
+    shadowColor: '#4E3629',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
     shadowRadius: 6,
@@ -952,7 +952,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#F0F0F2',
+    backgroundColor: '#F4F1EA',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -972,10 +972,10 @@ const styles = StyleSheet.create({
   calSheet: {
     width: '100%',
     maxWidth: 360,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FFFDF9',
     borderRadius: 22,
     padding: 18,
-    shadowColor: '#1C1C1E',
+    shadowColor: '#4E3629',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.18,
     shadowRadius: 24,
@@ -991,7 +991,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#F0F0F2',
+    backgroundColor: '#F4F1EA',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1046,9 +1046,9 @@ const styles = StyleSheet.create({
   fieldBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F5F5F7',
+    backgroundColor: '#FBF8F3',
     borderWidth: 1.5,
-    borderColor: 'rgba(60, 60, 67,0.22)',
+    borderColor: 'rgba(140,111,86,0.22)',
     borderRadius: 14,
     paddingHorizontal: 14,
     height: 52,
@@ -1071,9 +1071,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
-    backgroundColor: '#F5F5F7',
+    backgroundColor: '#FBF8F3',
     borderWidth: 1,
-    borderColor: 'rgba(60, 60, 67,0.16)',
+    borderColor: 'rgba(140,111,86,0.16)',
     borderRadius: 12,
     paddingHorizontal: 10,
     paddingVertical: 8,

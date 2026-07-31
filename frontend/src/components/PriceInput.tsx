@@ -72,7 +72,7 @@ export default function PriceInput({
           keyboardType="number-pad"
           inputMode="numeric"
           placeholder="0"
-          placeholderTextColor="#C7C7CC"
+          placeholderTextColor="#C4B5A5"
         />
         <Text style={styles.suffix}>원</Text>
       </View>
@@ -132,7 +132,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.white,
     borderWidth: 1.5,
-    borderColor: 'rgba(60, 60, 67,0.22)',
+    borderColor: 'rgba(140,111,86,0.22)',
     borderRadius: 12,
     paddingHorizontal: 14,
     height: 50,

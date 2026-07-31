@@ -67,7 +67,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.coffeeCream,
-    borderColor: 'rgba(60, 60, 67,0.15)',
+    borderColor: 'rgba(140,111,86,0.15)',
   },
   activeChip: {
     backgroundColor: colors.pointOrange,

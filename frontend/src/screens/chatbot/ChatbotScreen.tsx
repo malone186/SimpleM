@@ -281,9 +281,9 @@ export default function ChatbotScreen() {
         <Svg width="100%" height="100%" preserveAspectRatio="none">
           <Defs>
             <LinearGradient id="chatAurora" x1="0%" y1="0%" x2="0%" y2="100%">
-              <Stop offset="0%" stopColor="#131315" />
-              <Stop offset="35%" stopColor="#1A1A1D" />
-              <Stop offset="70%" stopColor="#55555C" stopOpacity="0.35" />
+              <Stop offset="0%" stopColor="#1E1612" />
+              <Stop offset="35%" stopColor="#251C17" />
+              <Stop offset="70%" stopColor="#6E5544" stopOpacity="0.35" />
               <Stop offset="100%" stopColor={colors.creamSand} />
             </LinearGradient>
             <Filter id="chatGlow" x="-50%" y="-50%" width="200%" height="200%">
@@ -291,8 +291,8 @@ export default function ChatbotScreen() {
             </Filter>
           </Defs>
           <Path d="M0 0 H2000 V2000 H0 Z" fill="url(#chatAurora)" />
-          <Circle cx="85%" cy="12%" r="140" fill="#8E8E93" filter="url(#chatGlow)" opacity="0.25" />
-          <Circle cx="15%" cy="22%" r="130" fill="#A5A5AD" filter="url(#chatGlow)" opacity="0.2" />
+          <Circle cx="85%" cy="12%" r="140" fill="#E28257" filter="url(#chatGlow)" opacity="0.25" />
+          <Circle cx="15%" cy="22%" r="130" fill="#C29D7A" filter="url(#chatGlow)" opacity="0.2" />
           <Circle cx="60%" cy="4%" r="120" fill="#88BCB5" filter="url(#chatGlow)" opacity="0.16" />
         </Svg>
       </View>
@@ -480,7 +480,7 @@ const styles = StyleSheet.create({
   // 관리 탭 헤더 높이(설정칩+마스코트 ~153)에 맞춰 마스코트를 하단 정렬 — 챗봇 헤더엔 버튼이 없어 minHeight로 확보
   brownHeaderRight: { alignItems: 'flex-end', justifyContent: 'flex-end', minHeight: 154 },
   brownHeaderTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
-  brownHeaderSub: { fontSize: 11.5, color: '#B9B9BF', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
+  brownHeaderSub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
   // 새 채팅/기록 — 브라운 헤더 아래 크림 시트 상단 섹션의 칩 (크림 배경이라 어두운 글씨)
   chatActionsRow: {
     flexDirection: 'row',

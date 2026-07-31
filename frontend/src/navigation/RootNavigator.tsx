@@ -220,11 +220,11 @@ function TabsNavigator() {
         tabBarStyle: {
           backgroundColor: 'rgba(250, 249, 246, 0.96)', // [아이폰 스타일] 맑고 투명도가 살짝 도는 오프화이트 틴트
           borderTopWidth: 0.8,
-          borderTopColor: 'rgba(60, 60, 67, 0.08)', // 은은하고 세련된 초슬림 엣지
+          borderTopColor: 'rgba(140, 111, 86, 0.08)', // 은은하고 세련된 초슬림 엣지
           height: tabBarHeight, // [한글 주석: 안드로이드 소프트키 및 노치 대응 동적 높이]
           paddingBottom: bottomInset, // [한글 주석: 갤럭시 하단 시스템 바에 글자/아이콘 가림 방지 여백]
           paddingTop: 8,
-          shadowColor: '#1C1C1E',
+          shadowColor: '#4E3629',
           shadowOffset: { width: 0, height: -3 },
           shadowOpacity: 0.04,
           shadowRadius: 10,

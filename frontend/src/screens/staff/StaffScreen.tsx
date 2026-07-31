@@ -577,7 +577,7 @@ function NumberField({
           keyboardType="decimal-pad"
           inputMode="decimal"
           placeholder="0"
-          placeholderTextColor="#C7C7CC"
+          placeholderTextColor="#C4B5A5"
         />
         <Text style={styles.numSuffix}>{suffix}</Text>
       </View>

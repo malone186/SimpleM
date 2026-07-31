@@ -259,8 +259,8 @@ function buildPrintHtml(d: GeneratedDocument, autoPrint = true): string {
   return `<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><title>${esc(d.title)}</title>
 <style>
   @page { size: A4; margin: 20mm; }
-  body { font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; color: #1E1E22; max-width: 720px; margin: 0 auto; padding: 24px; font-size: 13px; line-height: 1.6; }
-  header { border-bottom: 3px solid #1E1E22; padding-bottom: 10px; margin-bottom: 18px; }
+  body { font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; color: #2d2118; max-width: 720px; margin: 0 auto; padding: 24px; font-size: 13px; line-height: 1.6; }
+  header { border-bottom: 3px solid #2d2118; padding-bottom: 10px; margin-bottom: 18px; }
   h1 { font-size: 21px; margin: 0 0 4px; }
   .meta { color: #7a6a58; font-size: 12px; }
   h2 { font-size: 14px; margin: 18px 0 6px; padding-bottom: 4px; border-bottom: 1px solid #d9cbb8; }
@@ -268,7 +268,7 @@ function buildPrintHtml(d: GeneratedDocument, autoPrint = true): string {
   .kv { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; }
   .kv .k { color: #7a6a58; flex-shrink: 0; }
   .kv .v { font-weight: 600; text-align: right; }
-  .signline { display: inline-block; width: 180px; border-bottom: 1px solid #1E1E22; }
+  .signline { display: inline-block; width: 180px; border-bottom: 1px solid #2d2118; }
   table { width: 100%; border-collapse: collapse; margin: 6px 0 10px; }
   th, td { border: 1px solid #d9cbb8; padding: 6px 8px; font-size: 12px; text-align: left; }
   th { background: #f5eee3; }

@@ -426,7 +426,7 @@ const styles = StyleSheet.create({
 
   // 맛과 향 설명 박스 (DB description)
   descBox: {
-    backgroundColor: 'rgba(60, 60, 67,0.07)',
+    backgroundColor: 'rgba(140,111,86,0.07)',
     borderRadius: 10, padding: 12,
     borderLeftWidth: 3, borderLeftColor: colors.mochaBrown,
   },
@@ -455,7 +455,7 @@ const styles = StyleSheet.create({
 
   // 테이스팅 노트 박스
   tasteBox: {
-    backgroundColor: 'rgba(60, 60, 67,0.06)',
+    backgroundColor: 'rgba(140,111,86,0.06)',
     borderRadius: 10, padding: 12,
   },
   tasteText: { ...typography.L5, color: colors.espressoBrown, lineHeight: 20 },

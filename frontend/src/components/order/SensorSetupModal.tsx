@@ -480,7 +480,7 @@ const s = StyleSheet.create({
   },
   deviceIconCircle: {
     width: 34, height: 34, borderRadius: 17,
-    backgroundColor: 'rgba(60, 60, 67, 0.08)',
+    backgroundColor: 'rgba(140, 111, 86, 0.08)',
     alignItems: 'center', justifyContent: 'center',
   },
   deviceIconCirclePaired: { backgroundColor: '#E8F5E9' },
@@ -507,7 +507,7 @@ const s = StyleSheet.create({
   },
   benefitRow: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 5,
-    backgroundColor: 'rgba(60, 60, 67, 0.06)',
+    backgroundColor: 'rgba(140, 111, 86, 0.06)',
     borderRadius: 8, padding: 8,
   },
   benefitText: { flex: 1, fontSize: 11, fontWeight: '700', color: colors.espressoBrown, lineHeight: 15 },
@@ -530,7 +530,7 @@ const s = StyleSheet.create({
 
   // BLE 스캔 결과 목록
   foundList: {
-    backgroundColor: 'rgba(60, 60, 67, 0.05)',
+    backgroundColor: 'rgba(140, 111, 86, 0.05)',
     borderRadius: 10, padding: 8, gap: 6, marginTop: 6,
   },
   foundListTitle: { fontSize: 10, fontWeight: '800', color: colors.mochaBrown },

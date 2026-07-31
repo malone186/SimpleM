@@ -183,7 +183,7 @@ const styles = StyleSheet.create({
     aspectRatio: 3 / 4,
     borderRadius: 14,
     overflow: 'hidden',
-    backgroundColor: '#131315',
+    backgroundColor: '#1E1612',
     position: 'relative',
   },
   guide: {
