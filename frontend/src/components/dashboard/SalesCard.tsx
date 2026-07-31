@@ -1694,59 +1694,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.espressoBrown,
     transform: [{ rotate: '45deg' }],
   },
-<<<<<<< Updated upstream
-  cardContainer: {
-    paddingHorizontal: 2,
-    marginBottom: 16,
-  },
-  journeyHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginTop: 6,
-    marginBottom: 16,
-    paddingHorizontal: 4,
-  },
-  journeyTitle: {
-    fontSize: 26,
-    fontWeight: '900',
-    color: '#18181B',
-    letterSpacing: -0.6,
-  },
-  journeySub: {
-    fontSize: 12.5,
-    fontWeight: '500',
-    color: '#71717A',
-    marginTop: 3,
-    letterSpacing: -0.2,
-  },
-  floatingAddBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#18181B',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  dateStripRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    backgroundColor: 'rgba(110, 85, 68, 0.04)',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(110, 85, 68, 0.07)',
-  },
-=======
->>>>>>> Stashed changes
 
   dateStripItem: {
     alignItems: 'center',

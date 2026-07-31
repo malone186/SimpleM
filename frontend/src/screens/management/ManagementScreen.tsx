@@ -154,11 +154,7 @@ export default function ManagementScreen() {
             <Ionicons name="settings-outline" size={15} color={colors.creamSand} />
             <Text style={styles.gearText}>{t('settings')}</Text>
           </PressableScale>
-<<<<<<< Updated upstream
           <Brew mood="clipboard" size={120} />
-=======
-          <Brew mood="clipboard" size={96} />
->>>>>>> Stashed changes
         </View>
       </View>
 
@@ -272,15 +268,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     gap: 10,
   },
-<<<<<<< Updated upstream
   headerLeft: { flex: 1, justifyContent: 'center' },
   // 우측 세로열 — 설정 버튼(위) + 마스코트(아래). 설정을 오른쪽 위에 둔다.
   headerRight: { alignItems: 'flex-end', gap: 6 },
-=======
-  headerText: { flex: 1, paddingRight: 8 },
-  // 설정 칩을 마스코트 위에 얹어 세로로 쌓지 않는다 (헤더 높이 절약)
-  headerRight: { alignItems: 'flex-end', gap: 2 },
->>>>>>> Stashed changes
   bigTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
   sub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
   gearBtn: {
