@@ -15,13 +15,18 @@ import { useAuth } from '../../auth/AuthContext';
 import {
   FONT_SIZE_LABEL,
   LANGUAGE_LABEL,
+  SPEECH_RATE_STEPS,
   VOICE_TYPE_LABEL,
+  nearestSpeechRate,
   usePreferences,
   type FontSize,
   type Language,
+  type VoiceAlertOutput,
   type VoiceType,
 } from '../../preferences/PreferencesContext';
 import speechPlayer from '../../lib/speech/speechPlayer';
+import { resetEarphoneCache } from '../../lib/speech/audioPolicy';
+import type { EarphoneStatus } from '../../lib/speech/speechTypes';
 import { useTranslation } from '../../i18n/translations';
 import { Badge, Button, Card, Divider, Screen, SectionTitle, IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
@@ -148,6 +153,26 @@ export default function SettingsScreen() {
     }
   };
 
+  // ── 음성 알림 출력 상태 ─────────────────────────────────────────
+  // [한글 주석] "이어폰을 꼈는데 왜 안 읽어주지?"를 사장님이 직접 확인할 수 있게,
+  // 지금 앱이 판단한 출력 장치를 알림 설정 화면에 그대로 보여준다.
+  // (안드로이드 이어폰 감지 API가 false를 내놓는 기기가 있어, 감지 결과를 숨기면
+  //  음성이 안 나오는 이유를 알 방법이 없었다)
+  const [audioOut, setAudioOut] = useState<EarphoneStatus | null>(null);
+  const [audioChecking, setAudioChecking] = useState(false);
+
+  const refreshAudioOut = async (force = false) => {
+    if (force) resetEarphoneCache();
+    setAudioChecking(true);
+    try {
+      setAudioOut(await speechPlayer.isEarphoneConnected());
+    } catch {
+      setAudioOut({ connected: false, supported: false, via: null, reason: '확인 실패' });
+    } finally {
+      setAudioChecking(false);
+    }
+  };
+
   // [한글 주석: 1대1 CS 탭 슬라이더 너비 및 슬라이드 애니메이션 상태]
   const [csTrackWidth, setCsTrackWidth] = useState(300);
   const csSlideAnim = useRef(new Animated.Value(0)).current;
@@ -189,6 +214,15 @@ export default function SettingsScreen() {
 
   // [한글 주석: 설정 창 내부 서브 라우팅 뷰 관리 상태 ('main'일 때는 메뉴 목록 노출)]
   const [subView, setSubView] = useState<'main' | 'account' | 'notification' | 'appearance' | 'inquiry' | 'legal' | 'settlement'>(initialSection ?? 'main');
+
+  // 알림 설정 화면을 보고 있는 동안에만 출력 장치를 주기적으로 다시 확인한다.
+  // (이어폰을 꽂거나 빼면 몇 초 안에 화면 문구가 따라 바뀌어야 사장님이 신뢰할 수 있다)
+  useEffect(() => {
+    if (subView !== 'notification') return;
+    refreshAudioOut(true);
+    const timer = setInterval(() => refreshAudioOut(true), 5000);
+    return () => clearInterval(timer);
+  }, [subView]);
 
   // [한글 주석: 현재 진입한 subView 상태에 맞춰 상단 헤더 타이틀과 뒤로가기 동작을 동적으로 변경]
   useEffect(() => {
@@ -784,7 +818,7 @@ export default function SettingsScreen() {
         <Divider />
         <Row
           label="알림 음성 읽어주기"
-          hint="이어폰·에어팟(블루투스) 연결 시 완료 알림을 음성으로 읽어드려요"
+          hint="완료 알림·브리핑을 사장님 목소리 설정으로 읽어드려요"
           right={
             <Switch
               value={prefs.voiceAlertEnabled}
@@ -794,6 +828,97 @@ export default function SettingsScreen() {
             />
           }
         />
+
+        {/* [한글 주석] 음성 출력 조건 + 지금 어디로 나가는지 실시간 표시.
+            예전엔 '이어폰 연결 시에만'이 코드에 박혀 있었는데, 안드로이드 이어폰 감지가
+            연결을 놓치는 기기에서는 아무 말도 안 하는 상태가 됐다. 이제 조건을 고를 수 있고,
+            감지 결과와 테스트 재생까지 이 자리에서 확인된다. */}
+        {prefs.voiceAlertEnabled ? (
+          <View style={styles.voiceOutBox}>
+            <Text style={[styles.fieldLabel, { marginTop: 0 }]}>언제 소리로 읽어줄까요?</Text>
+            <View style={{ marginTop: 8 }}>
+              <Segmented
+                options={[
+                  { value: 'always', label: '항상 읽어주기' },
+                  { value: 'earphone', label: '이어폰 연결 시에만' },
+                ]}
+                value={prefs.voiceAlertOutput}
+                onChange={(v) => prefs.setPref('voiceAlertOutput', v as VoiceAlertOutput)}
+              />
+            </View>
+
+            <View style={styles.audioStatusRow}>
+              <Ionicons
+                name={
+                  audioOut?.connected
+                    ? 'headset'
+                    : audioOut?.supported === false
+                      ? 'help-circle-outline'
+                      : 'volume-medium-outline'
+                }
+                size={15}
+                color={audioOut?.connected ? colors.espressoBrown : colors.mochaBrown}
+              />
+              <Text style={styles.audioStatusText}>
+                {audioOut === null
+                  ? '출력 장치를 확인하는 중이에요…'
+                  : audioOut.connected
+                    ? `이어폰 연결됨${
+                        audioOut.via === 'bluetooth'
+                          ? ' (블루투스)'
+                          : audioOut.via === 'wired'
+                            ? ' (유선)'
+                            : audioOut.via === 'recent'
+                              ? ' (최근 연결 유지 중)'
+                              : ''
+                      } — 음성이 이어폰으로 나가요`
+                    : audioOut.supported === false
+                      ? '이 기기에선 이어폰 연결을 확인할 수 없어요 — 조건과 상관없이 읽어드려요'
+                      : '이어폰 없음 — 스피커로 나가요'}
+              </Text>
+              <PressableScale
+                style={styles.audioCheckBtn}
+                onPress={() => refreshAudioOut(true)}
+                to={0.9}
+              >
+                <Ionicons
+                  name="refresh"
+                  size={12}
+                  color={colors.espressoBrown}
+                  style={{ marginRight: 3 }}
+                />
+                <Text style={styles.audioCheckBtnText}>
+                  {audioChecking ? '확인 중' : '다시 확인'}
+                </Text>
+              </PressableScale>
+            </View>
+
+            <PressableScale
+              style={styles.audioTestBtn}
+              to={0.94}
+              onPress={async () => {
+                // 실제 알림과 똑같은 정책으로 판단한 뒤 재생 — "설정에선 되는데 알림은 안 되는" 차이 방지
+                const permission = await speechPlayer.canPlayAudio();
+                await refreshAudioOut(true);
+                if (!permission.allowed) {
+                  toast('음성을 건너뛰었어요', permission.reason ?? '지금은 소리를 낼 수 없어요.');
+                  return;
+                }
+                speechPlayer.speak(
+                  '사장님, 알림이 오면 이 목소리와 이 속도로 읽어드릴게요.',
+                  { voiceType: prefs.voiceType, rate: prefs.speechRate }
+                );
+              }}
+            >
+              <Ionicons name="play" size={13} color="#FFFFFF" style={{ marginRight: 5 }} />
+              <Text style={styles.audioTestBtnText}>지금 알림 음성 테스트</Text>
+            </PressableScale>
+
+            <Text style={styles.audioHint}>
+              목소리와 말하는 속도는 설정 &gt; 화면 표시에서 바꿀 수 있어요.
+            </Text>
+          </View>
+        ) : null}
         <Divider />
         <Row
           label="음성 비서 버튼 표시"
@@ -906,7 +1031,7 @@ export default function SettingsScreen() {
                     : vt === 'cute_child'
                       ? '우와 사장님 안녕! 귀여운 꼬마 목소리야!'
                       : '안녕하세요 사장님! 다정한 아나운서 여성 목소리입니다.';
-              speechPlayer.speak(sampleText, vt);
+              speechPlayer.speak(sampleText, { voiceType: vt, rate: prefs.speechRate });
             }}
             to={0.88}
           >
@@ -933,7 +1058,7 @@ export default function SettingsScreen() {
                         : vt === 'cute_child'
                           ? '우와 사장님 안녕! 귀여운 꼬마 목소리야!'
                           : '안녕하세요 사장님! 다정한 아나운서 여성 목소리입니다.';
-                  speechPlayer.speak(sampleText, vt);
+                  speechPlayer.speak(sampleText, { voiceType: vt, rate: prefs.speechRate });
                 }}
                 to={0.94}
               >
@@ -960,6 +1085,41 @@ export default function SettingsScreen() {
             );
           })}
         </View>
+
+        {/* [한글 주석] 말하는 속도 — 알림을 읽는 빠르기. 5단계로 고르고, 고르는 즉시
+            그 속도로 샘플이 나가 바로 비교된다. 값은 목소리 타입의 기본 속도에 곱해지므로
+            어떤 목소리를 골라도 사장님이 정한 빠르기가 그대로 따라간다. */}
+        <Text style={styles.fieldLabel}>말하는 속도</Text>
+        <View style={styles.rateRow}>
+          {SPEECH_RATE_STEPS.map((step) => {
+            const active = nearestSpeechRate(prefs.speechRate) === step.value;
+            return (
+              <PressableScale
+                key={step.value}
+                style={[styles.rateChip, active && styles.rateChipActive]}
+                onPress={() => {
+                  prefs.setPref('speechRate', step.value);
+                  speechPlayer.speak(
+                    '이 속도로 알림을 읽어드릴게요. 사장님, 오늘도 좋은 하루 되세요.',
+                    { voiceType: prefs.voiceType ?? 'warm_female', rate: step.value }
+                  );
+                }}
+                to={0.92}
+              >
+                <Text style={[styles.rateChipText, active && styles.rateChipTextActive]}>
+                  {step.label}
+                </Text>
+              </PressableScale>
+            );
+          })}
+        </View>
+        <Text style={styles.rateHint}>
+          {SPEECH_RATE_STEPS.find((s) => s.value === nearestSpeechRate(prefs.speechRate))?.hint ??
+            '기본 속도'}
+          {' · '}
+          {nearestSpeechRate(prefs.speechRate).toFixed(2).replace(/0$/, '')}배속 — 누르면 바로
+          들려드려요
+        </Text>
 
         {/* 미리보기 — 선택한 글자 크기 및 언어가 즉시 반영 */}
         <View style={styles.previewBox}>
@@ -1555,5 +1715,94 @@ const styles = StyleSheet.create({
     color: colors.mochaBrown,
     marginTop: 4,
     lineHeight: 13,
+  },
+  // [한글 주석: 말하는 속도 5단계 칩]
+  rateRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
+  },
+  rateChip: {
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: '#FFFDF9',
+    borderWidth: 1,
+    borderColor: '#EFECE6',
+  },
+  rateChipActive: {
+    backgroundColor: colors.espressoBrown,
+    borderColor: colors.espressoBrown,
+  },
+  rateChipText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: colors.mochaBrown,
+  },
+  rateChipTextActive: {
+    color: colors.white,
+    fontWeight: '900',
+  },
+  rateHint: {
+    ...typography.L5,
+    color: colors.mochaBrown,
+    marginTop: 7,
+    lineHeight: 16,
+  },
+  // [한글 주석: 음성 출력 조건 · 현재 출력 장치 표시 박스]
+  voiceOutBox: {
+    marginTop: 10,
+    backgroundColor: '#FFFDF9',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#EFECE6',
+    padding: 12,
+  },
+  audioStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 10,
+  },
+  audioStatusText: {
+    ...typography.L5,
+    color: colors.mochaBrown,
+    flex: 1,
+    lineHeight: 16,
+  },
+  audioCheckBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.espressoBrown,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  audioCheckBtnText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: colors.espressoBrown,
+  },
+  audioTestBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.espressoBrown,
+    borderRadius: 10,
+    paddingVertical: 9,
+    marginTop: 10,
+  },
+  audioTestBtnText: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: colors.white,
+  },
+  audioHint: {
+    ...typography.L5,
+    color: colors.mochaBrown,
+    marginTop: 8,
+    lineHeight: 15,
   },
 });

@@ -7,16 +7,10 @@
 // "이상한 기계 목소리"가 났다. 서버(/chatbot/tts, Gemini TTS)는 성별·톤이 실제로
 // 다른 보이스로 합성해 주므로 이 문제가 전부 사라진다.
 // 서버 실패(쿼터·오프라인·미로그인) 시에만 로컬 speechSynthesis로 폴백한다.
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-import { PREFS_STORAGE_KEY } from '../../preferences/PreferencesContext';
 import { API_BASE_URL } from '../api/client';
-import type {
-  AudioPlaybackPermission,
-  EarphoneStatus,
-  SpeechPlayer,
-  SpeechQueueItem,
-} from './speechTypes';
+import { canPlayAudio, isEarphoneConnected } from './audioPolicy';
+import type { SpeakOptions, SpeechPlayer, SpeechQueueItem } from './speechTypes';
+import { clampRate, readVoicePrefs } from './voicePrefs';
 
 // ═══════════════════════════════════════════════════
 // [한글 주석] 서버 TTS 호출용 로그인 토큰 — AlertsWatcher가 로그인/로그아웃 시 넣어준다.
@@ -30,59 +24,22 @@ function setAuthToken(token: string | null): void {
 }
 
 // ═══════════════════════════════════════════════════
-// [한글 주석] 이어폰(외부 오디오 출력 장치) 감지
+// [한글 주석] 이어폰 감지·재생 정책은 네이티브와 공유한다 (audioPolicy → earphoneDetector.web).
+// 예전엔 "출력 장치가 2개 이상이면 이어폰"으로 세는 코드가 여기 따로 있었는데,
+// 크롬은 스피커 하나도 default/communications로 중복 보고해서 판정이 엉망이었다.
 // ═══════════════════════════════════════════════════
 
-async function isEarphoneConnected(): Promise<EarphoneStatus> {
-  try {
-    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.enumerateDevices) {
-      return { connected: false, reason: '이 브라우저는 오디오 장치 감지를 지원하지 않습니다.' };
-    }
+// ═══════════════════════════════════════════════════
+// [한글 주석] 목소리·속도 결정 — 설정(PreferencesContext)과 같은 저장 키를 읽는다(voicePrefs)
+// ═══════════════════════════════════════════════════
 
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const audioOutputs = devices.filter((d) => d.kind === 'audiooutput');
-    const connected = audioOutputs.length >= 2;
-    return { connected, reason: null };
-  } catch (err) {
-    return {
-      connected: false,
-      reason: '오디오 장치 감지 실패',
-    };
-  }
-}
-
-async function canPlayAudio(): Promise<AudioPlaybackPermission> {
-  const status = await isEarphoneConnected();
-  if (status.reason) {
-    return {
-      allowed: true,
-      reason: '장치 감지를 지원하지 않는 웹 브라우저 환경입니다.',
-    };
-  }
+/** 이번 재생에 쓸 목소리 타입과 속도 배율 (미리듣기 옵션이 있으면 그게 우선) */
+async function resolveVoice(options?: SpeakOptions): Promise<{ voiceType: string; speed: number }> {
+  const saved = await readVoicePrefs();
   return {
-    allowed: status.connected,
-    reason: status.connected
-      ? null
-      : '이어폰이 연결되어 있지 않아 음성을 재생하지 않습니다.',
+    voiceType: options?.voiceType ?? saved.voiceType,
+    speed: clampRate(options?.rate ?? saved.speechRate),
   };
-}
-
-// ═══════════════════════════════════════════════════
-// [한글 주석] 목소리 타입 결정 — 설정(PreferencesContext)과 같은 저장 키를 읽는다
-// ═══════════════════════════════════════════════════
-
-async function resolveVoiceType(overrideVoiceType?: string): Promise<string> {
-  if (overrideVoiceType) return overrideVoiceType;
-  try {
-    const raw = await AsyncStorage.getItem(PREFS_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed.voiceType) return parsed.voiceType as string;
-    }
-  } catch {
-    // 저장소 접근 실패 — 기본 목소리로
-  }
-  return 'warm_female';
 }
 
 // [한글 주석] 로컬 폴백용 피치/속도 — 서버 TTS를 못 쓸 때만 쓰인다.
@@ -114,7 +71,7 @@ function isSpeaking(): boolean {
 // [한글 주석] 1순위 — 서버 TTS (Gemini, 진짜 다른 목소리)
 // ═══════════════════════════════════════════════════
 
-async function _speakViaServer(text: string, voiceType: string): Promise<void> {
+async function _speakViaServer(text: string, voiceType: string, speed: number): Promise<void> {
   if (!_authToken) throw new Error('로그인 토큰 없음 — 로컬 TTS로 폴백');
 
   const res = await fetch(`${API_BASE_URL}/api/v1/chatbot/tts`, {
@@ -132,6 +89,17 @@ async function _speakViaServer(text: string, voiceType: string): Promise<void> {
   try {
     await new Promise<void>((resolve, reject) => {
       const audio = new Audio(url);
+      // [한글 주석] 말하는 속도 — 서버가 합성해 준 음성을 재생 배속으로 조절한다.
+      // preservesPitch를 켜두면 배속을 올려도 목소리 톤이 높아지지 않는다(다람쥐 소리 방지).
+      const anyAudio = audio as HTMLAudioElement & {
+        preservesPitch?: boolean;
+        mozPreservesPitch?: boolean;
+        webkitPreservesPitch?: boolean;
+      };
+      anyAudio.preservesPitch = true;
+      anyAudio.mozPreservesPitch = true;
+      anyAudio.webkitPreservesPitch = true;
+      audio.playbackRate = speed;
       _currentAudio = audio;
       audio.onended = () => resolve();
       audio.onerror = () => reject(new Error('오디오 재생 실패'));
@@ -188,7 +156,7 @@ function selectLocalVoice(
   return natural || korean[0];
 }
 
-async function _speakViaLocal(text: string, voiceType: string): Promise<void> {
+async function _speakViaLocal(text: string, voiceType: string, speed: number): Promise<void> {
   if (typeof window === 'undefined' || !window.speechSynthesis) return;
 
   const synth = window.speechSynthesis;
@@ -200,7 +168,8 @@ async function _speakViaLocal(text: string, voiceType: string): Promise<void> {
     synth.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'ko-KR';
-    utterance.rate = tone.rate;
+    // 목소리별 기본 속도에 사장님이 고른 속도 배율을 곱한다
+    utterance.rate = clampRate(tone.rate * speed);
     utterance.pitch = tone.pitch;
     utterance.volume = 1.0;
     if (matched) utterance.voice = matched;
@@ -214,15 +183,15 @@ async function _speakViaLocal(text: string, voiceType: string): Promise<void> {
 // [한글 주석] 공통 재생 진입점 + 큐
 // ═══════════════════════════════════════════════════
 
-async function _speakInternal(text: string, overrideVoiceType?: string): Promise<void> {
-  const voiceType = await resolveVoiceType(overrideVoiceType);
+async function _speakInternal(text: string, options?: SpeakOptions): Promise<void> {
+  const { voiceType, speed } = await resolveVoice(options);
   _speaking = true;
   try {
-    await _speakViaServer(text, voiceType);
+    await _speakViaServer(text, voiceType, speed);
   } catch {
     // 쿼터 소진·오프라인·미로그인·자동재생 차단 — 기기 내장 TTS로 폴백
     try {
-      await _speakViaLocal(text, voiceType);
+      await _speakViaLocal(text, voiceType, speed);
     } catch {
       // 폴백까지 실패해도 큐는 계속 흘러야 한다 (텍스트 토스트는 화면이 담당)
     }
@@ -235,15 +204,19 @@ async function _processQueue(): Promise<void> {
   if (_speaking || _queue.length === 0) return;
   const item = _queue.shift();
   if (item) {
-    await _speakInternal(item.text);
+    // 네이티브와 동일하게 큐에서도 정책을 한 번 더 확인한다 (호출부가 빠뜨려도 규칙은 지켜지도록)
+    const permission = await canPlayAudio();
+    if (permission.allowed) {
+      await _speakInternal(item.text);
+    }
     _processQueue();
   }
 }
 
-/** 설정 화면 '샘플 듣기' 같은 명시적 조작 전용 — 이어폰 게이트를 걸지 않는다.
- * (자동 알림은 enqueue를 쓰고, 그쪽은 기존대로 이어폰 정책을 지킨다) */
-async function speak(text: string, overrideVoiceType?: string): Promise<void> {
-  await _speakInternal(text, overrideVoiceType);
+/** 설정 화면 '샘플 듣기' 같은 명시적 조작 전용 — 출력 정책(이어폰 게이트)을 걸지 않는다.
+ * (자동 알림은 enqueue를 쓰고, 그쪽은 설정한 출력 조건을 지킨다) */
+async function speak(text: string, options?: SpeakOptions): Promise<void> {
+  await _speakInternal(text, options);
 }
 
 function enqueue(text: string, id?: string): void {
