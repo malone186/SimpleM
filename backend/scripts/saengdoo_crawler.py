@@ -8,8 +8,9 @@ seed_service.import_beans_from_csv 가 그대로 먹는 CSV로 저장한다.
     python scripts/saengdoo_crawler.py --out scripts/data/saengdoo_beans.csv
     # 크롤 (상세까지 — 가공/품종/구매링크 보강, ~1,100 요청)
     python scripts/saengdoo_crawler.py --details --out scripts/data/saengdoo_beans.csv
-    # DB 적재 (기존 로더 재사용)
-    python scripts/import_seed_beans.py --file scripts/data/saengdoo_beans.csv
+    # DB 적재 — 반드시 전용 안전 로더로! (import_seed_beans.py는 CSV id를 explicit PK로
+    # 넣어 운영 DB 기존 원두와 id가 충돌·덮어써진다. 실측: Neon에서 충돌 534건)
+    python scripts/load_saengdoo_beans.py --file scripts/data/saengdoo_beans.csv
 
 주의: 생두모아는 여러 판매처를 모은 애그리게이터다. 수집 데이터는 내부 참고용으로만 쓰고
 출처(product_url = 판매처 스토어)를 유지한다. 요청 간 딜레이로 예의 있게 크롤한다.
