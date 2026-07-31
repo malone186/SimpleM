@@ -56,3 +56,9 @@ backend/uvicorn_restart.log
 # TLS 인증서/개인키 (tailscale cert 산출물 — 절대 커밋 금지)
 *.crt
 *.key
+
+# 원두 사이트 정찰 스크립트가 저장하는 HTML 덤프 (재생성 가능, 용량 큼)
+backend/scripts/_recon/
+
+# 벡터 스토어 로컬 데이터 (원두 리뷰 RAG · chromadb) — 바이너리 세그먼트라 커밋 금지
+backend/data/chroma_db/

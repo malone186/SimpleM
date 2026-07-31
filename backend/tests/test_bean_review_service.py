@@ -98,14 +98,22 @@ def test_collect_and_process_reviews_pipeline(db_session):
 
     assert collect_res.success is True
     assert collect_res.collected_count > 0
-    assert collect_res.summary.avg_rating > 0.0
-    assert collect_res.summary.review_count > 0
 
-    # 3. RoasteryBean 집계 반영 검증
+    # 3. 집계 검증 — 이 파이프라인이 만드는 리뷰는 '데모(샘플)' 문장이다.
+    # e6367dc부터 샘플 리뷰는 source_site=SAMPLE_SOURCE_SITE로 강제되어 집계에서
+    # 제외된다(가짜 리뷰가 평점·긍정비율을 만들면 안 되므로). 따라서 수집은 됐지만
+    # 집계는 0이어야 '가짜가 진짜로 위장되지 않는다'는 수정 의도가 지켜진 것이다.
+    assert collect_res.summary.review_count == 0
+    assert collect_res.summary.avg_rating == 0.0
+
     updated_bean = db_session.query(RoasteryBean).filter(RoasteryBean.id == bean.id).first()
-    assert updated_bean.avg_rating > 0.0
-    assert updated_bean.review_count > 0
-    assert updated_bean.positive_ratio > 0.0
+    assert updated_bean.review_count == 0
+    assert updated_bean.avg_rating == 0.0
+
+    # 샘플 리뷰 자체는 DB에 저장돼 있어야 한다 (집계에서만 빠질 뿐)
+    from app.models.roastery import BeanReview
+    stored = db_session.query(BeanReview).filter(BeanReview.bean_id == bean.id).count()
+    assert stored == collect_res.collected_count
 
 
 def test_search_and_sort_beans_with_alternatives(db_session):

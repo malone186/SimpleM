@@ -477,6 +477,12 @@ def _bind_store(t, store_id: str, created_docs: list[dict[str, Any]]):
     if not (getattr(t, "args", None) and "store_id" in t.args):
         return t
 
+    def _collect(result):
+        doc = _extract_document(result)
+        if doc and all(d["id"] != doc["id"] for d in created_docs):
+            created_docs.append(doc)
+        return result
+
     def _run(**kwargs):
         kwargs["store_id"] = store_id
         try:
@@ -488,16 +494,26 @@ def _bind_store(t, store_id: str, created_docs: list[dict[str, Any]]):
             # 1차 방어이고 여기는 전 도구 공통의 마지막 그물이다)
             logger.exception("도구 실행 실패: %s", t.name)
             return f"도구 '{t.name}' 실행 실패: {type(e).__name__}: {e}"
-        doc = _extract_document(result)
-        if doc and all(d["id"] != doc["id"] for d in created_docs):
-            created_docs.append(doc)
-        return result
+        return _collect(result)
+
+    async def _arun(**kwargs):
+        # async 도구(pos_tools 등)는 sync 경로(t.invoke)가 NotImplementedError라
+        # 코루틴 경로가 반드시 있어야 한다. generate_response가 ainvoke를 쓰므로
+        # 실제 실행은 이쪽을 탄다 — sync 도구도 ainvoke가 executor로 처리해 준다.
+        kwargs["store_id"] = store_id
+        try:
+            result = await t.ainvoke(kwargs)
+        except Exception as e:
+            logger.exception("도구 실행 실패: %s", t.name)
+            return f"도구 '{t.name}' 실행 실패: {type(e).__name__}: {e}"
+        return _collect(result)
 
     return StructuredTool(
         name=t.name,
         description=t.description,
         args_schema=t.args_schema,
         func=_run,
+        coroutine=_arun,
     )
 
 

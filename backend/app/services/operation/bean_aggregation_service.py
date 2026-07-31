@@ -13,6 +13,7 @@ from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 
 from app.models.roastery import RoasteryBean, BeanReview
+from app.services.operation.bean_review_service import SAMPLE_SOURCE_SITE
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +45,15 @@ def aggregate_curation_for_bean(db: Session, bean_id: int) -> Dict[str, Any]:
     """
     [한글 주석]
     특정 원두(bean_id)에 속한 모든 bean_reviews 구조화 컬럼을 집계하여 스냅샷 딕셔너리를 생성합니다.
+
+    [중요] 샘플(데모용 생성) 리뷰는 제외합니다.
+    산미/바디 점수는 이 스냅샷에서 나오므로, 샘플이 섞이면 실제 원두 특성이 아니라
+    하드코딩 문장의 특성을 보여주게 됩니다.
     """
     reviews = db.query(BeanReview).filter(
         BeanReview.bean_id == bean_id,
-        BeanReview.processed == True
+        BeanReview.processed == True,
+        BeanReview.source_site != SAMPLE_SOURCE_SITE,
     ).all()
 
     if not reviews:

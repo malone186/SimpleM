@@ -4,7 +4,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from '../../i18n/translations';
 import { Badge, Card, Screen, ScreenTitle } from '../../components/ui';
 import { colors } from '../../theme';
-import { searchBeans, type BeanItem } from '../../lib/api/beans';
+import {
+  fetchMarketSummary,
+  searchBeans,
+  type BeanItem,
+  type MarketSummary,
+} from '../../lib/api/beans';
 
 // 1잔 추출 기준 원두량(g) — 잔당 원가 환산용 (에스프레소 더블샷 통용값)
 const GRAMS_PER_SHOT = 20;
@@ -55,6 +60,38 @@ function toRow(b: BeanItem): BeanRow {
   };
 }
 
+/** 시세 포지션 판정 결과 */
+type Position = {
+  label: string;   // 저렴 / 시세 수준 / 비쌈
+  diffPct: number; // 중앙값 대비 %
+  peer: string;    // 비교군 이름 (원산지)
+  tone: 'cheap' | 'normal' | 'pricey';
+};
+
+/**
+ * 이 원두가 같은 원산지 중 어느 가격대인지 판정한다.
+ *
+ * [한글 주석] 비교 기준은 평균이 아니라 '중앙값'이다.
+ * g당 900원대(50g 고급 게이샤) 같은 극단값이 섞여 있어 평균은 크게 부풀고,
+ * 그 평균으로 재면 평범한 원두도 전부 "저렴"으로 나온다.
+ */
+function getPosition(bean: BeanRow, market: MarketSummary | null): Position | null {
+  if (!market || bean.price_per_gram == null) return null;
+
+  const country = (bean.country || '').trim();
+  const group = country ? market.by_country[country] : undefined;
+  const stats = group ?? market.overall;
+  if (!stats || !stats.median) return null;
+
+  const diffPct = Math.round(((bean.price_per_gram - stats.median) / stats.median) * 100);
+
+  // 5% 이내 차이는 '시세 수준'으로 본다 (미세한 차이를 과장하지 않기 위해)
+  const tone: Position['tone'] = diffPct <= -5 ? 'cheap' : diffPct >= 5 ? 'pricey' : 'normal';
+  const label = tone === 'cheap' ? '저렴' : tone === 'pricey' ? '비쌈' : '시세 수준';
+
+  return { label, diffPct, peer: group ? country : '전체', tone };
+}
+
 export default function BeanOperationScreen() {
   // [한글 주석: 전역 다국어 번역 훅 연동]
   const { t, language } = useTranslation();
@@ -63,6 +100,7 @@ export default function BeanOperationScreen() {
 
   const [beans, setBeans] = useState<BeanRow[]>([]);
   const [totalCount, setTotalCount] = useState(0);
+  const [market, setMarket] = useState<MarketSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,9 +108,14 @@ export default function BeanOperationScreen() {
     setLoading(true);
     setError(null);
     try {
-      const res = await searchBeans({ sortBy: 'reviews', limit: 50 });
+      // 시세표는 실패해도 목록은 보여야 하므로 따로 처리한다.
+      const [res, summary] = await Promise.all([
+        searchBeans({ sortBy: 'reviews', limit: 50 }),
+        fetchMarketSummary().catch(() => null),
+      ]);
       setBeans(res.items.map(toRow));
       setTotalCount(res.total_count);
+      setMarket(summary);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setBeans([]);
@@ -182,7 +225,9 @@ export default function BeanOperationScreen() {
 
         {/* 원두 카드 리스트 */}
         <View style={{ gap: 10 }}>
-          {filteredBeans.map(bean => (
+          {filteredBeans.map(bean => {
+            const pos = getPosition(bean, market);
+            return (
             <View
               key={bean.id}
               style={{
@@ -237,6 +282,35 @@ export default function BeanOperationScreen() {
                 )}
               </View>
 
+              {/* [추가] 시세 포지션 — 같은 원산지 원두들의 중앙값과 비교해 저렴/비쌈 판정 */}
+              {pos && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }}>
+                  <View
+                    style={{
+                      paddingHorizontal: 8,
+                      paddingVertical: 3,
+                      borderRadius: 10,
+                      backgroundColor:
+                        pos.tone === 'cheap' ? '#E6F4EA' : pos.tone === 'pricey' ? '#FBE9E7' : '#F0ECE8',
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        fontWeight: '800',
+                        color:
+                          pos.tone === 'cheap' ? '#2E7D32' : pos.tone === 'pricey' ? '#B23B2E' : '#7A6E65',
+                      }}
+                    >
+                      {pos.label}
+                    </Text>
+                  </View>
+                  <Text style={{ fontSize: 11, color: '#7A6E65' }}>
+                    {pos.peer} 시세 대비 {pos.diffPct > 0 ? '+' : ''}{pos.diffPct}%
+                  </Text>
+                </View>
+              )}
+
               {/* [추가] 컵노트 / 로스터리 설명 */}
               {!!bean.description && (
                 <Text style={{ fontSize: 11.5, color: '#7A6E65', marginTop: 8, lineHeight: 17 }} numberOfLines={2}>
@@ -290,7 +364,8 @@ export default function BeanOperationScreen() {
                 <Text style={{ color: '#FFF', fontSize: 12.5, fontWeight: 'bold' }}>바로 구매</Text>
               </Pressable>
             </View>
-          ))}
+            );
+          })}
         </View>
       </Card>
     </Screen>

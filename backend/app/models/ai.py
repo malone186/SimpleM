@@ -502,3 +502,49 @@ class TodoItem(Base):
     due_date: Mapped[str | None] = mapped_column(String(10), nullable=True)  # YYYY-MM-DD
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# POS 실시간 연동 — 매장별 POS 계정 연결과 동기화된 주문 대장
+# ---------------------------------------------------------------------------
+
+
+class PosConnection(Base):
+    """매장별 POS(현재 Square) 연결 정보.
+
+    토큰을 전역 env가 아니라 매장 단위로 DB에 두는 이유: 매장마다 자기 POS 계정을
+    연결해야 하는 멀티테넌트 구조라서다. 토큰·웹훅 서명키는 SECRET_KEY 유도 키로
+    암호화(Fernet)해 저장하고, API 응답에는 마스킹된 형태만 내보낸다.
+    """
+
+    __tablename__ = "pos_connections"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    store_id: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    provider: Mapped[str] = mapped_column(String(20), default="square")
+    environment: Mapped[str] = mapped_column(String(20), default="production")  # production | sandbox
+    access_token_enc: Mapped[str] = mapped_column(Text)
+    # 웹훅 서명 검증용 — Square 대시보드의 Webhook Signature Key (없으면 웹훅 비활성)
+    webhook_signature_key_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 웹훅 수신 주소 — Square 서명은 '구독에 등록한 URL + 본문'을 서명하므로 그대로 보관해 검증에 쓴다
+    webhook_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    # 웹훅 이벤트(merchant_id)를 어느 매장으로 보낼지 찾는 열쇠 — 연결 저장 시 Square에서 조회해 채운다
+    merchant_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    auto_sync: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_status: Mapped[str | None] = mapped_column(String(20), nullable=True)  # ok | error
+    last_error: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PosSyncedOrder(Base):
+    """이미 매출로 반영한 POS 주문 대장 — 웹훅과 폴링이 같은 주문을 두 번 넣지 않게 한다."""
+
+    __tablename__ = "pos_synced_orders"
+    __table_args__ = (UniqueConstraint("store_id", "provider", "order_id", name="uq_pos_order"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    store_id: Mapped[str] = mapped_column(String(100), index=True)
+    provider: Mapped[str] = mapped_column(String(20), default="square")
+    order_id: Mapped[str] = mapped_column(String(100))
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
