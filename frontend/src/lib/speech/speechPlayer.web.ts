@@ -1,5 +1,7 @@
 // 웹(react-native-web) 전용 TTS + 이어폰 감지 + 음성 큐 + 파격적 톤(피치/속도/보이스) 차별화
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+import { PREFS_STORAGE_KEY } from '../../preferences/PreferencesContext';
 import type {
   AudioPlaybackPermission,
   EarphoneStatus,
@@ -56,11 +58,13 @@ interface VoiceConfig {
   voiceType: string;
 }
 
+// 반드시 PreferencesContext와 같은 저장 키를 읽어야 한다 — 예전엔 존재하지 않는
+// '@simplem_user_prefs' 키를 읽어서, 설정의 목소리 선택이 알림 TTS에 반영되지 않았다.
 async function getVoiceAudioConfig(overrideVoiceType?: string): Promise<VoiceConfig> {
   try {
     let voiceType = overrideVoiceType;
     if (!voiceType) {
-      const raw = await AsyncStorage.getItem('@simplem_user_prefs');
+      const raw = await AsyncStorage.getItem(PREFS_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed.voiceType) voiceType = parsed.voiceType;
@@ -180,9 +184,10 @@ async function _processQueue(): Promise<void> {
   }
 }
 
+/** 설정 화면 '샘플 듣기' 같은 명시적 조작 전용 — 이어폰 게이트를 걸지 않는다.
+ * (자동 알림은 enqueue를 쓰고, 그쪽은 기존대로 이어폰 정책을 지킨다.
+ *  예전엔 여기서도 이어폰을 요구해 이어폰 없이 샘플을 누르면 아무 소리가 없었다) */
 async function speak(text: string, overrideVoiceType?: string): Promise<void> {
-  const status = await isEarphoneConnected();
-  if (!status.connected) return;
   await _speakInternal(text, overrideVoiceType);
 }
 

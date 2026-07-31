@@ -16,6 +16,7 @@ try {
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { PREFS_STORAGE_KEY } from '../../preferences/PreferencesContext';
 import type {
   AudioPlaybackPermission,
   EarphoneStatus,
@@ -117,12 +118,16 @@ function isSpeaking(): boolean {
   return _speaking;
 }
 
-/** [한글 주석] AsyncStorage에서 목소리 설정타입을 읽어와 pitch/rate 속성 반환 */
+/** [한글 주석] AsyncStorage에서 목소리 설정타입을 읽어와 pitch/rate 속성 반환
+ *
+ * 반드시 PreferencesContext와 같은 저장 키를 읽어야 한다 — 예전엔 존재하지 않는
+ * '@simplem_user_prefs' 키를 읽어서, 설정에서 어떤 목소리를 골라도 알림 TTS는
+ * 항상 기본(다정한 여성) 톤으로만 나오던 버그가 있었다. */
 async function getVoiceAudioConfig(overrideVoiceType?: string): Promise<{ pitch: number; rate: number }> {
   try {
     let voiceType = overrideVoiceType;
     if (!voiceType) {
-      const raw = await AsyncStorage.getItem('@simplem_user_prefs');
+      const raw = await AsyncStorage.getItem(PREFS_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed.voiceType) voiceType = parsed.voiceType;
@@ -147,7 +152,7 @@ async function getVoiceAudioConfig(overrideVoiceType?: string): Promise<{ pitch:
 }
 
 /** 실제 Expo Speech API 호출 (Promise 래핑) */
-function _speakInternal(text: string): Promise<void> {
+function _speakInternal(text: string, overrideVoiceType?: string): Promise<void> {
   return new Promise<void>(async (resolve) => {
     let settled = false;
     // onDone/onStopped/onError가 겹쳐 호출돼도 한 번만 진행하도록 보호
@@ -161,7 +166,7 @@ function _speakInternal(text: string): Promise<void> {
     _speaking = true;
 
     try {
-      const config = await getVoiceAudioConfig();
+      const config = await getVoiceAudioConfig(overrideVoiceType);
       // [한글 주석] 사람이 말하듯 자연스러운 억양과 호흡 가공
       const humanized = text
         .replace(/([.!?])\s*/g, '$1 , ')
@@ -207,11 +212,16 @@ async function _processQueue(): Promise<void> {
 // [한글 주석] 외부 공개 API — 웹 구현과 시그니처 동일
 // ═══════════════════════════════════════════════════
 
-/** 텍스트를 즉시 음성으로 읽습니다 */
-async function speak(text: string): Promise<void> {
-  const permission = await canPlayAudio();
-  if (!permission.allowed) return;
-  await _speakInternal(text);
+/** 텍스트를 즉시 음성으로 읽습니다 — 설정 화면 '샘플 듣기' 같은 명시적 조작 전용.
+ *
+ * [한글 주석] 이어폰 게이트를 걸지 않는다: 자동 알림(enqueue)과 달리 사장님이 직접
+ * 버튼을 눌러 재생을 요청한 것이라 스피커로 나가도 사생활 문제가 없다. 예전엔
+ * 여기서도 이어폰을 요구해서, 이어폰 없이 '샘플 듣기'를 누르면 아무 소리도 나지
+ * 않아 목소리 설정이 고장 난 것처럼 보였다.
+ * overrideVoiceType: 저장 전 미리듣기용 — 방금 누른 목소리 타입을 바로 반영한다.
+ * (예전 네이티브 구현은 이 인자를 무시해서 어떤 카드를 눌러도 같은 톤이 나왔다) */
+async function speak(text: string, overrideVoiceType?: string): Promise<void> {
+  await _speakInternal(text, overrideVoiceType);
 }
 
 /** 큐에 추가하고 순서대로 재생합니다 (겹침 방지) */

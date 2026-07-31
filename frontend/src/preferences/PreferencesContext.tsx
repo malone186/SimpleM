@@ -90,7 +90,11 @@ type Ctx = Preferences & {
 };
 
 const PreferencesContext = createContext<Ctx | null>(null);
-const STORAGE_KEY = 'simplem:preferences';
+// speechPlayer(.web).ts가 React 컨텍스트 밖(음성 큐)에서 voiceType을 읽을 때 같은 키를 쓴다.
+// 예전에 플레이어가 존재하지 않는 키(@simplem_user_prefs)를 읽어 목소리 설정이
+// TTS에 전혀 반영되지 않던 사고가 있어, 키를 여기 한 곳에서만 정의해 내보낸다.
+export const PREFS_STORAGE_KEY = 'simplem:preferences';
+const STORAGE_KEY = PREFS_STORAGE_KEY;
 
 export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [prefs, setPrefs] = useState<Preferences>(DEFAULTS);
