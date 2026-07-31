@@ -188,6 +188,7 @@ export default function RootNavigator() {
 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation, type TranslationKey } from '../i18n/translations';
+import { SwipeableTabWrapper } from '../components/navigation/SwipeableTabWrapper';
 
 const TAB_LABEL_KEYS: Record<keyof RootTabParamList, TranslationKey> = {
   Dashboard: 'tabHome',
@@ -195,6 +196,18 @@ const TAB_LABEL_KEYS: Record<keyof RootTabParamList, TranslationKey> = {
   Chatbot: 'tabChatbot',
   Management: 'tabManagement',
 };
+
+// [한글 주석: 각 탭 화면을 좌우 슬라이드(스와이프) 감지 래퍼로 감싸주는 헬퍼 컴포넌트]
+const withSwipe = (Component: React.ComponentType<any>) => (props: any) => (
+  <SwipeableTabWrapper>
+    <Component {...props} />
+  </SwipeableTabWrapper>
+);
+
+const WrappedDashboardScreen = withSwipe(DashboardScreen);
+const WrappedInventoryScreen = withSwipe(InventoryScreen);
+const WrappedChatbotScreen = withSwipe(ChatbotScreen);
+const WrappedManagementScreen = withSwipe(ManagementScreen);
 
 function TabsNavigator() {
   // [한글 주석: 전역 다국어 훅 호출 — 사장님이 선택한 언어(ko/en)에 맞게 하단 탭 메뉴명 동적 가공]
@@ -250,10 +263,10 @@ function TabsNavigator() {
         tabBarLabel: t(TAB_LABEL_KEYS[route.name]),
       })}
     >
-      <Tab.Screen name="Dashboard" component={DashboardScreen} />
-      <Tab.Screen name="Inventory" component={InventoryScreen} />
-      <Tab.Screen name="Chatbot" component={ChatbotScreen} />
-      <Tab.Screen name="Management" component={ManagementScreen} />
+      <Tab.Screen name="Dashboard" component={WrappedDashboardScreen} />
+      <Tab.Screen name="Inventory" component={WrappedInventoryScreen} />
+      <Tab.Screen name="Chatbot" component={WrappedChatbotScreen} />
+      <Tab.Screen name="Management" component={WrappedManagementScreen} />
     </Tab.Navigator>
   );
 }

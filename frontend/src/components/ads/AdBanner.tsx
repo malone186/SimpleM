@@ -41,7 +41,7 @@ export default function AdBanner({
       <BannerAd
         unitId={adUnitId('banner')}
         size={size}
-        onAdFailedToLoad={(error) => {
+        onAdFailedToLoad={(error: any) => {
           if (__DEV__) console.warn('[ads] 배너 로드 실패:', error.message);
           setFailed(true);
         }}

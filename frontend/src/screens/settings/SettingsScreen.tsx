@@ -479,29 +479,7 @@ export default function SettingsScreen() {
             </View>
           </PressableScale>
 
-          {/* 홍보 스튜디오 — AI 홍보 문구 & SNS 이미지 생성 */}
-          <PressableScale
-            style={styles.menuItemCard}
-            onPress={() => {
-              springTransition();
-              navigation.navigate('Marketing');
-            }}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              <View style={styles.menuIconWrap}>
-                <Ionicons name="megaphone-outline" size={20} color={colors.espressoBrown} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.menuItemTitle}>{prefs.language === 'en' ? 'Marketing Studio' : '홍보 스튜디오'}</Text>
-                <Text style={styles.menuItemDesc}>
-                  {prefs.language === 'en'
-                    ? 'AI promo copy, social media banner & image generator'
-                    : 'AI 홍보 문구 생성, SNS 홍보 이미지 제작 및 공유'}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
-            </View>
-          </PressableScale>
+
 
           {/* 화면 표시 & 접근성 */}
           <PressableScale

@@ -1694,8 +1694,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.espressoBrown,
     transform: [{ rotate: '45deg' }],
   },
-<<<<<<< Updated upstream
-=======
   cardContainer: {
     paddingHorizontal: 2,
     marginBottom: 16,
@@ -1746,7 +1744,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(110, 85, 68, 0.07)',
   },
->>>>>>> Stashed changes
 
   dateStripItem: {
     alignItems: 'center',
