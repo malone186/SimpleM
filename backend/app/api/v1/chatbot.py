@@ -54,6 +54,7 @@ from app.schemas.ai import (
     TodoUpdate,
 )
 from app.services.ai import (
+    chat_quota_service,
     document_service,
     forecast_service,
     insight_service,
@@ -1004,7 +1005,15 @@ async def chat_message(
     """
     # [한글 주석] 매장 고유 식별자가 없을 경우를 위한 대비책 설정
     store_key = store_id or "owner@cafe.com"
-    
+
+    # 무료 할당량을 Gemini 호출 전에 차감한다. 호출 후에 세면 한도를 넘긴 요청이
+    # 이미 비용을 쓴 뒤가 된다. 실패하면 아래 except에서 되돌린다.
+    try:
+        chat_quota_service.consume(store_key)
+    except chat_quota_service.QuotaExhausted as e:
+        # detail을 dict로 넘겨 프론트가 '할당량 소진'과 다른 429를 구분할 수 있게 한다
+        raise HTTPException(429, {"quota_exhausted": True, "quota": e.args[0]})
+
     try:
         # [한글 주석] 챗봇 에이전트의 대화 처리 루프 실행 — 답변 텍스트 + 이번 턴에 만든 문서 전문
         result = await main_agent.generate_response(
@@ -1014,9 +1023,35 @@ async def chat_message(
         )
         return ChatResponse(response=result["text"], documents=result["documents"])
     except Exception as e:
+        # 답을 못 준 턴까지 차감하면 부당하다 — 되돌린다
+        chat_quota_service.refund(store_key)
         # [한글 주석] 장애 추적을 위해 로컬 콘솔에 상세 예외 Traceback을 기록합니다.
         logger.exception("챗봇 서비스 실행 중 장애 발생")
         raise HTTPException(500, f"챗봇 서비스 실행 중 장애 발생: {str(e)}")
+
+
+@router.get("/quota")
+def get_chat_quota(store_id: Optional[str] = Depends(_optional_store_id)) -> dict:
+    """챗봇 남은 턴 조회 — 조회만으로 소비되지 않는다.
+
+    챗봇 화면 진입 시 불러 "오늘 남은 대화 N회"를 표시하거나, 광고를 미리 받아둘지
+    판단하는 데 쓴다.
+    """
+    return chat_quota_service.get_quota(store_id or "owner@cafe.com")
+
+
+@router.post("/quota/ad-reward")
+def grant_chat_quota(store_id: Optional[str] = Depends(_optional_store_id)) -> dict:
+    """광고 시청 완료 → 턴 충전.
+
+    지금은 클라이언트의 '봤다'는 보고를 믿는다. 앱을 뜯으면 광고 없이 이 엔드포인트를
+    때려 무한 충전이 가능하므로, 실제 서비스에서는 AdMob 서버 사이드 검증(SSV) 콜백으로
+    바꿔야 한다 — MAX_ADS_PER_DAY가 그때까지의 피해 상한 역할을 한다.
+    """
+    try:
+        return chat_quota_service.grant_from_ad(store_id or "owner@cafe.com")
+    except chat_quota_service.AdLimitReached as e:
+        raise HTTPException(429, {"ad_limit_reached": True, "quota": e.args[0]})
 
 
 # ---------------------------------------------------------------------------

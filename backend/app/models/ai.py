@@ -288,6 +288,29 @@ class ChatSession(Base):
     updated_at_ms: Mapped[int] = mapped_column(BigInteger, index=True)
 
 
+class ChatQuota(Base):
+    """챗봇 무료 사용량 — 하루 N턴까지 무료, 광고를 보면 충전된다 (매장별·날짜별 1행)
+
+    date를 PK에 넣은 이유는 자정 초기화를 별도 배치 없이 처리하려는 것이다. 날짜가
+    바뀌면 그냥 새 행이 만들어지고 지난 행은 조회되지 않는다. 기준은 KST — 서버가
+    어느 타임존에서 돌든 사장님이 체감하는 '오늘'과 어긋나면 안 된다.
+
+    used는 소비한 턴, granted는 광고로 추가 확보한 턴. 남은 턴은
+    (무료 기본량 + granted - used)로 계산하므로 어느 값도 음수로 내려가지 않는다.
+    """
+
+    __tablename__ = "chat_quotas"
+
+    store_id: Mapped[str] = mapped_column(String(100), primary_key=True, index=True)
+    date: Mapped[str] = mapped_column(String(10), primary_key=True)  # KST 기준 YYYY-MM-DD
+    used: Mapped[int] = mapped_column(Integer, default=0)
+    granted: Mapped[int] = mapped_column(Integer, default=0)
+    ads_watched: Mapped[int] = mapped_column(Integer, default=0)  # 하루 광고 상한 판정용
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=True
+    )
+
+
 class AdminAccount(Base):
     """관리자 콘솔 계정 — 비밀번호를 공유 DB에 bcrypt 해시로 저장한다
 
