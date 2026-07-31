@@ -28,6 +28,10 @@ api_router.include_router(inventory_router)
 # O (operation)
 api_router.include_router(operation_router)
 
+# P (pos)
+from app.api.v1.pos import router as pos_router
+api_router.include_router(pos_router)
+
 # S (sensor, settlement, staff)
 from app.api.v1.sensor import router as sensor_router
 api_router.include_router(sensor_router)
