@@ -1,6 +1,7 @@
 // 판매 수동 입력 API (백엔드 B의 /chatbot/sales 연동, 인증 필요)
 // 등록한 판매는 Sale 테이블에 기록되어 대시보드·경영 리포트·예측에 바로 반영된다.
-import { apiFetch } from './client';
+import { Platform } from 'react-native';
+import { apiFetch, API_BASE_URL } from './client';
 
 const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 
@@ -66,4 +67,58 @@ export type ContributionResult = {
 export const getMenuContribution = (token: string, days = 30) =>
   apiFetch<ContributionResult>(`/api/v1/chatbot/sales/contribution?days=${days}`, {
     headers: auth(token),
+  });
+
+// ── POS 매출 파일 임포트 (엑셀/CSV) ──
+export type ImportPreviewRow = {
+  menu_name: string;
+  menu_id: number | null;
+  matched_name: string | null;
+  quantity: number;
+  total_price: number | null;
+  sold_at: string | null;
+  warnings: string[];
+};
+
+export type ImportPreview = {
+  mapping: Record<string, any>;
+  rows: ImportPreviewRow[];
+  summary: { total_rows: number; matched: number; unmatched: number; sum_amount: number };
+};
+
+/** POS 파일(엑셀/CSV) 업로드 → LLM이 열을 매핑해 미리보기 반환 (DB 저장 안 함) */
+export async function previewSalesImport(
+  file: { uri: string; mimeType?: string | null; fileName?: string | null },
+  token: string,
+): Promise<ImportPreview> {
+  const form = new FormData();
+  const name = file.fileName ?? 'sales.csv';
+  const type = file.mimeType ?? 'text/csv';
+  if (Platform.OS === 'web') {
+    const blob = await (await fetch(file.uri)).blob();
+    form.append('file', new File([blob], name, { type: blob.type || type }));
+  } else {
+    form.append('file', { uri: file.uri, name, type } as unknown as Blob);
+  }
+  const res = await fetch(`${API_BASE_URL}/api/v1/chatbot/sales/import/preview`, {
+    method: 'POST',
+    headers: auth(token),
+    body: form,
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `파일 분석 실패 (${res.status})`);
+  }
+  return res.json();
+}
+
+/** 미리보기에서 확인·수정한 행을 실제 매출로 저장 (Sale 기록 + 재고 차감) */
+export const confirmSalesImport = (
+  token: string,
+  rows: { menu_id: number; quantity: number; total_price: number | null; sold_at: string | null }[],
+) =>
+  apiFetch<{ created: number; total: number }>('/api/v1/chatbot/sales/import/confirm', {
+    method: 'POST',
+    headers: auth(token),
+    body: JSON.stringify({ rows }),
   });

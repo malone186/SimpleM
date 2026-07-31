@@ -12,6 +12,7 @@ save_import(확정)를 분리해, 사용자가 확인·수정한 뒤에만 DB에
 """
 from __future__ import annotations
 
+import csv
 import io
 import json
 import os
@@ -45,32 +46,35 @@ class SalesImportError(Exception):
 
 def parse_grid(content: bytes, filename: str) -> list[list[str]]:
     """엑셀/CSV 바이트를 문자열 2차원 그리드로 읽는다 (헤더 미지정)."""
-    if pd is None:
-        raise SalesImportError("서버에 pandas가 설치되어 있지 않습니다.")
     if not content:
         raise SalesImportError("빈 파일입니다.")
     name = (filename or "").lower()
-    try:
-        if name.endswith((".xlsx", ".xls")):
-            df = pd.read_excel(io.BytesIO(content), header=None, dtype=str)
-        else:
-            # 한국 POS CSV는 utf-8뿐 아니라 cp949(euc-kr)가 흔하다 — 순서대로 폴백
-            df = None
-            for enc in ("utf-8-sig", "utf-8", "cp949", "euc-kr"):
-                try:
-                    df = pd.read_csv(io.BytesIO(content), header=None, dtype=str,
-                                     encoding=enc, keep_default_na=False, on_bad_lines="skip")
-                    break
-                except (UnicodeDecodeError, UnicodeError):
-                    continue
-            if df is None:
-                raise SalesImportError("파일 인코딩을 인식하지 못했습니다 (utf-8/cp949 아님).")
-    except SalesImportError:
-        raise
-    except Exception as e:
-        raise SalesImportError(f"파일을 읽지 못했습니다: {e}")
 
-    grid = df.fillna("").astype(str).values.tolist()
+    if name.endswith((".xlsx", ".xls")):
+        if pd is None:
+            raise SalesImportError("서버에 pandas가 없어 엑셀을 읽을 수 없습니다 (CSV로 올려 주세요).")
+        try:
+            df = pd.read_excel(io.BytesIO(content), header=None, dtype=str)
+        except Exception as e:
+            raise SalesImportError(f"엑셀 파일을 읽지 못했습니다: {e}")
+        grid = df.fillna("").astype(str).values.tolist()
+    else:
+        # CSV는 파이썬 csv 모듈로 읽는다 — 상단에 매장명·기간 같은 잡정보 행(열 수가
+        # 데이터 행과 다름)이 있어도, pandas처럼 첫 행 열 수로 뒤 행을 잘라내지 않는다.
+        # 한국 POS CSV는 utf-8뿐 아니라 cp949(euc-kr)가 흔해 순서대로 폴백한다.
+        text = None
+        for enc in ("utf-8-sig", "utf-8", "cp949", "euc-kr"):
+            try:
+                text = content.decode(enc)
+                break
+            except (UnicodeDecodeError, UnicodeError):
+                continue
+        if text is None:
+            raise SalesImportError("파일 인코딩을 인식하지 못했습니다 (utf-8/cp949 아님).")
+        raw = list(csv.reader(io.StringIO(text)))
+        width = max((len(r) for r in raw), default=0)
+        grid = [r + [""] * (width - len(r)) for r in raw]  # 짧은 행을 최대 너비로 패딩
+
     # 완전히 빈 행 제거
     grid = [[str(c).strip() for c in row] for row in grid if any(str(c).strip() for c in row)]
     if not grid:
