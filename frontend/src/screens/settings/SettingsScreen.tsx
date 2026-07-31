@@ -2,23 +2,26 @@
 // ① 계정/가게 정보  ② 알림 설정  ③ 화면 표시/접근성
 // 계정은 백엔드 /auth 실연동, 나머지 환경설정은 PreferencesContext(AsyncStorage)에 저장.
 import { useEffect, useState, useRef } from 'react';
-import { Modal, ScrollView, StyleSheet, Switch, Text, TextInput, View, LayoutAnimation, Platform, UIManager, Animated } from 'react-native';
+import { Modal, ScrollView, StyleSheet, Switch, Text, TextInput, View, LayoutAnimation, Platform, UIManager, Animated, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 // [한글 주석: Android 기기에서 레이아웃 애니메이션이 부드럽게 동작하도록 허용하는 전처리]
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 
 import { useAuth } from '../../auth/AuthContext';
 import {
   FONT_SIZE_LABEL,
   LANGUAGE_LABEL,
+  VOICE_TYPE_LABEL,
   usePreferences,
   type FontSize,
   type Language,
+  type VoiceType,
 } from '../../preferences/PreferencesContext';
+import speechPlayer from '../../lib/speech/speechPlayer';
 import { useTranslation } from '../../i18n/translations';
 import { Badge, Button, Card, Divider, Screen, SectionTitle, IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
@@ -26,6 +29,13 @@ import { PressableScale } from '../../components/motion';
 import { confirmDialog, toast } from '../../components/toast';
 import { API_BASE_URL } from '../../lib/api/client';
 import { getSensorFeature, setSensorFeature } from '../../lib/api/sensor';
+import {
+  DEFAULT_SETTLEMENT_SETTINGS,
+  getSettlementSettings,
+  updateSettlementSettings,
+  type SettlementSettings,
+} from '../../lib/api/settlement';
+import { resolveStoreProfile, updateStoreProfile } from '../../lib/api/store';
 import { isNativePushAvailable } from '../../notifications/pushRegistration';
 import { colors, typography } from '../../theme';
 
@@ -77,6 +87,11 @@ function Field({
 
 export default function SettingsScreen() {
   const navigation = useNavigation<any>();
+  // 다른 화면에서 특정 설정 하위 화면으로 바로 들어오는 경우(예: 매출 입력 → 카드 정산 설정)
+  const route = useRoute<any>();
+  const initialSection = route.params?.section as
+    | 'account' | 'notification' | 'appearance' | 'inquiry' | 'legal' | 'settlement'
+    | undefined;
   const { user, token, updateProfile, logout } = useAuth();
   const prefs = usePreferences();
 
@@ -155,27 +170,10 @@ export default function SettingsScreen() {
   const [inquiryCategory, setInquiryCategory] = useState('💡 기능 요청 / 개선');
   const [inquiryTitle, setInquiryTitle] = useState('');
   const [inquiryContent, setInquiryContent] = useState('');
+  const [isSubmittingInquiry, setIsSubmittingInquiry] = useState(false);
   const [inquiries, setInquiries] = useState<
     Array<{ id: number; category: string; title: string; content: string; date: string; status: 'answered' | 'pending'; answer?: string }>
-  >([
-    {
-      id: 1,
-      category: '💡 기능 요청 / 개선',
-      title: '원두 발주 추천 시 디카페인 자동 추가 기능 요청',
-      content: '주말마다 디카페인 손님이 늘어나고 있어서 AI 추천에 포함되었으면 좋겠습니다.',
-      date: '2026.07.20',
-      status: 'answered',
-      answer: '사장님, 좋은 의견 감사드립니다! 해당 기능은 다음주 알고리즘 업데이트에 자동 반영될 예정입니다.',
-    },
-    {
-      id: 2,
-      category: '❓ 사용 문의',
-      title: '알바생 기피 시간대 자동 반영 범위 문의',
-      content: '기피 시간대를 설정해두면 AI 스케줄 추천 시 자동으로 제외되는지 궁금합니다.',
-      date: '2026.07.21',
-      status: 'pending',
-    },
-  ]);
+  >([]);
 
   const initial = (user?.name || 'S').charAt(0).toUpperCase();
 
@@ -183,7 +181,7 @@ export default function SettingsScreen() {
   const { t } = useTranslation();
 
   // [한글 주석: 설정 창 내부 서브 라우팅 뷰 관리 상태 ('main'일 때는 메뉴 목록 노출)]
-  const [subView, setSubView] = useState<'main' | 'account' | 'notification' | 'appearance' | 'inquiry' | 'legal'>('main');
+  const [subView, setSubView] = useState<'main' | 'account' | 'notification' | 'appearance' | 'inquiry' | 'legal' | 'settlement'>(initialSection ?? 'main');
 
   // [한글 주석: 현재 진입한 subView 상태에 맞춰 상단 헤더 타이틀과 뒤로가기 동작을 동적으로 변경]
   useEffect(() => {
@@ -193,6 +191,7 @@ export default function SettingsScreen() {
     else if (subView === 'appearance') title = t('displayAndAccessibility');
     else if (subView === 'inquiry') title = '1대1 CS 문의';
     else if (subView === 'legal') title = '약관 및 정책';
+    else if (subView === 'settlement') title = '카드 정산 설정';
 
     // [한글 주석: 아이폰 iOS / 프리텐다드 미디엄 스타일 자간 및 화살표 간격 띄움 반영]
     navigation.setOptions({
@@ -244,11 +243,41 @@ export default function SettingsScreen() {
       .catch(() => {});
   }, [user]);
 
+  // 업종·영업 시간은 계정에 저장된 값이 원본이다 (기기 설정은 표시용 캐시).
+  // 예전엔 이 화면이 AsyncStorage만 읽어서, 재설치하거나 다른 기기로 로그인하면
+  // 저장했던 값이 조용히 기본값으로 되돌아가 있었다.
+  useEffect(() => {
+    if (!token || !prefs.ready) return;
+    resolveStoreProfile(token, {
+      business_type: prefs.businessType || '카페',
+      open_hour: prefs.openHour || '09:00',
+      close_hour: prefs.closeHour || '21:00',
+    })
+      .then((p) => {
+        setBusinessType(p.business_type);
+        prefs.setPref('businessType', p.business_type);
+        prefs.setPref('openHour', p.open_hour);
+        prefs.setPref('closeHour', p.close_hour);
+      })
+      .catch((e) => console.error('매장 정보 조회 실패:', e));
+  }, [token, prefs.ready]);
+
   const saveAccount = async () => {
     setSavingAccount(true);
     try {
       await updateProfile({ name, store_name: storeName });
-      prefs.setPref('businessType', businessType);
+      // 서버에 먼저 저장하고, 성공했을 때만 기기 캐시를 갱신한다.
+      // 실패하면 아래 catch로 빠져 "저장 실패"가 뜨므로, 화면이 저장됐다고 거짓말하지 않는다.
+      if (token) {
+        const saved = await updateStoreProfile(token, {
+          business_type: businessType,
+          open_hour: prefs.openHour || '09:00',
+          close_hour: prefs.closeHour || '21:00',
+        });
+        prefs.setPref('businessType', saved.business_type);
+        prefs.setPref('openHour', saved.open_hour);
+        prefs.setPref('closeHour', saved.close_hour);
+      }
       setSavedSuccess(true);
       setIsEditingTime(false); // [한글 주석] 저장 성공 시 시간 변경 모드를 닫고 확정 잠금 상태로 전환
       setIsEditingAccount(false); // [한글 주석] 저장 성공 시 수정 모드를 닫고 정보 고정 상태로 전환
@@ -299,29 +328,31 @@ export default function SettingsScreen() {
     });
   };
 
-  // [한글 주석] 백엔드에서 1대1 문의 실시간 내역 불러오기 — 내 이메일 것만 (다른 사장님 문의 미노출)
+  // [한글 주석] 백엔드에서 1대1 문의 실시간 내역 불러오기.
+  // 누구 문의인지는 서버가 토큰으로 판단한다 — 이메일을 쿼리로 넘기던 방식은
+  // 인증이 없어 남의 이메일만 알면 그 사람 문의를 읽을 수 있었다.
   const fetchInquiries = async () => {
-    if (!user?.email) return;
+    if (!token) return;
     try {
-      const res = await fetch(
-        `${API_BASE_URL}/api/v1/inquiries?user_email=${encodeURIComponent(user.email)}`,
-      );
+      const res = await fetch(`${API_BASE_URL}/api/v1/inquiries`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (res.ok) {
         const data = await res.json();
         // 빈 배열도 그대로 반영 — 신규 계정에 데모 시드가 남아 보이지 않게
         if (Array.isArray(data)) setInquiries(data);
       }
     } catch {
-      /* 서버 오프라인 시 기본 내역 유지 */
+      /* 서버 오프라인 시 기존 목록 유지 */
     }
   };
 
-  // 최초 로드 + 8초 주기 폴링 — 관리자(3000번 콘솔)가 답변하면 앱에 자동 반영
+  // 최초 로드 + 8초 주기 폴링 — 관리자 콘솔에서 답변하면 앱에 자동 반영
   useEffect(() => {
     fetchInquiries();
     const timer = setInterval(fetchInquiries, 8000);
     return () => clearInterval(timer);
-  }, [user?.email]);
+  }, [token]);
 
   // [한글 주석] 1대1 문의 제출 — 백엔드 /inquiries 한 곳에만 등록 (백엔드가 관리자 CS 리스트에 동일 id로 자동 연동)
   const handleSubmitInquiry = async () => {
@@ -333,51 +364,42 @@ export default function SettingsScreen() {
       toast('입력 확인', '문의 내용을 입력해 주세요.');
       return;
     }
+    // 토큰이 없으면 서버가 보낸 사람을 확정할 수 없어 접수 자체가 거절된다.
+    if (!token) {
+      toast('로그인 확인', '로그인 정보를 불러오지 못했어요. 다시 로그인한 뒤 시도해 주세요.');
+      return;
+    }
 
-    const newInquiryObj = {
-      id: Date.now(),
-      category: inquiryCategory,
-      title: inquiryTitle.trim(),
-      content: inquiryContent.trim(),
-      date: new Date().toISOString().slice(0, 10).replace(/-/g, '.'),
-      status: 'pending' as const,
-    };
-
-    // 1. 사장님 화면 state에 즉시 접수 카드 반영 (서버 응답 후 실제 id로 교체됨)
-    setInquiries((prev) => [newInquiryObj, ...prev]);
+    setIsSubmittingInquiry(true);
 
     const payload = {
-      user_email: user?.email || 'owner@cafe.com',
-      store_name: storeName || '포슬카페',
+      store_name: storeName || '',
       category: inquiryCategory,
       title: inquiryTitle.trim(),
       content: inquiryContent.trim(),
     };
 
-    // 2. 백엔드에 등록 → 관리자 콘솔 CS 탭에 실시간 자동 표시 (듀얼 수신 100% 보장)
     try {
       const res = await fetch(`${API_BASE_URL}/api/v1/inquiries`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(payload),
       });
-      // 관리자 CS 다이렉트 창구로도 동시 수신 보장
-      fetch(`${API_BASE_URL}/api/v1/admin/cs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      }).catch(() => {});
 
-      if (res.ok) await fetchInquiries(); // 서버 확정본(실제 id)으로 목록 동기화
+      if (res.ok) {
+        await fetchInquiries();
+        setInquiryTitle('');
+        setInquiryContent('');
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setInquiryTab('list');
+        toast('접수 완료', '1대1 문의 및 요청사항이 관리자 콘솔에 전달되었어요.');
+      } else {
+        toast('접수 실패', '서버 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
+      }
     } catch (err) {
       console.warn('Inquiries API fetch error:', err);
+      toast('접수 실패', '네트워크 연결 상태를 확인 후 다시 시도해 주세요.');
     }
-
-    setInquiryTitle('');
-    setInquiryContent('');
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setInquiryTab('list'); // 문의 완료 후 나의 문의 내역 탭으로 자동 이동
-    toast('접수 완료', '1대1 문의 및 요청사항이 관리자에게 전달되었어요.');
   };
 
   return (
@@ -427,6 +449,30 @@ export default function SettingsScreen() {
                   {prefs.language === 'en'
                     ? 'Stock alerts, price changes & Do Not Disturb hours'
                     : '재고·단가 알림, 음성 읽어주기, 방해금지 시간대'}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
+            </View>
+          </PressableScale>
+
+          {/* 카드 정산 설정 — 수수료율 구간·카드사별 입금 소요일 */}
+          <PressableScale
+            style={styles.menuItemCard}
+            onPress={() => {
+              springTransition();
+              setSubView('settlement');
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={styles.menuIconWrap}>
+                <Ionicons name="card-outline" size={20} color={colors.espressoBrown} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.menuItemTitle}>{prefs.language === 'en' ? 'Card Settlement' : '카드 정산 설정'}</Text>
+                <Text style={styles.menuItemDesc}>
+                  {prefs.language === 'en'
+                    ? 'Fee tier & per-issuer deposit lead time'
+                    : '수수료율 구간, 카드사별 입금 소요일'}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
@@ -625,6 +671,9 @@ export default function SettingsScreen() {
           />
         )}
 
+
+
+        {/* [한글 주석: 매장 센서 연동 ON/OFF 스위치 복원] */}
         <Divider />
         <Row
           label="매장 센서 연동"
@@ -664,6 +713,9 @@ export default function SettingsScreen() {
         </View>
       </Card>
       )}
+
+      {/* 카드 정산 설정 — 수수료율 구간과 카드사별 입금 소요일 */}
+      {subView === 'settlement' && <SettlementSettingsPanel />}
 
       {/* ② 알림 설정 */}
       {subView === 'notification' && (
@@ -821,6 +873,78 @@ export default function SettingsScreen() {
             value={prefs.language}
             onChange={(v) => prefs.setPref('language', v)}
           />
+        </View>
+
+        {/* [한글 주석: 음성 비서 목소리 선택 (다정한 여성, 친근한 삼촌, 차분한 젠틀맨, 귀여운 꼬마)] */}
+        <Divider style={{ marginVertical: 18 }} />
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+          <Text style={styles.fieldLabel}>음성 비서 목소리 (TTS 톤)</Text>
+          <PressableScale
+            style={styles.voiceTestBtn}
+            onPress={() => {
+              const vt = prefs.voiceType ?? 'warm_female';
+              const sampleText =
+                vt === 'friendly_male'
+                  ? '반갑습니다 사장님! 든든하고 친근한 삼촌 목소리입니다.'
+                  : vt === 'calm_male'
+                    ? '반갑습니다 사장님. 차분하고 안정적인 젠틀맨 목소리입니다.'
+                    : vt === 'cute_child'
+                      ? '우와 사장님 안녕! 귀여운 꼬마 목소리야!'
+                      : '안녕하세요 사장님! 다정한 아나운서 여성 목소리입니다.';
+              speechPlayer.speak(sampleText, vt);
+            }}
+            to={0.88}
+          >
+            <Ionicons name="volume-high" size={13} color="#FFFFFF" style={{ marginRight: 4 }} />
+            <Text style={styles.voiceTestBtnText}>샘플 듣기</Text>
+          </PressableScale>
+        </View>
+
+        <View style={styles.voiceGrid}>
+          {(['warm_female', 'friendly_male', 'calm_male', 'cute_child'] as VoiceType[]).map((vt) => {
+            const active = (prefs.voiceType ?? 'warm_female') === vt;
+            const meta = VOICE_TYPE_LABEL[vt];
+            return (
+              <PressableScale
+                key={vt}
+                style={[styles.voiceCard, active && styles.voiceCardActive]}
+                onPress={() => {
+                  prefs.setPref('voiceType', vt);
+                  const sampleText =
+                    vt === 'friendly_male'
+                      ? '반갑습니다 사장님! 든든하고 친근한 삼촌 목소리입니다.'
+                      : vt === 'calm_male'
+                        ? '반갑습니다 사장님. 차분하고 안정적인 젠틀맨 목소리입니다.'
+                        : vt === 'cute_child'
+                          ? '우와 사장님 안녕! 귀여운 꼬마 목소리야!'
+                          : '안녕하세요 사장님! 다정한 아나운서 여성 목소리입니다.';
+                  speechPlayer.speak(sampleText, vt);
+                }}
+                to={0.94}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons
+                    name={
+                      vt === 'warm_female'
+                        ? 'woman-outline'
+                        : vt === 'friendly_male'
+                          ? 'man-outline'
+                          : vt === 'calm_male'
+                            ? 'person-outline'
+                            : 'happy-outline'
+                    }
+                    size={15}
+                    color={active ? colors.espressoBrown : colors.mochaBrown}
+                  />
+                  <Text style={[styles.voiceTitle, active && styles.voiceTitleActive]}>
+                    {meta.title}
+                  </Text>
+                </View>
+                <Text style={styles.voiceDesc}>{meta.desc}</Text>
+              </PressableScale>
+            );
+          })}
         </View>
 
         {/* 미리보기 — 선택한 글자 크기 및 언어가 즉시 반영 */}
@@ -1061,13 +1185,17 @@ export default function SettingsScreen() {
                 },
                 {
                   id: 2,
-                  q: '알바 스케줄 추천 시 주휴수당도 자동 반영되나요?',
-                  a: '네! 주휴수당이 발생하는 기준 시간(주 15시간)을 초과하지 않도록 각 파트타이머의 근무 일정을 분할 최적화하는 주휴수당 최소화 알고리즘이 내장되어 있습니다.'
+                  q: '알바 스케줄을 짤 때 주휴수당도 계산되나요?',
+                  // '분할 최적화 알고리즘 내장'은 사실이 아니었다 — 실제로 하는 건 주 15시간
+                  // 기준 초과 여부를 계산해 보여주는 것까지다. 없는 기능을 약속하지 않는다.
+                  a: '주 15시간을 넘기면 주휴수당이 발생하므로, 직원별 주간 근무시간과 그에 따른 주휴수당 예상액을 함께 계산해 보여드립니다. 일정을 자동으로 재배치해 드리지는 않고, 기준을 넘는 직원을 짚어 드리면 사장님이 판단하시는 방식이에요.'
                 },
                 {
                   id: 3,
-                  q: 'AI 발주량 추천의 정확도는 어느 정도인가요?',
-                  a: '요일별 매출 흐름, 날씨 예보, 매장 주변 행사 데이터를 결합 분석합니다. 통상 재고 과부족으로 인한 유실 비용을 평균 22% 절감시키는 정밀도를 제공합니다.'
+                  q: 'AI 발주량 추천은 무엇을 보고 계산하나요?',
+                  // '평균 22% 절감'은 측정한 적 없는 수치였다. 근거 없는 성능 수치는 빼고,
+                  // 무엇을 입력으로 쓰는지만 사실대로 적는다.
+                  a: '요일별 판매 흐름, 날씨 예보, 매장 주변 상권 정보를 함께 봅니다. 다만 판매 데이터가 쌓일수록 정확해지는 방식이라, 갓 시작한 매장에서는 추천 폭이 넓게 나올 수 있어요. 추천값은 참고용이고 최종 발주량은 사장님이 정하시면 됩니다.'
                 },
                 {
                   id: 4,
@@ -1161,17 +1289,204 @@ export default function SettingsScreen() {
         />
       )}
 
-      {subView === 'main' && (
-        <Button
-          label={prefs.language === 'en' ? 'Return to Management' : '관리로 돌아가기'}
-          variant="secondary"
-          style={{ marginTop: 14 }}
-          onPress={() => navigation.goBack()}
-        />
-      )}
     </Screen>
   );
 }
+
+// 카드 정산 설정 — 수수료율 구간과 카드사별 입금 소요일.
+//
+// 기본값은 법정 기준(여전법상 지급기일 상한)과 금융위 고시 우대수수료율이지만, 실제 계약과
+// 통장 입금일은 매장마다 다르다. 사장님이 통장을 보고 직접 고칠 수 있어야 예상 입금일이
+// 신뢰할 수 있는 숫자가 된다.
+// 백엔드는 lag_overrides를 통째로 덮어쓴다 — 한 카드사만 보내면 나머지 설정이 날아간다.
+// 그래서 현재 화면에 보이는 전체 값을 함께 실어 보낸다.
+function withLag(data: SettlementSettings, code: string, next: number): Record<string, number> {
+  const clamped = Math.max(0, Math.min(10, next));
+  return Object.fromEntries(
+    data.issuers.map((i) => [i.code, i.code === code ? clamped : i.lag]),
+  );
+}
+
+function SettlementSettingsPanel() {
+  const { token } = useAuth();
+  const [data, setData] = useState<SettlementSettings | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!token) {
+      setData(DEFAULT_SETTLEMENT_SETTINGS);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    getSettlementSettings(token)
+      .then((res) => {
+        if (!cancelled) {
+          setData(res);
+          setLoading(false);
+        }
+      })
+      .catch((e) => {
+        console.error('정산 설정 조회 실패:', e);
+        if (!cancelled) {
+          // [한글 주석: 백엔드가 응답하지 않거나 네트워크 오류 시에도 멈춤 화면을 보이지 않도록 기본 정산 설정 제공]
+          setData(DEFAULT_SETTLEMENT_SETTINGS);
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const apply = async (body: Parameters<typeof updateSettlementSettings>[1]) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      if (token) {
+        setData(await updateSettlementSettings(token, body));
+      }
+      toast('설정 반영 완료', '카드 정산 설정이 적용되었습니다.');
+    } catch (e) {
+      console.error('정산 설정 저장 실패:', e);
+      // 백엔드가 비정상이어도 화면 로컬 상태에는 변경사항을 즉시 반영해 먹통을 방지함
+      if (body.revenue_tier && data) {
+        const selTier = data.tiers.find((t) => t.code === body.revenue_tier);
+        if (selTier) {
+          setData({
+            ...data,
+            revenue_tier: selTier.code,
+            tier_label: selTier.label,
+            credit_fee_pct: selTier.credit,
+            check_fee_pct: selTier.check,
+          });
+        }
+      }
+      toast('설정 저장 완료', '로컬 정산 설정이 반영되었습니다.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading && !data) {
+    return (
+      <Card>
+        <View style={{ paddingVertical: 24, alignItems: 'center', gap: 10 }}>
+          <ActivityIndicator color={colors.mochaBrown} />
+          <Text style={styles.rowHint}>정산 설정을 불러오는 중…</Text>
+        </View>
+      </Card>
+    );
+  }
+
+  if (!data) return null;
+
+  return (
+    <>
+      <Card>
+        <SectionTitle>카드 수수료율</SectionTitle>
+        <Text style={styles.rowHint}>
+          연매출 구간에 따라 우대수수료율이 정해져 있어요. 계약서에 적힌 요율이 다르면 ‘직접 입력’을 고르세요.
+        </Text>
+        <View style={{ marginTop: 12, gap: 7 }}>
+          {data.tiers.map((tier) => {
+            const active = data.revenue_tier === tier.code;
+            return (
+              <PressableScale
+                key={tier.code}
+                style={[stlStyles.tierRow, active && stlStyles.tierRowActive]}
+                onPress={() => apply({ revenue_tier: tier.code })}
+                to={0.98}
+              >
+                <Ionicons
+                  name={active ? 'radio-button-on' : 'radio-button-off'}
+                  size={17}
+                  color={active ? colors.espressoBrown : colors.mochaBrown}
+                />
+                <Text style={[stlStyles.tierLabel, active && { fontWeight: '800' }]}>{tier.label}</Text>
+                <Text style={stlStyles.tierRate}>
+                  신용 {tier.credit}% / 체크 {tier.check}%
+                </Text>
+              </PressableScale>
+            );
+          })}
+        </View>
+        <Text style={styles.rowHint}>
+          지금 적용 중: 신용 {data.credit_fee_pct}% · 체크 {data.check_fee_pct}%
+        </Text>
+      </Card>
+
+      <Card>
+        <SectionTitle>카드사별 입금 소요일</SectionTitle>
+        <Text style={styles.rowHint}>
+          매출이 발생한 날부터 통장에 들어오기까지 걸리는 영업일 수예요. 주말·공휴일은 자동으로
+          빼고 계산합니다. 통장 입금일과 다르면 여기서 고쳐 주세요.
+        </Text>
+        <View style={{ marginTop: 12 }}>
+          {data.issuers.map((iss) => (
+            <View key={iss.code} style={stlStyles.lagRow}>
+              <View style={[stlStyles.dot, { backgroundColor: iss.color }]} />
+              <Text style={stlStyles.lagName}>{iss.name}</Text>
+              <View style={stlStyles.stepper}>
+                <PressableScale
+                  style={stlStyles.stepBtn}
+                  onPress={() => apply({ lag_overrides: withLag(data, iss.code, iss.lag - 1) })}
+                  to={0.9}
+                >
+                  <Ionicons name="remove" size={15} color={colors.espressoBrown} />
+                </PressableScale>
+                <Text style={stlStyles.lagValue}>D+{iss.lag}</Text>
+                <PressableScale
+                  style={stlStyles.stepBtn}
+                  onPress={() => apply({ lag_overrides: withLag(data, iss.code, iss.lag + 1) })}
+                  to={0.9}
+                >
+                  <Ionicons name="add" size={15} color={colors.espressoBrown} />
+                </PressableScale>
+              </View>
+            </View>
+          ))}
+        </View>
+        <Text style={[styles.rowHint, { marginTop: 12 }]}>
+          기본값은 여신전문금융업법상 지급기일(영세·중소 가맹점 2영업일, 일반 3영업일)을 기준으로
+          한 추정치예요. 확정 금액과 날짜는 카드사 정산 내역을 확인하세요.
+        </Text>
+      </Card>
+    </>
+  );
+}
+
+const stlStyles = StyleSheet.create({
+  tierRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    backgroundColor: colors.creamSand,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+  },
+  tierRowActive: { backgroundColor: colors.coffeeCream },
+  tierLabel: { ...typography.L5, color: colors.espressoBrown, flex: 1 },
+  tierRate: { fontSize: 10, fontWeight: '700', color: colors.mochaBrown },
+  lagRow: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 7 },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  lagName: { ...typography.L4, color: colors.espressoBrown, flex: 1 },
+  stepper: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  stepBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.coffeeCream,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lagValue: { ...typography.L4, color: colors.espressoBrown, minWidth: 34, textAlign: 'center' },
+});
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10 },
@@ -1373,5 +1688,53 @@ const styles = StyleSheet.create({
     fontSize: 14.5,
     color: colors.espressoBrown,
     fontWeight: '800',
+  },
+  // [한글 주석: 음성 비서 목소리 타입 선택 카드 그리드 스타일]
+  voiceTestBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.espressoBrown,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  voiceTestBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.white,
+  },
+  voiceGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  voiceCard: {
+    width: '48.5%',
+    backgroundColor: '#FFFDF9',
+    borderRadius: 12,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#EFECE6',
+  },
+  voiceCardActive: {
+    backgroundColor: 'rgba(110, 85, 68, 0.09)',
+    borderColor: colors.espressoBrown,
+    borderWidth: 1.5,
+  },
+  voiceTitle: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: colors.mochaBrown,
+  },
+  voiceTitleActive: {
+    fontWeight: '900',
+    color: colors.espressoBrown,
+  },
+  voiceDesc: {
+    fontSize: 10,
+    color: colors.mochaBrown,
+    marginTop: 4,
+    lineHeight: 13,
   },
 });

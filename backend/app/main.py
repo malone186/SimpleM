@@ -1,12 +1,15 @@
 """FastAPI 엔트리포인트 (공동 소유) — 라우터 추가는 알파벳순"""
 
 import logging
+import re
+import time as _time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -40,6 +43,10 @@ try:
     from app.models.ai import ensure_ocr_store_column
     ensure_ocr_store_column(engine)
 
+    # [자가치유] 기존 store_profiles 테이블에 configured 컬럼이 없으면 보강한다.
+    from app.models.ai import ensure_store_profile_columns
+    ensure_store_profile_columns(engine)
+
     # [한글 주석] 로그인 데모를 즉시 하실 수 있게 테스트용 사장님 계정을 자동으로 생성(시딩)해 둡니다.
     db_session = SessionLocal()
     try:
@@ -71,8 +78,8 @@ async def _lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="SimpleM 카페 통합 플랫폼 API",
-    description="재고·발주·운영·AI(챗봇/OCR/리포트) 기능을 제공하는 SimpleM 백엔드 API",
+    title="브루노트 카페 통합 플랫폼 API",
+    description="재고·발주·운영·AI(챗봇/OCR/리포트) 기능을 제공하는 브루노트 백엔드 API",
     version="1.0.0",
     lifespan=_lifespan,
 )
@@ -168,6 +175,26 @@ app.mount("/legal", StaticFiles(directory=str(_LEGAL_DIR), html=True), name="leg
 _MAP_DIR = Path(__file__).parent / "static" / "map"
 app.mount("/map", StaticFiles(directory=str(_MAP_DIR), html=True), name="map")
 
+# [관리자 콘솔] 예전 admin_web/(별도 http.server, 포트 3000)을 FastAPI가 직접 서빙한다 —
+# 백엔드 배포(--source backend)에 같이 실려 Cloud Run에서도 /console로 접근 가능.
+# 페이지는 Jinja 템플릿: 같은 origin의 API 상대 경로와 캐시 무효화 버전을 주입한다.
+# 인증은 페이지가 아니라 API가 담당한다(/api/v1/admin/* 토큰 게이트) — 페이지 자체는 로그인 화면만 노출.
+_CONSOLE_DIR = Path(__file__).parent / "admin_console"
+app.mount("/console/static", StaticFiles(directory=str(_CONSOLE_DIR / "static")), name="console_static")
+_console_templates = Jinja2Templates(directory=str(_CONSOLE_DIR / "templates"))
+# 기동 시각을 asset 버전으로 → 재배포마다 브라우저 캐시가 자동 갱신된다 (수동 ?v= 올리기 불필요)
+_CONSOLE_ASSET_VERSION = str(int(_time.time()))
+
+
+@app.get("/console", include_in_schema=False)
+def admin_console_page(request: Request):
+    """관리자 데스크톱 콘솔 — Jinja 렌더링 (api_base=''는 같은 origin 상대 경로를 뜻한다)."""
+    return _console_templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={"api_base": "", "asset_version": _CONSOLE_ASSET_VERSION},
+    )
+
 
 # 1. 데이터베이스 접속이 실제로 잘 되는지 테스트해보는 맛보기 API
 @app.get("/db-test")
@@ -187,9 +214,77 @@ def test_database_connection(db: Session = Depends(get_db)):
         }
 
 
+def _db_identity() -> dict:
+    """지금 붙어 있는 DB가 무엇인지 — 관리자 콘솔 '시스템 상태'에 그대로 표시된다.
+
+    화면에 'PostgreSQL'이라고만 쓰면 운영 Neon에 붙었는지, 팀원 PC의 로컬 DB에 붙었는지,
+    폴백으로 SQLite 파일에 쓰고 있는지 구분이 안 된다. 잘못된 DB에 붙은 채로 데모를 하면
+    쓴 데이터가 어디로 갔는지 한참 뒤에야 알게 된다.
+
+    접속 정보 중 계정·비밀번호는 절대 내보내지 않는다 — 종류/리전/DB명만 노출한다.
+    """
+    url = engine.url
+    host = url.host or ""
+    database = url.database or ""
+
+    if url.drivername.startswith("sqlite"):
+        # ALLOW_SQLITE_FALLBACK=1 로 켜지는 임시 모드 — 공유 DB에 안 쌓인다는 뜻이라 눈에 띄어야 한다
+        return {"provider": "SQLite (로컬 폴백)", "region": "", "database": database}
+
+    if "neon.tech" in host:
+        # 호스트 모양이 두 가지다:
+        #   ep-xxxx-pooler.ap-southeast-1.aws.neon.tech
+        #   ep-xxxx-pooler.c-3.ap-southeast-1.aws.neon.tech   ← 'c-N'은 컴퓨트 번호지 리전이 아니다
+        # 그냥 두 번째 라벨을 집으면 리전이 'c-3'으로 찍힌다. 리전 모양(xx-yyyy-N)을 찾는다.
+        labels = host.split(".")
+        region = next(
+            (p for p in labels if re.fullmatch(r"[a-z]{2}-[a-z]+-\d+", p)),
+            "",
+        )
+        return {"provider": "Neon PostgreSQL", "region": region, "database": database}
+
+    if host in ("localhost", "127.0.0.1", ""):
+        return {"provider": "로컬 PostgreSQL", "region": "", "database": database}
+
+    return {"provider": "PostgreSQL", "region": "", "database": database}
+
+
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok"}
+    """구성요소별 상태 — 관리자 콘솔의 '시스템 상태'가 읽는다.
+
+    예전엔 {"status":"ok"}만 돌려줘서 화면이 볼 게 없었고, 그래서 DB는 API 상태를 그대로
+    베껴 쓰고 OCR은 아예 '대기'로 하드코딩돼 있었다. 실제로 확인해서 알려준다.
+
+    OCR은 켜 둘 프로세스가 없다 — Gemini REST 호출이라 API 키만 있으면 바로 쓸 수 있다.
+    (로컬 VLM 서빙 시절에는 llama-server 예열을 기다려야 해서 '대기'가 의미 있었다.)
+    """
+    from app.core.database import SessionLocal, engine
+    from app.services.ai import ocr_service
+
+    db_ok = False
+    db_detail = ""
+    try:
+        with SessionLocal() as session:
+            session.execute(text("SELECT 1"))
+        db_ok = True
+    except Exception as e:
+        db_detail = str(e)[:120]
+
+    ocr_ready = bool(ocr_service.GEMINI_API_KEY)
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "components": {
+            "api": {"ok": True},
+            "db": {"ok": db_ok, "detail": db_detail, **_db_identity()},
+            "ocr": {
+                "ok": ocr_ready,
+                # 키가 없으면 업로드해도 502가 나므로 그 사실을 그대로 말한다
+                "detail": ocr_service.GEMINI_MODEL if ocr_ready else "GEMINI_API_KEY 미설정",
+                "backend": ocr_service.OCR_BACKEND,
+            },
+        },
+    }
 
 
 # [웹 앱 서빙 — 반드시 파일 맨 끝에 둘 것] frontend/dist(expo export --platform web 산출물)가
@@ -202,6 +297,6 @@ else:
     @app.get("/")
     def read_root():
         return {
-            "message": "SimpleM 카페 통합 플랫폼 백엔드 서버에 오신 것을 환영합니다!",
+            "message": "브루노트 카페 통합 플랫폼 백엔드 서버에 오신 것을 환영합니다!",
             "status": "online",
         }

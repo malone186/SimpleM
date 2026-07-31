@@ -15,19 +15,20 @@ import AuthScreen from '../screens/auth/AuthScreen';
 import ChatbotScreen from '../screens/chatbot/ChatbotScreen';
 import CostScreen from '../screens/cost/CostScreen';
 import DashboardScreen from '../screens/dashboard/DashboardScreen';
-import DessertScreen from '../screens/dessert/DessertScreen';
 import DocumentScreen from '../screens/document/DocumentScreen';
 import IngredientScreen from '../screens/ingredient/IngredientScreen';
 import InventoryScreen from '../screens/inventory/InventoryScreen';
-import LawSearchScreen from '../screens/law/LawSearchScreen';
 import LegalScreen from '../screens/legal/LegalScreen';
 import ManagementScreen from '../screens/management/ManagementScreen';
+import ManualSalesScreen from '../screens/sales/ManualSalesScreen';
+import MarketingScreen from '../screens/marketing/MarketingScreen';
 import MenuScreen from '../screens/menu/MenuScreen';
 import OperationScreen from '../screens/operation/OperationScreen';
 import OrderScreen from '../screens/order/OrderScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 import SalesInputScreen from '../screens/sales/SalesInputScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
+import StaffScreen from '../screens/staff/StaffScreen';
 import TaxDraftDetailScreen from '../screens/document/TaxDraftDetailScreen';
 import { colors, typography } from '../theme';
 import type { TaxEstimate } from '../lib/api/operation';
@@ -35,7 +36,6 @@ import type { TaxEstimate } from '../lib/api/operation';
 export type RootTabParamList = {
   Dashboard: undefined;
   Inventory: undefined;
-  Order: undefined;
   // prefill: 다른 화면(경영 리포트 등)에서 버튼으로 넘어올 때 입력창에 미리 채울 질문
   //   ts: 같은 질문을 다시 눌러도 파라미터가 바뀌어 재입력되도록 하는 클릭 시각
   Chatbot: { prefill?: string; ts?: number } | undefined;
@@ -55,15 +55,17 @@ export type RootStackParamList = {
   Ingredient: undefined;
   Menu: undefined;
   SalesInput: undefined;
+  ManualSales: undefined;
+  Marketing: undefined;
   Cost: undefined;
-  LawSearch: undefined;
   Legal: { doc?: 'privacy' | 'terms' } | undefined;
   Document: undefined;
   TaxDraftDetail: { tax: TaxEstimate };
   Operation: undefined;
+  Staff: undefined;
   BeanOperation: undefined;
-  Settings: undefined;
-  Dessert: undefined;
+  // section: 특정 설정 하위 화면으로 바로 진입 (예: 카드 정산 설정)
+  Settings: { section?: 'account' | 'notification' | 'appearance' | 'inquiry' | 'legal' | 'settlement' } | undefined;
   StoreMap: undefined;
 };
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -72,7 +74,6 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 const ICONS: Record<keyof RootTabParamList, keyof typeof Ionicons.glyphMap> = {
   Dashboard: 'home',
   Inventory: 'file-tray-stacked',
-  Order: 'cart',
   Chatbot: 'chatbubble-ellipses',
   Management: 'grid',
 };
@@ -80,7 +81,6 @@ const ICONS: Record<keyof RootTabParamList, keyof typeof Ionicons.glyphMap> = {
 const LABELS: Record<keyof RootTabParamList, string> = {
   Dashboard: '홈',
   Inventory: '재고',
-  Order: '발주',
   Chatbot: '챗봇',
   Management: '관리',
 };
@@ -169,16 +169,17 @@ export default function RootNavigator() {
         <Stack.Screen name="Ingredient" component={IngredientScreen} options={({ navigation }) => erpHeader('재료 관리', navigation)} />
         <Stack.Screen name="Menu" component={MenuScreen} options={({ navigation }) => erpHeader('메뉴 관리', navigation)} />
         <Stack.Screen name="SalesInput" component={SalesInputScreen} options={({ navigation }) => erpHeader('판매 입력', navigation)} />
+        <Stack.Screen name="ManualSales" component={ManualSalesScreen} options={({ navigation }) => erpHeader('직접 입력', navigation)} />
+        <Stack.Screen name="Marketing" component={MarketingScreen} options={({ navigation }) => erpHeader('홍보 스튜디오', navigation)} />
         <Stack.Screen name="Cost" component={CostScreen} options={({ navigation }) => erpHeader('원가 분석', navigation)} />
-        <Stack.Screen name="LawSearch" component={LawSearchScreen} options={({ navigation }) => erpHeader('법령 검색', navigation)} />
         <Stack.Screen name="Legal" component={LegalScreen} options={({ navigation }) => erpHeader('약관 및 정책', navigation)} />
         <Stack.Screen name="Document" component={DocumentScreen} options={({ navigation }) => erpHeader('서류 자동화', navigation)} />
         <Stack.Screen name="TaxDraftDetail" component={TaxDraftDetailScreen} options={({ navigation }) => erpHeader('세금 신고 초안', navigation)} />
-        <Stack.Screen name="Operation" component={OperationScreen} options={({ navigation }) => erpHeader('스케줄 · 급여', navigation)} />
+        <Stack.Screen name="Operation" component={OperationScreen} options={({ navigation }) => erpHeader('직원 · 스케줄', navigation)} />
+        <Stack.Screen name="Staff" component={StaffScreen} options={({ navigation }) => erpHeader('직원 · 인건비', navigation)} />
         <Stack.Screen name="BeanOperation" component={BeanOperationScreen} options={({ navigation }) => erpHeader('운영 · 원두 실리뷰 분석', navigation)} />
 
         <Stack.Screen name="Settings" component={SettingsScreen} options={({ navigation }) => erpHeader('설정', navigation)} />
-        <Stack.Screen name="Dessert" component={DessertScreen} options={({ navigation }) => erpHeader('디저트 관리', navigation)} />
         <Stack.Screen name="StoreMap" component={StoreMapScreen} options={({ navigation }) => erpHeader('매장 위치', navigation)} />
       </Stack.Navigator>
     </NavigationContainer>
@@ -191,7 +192,6 @@ import { useTranslation, type TranslationKey } from '../i18n/translations';
 const TAB_LABEL_KEYS: Record<keyof RootTabParamList, TranslationKey> = {
   Dashboard: 'tabHome',
   Inventory: 'tabInventory',
-  Order: 'tabOrder',
   Chatbot: 'tabChatbot',
   Management: 'tabManagement',
 };
@@ -252,7 +252,6 @@ function TabsNavigator() {
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
       <Tab.Screen name="Inventory" component={InventoryScreen} />
-      <Tab.Screen name="Order" component={OrderScreen} />
       <Tab.Screen name="Chatbot" component={ChatbotScreen} />
       <Tab.Screen name="Management" component={ManagementScreen} />
     </Tab.Navigator>

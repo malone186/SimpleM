@@ -535,51 +535,9 @@ export default function BeanNotepad() {
     };
   }, [authToken]);
 
-  // 가상의 폴백 원두 (DB에 추천용 원두가 아직 없을 때를 위한 안정적인 예시 데이터)
-  const MOCK_FALLBACK_BEANS: RoasteryBean[] = [
-    {
-      id: -101,
-      name: '에티오피아 예가체프 G2 워시드',
-      price: 13000,
-      roastery_id: 1,
-      thumbnail_url: null,
-      product_url: 'https://smartstore.naver.com',
-      date_added: null,
-      best: true,
-      new: false,
-      sold_out: false,
-      description: '은은한 꽃향기와 시트러스한 오렌지 계열의 화사한 산미, 홍차처럼 깔끔한 목넘김이 특징입니다.',
-      country: '에티오피아',
-      process: '워시드',
-      blend: false,
-      decaf: false,
-      gesha: false,
-      price_per_gram: null,
-      naver_product_id: null,
-      roastery: { id: 1, name: '심플엠 로스터스', thumbnail_url: null, roastery_info: null, file_path: null }
-    },
-    {
-      id: -102,
-      name: '디카페인 콜롬비아 수프리모',
-      price: 14500,
-      roastery_id: 1,
-      thumbnail_url: null,
-      product_url: 'https://smartstore.naver.com',
-      date_added: null,
-      best: true,
-      new: false,
-      sold_out: false,
-      description: '카카오의 달콤 쌉싸름함과 고소한 구운 견과류의 밸런스가 좋은 깔끔한 디카페인 원두입니다.',
-      country: '콜롬비아',
-      process: '스위스 워터 가공',
-      blend: false,
-      decaf: true,
-      gesha: false,
-      price_per_gram: null,
-      naver_product_id: null,
-      roastery: { id: 1, name: '심플엠 로스터스', thumbnail_url: null, roastery_info: null, file_path: null }
-    }
-  ];
+  // (삭제됨) MOCK_FALLBACK_BEANS — 추천할 원두가 없을 때 지어낸 원두를 대신 채웠다.
+  // '심플엠 로스터스 13,000원' 같은 존재하지 않는 상품이 "추천 결과"로 나갔다.
+  // 추천할 게 없으면 없다고 말한다 (아래 sourceBeans 참고).
 
   // 추천 실행 진입점 — 요청 중이면 무시(연타 시 결과 중첩·스크롤 반복 방지).
   // state는 리렌더 전 연속 탭을 못 막으므로 ref로 즉시 잠근다.
@@ -684,7 +642,8 @@ export default function BeanNotepad() {
     }
 
     // [폴백 백업] 백엔드 연결 불가능 시 로컬 클라이언트 계산 (설문 조건별 가중치 스코어링)
-    const sourceBeans = roasteryBeans.length > 0 ? roasteryBeans : MOCK_FALLBACK_BEANS;
+    // 실제로 수집된 원두만 점수를 매긴다 — 없으면 결과도 비어 있어야 한다
+    const sourceBeans = roasteryBeans;
     const scoredList: SurveyResultItem[] = [];
 
     sourceBeans.forEach(bean => {

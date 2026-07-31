@@ -1,5 +1,7 @@
 // 메뉴 관리 (ERP-3) — 메뉴 등록 + 레시피(재료 구성), 원가율
-import { useEffect, useState } from 'react';
+// 디저트도 여기서 같이 관리한다. 디저트는 별도 저장소가 아니라 '메뉴'로 등록되고(같은 API),
+// 메뉴판이 다루지 않는 매입가·소비기한·폐기만 로컬(DessertContext)에 붙는다.
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -8,9 +10,12 @@ import { useTranslation } from '../../i18n/translations';
 import { PressableScale } from '../../components/motion';
 import FormSheet, { LabeledInput } from '../../components/FormSheet';
 import { Badge, Button, Card, Divider, Screen, ScreenTitle } from '../../components/ui';
+import { Segmented } from '../../components/ui/Segmented';
 import { colors, typography } from '../../theme';
 import { API_BASE_URL, apiFetch } from '../../lib/api/client';
 import { confirmDialog, toast } from '../../components/toast';
+import { daysLeft, todayISO, useDesserts } from '../../dessert/DessertContext';
+import { GRADE_TONE, categoryOfMenu, gradeOf } from '../../lib/costStandards';
 
 
 // 1. 진짜 DB에서 불러올 재료 및 메뉴 레시피 규격 선언
@@ -41,6 +46,35 @@ type Menu = {
 
 // 2. 새로운 메뉴를 만들 때 한 줄 한 줄의 레시피 입력칸 규격
 type NewRow = { ingredient_id: string; quantity: string };
+
+type Tab = 'menu' | 'dessert';
+
+const won = (n: number) => '₩' + Math.round(n || 0).toLocaleString('ko-KR');
+const toNum = (s: string) => Number(s.replace(/[^\d]/g, '')) || 0;
+
+// 날짜 관용 입력: "2026.8.1" "20260801" "2026-8-1" → "2026-08-01" (틀리면 null)
+function normalizeDate(raw: string): string | null {
+  const digits = raw.replace(/\D/g, '');
+  let y: number, m: number, d: number;
+  const parts = raw.split(/\D+/).filter(Boolean);
+  if (parts.length === 3 && parts[0].length === 4) {
+    [y, m, d] = parts.map(Number);
+  } else if (digits.length === 8) {
+    [y, m, d] = [Number(digits.slice(0, 4)), Number(digits.slice(4, 6)), Number(digits.slice(6, 8))];
+  } else return null;
+  const dt = new Date(y, m - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return null;
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+// 소비기한 상태 → 라벨/색
+function expiryState(dl: number): { label: string; tone: 'danger' | 'orange' | 'neutral' | 'green' } {
+  if (dl < 0) return { label: `${-dl}일 지남`, tone: 'danger' };
+  if (dl === 0) return { label: '오늘까지', tone: 'danger' };
+  if (dl === 1) return { label: '내일까지', tone: 'orange' };
+  if (dl <= 3) return { label: `D-${dl}`, tone: 'orange' };
+  return { label: `D-${dl}`, tone: 'green' };
+}
 
 // [재료 선택 드롭다운]
 // 예전엔 HTML <select> 태그를 그대로 썼는데, 앱(React Native)에는 그런 태그가 없어서
@@ -114,15 +148,43 @@ function IngredientSelect({
 export default function MenuScreen() {
   // [한글 주석: 전역 다국어 훅 연동]
   const { t, language } = useTranslation();
+  const [tab, setTab] = useState<Tab>('menu');
   const [open, setOpen] = useState<number | null>(null);
   const [menus, setMenus] = useState<Menu[]>([]);
   const [allIngredients, setAllIngredients] = useState<Ingredient[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  const [query, setQuery] = useState(''); // 메뉴 이름 검색 (목록이 길어지면 스크롤로는 못 찾는다)
 
   const [name, setName] = useState('');
   const [price, setPrice] = useState('');
   const [rows, setRows] = useState<NewRow[]>([{ ingredient_id: '', quantity: '' }]);
+
+  // 디저트 추가 폼 (메뉴 추가와 같은 바텀시트, 입력칸만 디저트용)
+  const [dName, setDName] = useState('');
+  const [dSell, setDSell] = useState('');
+  const [dBuy, setDBuy] = useState('');
+  const [dQty, setDQty] = useState('');
+  const [dExpiry, setDExpiry] = useState('');
+
+  // 입고 폼 (디저트 카드에서 진입)
+  const [stockFor, setStockFor] = useState<Menu | null>(null);
+  const [sQty, setSQty] = useState('');
+  const [sExpiry, setSExpiry] = useState('');
+
+  const {
+    ready: dessertReady,
+    batches,
+    wastes,
+    buyPriceOf,
+    markDessert,
+    unmarkDessert,
+    addBatch,
+    sell,
+    waste,
+    legacy,
+    applyLegacy,
+  } = useDesserts();
 
   // 3. [인증 정보] 자동 로그인 여부와 무관하게 항상 유효한 in-memory 토큰 사용
   const { token } = useAuth();
@@ -134,7 +196,7 @@ export default function MenuScreen() {
     try {
       setLoading(true);
       const headers = await getAuthHeaders();
-      
+
       // 4-1. 드롭다운 선택에 띄워줄 전체 재재료 로드
       const ingredientsData = await apiFetch<Ingredient[]>('/api/v1/inventory/ingredients', { headers });
       setAllIngredients(ingredientsData);
@@ -153,16 +215,56 @@ export default function MenuScreen() {
     fetchData();
   }, []);
 
+  // [1회 이관] 예전 '디저트 관리' 탭에 로컬로만 남아 있던 디저트를 메뉴로 옮겨 심는다.
+  // 옮기고 나면 디저트도 메뉴와 똑같이 서버가 원본이 된다.
+  const migrating = useRef(false);
+  useEffect(() => {
+    if (!dessertReady || !legacy || !token || loading || migrating.current) return;
+    migrating.current = true;
+    (async () => {
+      const idMap: Record<string, number> = {};
+      const buyPrices: Record<string, number> = {};
+      try {
+        const headers = await getAuthHeaders();
+        for (const d of legacy.desserts) {
+          try {
+            const created = await apiFetch<{ id: number }>('/api/v1/inventory/menus', {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ name: d.name, selling_price: d.sellPrice, recipes: [] }),
+            });
+            idMap[d.id] = created.id;
+            buyPrices[d.id] = d.buyPrice;
+          } catch (e) {
+            console.error('디저트 → 메뉴 이관 실패:', d.name, e);
+          }
+        }
+      } finally {
+        const moved = Object.keys(idMap).length;
+        if (moved > 0) {
+          applyLegacy(idMap, buyPrices);
+          await fetchData();
+          toast('디저트 이동 완료', `기존 디저트 ${moved}개를 메뉴 관리로 옮겼어요.`);
+        }
+        migrating.current = false;
+      }
+    })();
+  }, [dessertReady, legacy, token, loading]);
+
   const setRow = (i: number, patch: Partial<NewRow>) =>
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const addRow = () => setRows((prev) => [...prev, { ingredient_id: '', quantity: '' }]);
   const removeRow = (i: number) => setRows((prev) => prev.filter((_, idx) => idx !== i));
 
   const canSubmit = name.trim() !== '' && price.trim() !== '';
+  const canSubmitDessert = dName.trim() !== '' && dSell.trim() !== '' && dBuy.trim() !== '';
 
   // 메뉴 삭제 (확인 후) — 204 응답이라 raw fetch 사용
-  const remove = (m: Menu) => {
-    confirmDialog(`'${m.name}' 메뉴를 삭제할까요? 레시피 구성도 함께 제거됩니다.`, {
+  const remove = (m: Menu, isDessert: boolean) => {
+    const message = isDessert
+      ? `'${m.name}' 디저트를 삭제할까요? 재고(소비기한) 기록도 함께 제거됩니다. (폐기 집계는 유지)`
+      : `'${m.name}' 메뉴를 삭제할까요? 레시피 구성도 함께 제거됩니다.`;
+    confirmDialog(message, {
       confirmLabel: '삭제',
       destructive: true,
       onConfirm: async () => {
@@ -173,8 +275,9 @@ export default function MenuScreen() {
             headers: { Authorization: `Bearer ${token}` },
           });
           if (!res.ok) throw new Error(`삭제 실패 (${res.status})`);
+          if (isDessert) unmarkDessert(m.id);
           await fetchData();
-          toast('삭제 완료', `${m.name} 메뉴를 삭제했어요.`);
+          toast('삭제 완료', `${m.name} ${isDessert ? '디저트' : '메뉴'}를 삭제했어요.`);
         } catch (e) {
           toast('삭제 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
         }
@@ -185,7 +288,7 @@ export default function MenuScreen() {
   // 5. [메뉴 추가 API 발송] 메뉴 이름, 판매가, 조립식 레시피 리스트를 한 묶음으로 쏩니다.
   const submit = async () => {
     const p = parseInt(price.replace(/[^0-9]/g, ''), 10) || 0;
-    
+
     // 유효한 재료가 골라진 행만 걸러내어 API용 데이터 구조로 치환합니다.
     const recipeData = rows
       .filter((r) => r.ingredient_id !== '' && r.quantity.trim() !== '')
@@ -221,25 +324,197 @@ export default function MenuScreen() {
     }
   };
 
+  // 5-2. [디저트 추가] 메뉴 등록과 같은 API를 쓰고(레시피 없음), 매입가·첫 입고만 로컬에 붙인다.
+  const submitDessert = async () => {
+    const s = toNum(dSell);
+    const b = toNum(dBuy);
+    if (s <= 0 || b <= 0) {
+      toast('추가 실패', '판매가와 매입가를 입력해 주세요.');
+      return;
+    }
+    const q = toNum(dQty);
+    let iso: string | null = null;
+    if (q > 0 || dExpiry.trim() !== '') {
+      iso = normalizeDate(dExpiry);
+      if (q <= 0 || !iso) {
+        toast('추가 실패', '첫 입고를 넣으려면 수량과 소비기한을 모두 올바르게 입력해 주세요.');
+        return;
+      }
+    }
+
+    const headers = await getAuthHeaders();
+    if (!('Authorization' in headers)) {
+      toast('로그인이 필요해요', '로그아웃 후 다시 로그인해 주세요.');
+      return;
+    }
+    try {
+      const created = await apiFetch<{ id: number }>('/api/v1/inventory/menus', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ name: dName.trim(), selling_price: s, recipes: [] }),
+      });
+      markDessert(created.id, b);
+      if (iso && q > 0) addBatch(created.id, q, iso);
+      const label = dName.trim();
+      setDName('');
+      setDSell('');
+      setDBuy('');
+      setDQty('');
+      setDExpiry('');
+      setAdding(false);
+      await fetchData();
+      toast('추가 완료', `${label} 디저트를 등록했어요. (마진 ${won(s - b)})`);
+    } catch (e) {
+      console.error('디저트 등록 실패:', e);
+      toast('추가 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+    }
+  };
+
+  // 5-3. [디저트 입고] 수량 + 소비기한 배치 추가
+  const submitStock = () => {
+    if (!stockFor) return;
+    const q = toNum(sQty);
+    if (q <= 0) return toast('입고', '수량을 입력해 주세요.');
+    const iso = normalizeDate(sExpiry);
+    if (!iso) return toast('입고', '소비기한을 올바르게 입력해 주세요. (예: 2026-07-25)');
+    addBatch(stockFor.id, q, iso);
+    toast('입고 완료', `${stockFor.name} ${q}개 · 소비기한 ${iso}`);
+    setStockFor(null);
+    setSQty('');
+    setSExpiry('');
+  };
+
+  // 재료 조회는 레시피 줄마다 일어난다 — 배열 find(O(n))를 매번 돌면 메뉴·재료가 늘수록
+  // 렌더가 눈에 띄게 느려진다. id → 재료 맵을 한 번만 만들어 O(1) 조회로 바꾼다.
+  const ingredientById = useMemo(
+    () => new Map(allIngredients.map((i) => [i.id, i])),
+    [allIngredients],
+  );
+
   // 6. [실시간 단가 계산 공식]
   // 단재료의 단위(unit)가 kg이나 L인 대용량 벌크 제품이면, 그람(g)/밀리리터(ml) 환산을 위해 단가를 1,000으로 나눈 뒤 소요량을 곱합니다.
   const getIngredientCost = (ingId: number, qty: number) => {
-    const ing = allIngredients.find((i) => i.id === ingId);
+    const ing = ingredientById.get(ingId);
     if (!ing) return 0;
     const unitLower = (ing.unit ?? '').toLowerCase();
-    
+
     if (unitLower === 'kg' || unitLower === 'l' || unitLower === '팩' || unitLower === '병') {
       return Math.round((ing.current_price / 1000) * qty);
     }
     return Math.round(ing.current_price * qty);
   };
 
+  // 디저트로 표시된 메뉴는 디저트 탭에서만 보여 준다 (메뉴 탭은 음료·일반 메뉴)
+  const allPlainMenus = useMemo(() => menus.filter((m) => buyPriceOf(m.id) == null), [menus, buyPriceOf]);
+  // 메뉴가 수십 개인 매장에서 스크롤로 찾는 건 고역이다 — 이름 검색으로 바로 좁힌다
+  const plainMenus = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? allPlainMenus.filter((m) => m.name.toLowerCase().includes(q)) : allPlainMenus;
+  }, [allPlainMenus, query]);
+  const dessertMenus = useMemo(() => menus.filter((m) => buyPriceOf(m.id) != null), [menus, buyPriceOf]);
+
+  const ym = todayISO().slice(0, 7);
+
+  // 이번 달 폐기 손실 (금액·수량·메뉴별)
+  const monthWaste = useMemo(() => {
+    const rows = wastes.filter((w) => w.date.startsWith(ym));
+    return {
+      total: rows.reduce((s, w) => s + w.qty * w.unitCost, 0),
+      count: rows.reduce((s, w) => s + w.qty, 0),
+      qtyByMenu: rows.reduce<Record<number, number>>((acc, w) => {
+        acc[w.menuId] = (acc[w.menuId] ?? 0) + w.qty;
+        return acc;
+      }, {}),
+      amountByName: rows.reduce<Record<string, number>>((acc, w) => {
+        acc[w.name] = (acc[w.name] ?? 0) + w.qty * w.unitCost;
+        return acc;
+      }, {}),
+    };
+  }, [wastes, ym]);
+  const topWasteName = Object.entries(monthWaste.amountByName).sort((a, b) => b[1] - a[1])[0]?.[0];
+
+  // 디저트 카드 데이터 — 마진 큰 순(= 예전 '마진 순위')으로 정렬
+  const dessertRows = useMemo(() => {
+    return dessertMenus
+      .map((m) => {
+        const buyPrice = buyPriceOf(m.id) ?? 0;
+        const sellPrice = m.selling_price ?? 0;
+        const margin = sellPrice - buyPrice;
+        const rate = sellPrice > 0 ? Math.round((margin / sellPrice) * 100) : 0;
+        const bs = batches
+          .filter((b) => b.menuId === m.id)
+          .sort((a, b) => daysLeft(a.expiry) - daysLeft(b.expiry));
+        const stock = bs.reduce((s, b) => s + b.qty, 0);
+        const wasteCnt = monthWaste.qtyByMenu[m.id] ?? 0;
+        return {
+          menu: m,
+          buyPrice,
+          sellPrice,
+          margin,
+          rate,
+          batches: bs,
+          stock,
+          nearest: bs.length ? daysLeft(bs[0].expiry) : null,
+          wasteCnt,
+          drop: rate < 35 && wasteCnt >= 3, // 마진 낮고 폐기 잦음 → 뺄지 고민 신호
+        };
+      })
+      .sort((a, b) => b.margin - a.margin);
+  }, [dessertMenus, batches, buyPriceOf, monthWaste]);
+
+  // 소비기한 임박(오늘/내일/지남) 배치 — 오래된 순
+  const urgent = useMemo(() => {
+    const nameById = Object.fromEntries(menus.map((m) => [m.id, m.name]));
+    return batches
+      .filter((b) => buyPriceOf(b.menuId) != null)
+      .map((b) => ({ ...b, dl: daysLeft(b.expiry), name: nameById[b.menuId] ?? '(삭제됨)' }))
+      .filter((b) => b.dl <= 1)
+      .sort((a, b) => a.dl - b.dl);
+  }, [batches, menus, buyPriceOf]);
+
+  const isDessertTab = tab === 'dessert';
+  const addLabel = isDessertTab
+    ? language === 'en' ? '+ Add Dessert' : '+ 디저트 추가'
+    : language === 'en' ? '+ Add Menu' : '+ 메뉴 추가';
+
   return (
     <>
       <Screen>
         <ScreenTitle title={t('menuMgmtTitle')} subtitle={t('menuMgmtSub')} />
 
-        <Button label={language === 'en' ? '+ Add Menu' : '+ 메뉴 추가'} variant="secondary" onPress={() => setAdding(true)} />
+        {/* 메뉴 / 디저트 — 같은 화면, 같은 방식 */}
+        <Segmented<Tab>
+          options={[
+            { value: 'menu', label: language === 'en' ? `Menu ${allPlainMenus.length}` : `메뉴 ${allPlainMenus.length}` },
+            { value: 'dessert', label: language === 'en' ? `Dessert ${dessertMenus.length}` : `디저트 ${dessertMenus.length}` },
+          ]}
+          value={tab}
+          onChange={(v) => {
+            setTab(v);
+            setOpen(null);
+          }}
+        />
+
+        <Button label={addLabel} variant="secondary" onPress={() => setAdding(true)} />
+
+        {/* 메뉴 검색 — 메뉴 탭에서 항목이 8개를 넘을 때만 (적으면 오히려 방해) */}
+        {!isDessertTab && allPlainMenus.length > 8 && (
+          <View style={styles.searchBox}>
+            <Ionicons name="search" size={15} color={colors.mochaBrown} />
+            <TextInput
+              style={styles.searchInput}
+              value={query}
+              onChangeText={setQuery}
+              placeholder="메뉴 이름으로 찾기"
+              placeholderTextColor={colors.mochaBrown}
+            />
+            {query.length > 0 && (
+              <TouchableOpacity onPress={() => setQuery('')} hitSlop={8}>
+                <Ionicons name="close-circle" size={16} color={colors.mochaBrown} />
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
 
         {loading ? (
           <View style={{ paddingVertical: 40 }}>
@@ -248,7 +523,174 @@ export default function MenuScreen() {
               {language === 'en' ? 'Syncing data...' : '데이터를 동기화하고 있어요...'}
             </Text>
           </View>
-        ) : menus.length === 0 ? (
+        ) : isDessertTab ? (
+          <>
+            {/* 소비기한 임박 알림 + 이번 달 폐기 손실 — 디저트에만 있는 두 가지 */}
+            <Card tone="cream">
+              <View style={styles.rowBetween}>
+                <Text style={styles.cardHead}>{language === 'en' ? 'Expiring soon' : '소비기한 임박'}</Text>
+                <Badge label={`${urgent.length}${language === 'en' ? '' : '건'}`} tone={urgent.length ? 'danger' : 'neutral'} />
+              </View>
+              {urgent.length === 0 ? (
+                <Text style={styles.empty}>
+                  {language === 'en' ? 'Nothing near its expiry date ☕' : '임박한 디저트가 없어요. 여유롭게 판매하세요 ☕'}
+                </Text>
+              ) : (
+                <View style={{ marginTop: 10, gap: 10 }}>
+                  {urgent.map((b) => {
+                    const st = expiryState(b.dl);
+                    return (
+                      <View key={b.id} style={styles.urgentRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.urgentText}>
+                            {st.label} 팔아야 할 <Text style={styles.urgentName}>{b.name} {b.qty}개</Text>
+                          </Text>
+                          <Text style={styles.urgentSub}>소비기한 {b.expiry}</Text>
+                        </View>
+                        <PressableScale style={[styles.miniBtn, styles.sellBtn]} onPress={() => sell(b.id, 1)} to={0.9}>
+                          <Text style={styles.sellBtnText}>판매 −1</Text>
+                        </PressableScale>
+                        <PressableScale
+                          style={[styles.miniBtn, styles.wasteBtn]}
+                          onPress={() =>
+                            confirmDialog(`${b.name} 1개를 폐기로 기록할까요? (손실에 반영)`, {
+                              confirmLabel: '폐기',
+                              destructive: true,
+                              onConfirm: () => waste(b.id, 1, b.name),
+                            })
+                          }
+                          to={0.9}
+                        >
+                          <Text style={styles.wasteBtnText}>폐기</Text>
+                        </PressableScale>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+              <Divider style={{ marginTop: 12 }} />
+              <View style={[styles.rowBetween, { marginTop: 10 }]}>
+                <Text style={styles.wasteLabel}>이번 달 폐기로 나간 돈</Text>
+                <Text style={styles.wasteMoney}>{won(monthWaste.total)}</Text>
+              </View>
+              <Text style={styles.wasteSub}>
+                폐기 {monthWaste.count}개{topWasteName ? ` · 가장 많이 버린 건 ‘${topWasteName}’` : ''}
+              </Text>
+            </Card>
+
+            {dessertRows.length === 0 ? (
+              <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                <Ionicons name="ice-cream-outline" size={48} color={colors.mutedSand} />
+                <Text style={{ marginTop: 10, color: colors.mochaBrown, ...typography.L4, textAlign: 'center' }}>
+                  {language === 'en'
+                    ? 'No registered desserts. Please add a new dessert.'
+                    : '등록된 디저트가 없습니다. 새 디저트를 추가해 주세요.'}
+                </Text>
+              </View>
+            ) : (
+              dessertRows.map((d, i) => {
+                const expanded = open === d.menu.id;
+                const near = d.nearest != null ? expiryState(d.nearest) : null;
+                return (
+                  <Card key={d.menu.id}>
+                    <View style={styles.row}>
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => setOpen(expanded ? null : d.menu.id)}
+                        style={styles.headerHit}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.name}>
+                            <Text style={styles.rankNum}>{i + 1}. </Text>
+                            {d.menu.name}
+                          </Text>
+                          <Text style={styles.sub}>
+                            판매가 {won(d.sellPrice)} · 매입가 {won(d.buyPrice)} · 마진 {won(d.margin)}
+                          </Text>
+                          <View style={styles.chipRow}>
+                            <Badge label={`재고 ${d.stock}개`} tone="neutral" />
+                            {near ? <Badge label={near.label} tone={near.tone === 'green' ? 'neutral' : near.tone} /> : null}
+                            {d.wasteCnt > 0 ? <Badge label={`이번 달 폐기 ${d.wasteCnt}개`} tone="danger" /> : null}
+                          </View>
+                        </View>
+                        <Badge label={`마진율 ${d.rate}%`} tone={d.rate < 35 ? 'danger' : 'green'} />
+                        <Ionicons
+                          name={expanded ? 'chevron-up' : 'chevron-down'}
+                          size={18}
+                          color={colors.mochaBrown}
+                          style={{ marginLeft: 6 }}
+                        />
+                      </TouchableOpacity>
+                      <PressableScale style={styles.delBtn} onPress={() => remove(d.menu, true)} to={0.88}>
+                        <Ionicons name="trash-outline" size={18} color="#B23B2E" />
+                      </PressableScale>
+                    </View>
+
+                    {d.drop ? (
+                      <View style={styles.dropFlag}>
+                        <Ionicons name="alert-circle" size={13} color="#B23B2E" />
+                        <Text style={styles.dropText}>마진 낮고 폐기 많음 — 메뉴에서 빼는 것 고려</Text>
+                      </View>
+                    ) : null}
+
+                    {expanded && (
+                      <View style={styles.recipe}>
+                        <Text style={styles.recipeTitle}>재고 · 소비기한</Text>
+                        {d.batches.length === 0 ? (
+                          <Text style={styles.empty}>입고된 수량이 없어요. 아래 ‘입고’로 소비기한을 등록하세요.</Text>
+                        ) : (
+                          d.batches.map((b) => {
+                            const st = expiryState(daysLeft(b.expiry));
+                            return (
+                              <View key={b.id} style={styles.stockRow}>
+                                <Badge label={st.label} tone={st.tone === 'green' ? 'neutral' : st.tone} />
+                                <Text style={styles.stockQty}>{b.qty}개</Text>
+                                <Text style={styles.stockExp}>~{b.expiry}</Text>
+                                <View style={{ flex: 1 }} />
+                                <PressableScale style={[styles.miniBtn, styles.sellBtn]} onPress={() => sell(b.id, 1)} to={0.9}>
+                                  <Text style={styles.sellBtnText}>판매</Text>
+                                </PressableScale>
+                                <PressableScale
+                                  style={[styles.miniBtn, styles.wasteBtn]}
+                                  onPress={() =>
+                                    confirmDialog(`${d.menu.name} 1개를 폐기로 기록할까요? (손실에 반영)`, {
+                                      confirmLabel: '폐기',
+                                      destructive: true,
+                                      onConfirm: () => waste(b.id, 1, d.menu.name),
+                                    })
+                                  }
+                                  to={0.9}
+                                >
+                                  <Text style={styles.wasteBtnText}>폐기</Text>
+                                </PressableScale>
+                              </View>
+                            );
+                          })
+                        )}
+                        <Divider />
+                        <View style={styles.recipeRow}>
+                          <Text style={[styles.recipeName, { fontWeight: '700' }]}>개당 마진</Text>
+                          <Text style={styles.recipeCost}>{won(d.margin)}</Text>
+                        </View>
+                        <TouchableOpacity
+                          style={styles.addRow}
+                          onPress={() => {
+                            setStockFor(d.menu);
+                            setSQty('');
+                            setSExpiry('');
+                          }}
+                        >
+                          <Ionicons name="add" size={16} color={colors.pointOrange} />
+                          <Text style={styles.addRowText}>입고 (수량 · 소비기한)</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </Card>
+                );
+              })
+            )}
+          </>
+        ) : plainMenus.length === 0 ? (
           <View style={{ paddingVertical: 40, alignItems: 'center' }}>
             <Ionicons name="cafe-outline" size={48} color={colors.mutedSand} />
             <Text style={{ marginTop: 10, color: colors.mochaBrown, ...typography.L4 }}>
@@ -256,7 +698,7 @@ export default function MenuScreen() {
             </Text>
           </View>
         ) : (
-          menus.map((m) => {
+          plainMenus.map((m) => {
             // [방어] 특정 메뉴의 recipes/selling_price가 누락/null이면 렌더 중 크래시(앱 종료)로 이어진다.
             // 참조가 깨진(재료 삭제 등) 데이터에도 화면이 죽지 않도록 안전한 기본값으로 정규화한다.
             const recipes = m.recipes ?? [];
@@ -279,7 +721,8 @@ export default function MenuScreen() {
                         판매가 ₩{sellingPrice.toLocaleString()} · 원가 ₩{cost.toLocaleString()}
                       </Text>
                     </View>
-                    <Badge label={`원가율 ${rate}%`} tone={rate > 35 ? 'danger' : 'green'} />
+                    {/* 원가율 색은 원가 분석 화면과 같은 기준(음료 22% / 디저트 35%)을 쓴다 */}
+                    <Badge label={`원가율 ${rate}%`} tone={GRADE_TONE[gradeOf(rate, categoryOfMenu(m.name))]} />
                     <Ionicons
                       name={expanded ? 'chevron-up' : 'chevron-down'}
                       size={18}
@@ -287,7 +730,7 @@ export default function MenuScreen() {
                       style={{ marginLeft: 6 }}
                     />
                   </TouchableOpacity>
-                  <PressableScale style={styles.delBtn} onPress={() => remove(m)} to={0.88}>
+                  <PressableScale style={styles.delBtn} onPress={() => remove(m, false)} to={0.88}>
                     <Ionicons name="trash-outline" size={18} color="#B23B2E" />
                   </PressableScale>
                 </View>
@@ -318,8 +761,9 @@ export default function MenuScreen() {
         )}
       </Screen>
 
+      {/* 메뉴 추가 — 이름·판매가·레시피 */}
       <FormSheet
-        visible={adding}
+        visible={adding && !isDessertTab}
         title="메뉴 추가"
         onClose={() => setAdding(false)}
         onSubmit={submit}
@@ -364,6 +808,48 @@ export default function MenuScreen() {
           <Text style={styles.addRowText}>재료 추가</Text>
         </TouchableOpacity>
       </FormSheet>
+
+      {/* 디저트 추가 — 완제품 사입이라 레시피 대신 매입가·소비기한 */}
+      <FormSheet
+        visible={adding && isDessertTab}
+        title="디저트 추가"
+        onClose={() => setAdding(false)}
+        onSubmit={submitDessert}
+        submitDisabled={!canSubmitDessert}
+      >
+        <LabeledInput label="디저트명" value={dName} onChangeText={setDName} placeholder="예: 티라미수" />
+        <LabeledInput
+          label="판매가 (원)"
+          value={dSell}
+          onChangeText={setDSell}
+          placeholder="예: 6500"
+          keyboardType="number-pad"
+        />
+        <LabeledInput
+          label="매입가 (원)"
+          value={dBuy}
+          onChangeText={setDBuy}
+          placeholder="예: 3200"
+          keyboardType="number-pad"
+        />
+
+        <Text style={styles.formLabel}>첫 입고 (선택 — 나중에 카드에서 추가해도 돼요)</Text>
+        <LabeledInput label="수량" value={dQty} onChangeText={setDQty} placeholder="예: 5" keyboardType="number-pad" />
+        <LabeledInput label="소비기한" value={dExpiry} onChangeText={setDExpiry} placeholder="예: 2026-07-25" />
+      </FormSheet>
+
+      {/* 디저트 입고 */}
+      <FormSheet
+        visible={stockFor != null}
+        title={stockFor ? `${stockFor.name} 입고` : '입고'}
+        onClose={() => setStockFor(null)}
+        onSubmit={submitStock}
+        submitLabel="입고하기"
+        submitDisabled={sQty.trim() === '' || sExpiry.trim() === ''}
+      >
+        <LabeledInput label="수량" value={sQty} onChangeText={setSQty} placeholder="예: 5" keyboardType="number-pad" />
+        <LabeledInput label="소비기한" value={sExpiry} onChangeText={setSExpiry} placeholder="예: 2026-07-25" />
+      </FormSheet>
     </>
   );
 }
@@ -371,6 +857,18 @@ export default function MenuScreen() {
 
 
 const styles = StyleSheet.create({
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 44,
+  },
+  searchInput: { flex: 1, ...typography.L4, color: colors.espressoBrown, padding: 0 },
   selectWrap: { flex: 2 },
   selectInput: {
     flexDirection: 'row',
@@ -433,4 +931,36 @@ const styles = StyleSheet.create({
   },
   addRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 8, alignSelf: 'flex-start' },
   addRowText: { ...typography.L5, color: colors.pointOrange, fontWeight: '700' },
+
+  // ── 디저트 전용 ──────────────────────────────
+  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  cardHead: { ...typography.L3, color: colors.espressoBrown },
+  empty: { ...typography.L5, color: colors.mochaBrown, marginTop: 10, lineHeight: 17 },
+  rankNum: { color: colors.mochaBrown },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+
+  urgentRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  urgentText: { ...typography.L4, color: colors.espressoBrown },
+  urgentName: { fontWeight: '900', color: '#B23B2E' },
+  urgentSub: { ...typography.L5, color: colors.mochaBrown, marginTop: 2 },
+
+  wasteLabel: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700' },
+  wasteMoney: { ...typography.L3, color: '#B23B2E', fontWeight: '900' },
+  wasteSub: { ...typography.L5, color: colors.mochaBrown, marginTop: 4 },
+
+  stockRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  stockQty: { ...typography.L5, color: colors.espressoBrown, fontWeight: '700' },
+  stockExp: { ...typography.L5, color: colors.mochaBrown },
+
+  miniBtn: { paddingHorizontal: 10, paddingVertical: 7, borderRadius: 9 },
+  sellBtn: { backgroundColor: colors.espressoBrown },
+  sellBtnText: { ...typography.L5, color: colors.white, fontWeight: '800' },
+  wasteBtn: { backgroundColor: '#F6DED8' },
+  wasteBtnText: { ...typography.L5, color: '#B23B2E', fontWeight: '800' },
+
+  dropFlag: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: '#F7E7E3', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 5, marginTop: 8, alignSelf: 'flex-start',
+  },
+  dropText: { ...typography.L5, color: '#B23B2E', fontWeight: '700' },
 });

@@ -122,7 +122,9 @@ class NotificationsResponse(BaseModel):
 # ──────────────────────────────────────────────
 
 # 지원하는 의도(intent) 목록
-VoiceIntent = Literal["start_next_task", "complete_task", "read_pending", "unknown"]
+# create_task: 서비스가 실제로 반환하는데 목록에 빠져 있어, 할 일 추가 응답이
+# ValidationError로 터지고 더미 폴백으로 새던 버그의 원인이었다.
+VoiceIntent = Literal["start_next_task", "complete_task", "create_task", "read_pending", "unknown"]
 
 # 명령 처리 결과 상태
 #   executed             — 실제로 상태를 변경했거나 조회를 마침

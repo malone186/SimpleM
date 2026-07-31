@@ -16,7 +16,6 @@ _FEATURE_MAP = {
     "operation": "운영",
     "chatbot": "챗봇",
     "auth": "인증",
-    "law": "법률",
     "sensor": "센서",
     "roastery": "원두검색",
     "inquiry": "문의",

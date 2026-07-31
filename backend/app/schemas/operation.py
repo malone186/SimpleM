@@ -31,6 +31,11 @@ class ScheduleResponse(BaseModel):
     date: str = Field(..., description="근무 일자 (YYYY-MM-DD)", examples=["2026-07-16"])
     actual_start_time: Optional[datetime] = Field(None, description="실제 출근 일시", examples=["2026-07-16T08:55:00"])
     actual_end_time: Optional[datetime] = Field(None, description="실제 퇴근 일시", examples=["2026-07-16T18:05:00"])
+    # 이름·직책을 스케줄에 함께 실어 보낸다. 예전엔 화면이 employee_id로 직원 목록을 뒤져
+    # 이름을 붙였는데, 직원 목록 조회가 비거나 실패하면 근무마다 '(삭제된 직원)'이 떴다.
+    # 서버가 조인해서 주면 화면이 두 응답의 싱크를 맞출 필요가 없다.
+    employee_name: Optional[str] = Field(None, description="근무 직원 이름", examples=["김하늘"])
+    employee_role: Optional[str] = Field(None, description="근무 직원 직책", examples=["바리스타"])
 
     model_config = ConfigDict(from_attributes=True)
 

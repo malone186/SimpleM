@@ -11,7 +11,7 @@
 // (관리자 공지는 홈 화면 강아지 말풍선(WelcomeHeader)이 단독으로 전하므로 여기선 토스트를 띄우지 않는다)
 // 같은 품목·같은 날 중복 알림은 AsyncStorage에 발송 이력을 남겨 1회로 제한한다.
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { useAuth } from '../auth/AuthContext';
 import { usePreferences } from '../preferences/PreferencesContext';
@@ -19,9 +19,9 @@ import { listMyInquiries } from '../lib/api/inquiry';
 import { listStocks, type StockItem } from '../lib/api/inventory';
 import { fetchNotifications } from '../lib/api/assistant';
 import { fetchInsights } from '../lib/api/insights';
-import { enqueue as speechEnqueue, canPlayAudio, cancelAll as speechCancelAll } from '../lib/speech/speechPlayer';
+import { enqueue as speechEnqueue, canPlayAudio, cancelAll as speechCancelAll, setAuthToken as speechSetAuthToken } from '../lib/speech/speechPlayer';
 import { toast } from '../components/toast';
-import { updateNotificationSettings } from '../lib/api/push';
+import { getNotificationSettings, updateNotificationSettings } from '../lib/api/push';
 import { getSensorRecommendations } from '../lib/api/sensor';
 import { isNativePushAvailable, usePushRegistration } from './pushRegistration';
 
@@ -113,17 +113,54 @@ export default function AlertsWatcher() {
   //    위 폴링(①~⑥)은 앱이 열려 있을 때만 도는 인앱 토스트라 서로 역할이 다르다.
   usePushRegistration(token);
 
-  // ⑧ 알림 설정 서버 동기화 — 푸시는 서버가 보내므로 방해금지·수신 주기를 서버도 알아야 한다.
-  //    (이 설정들은 기기 로컬 AsyncStorage에만 있어서 서버는 알 길이 없다)
+  // ⑧-a 알림 설정 서버값 내려받기 — 반드시 올려보내기(⑧-b)보다 먼저 한 번 돈다.
+  //     설정은 기기 AsyncStorage에 있는데, 앱을 지웠다 깔면 그게 전부 기본값이 된다.
+  //     그 상태로 곧장 PUT하면 서버에 저장돼 있던 사장님 설정을 기본값으로 덮어쓴다.
+  //     (예전엔 GET을 아무 데서도 호출하지 않아, 화면의 스위치는 실제 발송 여부와 무관한
+  //      장식이었다 — 켜져 있는데 서버는 꺼져 있거나, 그 반대.)
+  const [settingsHydrated, setSettingsHydrated] = useState(false);
+
   useEffect(() => {
-    if (!token || !prefs.ready) return;
+    if (!token || !prefs.ready || settingsHydrated) return;
+    let alive = true;
+    getNotificationSettings(token)
+      .then((s) => {
+        if (!alive) return;
+        prefs.setPref('lowStockAlert', s.stock_alert);
+        prefs.setPref('proactiveInsights', s.compliance_alert);
+        prefs.setPref('reportFrequency', s.report_frequency);
+        prefs.setPref('dndEnabled', s.dnd_enabled);
+        prefs.setPref('dndStart', s.dnd_start);
+        prefs.setPref('dndEnd', s.dnd_end);
+      })
+      .catch((e) => {
+        // 구버전 서버·오프라인이면 기기 값을 그대로 쓴다 (동기화만 미뤄진다)
+        console.warn('알림 설정 서버 조회 실패 — 기기 설정을 사용합니다:', e);
+      })
+      .finally(() => {
+        if (alive) setSettingsHydrated(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [token, prefs.ready, settingsHydrated]);
+
+  // ⑧-b 알림 설정 서버 동기화 — 푸시는 서버가 보내므로 방해금지·수신 주기를 서버도 알아야 한다.
+  useEffect(() => {
+    if (!token || !prefs.ready || !settingsHydrated) return;
     const t = setTimeout(() => {
       // 스위치를 연속으로 토글할 때 매번 PUT하지 않도록 잠깐 모았다 보낸다
+      // 설정 화면의 스위치를 실제로 서버에 반영한다.
+      // 예전엔 compliance_alert·sensor_alert를 true로 박아 보내서, '놓친 일 먼저 알려주기'를
+      // 꺼도 서버는 계속 그 알림을 보냈다 — 앱 안에서만 꺼진 척했던 것이다.
       updateNotificationSettings(token, {
         push_enabled: true,
-        compliance_alert: true, // 갱신 서류는 별도 스위치가 아직 없어 기본 on
+        // '놓친 일 먼저 알려주기'가 갱신 서류·기한 알림을 관장한다
+        compliance_alert: prefs.proactiveInsights,
         report_alert: true,
         stock_alert: prefs.lowStockAlert,
+        // 센서 알림은 여기서 정하지 않는다 — '매장 센서 연동' 스위치가 서버 쪽 별도 플래그
+        // (GET/PUT /sensor/feature)로 직접 켜고 끄므로, 그 값을 여기서 덮어쓰면 안 된다.
         sensor_alert: true,
         report_frequency: prefs.reportFrequency,
         dnd_enabled: prefs.dndEnabled,
@@ -137,7 +174,9 @@ export default function AlertsWatcher() {
   }, [
     token,
     prefs.ready,
+    settingsHydrated,
     prefs.lowStockAlert,
+    prefs.proactiveInsights, // 이제 서버로 실제 전달되므로 바뀌면 다시 보내야 한다
     prefs.reportFrequency,
     prefs.dndEnabled,
     prefs.dndStart,
@@ -150,11 +189,11 @@ export default function AlertsWatcher() {
 
     // ⑤ 내 문의에 관리자 답변이 새로 달렸는지 감시 — 답변 완료 id 목록 비교 방식
     const checkInquiryAnswers = async () => {
-      if (!user?.email) return;
+      if (!token) return; // 내 문의 조회는 토큰이 있어야 한다 (서버가 토큰 주인 것만 준다)
       const raw = await AsyncStorage.getItem(INQUIRY_KEY);
       const seen: number[] | null = raw ? JSON.parse(raw) : null;
 
-      const list = await listMyInquiries(user.email);
+      const list = await listMyInquiries(token);
       const answeredIds = list.filter((i) => i.status === 'answered').map((i) => i.id);
 
       // 첫 실행에는 기존 답변을 쏟아내지 않도록 현재 상태를 기준선으로만 저장
@@ -313,6 +352,12 @@ export default function AlertsWatcher() {
     if (!signedIn || !prefs.voiceAlertEnabled) speechCancelAll();
   }, [signedIn, prefs.voiceAlertEnabled]);
 
+  // 서버 TTS(진짜 다른 목소리 4종) 호출용 토큰을 플레이어에 넣어준다.
+  // 이게 없으면 speechPlayer는 기기 내장 TTS로만 말한다 (웹은 한국어 보이스가 1개뿐).
+  useEffect(() => {
+    speechSetAuthToken(signedIn ? token : null);
+  }, [signedIn, token]);
+
   // ⑥ 음성 비서 알림 — 30초 주기로 새 완료 이벤트를 폴링하고, 이어폰 착용 시 음성 재생
   useEffect(() => {
     if (!signedIn || !prefs.ready) return;
@@ -324,7 +369,8 @@ export default function AlertsWatcher() {
         // 방해 금지 구간에는 음성 알림도 보류
         if (prefs.dndEnabled && isInDndWindow(new Date(), prefs.dndStart, prefs.dndEnd)) return;
 
-        const data = await fetchNotifications(lastVoiceCheck.current);
+        // 토큰을 실어 내 매장 직원의 완료 알림만 받는다 (토큰 없이 부르면 전 매장이 섞인다)
+        const data = await fetchNotifications(lastVoiceCheck.current, token);
 
         // 다음 폴링을 위해 서버 시각으로 갱신
         lastVoiceCheck.current = data.server_time;
@@ -354,7 +400,7 @@ export default function AlertsWatcher() {
     checkVoiceNotifications();
     const timer = setInterval(checkVoiceNotifications, VOICE_POLL_MS);
     return () => clearInterval(timer);
-  }, [signedIn, prefs.ready, prefs.dndEnabled, prefs.dndStart, prefs.dndEnd, prefs.voiceAlertEnabled]);
+  }, [signedIn, token, prefs.ready, prefs.dndEnabled, prefs.dndStart, prefs.dndEnd, prefs.voiceAlertEnabled]);
 
   // ⑦ 선제 인사이트 — 서버가 매장 DB를 훑어 찾아낸 "곧 할 일 · 놓친 일"을 알림으로 전한다.
   //    묻지 않아도 먼저 알려주되, 말을 걸지는 않는다(대화는 사장님이 시작한다).
@@ -368,7 +414,7 @@ export default function AlertsWatcher() {
       try {
         if (prefs.dndEnabled && isInDndWindow(new Date(), prefs.dndStart, prefs.dndEnd)) return;
 
-        const scan = await fetchInsights();
+        const scan = await fetchInsights(token);
         const urgent = scan.insights.filter((i) => i.severity !== 'low');
         if (urgent.length === 0) return;
 

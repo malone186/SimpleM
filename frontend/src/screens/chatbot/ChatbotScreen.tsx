@@ -1,5 +1,5 @@
 // 챗봇 (프론트 B) — PRD §5.3 통합 창구
-// 리포트 조회 · 원두 비교 · 법령 검색 · 문서 생성 · 발주 초안 등 전용 화면 없는 모든 기능
+// 리포트 조회 · 원두 비교 · 문서 생성 · 발주 초안 등 전용 화면 없는 모든 기능
 // 대화 세션 관리: 새 채팅 열기 + 과거 채팅 복원/삭제
 // (로그인 시 서버 DB에 계정별 보관 — 비로그인·서버 장애 시 기기 로컬 폴백)
 import { useEffect, useRef, useState } from 'react';
@@ -10,11 +10,13 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import Svg, { Circle, Defs, FeGaussianBlur, Filter, LinearGradient, Path, Stop } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute, type RouteProp } from '@react-navigation/native';
 
@@ -25,8 +27,14 @@ import { useTranslation } from '../../i18n/translations';
 import Brew from '../../components/brew/Brew';
 import DocumentCard from '../../components/chatbot/DocumentCard';
 import { FadeInUp, PressableScale } from '../../components/motion';
-import { sendChatMessage } from '../../lib/api/chatbot';
-import { toast } from '../../components/toast';
+import {
+  ChatQuotaExhaustedError,
+  grantChatQuotaFromAd,
+  sendChatMessage,
+  type ChatHistoryItem,
+} from '../../lib/api/chatbot';
+import { isRewardedReady, preloadRewarded, showRewarded } from '../../lib/ads';
+import { confirmDialog, toast } from '../../components/toast';
 import {
   clearSessions,
   deleteSession,
@@ -38,6 +46,13 @@ import {
   type ChatSession,
 } from '../../lib/chatSessions';
 import { colors, spacing, typography } from '../../theme';
+
+// 상단 브라운 헤더의 상태바 여백 (재고/관리 탭과 동일 계산 — 세 탭 헤더 높이·글씨 가림 통일)
+const TOP_INSET = Platform.select({
+  android: (StatusBar.currentHeight ?? 24) + 4,
+  ios: 56,
+  default: 44, // 웹(디바이스 프레임)
+}) as number;
 
 const SUGGESTIONS = [
   '이번 주 경영 리포트 만들어줘',
@@ -113,6 +128,56 @@ export default function ChatbotScreen() {
     ).catch(() => {});
   };
 
+  // 브루의 말풍선을 한 줄 붙인다 (안내·오류 문구 공용)
+  const botSay = (text: string) => {
+    commit([...messagesRef.current, { id: `e${Date.now()}`, role: 'bot', text }]);
+    scrollDown();
+  };
+
+  // 실제 호출 + 답변 말풍선. 광고 시청 후 재시도할 때도 같은 경로를 탄다.
+  const askBrew = async (q: string, history: ChatHistoryItem[]) => {
+    const res = await sendChatMessage(q, history, token);
+    commit([
+      ...messagesRef.current,
+      { id: `b${Date.now()}`, role: 'bot', text: res.response, docs: res.documents },
+    ]);
+  };
+
+  // 무료 턴 소진 → 보상형 광고로 충전을 제안한다.
+  // AdMob 정책상 보상형은 사용자가 명시적으로 동의한 뒤에만 띄울 수 있어서, 기존 확인
+  // 다이얼로그를 그대로 쓴다 (새 UI를 만들지 않는다).
+  const offerAdForMoreTurns = (err: ChatQuotaExhaustedError, q: string, history: ChatHistoryItem[]) => {
+    // 하루 광고 상한에 걸렸거나(can_watch_ad) 띄울 광고가 없으면 권하지 않는다 —
+    // "광고 보기"를 눌렀는데 아무 일도 안 일어나는 게 최악이다.
+    if (err.quota?.can_watch_ad === false || !isRewardedReady()) {
+      botSay('오늘 무료 대화 횟수를 다 썼어요. 내일 다시 이야기해요.');
+      return;
+    }
+
+    const bonus = err.quota?.turns_per_ad ?? 5;
+    confirmDialog(`오늘 무료 대화를 다 썼어요. 광고를 보면 ${bonus}번 더 이야기할 수 있어요.`, {
+      confirmLabel: '광고 보기',
+      onConfirm: async () => {
+        setSending(true);
+        try {
+          const earned = await showRewarded();
+          if (!earned) {
+            // 중간에 닫은 경우. 정책상 닫을 수 있어야 하고, 그때는 보상을 주지 않는다.
+            botSay('광고를 끝까지 보지 않아서 충전되지 않았어요.');
+            return;
+          }
+          await grantChatQuotaFromAd(token);
+          await askBrew(q, history);
+        } catch {
+          botSay('앗, 충전에 실패했어요. 잠시 후 다시 시도해 주세요.');
+        } finally {
+          setSending(false);
+          scrollDown();
+        }
+      },
+    });
+  };
+
   // 백엔드 멀티에이전트 두뇌(/chatbot/chat) 호출 — 이전 대화도 함께 보내 맥락을 유지한다
   const send = async (text: string) => {
     const q = text.trim();
@@ -123,22 +188,20 @@ export default function ChatbotScreen() {
     setInput('');
     setSending(true);
     scrollDown();
+    // 인사말(g0)을 제외한 지금까지의 대화를 두뇌가 이해하는 형식으로 변환
+    const history = afterUser
+      .filter((m) => m.id !== 'g0' && m.id !== userMsg.id)
+      .map((m) => ({ role: m.role === 'user' ? ('user' as const) : ('model' as const), text: m.text }));
     try {
-      // 인사말(g0)을 제외한 지금까지의 대화를 두뇌가 이해하는 형식으로 변환
-      const history = afterUser
-        .filter((m) => m.id !== 'g0' && m.id !== userMsg.id)
-        .map((m) => ({ role: m.role === 'user' ? ('user' as const) : ('model' as const), text: m.text }));
-      const res = await sendChatMessage(q, history, token);
-      commit([
-        ...messagesRef.current,
-        { id: `b${Date.now()}`, role: 'bot', text: res.response, docs: res.documents },
-      ]);
-    } catch {
-      commit([...messagesRef.current, {
-        id: `e${Date.now()}`,
-        role: 'bot',
-        text: '앗, 답변을 가져오지 못했어요. 서버가 켜져 있는지 확인하고 잠시 후 다시 시도해 주세요.',
-      }]);
+      await askBrew(q, history);
+    } catch (e) {
+      if (e instanceof ChatQuotaExhaustedError) {
+        // 광고 흐름은 사용자 응답을 기다리므로 finally에서 sending을 풀고 별도로 진행한다
+        setSending(false);
+        offerAdForMoreTurns(e, q, history);
+        return;
+      }
+      botSay('앗, 답변을 가져오지 못했어요. 서버가 켜져 있는지 확인하고 잠시 후 다시 시도해 주세요.');
     } finally {
       setSending(false);
       scrollDown();
@@ -192,6 +255,12 @@ export default function ChatbotScreen() {
     });
   };
 
+  // 무료 턴이 소진되는 순간 광고가 준비돼 있어야 한다 (로드에 1~3초).
+  // 실패하면 광고 없이 "내일 다시" 안내로 떨어진다.
+  useEffect(() => {
+    preloadRewarded();
+  }, []);
+
   // 경영 리포트 등에서 버튼으로 넘어오면 그 질문을 자동으로 전송한다 (입력만 채우지 않고 바로 물어봄).
   // ts가 함께 바뀌므로 같은 질문 버튼을 다시 눌러도 매번 새로 전송된다.
   useEffect(() => {
@@ -207,26 +276,54 @@ export default function ChatbotScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
-      <View style={styles.header}>
-        <Brew mood="welcome" size={34} />
-        <Text style={styles.headerTitle}>{language === 'en' ? 'Brew AI Assistant' : '브루 챗봇'}</Text>
-        <View style={styles.headerActions}>
-          {/* [한글 주석: 대화 유무와 상관없이 사용자가 언제든 새 채팅을 열 수 있도록 disabled 및 딤 처리를 해제합니다] */}
-          <PressableScale
-            style={styles.headerBtn}
-            onPress={startNewChat}
-            disabled={sending}
-          >
-            <Ionicons name="add" size={20} color={colors.espressoBrown} />
-            <Text style={styles.headerBtnText}>{language === 'en' ? 'New Chat' : '새 채팅'}</Text>
-          </PressableScale>
-          <PressableScale style={styles.headerBtn} onPress={openHistory}>
-            <Ionicons name="time-outline" size={18} color={colors.espressoBrown} />
-            <Text style={styles.headerBtnText}>{language === 'en' ? 'History' : '기록'}</Text>
-          </PressableScale>
+      {/* [딥브라운 오로라 배경] 재고/관리 탭과 동일 — 상단 딥브라운에서 하단 크림으로 */}
+      <View style={StyleSheet.absoluteFill}>
+        <Svg width="100%" height="100%" preserveAspectRatio="none">
+          <Defs>
+            <LinearGradient id="chatAurora" x1="0%" y1="0%" x2="0%" y2="100%">
+              <Stop offset="0%" stopColor="#1E1612" />
+              <Stop offset="35%" stopColor="#251C17" />
+              <Stop offset="70%" stopColor="#6E5544" stopOpacity="0.35" />
+              <Stop offset="100%" stopColor={colors.creamSand} />
+            </LinearGradient>
+            <Filter id="chatGlow" x="-50%" y="-50%" width="200%" height="200%">
+              <FeGaussianBlur stdDeviation="70" />
+            </Filter>
+          </Defs>
+          <Path d="M0 0 H2000 V2000 H0 Z" fill="url(#chatAurora)" />
+          <Circle cx="85%" cy="12%" r="140" fill="#E28257" filter="url(#chatGlow)" opacity="0.25" />
+          <Circle cx="15%" cy="22%" r="130" fill="#C29D7A" filter="url(#chatGlow)" opacity="0.2" />
+          <Circle cx="60%" cy="4%" r="120" fill="#88BCB5" filter="url(#chatGlow)" opacity="0.16" />
+        </Svg>
+      </View>
+
+      {/* 브라운 헤더 — 관리 탭과 동일 (제목/부제 + 마스코트만). 새 채팅/기록은 헤더 밖 시트 상단으로 이동 */}
+      <View style={styles.brownHeader}>
+        <View style={styles.brownHeaderLeft}>
+          <FadeInUp>
+            <Text style={styles.brownHeaderTitle}>{language === 'en' ? 'Brew AI Assistant' : '브루 챗봇'}</Text>
+            <Text style={styles.brownHeaderSub}>{language === 'en' ? 'Your cafe AI assistant' : '카페 운영을 돕는 AI 비서'}</Text>
+          </FadeInUp>
+        </View>
+        <View style={styles.brownHeaderRight}>
+          {/* greet 일러스트는 clipboard(317)보다 프레임 여백이 커(380) 작아 보인다 —
+              캐릭터 크기를 관리 탭과 맞추려고 프레임 비율(380/317)만큼 키운다 */}
+          <Brew mood="greet" size={144} />
         </View>
       </View>
 
+      <View style={styles.brownSheet}>
+      {/* 새 채팅/기록 — 브라운 헤더 아래 별도 섹션 (크림 시트 상단) */}
+      <View style={styles.chatActionsRow}>
+        <PressableScale style={styles.sheetChip} onPress={startNewChat} disabled={sending}>
+          <Ionicons name="add" size={16} color={colors.creamSand} />
+          <Text style={styles.sheetChipText}>{language === 'en' ? 'New' : '새 채팅'}</Text>
+        </PressableScale>
+        <PressableScale style={styles.sheetChip} onPress={openHistory}>
+          <Ionicons name="time-outline" size={14} color={colors.creamSand} />
+          <Text style={styles.sheetChipText}>{language === 'en' ? 'History' : '기록'}</Text>
+        </PressableScale>
+      </View>
       <ScrollView
         ref={scrollRef}
         style={styles.list}
@@ -308,6 +405,7 @@ export default function ChatbotScreen() {
           <Ionicons name="arrow-up" size={20} color={colors.white} />
         </PressableScale>
       </View>
+      </View>
 
       {/* 과거 채팅 목록 — 탭하면 복원, 휴지통으로 개별 삭제 */}
       <Modal
@@ -367,6 +465,47 @@ export default function ChatbotScreen() {
 }
 
 const styles = StyleSheet.create({
+  // [재고/관리 탭과 동일] 딥브라운 오로라 + 고정 브라운 헤더 + 둥근 크림 시트
+  // [세 탭 헤더 통일] 좌측 세로열(제목 위·버튼 아래) + 우측 마스코트, 마스코트 높이가 헤더 높이를 정한다
+  brownHeader: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    justifyContent: 'space-between',
+    paddingTop: TOP_INSET,
+    paddingBottom: 12,
+    paddingHorizontal: 18,
+    gap: 10,
+  },
+  brownHeaderLeft: { flex: 1, justifyContent: 'center' },
+  // 관리 탭 헤더 높이(설정칩+마스코트 ~153)에 맞춰 마스코트를 하단 정렬 — 챗봇 헤더엔 버튼이 없어 minHeight로 확보
+  brownHeaderRight: { alignItems: 'flex-end', justifyContent: 'flex-end', minHeight: 154 },
+  brownHeaderTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
+  brownHeaderSub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
+  // 새 채팅/기록 — 브라운 헤더 아래 크림 시트 상단 섹션의 칩 (크림 배경이라 어두운 글씨)
+  chatActionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: spacing.globalPadding,
+    paddingTop: 14,
+    paddingBottom: 2,
+  },
+  sheetChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.mochaBrown, // 헤더(진한 브라운)·예시 질문 칩(밝은 크림) 둘 다와 구분되는 중간 톤
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  sheetChipText: { color: colors.creamSand, fontSize: 12, fontWeight: '700' },
+  brownSheet: {
+    flex: 1,
+    backgroundColor: colors.creamSand,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    overflow: 'hidden',
+  },
   root: { flex: 1, backgroundColor: colors.creamSand },
   header: {
     flexDirection: 'row',

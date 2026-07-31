@@ -40,14 +40,19 @@ export type SpeechPlayer = {
   isEarphoneConnected: () => Promise<EarphoneStatus>;
   /** 지금 음성을 재생해도 되는지 판단합니다 (정책 — 호출부는 이것만 보면 됩니다) */
   canPlayAudio: () => Promise<AudioPlaybackPermission>;
-  /** 텍스트를 즉시 음성으로 읽습니다 (이어폰 미착용 시 스킵) */
-  speak: (text: string) => Promise<void>;
+  /** 텍스트를 즉시 음성으로 읽습니다 — 명시적 사용자 조작 전용(설정 '샘플 듣기' 등).
+   *  이어폰 게이트 없이 바로 재생하며, overrideVoiceType으로 저장 전 목소리 미리듣기를 지원.
+   *  자동 알림은 이걸 쓰지 말고 enqueue(이어폰 정책 적용)를 쓸 것. */
+  speak: (text: string, overrideVoiceType?: string) => Promise<void>;
   /** 큐에 추가하고 순서대로 재생합니다 (겹침 방지) */
   enqueue: (text: string, id?: string) => void;
   /** 큐 전체를 비우고 현재 재생도 중단합니다 */
   cancelAll: () => void;
   /** 현재 재생 중인지 여부 */
   isSpeaking: () => boolean;
+  /** 서버 TTS(/chatbot/tts) 호출용 로그인 토큰 주입 — AlertsWatcher가 로그인/로그아웃 시 호출.
+   *  토큰이 없으면(비로그인) 서버 TTS를 건너뛰고 기기 로컬 TTS로만 말한다. */
+  setAuthToken: (token: string | null) => void;
 };
 
 

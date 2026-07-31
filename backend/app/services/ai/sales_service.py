@@ -62,6 +62,81 @@ def record_sales(store_id: str, items: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def menu_contribution(store_id: str, days: int = 30) -> dict[str, Any]:
+    """메뉴별 '실제로 번 돈' — 잔당 마진 × 실제 판매 잔 수.
+
+    원가율(%)만 보면 아메리카노(원가율은 낮지만 단가도 낮음)와 프리미엄 음료 중
+    무엇이 매장을 먹여 살리는지 알 수 없다. 사장님이 실제로 알고 싶은 건
+    "이 메뉴로 이번 달에 얼마 남았나"이므로 판매량을 곱한 기여이익을 함께 준다.
+
+    원가는 레시피 × 재료 현재 단가로 계산한다 (재료가 등록 안 된 메뉴는 원가 0 →
+    마진이 과대평가되므로 recipe_missing 플래그로 표시해 화면에서 걸러낼 수 있게 한다).
+    """
+    from sqlalchemy import func as sa_func
+
+    from app.models.inventory import Ingredient, Menu, Recipe, Sale
+    from app.services.ai.document_service import _session
+
+    days = max(1, min(int(days), 365))
+    since = datetime.now(KST) - timedelta(days=days)
+
+    with _session() as db:
+        menus = db.query(Menu).filter(Menu.store_id == store_id).all()
+        if not menus:
+            return {"days": days, "menus": [], "total_margin": 0, "total_revenue": 0}
+
+        # 메뉴별 원가 — 레시피 조인 1번으로 전부 (메뉴 수만큼 쿼리하면 N+1)
+        recipe_rows = (
+            db.query(Recipe.menu_id, Recipe.quantity, Ingredient.current_price)
+            .join(Ingredient, Recipe.ingredient_id == Ingredient.id)
+            .filter(Recipe.menu_id.in_([m.id for m in menus]))
+            .all()
+        )
+        cost_by_menu: dict[int, float] = {}
+        for menu_id, qty, unit_price in recipe_rows:
+            cost_by_menu[menu_id] = cost_by_menu.get(menu_id, 0.0) + float(qty) * float(unit_price or 0)
+
+        sold_rows = (
+            db.query(Sale.menu_id,
+                     sa_func.sum(Sale.quantity),
+                     sa_func.sum(Sale.total_price))
+            .filter(Sale.store_id == store_id, Sale.sold_at >= since)
+            .group_by(Sale.menu_id)
+            .all()
+        )
+        sold_by_menu = {mid: (int(q or 0), int(rev or 0)) for mid, q, rev in sold_rows}
+
+    rows: list[dict[str, Any]] = []
+    for m in menus:
+        cost = round(cost_by_menu.get(m.id, 0.0))
+        qty, revenue = sold_by_menu.get(m.id, (0, 0))
+        margin_per_cup = m.selling_price - cost
+        rows.append({
+            "menu_id": m.id,
+            "name": m.name,
+            "selling_price": m.selling_price,
+            "cost_price": cost,
+            "cost_ratio": round(cost / m.selling_price * 100, 1) if m.selling_price else None,
+            "margin_per_cup": margin_per_cup,
+            "sold_qty": qty,
+            "revenue": revenue,
+            "total_margin": margin_per_cup * qty,
+            "recipe_missing": m.id not in cost_by_menu,
+        })
+
+    rows.sort(key=lambda r: -r["total_margin"])
+    total_margin = sum(r["total_margin"] for r in rows)
+    for r in rows:
+        r["margin_share"] = round(r["total_margin"] / total_margin * 100, 1) if total_margin > 0 else 0.0
+    return {
+        "days": days,
+        "menus": rows,
+        "total_margin": total_margin,
+        "total_revenue": sum(r["revenue"] for r in rows),
+        "total_qty": sum(r["sold_qty"] for r in rows),
+    }
+
+
 def recent_sales(store_id: str, limit: int = 10) -> list[dict[str, Any]]:
     """최근 판매 내역 (판매 입력 화면 '최근 판매' 표시용)."""
     from app.models.inventory import Menu, Sale

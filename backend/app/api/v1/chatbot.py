@@ -39,6 +39,8 @@ from app.schemas.ai import (
     EmploymentContractRequest,
     GeneratedDocumentResponse,
     GeneratedDocumentUpdate,
+    MarketingCopyRequest,
+    MarketingImageRequest,
     NotificationSettingBody,
     NotificationSettingResponse,
     OcrConfirmRequest,
@@ -52,23 +54,55 @@ from app.schemas.ai import (
     TodoUpdate,
 )
 from app.services.ai import (
+    chat_quota_service,
     document_service,
     forecast_service,
     insight_service,
+    marketing_service,
     nearby_cafe_service,
     notification_service,
     ocr_service,
     price_service,
     push_service,
     report_service,
+    sales_import_service,
     sales_service,
     todo_service,
+    tts_service,
 )
 
 router = APIRouter(prefix="/chatbot", tags=["chatbot"])
 
 MAX_IMAGE_BYTES = 15 * 1024 * 1024
-ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+# 사진(촬영·앨범)과 함께 PDF도 받는다 — 거래처 명세서는 이메일 PDF로 오는 일이 더 많다.
+# heic/heif는 아이폰 기본 촬영 포맷이라 파일로 고르면 그대로 올라온다.
+ALLOWED_CONTENT_TYPES = {
+    "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif",
+    "application/pdf",
+}
+# 브라우저·OS가 확장자를 못 알아보면 application/octet-stream으로 올려보낸다.
+# 그때는 파일명 확장자로 판정한다 (그것마저 없으면 415).
+_EXT_MIME = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+    ".webp": "image/webp", ".heic": "image/heic", ".heif": "image/heif",
+    ".pdf": "application/pdf",
+}
+
+
+def _resolve_content_type(file: UploadFile) -> str:
+    """업로드 파일의 실제 형식을 정한다 — content_type 우선, 없으면 확장자."""
+    ctype = (file.content_type or "").split(";")[0].strip().lower()
+    if ctype in ALLOWED_CONTENT_TYPES:
+        return ctype
+    ext = Path(file.filename or "").suffix.lower()
+    guessed = _EXT_MIME.get(ext)
+    if guessed:
+        return guessed
+    raise HTTPException(
+        415,
+        f"지원하지 않는 형식입니다: {file.content_type or ext or '알 수 없음'} "
+        "(사진 jpg·png·webp·heic 또는 PDF만 가능해요)",
+    )
 
 _oauth2_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
@@ -114,17 +148,21 @@ async def analyze_document(
     file: UploadFile = File(...),
     store_id: Optional[str] = Depends(_optional_store_id),
 ) -> OcrDocumentResponse:
-    """거래명세서/영수증 이미지를 OCR해 등록 초안을 만든다. 어떤 시스템에도 아직 반영되지 않는다.
+    """거래명세서/영수증을 OCR해 등록 초안을 만든다. 어떤 시스템에도 아직 반영되지 않는다.
 
+    사진(촬영·앨범)뿐 아니라 PDF도 받는다 — 거래처 명세서는 이메일 PDF로 오는 일이
+    더 많아서, 굳이 화면을 찍어 올릴 필요 없이 파일 그대로 올리면 된다.
     초안에 업로드 매장(store_id)이 새겨져 이후 목록·조회는 그 매장에서만 보인다.
     """
-    if file.content_type not in ALLOWED_CONTENT_TYPES:
-        raise HTTPException(415, f"지원하지 않는 형식: {file.content_type} (jpeg/png/webp만 가능)")
+    content_type = _resolve_content_type(file)
     image_bytes = await file.read()
     if len(image_bytes) > MAX_IMAGE_BYTES:
-        raise HTTPException(413, "이미지가 15MB를 초과합니다")
+        raise HTTPException(413, "파일이 15MB를 초과합니다")
+    if not image_bytes:
+        raise HTTPException(400, "빈 파일입니다")
     try:
-        draft = await ocr_service.analyze_image(image_bytes, filename=file.filename, store_id=store_id)
+        draft = await ocr_service.analyze_image(
+            image_bytes, filename=file.filename, store_id=store_id, mime_type=content_type)
     except ocr_service.OcrError as e:
         raise HTTPException(502, str(e))
     return _to_response(draft)
@@ -205,12 +243,6 @@ async def reject_document(
 # 서류 자동화 (ERP-12) — 모든 문서는 초안(draft)으로만 생성, 확정·전송은 사람이
 # 매장별 데이터이므로 로그인 필수 (store_id = 로그인 이메일)
 # ---------------------------------------------------------------------------
-
-@router.post("/documents/purchase-order", response_model=GeneratedDocumentResponse, status_code=201)
-def create_purchase_order_draft(current_user: User = Depends(get_current_user)):
-    """발주서 초안 — 안전재고 이하 재료를 자동 추출해 발주 수량을 제안한다."""
-    return document_service.draft_purchase_order(current_user.email)
-
 
 @router.post("/documents/stocktake", response_model=GeneratedDocumentResponse, status_code=201)
 def create_stocktake_sheet(current_user: User = Depends(get_current_user)):
@@ -459,6 +491,26 @@ class SalesRecordRequest(BaseModel):
     items: list[SaleItemIn]
 
 
+class SalesImportRow(BaseModel):
+    menu_id: Optional[int] = None
+    quantity: int = 1
+    total_price: Optional[int] = None
+    sold_at: Optional[str] = None
+
+
+class SalesImportConfirmRequest(BaseModel):
+    rows: list[SalesImportRow]
+
+
+class MenuRegisterItem(BaseModel):
+    name: str
+    selling_price: int = 0
+
+
+class MenuRegisterRequest(BaseModel):
+    menus: list[MenuRegisterItem]
+
+
 @router.post("/sales", status_code=201)
 def record_sales_api(
     body: SalesRecordRequest,
@@ -485,6 +537,72 @@ def recent_sales_api(
 ):
     """최근 판매 내역 (판매 입력 화면 표시용)."""
     return sales_service.recent_sales(current_user.email, limit=limit)
+
+
+@router.post("/sales/import/preview")
+async def sales_import_preview_api(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """POS 매출 파일(엑셀/CSV)을 업로드하면 LLM이 열을 매핑해 미리보기를 만든다.
+
+    아직 DB에 저장하지 않는다 — LLM이 틀릴 수 있으므로, 사용자가 미리보기에서 확인·수정한
+    뒤 /sales/import/confirm 으로 확정해야 실제 매출(Sale)로 들어간다.
+    """
+    content = await file.read()
+    if len(content) > MAX_IMAGE_BYTES:
+        raise HTTPException(413, "파일이 15MB를 초과합니다")
+    try:
+        grid = sales_import_service.parse_grid(content, file.filename or "")
+        mapping = await sales_import_service.infer_mapping(grid)
+        return sales_import_service.build_preview(current_user.email, grid, mapping)
+    except sales_import_service.SalesImportError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/sales/import/register-menus", status_code=201)
+def sales_import_register_menus_api(
+    body: MenuRegisterRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """파일에서 발견된 미등록 메뉴를 메뉴로 등록한다(이름·판매가만).
+
+    미매칭 행이 그냥 버려지지 않도록, 사용자가 판매가를 확인한 뒤 여기로 등록하면
+    같은 파일의 해당 행들이 매칭으로 바뀌어 저장(재고 차감은 레시피 등록 후) 대상이 된다.
+    """
+    try:
+        return sales_import_service.register_menus(
+            current_user.email, [m.model_dump() for m in body.menus])
+    except sales_import_service.SalesImportError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/sales/import/confirm", status_code=201)
+def sales_import_confirm_api(
+    body: SalesImportConfirmRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """미리보기에서 확인·수정한 행을 실제 Sale로 저장하고 레시피 기준 재고를 차감한다."""
+    try:
+        result = sales_import_service.save_import(
+            current_user.email, [r.model_dump() for r in body.rows])
+    except sales_import_service.SalesImportError as e:
+        raise HTTPException(400, str(e))
+    forecast_service.invalidate_forecast_cache(current_user.email)
+    return result
+
+
+@router.get("/sales/contribution")
+def sales_contribution_api(
+    days: int = 30,
+    current_user: User = Depends(get_current_user),
+):
+    """메뉴별 기여이익 — 잔당 마진 × 실제 판매 잔 수 (원가 분석 화면용).
+
+    원가율만으로는 '무엇이 매장을 먹여 살리는지' 알 수 없어서, 판매량을 곱한
+    실제 벌어들인 금액과 그 비중을 함께 돌려준다.
+    """
+    return sales_service.menu_contribution(current_user.email, days=days)
 
 
 @router.get("/sales/calendar")
@@ -551,6 +669,89 @@ def get_management_report_api(
             current_user.email, period_type=period_type, force_refresh=True)
     except report_service.ReportError as e:
         raise HTTPException(400, str(e))
+
+
+# ---------------------------------------------------------------------------
+# 홍보/마케팅 도우미 — AI 홍보 문구 + AI 홍보 이미지 생성
+# 목록·수정·삭제는 기존 /documents 엔드포인트를 그대로 쓴다 (kind=marketing_content)
+# ---------------------------------------------------------------------------
+
+@router.post("/marketing/promotions", response_model=GeneratedDocumentResponse, status_code=201)
+def create_marketing_promotion(
+    body: MarketingCopyRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """홍보 문구 세트 생성 — 헤드라인·SNS 캡션·해시태그·이미지 프롬프트를 한 번에.
+
+    매장의 실제 정보(상호·위치·베스트 메뉴)를 근거로 만들어 지어낸 내용이 들어가지 않는다.
+    결과는 문서(kind=marketing_content)로 저장돼 다시 볼 수 있다.
+    """
+    try:
+        return marketing_service.generate_promotion_copy(
+            current_user.email, topic=body.topic, channel=body.channel,
+            tone=body.tone, menu=body.menu)
+    except marketing_service.MarketingError as e:
+        raise HTTPException(502, str(e))
+
+
+@router.post("/marketing/image")
+def create_marketing_image(
+    body: MarketingImageRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """AI 홍보 이미지 생성 — doc_id를 주면 그 홍보 문구에 맞춰 만들고 문서에 기록한다.
+
+    반환의 url을 <Image>로 바로 표시하면 된다. 생성에 수십 초가 걸릴 수 있다.
+    """
+    try:
+        return marketing_service.generate_promotion_image(
+            current_user.email, doc_id=body.doc_id, request=body.request,
+            style=body.style, aspect_ratio=body.aspect_ratio,
+            include_text=body.include_text)
+    except marketing_service.MarketingError as e:
+        raise HTTPException(502, str(e))
+
+
+@router.get("/marketing/images/{filename}")
+def get_marketing_image(filename: str) -> FileResponse:
+    """생성된 홍보 이미지 서빙 — 파일명이 12자리 랜덤 hex라 URL 추측이 사실상 불가능하고,
+    홍보 이미지는 어차피 공개가 목적이라 인증 없이 서빙한다 (앱 <Image>가 헤더 없이 로드)."""
+    try:
+        path = marketing_service.image_file(filename)
+    except marketing_service.MarketingError as e:
+        raise HTTPException(404, str(e))
+    return FileResponse(path, headers={"Cache-Control": "public, max-age=86400"})
+
+
+# ---------------------------------------------------------------------------
+# 음성 합성 (TTS) — 목소리 4종을 '진짜 다른' Gemini 보이스로 (알림 읽어주기·샘플 듣기)
+# ---------------------------------------------------------------------------
+
+class TtsRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=600, description="읽어줄 한국어 문장")
+    voice_type: str = Field("warm_female",
+                            description="warm_female | friendly_male | calm_male | cute_child")
+
+
+@router.post("/tts")
+def synthesize_speech_api(
+    body: TtsRequest,
+    _current_user: User = Depends(get_current_user),
+):
+    """텍스트를 WAV 오디오로 합성한다 — 설정의 목소리 4종이 실제 다른 음색으로 나온다.
+
+    같은 (목소리, 문장)은 서버 디스크 캐시에서 즉시 반환된다 (팀 공유 쿼터 절약).
+    실패(쿼터·오프라인) 시 프론트 speechPlayer가 기기 로컬 TTS로 폴백하므로
+    알림이 끊기지는 않는다. 로그인 필수 — 익명 호출로 쿼터가 새지 않게 한다.
+    """
+    from fastapi.responses import Response
+
+    try:
+        wav = tts_service.synthesize(body.text, voice_type=body.voice_type)
+    except tts_service.TtsError as e:
+        raise HTTPException(503, str(e))
+    return Response(content=wav, media_type="audio/wav",
+                    headers={"Cache-Control": "private, max-age=3600"})
 
 
 # ---------------------------------------------------------------------------
@@ -862,7 +1063,15 @@ async def chat_message(
     """
     # [한글 주석] 매장 고유 식별자가 없을 경우를 위한 대비책 설정
     store_key = store_id or "owner@cafe.com"
-    
+
+    # 무료 할당량을 Gemini 호출 전에 차감한다. 호출 후에 세면 한도를 넘긴 요청이
+    # 이미 비용을 쓴 뒤가 된다. 실패하면 아래 except에서 되돌린다.
+    try:
+        chat_quota_service.consume(store_key)
+    except chat_quota_service.QuotaExhausted as e:
+        # detail을 dict로 넘겨 프론트가 '할당량 소진'과 다른 429를 구분할 수 있게 한다
+        raise HTTPException(429, {"quota_exhausted": True, "quota": e.args[0]})
+
     try:
         # [한글 주석] 챗봇 에이전트의 대화 처리 루프 실행 — 답변 텍스트 + 이번 턴에 만든 문서 전문
         result = await main_agent.generate_response(
@@ -872,9 +1081,35 @@ async def chat_message(
         )
         return ChatResponse(response=result["text"], documents=result["documents"])
     except Exception as e:
+        # 답을 못 준 턴까지 차감하면 부당하다 — 되돌린다
+        chat_quota_service.refund(store_key)
         # [한글 주석] 장애 추적을 위해 로컬 콘솔에 상세 예외 Traceback을 기록합니다.
         logger.exception("챗봇 서비스 실행 중 장애 발생")
         raise HTTPException(500, f"챗봇 서비스 실행 중 장애 발생: {str(e)}")
+
+
+@router.get("/quota")
+def get_chat_quota(store_id: Optional[str] = Depends(_optional_store_id)) -> dict:
+    """챗봇 남은 턴 조회 — 조회만으로 소비되지 않는다.
+
+    챗봇 화면 진입 시 불러 "오늘 남은 대화 N회"를 표시하거나, 광고를 미리 받아둘지
+    판단하는 데 쓴다.
+    """
+    return chat_quota_service.get_quota(store_id or "owner@cafe.com")
+
+
+@router.post("/quota/ad-reward")
+def grant_chat_quota(store_id: Optional[str] = Depends(_optional_store_id)) -> dict:
+    """광고 시청 완료 → 턴 충전.
+
+    지금은 클라이언트의 '봤다'는 보고를 믿는다. 앱을 뜯으면 광고 없이 이 엔드포인트를
+    때려 무한 충전이 가능하므로, 실제 서비스에서는 AdMob 서버 사이드 검증(SSV) 콜백으로
+    바꿔야 한다 — MAX_ADS_PER_DAY가 그때까지의 피해 상한 역할을 한다.
+    """
+    try:
+        return chat_quota_service.grant_from_ad(store_id or "owner@cafe.com")
+    except chat_quota_service.AdLimitReached as e:
+        raise HTTPException(429, {"ad_limit_reached": True, "quota": e.args[0]})
 
 
 # ---------------------------------------------------------------------------

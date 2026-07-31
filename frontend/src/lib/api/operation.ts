@@ -181,9 +181,13 @@ export async function listExpenses(token: string, yearMonth?: string): Promise<E
 
 // ---------- 급여 ----------
 /** 등록된 모든 직원의 해당 월 예상 급여 목록 (실근무 우선, 없으면 계획시간 기준) */
-export async function listPayroll(yearMonth: string): Promise<Payroll[]> {
+export async function listPayroll(yearMonth: string, token?: string): Promise<Payroll[]> {
+  // 토큰이 없으면 백엔드가 전 매장 직원의 급여를 돌려준다 — 항상 넘기는 편이 안전하다
   return unwrap(
-    await apiFetch<CommonResponse<Payroll[]>>(`/api/v1/operation/payroll/all?year_month=${yearMonth}`),
+    await apiFetch<CommonResponse<Payroll[]>>(
+      `/api/v1/operation/payroll/all?year_month=${yearMonth}`,
+      token ? { headers: auth(token) } : undefined,
+    ),
   );
 }
 
@@ -196,51 +200,42 @@ export type Schedule = {
   date: string; // YYYY-MM-DD
   actual_start_time?: string | null;
   actual_end_time?: string | null;
+  // 서버가 조인해서 실어 주는 값 — 화면이 직원 목록과 따로 맞출 필요가 없다
+  employee_name?: string | null;
+  employee_role?: string | null;
 };
 
-/** 등록된 근무 스케줄 전체 조회 API — 실패 시 안전 샘플 스케줄 폴백 */
-export async function listSchedules(): Promise<Schedule[]> {
+/**
+ * 로그인 매장의 근무 스케줄 조회.
+ *
+ * 예전엔 실패하거나 결과가 비면 샘플 13건(직원 ID 1·2·3)을 대신 돌려줬다. 그 ID는
+ * 실제 매장에 없는 사람이라 달력에 '(삭제된 직원)'으로 떴고, 근무가 하나도 없는
+ * 매장인데 달력이 꽉 차 보였다. 없으면 빈 배열을 준다.
+ */
+export async function listSchedules(token?: string): Promise<Schedule[]> {
   try {
-    const list = unwrap(await apiFetch<CommonResponse<Schedule[]>>('/api/v1/operation/schedules'));
-    if (list && list.length > 0) return list;
+    const list = unwrap(
+      await apiFetch<CommonResponse<Schedule[]>>(
+        '/api/v1/operation/schedules',
+        token ? { headers: auth(token) } : undefined,
+      ),
+    );
+    return list ?? [];
   } catch (e) {
-    console.warn('스케줄 조회 실패, 기본 샘플 스케줄 폴백:', e);
+    console.warn('스케줄 조회 실패:', e);
+    return [];
   }
-
-  const now = new Date();
-  const year = now.getFullYear();
-  const monthStr = String(now.getMonth() + 1).padStart(2, '0');
-
-  // [한글 주석: 주 단위(Week-based) 파스텔 근무 바가 매끄럽게 연결되도록 촘촘한 샘플 데이터 구성]
-  return [
-    // 소지원 (ID: 1) - 이번주 월~금 주중 연속 근무
-    { id: 101, employee_id: 1, start_time: `${year}-${monthStr}-20T09:00:00`, end_time: `${year}-${monthStr}-18:00:00`, date: `${year}-${monthStr}-20` },
-    { id: 102, employee_id: 1, start_time: `${year}-${monthStr}-21T09:00:00`, end_time: `${year}-${monthStr}-18:00:00`, date: `${year}-${monthStr}-21` },
-    { id: 103, employee_id: 1, start_time: `${year}-${monthStr}-22T09:00:00`, end_time: `${year}-${monthStr}-18:00:00`, date: `${year}-${monthStr}-22` },
-    { id: 104, employee_id: 1, start_time: `${year}-${monthStr}-23T09:00:00`, end_time: `${year}-${monthStr}-18:00:00`, date: `${year}-${monthStr}-23` },
-    { id: 105, employee_id: 1, start_time: `${year}-${monthStr}-24T09:00:00`, end_time: `${year}-${monthStr}-18:00:00`, date: `${year}-${monthStr}-24` },
-
-    // 이우진 (ID: 2) - 이번주 월·수·금 주중 스케줄
-    { id: 201, employee_id: 2, start_time: `${year}-${monthStr}-20T12:00:00`, end_time: `${year}-${monthStr}-21:00:00`, date: `${year}-${monthStr}-20` },
-    { id: 202, employee_id: 2, start_time: `${year}-${monthStr}-22T12:00:00`, end_time: `${year}-${monthStr}-21:00:00`, date: `${year}-${monthStr}-22` },
-    { id: 203, employee_id: 2, start_time: `${year}-${monthStr}-24T12:00:00`, end_time: `${year}-${monthStr}-21:00:00`, date: `${year}-${monthStr}-24` },
-
-    // 유상진 (ID: 3) - 목·금·토·일 스케줄
-    { id: 301, employee_id: 3, start_time: `${year}-${monthStr}-23T10:00:00`, end_time: `${year}-${monthStr}-19:00:00`, date: `${year}-${monthStr}-23` },
-    { id: 302, employee_id: 3, start_time: `${year}-${monthStr}-24T10:00:00`, end_time: `${year}-${monthStr}-19:00:00`, date: `${year}-${monthStr}-24` },
-    { id: 303, employee_id: 3, start_time: `${year}-${monthStr}-25T10:00:00`, end_time: `${year}-${monthStr}-19:00:00`, date: `${year}-${monthStr}-25` },
-  ];
 }
 
 /** 근무 스케줄 등록 */
-export async function createSchedule(body: {
-  employee_id: number;
-  start_time: string;
-  end_time: string;
-}): Promise<Schedule> {
+export async function createSchedule(
+  body: { employee_id: number; start_time: string; end_time: string },
+  token?: string,
+): Promise<Schedule> {
   return unwrap(
     await apiFetch<CommonResponse<Schedule>>('/api/v1/operation/schedules', {
       method: 'POST',
+      headers: token ? auth(token) : undefined,
       body: JSON.stringify(body),
     }),
   );
@@ -259,10 +254,13 @@ export async function updateSchedule(
   );
 }
 
-/** 근무 스케줄 삭제 */
-export async function deleteSchedule(id: number): Promise<null> {
+/** 근무 스케줄 삭제 — 토큰을 넘기면 서버가 내 매장 근무인지 확인한다 */
+export async function deleteSchedule(id: number, token?: string): Promise<null> {
   return unwrap(
-    await apiFetch<CommonResponse<null>>(`/api/v1/operation/schedules/${id}`, { method: 'DELETE' }),
+    await apiFetch<CommonResponse<null>>(`/api/v1/operation/schedules/${id}`, {
+      method: 'DELETE',
+      headers: token ? auth(token) : undefined,
+    }),
   );
 }
 
@@ -351,17 +349,22 @@ export async function deleteUnavailability(token: string, unavailabilityId: numb
   });
 }
 
-/** 알바 스케줄 추천 API (기피시간 반영) */
+/**
+ * 알바 스케줄 추천 API (기피시간 반영)
+ *
+ * store_id는 서버가 토큰에서 판정한다 — 예전엔 여기 기본값이 데모용 'store_gildong'이라
+ * 남의 매장 매출·직원으로 추천안이 나왔다("AI 추천 돌리면 모르는 사람이 생긴다"의 원인).
+ * 스키마가 필수 필드라 자리는 채우되, 서버는 로그인 매장을 우선한다.
+ */
 export async function getScheduleRecommendation(
   token: string,
   targetDate: string,
-  storeId: string = 'store_gildong',
 ): Promise<ScheduleRecommendation> {
   return unwrap(
     await apiFetch<CommonResponse<ScheduleRecommendation>>('/api/v1/operation/schedules/recommend', {
       method: 'POST',
       headers: auth(token),
-      body: JSON.stringify({ target_date: targetDate, store_id: storeId }),
+      body: JSON.stringify({ target_date: targetDate, store_id: '' }),
     }),
   );
 }
@@ -387,13 +390,13 @@ export type Employee = {
   role: string;
 };
 
-export const DEFAULT_EMPLOYEES: Employee[] = [
-  { id: 1, name: '소지원', hourly_rate: 10000, role: '바리스타' },
-  { id: 2, name: '이우진', hourly_rate: 10000, role: '홀·카운터' },
-  { id: 3, name: '유상진', hourly_rate: 11500, role: '매니저' },
-];
-
-/** 알바생 목록 조회 API — 토큰이 있으면 로그인 매장 직원 반환, 실패 시 안전 샘플 폴백 */
+/**
+ * 알바생 목록 조회 API — 로그인 매장의 직원만.
+ *
+ * 예전엔 목록이 비거나 조회에 실패하면 샘플 3명(소지원·이우진·유상진)을 대신 돌려줬다.
+ * 그 결과 등록한 적 없는 사람이 달력·스케줄·급여에 나타나고, 그 ID로 스케줄을 만들면
+ * 존재하지 않는 직원의 근무가 저장됐다. 없으면 빈 배열을 주고 화면이 "없다"고 말하게 한다.
+ */
 export async function listEmployees(token?: string): Promise<Employee[]> {
   try {
     const list = unwrap(
@@ -402,10 +405,10 @@ export async function listEmployees(token?: string): Promise<Employee[]> {
         token ? { headers: auth(token) } : undefined,
       ),
     );
-    return list && list.length > 0 ? list : DEFAULT_EMPLOYEES;
+    return list ?? [];
   } catch (e) {
-    console.warn('알바생 목록 서버 조회 실패, 기본 샘플 목록 폴백:', e);
-    return DEFAULT_EMPLOYEES;
+    console.warn('알바생 목록 서버 조회 실패:', e);
+    return [];
   }
 }
 

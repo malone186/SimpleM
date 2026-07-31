@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Image,
   Linking,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -19,9 +20,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { Screen, ScreenTitle } from '../../components/ui';
 import { useTranslation } from '../../i18n/translations';
 import { colors, shadows, spacing, typography } from '../../theme';
-import { listRoasteryBeans, listStocks, DEFAULT_ROASTERY_BEANS, RoasteryBean, StockItem } from '../../lib/api/inventory';
+import { listRoasteryBeans, listStocks, RoasteryBean, StockItem } from '../../lib/api/inventory';
 import BeanDetailModal from '../../components/order/BeanDetailModal';
 import BeanNotepad from '../../components/order/BeanNotepad';
+
+// 안전재고를 따로 설정하지 않은 재료에 적용할 기본 부족 기준 (개/단위)
+const DEFAULT_LOW_STOCK = 3;
 
 export default function OrderScreen() {
   // [한글 주석: 전역 다국어 훅 호출]
@@ -57,25 +61,35 @@ export default function OrderScreen() {
     return null;
   };
 
-  // 백엔드에서 원두 목록 데이터 로드 (실패 시 샘플 원두 목록 폴백)
+  // 백엔드에서 원두 목록 데이터 로드.
+  // 실패하면 빈 목록 + 에러 상태로 둔다 — 예전엔 지어낸 원두 5종을 대신 채워서,
+  // 서버가 죽은 줄도 모르고 존재하지 않는 상품의 가격을 비교하게 됐다.
   const loadBeans = async () => {
     try {
       setLoading(true);
       setError(false);
       const token = await getAuthToken();
       const data = await listRoasteryBeans(token ?? undefined, 10);
-      setBeans(data && data.length > 0 ? data : DEFAULT_ROASTERY_BEANS);
+      setBeans(data ?? []);
       if (token) {
         try {
           const stocks = await listStocks(token);
-          setLowStocks(stocks.filter((st) => st.current_quantity < st.safety_quantity));
+          // 안전재고를 따로 설정한 재료가 거의 없다 — 아무도 초기 세팅을 안 하기 때문이다.
+          // 그래서 설정값이 0이면 '3개 미만'이라는 기본 기준으로 대신 잡아 준다.
+          // (사장님 요청: 거창한 발주 예측 말고 3개 밑으로 떨어지면 알려주는 정도면 된다)
+          setLowStocks(
+            stocks.filter((st) =>
+              st.current_quantity < (st.safety_quantity > 0 ? st.safety_quantity : DEFAULT_LOW_STOCK),
+            ),
+          );
         } catch {
           setLowStocks([]);
         }
       }
     } catch (e) {
-      console.error('[원두 탐색] 원두 목록 로드 실패, 샘플 폴백 사용:', e);
-      setBeans(DEFAULT_ROASTERY_BEANS);
+      console.error('[원두 탐색] 원두 목록 로드 실패:', e);
+      setBeans([]);
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -85,16 +99,20 @@ export default function OrderScreen() {
     loadBeans();
   }, []);
 
-  // [한글 주석: 만료된 네이버 스마트스토어 대신 mungmung.site 의 검색 쿼리를 결합해 상세 페이지 링크를 구성합니다]
-  const getNoLoginProductUrl = (bean: RoasteryBean): string => {
-    const keyword = bean.name;
-    return `https://mungmung.site/?q=${encodeURIComponent(keyword)}`;
-  };
+  // 구매 링크 — DB에 수집해 둔 실제 상품 페이지(product_url)를 먼저 쓴다.
+  // 예전엔 그 값을 버리고 무조건 검색 URL로 보냈다. 화면에 띄운 가격은 특정 상품의 것인데
+  // 링크는 동명이인 상품이 잔뜩 나오는 검색 결과로 가서, 사장님이 본 가격을 다시 못 찾았다.
+  // (원두 운영 화면 BeanOperationScreen은 처음부터 product_url을 우선 사용하고 있었다)
+  const getProductUrl = (bean: RoasteryBean): string =>
+    bean.product_url || `https://mungmung.site/?q=${encodeURIComponent(bean.name)}`;
 
-  // 로그인 창 없이 원두 상품 구매 상세 페이지로 직행
   const handleBeanPress = (bean: RoasteryBean) => {
-    const targetUrl = getNoLoginProductUrl(bean);
-    Linking.openURL(targetUrl);
+    const targetUrl = getProductUrl(bean);
+    if (Platform.OS === 'web') {
+      window.open(targetUrl, '_blank');
+    } else {
+      Linking.openURL(targetUrl);
+    }
   };
 
   // 가격 포맷: 예) 32000 → "32,000원"
@@ -161,8 +179,11 @@ export default function OrderScreen() {
           <View style={styles.defSection}>
             <View style={styles.sectionHeader}>
               <Ionicons name="warning-outline" size={16} color={colors.pointOrange} />
-              <Text style={styles.defSectionTitle}>부족한 재고 발주 추천</Text>
+              <Text style={styles.defSectionTitle}>곧 떨어져요 — 채워 두세요</Text>
             </View>
+            <Text style={styles.defSectionHint}>
+              안전재고를 정한 재료는 그 기준으로, 안 정한 재료는 {DEFAULT_LOW_STOCK}개 미만일 때 알려드려요.
+            </Text>
             <View style={styles.defList}>
               {lowStocks.map((item) => (
                 <TouchableOpacity
@@ -176,7 +197,10 @@ export default function OrderScreen() {
                   <View style={styles.defInfo}>
                     <Text style={styles.defName}>{item.name}</Text>
                     <Text style={styles.defStatus}>
-                      잔여 {item.current_quantity}{item.unit} (안전재고 {item.safety_quantity}{item.unit})
+                      남은 수량 {item.current_quantity}{item.unit}
+                      {item.safety_quantity > 0
+                        ? ` · 안전재고 ${item.safety_quantity}${item.unit}`
+                        : ` · 기본 기준 ${DEFAULT_LOW_STOCK}${item.unit}`}
                     </Text>
                   </View>
                   <View style={styles.defBuyBtn}>
@@ -437,6 +461,7 @@ const styles = StyleSheet.create({
     gap: 6,
     marginBottom: 12,
   },
+  defSectionHint: { ...typography.L5, color: colors.mochaBrown, marginBottom: 8, lineHeight: 15 },
   defSectionTitle: {
     ...typography.L3,
     color: colors.espressoBrown,

@@ -1,6 +1,7 @@
 // 판매 수동 입력 API (백엔드 B의 /chatbot/sales 연동, 인증 필요)
 // 등록한 판매는 Sale 테이블에 기록되어 대시보드·경영 리포트·예측에 바로 반영된다.
-import { apiFetch } from './client';
+import { Platform } from 'react-native';
+import { apiFetch, API_BASE_URL } from './client';
 
 const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 
@@ -39,3 +40,103 @@ export const recordSales = (token: string, items: { menu_id: number; quantity: n
 /** 최근 판매 내역 */
 export const listRecentSales = (token: string, limit = 10) =>
   apiFetch<RecentSale[]>(`/api/v1/chatbot/sales/recent?limit=${limit}`, { headers: auth(token) });
+
+/** 메뉴별 기여이익 — 잔당 마진 × 실제 판매 잔 수 (원가율만으로는 안 보이는 '실제로 번 돈') */
+export type MenuContribution = {
+  menu_id: number;
+  name: string;
+  selling_price: number;
+  cost_price: number;
+  cost_ratio: number | null;
+  margin_per_cup: number;
+  sold_qty: number;
+  revenue: number;
+  total_margin: number;
+  margin_share: number;
+  recipe_missing: boolean;
+};
+
+export type ContributionResult = {
+  days: number;
+  menus: MenuContribution[];
+  total_margin: number;
+  total_revenue: number;
+  total_qty: number;
+};
+
+export const getMenuContribution = (token: string, days = 30) =>
+  apiFetch<ContributionResult>(`/api/v1/chatbot/sales/contribution?days=${days}`, {
+    headers: auth(token),
+  });
+
+// ── POS 매출 파일 임포트 (엑셀/CSV) ──
+export type ImportPreviewRow = {
+  menu_name: string;
+  menu_id: number | null;
+  matched_name: string | null;
+  quantity: number;
+  total_price: number | null;
+  sold_at: string | null;
+  warnings: string[];
+};
+
+export type ImportPreview = {
+  mapping: Record<string, any>;
+  // 열 매핑에 어떤 엔진이 쓰였는지 — 'ai'(Gemini) | 'heuristic'(키워드). 실패 시 mapping_error에 사유.
+  source?: 'ai' | 'heuristic';
+  mapping_note?: string | null;
+  mapping_error?: string | null;
+  confidence?: number | null;
+  rows: ImportPreviewRow[];
+  summary: { total_rows: number; matched: number; unmatched: number; sum_amount: number };
+};
+
+/** POS 파일(엑셀/CSV) 업로드 → LLM이 열을 매핑해 미리보기 반환 (DB 저장 안 함) */
+export async function previewSalesImport(
+  file: { uri: string; mimeType?: string | null; fileName?: string | null },
+  token: string,
+): Promise<ImportPreview> {
+  const form = new FormData();
+  const name = file.fileName ?? 'sales.csv';
+  const type = file.mimeType ?? 'text/csv';
+  if (Platform.OS === 'web') {
+    const blob = await (await fetch(file.uri)).blob();
+    form.append('file', new File([blob], name, { type: blob.type || type }));
+  } else {
+    form.append('file', { uri: file.uri, name, type } as unknown as Blob);
+  }
+  const res = await fetch(`${API_BASE_URL}/api/v1/chatbot/sales/import/preview`, {
+    method: 'POST',
+    headers: auth(token),
+    body: form,
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `파일 분석 실패 (${res.status})`);
+  }
+  return res.json();
+}
+
+export type RegisteredMenu = { name: string; menu_id: number; selling_price: number; created: boolean };
+
+/** 파일에서 발견된 미등록 메뉴를 메뉴로 등록 (이름·판매가). 등록하면 해당 행이 매칭으로 바뀐다. */
+export const registerImportMenus = (
+  token: string,
+  menus: { name: string; selling_price: number }[],
+) =>
+  apiFetch<{ menus: RegisteredMenu[] }>('/api/v1/chatbot/sales/import/register-menus', {
+    method: 'POST',
+    headers: auth(token),
+    body: JSON.stringify({ menus }),
+  });
+
+/** 미리보기에서 확인·수정한 행을 실제 매출로 저장 (Sale 기록 + 재고 차감) */
+export const confirmSalesImport = (
+  token: string,
+  rows: { menu_id: number; quantity: number; total_price: number | null; sold_at: string | null }[],
+) =>
+  apiFetch<{ created: number; total: number }>('/api/v1/chatbot/sales/import/confirm', {
+    method: 'POST',
+    headers: auth(token),
+    body: JSON.stringify({ rows }),
+  });

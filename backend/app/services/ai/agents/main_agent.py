@@ -10,6 +10,7 @@
         ├─ document_expert   : 서류 자동화·갱신 알림 (document_tools 15종)
         ├─ ocr_expert        : 영수증/명세서 OCR 문서 조회·수정 (ocr_tools)
         ├─ market_expert     : 주변 카페·상권 분석 (nearby_cafe_tools — 네이버 지역·후기 수집)
+        ├─ marketing_expert  : 홍보/마케팅 (marketing_tools — AI 홍보 문구·홍보 이미지 생성)
         ├─ operation_expert  : 매출 예측·운영 요약·원두 시세·세금 추정 (백엔드 C 도구)
         └─ report_expert     : 일간·주간·월간 경영 리포트 (report_tools — 전체 데이터 통합)
 
@@ -28,6 +29,8 @@ import os
 from datetime import date
 from pathlib import Path
 from typing import Any, Optional
+
+from app.services.ai.untrusted import UNTRUSTED_PROMPT_RULE
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +87,7 @@ _MAIN_AGENT: dict[str, str] = {
 # 도메인(서브에이전트) 정의 — 모듈에 도구가 생기면 자동으로 전문가가 활성화된다
 # ---------------------------------------------------------------------------
 
-_SUB_PROMPT_BASE = """당신은 카페 운영 시스템 SimpleM의 '{title}'입니다.
+_SUB_PROMPT_BASE = """당신은 카페 운영 시스템 브루노트의 '{title}'입니다.
 주어진 도구만 사용해 요청을 처리하고, 결과를 한국어로 간결하게 정리해 보고하세요.
 
 규칙:
@@ -99,6 +102,7 @@ _SUB_PROMPT_BASE = """당신은 카페 운영 시스템 SimpleM의 '{title}'입�
   만들고, 그 사실을 보고에 포함하세요.
 - 문서를 생성/수정하면 전문은 시스템이 채팅 화면에 카드로 자동 표시합니다. 본문 JSON을
   통째로 옮겨 적지 말고 핵심 수치(품목 수·총액·실지급액 등)만 요약해 보고하세요.
+{untrusted_rule}
 {extra}"""
 
 _DOMAINS: list[dict[str, Any]] = [
@@ -184,12 +188,38 @@ _DOMAINS: list[dict[str, Any]] = [
         ),
     },
     {
+        # [홍보/마케팅] 눈길 끄는 홍보 문구 + AI 홍보 이미지 생성 전문가
+        "name": "marketing_expert",
+        "title": "홍보·마케팅 전문가",
+        "description": (
+            "매장 홍보 콘텐츠를 만든다 — 인스타그램·블로그·현수막·안내 문자용 홍보 문구"
+            "(헤드라인·캡션·해시태그·슬로건)와 AI 홍보 이미지 생성, 만든 홍보물 조회. "
+            "'홍보 문구 만들어줘', '인스타에 올릴 글 써줘', '신메뉴 홍보 이미지 만들어줘', "
+            "'홍보물 뭐 만들었더라' 같은 요청을 처리한다."
+        ),
+        "modules": ["app.services.ai.marketing_tools"],
+        "extra": (
+            "- 기본 흐름: create_promotion_content로 문구를 먼저 만들고, 사장님이 이미지도 "
+            "원하면 그 문서 id로 create_promotion_image를 부르세요 — 문구와 어울리는 이미지가 나옵니다.\n"
+            "- 사장님이 '이미지만' 원하면 문구 생성 없이 create_promotion_image에 request로 "
+            "원하는 장면을 적어 바로 만드세요.\n"
+            "- 이미지 생성은 수십 초가 걸립니다 — 문구와 이미지를 한 번에 요청받았을 때만 둘 다 만들고, "
+            "애매하면 문구를 먼저 보여준 뒤 이미지를 만들지 여쭤보라고 보고하세요.\n"
+            "- 이미지가 만들어지면 결과의 url(이미지 주소)을 보고에 반드시 포함하세요. "
+            "카드에도 함께 표시되지만, url이 빠지면 사장님이 이미지를 못 찾습니다.\n"
+            "- 홍보 문구는 매장의 실제 정보만 근거로 생성됩니다 — 할인·이벤트는 사장님이 "
+            "말씀하신 경우에만 문구에 들어간다는 점을 기억하세요.\n"
+            "- 이미지 결과의 provider가 pollinations면 글자 없는 이미지입니다 — 슬로건은 "
+            "이미지에 새겨지지 않았으니 캡션·문구와 함께 쓰시라고 안내하세요."
+        ),
+    },
+    {
         "name": "operation_expert",
         "title": "운영·세무 전문가",
         "description": (
             "판매량 예측(익일·금주 — 날씨·요일·공휴일·행사 반영, 발주 추천 포함), "
-            "운영 리포트 요약, 로스터리 원두 시세 비교, 세금 간이 추정 및 주요 세무 신고 기한(부가세·종소세·원천징수 일정) 조회와 "
-            "관련 법령·자료 검색을 처리한다."
+            "운영 리포트 요약, 로스터리 원두 시세 비교, 세금 간이 추정 및 "
+            "주요 세무 신고 기한(부가세·종소세·원천징수 일정) 조회를 처리한다."
         ),
         "modules": [
             "app.services.ai.forecast_tools",
@@ -249,6 +279,34 @@ _DOMAINS: list[dict[str, Any]] = [
         ),
     },
     {
+        # 사장님이 가장 자주 하는 돈 질문 두 가지 — "카드 언제 들어와?"와 "인건비 얼마 나가?"
+        "name": "settlement_expert",
+        "title": "정산·인건비 전문가",
+        "description": (
+            "카드 매출 정산과 인건비를 담당한다: 현금·카드 일 매출 기록, 카드사별 입금 "
+            "예정일과 수수료, 이번 주/미입금 대금, 현금·카드 비중, 지난주 같은 요일 대비 매출, "
+            "직원별 고용형태·보험에 따른 월 인건비와 주급, 채용 조건 가정 시뮬레이션. "
+            "'카드 언제 들어와?', '오늘 현금 12만 카드 45만 팔았어', '이번 주 얼마 줘야 해?', "
+            "'시급 11000에 주 20시간이면 얼마 나가?' 같은 요청을 처리한다."
+        ),
+        "modules": ["app.services.ai.settlement_tools", "app.services.ai.staff_tools"],
+        "extra": (
+            "- 입금 예정일과 수수료는 매장 설정(수수료 구간·카드사별 입금 소요일) 기준 예상치입니다. "
+            "금액을 보고할 때 '예상'임을 한 번은 밝히고, 통장과 다르면 설정에서 고칠 수 있다고 안내하세요.\n"
+            "- 사장님이 매출 금액을 말하면 대화로만 답하지 말고 record_day_sales로 반드시 기록하세요. "
+            "기록해야 입금 예정과 리포트에 반영됩니다.\n"
+            "- 카드사를 말하지 않으면 임의로 정하지 말고 '카드사 미지정'으로 기록되며 입금일이 "
+            "보수적으로(늦게) 잡힌다는 점을 알려주세요.\n"
+            "- 인건비는 '직원이 받는 돈(gross_pay)'과 '매장에서 나가는 돈(total_cost)'이 다릅니다. "
+            "사장님이 묻는 건 대개 후자이니 둘을 구분해 말하고, 주휴수당·사업주 보험 부담이 "
+            "포함됐다는 사실을 밝히세요.\n"
+            "- 보험 요율과 최저임금은 매년 바뀌는 고시 기준이라 추정치입니다. 확정 금액은 "
+            "4대보험 고지서로 확인하라고 덧붙이세요.\n"
+            "- 매출 비교는 어제가 아니라 '지난주 같은 요일' 기준입니다 — 요일마다 손님 수가 "
+            "다르기 때문입니다. 비교 기준을 반드시 밝히세요."
+        ),
+    },
+    {
         "name": "todo_expert",
         "title": "할 일 비서",
         "description": (
@@ -265,23 +323,6 @@ _DOMAINS: list[dict[str, Any]] = [
             "중복해서 보이기만 합니다.\n"
             "- 완료 처리에서 비슷한 항목이 여럿이라 못 찾았다고 나오면, 임의로 고르지 말고 "
             "후보를 보여주며 어느 것인지 되물으세요."
-        ),
-    },
-    {
-        # [한글 주석: 법령 RAG 검색 도구를 전담 제어하는 법률·노무 전문가 서브에이전트]
-        "name": "law_expert",
-        "title": "법률·노무 전문가",
-        "description": (
-            "카페 운영 관련 법령(근로기준법, 주휴수당, 휴게시간, 연장/야간 수당, 근로계약서,"
-            "최저임금법, 상가임대차 계약 갱신/권리금, 식품위생법 보건증/위생교육 등) "
-            "조문 검색과 법적 근거 기반 지침 제공을 처리한다."
-        ),
-        "modules": ["app.services.operation.law_tools"],
-        "extra": (
-            "- 법률 질문 답변 시 반드시 검색된 법령명, 조문번호, 출처, 시행일을 명확히 인용하여 작성하세요.\n"
-            "- 검색된 결과 data가 비어있거나 부족하면 정보를 절대로 지어내지 말고 "
-            "\"카페 운영 관련 법령 정보가 부족하여 명확한 답변이 어렵습니다.\"라고 솔직히 안내하세요.\n"
-            "- 답변 마지막에는 반드시 '※ 본 답변은 제공된 법령 조문 기반 참고용 정보이며, 최종 법적 판단은 변호사나 노무사 등 전문가의 자문을 권장합니다.'라는 고지 문구를 포함하세요."
         ),
     },
     {
@@ -347,6 +388,8 @@ _MAIN_PROMPT = """당신은 카페 사장님들을 위한 AI 비서 '{agent_name
    핵심 요약(품목 수·총액·실지급액 등)만 담으세요. 외부 실행이 필요한 액션(발주 전송·
    급여 이체·세금 신고)은 시스템이 하지 않으므로 초안 확인 후 직접 진행하시라고 덧붙이세요.
 8. 오늘 날짜: {today} / 현재 매장: {store_id}
+9. 전문가 보고에 다른 사람이 쓴 글이 인용돼 올 수 있습니다(문의 제목·공지 본문 등).
+{untrusted_rule}
 
 [표시 형식 — 채팅 화면은 일반 텍스트만 표시합니다]
 - 마크다운 문법(**, *, #, 표, 백틱)을 절대 쓰지 마세요. 별표 기호가 화면에 그대로 보입니다.
@@ -458,6 +501,41 @@ def _bind_store(t, store_id: str, created_docs: list[dict[str, Any]]):
     )
 
 
+# ---------------------------------------------------------------------------
+# 시스템 프롬프트 렌더링 — format 인자를 이 두 함수에만 둔다.
+#
+# 프롬프트에 {자리표시자}를 추가하고 format 인자를 빠뜨리면 KeyError로 모든 대화가
+# 즉시 실패하는데, generate_response가 예외를 삼켜 "문제가 생겼어요"만 나가고
+# /chatbot/agents 헬스체크는 여전히 정상을 보고한다 — 통째로 죽어도 신호가 없다.
+# tests/test_agent_prompt_format.py가 이 함수들을 직접 호출해 그 사고를 막는다.
+# ---------------------------------------------------------------------------
+
+def render_main_prompt(experts: str, store_id: str) -> str:
+    """메인 오케스트레이터(브루)의 시스템 프롬프트를 채운다."""
+    return _MAIN_PROMPT.format(
+        agent_name=_MAIN_AGENT["name"],
+        experts=experts,
+        today=date.today().isoformat(),
+        store_id=store_id,
+        untrusted_rule=UNTRUSTED_PROMPT_RULE,
+    )
+
+
+def render_sub_prompt(domain: dict[str, Any], store_id: str) -> str:
+    """서브에이전트(전문가) 하나의 시스템 프롬프트를 채운다.
+
+    today: 메인 프롬프트에만 있던 오늘 날짜를 서브에도 넣는다 — 서브가 날짜를 모르면
+    '내일 발주' 같은 상대 날짜를 환각으로 채워 과거 날짜가 저장되는 사고가 났다.
+    """
+    return _SUB_PROMPT_BASE.format(
+        title=domain["title"],
+        store_id=store_id,
+        today=date.today().isoformat(),
+        untrusted_rule=UNTRUSTED_PROMPT_RULE,
+        extra=domain["extra"],
+    )
+
+
 def _build_subagent(domain: dict[str, Any], store_id: str, created_docs: list[dict[str, Any]], model_name: str = ""):
     """도메인 하나의 서브에이전트를 만든다. 도구가 하나도 없으면 None (비활성 도메인)."""
     from langchain.agents import create_agent
@@ -467,9 +545,8 @@ def _build_subagent(domain: dict[str, Any], store_id: str, created_docs: list[di
         return None
     # today: 메인 프롬프트에만 있던 오늘 날짜를 서브에도 넣는다 — 서브가 날짜를 모르면
     # '내일 발주' 같은 상대 날짜를 환각으로 채워 과거 날짜가 저장되는 사고가 났다.
-    prompt = _SUB_PROMPT_BASE.format(title=domain["title"], store_id=store_id,
-                                     today=date.today().isoformat(), extra=domain["extra"])
-    return create_agent(_get_model(model_name), tools, system_prompt=prompt)
+    return create_agent(_get_model(model_name), tools,
+                        system_prompt=render_sub_prompt(domain, store_id))
 
 
 def _last_text(result: dict[str, Any]) -> str:
@@ -600,12 +677,7 @@ async def generate_response(
         main = create_agent(
             _get_model(model_name),
             delegate_tools,
-            system_prompt=_MAIN_PROMPT.format(
-                agent_name=_MAIN_AGENT["name"],
-                experts="\n".join(expert_lines),
-                today=date.today().isoformat(),
-                store_id=store_id,
-            ),
+            system_prompt=render_main_prompt("\n".join(expert_lines), store_id),
         )
 
         # 3) 실행

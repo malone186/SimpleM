@@ -1,9 +1,9 @@
 """
 1대1 문의 및 요청사항 SQLAlchemy 데이터 모델 (한글 주석 적용)
 """
-from datetime import datetime
 from sqlalchemy import Column, Integer, String, Text, DateTime
 from app.core.database import Base
+from app.utils.datetime_kst import utc_now
 
 class Inquiry(Base):
     __tablename__ = "inquiries"
@@ -16,5 +16,7 @@ class Inquiry(Base):
     content = Column(Text, nullable=False)
     status = Column(String(50), default="pending")  # 'pending' or 'answered'
     answer = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    # 저장은 UTC(naive)로 통일한다 — 화면에 뿌릴 때 utils.datetime_kst.fmt_kst로 KST 변환.
+    # 여기서 바로 KST를 넣으면 이미 쌓인 UTC 행들과 섞여 목록의 시각 기준이 둘이 된다.
+    created_at = Column(DateTime, default=utc_now)
     answered_at = Column(DateTime, nullable=True)

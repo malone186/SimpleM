@@ -1,0 +1,73 @@
+name: CI Check (markers + tsc)
+
+# main으로 오는 모든 push·PR에서 빌드가 깨졌는지 서버에서 검사한다.
+# 배경: stash 충돌 마커(<<<<<<<)가 커밋된 채 main에 올라와 빌드가 깨진 사고가 4회 있었다.
+# 로컬 .githooks(pre-commit/pre-push)와 같은 검사지만, 훅은 각자
+# `git config core.hooksPath .githooks`를 실행해야 켜지는 로컬 방어라
+# 설정 안 한 사람의 push는 그대로 통과한다 — 여기가 최종 방어선이다.
+#
+# push는 이미 올라온 뒤라 "거부"는 못 하지만 즉시 빨간불 + (아래) 배포 게이트로 확산을 막고,
+# PR은 브랜치 보호 규칙에서 이 체크를 required로 지정하면 병합 자체가 차단된다.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 충돌 마커 검사 (저장소 전체)
+        # 줄 시작의 <<<<<<< / ======= / >>>>>>> 만 마커로 본다 (===는 코드에 흔하므로 정확히 7자+줄끝/공백)
+        run: |
+          set -eu
+          hits=$(grep -rnE '^(<{7}( |$)|={7}$|>{7}( |$))' \
+            --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx' \
+            --include='*.py' --include='*.json' --include='*.yml' --include='*.yaml' \
+            --include='*.html' --include='*.css' --include='*.md' \
+            --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist \
+            --exclude-dir=.expo --exclude-dir=__pycache__ \
+            . || true)
+          if [ -n "$hits" ]; then
+            echo "$hits"
+            echo "::error::병합 충돌 마커가 커밋돼 있습니다 — 위 파일에서 <<<<<<< / ======= / >>>>>>> 를 정리하세요"
+            exit 1
+          fi
+          echo "✅ 충돌 마커 없음"
+
+      - name: Node 준비
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 프론트 의존성 설치
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: 프론트 타입체크 (tsc --noEmit)
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: 백엔드 파이썬 문법 검사
+        # 의존성 설치 없이 컴파일만 — import 오류는 못 잡지만 문법 깨짐(마커 잔재 등)은 잡는다
+        run: python -m compileall -q backend/app
+
+      - name: 관리자 콘솔 JS 문법 검사
+        # admin_web/app.js는 tsc 대상이 아니라서 따로 본다 (마커 3곳이 실제로 여기 커밋됐던 사고)
+        run: |
+          for f in admin_web/*.js; do
+            [ -e "$f" ] || continue
+            node --check "$f"
+          done
+          echo "✅ admin_web JS 문법 통과"

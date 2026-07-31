@@ -25,13 +25,12 @@ type Item = {
 
 // 지정 팔레트 — 에스프레소 → 모카 → 토프 → 스톤 베이지 → 페일 아이보리
 // 설정은 카드가 아니라 헤더 우상단 칩으로 들어간다.
+// 디저트 관리는 별도 카드 없이 '메뉴 관리' 안으로 합쳤다 (메뉴/디저트 탭).
 const ITEMS: Item[] = [
-  { label: '디저트 관리', en: 'DESSERT', desc: '소비기한 · 폐기 손실 · 마진 순위', color: '#6B4A32', route: 'Dessert' },
-  { label: '스케줄·급여', en: 'PAYROLL', desc: '알바 스케줄 · 손익 정산', color: '#5B514C', route: 'Operation' },
+  { label: '직원·스케줄', en: 'PAYROLL', desc: '직원 명부 · 인건비 · 근무 달력 · 손익 정산', color: '#5B514C', route: 'Operation' },
   { label: '서류·세금', en: 'DOCUMENTS', desc: '문서 초안 · 세금 관리', color: '#9A8E82', route: 'Document' },
-  { label: '판매 입력', en: 'SALES', desc: 'POS 연동 · 수동 입력', color: '#D1C6B9', route: 'SalesInput' },
+  { label: '판매 입력', en: 'SALES', desc: '현금·카드 입력 · 입금 예정일', color: '#D1C6B9', route: 'SalesInput' },
   { label: '원가 분석', en: 'COST', desc: '메뉴별 원가율 진단', color: '#E1DCD7', route: 'Cost' },
-  { label: '법령 검색', en: 'LAW', desc: '노무 · 위생 법령', color: '#F4F1EF', route: 'LawSearch' },
   { label: '운영·원두 분석', en: 'OPERATION', desc: '원두 최저가 시세 · 실리뷰 분석', color: '#463C34', route: 'BeanOperation' },
 ];
 
@@ -93,12 +92,12 @@ export default function ManagementScreen() {
   const navigation = useNavigation<any>();
 
   const itemsList: Item[] = [
-    { label: language === 'en' ? 'Dessert Mgmt' : '디저트 관리', en: 'DESSERT', desc: language === 'en' ? 'Shelf life · Loss · Margin ranking' : '소비기한 · 폐기 손실 · 마진 순위', color: '#6B4A32', route: 'Dessert' },
-    { label: t('employeeManagement'), en: 'PAYROLL', desc: language === 'en' ? 'Employee schedule & Payroll' : '알바 스케줄 · 손익 정산', color: '#5B514C', route: 'Operation' },
+    // 직원·인건비는 별도 카드를 두지 않고 이 화면 안에서 들어간다 (진입로 하나로 통일)
+    { label: language === 'en' ? 'Staff & Schedule' : '직원 · 스케줄', en: 'PAYROLL', desc: language === 'en' ? 'Roster · Labor cost · Calendar · Settlement' : '직원 명부 · 인건비 · 근무 달력 · 손익 정산', color: '#5B514C', route: 'Operation' },
     { label: t('taxDocsTitle'), en: 'DOCUMENTS', desc: t('taxDocsSub'), color: '#9A8E82', route: 'Document' },
-    { label: t('salesInputTitle'), en: 'SALES', desc: t('salesInputSub'), color: '#D1C6B9', route: 'SalesInput' },
+    { label: language === 'en' ? 'Promotion Studio' : '홍보 스튜디오', en: 'MARKETING', desc: language === 'en' ? 'AI copy · AI promo images · Share' : 'AI 홍보 문구 · 홍보 이미지 생성 · 공유', color: '#B79F8A', route: 'Marketing' },
+    { label: t('salesInputTitle'), en: 'SALES', desc: language === 'en' ? 'Cash/Card · Payout schedule' : '현금·카드 입력 · 입금 예정일', color: '#D1C6B9', route: 'SalesInput' },
     { label: t('costAnalysisTitle'), en: 'COST', desc: t('costAnalysisSub'), color: '#E1DCD7', route: 'Cost' },
-    { label: t('lawSearchTitle'), en: 'LAW', desc: t('lawSearchSub'), color: '#F4F1EF', route: 'LawSearch' },
     { label: language === 'en' ? 'Bean Ops' : '운영·원두 분석', en: 'OPERATION', desc: language === 'en' ? 'Bean market price & Reviews' : '원두 최저가 시세 · 실리뷰 분석', color: '#463C34', route: 'BeanOperation' },
   ];
 
@@ -142,18 +141,20 @@ export default function ManagementScreen() {
 
       {/* 헤더 — ScrollView 밖에 있어 카드가 흘러도 제자리에 고정된다 */}
       <View style={styles.header}>
-        <FadeInUp key={`title-${runId}`} style={styles.headerText}>
-          <Text style={styles.bigTitle}>{t('tabManagement')}</Text>
-          <Text style={styles.sub}>{t('managementHubSubtitle')}</Text>
-        </FadeInUp>
-
+        {/* 제목 — 다른 탭(재고·챗봇)들과 동일하게 세로축 중앙 정렬 */}
+        <View style={styles.headerLeft}>
+          <FadeInUp key={`title-${runId}`}>
+            <Text style={styles.bigTitle}>{t('tabManagement')}</Text>
+            <Text style={styles.sub}>{t('managementHubSubtitle')}</Text>
+          </FadeInUp>
+        </View>
+        {/* 우측 세로열 — 설정 버튼(오른쪽 위) + 마스코트(그 아래) */}
         <View style={styles.headerRight}>
-          {/* 설정 진입 — 카드가 아니라 헤더 안에 둔다 */}
           <PressableScale style={styles.gearBtn} onPress={() => navigation.navigate('Settings')} to={0.9}>
             <Ionicons name="settings-outline" size={15} color={colors.creamSand} />
             <Text style={styles.gearText}>{t('settings')}</Text>
           </PressableScale>
-          <Brew mood="clipboard" size={96} />
+          <Brew mood="clipboard" size={120} />
         </View>
       </View>
 
@@ -257,17 +258,19 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#1E1612' },
 
   // [홈 웰컴 헤더와 같은 톤] 딥브라운 오로라 위 밝은 텍스트 + 우측 마스코트
+  // [세 탭 헤더 통일] 좌측 세로열(제목 위·버튼 아래) + 우측 마스코트, 마스코트 높이가 헤더 높이를 정한다
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'stretch',
     justifyContent: 'space-between',
     paddingTop: TOP_INSET,
-    paddingBottom: 8,
+    paddingBottom: 12,
     paddingHorizontal: 18,
+    gap: 10,
   },
-  headerText: { flex: 1, paddingRight: 8 },
-  // 설정 칩을 마스코트 위에 얹어 세로로 쌓지 않는다 (헤더 높이 절약)
-  headerRight: { alignItems: 'flex-end', gap: 2 },
+  headerLeft: { flex: 1, justifyContent: 'center' },
+  // 우측 세로열 — 설정 버튼(위) + 마스코트(아래). 설정을 오른쪽 위에 둔다.
+  headerRight: { alignItems: 'flex-end', gap: 6 },
   bigTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
   sub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
   gearBtn: {

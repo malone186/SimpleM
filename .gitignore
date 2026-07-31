@@ -42,6 +42,8 @@ backend/secrets/
 # IDE / OS
 .vscode/
 .idea/
+# Claude Code 로컬 권한 설정 (개인 승인 이력 + 절대 경로 — 공유 대상 아님)
+.claude/settings.local.json
 .DS_Store
 Thumbs.db
 backend/simplem.db

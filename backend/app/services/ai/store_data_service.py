@@ -26,6 +26,9 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
+from app.services.ai.untrusted import quote_fields
+from app.utils.datetime_kst import KST, to_kst
+
 logger = logging.getLogger(__name__)
 
 # 조회 상한 — 챗봇 컨텍스트에 넣을 수 있는 현실적인 크기로 자른다
@@ -38,12 +41,22 @@ def _db():
     return SessionLocal()
 
 
+def _local(value: datetime) -> datetime:
+    """tz가 붙은 값(Neon timestamptz는 UTC로 온다)은 KST로 옮긴다.
+
+    그대로 두면 사장님이 "어제 넣은 문의"라고 기억하는 걸 챗봇이 그제로 말한다
+    (밤 9시 이후 KST = 그날 UTC 낮 → 날짜가 하루 밀린다).
+    naive 값은 이미 매장 시각으로 보고 건드리지 않는다 — 로컬 DB 시절 데이터가 그렇다.
+    """
+    return value.astimezone(KST) if value.tzinfo else value
+
+
 def _d(value: Any) -> Optional[str]:
-    """datetime/date/문자열을 YYYY-MM-DD 문자열로 통일한다."""
+    """datetime/date/문자열을 YYYY-MM-DD(KST 기준) 문자열로 통일한다."""
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value.date().isoformat()
+        return _local(value).date().isoformat()
     if isinstance(value, date):
         return value.isoformat()
     return str(value)[:10]
@@ -53,7 +66,7 @@ def _dt(value: Any) -> Optional[str]:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value.isoformat(timespec="minutes")
+        return _local(value).isoformat(timespec="minutes")
     return str(value)
 
 
@@ -461,21 +474,38 @@ def get_notices_and_inquiries(store_id: str, limit: int = 10) -> dict[str, Any]:
             .all()
         )
 
+    # 사람이 쓴 자유 텍스트는 전부 무해화해서 넘긴다.
+    #
+    # 문의 제목은 공격자가 정할 수 있다 — 문의 등록이 구버전 앱 호환 때문에 인증 없이
+    # 열려 있어서, 서버 주소만 알면 남의 이메일로 문의를 넣을 수 있기 때문이다.
+    # 그 글이 "내 문의 답변 왔어?" 한마디에 챗봇 컨텍스트로 들어오는데, 챗봇은 재고
+    # 조회·발주서 작성 도구를 실제로 실행한다. 지시문처럼 읽히면 안 된다.
+    #
+    # 공지·답변은 관리자가 쓴 것이라 상대적으로 안전하지만 같이 감싼다 — 관리자 계정이
+    # 털렸을 때 그 경로로 챗봇을 조종할 수 있으면 안 된다. (untrusted.py 참고)
     return {
         "notices": [
-            {"title": x.title, "body": x.body, "at": _d(x.created_at), "author": x.author}
+            quote_fields(
+                {"title": x.title, "body": x.body, "at": _d(x.created_at), "author": x.author},
+                ("title", "body"),
+            )
             for x in notices
         ],
         "inquiries": [
-            {
-                "id": x.id,
-                "title": x.title,
-                "category": x.category,
-                "status": x.status,
-                "answered": x.status == "answered",
-                "answer": x.answer,
-                "at": _d(x.created_at),
-            }
+            quote_fields(
+                {
+                    "id": x.id,
+                    "title": x.title,
+                    "category": x.category,
+                    "status": x.status,
+                    "answered": x.status == "answered",
+                    "answer": x.answer,
+                    # inquiries.created_at은 tz 없는 UTC라 _d의 naive 규칙에 안 걸린다 —
+                    # 여기서 명시적으로 KST로 옮긴다 (utils/datetime_kst.py 참고)
+                    "at": _d(to_kst(x.created_at)),
+                },
+                ("title", "answer"),
+            )
             for x in inquiries
         ],
         "unanswered_count": sum(1 for x in inquiries if x.status != "answered"),

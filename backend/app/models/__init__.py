@@ -2,17 +2,14 @@
 
 # A (ai.py)
 from app.models.ai import (
-    AdminAccount, AdminNotification, ChatSession, ComplianceItem, DeviceToken,
-    GeneratedDocument, InsightAck, NotificationSetting, OcrDocument, OcrItem,
-    SentNotification, TodoItem,
+    AdminAccount, AdminNotification, ChatSession, ComplianceItem, DailySalesEntry, DeviceToken,
+    EmployeeProfile, GeneratedDocument, InsightAck, NotificationSetting, OcrDocument, OcrItem,
+    SentNotification, SettlementSetting, TodoItem,
 )
 
 # I (inquiry.py & inventory.py)
 from app.models.inquiry import Inquiry
 from app.models.inventory import Ingredient, IngredientPriceHistory, Menu, Recipe, Stock, StockTransaction, Sale, Order, OrderItem
-
-# L (law.py)
-from app.models.law import LawArticle
 
 # O (operation.py)
 from app.models.operation import Employee, EstimatedPayroll, EstimatedSettlement, Expense, Schedule  # 정산/급여 및 지출 모델 불러오기

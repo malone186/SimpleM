@@ -33,6 +33,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 배포 전에 타입체크로 게이트한다 — 깨진 코드가 push돼도 Cloud Run까지 가지 않게.
+      # (ci_check.yml과 중복이지만 워크플로끼리는 서로를 막지 못하므로 배포 안에도 둔다.
+      #  충돌 마커가 커밋된 채 올라와 빌드가 깨진 사고 4회가 배경.)
+      - name: Node 준비 (타입체크용)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 타입체크 게이트 (tsc --noEmit)
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npx tsc --noEmit
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:

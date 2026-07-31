@@ -1,6 +1,7 @@
 # SimpleM backend 공통 의존성
 fastapi>=0.139
 uvicorn>=0.49
+jinja2>=3.1  # 관리자 콘솔(/console) 템플릿 렌더링 — 없으면 콘솔 라우트가 500
 python-multipart>=0.0.32
 pydantic>=2.13
 pydantic-settings>=2.14
@@ -30,7 +31,7 @@ pandas>=2.2
 beautifulsoup4>=4.12.0
 lxml>=4.9.0
 
-# 법령 RAG 벡터 검색 (백엔드 C law_rag_service — CI 평가도 사용)
+# 원두 리뷰 RAG 벡터 검색 (백엔드 C bean_review_service)
 chromadb>=0.5
 
 

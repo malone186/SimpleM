@@ -15,18 +15,20 @@ _TOOL_MODULES = [
     "app.services.ai.document_tools",            # 백엔드 B (문서 자동화 — 발주서·장부·임금명세서·계약서·부가세)
     "app.services.ai.forecast_tools",            # 백엔드 B (판매 예측·발주 추천)
     "app.services.ai.insight_tools",             # 백엔드 B (선제 인사이트 — 놓친 일·곧 할 일 스캔)
+    "app.services.ai.marketing_tools",           # 백엔드 B (홍보/마케팅 — AI 홍보 문구·홍보 이미지 생성)
     "app.services.ai.nearby_cafe_tools",         # 백엔드 B (주변 카페 상권 분석 — 네이버 지역·리뷰 수집)
     "app.services.ai.ocr_tools",                 # 백엔드 B
     "app.services.ai.price_tools",               # 백엔드 B (인터넷 가격 비교)
     "app.services.ai.report_tools",              # 백엔드 B (경영 리포트 — 일간·주간·월간)
     "app.services.ai.sensor_tools",              # 백엔드 B (매장 IoT 센서 실시간 상태·발주 코치)
+    "app.services.ai.settlement_tools",          # 백엔드 B (카드 정산 — 매출 기록·수수료·입금 예정일)
+    "app.services.ai.staff_tools",               # 백엔드 B (직원 인건비 — 주휴수당·4대보험 사업주 부담)
     "app.services.ai.store_data_tools",          # 백엔드 B (매장 원천 데이터 통합 조회 — 매출·발주·지출·직원)
     "app.services.ai.todo_tools",                # 백엔드 B (할 일 목록 추가·조회·완료)
     "app.services.ai.web_search_tools",          # 백엔드 B (Tavily 웹 검색 통합)
     "app.services.operation.assistant_tools",    # 백엔드 B (음성 비서 — 브리핑·다음 할 일·완료/시작)
     "app.services.operation.bean_chatbot_tools", # 백엔드 C (원두 추천·리뷰 RAG·시세 챗봇 도구)
     "app.services.operation.forecasting_tools",  # 백엔드 C
-    "app.services.operation.law_tools",          # 법령 RAG 챗봇 도구 모듈
     "app.services.operation.operation_tools",    # 백엔드 C
     "app.services.operation.roastery_tools",     # 백엔드 C
     "app.services.operation.tax_tools",          # 백엔드 C

@@ -107,9 +107,18 @@ class OperationService:
         return db.query(Schedule).filter(Schedule.id == schedule_id).first()
 
     @staticmethod
-    def get_schedules(db: Session) -> List[Schedule]:
-        """등록된 모든 스케줄 일정 목록 조회"""
-        return db.query(Schedule).all()
+    def get_schedules(db: Session, store_id: Optional[str] = None) -> List[Schedule]:
+        """근무 스케줄 목록 조회. store_id를 주면 그 매장 직원의 스케줄만 반환한다.
+
+        공유 DB에 여러 매장이 함께 있으므로 매장 스코핑이 없으면 남의 근무가 섞인다.
+        (store_id가 None인 소속 불명 직원의 스케줄은 어느 매장에도 넣지 않는다.)
+        """
+        q = db.query(Schedule)
+        if store_id:
+            q = q.join(Employee, Schedule.employee_id == Employee.id).filter(
+                Employee.store_id == store_id
+            )
+        return q.all()
 
     @staticmethod
     def update_schedule(db: Session, schedule_id: int, payload: ScheduleUpdate) -> Optional[Schedule]:
@@ -778,13 +787,25 @@ class OperationService:
                 total_recommended_hours += emp_count
 
         # 5. 직원 기피/불가 시간(Hard/Soft) 반영 및 추천 배정 처리 (신규 고도화)
+        #
+        # [매장 스코핑] 예전엔 db.query(Employee).all()로 **모든 매장의 직원**을 가져와
+        # 추천 스케줄에 배정했다. 공유 DB라 다른 매장(팀원 테스트 계정)의 알바생이
+        # 내 추천안에 이름째로 튀어나왔다 — "AI 추천 돌리면 모르는 사람이 생긴다"의 원인.
+        # store_id로 반드시 걸러야 한다. store_id가 없는 레거시 직원은 소속이 불명이므로
+        # 배정 대상에서 뺀다(남의 매장 사람을 넣는 것보다 안 넣는 쪽이 안전하다).
         from app.models.operation import Employee, EmployeeUnavailability
-        employees = db.query(Employee).all()
+        employees = db.query(Employee).filter(Employee.store_id == store_id).all()
         target_day_of_week = start_date.weekday() # 0=월 ~ 6=일
         target_date_str = start_date.strftime("%Y-%m-%d")
 
-        # 해당 매장의 모든 기피 설정 정보 조회
-        unavailabilities = db.query(EmployeeUnavailability).all()
+        # 기피 설정도 이 매장 직원 것만 — 다른 매장 직원의 기피시간이 섞이면 배정이 어긋난다
+        emp_ids = [e.id for e in employees]
+        unavailabilities = (
+            db.query(EmployeeUnavailability)
+            .filter(EmployeeUnavailability.employee_id.in_(emp_ids))
+            .all()
+            if emp_ids else []
+        )
 
         # 직원별 기피시간 확인 도우미 함수
         def get_unavailability_level(emp_id: int, hour: int) -> Optional[str]:
@@ -813,6 +834,24 @@ class OperationService:
 
         warnings: List[str] = []
         emp_work_counts = {emp.id: 0 for emp in employees} # 직원별 총 배정 시간 추적 (균등 배정 목적)
+
+        # 등록된 직원이 없으면 시간대마다 "인원 부족" 경고가 15줄씩 쏟아진다 — 원인은 하나인데
+        # 증상만 열다섯 번 보여주는 꼴이라, 한 줄로 원인을 말하고 배정은 건너뛴다.
+        if not employees:
+            for item in hourly_recommendations:
+                item["assigned_employees"] = []
+                item["unassigned_count"] = item["recommended_employee_count"]
+            return {
+                "target_date": target_date_str,
+                "hourly_recommendations": hourly_recommendations,
+                "total_recommended_hours": total_recommended_hours,
+                "estimated_payroll_cost": 0,
+                "warnings": ["등록된 직원이 없어 배정할 사람이 없습니다. '직원·인건비'에서 직원을 먼저 등록해 주세요."],
+                "summary": (
+                    f"{target_date_str} 기준 시간대별 필요 인원은 계산했지만, 등록된 직원이 없어 "
+                    f"누구를 넣을지는 정하지 못했습니다. 총 필요 근무시간은 {total_recommended_hours}시간입니다."
+                ),
+            }
 
         # 각 시간대별로 배정 가능 인원 채우기 및 충돌 검사
         for item in hourly_recommendations:

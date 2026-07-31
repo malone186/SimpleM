@@ -15,6 +15,9 @@ import { useIsFocused } from '@react-navigation/native';
 import { colors, spacing, typography } from '../../theme';
 import { FadeInUp, PressableScale } from '../motion';
 
+// 진입 애니메이션에서 순차 지연을 줄 최대 개수 — 그 뒤 항목은 함께 나타난다.
+const STAGGER_MAX_ITEMS = 7;
+
 // 화면 상단 타이틀 헤더
 export function ScreenTitle({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
@@ -61,7 +64,10 @@ export function Screen({ children }: { children: ReactNode }) {
         }
       >
         {items.map((child, i) => (
-          <FadeInUp key={`${runId}-${i}`} delay={i * 70}>
+          // 등장 지연은 앞쪽 몇 개까지만 준다. 예전엔 i * 70ms를 무제한으로 걸어서,
+          // 메뉴가 40개인 매장은 마지막 카드가 2.8초 뒤에야 나타났다 — 사장님 눈에는
+          // 화면이 멈춘 것(렉)처럼 보였다. 목록이 길수록 첫 화면이 바로 서야 한다.
+          <FadeInUp key={`${runId}-${i}`} delay={Math.min(i, STAGGER_MAX_ITEMS) * 60}>
             {child}
           </FadeInUp>
         ))}

@@ -1,6 +1,16 @@
-// 웹(react-native-web) 전용 TTS + 이어폰 감지 + 음성 큐
-// 브라우저 내장 Web Speech API(window.speechSynthesis)를 사용합니다.
-// (Metro가 웹에서는 .web.ts를 자동 선택)
+// 웹(react-native-web) 전용 음성 플레이어 — 서버 TTS(진짜 다른 목소리 4종) 우선 + 로컬 폴백
+//
+// [한글 주석] 왜 서버 TTS가 1순위인가:
+// 브라우저 내장 speechSynthesis는 한국어 보이스가 보통 1개뿐이라 목소리 4종을
+// 피치 변형으로만 흉내 냈고, 극단 피치(0.48/1.75)는 기계음처럼 들렸다(사장님 실사용 불만).
+// 게다가 getVoices()가 첫 호출에 빈 배열을 주면 한국어가 아닌 기본 보이스로 읽혀
+// "이상한 기계 목소리"가 났다. 서버(/chatbot/tts, Gemini TTS)는 성별·톤이 실제로
+// 다른 보이스로 합성해 주므로 이 문제가 전부 사라진다.
+// 서버 실패(쿼터·오프라인·미로그인) 시에만 로컬 speechSynthesis로 폴백한다.
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+import { PREFS_STORAGE_KEY } from '../../preferences/PreferencesContext';
+import { API_BASE_URL } from '../api/client';
 import type {
   AudioPlaybackPermission,
   EarphoneStatus,
@@ -9,201 +19,261 @@ import type {
 } from './speechTypes';
 
 // ═══════════════════════════════════════════════════
+// [한글 주석] 서버 TTS 호출용 로그인 토큰 — AlertsWatcher가 로그인/로그아웃 시 넣어준다.
+// (쿼터 보호를 위해 /chatbot/tts는 로그인 필수라, 토큰이 없으면 바로 로컬 폴백)
+// ═══════════════════════════════════════════════════
+
+let _authToken: string | null = null;
+
+function setAuthToken(token: string | null): void {
+  _authToken = token;
+}
+
+// ═══════════════════════════════════════════════════
 // [한글 주석] 이어폰(외부 오디오 출력 장치) 감지
-// navigator.mediaDevices.enumerateDevices()로 audiooutput 장치를 세어
-// 기본 스피커(1개) 외에 추가 장치가 있으면 이어폰으로 간주합니다.
 // ═══════════════════════════════════════════════════
 
 async function isEarphoneConnected(): Promise<EarphoneStatus> {
   try {
-    // mediaDevices API 미지원 브라우저 처리
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.enumerateDevices) {
       return { connected: false, reason: '이 브라우저는 오디오 장치 감지를 지원하지 않습니다.' };
     }
 
     const devices = await navigator.mediaDevices.enumerateDevices();
-    // audiooutput 타입 장치 목록 추출
     const audioOutputs = devices.filter((d) => d.kind === 'audiooutput');
-
-    // 브라우저 기본 스피커(1개)만 있으면 이어폰 미착용,
-    // 2개 이상이면 이어폰/블루투스 등 외부 장치가 연결된 것으로 판단
     const connected = audioOutputs.length >= 2;
     return { connected, reason: null };
   } catch (err) {
     return {
       connected: false,
-      reason: `오디오 장치 감지 실패: ${err instanceof Error ? err.message : String(err)}`,
+      reason: '오디오 장치 감지 실패',
     };
   }
 }
 
-
-/** 지금 소리를 내도 되는가 — 웹 정책
- *
- * [한글 주석] 웹은 출력 장치를 셀 수 있으므로 "이어폰 착용 시에만 재생"을 지킵니다.
- * 카페에서 직원 이름·근무 정보가 스피커로 흘러나가지 않게 하려는 목적입니다.
- */
 async function canPlayAudio(): Promise<AudioPlaybackPermission> {
-  const earphone = await isEarphoneConnected();
+  const status = await isEarphoneConnected();
+  if (status.reason) {
+    return {
+      allowed: true,
+      reason: '장치 감지를 지원하지 않는 웹 브라우저 환경입니다.',
+    };
+  }
   return {
-    allowed: earphone.connected,
-    reason: earphone.connected
+    allowed: status.connected,
+    reason: status.connected
       ? null
-      : (earphone.reason ?? '이어폰이 연결되어 있지 않아 음성은 재생하지 않았습니다.'),
+      : '이어폰이 연결되어 있지 않아 음성을 재생하지 않습니다.',
   };
 }
 
+// ═══════════════════════════════════════════════════
+// [한글 주석] 목소리 타입 결정 — 설정(PreferencesContext)과 같은 저장 키를 읽는다
+// ═══════════════════════════════════════════════════
 
-// ═══════════════════════════════════════════════════
-// [한글 주석] 음성 큐 관리 — FIFO 방식으로 겹침 없이 순서대로 재생
-// 비유: 식당 주문 대기열처럼, 먼저 온 주문(음성)을 먼저 처리합니다.
-// ═══════════════════════════════════════════════════
+async function resolveVoiceType(overrideVoiceType?: string): Promise<string> {
+  if (overrideVoiceType) return overrideVoiceType;
+  try {
+    const raw = await AsyncStorage.getItem(PREFS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.voiceType) return parsed.voiceType as string;
+    }
+  } catch {
+    // 저장소 접근 실패 — 기본 목소리로
+  }
+  return 'warm_female';
+}
+
+// [한글 주석] 로컬 폴백용 피치/속도 — 서버 TTS를 못 쓸 때만 쓰인다.
+// 예전의 극단값(0.48/1.75)은 기계음처럼 들려서 자연스러운 범위로 완화했다.
+function localToneFor(voiceType: string): { pitch: number; rate: number; male: boolean } {
+  switch (voiceType) {
+    case 'friendly_male':
+      return { pitch: 0.8, rate: 0.95, male: true };
+    case 'calm_male':
+      return { pitch: 0.85, rate: 0.88, male: true };
+    case 'cute_child':
+      return { pitch: 1.3, rate: 1.02, male: false };
+    case 'warm_female':
+    default:
+      return { pitch: 1.08, rate: 0.95, male: false };
+  }
+}
 
 const _queue: SpeechQueueItem[] = [];
 let _speaking = false;
 let _seq = 0;
+let _currentAudio: HTMLAudioElement | null = null; // 서버 TTS 재생 중단(cancelAll)용
 
-/** 현재 재생 중인지 확인 */
 function isSpeaking(): boolean {
-  return _speaking || (typeof window !== 'undefined' && window.speechSynthesis?.speaking);
+  return _speaking || (typeof window !== 'undefined' && Boolean(window.speechSynthesis?.speaking));
 }
 
-/** 큐에서 다음 항목을 꺼내 재생합니다 (재귀적으로 큐가 빌 때까지) */
-async function _processQueue(): Promise<void> {
-  if (_speaking || _queue.length === 0) return;
+// ═══════════════════════════════════════════════════
+// [한글 주석] 1순위 — 서버 TTS (Gemini, 진짜 다른 목소리)
+// ═══════════════════════════════════════════════════
 
-  const item = _queue.shift();
-  if (!item) return;
+async function _speakViaServer(text: string, voiceType: string): Promise<void> {
+  if (!_authToken) throw new Error('로그인 토큰 없음 — 로컬 TTS로 폴백');
 
-  // 이어폰 체크 — 미착용이면 스킵하고 다음 항목으로
-  const earphone = await isEarphoneConnected();
-  if (!earphone.connected) {
-    // 음성은 스킵하지만 큐에 남은 것도 계속 처리 (텍스트 알림은 AlertsWatcher가 담당)
-    _processQueue();
-    return;
+  const res = await fetch(`${API_BASE_URL}/api/v1/chatbot/tts`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${_authToken}`,
+    },
+    body: JSON.stringify({ text, voice_type: voiceType }),
+  });
+  if (!res.ok) throw new Error(`서버 TTS ${res.status}`);
+  const blob = await res.blob();
+
+  const url = URL.createObjectURL(blob);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const audio = new Audio(url);
+      _currentAudio = audio;
+      audio.onended = () => resolve();
+      audio.onerror = () => reject(new Error('오디오 재생 실패'));
+      // 자동재생 정책에 막히면 reject → 로컬 폴백(그쪽도 같은 정책이면 조용히 스킵)
+      audio.play().catch(reject);
+    });
+  } finally {
+    _currentAudio = null;
+    URL.revokeObjectURL(url);
   }
-
-  await _speakInternal(item.text);
-  // 재생 완료 후 큐의 다음 항목 처리
-  _processQueue();
 }
 
-/** [한글 주석] 브라우저 내 자연스러운 신경망/고품질 한국어 보이스 최우선 검색 */
-function getNaturalKoreanVoice(synth: SpeechSynthesis): SpeechSynthesisVoice | null {
+// ═══════════════════════════════════════════════════
+// [한글 주석] 2순위 — 브라우저 내장 speechSynthesis (폴백)
+// ═══════════════════════════════════════════════════
+
+/** getVoices()는 첫 호출에 빈 배열을 줄 수 있다(voiceschanged 이후 채워짐).
+ *  빈 배열인 채로 utterance를 만들면 한국어가 아닌 기본 보이스로 읽혀
+ *  "이상한 기계 목소리"가 난다 — 잠깐 기다려 목록을 확보한다. */
+function loadVoices(synth: SpeechSynthesis): Promise<SpeechSynthesisVoice[]> {
   const voices = synth.getVoices();
-  if (!voices.length) return null;
-
-  // 1순위: Natural, Neural, Google, Online 키워드가 들어간 고품질 한국어 사람 목소리
-  const naturalKo = voices.find(
-    (v) =>
-      v.lang.startsWith('ko') &&
-      (v.name.includes('Natural') ||
-        v.name.includes('Neural') ||
-        v.name.includes('Google') ||
-        v.name.includes('Online'))
-  );
-  if (naturalKo) return naturalKo;
-
-  // 2순위: Yuna, Heami, Sun-Hi 등 고유 한국어 보이스
-  const namedKo = voices.find(
-    (v) =>
-      v.lang.startsWith('ko') &&
-      (v.name.includes('Yuna') || v.name.includes('Heami') || v.name.includes('Sun-Hi'))
-  );
-  if (namedKo) return namedKo;
-
-  // 3순위: 일반 한국어 보이스
-  return voices.find((v) => v.lang.startsWith('ko')) || null;
+  if (voices.length > 0) return Promise.resolve(voices);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(synth.getVoices()), 1500);
+    synth.onvoiceschanged = () => {
+      clearTimeout(timer);
+      resolve(synth.getVoices());
+    };
+  });
 }
 
-/** [한글 주석] 사람이 말하듯 숨 쉬는 어조와 자연스러운 호흡 쉼표 가공 */
-function humanizeSpeechText(raw: string): string {
-  return raw
-    .replace(/([.!?])\s*/g, '$1 , ')
-    .replace(/입니다\./g, '입니다.. , ')
-    .replace(/있습니다\./g, '있습니다.. , ')
-    .replace(/에요\./g, '에요.. , ')
-    .replace(/요\./g, '요.. , ');
+function selectLocalVoice(
+  voices: SpeechSynthesisVoice[],
+  male: boolean
+): SpeechSynthesisVoice | null {
+  const korean = voices.filter((v) => v.lang.startsWith('ko') || v.lang.includes('KR'));
+  if (korean.length === 0) return null; // 한국어 보이스가 없으면 억지로 읽지 않는 편이 낫다
+
+  if (male) {
+    const maleVoice = korean.find(
+      (v) =>
+        v.name.includes('Male') ||
+        v.name.includes('InJoon') ||
+        v.name.includes('Hyunsu') ||
+        v.name.includes('남성') ||
+        v.name.includes('인준') ||
+        v.name.includes('현수')
+    );
+    if (maleVoice) return maleVoice;
+  }
+  const natural = korean.find(
+    (v) => v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Neural')
+  );
+  return natural || korean[0];
 }
 
-/** 실제 Web Speech API 호출 (Promise 래핑) */
-function _speakInternal(text: string): Promise<void> {
+async function _speakViaLocal(text: string, voiceType: string): Promise<void> {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return;
+
+  const synth = window.speechSynthesis;
+  const voices = await loadVoices(synth);
+  const tone = localToneFor(voiceType);
+  const matched = selectLocalVoice(voices, tone.male);
+
   return new Promise<void>((resolve) => {
-    // speechSynthesis 미지원 시 즉시 resolve
-    if (typeof window === 'undefined' || !window.speechSynthesis) {
-      resolve();
-      return;
-    }
-
-    const synth = window.speechSynthesis;
-    const humanized = humanizeSpeechText(text);
-    const utterance = new SpeechSynthesisUtterance(humanized);
-
-    // [한글 주석] 사람이 또박또박 따뜻하게 말하는 호흡과 억양 튜닝 (rate 0.93, pitch 1.08)
+    synth.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'ko-KR';
-    utterance.rate = 0.93;   // 사람이 편안하게 짚어주는 자연스러운 호흡 속도
-    utterance.pitch = 1.08;  // 로봇 같지 않고 부드럽고 다정한 사장님 톤
+    utterance.rate = tone.rate;
+    utterance.pitch = tone.pitch;
     utterance.volume = 1.0;
-
-    // 고품질 사람 목소리가 세팅되어 있으면 적용
-    const naturalVoice = getNaturalKoreanVoice(synth);
-    if (naturalVoice) {
-      utterance.voice = naturalVoice;
-    }
-
-    _speaking = true;
-
-    utterance.onend = () => {
-      _speaking = false;
-      resolve();
-    };
-
-    utterance.onerror = () => {
-      _speaking = false;
-      resolve(); // 에러 시에도 resolve하여 큐 진행을 막지 않음
-    };
-
+    if (matched) utterance.voice = matched;
+    utterance.onend = () => resolve();
+    utterance.onerror = () => resolve();
     synth.speak(utterance);
   });
 }
 
-
 // ═══════════════════════════════════════════════════
-// [한글 주석] 외부 공개 API
+// [한글 주석] 공통 재생 진입점 + 큐
 // ═══════════════════════════════════════════════════
 
-/** 텍스트를 즉시 음성으로 읽습니다 (이어폰 미착용 시 스킵) */
-async function speak(text: string): Promise<void> {
-  const earphone = await isEarphoneConnected();
-  if (!earphone.connected) return;
-  await _speakInternal(text);
+async function _speakInternal(text: string, overrideVoiceType?: string): Promise<void> {
+  const voiceType = await resolveVoiceType(overrideVoiceType);
+  _speaking = true;
+  try {
+    await _speakViaServer(text, voiceType);
+  } catch {
+    // 쿼터 소진·오프라인·미로그인·자동재생 차단 — 기기 내장 TTS로 폴백
+    try {
+      await _speakViaLocal(text, voiceType);
+    } catch {
+      // 폴백까지 실패해도 큐는 계속 흘러야 한다 (텍스트 토스트는 화면이 담당)
+    }
+  } finally {
+    _speaking = false;
+  }
 }
 
-/** 큐에 추가하고 순서대로 재생합니다 (겹침 방지) */
+async function _processQueue(): Promise<void> {
+  if (_speaking || _queue.length === 0) return;
+  const item = _queue.shift();
+  if (item) {
+    await _speakInternal(item.text);
+    _processQueue();
+  }
+}
+
+/** 설정 화면 '샘플 듣기' 같은 명시적 조작 전용 — 이어폰 게이트를 걸지 않는다.
+ * (자동 알림은 enqueue를 쓰고, 그쪽은 기존대로 이어폰 정책을 지킨다) */
+async function speak(text: string, overrideVoiceType?: string): Promise<void> {
+  await _speakInternal(text, overrideVoiceType);
+}
+
 function enqueue(text: string, id?: string): void {
   const item: SpeechQueueItem = {
-    id: id ?? `speech-${++_seq}`,
+    id: id ?? ('speech-' + (++_seq)),
     text,
     enqueuedAt: Date.now(),
   };
   _queue.push(item);
-  // 현재 재생 중이 아니면 즉시 큐 처리 시작
   if (!_speaking) {
     _processQueue();
   }
 }
 
-/** 큐 전체를 비우고 현재 재생도 중단합니다 */
 function cancelAll(): void {
   _queue.length = 0;
   _speaking = false;
+  if (_currentAudio) {
+    try {
+      _currentAudio.pause();
+    } catch {
+      // 이미 정지된 경우 무시
+    }
+    _currentAudio = null;
+  }
   if (typeof window !== 'undefined' && window.speechSynthesis) {
     window.speechSynthesis.cancel();
   }
 }
 
-
-// [한글 주석] SpeechPlayer 인터페이스를 구현하는 객체를 export합니다.
 const speechPlayer: SpeechPlayer = {
   isEarphoneConnected,
   canPlayAudio,
@@ -211,9 +281,8 @@ const speechPlayer: SpeechPlayer = {
   enqueue,
   cancelAll,
   isSpeaking,
+  setAuthToken,
 };
 
 export default speechPlayer;
-
-// 개별 함수도 named export로 제공 (AlertsWatcher 등에서 직접 import 가능)
-export { isEarphoneConnected, canPlayAudio, speak, enqueue, cancelAll, isSpeaking };
+export { isEarphoneConnected, canPlayAudio, speak, enqueue, cancelAll, isSpeaking, setAuthToken };

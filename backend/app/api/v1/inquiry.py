@@ -1,21 +1,36 @@
 """
 1대1 문의 및 요청사항 API 엔드포인트 (한글 주석 적용)
 """
-from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core.auth import get_current_user, get_current_user_optional
 from app.core.database import get_db
 from app.models.inquiry import Inquiry
+from app.models.user import User
+from app.utils.datetime_kst import fmt_kst, now_kst, to_kst, utc_now
 from app.api.v1.admin import mock_cs_list
+
+# 앱 '나의 문의 내역'이 쓰는 날짜 표기 (관리자 화면은 분까지 보여 준다)
+APP_DATE_FMT = "%Y.%m.%d"
 
 router = APIRouter(prefix="/inquiries", tags=["Inquiry"])
 
 class InquiryCreate(BaseModel):
-    user_email: Optional[str] = "owner@cafe.com"
-    store_name: Optional[str] = "포슬카페"
+    """앱에서 올라오는 1대1 문의.
+
+    예전엔 user_email·store_name의 기본값이 데모 계정(owner@cafe.com / 포슬카페)이었다.
+    앱이 값을 못 보내면 조용히 남의 계정 문의로 저장돼, 정작 보낸 사장님의 '나의 문의
+    내역'에는 안 보이고 관리자 화면에는 엉뚱한 매장 이름이 찍혔다.
+
+    지금은 토큰이 있으면 토큰의 주인이 보낸 사람이다. user_email은 토큰이 없을 때만
+    쓰는 구버전 앱 호환용 폴백이다 (OTA를 아직 못 받은 앱은 인증 없이 보낸다).
+    """
+
+    user_email: Optional[str] = None  # 토큰이 없을 때만 쓰는 폴백 (구버전 앱 호환)
+    store_name: Optional[str] = None  # 비면 users 테이블에서 찾아 채운다
     category: str
     title: str
     content: str
@@ -23,22 +38,10 @@ class InquiryCreate(BaseModel):
 class InquiryReply(BaseModel):
     answer: str
 
-# 글로벌 공유 메모리 리스트 (DB 미생성 또는 세션 에러 대비 100% 수신 보장)
-# 시드 id는 9100번대 — DB inquiries의 실제 id(1부터 증가)와 절대 겹치지 않게 분리
-GLOBAL_INQUIRIES = [
-    {
-        "id": 9101,
-        "user_email": "owner@cafe.com",
-        "store_name": "포슬카페",
-        "category": "💡 기능 요청",
-        "title": "원두 발주 추천 시 디카페인 자동 추가 기능 요청",
-        "content": "주말마다 디카페인 손님이 늘어나고 있어서 AI 추천에 포함되었으면 좋겠습니다.",
-        "status": "answered",
-        "answer": "사장님, 좋은 의견 감사드립니다! 해당 기능은 다음주 알고리즘 업데이트에 자동 반영될 예정입니다.",
-        "date": "2026.07.20"
-    }
-]
-
+# DB 쓰기가 실패했을 때만 채워지는 버퍼 — 평소엔 비어 있는 게 정상이다.
+# 예전엔 여기에 가짜 문의가 시드로 들어 있어, 앱의 '나의 문의 내역'에 보낸 적 없는
+# 문의가 보였다. 진짜 저장소는 DB(inquiries)다.
+GLOBAL_INQUIRIES: list[dict] = []
 
 def _normalize_status(raw: Optional[str]) -> str:
     """[한글 주석] '답변 대기'/'처리 완료' 등 관리자식 표기를 앱이 쓰는 'pending'/'answered'로 통일"""
@@ -63,18 +66,28 @@ def sync_reply_to_memory(inquiry_id: int, answer: str) -> None:
 
 
 @router.get("")
-def get_inquiries(user_email: Optional[str] = None, db: Session = Depends(get_db)):
-    """[한글 주석] 1대1 문의 내역 최신순 조회
-    user_email을 넘기면 그 사장님 본인 문의만 반환한다 (앱의 '나의 문의 내역'용).
-    파라미터가 없으면 전체를 반환한다 (관리자 웹 호환).
+def get_inquiries(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """[한글 주석] 로그인한 사장님 '본인' 문의 내역만 최신순으로 조회한다.
+
+    예전엔 인증 없이 ?user_email=<남의 이메일>만 붙이면 그 사장님의 문의 전문과 관리자
+    답변이 그대로 나왔다. 이메일은 비밀이 아니므로 사실상 누구나 열람할 수 있었다.
+    이제 토큰의 주인 것만 돌려준다 — 쿼리 파라미터로 남의 것을 지정할 수 없다.
+
+    (관리자는 이 경로가 아니라 관리자 인증이 걸린 GET /admin/cs를 쓴다.)
     """
+    user_email = current_user.email
     res = []
     seen_ids = set()
     try:
-        query = db.query(Inquiry)
-        if user_email:
-            query = query.filter(Inquiry.user_email == user_email)
-        items = query.order_by(Inquiry.id.desc()).all()
+        items = (
+            db.query(Inquiry)
+            .filter(Inquiry.user_email == user_email)
+            .order_by(Inquiry.id.desc())
+            .all()
+        )
         for item in items:
             seen_ids.add(item.id)
             res.append({
@@ -86,7 +99,7 @@ def get_inquiries(user_email: Optional[str] = None, db: Session = Depends(get_db
                 "content": item.content,
                 "status": _normalize_status(item.status),
                 "answer": item.answer,
-                "date": item.created_at.strftime("%Y.%m.%d") if item.created_at else "2026.07.21"
+                "date": fmt_kst(item.created_at, APP_DATE_FMT),
             })
     except Exception:
         pass
@@ -94,21 +107,69 @@ def get_inquiries(user_email: Optional[str] = None, db: Session = Depends(get_db
     for m in GLOBAL_INQUIRIES:
         if m["id"] in seen_ids:
             continue
-        if user_email and m.get("user_email") != user_email:
+        if m.get("user_email") != user_email:
             continue
         res.append({**m, "status": _normalize_status(m.get("status"))})
     return res
 
 
+def _resolve_store_name(db: Session, email: str, given: Optional[str]) -> str:
+    """매장명을 정한다 — 앱이 보낸 값 우선, 비어 있으면 users 테이블에서 찾는다.
+
+    관리자 화면은 이 값으로 "누가 보낸 문의인지"를 표시한다. 예전처럼 '포슬카페'로
+    고정하면 전부 같은 매장이 보낸 것처럼 보인다.
+    """
+    if given and given.strip():
+        return given.strip()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if user and user.store_name:
+            return user.store_name
+    except Exception:
+        pass
+    return email  # 매장명을 못 찾으면 이메일이라도 그대로 — 지어내지 않는다
+
+
 @router.post("")
-def create_inquiry(req: InquiryCreate, db: Session = Depends(get_db)):
-    """[한글 주석] 사장님 앱에서 1대1 문의 등록 — DB 저장 후 관리자 CS 리스트 상단에 100% 실시간 연동"""
-    now = datetime.now()
+def create_inquiry(
+    req: InquiryCreate,
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    """[한글 주석] 사장님 앱에서 1대1 문의 등록 — DB 저장 후 관리자 CS 리스트에 실시간 연동
+
+    보낸 사람은 토큰이 있으면 토큰에서 정한다. 본문의 user_email보다 토큰이 우선이다 —
+    본문을 그대로 믿으면 아무나 남의 이름으로 문의를 넣고, 관리자가 엉뚱한 사람에게
+    답변하게 된다.
+
+    토큰이 없으면 본문의 user_email을 쓴다. 인증을 필수로 걸었더니 OTA를 아직 못 받은
+    앱(문의를 인증 없이 보낸다)에서 접수가 통째로 막혔다 — 조회(GET)와 달리 등록은
+    남의 데이터를 읽는 경로가 아니라서, 구버전 호환을 열어 두는 편이 낫다.
+
+    ┌─ [갚아야 할 빚] 이 폴백은 임시다 ─────────────────────────────────────────
+    │ 열려 있는 동안은 서버 주소만 알면 남의 이메일로 문의를 넣을 수 있다.
+    │ 그 글은 사장님이 "내 문의 답변 왔어?"라고 물을 때 챗봇 컨텍스트로 들어간다.
+    │ (그 경로의 방어는 services/ai/untrusted.py — 지시가 아니라 자료로 격리한다)
+    │
+    │ 닫아도 되는 조건: 2026-07-29 OTA(update group b16a172b) 이전 버전을 쓰는
+    │   앱이 사실상 없어졌을 때. Expo 대시보드에서 runtimeVersion 1.0.0의 구버전
+    │   활성 사용자를 확인하거나, 스토어 빌드가 versionCode 6 이상으로 올라가
+    │   그 이전 설치본을 신경 쓰지 않아도 될 때.
+    │ 닫는 법: 아래 Depends를 get_current_user로 되돌리고 email 폴백 분기를 지운다.
+    │   (tests/test_inquiry_admin_flow.py의 legacy 테스트 2건도 함께 정리)
+    └────────────────────────────────────────────────────────────────────────
+    """
+    email = (current_user.email if current_user else (req.user_email or "").strip())
+    if not email:
+        raise HTTPException(status_code=422, detail="문의를 보낸 사장님 이메일이 필요합니다.")
+    store_name = _resolve_store_name(db, email, req.store_name)
+
     inq_id = None
+    created_at = None
     try:
         inq = Inquiry(
-            user_email=req.user_email or "owner@cafe.com",
-            store_name=req.store_name or "포슬카페",
+            user_email=email,
+            store_name=store_name,
             category=req.category,
             title=req.title,
             content=req.content,
@@ -118,6 +179,9 @@ def create_inquiry(req: InquiryCreate, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(inq)
         inq_id = inq.id
+        # 접수 일시는 DB에 실제로 박힌 값을 그대로 되돌려준다 — 여기서 따로 시각을
+        # 찍으면 방금 접수한 화면과 새로고침한 목록의 시각이 미세하게 어긋난다.
+        created_at = inq.created_at
     except Exception:
         try:
             db.rollback()
@@ -129,34 +193,46 @@ def create_inquiry(req: InquiryCreate, db: Session = Depends(get_db)):
     max_id = max(existing_ids, default=100) + 1
     final_id = inq_id if (inq_id is not None and inq_id not in existing_ids) else max_id
 
+    # 접수 일시 — DB에 들어갔으면 그 행에 박힌 시각(UTC)을 KST로 옮겨 쓰고, 못 들어갔으면
+    # 지금(KST). 아래 두 사본(앱용·관리자용)이 같은 값을 봐야 화면끼리 시각이 안 어긋난다.
+    received_kst = to_kst(created_at) or now_kst()
+
     item_dict = {
         "id": final_id,
-        "user_email": req.user_email or "owner@cafe.com",
-        "store_name": req.store_name or "포슬카페",
+        "user_email": email,
+        "store_name": store_name,
         "category": req.category,
         "title": req.title,
         "content": req.content,
         "status": "pending",
         "answer": None,
-        "date": now.strftime("%Y.%m.%d"),
+        "date": received_kst.strftime(APP_DATE_FMT),
     }
-    GLOBAL_INQUIRIES.insert(0, item_dict)
-
-    # [한글 주석] 관리자 웹 CS 리스트 최상단(0번 인덱스)에 즉시 등록
-    cs_item = {
-        "id": final_id,
-        "name": "포슬이",
-        "store": req.store_name or "포슬카페",
-        "category": req.category,
-        "title": req.title,
-        "date": now.strftime("%Y-%m-%d %H:%M"),
-        "status": "답변 대기",
-        "email": req.user_email or "owner@cafe.com",
-        "content": req.content,
-        "question": req.content,
-        "reply": None,
-    }
-    mock_cs_list.insert(0, cs_item)
+    # DB 저장에 성공했으면 메모리에 넣지 않는다 — 관리자·앱 모두 같은 DB를 읽으므로
+    # 넣으면 조회에서 같은 문의가 두 번 보인다.
+    #
+    # 실패한 경우에만 메모리 폴백에 넣는다. 이때 사장님 앱이 읽는 GLOBAL_INQUIRIES뿐
+    # 아니라 관리자 화면(GET /admin/cs)이 읽는 mock_cs_list에도 같이 넣어야 한다 —
+    # 한쪽만 넣으면 사장님에겐 '접수 완료'로 보이는데 관리자는 문의가 온 줄도 모르고,
+    # 메모리에만 남아 인스턴스 교체 시 통째로 유실된다(사장님은 답변을 계속 기다린다).
+    # 답변이 달리면 sync_reply_to_memory가 두 리스트를 함께 갱신한다.
+    if inq_id is None:
+        GLOBAL_INQUIRIES.insert(0, item_dict)
+        # 관리자 화면 형식(admin/cs)에 맞춘 사본. DB가 없어 사장님 이름을 못 찾으므로
+        # name은 이메일로 대체한다 (admin/cs의 이름 폴백과 동일).
+        mock_cs_list.insert(0, {
+            "id": final_id,
+            "name": email,
+            "store": store_name,
+            "category": req.category,
+            "title": req.title,
+            "date": received_kst.strftime("%Y-%m-%d %H:%M"),
+            "status": "답변 대기",
+            "email": email,
+            "content": req.content,
+            "question": req.content,
+            "reply": None,
+        })
 
     return item_dict
 
@@ -172,7 +248,7 @@ def reply_inquiry(inquiry_id: int, req: InquiryReply, db: Session = Depends(get_
     if inq:
         inq.answer = req.answer
         inq.status = "answered"
-        inq.answered_at = datetime.utcnow()
+        inq.answered_at = utc_now()
         db.commit()
         db.refresh(inq)
         sync_reply_to_memory(inquiry_id, req.answer)  # 메모리 사본도 함께 갱신 (표시 불일치 방지)
@@ -185,7 +261,7 @@ def reply_inquiry(inquiry_id: int, req: InquiryReply, db: Session = Depends(get_
             "content": inq.content,
             "status": inq.status,
             "answer": inq.answer,
-            "date": inq.created_at.strftime("%Y.%m.%d") if inq.created_at else "2026.07.21"
+            "date": fmt_kst(inq.created_at, APP_DATE_FMT),
         }
 
     # DB에 없으면 메모리 리스트에서 답변 처리 (DB 오프라인 대비)

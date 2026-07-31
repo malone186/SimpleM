@@ -1,11 +1,13 @@
 // 운영 (프론트 B) — PRD ERP-9(스케줄·급여·정산), AI-4(스케줄 추천)  ※ 세금은 서류 자동화 탭
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Modal, Platform, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 
 import { Badge, Button, Card, Divider, Screen, ScreenTitle, SectionTitle, WeekdayButtonGroup, IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
 import { PressableScale } from '../../components/motion';
+import { supplyPriceOf, type VatMode } from '../../components/PriceInput';
 import { toast } from '../../components/toast';
 import { colors, typography } from '../../theme';
 import { useAuth } from '../../auth/AuthContext';
@@ -36,22 +38,23 @@ const won = (n: number) => '₩' + Math.round(n || 0).toLocaleString('ko-KR');
 export default function OperationScreen() {
   // [한글 주석: 다국어 번역 훅 호출 — 사장님이 선택한 언어(ko/en) 텍스트 반환]
   const { t } = useTranslation();
+  const { token } = useAuth();
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [employeeColorMap, setEmployeeColorMap] = useState<Record<number, string>>({});
   const [loadingSchedules, setLoadingSchedules] = useState(true);
 
-  // 전역 스케줄 로드
+  // 전역 스케줄 로드 — 토큰을 넘겨야 서버가 내 매장 근무만 걸러서 준다
   const reloadSchedules = useCallback(async () => {
     setLoadingSchedules(true);
     try {
-      const list = await listSchedules();
+      const list = await listSchedules(token ?? undefined);
       setSchedules(list);
     } catch (e) {
       console.error('전역 스케줄 로드 오류:', e);
     } finally {
       setLoadingSchedules(false);
     }
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     reloadSchedules();
@@ -106,6 +109,7 @@ function ScheduleCalendarCard({
   employeeColorMap: Record<number, string>;
   reloadSchedules: () => Promise<void>;
 }) {
+  const { token } = useAuth();
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date();
@@ -132,21 +136,25 @@ function ScheduleCalendarCard({
   const loadCalendarData = useCallback(async () => {
     setLoading(true);
     try {
+      // 토큰을 안 넘기면 백엔드가 매장 구분 없이 전 직원·전 급여를 돌려준다
+      // (다른 매장 직원이 달력·모달에 섞여 나오던 경로). 반드시 함께 보낸다.
       const ym = `${year}-${String(month + 1).padStart(2, '0')}`;
       const [payrollList, empList] = await Promise.all([
-        listPayroll(ym).catch(() => [] as Payroll[]),
-        listEmployees().catch(() => [] as Employee[]),
+        listPayroll(ym, token ?? undefined).catch(() => [] as Payroll[]),
+        listEmployees(token ?? undefined).catch(() => [] as Employee[]),
       ]);
       setPayrollEmployees(payrollList);
       setDbEmployees(empList);
 
-      // [한글 주석: 사장님이 알바생 클릭 없이 [등록]만 눌러도 실패하지 않도록 첫번째 알바생 자동 선택]
+      // 알바생을 안 고르고 [등록]만 눌러도 되게 첫 번째 사람을 미리 선택해 둔다.
+      // 다만 직원이 하나도 없으면 예전처럼 ID 1로 넘기지 않는다 — 존재하지 않는 직원의
+      // 근무가 저장돼 달력에 유령이 생기던 원인이었다.
       if (empList.length > 0) {
         setSelectedEmpId((prev) => prev ?? empList[0].id);
       } else if (payrollList.length > 0) {
         setSelectedEmpId((prev) => prev ?? payrollList[0].employee_id);
       } else {
-        setSelectedEmpId((prev) => prev ?? 1);
+        setSelectedEmpId(null);
       }
 
       await reloadSchedules();
@@ -222,23 +230,39 @@ function ScheduleCalendarCard({
     return map;
   }, [schedules]);
 
-  // [한글 주석: 알바생별 주간 반복 근무 요일 맵 — 달력 전체(1일~31일 매주)에 파스텔 바 100% 렌더링]
-  const getEmpActiveDays = useCallback((empId: number) => {
-    const empScheds = schedules.filter((s) => s.employee_id === empId);
-    const dayNums = new Set<number>();
-    empScheds.forEach((s) => {
-      const dateStr = s.date ? String(s.date).slice(0, 10) : s.start_time ? String(s.start_time).slice(0, 10) : '';
-      if (dateStr) {
-        dayNums.add(new Date(dateStr + 'T00:00:00').getDay());
-      }
-    });
-    if (dayNums.size > 0) return dayNums;
+  // 등록된 직원만 남기는 필터.
+  //
+  // 예전엔 여기서 "요일 패턴"을 추정해 스케줄이 없는 날에도 알바생을 채워 넣었고,
+  // 후보 목록에 하드코딩 ID [1,2,3]까지 섞어 넣었다. 그래서 달력 아무 평일이나 눌러도
+  // 전 직원 + 존재하지 않는 유령 알바생이 전부 떴다. 사장님이 보고 싶은 건 '추정'이
+  // 아니라 '그날 실제로 등록된 근무'이므로, 지금은 등록된 스케줄만 그대로 보여준다.
+  const knownEmpIds = useMemo(() => {
+    const ids = new Set<number>();
+    dbEmployees.forEach((e) => ids.add(e.id));
+    payrollEmployees.forEach((p) => ids.add(p.employee_id));
+    return ids;
+  }, [dbEmployees, payrollEmployees]);
 
-    if (empId === 1) return new Set([1, 2, 3, 4, 5]); // 소지원: 월.화.수.목.금
-    if (empId === 2) return new Set([1, 3, 5]);       // 이우진: 월.수.금
-    if (empId === 3) return new Set([4, 5, 6]);       // 유상진: 목.금.토
-    return new Set([1, 2, 3, 4, 5]);
+  // 직원 목록을 아직 못 불러왔으면(로딩·조회 실패) 필터를 걸지 않는다 — 걸면 근무가
+  // 통째로 빈 화면이 돼 "스케줄이 사라졌다"로 보인다.
+  const isKnownEmp = useCallback(
+    (empId: number) => knownEmpIds.size === 0 || knownEmpIds.has(empId),
+    [knownEmpIds],
+  );
+
+  // "이 날짜에 이 직원 근무가 등록돼 있나?" — 달력의 연속 바를 그릴 때 옆 날짜를 확인한다
+  const workKeySet = useMemo(() => {
+    const set = new Set<string>();
+    schedules.forEach((s) => {
+      const dateStr = s.date ? String(s.date).slice(0, 10) : s.start_time ? String(s.start_time).slice(0, 10) : '';
+      if (dateStr) set.add(`${dateStr}|${s.employee_id}`);
+    });
+    return set;
   }, [schedules]);
+  const worksOn = useCallback(
+    (dateStr: string, empId: number) => workKeySet.has(`${dateStr}|${empId}`),
+    [workKeySet],
+  );
 
   // 부드러운 월 전환 애니메이션 트랜지션
   const animateTransition = (callback: () => void) => {
@@ -287,20 +311,15 @@ function ScheduleCalendarCard({
       const endIso = `${selectedDate}T${formatTime(endTimeStr)}`;
 
       // [한글 주석: 백엔드 상태와 상관없이 화면에 즉시 등록 반영]
-      notify('등록 완료', '새로운 알바 근무 스케줄이 등록되었습니다.');
+      // 예전엔 API를 부르기 전에 '등록 완료'를 띄우고 실패는 콘솔로만 삼켰다.
+      // 저장이 안 돼도 성공 문구가 뜨니, 달력에 아무것도 안 생기면 앱이 고장 난 걸로 보였다.
+      await createSchedule(
+        { employee_id: selectedEmpId, start_time: startIso, end_time: endIso },
+        token ?? undefined,
+      );
       setModalVisible(false);
-
-      try {
-        await createSchedule({
-          employee_id: selectedEmpId,
-          start_time: startIso,
-          end_time: endIso,
-        });
-      } catch (err) {
-        console.warn('백엔드 스케줄 등록 경고:', err);
-      }
-
       await reloadSchedules();
+      notify('등록 완료', '새로운 알바 근무 스케줄이 등록되었습니다.');
     } catch (e) {
       notify('등록 실패', e instanceof Error ? e.message : String(e));
     } finally {
@@ -308,74 +327,26 @@ function ScheduleCalendarCard({
     }
   };
 
-  // 근무 삭제 핸들러 (로컬 우선 반영)
+  // 근무 삭제 — 결과를 확인한 뒤에 알린다 (실패를 성공으로 알리지 않도록)
   const handleDeleteSchedule = async (id: number) => {
-    notify('삭제 완료', '알바 근무 스케줄이 삭제되었습니다.');
     try {
-      await deleteSchedule(id);
+      await deleteSchedule(id, token ?? undefined);
+      await reloadSchedules();
+      notify('삭제 완료', '알바 근무 스케줄이 삭제되었습니다.');
     } catch (e) {
-      console.warn('백엔드 스케줄 삭제 경고:', e);
+      notify('삭제 실패', e instanceof Error ? e.message : String(e));
+      await reloadSchedules();
     }
-    await reloadSchedules();
   };
 
-  // [한글 주석: 선택한 날짜에 근무하는 알바생 스케줄 계산 — 상단 요일 파스텔 바 및 실제 알바생 명단과 1:1 완벽 일치]
+  // 선택한 날짜에 '실제로 등록된' 근무만. 추정·보정·가짜 스케줄 생성 없음.
+  // 같은 직원이 하루에 두 번(오전·저녁) 들어갈 수 있으므로 중복 제거도 하지 않는다.
   const selectedDateSchedules = useMemo(() => {
     const rawScheds = schedulesByDate[selectedDate] || [];
-
-    // 선택된 날짜의 요일 (0=일, 1=월, ..., 6=토)
-    const targetDateObj = new Date(selectedDate + 'T00:00:00');
-    const dayOfWeek = isNaN(targetDateObj.getTime()) ? -1 : targetDateObj.getDay();
-
-    // 해당 요일에 출근 지정된 알바생 ID 수집
-    const activeEmpIds = new Set<number>();
-    rawScheds.forEach((s) => activeEmpIds.add(s.employee_id));
-
-    const availableEmpIds = [1, 2, 3, ...dbEmployees.map((e) => e.id), ...payrollEmployees.map((p) => p.employee_id)];
-    const uniqueAvailEmpIds = Array.from(new Set(availableEmpIds));
-
-    uniqueAvailEmpIds.forEach((empId) => {
-      const activeDays = getEmpActiveDays(empId);
-      if (activeDays.has(dayOfWeek)) {
-        activeEmpIds.add(empId);
-      }
-    });
-
-    const activeEmpList = Array.from(activeEmpIds);
-
-    // 각 알바생별 스케줄 객체 리스트 생성
-    return activeEmpList.map((empId) => {
-      const existing = rawScheds.find((s) => s.employee_id === empId);
-      if (existing) return existing;
-
-      let role = '바리스타';
-      let startTime = `${selectedDate}T09:00:00`;
-      let endTime = `${selectedDate}T18:00:00`;
-
-      if (empId === 1) {
-        role = '바리스타';
-        startTime = `${selectedDate}T09:00:00`;
-        endTime = `${selectedDate}T18:00:00`;
-      } else if (empId === 2) {
-        role = '홀·카운터';
-        startTime = `${selectedDate}T12:00:00`;
-        endTime = `${selectedDate}T21:00:00`;
-      } else if (empId === 3) {
-        role = '매니저';
-        startTime = `${selectedDate}T10:00:00`;
-        endTime = `${selectedDate}T19:00:00`;
-      }
-
-      return {
-        id: 99000 + empId,
-        employee_id: empId,
-        date: selectedDate,
-        start_time: startTime,
-        end_time: endTime,
-        role,
-      } as Schedule & { role?: string };
-    });
-  }, [selectedDate, schedulesByDate, getEmpActiveDays, dbEmployees, payrollEmployees]);
+    return rawScheds
+      .filter((s) => isKnownEmp(s.employee_id)) // 퇴사·삭제된 직원의 잔여 스케줄은 숨긴다
+      .sort((a, b) => String(a.start_time ?? '').localeCompare(String(b.start_time ?? '')));
+  }, [selectedDate, schedulesByDate, isKnownEmp]);
 
   return (
     <Card style={{ marginBottom: 16, backgroundColor: colors.creamSand }}>
@@ -421,21 +392,12 @@ function ScheduleCalendarCard({
           const isSelected = item.dateStr === selectedDate;
           const dayScheds = schedulesByDate[item.dateStr] || [];
 
-          // [한글 주석: 해당 날짜의 실제 스케줄 + 알바생별 주간 요일 맵을 통합하여 매주 파스텔 바 100% 렌더링]
-          const targetDateObj = new Date(item.dateStr + 'T00:00:00');
-          const dayOfWeek = targetDateObj.getDay();
-
+          // 그날 '실제로 등록된' 근무자만 파스텔 바로 그린다.
+          // 예전엔 요일 패턴을 추정해 근무가 없는 날에도 바를 채우고 하드코딩 ID(1,2,3)까지
+          // 섞어서, 달력이 실제 스케줄과 전혀 다른 그림을 보여줬다.
           const dayEmpIdsSet = new Set<number>();
-          dayScheds.forEach((s: Schedule) => dayEmpIdsSet.add(s.employee_id));
-
-          const availableEmpIds = [1, 2, 3, ...dbEmployees.map((e) => e.id), ...payrollEmployees.map((p) => p.employee_id)];
-          const uniqueAvailEmpIds = Array.from(new Set(availableEmpIds));
-
-          uniqueAvailEmpIds.forEach((empId) => {
-            const activeDays = getEmpActiveDays(empId);
-            if (activeDays.has(dayOfWeek)) {
-              dayEmpIdsSet.add(empId);
-            }
+          dayScheds.forEach((s: Schedule) => {
+            if (isKnownEmp(s.employee_id)) dayEmpIdsSet.add(s.employee_id);
           });
 
           const uniqueEmpIds = Array.from(dayEmpIdsSet);
@@ -532,20 +494,15 @@ function ScheduleCalendarCard({
                 <View style={{ width: '100%', gap: 2 }}>
                   {uniqueEmpIds.map((empId) => {
                     const empColor = getEmployeeColor(empId, employeeColorMap);
-                    const activeDays = getEmpActiveDays(empId);
 
-                    let isPrevSame = false;
-                    let isNextSame = false;
-
-                    if (prevItem && prevItem.type === 'day' && !isSunday) {
-                      const prevDateObj = new Date(prevItem.dateStr + 'T00:00:00');
-                      isPrevSame = activeDays.has(prevDateObj.getDay());
-                    }
-
-                    if (nextItem && nextItem.type === 'day' && !isSaturday) {
-                      const nextDateObj = new Date(nextItem.dateStr + 'T00:00:00');
-                      isNextSame = activeDays.has(nextDateObj.getDay());
-                    }
+                    // 좌우로 이어진 바를 그릴지 판단 — '요일 추정'이 아니라 옆 날짜에
+                    // 그 직원의 근무가 실제로 등록돼 있는지로 본다
+                    const isPrevSame =
+                      !!prevItem && prevItem.type === 'day' && !isSunday &&
+                      worksOn(prevItem.dateStr, empId);
+                    const isNextSame =
+                      !!nextItem && nextItem.type === 'day' && !isSaturday &&
+                      worksOn(nextItem.dateStr, empId);
 
                     // 주 단위로 뚝뚝 끊기지 않고 100% 매끄럽게 연결되는 주차 스트립 바 스타일
                     const lineBorderStyle = isPrevSame && isNextSame
@@ -610,23 +567,12 @@ function ScheduleCalendarCard({
               // [한글 주석] 상단 전체 알바생 카드의 고유 파스텔 대표 색상과 100% 일치하도록 employeeColorMap 인자 전달
               const empColor = getEmployeeColor(s.employee_id, employeeColorMap);
 
-              // [한글 주석] 직원 ID 및 직책 정밀 매칭 (소지원: 바리스타, 이우진: 홀·카운터, 유상진: 매니저)
-              let name = empNameMap[s.employee_id];
-              let role = (s as any).role || '바리스타';
-
-              if (s.employee_id === 1) { name = '소지원'; role = '바리스타'; }
-              else if (s.employee_id === 2) { name = '이우진'; role = '홀·카운터'; }
-              else if (s.employee_id === 3) { name = '유상진'; role = '매니저'; }
-
-              if (!name) {
-                const matchedEmp = dbEmployees.find(e => e.id === s.employee_id);
-                if (matchedEmp) {
-                  name = matchedEmp.name;
-                  role = matchedEmp.role || '바리스타';
-                } else {
-                  name = `알바생 ${s.employee_id}`;
-                }
-              }
+              // 이름은 서버가 스케줄에 실어 준 값을 먼저 쓴다.
+              // 예전엔 직원 목록에서 employee_id로 찾아 붙였는데, 그 조회가 비거나 실패하면
+              // 근무가 전부 '(삭제된 직원)'으로 보였다 — 실제로는 멀쩡한 내 직원이었다.
+              const matchedEmp = dbEmployees.find((e) => e.id === s.employee_id);
+              const name = s.employee_name || matchedEmp?.name || empNameMap[s.employee_id] || '(이름 미상)';
+              const role = s.employee_role || matchedEmp?.role || '알바';
 
               const firstChar = name.charAt(0) || '👤';
               const startStr = s.start_time ? s.start_time.slice(11, 16) || s.start_time : '';
@@ -701,15 +647,11 @@ function ScheduleCalendarCard({
                 <Text style={styles.formLabel}>알바생 선택 (고유 색상 뱃지)</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                   {dbEmployees.length === 0 && payrollEmployees.length === 0 ? (
-                    <PressableScale
-                      style={[styles.peakSegmentBtn, selectedEmpId === 1 && styles.segmentBtnActiveNormal]}
-                      onPress={() => setSelectedEmpId(1)}
-                    >
-                      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: getEmployeeColor(1), marginRight: 4 }} />
-                      <Text style={[styles.peakSegmentText, selectedEmpId === 1 && styles.segmentTextActiveNormal]}>
-                        기본 알바 (ID:1)
-                      </Text>
-                    </PressableScale>
+                    // 예전엔 여기서 '기본 알바 (ID:1)'를 눌러 없는 직원의 근무를 만들 수 있었다.
+                    // 그렇게 저장된 스케줄이 달력에 이름 없는 유령으로 남았다.
+                    <Text style={{ ...typography.L5, color: colors.mochaBrown, lineHeight: 16 }}>
+                      등록된 직원이 없어요. ‘직원 · 인건비’에서 직원을 먼저 추가해 주세요.
+                    </Text>
                   ) : dbEmployees.length > 0 ? (
                     dbEmployees.map((emp) => {
                       const empColor = getEmployeeColor(emp.id);
@@ -784,161 +726,12 @@ function ScheduleCalendarCard({
 
 
 
-// [한글 주석] ☕ 599개 원두 최저가 시세 및 1,822건 사용자 리뷰 실데이터 분석 카드
-function BeanOperationCard() {
-  const [selectedCategory, setSelectedCategory] = useState('전체');
-  const [keyword, setKeyword] = useState('');
+// (삭제됨) BeanOperationCard — 어디에서도 렌더링되지 않는 죽은 카드였는데,
+// 안에 원두 5종이 상수로 박혀 있고 'DB 599개 적재완료' 배지까지 달려 있었다.
+// 실제로 동작하는 대체품은 BeanOperationScreen.tsx다 (GET /roastery/search로
+// 진짜 수집 건수와 시세를 보여준다).
 
-  // 599개 실데이터 샘플 카탈로그 리스트
-  // product_url은 백엔드 응답(schemas/product_search.py)에는 있지만 아래 샘플엔 없어서
-  // 명시 타입으로 옵셔널 선언한다 — 없을 때는 네이버 쇼핑 검색 URL로 폴백한다.
-  const sampleBeans: {
-    id: number;
-    name: string;
-    roastery: string;
-    price: number;
-    lowest_price: number;
-    country: string;
-    rating: number;
-    review_count: number;
-    positive_ratio: number;
-    keywords: string[];
-    product_url?: string;
-  }[] = [
-    { id: 1, name: 'BG블렌드 (500g)', roastery: '타이커피', price: 15000, lowest_price: 13500, country: '에티오피아', rating: 4.8, review_count: 25, positive_ratio: 92, keywords: ['#고소함', '#라떼강추', '#가성비'] },
-    { id: 2, name: '에티오피아 예가체프 (200g)', roastery: '가델로 커피', price: 14000, lowest_price: 13800, country: '에티오피아', rating: 4.9, review_count: 150, positive_ratio: 96, keywords: ['#상큼한산미', '#꽃향기', '#드립전용'] },
-    { id: 3, name: '콜롬비아 수프리모 (500g)', roastery: '모카 팩토리', price: 16500, lowest_price: 15000, country: '콜롬비아', rating: 4.7, review_count: 88, positive_ratio: 90, keywords: ['#밸런스좋음', '#견과류풍미', '#데일리'] },
-    { id: 4, name: '디카페인 딥 블렌드 (200g)', roastery: '타이커피', price: 15500, lowest_price: 14500, country: '과테말라', rating: 4.6, review_count: 42, positive_ratio: 88, keywords: ['#속편한', '#디카페인', '#다크초콜릿'] },
-    { id: 5, name: '자메이카 블루마운틴 (200g)', roastery: '가델로 커피', price: 45000, lowest_price: 45000, country: '자메이카', rating: 5.0, review_count: 30, positive_ratio: 98, keywords: ['#최고급', '#품절대란', '#명품원두'] },
-  ];
 
-  const filteredBeans = sampleBeans.filter(b => 
-    (selectedCategory === '전체' || b.country === selectedCategory) &&
-    (b.name.includes(keyword) || b.roastery.includes(keyword))
-  );
-
-  return (
-    <Card style={{ marginBottom: 16, backgroundColor: colors.creamSand }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Ionicons name="cafe" size={22} color={colors.espressoBrown} />
-          <Text style={{ fontSize: 18, fontWeight: 'bold', color: colors.espressoBrown }}>수집 원두 시세 & 실리뷰 통계</Text>
-        </View>
-        <Badge label="DB 599개 적재완료" tone="green" />
-      </View>
-
-      {/* 검색어 입력창 */}
-      <TextInput
-        style={{
-          backgroundColor: '#FFF',
-          borderRadius: 8,
-          paddingHorizontal: 12,
-          paddingVertical: 8,
-          fontSize: 14,
-          borderWidth: 1,
-          borderColor: '#E1DCD7',
-          marginBottom: 12,
-        }}
-        placeholder="원두명 또는 로스터리 검색 (예: 에티오피아)"
-        value={keyword}
-        onChangeText={setKeyword}
-      />
-
-      {/* 카테고리 칩 */}
-      <View style={{ flexDirection: 'row', gap: 6, marginBottom: 14 }}>
-        {['전체', '에티오피아', '콜롬비아', '과테말라'].map(cat => (
-          <Pressable
-            key={cat}
-            onPress={() => setSelectedCategory(cat)}
-            style={{
-              paddingHorizontal: 10,
-              paddingVertical: 5,
-              borderRadius: 14,
-              backgroundColor: selectedCategory === cat ? colors.espressoBrown : '#EFEAE6',
-            }}
-          >
-            <Text style={{ color: selectedCategory === cat ? '#FFF' : colors.espressoBrown, fontSize: 12, fontWeight: '600' }}>
-              {cat}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      {/* 원두 카드 리스트 */}
-      <View style={{ gap: 10 }}>
-        {filteredBeans.map(bean => (
-          <View
-            key={bean.id}
-            style={{
-              backgroundColor: '#FFF',
-              borderRadius: 10,
-              padding: 12,
-              borderWidth: 1,
-              borderColor: '#E6E1DC',
-            }}
-          >
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 15, fontWeight: 'bold', color: colors.espressoBrown }}>{bean.name}</Text>
-                <Text style={{ fontSize: 12, color: '#7A6E65', marginTop: 2 }}>{bean.roastery} · {bean.country}</Text>
-              </View>
-              <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                <Text style={{ fontSize: 14, fontWeight: 'bold', color: colors.pointOrange }}>
-                  최저가 {bean.lowest_price.toLocaleString()}원
-                </Text>
-                <Pressable
-                  onPress={() => {
-                    const targetUrl = bean.product_url || `https://search.shopping.naver.com/search/all?query=${encodeURIComponent(bean.name)}`;
-                    if (Platform.OS === 'web') {
-                      window.open(targetUrl, '_blank');
-                    } else {
-                      const { Linking } = require('react-native');
-                      Linking.openURL(targetUrl);
-                    }
-                  }}
-                  style={{
-                    backgroundColor: colors.pointOrange,
-                    paddingHorizontal: 8,
-                    paddingVertical: 4,
-                    borderRadius: 6,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 2,
-                  }}
-                >
-                  <Ionicons name="cart-outline" size={12} color="#FFF" />
-                  <Text style={{ color: '#FFF', fontSize: 11, fontWeight: 'bold' }}>바로 구매</Text>
-                </Pressable>
-              </View>
-
-            </View>
-
-            {/* 리뷰 통계 바 */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 12, backgroundColor: '#F8F6F4', padding: 8, borderRadius: 6 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Ionicons name="star" size={14} color="#FFB800" />
-                <Text style={{ fontSize: 13, fontWeight: 'bold', color: colors.espressoBrown }}>{bean.rating}</Text>
-                <Text style={{ fontSize: 12, color: '#888' }}>({bean.review_count}개 리뷰)</Text>
-              </View>
-              <Text style={{ fontSize: 12, fontWeight: '600', color: '#2E7D32' }}>
-                긍정 비율 {bean.positive_ratio}%
-              </Text>
-            </View>
-
-            {/* 키워드 태그 */}
-            <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
-              {bean.keywords.map((kw, i) => (
-                <Text key={i} style={{ fontSize: 11, color: colors.espressoBrown, backgroundColor: '#F0ECE8', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
-                  {kw}
-                </Text>
-              ))}
-            </View>
-          </View>
-        ))}
-      </View>
-    </Card>
-  );
-}
 
 
 
@@ -954,6 +747,8 @@ function LiveOperationCard() {
   const [adding, setAdding] = useState(false);
   const [expAmount, setExpAmount] = useState('');
   const [expCategory, setExpCategory] = useState('');
+  // 영수증 금액을 그대로 치고 칩만 고르게 한다 — 사장님이 부가세를 직접 나눠 계산하지 않도록
+  const [expVat, setExpVat] = useState<VatMode>('included');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -962,7 +757,7 @@ function LiveOperationCard() {
       // [한글 주석] API 개별 실패 시 전체 카드가 거부되는 현상을 막기 위해 Promise.allSettled 안전 패턴 사용
       const [sRes, pRes, fRes] = await Promise.allSettled([
         getSettlement(period, token ?? undefined),
-        listPayroll(period),
+        listPayroll(period, token ?? undefined),
         forecastSales({ target_date: tomorrowISO(), engine: 'arima' }),
       ]);
 
@@ -998,10 +793,18 @@ function LiveOperationCard() {
       return;
     }
     const cat = expCategory.trim() || '기타 지출';
+    // 손익에는 부가세를 뺀 공급가액이 들어가야 한다 — 매입세액은 부가세 신고 때 돌려받으므로
+    // 결제액 전부를 비용으로 잡으면 이익이 실제보다 10% 적게 나온다.
+    const supply = supplyPriceOf(amt, expVat);
     setAdding(true);
     try {
-      await createExpense(token, { amount: amt, category: cat, expense_date: new Date().toISOString().slice(0, 10) });
-      notify('지출 등록', `${cat} ${won(amt)}을 등록했어요. 정산에 자동 반영됩니다.`);
+      await createExpense(token, { amount: supply, category: cat, expense_date: new Date().toISOString().slice(0, 10) });
+      notify(
+        '지출 등록',
+        expVat === 'included' && supply !== amt
+          ? `${cat} ${won(amt)} (공급가액 ${won(supply)})을 등록했어요. 정산에는 부가세를 뺀 금액이 반영됩니다.`
+          : `${cat} ${won(supply)}을 등록했어요. 정산에 자동 반영됩니다.`,
+      );
       setExpAmount('');
       setExpCategory('');
       await load();
@@ -1118,6 +921,37 @@ function LiveOperationCard() {
             <Button label={adding ? '등록 중…' : '등록'} onPress={handleAddExpense} style={liveStyles.addBtn} />
           </View>
 
+          {/* 부가세 처리 — 칩 한 번으로 공급가액 환산 (직접 나눠 계산할 필요 없음) */}
+          <View style={liveStyles.vatRow}>
+            {([
+              { code: 'included' as VatMode, label: '부가세 포함' },
+              { code: 'excluded' as VatMode, label: '부가세 별도' },
+              { code: 'exempt' as VatMode, label: '면세' },
+            ]).map((m) => {
+              const active = expVat === m.code;
+              return (
+                <TouchableOpacity
+                  key={m.code}
+                  style={[liveStyles.vatChip, active && liveStyles.vatChipActive]}
+                  onPress={() => setExpVat(m.code)}
+                >
+                  <Text style={[liveStyles.vatChipText, active && liveStyles.vatChipTextActive]}>{m.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {(() => {
+            const raw = parseInt(expAmount.replace(/[^0-9]/g, ''), 10) || 0;
+            if (raw <= 0) return null;
+            const supply = supplyPriceOf(raw, expVat);
+            return (
+              <Text style={liveStyles.vatHint}>
+                손익에 반영: {won(supply)}
+                {expVat !== 'exempt' ? ` · 부가세 ${won(expVat === 'included' ? raw - supply : Math.round(raw * 0.1))}` : ' (면세)'}
+              </Text>
+            );
+          })()}
+
           <View style={[styles.actions, { marginTop: 10 }]}>
             <Button label="새로고침" variant="secondary" style={{ flex: 1 }} onPress={load} />
           </View>
@@ -1130,6 +964,20 @@ function LiveOperationCard() {
 
 // [한글 주석: 금액 숫자가 커져도 잘리지 않도록 폰트 크기(16.5px) 및 패딩(10px) 최적화]
 const liveStyles = StyleSheet.create({
+  vatRow: { flexDirection: 'row', gap: 6, marginTop: 8 },
+  vatChip: {
+    flex: 1,
+    alignItems: 'center',
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: 'rgba(140,111,86,0.18)',
+    borderRadius: 999,
+    paddingVertical: 7,
+  },
+  vatChipActive: { backgroundColor: colors.espressoBrown, borderColor: colors.espressoBrown },
+  vatChipText: { fontSize: 11, fontWeight: '700', color: colors.mochaBrown },
+  vatChipTextActive: { color: colors.white },
+  vatHint: { ...typography.L5, color: colors.mochaBrown, marginTop: 7 },
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 },
   kpi: {
     flexGrow: 1,
@@ -1206,7 +1054,7 @@ function UnavailabilityManagementCard() {
       // [한글 주석] 기피시간 목록과 직원 명단을 함께 가져와 매핑합니다.
       const [data, payrollData] = await Promise.all([
         listUnavailabilities(token),
-        listPayroll(nowYM()).catch(() => [] as Payroll[]),
+        listPayroll(nowYM(), token).catch(() => [] as Payroll[]),
       ]);
       setList(data);
       const emps = payrollData.map((p) => ({ id: p.employee_id, name: p.employee_name }));
@@ -1513,44 +1361,25 @@ function EmployeeManagementCard({
   // [한글 주석: 알바생 통합 관리 카드 내 다국어 번역 훅 호출]
   const { t } = useTranslation();
   const { token } = useAuth();
+  const navigation = useNavigation<any>();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
 
   // AI 스케줄 추천 상태
   const [recommendation, setRecommendation] = useState<ScheduleRecommendation | null>(null);
   const [recLoading, setRecLoading] = useState(false);
 
-  // 알바생 추가/수정 모달 상태
-  const [editingEmp, setEditingEmp] = useState<{
-    id: number | null;
-    name: string;
-    hourlyRate: string;
-    role: string;
-    days: string[];
-    slot: string;
-    selectedColor?: string;
-  } | null>(null);
 
-  // 백엔드 DB에서 전체 알바생 목록 가져오기 (실패 시 샘플 알바생 자동 폴백)
+  // 매장 직원 목록.
+  // 예전엔 목록이 비면 '김알바·이매니저' 같은 샘플을 넣어 화면을 채웠는데, 사장님 눈에는
+  // 등록한 적 없는 사람이 생긴 걸로 보였다. 없으면 없는 대로 비워 두는 게 맞다.
   const loadEmployees = useCallback(async () => {
     setLoading(true);
     try {
-      const list = await listEmployees(token ?? undefined);
-      setEmployees(
-        list && list.length > 0
-          ? list
-          : [
-              { id: 1, name: '김알바', hourly_rate: 10000, role: '바리스타' },
-              { id: 2, name: '이매니저', hourly_rate: 11500, role: '매니저' },
-            ],
-      );
+      setEmployees(await listEmployees(token ?? undefined));
     } catch (e) {
       console.error('알바생 목록 조회 오류:', e);
-      setEmployees([
-        { id: 1, name: '김알바', hourly_rate: 10000, role: '바리스타' },
-        { id: 2, name: '이매니저', hourly_rate: 11500, role: '매니저' },
-      ]);
+      setEmployees([]);
     } finally {
       setLoading(false);
     }
@@ -1579,181 +1408,6 @@ function EmployeeManagementCard({
   };
 
   // 신규 알바생 추가 버튼 클릭 핸들러
-  const handleAddEmployeePress = () => {
-    setEditingEmp({
-      id: null,
-      name: '',
-      hourlyRate: '10000',
-      role: '바리스타',
-      days: ['월', '화', '수', '목', '금'],
-      slot: '09–18',
-      selectedColor: EMPLOYEE_COLORS[employees.length % EMPLOYEE_COLORS.length] || '#FFE082',
-    });
-  };
-
-  // 알바생 수정 버튼 클릭 핸들러
-  const handleEditEmployeePress = (emp: Employee) => {
-    const empSchedules = schedules.filter((s) => s.employee_id === emp.id);
-    const WEEK_KO = ['일', '월', '화', '수', '목', '금', '토'];
-    const daysSet = new Set<string>();
-    let defaultSlot = '09–18';
-
-    empSchedules.forEach((s) => {
-      const wd = WEEK_KO[new Date(s.date + 'T00:00:00').getDay()];
-      if (wd) daysSet.add(wd);
-      if (s.start_time && s.end_time) {
-        const sh = Number(s.start_time.slice(11, 13));
-        const eh = Number(s.end_time.slice(11, 13));
-        if (!Number.isNaN(sh) && !Number.isNaN(eh)) {
-          defaultSlot = `${String(sh).padStart(2, '0')}–${String(eh).padStart(2, '0')}`;
-        }
-      }
-    });
-
-    setEditingEmp({
-      id: emp.id,
-      name: emp.name,
-      hourlyRate: String(emp.hourly_rate),
-      role: emp.role || '바리스타',
-      days: daysSet.size > 0 ? Array.from(daysSet) : ['월', '화', '수', '목', '금'],
-      slot: defaultSlot,
-      selectedColor: getEmployeeColor(emp.id, employeeColorMap),
-    });
-  };
-
-  // 알바생 퇴사/삭제 핸들러 (로컬 반응성 적용)
-  const handleDeleteEmployee = async (emp: Employee) => {
-    if (Platform.OS === 'web') {
-      const ok = window.confirm(`정말 '${emp.name}' 알바생을 퇴사/삭제 처리하시겠습니까?\n등록된 정보가 정리됩니다.`);
-      if (!ok) return;
-    } else {
-      const ok = await new Promise<boolean>((resolve) => {
-        Alert.alert('퇴사/삭제', `정말 '${emp.name}' 알바생을 퇴사/삭제 처리하시겠습니까?\n등록된 정보가 정리됩니다.`, [
-          { text: '취소', style: 'cancel', onPress: () => resolve(false) },
-          { text: '퇴사 처리', style: 'destructive', onPress: () => resolve(true) },
-        ]);
-      });
-      if (!ok) return;
-    }
-
-    // [한글 주석: 서버 응답과 상관없이 화면에서 100% 즉시 퇴사/삭제 반영]
-    setEmployees((prev) => prev.filter((e) => e.id !== emp.id));
-    notify('퇴사 처리 완료', `'${emp.name}' 알바생이 퇴사/삭제 처리되었습니다.`);
-
-    try {
-      await deleteEmployee(emp.id);
-    } catch (e) {
-      console.warn('백엔드 삭제 서버 통신 경고:', e);
-    }
-    await reloadSchedules();
-  };
-
-  // 알바생 정보 및 근무 요일/시간 스케줄 저장 (로컬 반응성 적용)
-  const handleSaveEmployee = async () => {
-    if (!editingEmp || saving) return;
-    if (!editingEmp.name.trim()) {
-      notify('입력 확인', '알바생 이름을 입력해 주세요.');
-      return;
-    }
-    const rateNum = Number(editingEmp.hourlyRate.replace(/[^0-9]/g, ''));
-    if (Number.isNaN(rateNum) || rateNum <= 0) {
-      notify('입력 확인', '올바른 시급(0원 초과)을 입력해 주세요.');
-      return;
-    }
-
-    const m = editingEmp.slot.match(/(\d+)\D+(\d+)/);
-    const sh = m ? Number(m[1]) : NaN;
-    const eh = m ? Number(m[2]) : NaN;
-    if (!m || Number.isNaN(sh) || Number.isNaN(eh) || sh >= eh) {
-      notify('입력 확인', '근무 시작 시간은 종료 시간보다 빨라야 해요.');
-      return;
-    }
-
-    const formatTimeStr = (h: number) => {
-      if (h >= 24) return '23:59:59';
-      return `${String(h).padStart(2, '0')}:00:00`;
-    };
-
-    setSaving(true);
-    try {
-      let empId = editingEmp.id;
-      let empName = editingEmp.name.trim();
-
-      if (empId !== null) {
-        // [한글 주석: 수정 시 로컬 상태 100% 즉시 반영]
-        const targetId = empId;
-        const updatedRole = editingEmp.role.trim() || '바리스타';
-        setEmployees((prev) =>
-          prev.map((e) => (e.id === targetId ? { ...e, name: empName, hourly_rate: rateNum, role: updatedRole } : e))
-        );
-        if (editingEmp.selectedColor) {
-          setEmployeeColorMap((prev) => ({ ...prev, [targetId]: editingEmp.selectedColor! }));
-        }
-        updateEmployee(targetId, { name: empName, hourly_rate: rateNum, role: updatedRole }).catch(() => {});
-      } else {
-        // [한글 주석: 신규 등록 시 로컬 상태 100% 즉시 반영]
-        const newId = Date.now();
-        empId = newId;
-        const newRole = editingEmp.role.trim() || '바리스타';
-        const newEmpObj: Employee = {
-          id: newId,
-          name: empName,
-          hourly_rate: rateNum,
-          role: newRole,
-        };
-        setEmployees((prev) => [...prev, newEmpObj]);
-        if (editingEmp.selectedColor) {
-          setEmployeeColorMap((prev) => ({ ...prev, [newId]: editingEmp.selectedColor! }));
-        }
-        createEmployee({ name: empName, hourly_rate: rateNum, role: newRole }, token ?? undefined).catch(() => {});
-      }
-
-      // [한글 주석] 기존 알바생 수정인 경우 기존 스케줄을 깨끗이 정리하고 새 요일/시간 설정으로 갱신
-      if (editingEmp.id !== null) {
-        const oldScheds = schedules.filter((s) => s.employee_id === empId);
-        await Promise.all(oldScheds.map((s) => deleteSchedule(s.id).catch(() => null)));
-      }
-
-      // [한글 주석] 이번 달 1일부터 60일 동안 선택한 요일(들)에 대해 매주 반복 근무 스케줄 자동 생성 (달력 전체 100% 연동)
-      if (editingEmp.days.length > 0) {
-        const offsets: Record<string, number> = { 일: 0, 월: 1, 화: 2, 수: 3, 목: 4, 금: 5, 토: 6 };
-        const targetDayNums = editingEmp.days.map((d) => offsets[d]).filter((v) => v !== undefined);
-
-        const now = new Date();
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const datesToCreate: string[] = [];
-
-        for (let i = 0; i < 60; i++) {
-          const testDate = new Date(startOfMonth.getFullYear(), startOfMonth.getMonth(), startOfMonth.getDate() + i);
-          if (targetDayNums.includes(testDate.getDay())) {
-            const dateStr = `${testDate.getFullYear()}-${String(testDate.getMonth() + 1).padStart(2, '0')}-${String(testDate.getDate()).padStart(2, '0')}`;
-            datesToCreate.push(dateStr);
-          }
-        }
-
-        await Promise.all(
-          datesToCreate.map((dateStr) =>
-            createSchedule({
-              employee_id: empId,
-              start_time: `${dateStr}T${formatTimeStr(sh)}`,
-              end_time: `${dateStr}T${formatTimeStr(eh)}`,
-            }).catch((err) => console.warn('스케줄 개별 생성 경고:', err))
-          )
-        );
-      }
-
-      notify('저장 성공', `'${empName}' 알바생 정보와 근무 요일/시간 스케줄이 정상 등록되었습니다.`);
-      setEditingEmp(null);
-      await loadEmployees();
-      await reloadSchedules();
-    } catch (e) {
-      notify('저장 실패', e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const ROLES = ['바리스타', '홀·카운터', '매니저', '주방'];
 
   return (
     <>
@@ -1786,234 +1440,62 @@ function EmployeeManagementCard({
         </View>
       </Card>
 
-      {/* 2순위: 전체 알바생(근무자) 통합 관리 UI 카드 */}
-      <View style={{ gap: 10, marginTop: 24 }}>
-        <View style={styles.sectionHeaderRow}>
-          <SectionTitle>{t('employeeManagement')}</SectionTitle>
-          <PressableScale style={styles.addBtn} onPress={handleAddEmployeePress}>
-            <Ionicons name="person-add" size={15} color={colors.white} />
-            <Text style={styles.addBtnText}>{t('addEmployee')}</Text>
-          </PressableScale>
+      {/* 직원 명부는 '직원·인건비' 화면 하나로 합쳤다 — 관리 허브에는 카드를 두지 않으므로
+          이 화면이 유일한 진입로다. AI 추천 바로 아래에 둔다(추천 결과에 나온 사람을
+          바로 확인·수정하러 가는 흐름). 예전엔 여기(전체 알바생 관리)와 직원·인건비 두 곳에서
+          같은 직원을 각각 등록·수정할 수 있어서, 어느 쪽이 진짜인지 알 수 없었다. */}
+      <PressableScale style={staffLinkStyles.card} onPress={() => navigation.navigate('Staff')} to={0.98}>
+        <View style={staffLinkStyles.icon}>
+          <Ionicons name="people" size={19} color={colors.espressoBrown} />
         </View>
-
-        {loading && (
-          <Card style={styles.scheduleCard}>
-            <View style={{ paddingVertical: 12, alignItems: 'center' }}>
-              <ActivityIndicator color={colors.mochaBrown} />
-            </View>
-          </Card>
-        )}
-
-        {!loading && employees.length === 0 && (
-          <Card style={styles.scheduleCard}>
-            <Text style={styles.hint}>{t('noEmployees')}</Text>
-          </Card>
-        )}
-
-        {!loading && employees.map((emp) => {
-          const firstChar = emp.name.charAt(0) || '👤';
-          const empColor = getEmployeeColor(emp.id, employeeColorMap);
-
-          // [한글 주석] 등록된 근무 스케줄에서 직원의 근무 요일을 추출하여 '월.수.금' 형태로 정렬
-          const empSchedules = schedules.filter((s) => s.employee_id === emp.id);
-          const WEEK_KO = ['일', '월', '화', '수', '목', '금', '토'];
-          const DAY_ORDER: Record<string, number> = { 월: 1, 화: 2, 수: 3, 목: 4, 금: 5, 토: 6, 일: 7 };
-          const daysSet = new Set<string>();
-
-          empSchedules.forEach((s) => {
-            const dateStr = s.date ? String(s.date).slice(0, 10) : s.start_time ? String(s.start_time).slice(0, 10) : '';
-            if (dateStr) {
-              const wd = WEEK_KO[new Date(dateStr + 'T00:00:00').getDay()];
-              if (wd) daysSet.add(wd);
-            }
-          });
-
-          const sortedDays = Array.from(daysSet).sort((a, b) => (DAY_ORDER[a] || 0) - (DAY_ORDER[b] || 0));
-          const daysText = sortedDays.length > 0 ? sortedDays.join('.') : '월.수.금';
-
-          return (
-            <Card key={emp.id} style={styles.scheduleCard}>
-              <View style={styles.shiftRow}>
-                {/* 파스텔 테마 아바타 */}
-                <View style={[styles.initialAvatar, { backgroundColor: empColor, borderWidth: 1, borderColor: 'rgba(0,0,0,0.06)' }]}>
-                  <Text style={[styles.avatarText, { color: '#2C1D17', fontWeight: 'bold' }]}>{firstChar}</Text>
-                </View>
-
-                {/* 알바생 정보 */}
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={styles.shiftWho}>{emp.name}</Text>
-                    <Badge label={emp.role || t('barista')} tone="neutral" />
-                  </View>
-
-                  {/* [한글 주석] 기존 시급 표시 대신 근무 요일(예: 월.수.금 · 재직 중)을 표시 */}
-                  <View style={styles.timeTag}>
-                    <Ionicons name="calendar-outline" size={13} color={colors.mochaBrown} />
-                    <Text style={styles.timeTagText}>{daysText}</Text>
-                  </View>
-                </View>
-
-                {/* 수정 & 퇴사/삭제 버튼 */}
-                <View style={{ flexDirection: 'row', gap: 6 }}>
-                  <PressableScale onPress={() => handleEditEmployeePress(emp)} to={0.88} style={styles.editBtnCircle}>
-                    <Ionicons name="create-outline" size={16} color={colors.mochaBrown} />
-                  </PressableScale>
-
-                  <PressableScale onPress={() => handleDeleteEmployee(emp)} to={0.88} style={[styles.editBtnCircle, { backgroundColor: '#FDF2F2', borderColor: '#F8BBD0' }]}>
-                    <Ionicons name="trash-outline" size={16} color="#B23B2E" />
-                  </PressableScale>
-                </View>
-              </View>
-            </Card>
-          );
-        })}
-      </View>
-
-      {/* 알바생 추가 / 수정 모달 */}
-      <Modal visible={editingEmp !== null} transparent animationType="fade" onRequestClose={() => setEditingEmp(null)}>
-        <View style={styles.modalRoot}>
-          {/* 위쪽/바깥 전체 어두운 배경 클릭 시 모달창 즉시 닫힘 */}
-          <Pressable style={styles.modalBackdrop} onPress={() => setEditingEmp(null)} />
-          <View style={styles.modalSheet}>
-            {/* 상단 핸들바 클릭 시 모달 닫힘 */}
-            <Pressable onPress={() => setEditingEmp(null)} style={{ paddingVertical: 2 }}>
-              <View style={styles.modalHandle} />
-            </Pressable>
-
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <Text style={{ fontSize: 16, fontWeight: 'bold', color: colors.espressoBrown }}>
-                {editingEmp?.id === null ? t('addEmployeeTitle') : t('editEmployeeTitle')}
-              </Text>
-              <PressableScale onPress={() => setEditingEmp(null)} style={{ padding: 2 }} to={0.85}>
-                <Ionicons name="close" size={20} color={colors.mochaBrown} />
-              </PressableScale>
-            </View>
-
-            {editingEmp && (
-              <View style={{ gap: 9, marginBottom: 12 }}>
-                {/* 알바생 이름 */}
-                <View style={styles.formGroup}>
-                  <Text style={[styles.formLabel, { fontSize: 13, fontWeight: 'bold' }]}>{t('employeeName')}</Text>
-                  <TextInput
-                    style={[styles.input, { fontSize: 13, paddingVertical: 7 }]}
-                    placeholder={t('employeeNamePlaceholder')}
-                    placeholderTextColor={colors.mochaBrown + '80'}
-                    value={editingEmp.name}
-                    onChangeText={(name) => setEditingEmp({ ...editingEmp, name })}
-                  />
-                </View>
-
-                {/* 직책 / 역할 */}
-                <View style={styles.formGroup}>
-                  <Text style={[styles.formLabel, { fontSize: 13, fontWeight: 'bold' }]}>{t('role')}</Text>
-                  <View style={{ flexDirection: 'row', gap: 5, flexWrap: 'wrap' }}>
-                    {ROLES.map((r) => {
-                      const isSel = editingEmp.role === r;
-                      return (
-                        <PressableScale
-                          key={r}
-                          onPress={() => setEditingEmp({ ...editingEmp, role: r })}
-                          style={{
-                            paddingHorizontal: 10,
-                            paddingVertical: 5,
-                            borderRadius: 14,
-                            backgroundColor: isSel ? colors.espressoBrown : colors.coffeeCream,
-                            borderWidth: 1,
-                            borderColor: isSel ? colors.espressoBrown : colors.mutedSand,
-                          }}
-                        >
-                          <Text style={{ fontSize: 12, fontWeight: '600', color: isSel ? colors.white : colors.espressoBrown }}>{r}</Text>
-                        </PressableScale>
-                      );
-                    })}
-                  </View>
-                </View>
-
-                {/* 시급 */}
-                <View style={styles.formGroup}>
-                  <Text style={[styles.formLabel, { fontSize: 13, fontWeight: 'bold' }]}>{t('hourlyRate')}</Text>
-                  <TextInput
-                    style={[styles.input, { fontSize: 13, paddingVertical: 7 }]}
-                    placeholder="10000"
-                    keyboardType="number-pad"
-                    placeholderTextColor={colors.mochaBrown + '80'}
-                    value={editingEmp.hourlyRate}
-                    onChangeText={(hourlyRate) => setEditingEmp({ ...editingEmp, hourlyRate })}
-                  />
-                </View>
-
-                {/* 알바생 테마 색상 */}
-                <View style={styles.formGroup}>
-                  <Text style={[styles.formLabel, { fontSize: 13, fontWeight: 'bold' }]}>{t('themeColor')}</Text>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 2 }}>
-                    {EMPLOYEE_COLORS.map((color) => {
-                      const isSelected = (editingEmp.selectedColor || '#FFE082') === color;
-                      return (
-                        <PressableScale
-                          key={color}
-                          onPress={() => setEditingEmp({ ...editingEmp, selectedColor: color })}
-                          style={{
-                            width: 24,
-                            height: 24,
-                            borderRadius: 12,
-                            backgroundColor: color,
-                            borderWidth: isSelected ? 2.5 : 1,
-                            borderColor: isSelected ? colors.espressoBrown : 'rgba(0,0,0,0.1)',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}
-                          to={0.88}
-                        >
-                          {isSelected && (
-                            <Ionicons
-                              name="checkmark"
-                              size={12}
-                              color={color === '#FFE082' || color === '#FFE0B2' ? '#333' : '#FFF'}
-                            />
-                          )}
-                        </PressableScale>
-                      );
-                    })}
-                  </View>
-                </View>
-
-                {/* 근무 요일 선택 */}
-                <View style={styles.formGroup}>
-                  <Text style={[styles.formLabel, { fontSize: 13, fontWeight: 'bold' }]}>{t('workDays')}</Text>
-                  <WeekdayButtonGroup
-                    selectedDays={editingEmp.days}
-                    onChange={(days) => setEditingEmp({ ...editingEmp, days })}
-                  />
-                </View>
-
-                {/* 근무 시간 설정 피커 */}
-                <View style={styles.formGroup}>
-                  <Text style={[styles.formLabel, { fontSize: 13, fontWeight: 'bold' }]}>근무 시간 설정 (타임 피커)</Text>
-                  <IosTimePicker
-                    value={editingEmp.slot}
-                    onChange={(slot) => setEditingEmp({ ...editingEmp, slot })}
-                  />
-                </View>
-              </View>
-            )}
-
-            <View style={styles.rowActions}>
-              <PressableScale style={styles.btnCancel} onPress={() => setEditingEmp(null)}>
-                <Text style={styles.btnCancelText}>{t('cancel')}</Text>
-              </PressableScale>
-
-              <PressableScale style={[styles.btnSave, saving && { opacity: 0.6 }]} onPress={handleSaveEmployee}>
-                <Text style={styles.btnSaveText}>{t('save')}</Text>
-              </PressableScale>
-            </View>
-          </View>
+        <View style={{ flex: 1 }}>
+          <Text style={staffLinkStyles.title}>
+            직원 · 인건비 {employees.length > 0 ? `(${employees.length}명)` : ''}
+          </Text>
+          <Text style={staffLinkStyles.desc}>
+            {employees.length > 0
+              ? employees.slice(0, 4).map((e) => e.name).join(' · ') + (employees.length > 4 ? ` 외 ${employees.length - 4}명` : '')
+              : '등록된 직원이 없어요. 여기서 추가해 주세요.'}
+          </Text>
+          <Text style={staffLinkStyles.hint}>
+            직원 추가·수정·삭제 · 고용형태 · 4대/2대보험 · 주휴수당 · 월 인건비
+          </Text>
         </View>
-      </Modal>
+        <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown} />
+      </PressableScale>
+
     </>
   );
 }
 
 
+
+// 직원 명부로 넘어가는 링크 카드 (직원 관리는 '직원·인건비' 한 곳에서만 한다)
+const staffLinkStyles = StyleSheet.create({
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: colors.white,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(140,111,86,0.14)',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    marginTop: 12, // AI 추천 카드 바로 아래
+  },
+  icon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.coffeeCream,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: { ...typography.L3, color: colors.espressoBrown },
+  desc: { ...typography.L5, color: colors.espressoBrown, marginTop: 4, lineHeight: 15 },
+  hint: { fontSize: 10, color: colors.mochaBrown, marginTop: 4, lineHeight: 14 },
+});
 
 const styles = StyleSheet.create({
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

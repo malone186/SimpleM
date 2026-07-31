@@ -1,8 +1,8 @@
 // 재고 (프론트 A) — PRD ERP-4/7, AI-2: 재고 조회 + 직접 등록 + 안전재고 알림 + OCR 입고 확인
-import { useCallback, useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View, LayoutAnimation, UIManager } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Platform, RefreshControl, ScrollView, StatusBar, StyleSheet, Text, TextInput, View, LayoutAnimation, UIManager } from 'react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -12,12 +12,17 @@ import { useNavigation } from '@react-navigation/native';
 
 import { useAuth } from '../../auth/AuthContext';
 import { useTranslation } from '../../i18n/translations';
-import { PressableScale } from '../../components/motion';
+import CameraCaptureModal from '../../components/CameraCaptureModal';
+import { FadeInUp, PressableScale } from '../../components/motion';
+import Svg, { Circle, Defs, FeGaussianBlur, Filter, LinearGradient, Path, Stop } from 'react-native-svg';
+import Brew from '../../components/brew/Brew';
 import { confirmDialog, toast } from '../../components/toast';
-import { Badge, Button, Card, ProgressBar, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
+import { Badge, Button, Card, ProgressBar, SectionTitle } from '../../components/ui';
+import { SwipeDownModal } from '../../components/ui/SwipeDownModal';
+import { preloadInterstitial, showAdWhile } from '../../lib/ads';
 import { API_BASE_URL } from '../../lib/api/client';
 import { adjustStock, createIngredient, listStocks, StockItem } from '../../lib/api/inventory';
-import { confirmOcrDocument, listOcrDocuments, rejectOcrDocument, uploadOcrImage, OcrDocument, updateOcrDocument, OcrItem } from '../../lib/api/ocr';
+import { confirmOcrDocument, listOcrDocuments, rejectOcrDocument, uploadOcrImage, OcrDocument, updateOcrDocument, OcrItem, type UploadAsset } from '../../lib/api/ocr';
 import { colors, typography } from '../../theme';
 
 const TARGET_LABEL: Record<string, string> = {
@@ -27,6 +32,13 @@ const TARGET_LABEL: Record<string, string> = {
 };
 
 const notify = (title: string, message: string) => toast(title, message);
+
+// 상단 브라운 헤더의 상태바 여백 (관리 탭과 동일 계산 — 세 탭 헤더 높이·글씨 가림 통일)
+const TOP_INSET = Platform.select({
+  android: (StatusBar.currentHeight ?? 24) + 4,
+  ios: 56,
+  default: 44, // 웹(디바이스 프레임)
+}) as number;
 
 // [한글 주석] 재고 카테고리 정의
 const CATEGORIES = [
@@ -59,6 +71,8 @@ export default function InventoryScreen() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all'); // [한글 주석] 카테고리 필터 상태
   const [drafts, setDrafts] = useState<OcrDocument[]>([]);
   const [scanning, setScanning] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false); // 웹 인앱 카메라 모달
+  const [sourceSheetOpen, setSourceSheetOpen] = useState(false); // 업로드 소스(촬영/앨범/PDF) 선택 시트
   const [actingDocId, setActingDocId] = useState<string | null>(null); // 반려/확정 요청 진행 중인 초안 ID
 
   // [한글 주석] 영수증(명세서) 초안 수정 상태 관리 변수들
@@ -108,10 +122,25 @@ export default function InventoryScreen() {
     listOcrDocuments('draft', token).then(setDrafts).catch(() => {});
   }, [token]);
 
+  // 헤더 시트에서 아래로 당겨 새로고침 — Screen 래퍼를 걷어낸 대신 재고·초안을 다시 부른다
+  const [refreshing, setRefreshing] = useState(false);
+  const onHeaderRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadStocks();
+    loadDrafts();
+    setTimeout(() => setRefreshing(false), 650);
+  }, [loadStocks, loadDrafts]);
+
   useEffect(() => {
     loadStocks();
     loadDrafts();
   }, [loadStocks, loadDrafts]);
+
+  // OCR 대기 시간에 광고를 태우려면 미리 받아둬야 한다 (로드에 1~3초).
+  // 실패하면 광고 없이 기존 흐름대로 동작한다.
+  useEffect(() => {
+    preloadInterstitial();
+  }, []);
 
   // 재료 직접 등록 → 같은 이름의 재료가 이미 있으면 새로 만들지 않고 기존 재고에 추가 입고
   const registerIngredient = async () => {
@@ -156,23 +185,18 @@ export default function InventoryScreen() {
     }
   };
 
-  const runOcr = async () => {
-    try {
-      // quality 0.6: 서버가 어차피 1280px대로 축소해 인식하므로 화질 손해 없이
-      // 업로드 용량(12MP 기준 수 MB)을 줄여 모바일 회선에서 전송 시간을 아낀다
-      let picked: ImagePicker.ImagePickerResult;
-      if (Platform.OS === 'web') {
-        picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6 });
-      } else {
-        const perm = await ImagePicker.requestCameraPermissionsAsync();
-        picked = perm.granted
-          ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.6 })
-          : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6 });
-      }
-      if (picked.canceled || !picked.assets?.length) return;
+  // 업로드 소스는 세 가지다. 거래처 명세서는 사진보다 이메일 PDF로 오는 일이 더 많아서
+  // (사장님 피드백: "발주하는 거 거의 이메일로 명세서 오니깐") 파일 선택이 사실상 주 경로다.
+  // PDF는 텍스트가 살아 있어 사진보다 인식 정확도도 높다.
+  type OcrSource = 'camera' | 'album' | 'file';
 
-      setScanning(true);
-      const doc = await uploadOcrImage(picked.assets[0], token);
+  // 업로드는 소스가 무엇이든 여기 한 곳으로 모인다 (촬영·앨범·파일·웹 카메라)
+  const uploadAsset = async (asset: UploadAsset) => {
+    setScanning(true);
+    try {
+      // 인식이 도는 동안 전면 광고를 띄우고, 광고가 닫히면 결과가 바로 나온다.
+      // 광고가 없으면(웹·미로드·노출 간격) 지금까지와 똑같이 결과만 기다린다.
+      const doc = await showAdWhile(uploadOcrImage(asset, token));
       setDrafts((prev) => [doc, ...prev]);
       const secs = doc.elapsed_sec != null ? ` (${doc.elapsed_sec}초)` : '';
       notify('인식 완료' + secs, `${doc.result.items.length}개 품목을 인식했어요. 내용을 확인하고 반영하세요.`);
@@ -181,6 +205,72 @@ export default function InventoryScreen() {
     } finally {
       setScanning(false);
     }
+  };
+
+  const pickFromFiles = async (): Promise<UploadAsset | null> => {
+    // expo-document-picker는 네이티브 모듈이라 구버전 앱에는 없을 수 있다. 정적 import로
+    // 올리면 그런 빌드에서 화면 진입만으로 앱이 죽으므로 필요할 때만 안전하게 불러온다.
+    let DocumentPicker: any;
+    try {
+      DocumentPicker = require('expo-document-picker');
+    } catch {
+      notify('파일 선택을 쓸 수 없어요', '이 버전 앱에는 파일 선택 기능이 없어요. 앱을 업데이트하거나 사진 촬영·앨범을 이용해 주세요.');
+      return null;
+    }
+    const res = await DocumentPicker.getDocumentAsync({
+      type: ['application/pdf', 'image/*'],
+      copyToCacheDirectory: true,
+      multiple: false,
+    });
+    if (res.canceled || !res.assets?.length) return null;
+    const a = res.assets[0];
+    return { uri: a.uri, mimeType: a.mimeType ?? null, fileName: a.name ?? null };
+  };
+
+  const runOcr = async (source: OcrSource) => {
+    if (scanning) return;
+    try {
+      let asset: UploadAsset | null = null;
+
+      if (source === 'file') {
+        asset = await pickFromFiles();
+      } else if (source === 'camera' && Platform.OS === 'web') {
+        // 웹은 OS 카메라 앱을 띄울 수 없어 앱 안에 카메라 화면을 연다.
+        // 실제 업로드는 onCapture 콜백(uploadCaptured)에서 이어진다.
+        setCameraOpen(true);
+        return;
+      } else {
+        // quality 0.6: 서버가 어차피 1600px대로 축소해 인식하므로 화질 손해 없이
+        // 업로드 용량(12MP 기준 수 MB)을 줄여 모바일 회선에서 전송 시간을 아낀다
+        let picked: ImagePicker.ImagePickerResult;
+        if (source === 'camera') {
+          const perm = await ImagePicker.requestCameraPermissionsAsync();
+          if (!perm.granted) {
+            notify('카메라 권한이 필요해요', '설정에서 카메라 권한을 허용하거나 앨범·파일에서 골라 주세요.');
+            return;
+          }
+          picked = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.6 });
+        } else {
+          picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6 });
+        }
+        if (picked.canceled || !picked.assets?.length) return;
+        const a = picked.assets[0];
+        asset = { uri: a.uri, mimeType: a.mimeType ?? null, fileName: a.fileName ?? null };
+      }
+
+      if (!asset) return;
+      await uploadAsset(asset);
+    } catch (e) {
+      notify('인식 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+    }
+  };
+
+  // 시트에서 소스를 고르면 시트를 먼저 닫고 피커를 띄운다.
+  // 바로 띄우면 iOS에서 RN 모달과 OS 카메라/파일 창이 겹쳐 아무것도 안 뜨는 일이 있어
+  // 닫힘 애니메이션(약 250ms)이 끝난 뒤로 한 틱 미룬다.
+  const chooseSource = (source: OcrSource) => {
+    setSourceSheetOpen(false);
+    setTimeout(() => runOcr(source), 280);
   };
 
   // 문서 종류별 확정 대상 — 매입 명세서는 재고 입고, 영수증은 지출, 일마감표는 판매 기록
@@ -354,11 +444,71 @@ export default function InventoryScreen() {
     return stocks.filter((s) => getCategory(s.name) === selectedCategory);
   }, [stocks, selectedCategory]);
 
-  return (
-    <Screen>
-      <ScreenTitle title={t('inventoryTitle')} subtitle={t('inventorySubtitle')} />
+  // 스크롤에 따라 브라운 헤더가 천천히 올라가며 투명해지는 패럴럭스+페이드 (홈 화면과 동일)
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const headerTranslate = scrollY.interpolate({ inputRange: [0, 300], outputRange: [0, 140], extrapolateLeft: 'clamp' });
+  const headerOpacity = scrollY.interpolate({ inputRange: [0, 180], outputRange: [1, 0.35], extrapolate: 'clamp' });
 
-      {/* 메뉴·레시피 관리 진입 */}
+  return (
+    <View style={styles.brownRoot}>
+      {/* [딥브라운 오로라 배경] 관리 탭과 동일 — 상단 딥브라운에서 하단 크림으로 녹아든다 */}
+      <View style={StyleSheet.absoluteFill}>
+        <Svg width="100%" height="100%" preserveAspectRatio="none">
+          <Defs>
+            <LinearGradient id="invAurora" x1="0%" y1="0%" x2="0%" y2="100%">
+              <Stop offset="0%" stopColor="#1E1612" />
+              <Stop offset="35%" stopColor="#251C17" />
+              <Stop offset="70%" stopColor="#6E5544" stopOpacity="0.35" />
+              <Stop offset="100%" stopColor={colors.creamSand} />
+            </LinearGradient>
+            <Filter id="invGlow" x="-50%" y="-50%" width="200%" height="200%">
+              <FeGaussianBlur stdDeviation="70" />
+            </Filter>
+          </Defs>
+          <Path d="M0 0 H2000 V2000 H0 Z" fill="url(#invAurora)" />
+          <Circle cx="85%" cy="12%" r="140" fill="#E28257" filter="url(#invGlow)" opacity="0.25" />
+          <Circle cx="15%" cy="22%" r="130" fill="#C29D7A" filter="url(#invGlow)" opacity="0.2" />
+          <Circle cx="60%" cy="4%" r="120" fill="#88BCB5" filter="url(#invGlow)" opacity="0.16" />
+        </Svg>
+      </View>
+
+      {/* 헤더를 스크롤 안에 두고, 스크롤 시 천천히 위로+페이드 (홈 화면과 동일) */}
+      <Animated.ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ flexGrow: 1 }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        scrollEventThrottle={16}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onHeaderRefresh}
+            tintColor={colors.mochaBrown}
+            colors={[colors.pointOrange]}
+          />
+        }
+      >
+        {/* 브라운 헤더 — 스크롤 시 패럴럭스(천천히 위로) + 페이드 */}
+        <Animated.View style={{ transform: [{ translateY: headerTranslate }], opacity: headerOpacity }}>
+          <View style={styles.brownHeader}>
+            <View style={styles.brownHeaderLeft}>
+              <View>
+                <Text style={styles.brownHeaderTitle}>{t('inventoryTitle')}</Text>
+                <Text style={styles.brownHeaderSub}>{t('inventorySubtitle')}</Text>
+              </View>
+            </View>
+            <View style={styles.brownHeaderRight}>
+              {/* welcome 일러스트는 clipboard(317)보다 프레임 여백이 커(380) 작아 보인다 —
+                  캐릭터 크기를 관리 탭과 맞추려고 프레임 비율(380/317)만큼 키운다 */}
+              <Brew mood="welcome" size={144} />
+            </View>
+          </View>
+        </Animated.View>
+
+        {/* 둥근 크림 시트 — 콘텐츠가 위로 올라오며 헤더를 덮는다 */}
+        <View style={styles.brownSheet}>
+          {/* 메뉴·레시피 관리 진입 */}
       <PressableScale style={styles.menuNav} onPress={() => navigation.navigate('Menu')} to={0.97}>
         <View style={styles.menuNavIcon}>
           <Ionicons name="cafe-outline" size={20} color={colors.espressoBrown} />
@@ -370,23 +520,31 @@ export default function InventoryScreen() {
         <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown} />
       </PressableScale>
 
-      {/* OCR 입고 */}
+      {/* OCR 입고 — 카드를 누르면 소스 선택 시트(촬영/앨범/PDF)가 열린다 */}
       <Card>
-        <View style={styles.ocrHead}>
+        <PressableScale
+          style={styles.ocrHead}
+          onPress={() => setSourceSheetOpen(true)}
+          disabled={scanning}
+          to={0.98}
+        >
+          <View style={styles.ocrHeadIcon}>
+            <Ionicons name="scan-outline" size={20} color={colors.pointOrange} />
+          </View>
           <View style={{ flex: 1 }}>
-            <SectionTitle>{language === 'en' ? 'Receipt OCR Inbound' : '명세서 촬영 입고'}</SectionTitle>
-            {/* [한글 주석] 인식 중일 때는 텍스트를 변경하여 사용자에게 상태를 피드백합니다 */}
+            <SectionTitle>{language === 'en' ? 'Statement OCR Inbound' : '명세서 자동 입고'}</SectionTitle>
             <Text style={styles.hint}>
               {scanning
                 ? (language === 'en' ? 'Recognizing... (Takes a few seconds)' : '인식 중… (수 초 걸려요)')
-                : (language === 'en' ? 'Take a photo to auto-detect items, prices & quantities for inbound draft' : '사진을 찍으면 상품·단가·수량을 인식해 입고 초안을 만들어요')}
+                : (language === 'en'
+                  ? 'Tap to pick a photo or PDF — items, prices & quantities become an inbound draft'
+                  : '눌러서 사진이나 PDF를 고르면, 상품·단가·수량을 읽어 입고 초안을 만들어요')}
             </Text>
           </View>
-          {/* [한글 주석] 우측 상단의 카메라 아이콘에 터치 인터랙션과 촬영 기능(runOcr)을 부여합니다 */}
-          <PressableScale onPress={runOcr} disabled={scanning} to={0.9}>
-            <Ionicons name="camera" size={24} color={scanning ? colors.mutedSand : colors.pointOrange} />
-          </PressableScale>
-        </View>
+          {scanning
+            ? <ActivityIndicator color={colors.pointOrange} />
+            : <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown} />}
+        </PressableScale>
       </Card>
 
       {/* OCR 인식 초안 확인 */}
@@ -592,7 +750,7 @@ export default function InventoryScreen() {
           </SectionTitle>
           <PressableScale style={styles.addBtn} onPress={() => setFormOpen((v) => !v)} to={0.92}>
             <Ionicons name={formOpen ? 'remove' : 'add'} size={16} color={colors.white} />
-            <Text style={styles.confirmText}>{formOpen ? (language === 'en' ? 'Close' : '닫기') : (language === 'en' ? '+ Add Ingredient Directly' : '+ 재료 직접 등록')}</Text>
+            <Text style={styles.confirmText}>{formOpen ? (language === 'en' ? 'Close' : '닫기') : (language === 'en' ? 'Add Ingredient Directly' : '재료 직접 등록')}</Text>
           </PressableScale>
         </View>
 
@@ -682,7 +840,7 @@ export default function InventoryScreen() {
             <Text style={styles.hint}>
               {selectedCategory === 'all'
                 ? (language === 'en'
-                    ? 'No stock registered yet. Take a receipt photo or tap "+ Add Ingredient Directly" to start.'
+                    ? 'No stock registered yet. Take a receipt photo or tap "Add Ingredient Directly" to start.'
                     : '아직 등록된 재고가 없어요. 영수증을 촬영해 입고하거나 "재료 직접 등록"으로 시작해 보세요.')
                 : (language === 'en' ? 'No stock found in this category.' : '해당 카테고리에 속하는 재고가 없어요.')}
             </Text>
@@ -751,12 +909,153 @@ export default function InventoryScreen() {
           })
         )}
       </View>
-    </Screen>
+
+      {/* 명세서 소스 선택 시트 — 촬영 / 앨범 / 파일(PDF) */}
+      <SwipeDownModal visible={sourceSheetOpen} onClose={() => setSourceSheetOpen(false)}>
+        <Text style={styles.sheetTitle}>
+          {language === 'en' ? 'Add a statement' : '명세서 불러오기'}
+        </Text>
+        <Text style={styles.sheetSub}>
+          {language === 'en'
+            ? 'Pick where the statement comes from'
+            : '명세서를 어디서 가져올지 골라 주세요'}
+        </Text>
+
+        <View style={styles.sheetList}>
+          {/* 네이티브는 OS 카메라 앱, 웹은 앱 안 카메라 화면(CameraCaptureModal) */}
+          <OcrSourceRow
+            icon="camera-outline"
+            label={language === 'en' ? 'Camera' : '촬영'}
+            hint={language === 'en' ? 'Shoot the statement now' : '지금 카메라로 찍기'}
+            onPress={() => chooseSource('camera')}
+          />
+          <OcrSourceRow
+            icon="images-outline"
+            label={language === 'en' ? 'Photo library' : '앨범'}
+            hint={language === 'en' ? 'Pick a saved photo' : '저장된 사진에서 고르기'}
+            onPress={() => chooseSource('album')}
+          />
+          <OcrSourceRow
+            icon="document-attach-outline"
+            label={language === 'en' ? 'File · PDF' : '파일 · PDF'}
+            hint={language === 'en' ? 'PDF received by email' : '이메일로 받은 PDF 명세서'}
+            onPress={() => chooseSource('file')}
+          />
+        </View>
+
+        <PressableScale style={styles.sheetCancel} onPress={() => setSourceSheetOpen(false)} to={0.97}>
+          <Text style={styles.sheetCancelText}>{language === 'en' ? 'Close' : '닫기'}</Text>
+        </PressableScale>
+      </SwipeDownModal>
+
+      {/* 웹 전용 인앱 카메라 — 네이티브에서는 아무것도 렌더하지 않는다 */}
+      <CameraCaptureModal
+        visible={cameraOpen}
+        onClose={() => setCameraOpen(false)}
+        onCapture={(photo) => {
+          setCameraOpen(false);
+          uploadAsset({ uri: photo.uri, mimeType: photo.mimeType, fileName: photo.fileName });
+        }}
+      />
+        </View>
+      </Animated.ScrollView>
+    </View>
+  );
+}
+
+// 소스 선택 시트의 한 줄 (촬영 / 앨범 / 파일)
+function OcrSourceRow({
+  icon,
+  label,
+  hint,
+  onPress,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  hint?: string;
+  onPress: () => void;
+}) {
+  return (
+    <PressableScale style={styles.ocrSourceRowBtn} onPress={onPress} to={0.97}>
+      <View style={styles.ocrSourceRowIcon}>
+        <Ionicons name={icon} size={20} color={colors.pointOrange} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.ocrSourceLabel}>{label}</Text>
+        {hint ? <Text style={styles.ocrSourceHint}>{hint}</Text> : null}
+      </View>
+      <Ionicons name="chevron-forward" size={16} color={colors.mochaBrown} />
+    </PressableScale>
   );
 }
 
 const styles = StyleSheet.create({
-  ocrHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  // [관리 탭과 동일] 딥브라운 오로라 루트 + 고정 브라운 헤더 + 둥근 크림 시트
+  brownRoot: { flex: 1, backgroundColor: '#1E1612' },
+  // [세 탭 헤더 통일] 좌측 세로열 + 우측 마스코트, 마스코트 높이가 헤더 높이를 정한다
+  brownHeader: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    justifyContent: 'space-between',
+    paddingTop: TOP_INSET,
+    paddingBottom: 12,
+    paddingHorizontal: 18,
+    gap: 10,
+  },
+  brownHeaderLeft: { flex: 1, justifyContent: 'center' },
+  brownHeaderText: { flex: 1, paddingRight: 8 },
+  // 관리 탭 헤더와 같은 높이 — 관리는 우측에 (설정 칩 + 마스코트)가 세로로 쌓여 ~126px다.
+  // 재고엔 설정 칩이 없으므로 같은 높이를 확보하고 마스코트를 하단 정렬해 브라운 밴드 높이를 맞춘다.
+  // 관리 탭 헤더 높이(설정칩+마스코트 ~153)에 맞춰 마스코트를 하단 정렬 — 재고엔 설정칩이 없어 minHeight로 확보
+  brownHeaderRight: { alignItems: 'flex-end', justifyContent: 'flex-end', minHeight: 154 },
+  brownHeaderTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
+  brownHeaderSub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
+  brownSheet: {
+    flexGrow: 1,
+    backgroundColor: colors.creamSand,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 24,
+    gap: 18, // 메뉴관리 · 명세서 입고 · 재고현황 세 섹션 사이 간격
+  },
+  brownSheetContent: { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 24 },
+  ocrHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  ocrHeadIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: colors.coffeeCream,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ocrSourceRowBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: colors.white,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  ocrSourceRowIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    backgroundColor: colors.coffeeCream,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ocrSourceLabel: { ...typography.L3, fontSize: 14, color: colors.espressoBrown, fontWeight: '800' },
+  ocrSourceHint: { ...typography.L5, color: colors.mochaBrown, fontWeight: '600', marginTop: 2 },
+  sheetTitle: { ...typography.L3, fontSize: 17, color: colors.espressoBrown, fontWeight: '800' },
+  sheetSub: { ...typography.L5, color: colors.mochaBrown, marginTop: 4 },
+  sheetList: { gap: 10, marginTop: 16 },
+  sheetCancel: { alignItems: 'center', paddingVertical: 14, marginTop: 6 },
+  sheetCancelText: { ...typography.L3, fontSize: 14, color: colors.mochaBrown, fontWeight: '700' },
   hint: { ...typography.L5, color: colors.mochaBrown, marginTop: 4 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   menuNav: {
@@ -768,6 +1067,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.mutedSand,
     padding: 14,
+    marginTop: 12,
+    marginBottom: 10,
   },
   menuNavIcon: {
     width: 40,

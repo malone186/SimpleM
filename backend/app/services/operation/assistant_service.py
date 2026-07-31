@@ -149,15 +149,34 @@ def _schedule_to_task_item(schedule: Schedule, employee: Optional[Employee], sta
 #   향후 Todo 모델 도입 시 이 함수들만 교체하면 됩니다.
 # ═══════════════════════════════════════════════════
 
-def _fetch_completed_tasks(db: Session, target_date: date) -> List[TaskItem]:
-    """오늘 완료된 작업 목록을 조회합니다.
+def _scoped_schedule_query(db: Session, store_id: Optional[str]):
+    """Schedule×Employee 기본 쿼리 — store_id가 있으면 그 매장 직원의 스케줄만.
+
+    [동기화 버그 수정] 예전엔 매장 구분 없이 전 매장 스케줄을 읽어서, 음성 브리핑·
+    완료 알림에 남의 매장(또는 데모) 직원이 섞여 나왔다. 앱에 등록한 내 직원과
+    화면·음성이 따로 노는 원인이었다. store_id가 없으면(비로그인·구버전 호출)
+    기존처럼 전체를 본다 — 하위 호환.
+    """
+    query = db.query(Schedule, Employee)
+    if store_id:
+        # 매장 스코프는 직원 소속으로 판정하므로 inner join — 직원이 지워진 고아
+        # 스케줄은 어느 매장인지 알 수 없어 스코프 조회에서는 제외된다.
+        query = query.join(Employee, Schedule.employee_id == Employee.id)
+        query = query.filter(Employee.store_id == store_id)
+    else:
+        query = query.outerjoin(Employee, Schedule.employee_id == Employee.id)
+    return query
+
+
+def _fetch_completed_tasks(db: Session, target_date: date,
+                           store_id: Optional[str] = None) -> List[TaskItem]:
+    """오늘 완료된 작업 목록을 조회합니다 (store_id가 있으면 그 매장 직원만).
 
     판별 기준: Schedule의 actual_end_time이 존재하면 '완료'로 간주합니다.
     """
     date_str = target_date.strftime("%Y-%m-%d")
     schedules = (
-        db.query(Schedule, Employee)
-        .outerjoin(Employee, Schedule.employee_id == Employee.id)
+        _scoped_schedule_query(db, store_id)
         .filter(Schedule.date == date_str)
         .filter(Schedule.actual_end_time.isnot(None))
         .order_by(Schedule.start_time.asc())
@@ -166,15 +185,15 @@ def _fetch_completed_tasks(db: Session, target_date: date) -> List[TaskItem]:
     return [_schedule_to_task_item(s, e, "completed") for s, e in schedules]
 
 
-def _fetch_pending_tasks(db: Session, target_date: date) -> List[TaskItem]:
-    """오늘 아직 완료되지 않은 대기 작업 목록을 조회합니다.
+def _fetch_pending_tasks(db: Session, target_date: date,
+                         store_id: Optional[str] = None) -> List[TaskItem]:
+    """오늘 아직 완료되지 않은 대기 작업 목록을 조회합니다 (store_id가 있으면 그 매장만).
 
     판별 기준: Schedule의 actual_end_time이 NULL이면 '대기 중'으로 간주합니다.
     """
     date_str = target_date.strftime("%Y-%m-%d")
     schedules = (
-        db.query(Schedule, Employee)
-        .outerjoin(Employee, Schedule.employee_id == Employee.id)
+        _scoped_schedule_query(db, store_id)
         .filter(Schedule.date == date_str)
         .filter(Schedule.actual_end_time.is_(None))
         .order_by(Schedule.start_time.asc())
@@ -265,10 +284,11 @@ def get_next_task(pending: List[TaskItem]) -> Optional[TaskItem]:
     return sorted_tasks[0]
 
 
-def get_pending_tasks(db: Session, limit: int = 5) -> List[TaskItem]:
+def get_pending_tasks(db: Session, limit: int = 5,
+                      store_id: Optional[str] = None) -> List[TaskItem]:
     """DB에서 오늘 남은 대기 할 일을 상위 N건 조회하여 반환합니다."""
     today = date.today()
-    all_pending = _fetch_pending_tasks(db, today)
+    all_pending = _fetch_pending_tasks(db, today, store_id=store_id)
 
     # 우선순위 → 마감 순으로 정렬 후 상위 N건
     def _sort_key(t: TaskItem):
@@ -282,16 +302,17 @@ def get_pending_tasks(db: Session, limit: int = 5) -> List[TaskItem]:
 # [한글 주석] 브리핑 조립 — API 레이어에서 호출하는 최상위 함수
 # ═══════════════════════════════════════════════════
 
-def assemble_briefing(db: Session, limit: int = 3) -> BriefingResponse:
+def assemble_briefing(db: Session, limit: int = 3,
+                      store_id: Optional[str] = None) -> BriefingResponse:
     """오늘의 전체 브리핑을 조립하여 BriefingResponse를 반환합니다.
 
-    1. DB에서 완료/대기 목록 조회
+    1. DB에서 완료/대기 목록 조회 (store_id가 있으면 그 매장 직원의 스케줄만)
     2. 음성 문단(speech_text) 생성
     3. 응답 스키마에 담아 반환
     """
     today = date.today()
-    completed = _fetch_completed_tasks(db, today)
-    pending = _fetch_pending_tasks(db, today)
+    completed = _fetch_completed_tasks(db, today, store_id=store_id)
+    pending = _fetch_pending_tasks(db, today, store_id=store_id)
     speech_text = build_voice_briefing(completed, pending, limit=limit)
 
     return BriefingResponse(
@@ -301,10 +322,10 @@ def assemble_briefing(db: Session, limit: int = 3) -> BriefingResponse:
     )
 
 
-def assemble_next_task(db: Session) -> NextTaskResponse:
+def assemble_next_task(db: Session, store_id: Optional[str] = None) -> NextTaskResponse:
     """다음 할 일 1건을 조립하여 NextTaskResponse를 반환합니다."""
     today = date.today()
-    pending = _fetch_pending_tasks(db, today)
+    pending = _fetch_pending_tasks(db, today, store_id=store_id)
     next_task = get_next_task(pending)
 
     if next_task is None:
@@ -328,16 +349,17 @@ def assemble_next_task(db: Session) -> NextTaskResponse:
 # [한글 주석] 2단계: 알림 폴링 — 새 완료 이벤트 감지
 # ═══════════════════════════════════════════════════
 
-def _fetch_new_completions(db: Session, since: datetime) -> List[NotificationItem]:
+def _fetch_new_completions(db: Session, since: datetime,
+                           store_id: Optional[str] = None) -> List[NotificationItem]:
     """since 이후에 actual_end_time이 채워진(완료된) 스케줄을 조회합니다.
 
     비유: "마지막으로 확인한 이후에 새로 끝난 일이 있나?"를 묻는 것입니다.
     프론트엔드가 주기적으로 since 값을 갱신하며 호출하면,
     새로 완료된 건만 차분(diff)으로 받아갈 수 있습니다.
+    store_id가 있으면 그 매장 직원의 완료만 — 남의 매장 완료가 음성으로 읽히지 않게.
     """
     schedules = (
-        db.query(Schedule, Employee)
-        .outerjoin(Employee, Schedule.employee_id == Employee.id)
+        _scoped_schedule_query(db, store_id)
         .filter(Schedule.actual_end_time.isnot(None))
         .filter(Schedule.actual_end_time > since)
         .order_by(Schedule.actual_end_time.asc())
@@ -370,12 +392,13 @@ def _fetch_new_completions(db: Session, since: datetime) -> List[NotificationIte
     return notifications
 
 
-def assemble_notifications(db: Session, since: datetime) -> NotificationsResponse:
+def assemble_notifications(db: Session, since: datetime,
+                           store_id: Optional[str] = None) -> NotificationsResponse:
     """since 이후의 새 알림을 조립하여 NotificationsResponse를 반환합니다.
 
     프론트엔드는 응답의 server_time을 다음 폴링의 since로 사용합니다.
     """
-    notifications = _fetch_new_completions(db, since)
+    notifications = _fetch_new_completions(db, since, store_id=store_id)
     return NotificationsResponse(
         notifications=notifications,
         server_time=datetime.now(),
@@ -601,6 +624,7 @@ def handle_voice_command(
     text: str,
     pending_action: Optional[PendingAction] = None,
     confirm: bool = False,
+    store_id: Optional[str] = None,
 ) -> VoiceCommandResponse:
     """음성 명령 한 건을 해석하고, 안전하면 실행합니다.
 
@@ -653,7 +677,7 @@ def handle_voice_command(
             )
 
         # 사용자가 승인 → 여기서 비로소 실행합니다.
-        return _execute_confirmed_action(db, transcript, pending_action)
+        return _execute_confirmed_action(db, transcript, pending_action, store_id=store_id)
 
     # ══════════════════════════════════════
     # 경로 B: 새 명령 파싱
@@ -675,12 +699,12 @@ def handle_voice_command(
         )
 
     today = date.today()
-    pending = _fetch_pending_tasks(db, today)
+    pending = _fetch_pending_tasks(db, today, store_id=store_id)
 
     # ── read_pending: 읽기 전용이라 확인 없이 바로 수행 ──
     if intent == "read_pending":
-        top_tasks = get_pending_tasks(db, limit=5)
-        completed = _fetch_completed_tasks(db, today)
+        top_tasks = get_pending_tasks(db, limit=5, store_id=store_id)
+        completed = _fetch_completed_tasks(db, today, store_id=store_id)
         return VoiceCommandResponse(
             transcript=transcript,
             intent=intent,
@@ -749,28 +773,48 @@ def handle_voice_command(
         cleaned_title = re.sub(r"(추가해\s*줘|추가해|추가|등록해\s*줘|등록해|등록|만들어\s*줘|만들어|해\s*줘)", "", cleaned_title).strip()
         task_title = cleaned_title if cleaned_title else transcript
 
+        # [동기화 버그 수정] 예전엔 employee_id=1 하드코딩 + 실패 시 가짜 직원("소지원")
+        # 더미 응답을 만들었다 — 앱에 등록된 실제 직원 명단과 전혀 동기화되지 않았다.
+        # 이제 발화에서 직원 이름을 찾고, 없으면 이 매장의 등록 직원 중 첫 번째에 붙인다.
+        emp_query = db.query(Employee)
+        if store_id:
+            emp_query = emp_query.filter(Employee.store_id == store_id)
+        employees = emp_query.order_by(Employee.id.asc()).all()
+        if not employees:
+            return VoiceCommandResponse(
+                transcript=transcript,
+                intent=intent,
+                confidence=confidence,
+                status="failed",
+                executed=False,
+                speech_text="등록된 직원이 없어 할 일을 추가하지 못했습니다. 직원 관리에서 먼저 직원을 등록해 주세요.",
+            )
+        target_emp = next((e for e in employees if e.name and e.name in transcript), employees[0])
+
         try:
-            from app.schemas.operation import ScheduleCreate
+            # create_schedule은 개별 인자를 받는다 (예전 코드는 ScheduleCreate 객체를 넘겨
+            # 항상 TypeError → 가짜 직원 더미 응답으로 새던 원인). 시작≥종료면 거절되므로
+            # '지금부터 1시간'을 기본 슬롯으로 잡는다.
+            from datetime import timedelta
+            now = datetime.now()
             new_sched = OperationService.create_schedule(
                 db,
-                ScheduleCreate(
-                    employee_id=1,
-                    start_time=datetime.now(),
-                    end_time=datetime.now(),
-                    date=date.today(),
-                )
+                employee_id=target_emp.id,
+                start_time=now,
+                end_time=now + timedelta(hours=1),
             )
-            created_task = _to_task_item(new_sched)
-            created_task.title = task_title
-        except Exception:
-            created_task = TaskItem(
-                id=9999,
-                title=task_title,
-                priority=1,
-                deadline=None,
-                employee_name="소지원",
-                status="pending",
+        except Exception as e:
+            return VoiceCommandResponse(
+                transcript=transcript,
+                intent=intent,
+                confidence=confidence,
+                status="failed",
+                executed=False,
+                speech_text=f"할 일을 추가하지 못했습니다. {str(e)}",
             )
+
+        created_task = _schedule_to_task_item(new_sched, target_emp, "pending")
+        created_task.title = task_title
 
         return VoiceCommandResponse(
             transcript=transcript,
@@ -778,9 +822,9 @@ def handle_voice_command(
             confidence=confidence,
             status="executed",
             executed=True,
-            speech_text=f"투두에 '{task_title}' 할 일을 성공적으로 추가했습니다! 📝",
+            speech_text=f"{target_emp.name} 님 담당으로 '{task_title}' 할 일을 추가했습니다.",
             task=created_task,
-            tasks=get_pending_tasks(db),
+            tasks=get_pending_tasks(db, store_id=store_id),
         )
 
     # ── 안전 규칙 2: complete_task는 파괴적 → 확인 문장만 먼저 반환 ──
@@ -804,7 +848,8 @@ def handle_voice_command(
 
         # confirm=True는 화면 버튼 등으로 이미 승인을 받은 경우입니다.
         if confirm:
-            return _execute_confirmed_action(db, transcript, action, confidence=confidence)
+            return _execute_confirmed_action(db, transcript, action,
+                                             confidence=confidence, store_id=store_id)
 
         return VoiceCommandResponse(
             transcript=transcript,
@@ -833,10 +878,17 @@ def _execute_confirmed_action(
     transcript: str,
     action: PendingAction,
     confidence: float = 1.0,
+    store_id: Optional[str] = None,
 ) -> VoiceCommandResponse:
     """사용자 승인이 끝난 파괴적 명령을 실제로 실행합니다."""
     # 확인을 주고받는 사이에 상황이 바뀌었을 수 있으므로 대상을 다시 확인합니다.
     schedule = OperationService.get_schedule_by_id(db, action.task_id)
+    # [매장 스코프] 로그인 매장이 있으면 그 매장 직원의 스케줄만 완료 처리할 수 있다 —
+    # 완료 시각은 급여 계산 입력값이라 남의 매장 기록을 건드리면 안 된다.
+    if schedule is not None and store_id:
+        emp = db.query(Employee).filter(Employee.id == schedule.employee_id).first()
+        if emp is None or emp.store_id != store_id:
+            schedule = None
     if schedule is None:
         return VoiceCommandResponse(
             transcript=transcript,
@@ -885,7 +937,7 @@ def _execute_confirmed_action(
         )
 
     # 완료 후 남은 할 일을 함께 안내합니다.
-    remaining = _fetch_pending_tasks(db, date.today())
+    remaining = _fetch_pending_tasks(db, date.today(), store_id=store_id)
     if remaining:
         tail = f" 남은 할 일은 {_native_count(len(remaining))} 건입니다."
     else:

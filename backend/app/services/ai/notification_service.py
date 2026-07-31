@@ -28,6 +28,9 @@ COMPLIANCE_MILESTONES = [1, 7, 30]
 
 # 재고 소진 알림 기준 — 이 일수 이내로 떨어질 품목만 (발주하고 받는 데 걸리는 시간)
 STOCK_LEAD_DAYS = 3
+# 안전재고를 따로 설정하지 않은 재료에 적용할 기본 부족 기준
+# (프론트 OrderScreen의 DEFAULT_LOW_STOCK과 같은 값이어야 화면과 알림이 어긋나지 않는다)
+DEFAULT_LOW_STOCK = 3
 
 # 설비 이상은 상황이 계속되면 다시 알려야 하지만, 매 시간 울리면 안 된다
 SENSOR_COOLDOWN_HOURS = 6
@@ -267,6 +270,41 @@ def check_report(db, store_id: str, settings, now: datetime) -> list[str]:
 # 규칙 3 — 재고 소진 임박
 # ---------------------------------------------------------------------------
 
+def _scan_low_quantity(db, store_id: str) -> list[dict]:
+    """소비 이력과 무관하게 '남은 수량 자체가 적은' 재료를 찾는다.
+
+    안전재고를 설정한 재료는 그 기준으로, 설정하지 않은 재료(대부분)는 DEFAULT_LOW_STOCK
+    기준으로 본다. 예측 기반 알림이 데이터 부족으로 침묵하는 매장을 위한 안전망이다.
+    """
+    from app.models.inventory import Ingredient, Stock
+
+    try:
+        rows = (
+            db.query(Stock, Ingredient.name, Ingredient.unit)
+            .join(Ingredient, Stock.ingredient_id == Ingredient.id)
+            .filter(Ingredient.store_id == store_id)
+            .all()
+        )
+    except Exception:
+        logger.exception("재고 수량 스캔 실패 (%s)", store_id)
+        return []
+
+    out = []
+    for stock, name, unit in rows:
+        current = float(stock.current_quantity or 0)
+        threshold = float(stock.safety_quantity or 0) or DEFAULT_LOW_STOCK
+        if current < threshold:
+            out.append({
+                "ingredient": name,
+                "unit": unit,
+                "current_quantity": current,
+                "threshold": threshold,
+                "days_until_stockout": None,
+            })
+    out.sort(key=lambda r: r["current_quantity"])
+    return out
+
+
 def check_stock(db, store_id: str, settings, now: datetime) -> list[str]:
     """'이미 부족'이 아니라 '며칠 뒤 소진'을 알린다 — 그래야 발주할 시간이 남는다.
 
@@ -294,16 +332,35 @@ def check_stock(db, store_id: str, settings, now: datetime) -> list[str]:
         r for r in recs
         if r.get("days_until_stockout") is not None and r["days_until_stockout"] <= STOCK_LEAD_DAYS
     ]
+
+    # 소진 예측은 최근 소비 이력이 있어야 나온다 — 판매를 앱에 안 넣는 매장에서는
+    # 예측이 통째로 비어 알림이 한 번도 안 간다. 사장님이 원한 건 거창한 예측이 아니라
+    # "몇 개 밑으로 떨어지면 알려 달라"였으므로, 절대 수량 기준을 함께 본다.
+    low_items = _scan_low_quantity(db, store_id)
+    known = {r.get("ingredient") for r in urgent_items}
+    for it in low_items:
+        if it["ingredient"] not in known:
+            urgent_items.append(it)
+
     if not urgent_items:
         return []
 
-    urgent_items.sort(key=lambda r: r["days_until_stockout"])
+    # 소진일을 아는 품목이 먼저, 그 다음이 '수량이 적다'만 아는 품목
+    urgent_items.sort(key=lambda r: (r.get("days_until_stockout") is None,
+                                     r.get("days_until_stockout") or 0))
     head = urgent_items[0]
-    parts = [f"{r['ingredient']} {r['days_until_stockout']:.0f}일" for r in urgent_items[:3]]
+
+    def _label(r: dict) -> str:
+        d = r.get("days_until_stockout")
+        if d is not None:
+            return f"{r['ingredient']} {d:.0f}일"
+        return f"{r['ingredient']} {r.get('current_quantity', 0):g}{r.get('unit', '')} 남음"
+
+    parts = [_label(r) for r in urgent_items[:3]]
     more = len(urgent_items) - 3
 
-    title = f"📦 {head['ingredient']} 소진 임박"
-    body = " · ".join(parts) + (f" 외 {more}종" if more > 0 else "") + " 뒤 소진 예상이에요. 오늘 발주하면 안 끊겨요."
+    title = f"📦 {head['ingredient']} 곧 떨어져요"
+    body = " · ".join(parts) + (f" 외 {more}종" if more > 0 else "") + " — 오늘 발주하면 안 끊겨요."
 
     if _dispatch(db, store_id, "stock", dedupe_key,
                  title, body, {"screen": "Order"}):

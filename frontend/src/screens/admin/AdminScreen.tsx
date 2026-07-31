@@ -25,28 +25,48 @@ const A = {
   onAccent: colors.white, // 오렌지/에스프레소 배경 위 글자색
 };
 
-type Member = { id: number; name: string; email: string; role: '관리자' | '점주'; plan: 'Free' | 'Basic' | 'Pro' };
+type Member = { id: number; name: string; email: string; role: '관리자' | '점주' };
 
 const INITIAL_MEMBERS: Member[] = [];
 
-const PLANS = [
-  { name: 'Free', price: 0, desc: '기본 재고·판매', color: A.sub },
-  { name: 'Basic', price: 9900, desc: '+ AI 리포트·OCR', color: A.green },
-  { name: 'Pro', price: 29900, desc: '+ 예측·전체 챗봇', color: A.gold },
-] as const;
+// 유료 플랜(Free/Basic/Pro)은 앱에서 폐지됐다 — 등급·구독·매출 개념을 전부 걷어냈다.
+type View3 = 'dash' | 'members';
 
-type View3 = 'dash' | 'members' | 'subs' | 'revenue';
+// GET /admin/stats — 대시보드 지표 (전부 DB 집계값)
+type AdminStats = {
+  users: number;
+  active_stores: number;
+  ingredients: number;
+  menus: number;
+  employees: number;
+  ocr_total: number;
+  ocr_confirmed: number;
+  inquiries_total: number;
+  inquiries_pending: number;
+};
 
-type Activity = { id: number; name: string; action: 'sub' | 'cancel' | 'change'; plan: Member['plan']; ago: string };
-const INITIAL_FEED: Activity[] = [];
+// GET /health 의 components — 구성요소별 실제 상태
+type HealthComponents = {
+  api: { ok: boolean };
+  db: { ok: boolean; detail?: string; provider?: string; region?: string; database?: string };
+  ocr: { ok: boolean; detail?: string; backend?: string };
+};
+
+function dbLabel(db: HealthComponents['db']): string {
+  return [db.provider, db.region, db.database].filter(Boolean).join(' · ');
+}
+
 
 export default function AdminScreen() {
   const { user, token, logout } = useAuth();
   const [view, setView] = useState<View3>('dash');
   const [members, setMembers] = useState<Member[]>(INITIAL_MEMBERS);
-  const [feed, setFeed] = useState<Activity[]>(INITIAL_FEED);
   const [apiUp, setApiUp] = useState<boolean | null>(null);
-  const feedSeq = useRef(100);
+  // 구성요소별 상태 — /health가 API·DB·OCR을 각각 확인해서 준다.
+  // 예전엔 DB가 API 상태를 그대로 베끼고 OCR은 '대기'로 하드코딩돼 있어, 셋 다 실제
+  // 상태와 무관했다 (OCR은 멀쩡히 도는 중에도 영원히 '대기').
+  const [health, setHealth] = useState<HealthComponents | null>(null);
+  const [stats, setStats] = useState<AdminStats | null>(null);
 
   // [한글 주석] 백엔드 DB와 연동하여 전체 사장님 목록을 실시간으로 새로 로드합니다.
   const loadMembers = useCallback(async () => {
@@ -63,7 +83,6 @@ export default function AdminScreen() {
           name: u.store_name || u.name,
           email: u.email,
           role: u.email === 'admin@simplem.com' ? '관리자' : '점주',
-          plan: u.email === 'admin@simplem.com' ? 'Pro' : (u.id % 2 === 0 ? 'Basic' : 'Free')
         }));
         setMembers(mapped);
       }
@@ -73,20 +92,28 @@ export default function AdminScreen() {
   }, [token]);
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/`).then((r) => setApiUp(r.ok)).catch(() => setApiUp(false));
+    // 예전엔 `/`를 찔러 봤는데, 웹 빌드(frontend/dist)가 마운트되면 그 경로는 SPA를
+    // 돌려주므로 백엔드가 죽어도 200이 나올 수 있다. 상태 전용 엔드포인트를 쓴다.
+    fetch(`${API_BASE_URL}/health`)
+      .then(async (r) => {
+        setApiUp(r.ok);
+        if (!r.ok) return;
+        const body = await r.json();
+        setHealth(body?.components ?? null);
+      })
+      .catch(() => {
+        setApiUp(false);
+        setHealth(null);
+      });
     loadMembers();
-  }, [loadMembers]);
-
-  // 구독/취소 발생 시 알림(토스트) + 활동 피드 기록
-  const emitEvent = useCallback((m: Member, action: Activity['action'], plan: Member['plan']) => {
-    setFeed((prev) => [{ id: ++feedSeq.current, name: m.name, action, plan, ago: '방금' }, ...prev].slice(0, 20));
-    if (action === 'sub') toast('새 구독 🎉', `${m.name}님이 ${plan} 구독을 시작했어요`);
-    else if (action === 'cancel') toast('구독 취소', `${m.name}님이 구독을 해지했어요`);
-    else toast('구독 변경', `${m.name}님이 ${plan}(으)로 변경했어요`);
-  }, []);
-
-  // 외부 사용자 구독/취소 실시간 시뮬레이션 (관리자 화면에 있는 동안)
-  // (삭제함 - 9초마다 더미데이터 구독 알림 토스트 팝업을 지속 발생시켜 개발을 방해하던 시뮬레이션 제거)
+    // 지표는 관리자 토큰이 있어야 조회된다
+    if (token) {
+      fetch(`${API_BASE_URL}/api/v1/admin/stats`, { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((b) => setStats(b))
+        .catch((e) => console.error('관리자 지표 조회 실패:', e));
+    }
+  }, [loadMembers, token]);
 
   // [한글 주석] 회원을 실제 데이터베이스(DB)에서 영구 탈퇴/삭제 처리하는 함수
   const withdraw = (m: Member) =>
@@ -111,14 +138,6 @@ export default function AdminScreen() {
       },
     });
 
-  const changePlan = (m: Member) => {
-    const order: Member['plan'][] = ['Free', 'Basic', 'Pro'];
-    const next = order[(order.indexOf(m.plan) + 1) % order.length];
-    setMembers((prev) => prev.map((x) => (x.id === m.id ? { ...x, plan: next } : x)));
-    const action: Activity['action'] = next === 'Free' ? 'cancel' : m.plan === 'Free' ? 'sub' : 'change';
-    emitEvent({ ...m, plan: next }, action, next === 'Free' ? m.plan : next);
-  };
-
   return (
     <View style={styles.root}>
       {/* 헤더 */}
@@ -131,61 +150,78 @@ export default function AdminScreen() {
         <Text style={styles.sub}>{user?.email}</Text>
       </View>
 
-      {/* 세그먼트 (매출 상세일 땐 뒤로가기) */}
-      {view === 'revenue' ? (
-        <Pressable style={styles.backRow} onPress={() => setView('subs')}>
-          <Ionicons name="chevron-back" size={20} color={A.text} />
-          <Text style={styles.backText}>구독 관리</Text>
-        </Pressable>
-      ) : (
-        <View style={styles.seg}>
-          {([['dash', '대시보드'], ['members', '회원 관리'], ['subs', '구독 관리']] as [View3, string][]).map(
-            ([v, label]) => (
-              <Pressable key={v} style={[styles.segItem, view === v && styles.segActive]} onPress={() => setView(v)}>
-                <Text style={[styles.segText, view === v && styles.segTextActive]}>{label}</Text>
-              </Pressable>
-            )
-          )}
-        </View>
-      )}
+      <View style={styles.seg}>
+        {([['dash', '대시보드'], ['members', '회원 관리']] as [View3, string][]).map(([v, label]) => (
+          <Pressable key={v} style={[styles.segItem, view === v && styles.segActive]} onPress={() => setView(v)}>
+            <Text style={[styles.segText, view === v && styles.segTextActive]}>{label}</Text>
+          </Pressable>
+        ))}
+      </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {view === 'dash' && <Dashboard apiUp={apiUp} memberCount={members.length} />}
-        {view === 'members' && <Members members={members} onWithdraw={withdraw} onChangePlan={changePlan} />}
-        {view === 'subs' && (
-          <Subs members={members} feed={feed} onOpenRevenue={() => setView('revenue')} />
-        )}
-        {view === 'revenue' && <Revenue members={members} feed={feed} />}
+        {view === 'dash' && <Dashboard apiUp={apiUp} health={health} stats={stats} />}
+        {view === 'members' && <Members members={members} onWithdraw={withdraw} />}
 
-        {view !== 'revenue' && (
-          <PressableScale style={styles.logoutBtn} onPress={logout} to={0.98}>
-            <Ionicons name="log-out-outline" size={18} color={A.red} />
-            <Text style={styles.logoutText}>로그아웃</Text>
-          </PressableScale>
-        )}
+        <PressableScale style={styles.logoutBtn} onPress={logout} to={0.98}>
+          <Ionicons name="log-out-outline" size={18} color={A.red} />
+          <Text style={styles.logoutText}>로그아웃</Text>
+        </PressableScale>
       </ScrollView>
     </View>
   );
 }
 
 // ── 대시보드 ──
-function Dashboard({ apiUp, memberCount }: { apiUp: boolean | null; memberCount: number }) {
+function Dashboard({
+  apiUp,
+  health,
+  stats,
+}: {
+  apiUp: boolean | null;
+  health: HealthComponents | null;
+  stats: AdminStats | null;
+}) {
+  // 집계 전에는 '—'을 보여준다. 0으로 두면 "정말 0건"인지 "아직 못 셌는지" 구분이 안 된다.
+  const n = (v: number | undefined) => (stats ? String(v ?? 0) : '—');
+  // 아직 /health 응답 전이면 null(확인 중), 응답이 왔으면 각 구성요소의 실제 결과
+  const dbOk = health ? health.db.ok : apiUp === false ? false : null;
+  const ocrOk = health ? health.ocr.ok : apiUp === false ? false : null;
   return (
     <>
       <Text style={styles.sectionTitle}>시스템 상태</Text>
       <View style={styles.row3}>
         <StatusPill label="API" ok={apiUp} />
-        <StatusPill label="DB" ok={apiUp} />
-        <StatusPill label="OCR" ok={null} note="대기" />
+        <StatusPill label="DB" ok={dbOk} />
+        <StatusPill label="OCR" ok={ocrOk} />
       </View>
+      {health && (
+        <Text style={styles.statusNote}>
+          {dbLabel(health.db) ? `DB ${dbLabel(health.db)}\n` : ''}
+          OCR 엔진 {health.ocr.backend} · {health.ocr.detail}
+          {!health.db.ok && health.db.detail ? `\nDB 오류: ${health.db.detail}` : ''}
+        </Text>
+      )}
 
+      {/* 지표는 전부 DB 집계값이다 (GET /admin/stats). 예전엔 회원 수만 실제였고
+          유료 구독 4·누적 재료 12·OCR 처리 0은 화면에 박아 둔 상수였다. */}
       <Text style={styles.sectionTitle}>주요 지표</Text>
       <View style={styles.grid}>
-        <Metric icon="people" label="전체 회원" value={String(memberCount)} />
-        <Metric icon="card" label="유료 구독" value="4" />
-        <Metric icon="cube" label="누적 재료" value="12" />
-        <Metric icon="scan" label="OCR 처리" value="0" />
+        <Metric icon="people" label="전체 회원" value={n(stats?.users)} />
+        <Metric icon="storefront" label="사용 중 매장" value={n(stats?.active_stores)} />
+        <Metric icon="cube" label="등록 재료" value={n(stats?.ingredients)} />
+        <Metric icon="cafe" label="등록 메뉴" value={n(stats?.menus)} />
+        <Metric icon="scan" label="OCR 처리" value={n(stats?.ocr_total)} />
+        <Metric
+          icon="chatbubble-ellipses"
+          label="미답변 문의"
+          value={n(stats?.inquiries_pending)}
+        />
       </View>
+      {stats && (
+        <Text style={styles.statusNote}>
+          OCR 확정 {stats.ocr_confirmed}건 / 전체 {stats.ocr_total}건 · 문의 누적 {stats.inquiries_total}건
+        </Text>
+      )}
 
       <Text style={styles.sectionTitle}>개발자 도구</Text>
       <View style={styles.card}>
@@ -200,11 +236,9 @@ function Dashboard({ apiUp, memberCount }: { apiUp: boolean | null; memberCount:
 function Members({
   members,
   onWithdraw,
-  onChangePlan,
 }: {
   members: Member[];
   onWithdraw: (m: Member) => void;
-  onChangePlan: (m: Member) => void;
 }) {
   return (
     <>
@@ -218,9 +252,6 @@ function Members({
             <Text style={styles.memberName}>{m.name}</Text>
             <Text style={styles.memberEmail}>{m.email}</Text>
           </View>
-          <Pressable onPress={() => onChangePlan(m)} style={styles.planTag}>
-            <Text style={styles.planTagText}>{m.plan}</Text>
-          </Pressable>
           {m.role === '관리자' ? (
             <View style={styles.adminTag}>
               <Text style={styles.adminTagText}>관리자</Text>
@@ -232,134 +263,17 @@ function Members({
           )}
         </View>
       ))}
-      <Text style={styles.note}>· 구독 등급을 누르면 Free → Basic → Pro 순으로 바꿀 수 있어요.</Text>
+      {members.length === 0 && (
+        <Text style={styles.note}>· 아직 가입한 회원이 없거나, 목록을 불러오지 못했어요.</Text>
+      )}
     </>
   );
 }
 
 // ── 구독 관리 ──
-function Subs({
-  members,
-  feed,
-  onOpenRevenue,
-}: {
-  members: Member[];
-  feed: Activity[];
-  onOpenRevenue: () => void;
-}) {
-  const count = (p: string) => members.filter((m) => m.plan === p).length;
-  const mrr = PLANS.reduce((s, p) => s + p.price * count(p.name), 0);
+// 구독 관리 / 매출 화면은 삭제됨 — 앱에서 유료 플랜을 없앴으므로 관리자도 볼 게 없다.
+// (구독 등급·MRR·결제 내역은 전부 더미였고, 실제 결제 연동은 처음부터 없었다.)
 
-  return (
-    <>
-      {/* 매출 카드 — 터치하면 매출 상세로 전환 */}
-      <PressableScale style={styles.mrrCard} onPress={onOpenRevenue} to={0.98}>
-        <View style={styles.mrrTop}>
-          <Text style={styles.mrrLabel}>월 반복 매출 (MRR)</Text>
-          <View style={styles.mrrMore}>
-            <Text style={styles.mrrMoreText}>상세</Text>
-            <Ionicons name="chevron-forward" size={14} color={A.bg} />
-          </View>
-        </View>
-        <Text style={styles.mrrValue}>₩{mrr.toLocaleString()}</Text>
-        <Text style={styles.mrrSub}>유료 구독 {count('Basic') + count('Pro')}명 · 터치해 상세 보기</Text>
-      </PressableScale>
-
-      <Text style={styles.sectionTitle}>구독 플랜</Text>
-      {PLANS.map((p) => (
-        <View key={p.name} style={styles.planCard}>
-          <View style={[styles.planDot, { backgroundColor: p.color }]} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.planName}>{p.name}</Text>
-            <Text style={styles.planDesc}>{p.desc}</Text>
-          </View>
-          <View style={{ alignItems: 'flex-end' }}>
-            <Text style={styles.planPrice}>{p.price === 0 ? '무료' : `₩${p.price.toLocaleString()}/월`}</Text>
-            <Text style={styles.planCount}>{count(p.name)}명 구독</Text>
-          </View>
-        </View>
-      ))}
-
-      <Text style={styles.sectionTitle}>실시간 구독 활동</Text>
-      <View style={styles.card}>
-        {feed.slice(0, 6).map((a, i, arr) => (
-          <ActivityRow key={a.id} a={a} last={i === arr.length - 1} />
-        ))}
-      </View>
-    </>
-  );
-}
-
-function ActivityRow({ a, last }: { a: Activity; last?: boolean }) {
-  const map = {
-    sub: { icon: 'arrow-up-circle' as const, color: A.green, text: `${a.plan} 구독 시작` },
-    cancel: { icon: 'close-circle' as const, color: A.red, text: '구독 해지' },
-    change: { icon: 'swap-horizontal' as const, color: A.gold, text: `${a.plan}로 변경` },
-  }[a.action];
-  return (
-    <View style={[styles.actRow, last && { borderBottomWidth: 0 }]}>
-      <Ionicons name={map.icon} size={18} color={map.color} />
-      <View style={{ flex: 1 }}>
-        <Text style={styles.actName}>{a.name}</Text>
-        <Text style={styles.actText}>{map.text}</Text>
-      </View>
-      <Text style={styles.actAgo}>{a.ago}</Text>
-    </View>
-  );
-}
-
-// ── 매출 상세 ──
-function Revenue({ members, feed }: { members: Member[]; feed: Activity[] }) {
-  const count = (p: string) => members.filter((m) => m.plan === p).length;
-  const paid = PLANS.filter((p) => p.price > 0);
-  const mrr = PLANS.reduce((s, p) => s + p.price * count(p.name), 0);
-  const paidCount = count('Basic') + count('Pro');
-  const arpu = paidCount ? Math.round(mrr / paidCount) : 0;
-  const conv = members.length ? Math.round((paidCount / members.length) * 100) : 0;
-  const maxRev = Math.max(1, ...paid.map((p) => p.price * count(p.name)));
-
-  return (
-    <>
-      <View style={styles.revHeadCard}>
-        <Text style={styles.revLabel}>월 반복 매출 (MRR)</Text>
-        <Text style={styles.revBig}>₩{mrr.toLocaleString()}</Text>
-        <Text style={styles.revSub}>연 환산 ₩{(mrr * 12).toLocaleString()}</Text>
-      </View>
-
-      <View style={styles.grid}>
-        <Metric icon="cash" label="ARPU (인당)" value={`₩${arpu.toLocaleString()}`} />
-        <Metric icon="trending-up" label="유료 전환율" value={`${conv}%`} />
-        <Metric icon="people" label="유료 구독" value={String(paidCount)} />
-        <Metric icon="calendar" label="예상 연매출" value={`₩${((mrr * 12) / 10000).toFixed(0)}만`} />
-      </View>
-
-      <Text style={styles.sectionTitle}>플랜별 매출</Text>
-      <View style={styles.card}>
-        {paid.map((p, i) => {
-          const rev = p.price * count(p.name);
-          return (
-            <View key={p.name} style={[styles.revRow, i === paid.length - 1 && { borderBottomWidth: 0 }]}>
-              <Text style={styles.revPlan}>{p.name}</Text>
-              <View style={styles.barTrack}>
-                <View style={[styles.barFill, { width: `${(rev / maxRev) * 100}%`, backgroundColor: p.color }]} />
-              </View>
-              <Text style={styles.revAmt}>₩{rev.toLocaleString()}</Text>
-            </View>
-          );
-        })}
-      </View>
-
-      <Text style={styles.sectionTitle}>최근 결제·해지</Text>
-      <View style={styles.card}>
-        {feed.slice(0, 8).map((a, i, arr) => (
-          <ActivityRow key={a.id} a={a} last={i === arr.length - 1} />
-        ))}
-      </View>
-    </>
-  );
-}
-
-// ── 공용 소품 ──
 function StatusPill({ label, ok, note }: { label: string; ok: boolean | null; note?: string }) {
   const color = ok == null ? A.sub : ok ? A.green : A.red;
   const text = ok == null ? note ?? '확인 중' : ok ? '정상' : '중단';
@@ -406,6 +320,7 @@ const styles = StyleSheet.create({
   segTextActive: { color: A.text },
   content: { padding: 20, paddingBottom: 40, gap: 10 },
   sectionTitle: { color: A.sub, fontSize: 12, fontWeight: '700', marginTop: 14, marginBottom: 2 },
+  statusNote: { color: A.sub, fontSize: 11, marginTop: 6, lineHeight: 15 },
   row3: { flexDirection: 'row', gap: 8 },
   pill: { flex: 1, backgroundColor: A.card, borderWidth: 1, borderColor: A.border, borderRadius: 14, padding: 12, alignItems: 'center', gap: 4 },
   dot: { width: 8, height: 8, borderRadius: 4 },

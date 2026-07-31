@@ -15,6 +15,7 @@ import {
   type GeneratedDocument,
   type ReportPeriodType,
 } from '../../lib/api/documents';
+import { describeApiFailure, type ApiFailure } from '../../lib/api/errors';
 import { colors, spacing, typography } from '../../theme';
 import { PressableScale } from '../motion';
 import { Segmented } from '../ui/Segmented';
@@ -68,7 +69,9 @@ export default function ManagementReportCard() {
   // 기간별 응답 캐시 — 탭을 오가도 다시 로딩하지 않는다 (카드 리마운트 시 초기화 = 당겨서 새로고침)
   const [reports, setReports] = useState<Partial<Record<ReportPeriodType, GeneratedDocument>>>({});
   const [loading, setLoading] = useState(false);
-  const [failed, setFailed] = useState(false);
+  // 실패 사유를 분류해 들고 있는다 — 신규 계정에서 "로그인과 서버를 확인해 주세요"만 띄우면
+  // 확인할 게 없는 걸 붙잡게 된다 (실제 원인은 '아직 쌓인 데이터가 없음').
+  const [failure, setFailure] = useState<ApiFailure | null>(null);
   const [retryKey, setRetryKey] = useState(0);
 
   // [한글 주석: 스탯 타일 클릭 시 추가 부가정보를 토글 표시하기 위한 선택 상태 관리]
@@ -80,13 +83,14 @@ export default function ManagementReportCard() {
     if (!token || reports[period]) return;
     let cancelled = false;
     setLoading(true);
-    setFailed(false);
+    setFailure(null);
     getManagementReport(token, period)
       .then((doc) => {
         if (!cancelled) setReports((prev) => ({ ...prev, [period]: doc }));
       })
-      .catch(() => {
-        if (!cancelled) setFailed(true);
+      .catch((e) => {
+        console.error('경영 리포트 조회 실패:', e);
+        if (!cancelled) setFailure(describeApiFailure(e, language === 'en' ? 'report' : '리포트', language));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -94,7 +98,7 @@ export default function ManagementReportCard() {
     return () => {
       cancelled = true;
     };
-  }, [token, period, reports, retryKey]);
+  }, [token, period, reports, retryKey, language]);
 
   // content 스키마: backend report_service.py의 management_report 구조
   const c = (report?.content ?? {}) as any;
@@ -102,6 +106,17 @@ export default function ManagementReportCard() {
   const salesDelta: number | null = c.sales?.change_pct ?? null;
   const deltaUp = salesDelta !== null && salesDelta >= 0;
   const highlights: string[] = Array.isArray(c.highlights) ? c.highlights : [];
+
+  // 리포트는 데이터가 없어도 0원짜리로 발행된다 — 신규 계정에서 ₩0 타일만 늘어놓으면
+  // 고장인지 데이터가 없는 건지 알 수 없으므로, 집계할 기록이 전혀 없으면 안내로 대체한다.
+  const isEmptyReport = !!report
+    && (c.sales?.total ?? 0) === 0
+    && (c.sales?.cups ?? 0) === 0
+    && (c.sales?.prev_total ?? 0) === 0
+    && (c.purchases?.document_count ?? 0) === 0
+    && (c.expenses?.total ?? 0) === 0
+    && (c.labor?.shift_count ?? 0) === 0
+    && (c.inventory?.ingredient_count ?? 0) === 0;
 
   const toggleTile = (tile: 'profit' | 'cost' | 'sales') => {
     setSelectedTile((prev) => (prev === tile ? null : tile));
@@ -123,16 +138,38 @@ export default function ManagementReportCard() {
         </View>
       )}
 
-      {!report && failed && !loading && (
+      {/* 실패 안내 — 데이터가 없어서 못 만든 경우(needs_data)는 서버가 준 조건 문장을 그대로 보여주고
+          '다시 시도'도 감춘다. 다시 눌러도 데이터가 생기지 않기 때문이다. */}
+      {!report && failure && !loading && (
         <View style={styles.stateWrap}>
-          <Text style={styles.stateText}>{language === 'en' ? 'Failed to fetch report.' : '리포트를 가져오지 못했어요. 로그인과 서버를 확인해 주세요.'}</Text>
-          <PressableScale style={styles.retryBtn} onPress={() => setRetryKey((k) => k + 1)}>
-            <Text style={styles.retryText}>{language === 'en' ? 'Retry' : '다시 시도'}</Text>
-          </PressableScale>
+          {failure.kind === 'needs_data' && (
+            <Ionicons name="hourglass-outline" size={22} color={colors.mochaBrown} style={{ marginBottom: 6 }} />
+          )}
+          <Text style={styles.stateText}>{failure.message}</Text>
+          {failure.retryable && (
+            <PressableScale style={styles.retryBtn} onPress={() => setRetryKey((k) => k + 1)}>
+              <Text style={styles.retryText}>{language === 'en' ? 'Retry' : '다시 시도'}</Text>
+            </PressableScale>
+          )}
         </View>
       )}
 
-      {report && (
+      {/* 신규 계정 — 리포트는 열렸지만 집계할 기록이 아직 없는 상태 */}
+      {isEmptyReport && (
+        <View style={styles.emptyWrap}>
+          <Ionicons name="sparkles-outline" size={24} color={colors.pointOrange} />
+          <Text style={styles.emptyTitle}>
+            {language === 'en' ? 'No records to report yet' : '아직 리포트에 담을 기록이 없어요'}
+          </Text>
+          <Text style={styles.emptyText}>
+            {language === 'en'
+              ? 'Enter sales or scan a supplier statement and this report fills in right away.\nThe AI sales forecast opens once 14 days (2 weeks) of sales history are in.'
+              : '판매를 입력하거나 명세서를 촬영하면 이 리포트가 바로 채워져요.\nAI 매출 예측은 판매 기록이 14일(2주)치 모이면 열려요.'}
+          </Text>
+        </View>
+      )}
+
+      {report && !isEmptyReport && (
         <>
           {/* 히어로 숫자 — 기간 매출 + 이전 기간 대비 증감 (화살표 + 퍼센트) */}
           <View style={styles.heroRow}>
@@ -353,6 +390,17 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   retryText: { ...typography.L5, fontWeight: '700', color: colors.espressoBrown },
+  emptyWrap: {
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 14,
+    paddingVertical: 20,
+    paddingHorizontal: 14,
+    backgroundColor: colors.coffeeCream,
+    borderRadius: 16,
+  },
+  emptyTitle: { ...typography.L3, fontSize: 14, fontWeight: '800', color: colors.espressoBrown },
+  emptyText: { ...typography.L5, color: colors.mochaBrown, textAlign: 'center', lineHeight: 16 },
   heroRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   heroLabel: { ...typography.L5, color: colors.mochaBrown, marginBottom: 3 },
   heroValue: { ...typography.L2, color: colors.espressoBrown },

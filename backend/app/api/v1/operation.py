@@ -147,11 +147,33 @@ def create_schedule_api(payload: ScheduleCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
 
 @router.get("/schedules", response_model=CommonResponse)
-def get_all_schedules_api(db: Session = Depends(get_db)):
-    """등록된 모든 스케줄 일정을 조회합니다."""
+def get_all_schedules_api(
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """로그인 매장의 근무 스케줄을 조회합니다.
+
+    [매장 스코핑] 예전엔 매장 구분 없이 전체 스케줄을 돌려줬다. 공유 DB라 다른 매장의
+    근무가 내 달력에 섞여 들어왔고, 그 직원은 내 직원 목록에 없으니 화면에서
+    '(삭제된 직원)'으로 표시됐다 — 실측 115건 중 내 것은 25건뿐이었다.
+    """
     try:
-        schedules = OperationService.get_schedules(db)
-        data = [ScheduleResponse.model_validate(s) for s in schedules]
+        store_id = current_user.email if current_user else None
+        schedules = OperationService.get_schedules(db, store_id=store_id)
+        # 직원 이름을 여기서 붙여 보낸다 — 화면이 별도 조회로 맞추려다 실패하면
+        # 근무가 전부 '(삭제된 직원)'으로 보였다. 조회 1번으로 id→이름 맵을 만든다.
+        emp_ids = {s.employee_id for s in schedules}
+        emp_map = {
+            e.id: e for e in db.query(Employee).filter(Employee.id.in_(emp_ids)).all()
+        } if emp_ids else {}
+        data = []
+        for s in schedules:
+            item = ScheduleResponse.model_validate(s)
+            emp = emp_map.get(s.employee_id)
+            if emp is not None:
+                item.employee_name = emp.name
+                item.employee_role = emp.role
+            data.append(item)
         return CommonResponse(success=True, data=data, message="스케줄 조회가 완료되었습니다.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -190,26 +212,61 @@ def update_schedule_api(schedule_id: int, payload: ScheduleUpdate, db: Session =
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
 
+def _assert_schedule_owned(db: Session, schedule_id: int, current_user: Optional[User]) -> None:
+    """이 스케줄이 로그인 매장 직원의 것인지 확인한다.
+
+    공유 DB에 여러 매장이 섞여 있고 schedule_id는 연번이라, 확인 없이 두면 옆 매장의
+    근무를 지우거나 고칠 수 있다. 비로그인 요청은 예전 동작(무검사)을 유지한다.
+    """
+    if current_user is None:
+        return
+    row = (
+        db.query(Employee.store_id)
+        .join(Schedule, Schedule.employee_id == Employee.id)
+        .filter(Schedule.id == schedule_id)
+        .first()
+    )
+    if row is not None and row[0] != current_user.email:
+        raise HTTPException(status_code=404, detail="해당 스케줄을 찾을 수 없습니다.")
+
+
 @router.delete("/schedules/{schedule_id}", response_model=CommonResponse)
-def delete_schedule_api(schedule_id: int, db: Session = Depends(get_db)):
+def delete_schedule_api(
+    schedule_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """특정 근무 스케줄 일정을 영구 삭제(Hard Delete)합니다."""
     try:
+        _assert_schedule_owned(db, schedule_id, current_user)
         success = OperationService.delete_schedule(db, schedule_id)
         if not success:
             raise HTTPException(status_code=404, detail="삭제할 스케줄 정보를 찾을 수 없습니다.")
         return CommonResponse(success=True, data=None, message="스케줄 정보가 성공적으로 삭제되었습니다.")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/schedules/recommend", response_model=CommonResponse)
-def recommend_schedule_api(payload: ScheduleRecommendationRequest, db: Session = Depends(get_db)):
-    """실제 과거 매출 데이터를 시간대별로 분석하여 최적의 알바 근무 스케줄 추천안을 도출합니다."""
+def recommend_schedule_api(
+    payload: ScheduleRecommendationRequest,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """실제 과거 매출 데이터를 시간대별로 분석하여 최적의 알바 근무 스케줄 추천안을 도출합니다.
+
+    [매장 판정] 로그인했다면 payload.store_id를 무시하고 로그인 매장으로 계산한다.
+    예전엔 클라이언트가 보낸 값을 그대로 믿었는데, 프론트 기본값이 데모용
+    'store_gildong'이라 남의 매장 매출·직원으로 추천안이 나왔다.
+    """
     try:
+        store_id = current_user.email if current_user else payload.store_id
         recommendation_result = OperationService.recommend_schedule(
             db=db,
             period_start=payload.target_date,
             period_end=payload.target_date,
-            store_id=payload.store_id
+            store_id=store_id
         )
         data = ScheduleRecommendationResponse(
             target_date=recommendation_result["target_date"],
@@ -655,106 +712,6 @@ def calculate_settlement_api(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"서버 오류가 발생했습니다: {str(e)}")
-
-
-# --- [7. 법령 검색 RAG (Law RAG) 실서비스 API] ---
-
-@router.get("/law-rag/search", response_model=CommonResponse, summary="법령 RAG 의미 기반 하이브리드 검색 API")
-def search_law_rag_api(
-    keyword: str = Query(..., description="검색 키워드 또는 사용자 질문 (예: '알바 휴게시간 몇 분 줘야 해?')"),
-    category: Optional[str] = Query(None, description="법령 카테고리 필터 (예: '근로기준', '최저임금', '임대차')"),
-    top_k: int = Query(5, description="반환할 조문 최대 개수")
-):
-    # [법령 RAG 하이브리드 검색 API]
-    try:
-        from app.services.operation.law_rag_service import LawRAGService
-        results = LawRAGService.search_law_documents(
-            query=keyword,
-            category=category,
-            top_k=top_k
-        )
-        message = f"'{keyword}' 관련 법령 조문 {len(results)}건 조회가 완료되었습니다." if results else f"'{keyword}'에 대한 관련 법령 정보가 부족합니다."
-        return CommonResponse(
-            success=True,
-            data=results,
-            message=message
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"법령 RAG 검색 중 오류 발생: {str(e)}")
-
-
-@router.post("/law-rag/index", response_model=CommonResponse, summary="법령 원문 조문 정제 및 ChromaDB 인덱싱/동기화 API")
-def index_law_rag_api(raw_data: Optional[List[dict]] = None):
-    # [법령 데이터 적재 및 동기화 API]
-
-    try:
-        from app.services.operation.law_rag_service import LawRAGService
-        
-        # 입력 데이터가 없으면 샘플 데이터 활용
-        if not raw_data:
-            raw_data = [
-                {
-                    "law_name": "근로기준법",
-                    "article_no": "제54조(휴게)",
-                    "category": "근로기준",
-                    "content": "사용자는 근로시간이 4시간인 경우에는 30분 이상, 8시간인 경우에는 1시간 이상의 휴게시간을 근로시간 도중에 주어야 한다.",
-                    "summary": "근로시간 4시간당 30분, 8시간당 1시간 휴게시간 부여 의무",
-                    "source": "국가법령정보센터 (https://www.law.go.kr)",
-                    "effective_date": "2026-01-01"
-                },
-                {
-                    "law_name": "근로기준법",
-                    "article_no": "제56조(연장·야간 및 휴일 가산수당)",
-                    "category": "근로기준",
-                    "content": "사용자는 야간근로(오후 10시부터 다음 날 오전 6시 사이의 근로)에 대하여는 통상임금의 100분의 50 이상을 가산하여 근로자에게 지급하여야 한다.",
-                    "summary": "오후 10시~오전 6시 야간근로 시 50% 가산수당 지급",
-                    "source": "국가법령정보센터 (https://www.law.go.kr)",
-                    "effective_date": "2026-01-01"
-                },
-                {
-                    "law_name": "최저임금법",
-                    "article_no": "제6조(최저임금의 효력)",
-                    "category": "최저임금",
-                    "content": "사용자는 최저임금의 적용을 받는 근로자에게 최저임금액 이상의 임금을 지급하여야 한다.",
-                    "summary": "최저임금액 이상 지급 의무 및 미달 계약 부분 무효",
-                    "source": "국가법령정보센터 (https://www.law.go.kr)",
-                    "effective_date": "2026-01-01"
-                },
-                {
-                    "law_name": "상가건물 임대차보호법",
-                    "article_no": "제10조(계약갱신 요구 등)",
-                    "category": "임대차",
-                    "content": "임대인은 임차인이 임대차기간 만료 6개월 전부터 1개월 전까지 사이에 계약갱신을 요구할 경우 정당한 사유 없이 거절하지 못한다. 계약갱신요구권은 10년을 초과하지 아니하는 범위에서 행사할 수 있다.",
-                    "summary": "상가 임차인의 10년 범위 내 계약갱신요구권 보장",
-                    "source": "국가법령정보센터 (https://www.law.go.kr)",
-                    "effective_date": "2026-01-01"
-                }
-            ]
-
-        result = LawRAGService.sync_law_documents(raw_data)
-        return CommonResponse(
-            success=True,
-            data=result,
-            message="법령 데이터 적재 및 ChromaDB 동기화가 완료되었습니다."
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"법령 데이터 적재 중 오류 발생: {str(e)}")
-
-
-@router.get("/law-rag/status", response_model=CommonResponse, summary="ChromaDB 법령 컬렉션 상태 및 통계 조회 API")
-def get_law_rag_status_api():
-    # [ChromaDB 컬렉션 상태 조회 API]
-
-    try:
-        from app.services.operation.law_rag_service import LawRAGService
-        stats = LawRAGService.get_collection_stats()
-        return CommonResponse(
-            success=True,
-            data=stats,
-            message="법령 RAG 컬렉션 상태 조회가 완료되었습니다."
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"컬렉션 상태 조회 중 오류 발생: {str(e)}")
 
 
 # ----------------------------------------------------

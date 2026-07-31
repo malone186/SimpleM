@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>브루노트 관리자 데스크톱 콘솔</title>
+  <!-- [한글 주석: 프리미엄 웹 폰트 적용] -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Pretendard:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  {# Jinja 템플릿 — FastAPI(/console)가 렌더링한다. asset_version은 서버 기동 시각이라 배포마다 캐시가 자동 무효화된다. #}
+  <script>
+    // [한글 주석] 페이지를 서빙하는 FastAPI가 곧 관리자 API 서버이므로 같은 origin의 상대 경로를 쓴다.
+    // 로컬(uvicorn)이든 Cloud Run이든 주소 하드코딩 없이 그대로 동작한다.
+    window.__ADMIN_API_BASE__ = "{{ api_base }}";
+  </script>
+  {# url_for는 절대 URL을 만드는데 Cloud Run(TLS 프록시 종료) 뒤에선 스킴이 http로 잡혀
+     https 페이지에서 mixed content로 차단된다 — 루트 상대 경로로 스킴을 물려받는다. #}
+  <link rel="stylesheet" href="/console/static/style.css?v={{ asset_version }}">
+</head>
+<body>
+  <div class="desktop-layout">
+    
+    <!-- ━━━ 1. 좌측 간소화 데스크톱 사이드바 (2개 메뉴) ━━━ -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo-box">
+          <i data-lucide="coffee" class="logo-icon"></i>
+          <span class="logo-text">BrewNote</span>
+        </div>
+        <div class="admin-badge">
+          <i data-lucide="shield-check"></i>
+          <span>ADMIN CONSOLE</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-menu">
+        <button class="nav-item active" data-tab="dashboard">
+          <i data-lucide="layout-dashboard"></i>
+          <span>대시보드</span>
+        </button>
+        <button class="nav-item" data-tab="agents">
+          <i data-lucide="bot"></i>
+          <span>AI 에이전트</span>
+        </button>
+        <button class="nav-item" data-tab="users">
+          <i data-lucide="users"></i>
+          <span>회원 관리</span>
+        </button>
+        <button class="nav-item" data-tab="cs">
+          <i data-lucide="headset"></i>
+          <span>CS / 문의 관리</span>
+        </button>
+        <button class="nav-item" data-tab="notifications">
+          <i data-lucide="bell"></i>
+          <span>공지 & 알림 발송</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="admin-profile">
+          <!-- 아바타·이메일은 로그인한 계정으로 JS가 채운다.
+               예전엔 admin@simplem.com이 박혀 있어, 다른 관리자로 로그인해도 이 이름이 떴다. -->
+          <div class="avatar" id="admin-avatar">-</div>
+          <div class="profile-info">
+            <span class="profile-name">최고 관리자</span>
+            <span class="profile-email" id="admin-email">-</span>
+          </div>
+        </div>
+        <!-- 비밀번호 변경 버튼은 7/31 제거 — 관리자 자격증명을 고정하기로 결정(백엔드도 403으로 잠금).
+             다시 열려면 이 버튼 복구 + admin.py의 ADMIN_PASSWORD_LOCK 해제. -->
+
+        <button class="logout-btn" id="logout-btn">
+          <i data-lucide="log-out"></i>
+          <span>로그아웃</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ━━━ 2. 우측 메인 대시보드 콘텐츠 ━━━ -->
+    <main class="main-content">
+      
+      <!-- Top Header Bar -->
+      <header class="top-header">
+        <div class="header-left">
+          <h1 class="page-title" id="page-title">대시보드 개요</h1>
+          <p class="page-sub">브루노트 카페 통합 플랫폼 전체 운영 현황입니다.</p>
+        </div>
+        <div class="header-right">
+          <!-- href는 실제로 붙어 있는 백엔드로 JS가 바꾼다 (로컬로 돌려도 링크만 배포본을
+               가리키던 문제). -->
+          <a href="#" id="link-swagger" target="_blank" class="header-btn">
+            <i data-lucide="file-code-2"></i>
+            <span>Swagger API 문서</span>
+          </a>
+          <a href="#" id="link-backend" target="_blank" class="header-btn secondary">
+            <i data-lucide="server"></i>
+            <span>백엔드 서버</span>
+          </a>
+        </div>
+      </header>
+
+      <!-- ━━━ 탭 1: 대시보드 뷰 ━━━ -->
+      <section id="tab-dashboard" class="tab-content active">
+        
+        <!-- 대형 지표 카운터 Row -->
+        <div class="metrics-row">
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">전체 회원</span>
+              <div class="icon-circle brown"><i data-lucide="users"></i></div>
+            </div>
+            <div class="metric-value" id="stats-total-stores">0<span class="unit">명</span></div>
+            <!-- 갱신 시각(또는 갱신 실패)을 markStatsFresh()가 쓴다 -->
+            <div class="metric-sub green-text" id="stats-total-stores-sub">불러오는 중…</div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">미답변 문의</span>
+              <div class="icon-circle green"><i data-lucide="message-circle"></i></div>
+            </div>
+            <div class="metric-value" id="stats-pending-cs">0<span class="unit">건</span></div>
+            <div class="metric-sub green-text" id="stats-pending-cs-sub">답변 대기 중</div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">누적 등록 재료</span>
+              <div class="icon-circle orange"><i data-lucide="package"></i></div>
+            </div>
+            <div class="metric-value" id="stats-total-ingredients">0<span class="unit">품목</span></div>
+            <div class="metric-sub">전체 매장 누적</div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-header">
+              <!-- 라벨은 '활성 접속 점포'였는데 값은 OCR 문서 건수였다 — 값에 맞춰 바로잡음 -->
+              <span class="metric-title">OCR 처리 건수</span>
+              <div class="icon-circle blue"><i data-lucide="scan-line"></i></div>
+            </div>
+            <div class="metric-value" id="stats-ocr-count">0<span class="unit">건</span></div>
+            <div class="metric-sub">누적 영수증·명세서 인식</div>
+          </div>
+        </div>
+
+        <!-- 2열 대시보드 레이아웃 -->
+        <div class="dashboard-grid">
+          
+          <!-- 좌측: 시스템 상태 및 서버 헬스 -->
+          <div class="content-box">
+            <div class="box-header">
+              <h3 class="box-title"><i data-lucide="activity"></i> 실시간 시스템 상태</h3>
+              <span class="live-tag" id="health-live-tag">LIVE</span>
+            </div>
+            <div class="status-list">
+              <div class="status-row" id="status-api">
+                <div class="status-info">
+                  <div class="status-indicator"></div>
+                  <span class="status-label">FastAPI 서버</span>
+                </div>
+                <div class="status-right-action">
+                  <span class="status-badge">확인 중…</span>
+                  <button class="health-refresh-btn" onclick="checkSingleHealth('api')" title="상태 재요청">
+                    <i data-lucide="refresh-cw"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="status-row" id="status-db">
+                <div class="status-info">
+                  <div class="status-indicator"></div>
+                  <!-- 실제 접속한 DB(Neon 리전·DB명)로 JS가 바꿔 쓴다 -->
+                  <span class="status-label">데이터베이스</span>
+                </div>
+                <div class="status-right-action">
+                  <span class="status-badge">확인 중…</span>
+                  <button class="health-refresh-btn" onclick="checkSingleHealth('db')" title="상태 재요청">
+                    <i data-lucide="refresh-cw"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="status-row" id="status-ocr">
+                <div class="status-info">
+                  <div class="status-indicator"></div>
+                  <span class="status-label">OCR 엔진</span>
+                </div>
+                <div class="status-right-action">
+                  <span class="status-badge">확인 중…</span>
+                  <button class="health-refresh-btn" onclick="checkSingleHealth('ocr')" title="상태 재요청">
+                    <i data-lucide="refresh-cw"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 우측: 최근 가입 매장 타임라인 피드 -->
+          <div class="content-box">
+            <div class="box-header">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <h3 class="box-title"><i data-lucide="sparkles"></i> 최근 가입 매장 피드</h3>
+                <span class="live-tag pulse-tag" id="users-live-tag">LIVE</span>
+              </div>
+              <button class="link-btn" onclick="switchTab('users')">회원 관리로 이동 →</button>
+            </div>
+            <div class="timeline-feed-container" id="recent-users-feed">
+              <!-- JS 동적 생성 -->
+            </div>
+          </div>
+
+        </div>
+
+        <!-- 유입 경로 분석 -->
+        <div class="content-box full-width" style="margin-top: 20px;">
+          <div class="box-header">
+            <h3 class="box-title"><i data-lucide="git-branch-plus"></i> 사장님 유입 경로 분석</h3>
+            <span class="live-tag" id="acq-live-tag">LIVE</span>
+          </div>
+          <div class="acq-layout">
+            <!-- 좌: 도넛 -->
+            <div class="acq-donut-wrap">
+              <svg class="acq-donut" viewBox="0 0 42 42" id="acq-donut">
+                <!-- JS 동적 생성 -->
+              </svg>
+              <div class="acq-donut-center">
+                <div class="acq-donut-total" id="acq-total">0</div>
+                <div class="acq-donut-label">전체 회원</div>
+              </div>
+            </div>
+            <!-- 우: 채널 막대 범례 -->
+            <div class="acq-legend" id="acq-legend">
+              <!-- JS 동적 생성 -->
+            </div>
+          </div>
+          <div class="acq-note" id="acq-note"></div>
+        </div>
+
+        <!-- 활동·리텐션 분석 -->
+        <div class="content-box full-width" style="margin-top: 20px;">
+          <div class="box-header">
+            <h3 class="box-title"><i data-lucide="activity-square"></i> 활동 · 리텐션 분석</h3>
+            <span class="live-tag" id="act-live-tag">LIVE</span>
+          </div>
+
+          <!-- 상단 활동 지표 타일 -->
+          <div class="act-stat-row">
+            <div class="act-stat">
+              <div class="act-stat-label">오늘 활성 회원</div>
+              <div class="act-stat-value" id="act-today">0<span class="unit">명</span></div>
+            </div>
+            <div class="act-stat">
+              <div class="act-stat-label">이번 주 활성</div>
+              <div class="act-stat-value" id="act-week">0<span class="unit">명</span></div>
+            </div>
+            <div class="act-stat">
+              <div class="act-stat-label">이번 달 활성</div>
+              <div class="act-stat-value" id="act-month">0<span class="unit">명</span></div>
+            </div>
+            <div class="act-stat">
+              <div class="act-stat-label">누적 활동 이벤트</div>
+              <div class="act-stat-value" id="act-events">0<span class="unit">건</span></div>
+            </div>
+            <div class="act-stat danger">
+              <div class="act-stat-label">이탈 위험 회원</div>
+              <div class="act-stat-value" id="act-risk-count">0<span class="unit">명</span></div>
+            </div>
+          </div>
+
+          <div class="act-layout">
+            <!-- 좌: 기능별 사용량 -->
+            <div class="act-col">
+              <div class="act-col-title"><i data-lucide="bar-chart-2"></i> 기능별 사용량</div>
+              <div class="act-feature-list" id="act-feature-list"><!-- JS 동적 생성 --></div>
+            </div>
+            <!-- 우: 이탈 위험 회원 -->
+            <div class="act-col">
+              <div class="act-col-title"><i data-lucide="user-x"></i> 이탈 위험 회원 <span id="act-risk-sub" class="act-col-sub"></span></div>
+              <div class="act-risk-list" id="act-risk-list"><!-- JS 동적 생성 --></div>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ━━━ 탭: AI 에이전트 오케스트레이션 뷰 ━━━ -->
+      <section id="tab-agents" class="tab-content">
+
+        <!-- 상단 요약 지표 4종 -->
+        <div class="metrics-row">
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">활성 전문가</span>
+              <div class="icon-circle green"><i data-lucide="bot"></i></div>
+            </div>
+            <div class="metric-value" id="agents-active-count">-</div>
+            <div class="metric-sub green-text">도구가 로드된 서브 에이전트</div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">등록된 도구</span>
+              <div class="icon-circle orange"><i data-lucide="wrench"></i></div>
+            </div>
+            <div class="metric-value" id="agents-tool-count">-</div>
+            <div class="metric-sub">전 전문가 합산 도구 수</div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">LLM 모델</span>
+              <div class="icon-circle brown"><i data-lucide="cpu"></i></div>
+            </div>
+            <div class="metric-value" id="agents-model" style="font-size: 20px;">-</div>
+            <div class="metric-sub" id="agents-api-key-sub">API 키 확인 중...</div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">LangSmith 트레이싱</span>
+              <div class="icon-circle blue"><i data-lucide="activity"></i></div>
+            </div>
+            <div class="metric-value" id="agents-trace" style="font-size: 20px;">-</div>
+            <div class="metric-sub">에이전트 실행 기록 추적</div>
+          </div>
+        </div>
+
+        <!-- 오케스트레이션 트리 -->
+        <div class="content-box full-width">
+          <div class="box-header">
+            <h3 class="box-title"><i data-lucide="network"></i> 멀티에이전트 오케스트레이션 구조 (Supervisor 패턴)</h3>
+            <div class="status-right-action">
+              <span class="live-tag" id="agents-live-tag">LIVE</span>
+              <button class="health-refresh-btn" onclick="loadAgents(true)" title="구성 다시 불러오기">
+                <i data-lucide="refresh-cw"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="orchestra-wrap" id="agent-orchestra">
+            <div class="orchestra-loading">백엔드(8000)에서 에이전트 편성을 불러오는 중...</div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ━━━ 탭 2: 회원 관리 뷰 (통합 필터 탭 적용) ━━━ -->
+      <section id="tab-users" class="tab-content">
+        <div class="content-box full-width">
+          
+          <div class="box-header-row">
+            <h3 class="box-title"><i data-lucide="users"></i> 전체 사장님 회원 관리</h3>
+            
+            <div class="box-actions">
+              <input type="text" id="user-search-input" placeholder="매장명 또는 이메일 검색..." class="search-input">
+            </div>
+          </div>
+
+          <div class="table-container">
+            <table class="desktop-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>사장님 이름</th>
+                  <th>매장명</th>
+                  <th>이메일 주소</th>
+                  <th>가입 상태</th>
+                  <th>관리</th>
+                </tr>
+              </thead>
+              <tbody id="user-table-body">
+                <!-- JS 생성 -->
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ━━━ 탭 3: 공지 및 알림 관리 뷰 ━━━ -->
+      <section id="tab-notifications" class="tab-content">
+        <div class="dashboard-grid full-width">
+          
+          <!-- 좌측: 공지사항 및 푸시 알림 발송 폼 -->
+          <div class="content-box">
+            <div class="box-header">
+              <!-- 이 폼은 공지를 '등록'한다. 앱이 폴링으로 받아 홈 화면에 띄우는 방식이고,
+                   FCM 푸시로 밀어 보내지는 않는다. '즉시 발송/PUSH SYSTEM'이라고 써 두면
+                   앱을 닫아 둔 사장님에게도 간 줄로 오해하게 된다. -->
+              <h3 class="box-title"><i data-lucide="send"></i> 사장님 공지 등록</h3>
+              <span class="live-tag">NOTICE</span>
+            </div>
+            
+            <form id="notif-form" class="notif-form">
+              <div class="form-group">
+                <label class="form-label">수신 대상 선택</label>
+                <div class="target-pills">
+                  <button type="button" class="target-pill active" data-target="all" id="target-pill-all">전체 사장님</button>
+                  <button type="button" class="target-pill" data-target="specific">특정 매장 선택</button>
+                </div>
+                <!-- 아래 목록은 JS가 실제 가입 회원으로 채운다 (updateSpecificUserSelect).
+                     예전엔 존재하지 않는 매장 4곳이 박혀 있어, 그대로 고르면 아무에게도 안 갔다. -->
+                <select id="specific-user-select" class="specific-user-select" style="display: none; margin-top: 10px;">
+                  <option value="">-- 수신 점포 선택 --</option>
+                </select>
+              </div>
+
+              <div class="form-group" style="margin-top: 14px;">
+                <label class="form-label">알림 제목</label>
+                <input type="text" id="notif-title" class="notif-input" placeholder="예: [안내] 7월 정기 서버 점검 및 새로운 AI 기능 업데이트" required />
+              </div>
+
+              <div class="form-group" style="margin-top: 14px;">
+                <label class="form-label">공지 상세 내용</label>
+                <textarea id="notif-body" class="notif-textarea" placeholder="사장님 앱 홈 화면 알림함에 노출될 상세 내용을 작성하세요..." required></textarea>
+              </div>
+
+              <button type="submit" class="send-notif-btn">
+                <i data-lucide="send"></i> 공지 등록하기
+              </button>
+              <p class="form-hint" style="margin-top:8px; font-size:12px; color:var(--mocha-brown); line-height:1.5;">
+                등록한 공지는 사장님 앱 홈 화면의 알림함에 표시됩니다. 앱을 닫아 둔 상태로
+                울리는 푸시 알림은 아직 지원하지 않습니다.
+              </p>
+            </form>
+          </div>
+
+          <!-- 우측: 최근 발송된 알림 내역 타임라인 -->
+          <div class="content-box">
+            <div class="box-header">
+              <h3 class="box-title"><i data-lucide="history"></i> 등록된 공지 이력</h3>
+              <!-- 값은 renderNotifHistory()가 채운다. '3건'이 박혀 있어서, 조회 실패 시
+                   한 건도 없는데 3건 보냈다고 우겼다. -->
+              <span class="count-badge" id="notif-history-count">불러오는 중…</span>
+            </div>
+            <div class="notif-history-list" id="notif-history-list">
+              <!-- JS 동적 생성 -->
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ━━━ 탭 3: CS / 문의 관리 뷰 ━━━ -->
+      <section id="tab-cs" class="tab-content">
+        <div class="content-box full-width">
+          
+          <div class="box-header-row">
+            <h3 class="box-title"><i data-lucide="headset"></i> 사장님 1:1 문의 및 CS 처리</h3>
+            <div class="user-filter-pills">
+              <button class="cs-filter-pill active" data-cs-filter="all">전체 문의</button>
+              <button class="cs-filter-pill" data-cs-filter="waiting">⏳ 답변 대기</button>
+              <button class="cs-filter-pill" data-cs-filter="done">✅ 처리 완료</button>
+            </div>
+          </div>
+
+          <div class="table-container">
+            <table class="desktop-table">
+              <thead>
+                <tr>
+                  <th>문의 ID</th>
+                  <th>매장명 (사장님)</th>
+                  <th>문의 카테고리</th>
+                  <th>문의 제목</th>
+                  <th>접수 일시</th>
+                  <th>처리 상태</th>
+                  <th>답변 관리</th>
+                </tr>
+              </thead>
+              <tbody id="cs-table-body">
+                <!-- JS 동적 생성 -->
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- (삭제됨) 결제 & 매출 관리 탭 — 유료 플랜 폐지로 구독·결제 개념이 사라졌다 -->
+
+    </main>
+
+  </div>
+
+  <!-- ━━━ 3. 우측 회원 상세 슬라이드오버 Drawer ━━━ -->
+  <div class="drawer-overlay" id="drawer-overlay">
+    <div class="drawer-panel" id="drawer-panel">
+      
+      <!-- Drawer Header -->
+      <div class="drawer-header">
+        <div class="drawer-title-box">
+          <!-- 아래 값들은 openUserDrawer()가 선택한 회원 정보로 덮어쓴다 -->
+          <span class="drawer-id-badge" id="drawer-user-id">#-</span>
+          <h2 class="drawer-title" id="drawer-store-name">-</h2>
+        </div>
+        <button class="drawer-close-btn" id="drawer-close-btn">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+
+      <!-- Drawer Body (Scrollable) -->
+      <div class="drawer-body">
+        
+        <!-- 1. 계정 및 매장 프로필 카드 -->
+        <div class="drawer-card">
+          <div class="card-section-title">
+            <i data-lucide="user"></i> 계정 및 매장 정보
+          </div>
+          <div class="info-grid">
+            <div class="info-item">
+              <span class="info-label">사장님 이름</span>
+              <span class="info-value" id="drawer-user-name">-</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">이메일 주소</span>
+              <span class="info-value" id="drawer-user-email">-</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">가입 일자</span>
+              <span class="info-value" id="drawer-user-joined">-</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">계정 상태 변경</span>
+              <select id="drawer-user-status-select" class="status-select">
+                <option value="활성">활성 (사용 가능)</option>
+                <option value="대기">대기 (승인 대기)</option>
+                <option value="정지">정지 (이용 제한)</option>
+              </select>
+            </div>
+            <div class="info-item full-width-action" style="grid-column: span 2; margin-top: 8px;">
+              <button class="action-btn approve-btn" id="btn-approve-user">
+                <i data-lucide="check-circle-2"></i> 회원 가입 즉시 승인 및 계정 활성화
+              </button>
+            </div>
+            <div class="info-item full-width-action" style="grid-column: span 2; margin-top: 4px;">
+              <button class="action-btn cancel" id="btn-delete-user" style="background-color: #C62828; color: #FFFFFF; font-weight: bold; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; border: none; border-radius: 8px; padding: 10px;">
+                <i data-lucide="user-x"></i> 이 사장님 계정 강제 차단 및 영구 삭제
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- (삭제됨) 멤버십 서비스 현황 — 유료 플랜 폐지 -->
+
+        <!-- 3. 앱 실시간 사용 통계 카드 -->
+        <div class="drawer-card">
+          <div class="card-section-title">
+            <i data-lucide="bar-chart-2"></i> 이번 달 서비스 사용 통계
+          </div>
+          <div class="drawer-stats-grid">
+            <div class="stat-box">
+              <div class="stat-num" id="drawer-stat-ocr">-<span class="stat-unit">건</span></div>
+              <div class="stat-title">OCR 영수증 인식</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-num" id="drawer-stat-stocks">-<span class="stat-unit">개</span></div>
+              <div class="stat-title">등록된 재고 품목</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. 관리자 메모 (CS 이력) 카드 -->
+        <div class="drawer-card">
+          <div class="card-section-title">
+            <i data-lucide="clipboard-list"></i> 관리자 전용 메모 (CS 기록)
+          </div>
+          <textarea id="drawer-user-memo" class="memo-textarea" placeholder="특이사항이나 CS 응대 이력을 메모하세요..."></textarea>
+          <button class="save-memo-btn" id="btn-save-memo">
+            <i data-lucide="save"></i> 메모 저장하기
+          </button>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ━━━ 4. CS 1:1 문의 답변 작성 모달 ━━━ -->
+  <div class="drawer-overlay" id="cs-modal-overlay">
+    <div class="cs-modal-panel">
+      <div class="drawer-header">
+        <div class="drawer-title-box">
+          <!-- 아래 값들은 openCSModal()이 선택한 문의 내용으로 덮어쓴다 -->
+          <span class="drawer-id-badge" id="cs-modal-id">#CS-</span>
+          <h2 class="drawer-title" id="cs-modal-title">1:1 문의 답변 작성</h2>
+        </div>
+        <button class="drawer-close-btn" id="cs-modal-close-btn">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+
+      <div class="cs-modal-body" style="padding: 20px; display: flex; flex-direction: column; gap: 14px;">
+        <div class="drawer-card">
+          <div class="card-section-title"><i data-lucide="help-circle"></i> 접수된 사장님 문의 내용</div>
+          <div class="cs-info-box" style="margin-top: 8px; background: var(--coffee-cream); border-radius: 12px; padding: 14px;">
+            <div class="cs-info-meta" style="font-size: 12px; color: var(--mocha-brown); margin-bottom: 6px;">
+              <strong id="cs-modal-store">-</strong> · <span id="cs-modal-date">-</span>
+            </div>
+            <div class="cs-question-text" id="cs-modal-question" style="font-size: 14px; font-weight: 700; color: var(--espresso-brown); line-height: 1.5;">
+            </div>
+          </div>
+        </div>
+
+        <div class="drawer-card">
+          <div class="card-section-title"><i data-lucide="message-square"></i> 사장님께 전달할 답변 작성</div>
+          <textarea id="cs-answer-input" class="notif-textarea" style="height: 110px; margin-top: 8px;" placeholder="친절하고 정확한 답변을 입력해 주세요..."></textarea>
+          <button class="send-notif-btn" id="btn-send-cs-answer" style="margin-top: 12px; background-color: #2E7D32;">
+            <i data-lucide="check-circle"></i> 답변 완료 및 사장님 앱으로 전송
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/console/static/app.js?v={{ asset_version }}"></script>
+</body>
+</html>

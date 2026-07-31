@@ -1,8 +1,13 @@
 // 서류 자동화 (ERP-12) — 백엔드 /chatbot/documents·compliance 실연동
 // 문서 초안 생성(발주서·실사표·장부·부가세·임금명세서·근로계약서) + 생성 문서 열람 + 갱신 만료 알림
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, LayoutAnimation, Platform, StyleSheet, Text, TextInput, TouchableOpacity, UIManager, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 import { useNavigation } from '@react-navigation/native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -32,6 +37,7 @@ import {
 } from '../../lib/api/documents';
 import { formatValue, labelFor } from '../../lib/documentLabels';
 import { getTaxEstimate, estimateTaxManual, type TaxEstimate } from '../../lib/api/operation';
+import { TAX_DOC_GROUPS } from '../../lib/taxDocuments';
 import { colors, typography } from '../../theme';
 
 // content JSON을 읽기 좋은 줄로 펼친다 (kind별 스키마가 달라 범용 렌더러 사용)
@@ -768,6 +774,25 @@ const styles = StyleSheet.create({
   noteBoxText: { ...typography.L5, color: colors.mochaBrown, flex: 1, lineHeight: 17 },
   itemLine: { ...typography.L5, color: colors.espressoBrown, marginTop: 3, lineHeight: 16 },
   // [한글 주석] 세금 탭 전용으로 추가되는 레이아웃 스타일셋
+  // 신고별 필요 서류 체크리스트
+  chkGroupHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  chkGroupIcon: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: colors.coffeeCream, alignItems: 'center', justifyContent: 'center',
+  },
+  chkGroupTitle: { ...typography.L3, color: colors.espressoBrown },
+  chkGroupWhen: { ...typography.L5, color: colors.mochaBrown, marginTop: 3 },
+  chkBody: { marginTop: 12, borderTopWidth: 1, borderTopColor: colors.mutedSand, paddingTop: 12 },
+  chkSub: { ...typography.L5, color: colors.mochaBrown, lineHeight: 16 },
+  chkSecLabel: { ...typography.L4, color: colors.espressoBrown, marginBottom: 6 },
+  chkItem: { flexDirection: 'row', gap: 9, paddingVertical: 7 },
+  chkItemName: { ...typography.L5, color: colors.espressoBrown, fontWeight: '700', lineHeight: 16 },
+  chkItemDone: { textDecorationLine: 'line-through', opacity: 0.55 },
+  chkCritical: { color: '#B23B2E', fontWeight: '800' },
+  chkWhere: { fontSize: 10, color: colors.mochaBrown, marginTop: 3, lineHeight: 14 },
+  chkNote: { fontSize: 10, color: '#8A6320', marginTop: 3, lineHeight: 14 },
+  chkDisclaimer: { ...typography.L5, color: colors.mochaBrown, marginTop: 14, lineHeight: 15, fontStyle: 'italic' },
+
   taxAmount: { ...typography.L2, color: colors.espressoBrown, marginTop: 8, marginBottom: 2 },
   taxLine: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
   taxLabel: { ...typography.L4, color: colors.mochaBrown },
@@ -894,6 +919,120 @@ function TaxTab() {
           ))}
         </View>
       </Card>
+
+      {/* 신고별 필요 서류 — 일정만 알려주면 "그래서 뭘 챙기지?"에서 막힌다 */}
+      <TaxDocChecklist />
     </View>
+  );
+}
+
+// 신고 종류별 준비 서류 체크리스트. 어디서 발급받는지까지 적어 두고, 체크 상태는
+// 기기에 저장한다(신고 회차가 바뀌면 키가 달라져 자동으로 새 목록이 된다).
+function TaxDocChecklist() {
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
+  // 회차 태그 — 상반기/하반기가 바뀌면 체크가 초기화되도록
+  const periodTag = useMemo(() => {
+    const now = new Date();
+    return `${now.getFullYear()}H${now.getMonth() < 6 ? 1 : 2}`;
+  }, []);
+  const storeKey = `simplem:taxdocs:${periodTag}`;
+
+  useEffect(() => {
+    AsyncStorage.getItem(storeKey)
+      .then((raw) => {
+        if (raw) setChecked(JSON.parse(raw));
+      })
+      .catch(() => {});
+  }, [storeKey]);
+
+  const toggle = (id: string) => {
+    setChecked((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      AsyncStorage.setItem(storeKey, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  };
+
+  return (
+    <>
+      <SectionTitle>신고할 때 뭘 챙겨야 하나요</SectionTitle>
+      {TAX_DOC_GROUPS.map((g) => {
+        const all = g.sections.flatMap((s) => s.items);
+        const done = all.filter((i) => checked[i.id]).length;
+        const expanded = openGroup === g.id;
+        return (
+          <Card key={g.id}>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setOpenGroup(expanded ? null : g.id);
+              }}
+              style={styles.chkGroupHead}
+            >
+              <View style={styles.chkGroupIcon}>
+                <Ionicons name={g.icon as any} size={17} color={colors.espressoBrown} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.chkGroupTitle}>{g.title}</Text>
+                <Text style={styles.chkGroupWhen}>{g.when}</Text>
+              </View>
+              <Badge
+                label={`${done}/${all.length}`}
+                tone={done === all.length ? 'green' : done > 0 ? 'orange' : 'neutral'}
+              />
+              <Ionicons
+                name={expanded ? 'chevron-up' : 'chevron-down'}
+                size={17}
+                color={colors.mochaBrown}
+                style={{ marginLeft: 6 }}
+              />
+            </TouchableOpacity>
+
+            {expanded && (
+              <View style={styles.chkBody}>
+                <Text style={styles.chkSub}>{g.sub}</Text>
+                {g.sections.map((sec) => (
+                  <View key={sec.label} style={{ marginTop: 12 }}>
+                    <Text style={styles.chkSecLabel}>{sec.label}</Text>
+                    {sec.items.map((it) => {
+                      const on = !!checked[it.id];
+                      return (
+                        <TouchableOpacity
+                          key={it.id}
+                          activeOpacity={0.75}
+                          style={styles.chkItem}
+                          onPress={() => toggle(it.id)}
+                        >
+                          <Ionicons
+                            name={on ? 'checkbox' : 'square-outline'}
+                            size={17}
+                            color={on ? colors.trendGreenText : colors.mochaBrown}
+                            style={{ marginTop: 1 }}
+                          />
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.chkItemName, on && styles.chkItemDone]}>
+                              {it.name}
+                              {it.critical ? <Text style={styles.chkCritical}> · 중요</Text> : null}
+                            </Text>
+                            <Text style={styles.chkWhere}>📍 {it.where}</Text>
+                            {it.note ? <Text style={styles.chkNote}>{it.note}</Text> : null}
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ))}
+                <Text style={styles.chkDisclaimer}>
+                  일반적인 카페(휴게음식점) 기준 안내예요. 업종·과세유형에 따라 다를 수 있으니
+                  최종 확인은 세무사나 홈택스에서 하세요.
+                </Text>
+              </View>
+            )}
+          </Card>
+        );
+      })}
+    </>
   );
 }
