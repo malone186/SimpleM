@@ -358,15 +358,29 @@ def _pollinations_generate(prompt: str, aspect_ratio: str) -> tuple[bytes, str]:
     # 프롬프트가 URL 경로에 실리므로 '/'까지 전부 인코딩해야 한다(safe='') —
     # 기본 quote는 '/'를 남겨 경로가 쪼개지며 404가 난다(실측). 줄바꿈도 공백으로.
     encoded = urllib.parse.quote(" ".join(prompt[:1500].split()), safe="")
+    params: dict[str, str] = {
+        "width": str(w), "height": str(h), "nologo": "true",
+        # enhance=true: 서버 쪽 LLM이 프롬프트를 화보용으로 보강한다 — 실측으로
+        # 구도·조명 묘사가 눈에 띄게 좋아져 기본 켠다
+        "enhance": "true",
+        # model=flux: 익명 티어에서는 모델명이 사실상 무시되고 기본 모델로 수렴하지만
+        # (실측: flux/turbo/sana/sdxl 전부 같은 md5), 가입 토큰을 붙이면 존중되므로 명시해 둔다
+        "model": "flux",
+        # [같은 이미지 반복 버그 수정] Pollinations는 같은 URL을 캐시로 응답한다 —
+        # seed 없이 부르면 같은 프롬프트는 영원히 같은 이미지가 나온다(실측: seed만
+        # 바꾸면 매번 다른 이미지). 매 호출 랜덤 seed로 항상 새 이미지를 받는다.
+        "seed": str(uuid.uuid4().int % 1_000_000_000),
+    }
+    # 가입(무료 seed 티어~) 토큰이 있으면 상위 모델(seedream·kontext 등)이 열린다 —
+    # 익명은 이 파라미터 없이 동작하므로 없으면 그냥 뺀다.
+    poll_token = os.getenv("POLLINATIONS_TOKEN", "").strip()
+    if poll_token:
+        params["token"] = poll_token
+        params["model"] = os.getenv("POLLINATIONS_MODEL", "flux")
     try:
         r = httpx.get(
             "https://image.pollinations.ai/prompt/" + encoded,
-            # enhance=true: 서버 쪽 LLM이 프롬프트를 화보용으로 보강한다 — 실측으로
-            # 구도·조명 묘사가 눈에 띄게 좋아져 기본 켠다
-            # model=flux: 익명 티어 기본 모델(sana, 경량)보다 품질이 좋은 FLUX를 명시.
-            # 실측 1024² 약 5초 — 홍보물은 품질이 우선이라 속도 손해를 감수한다.
-            params={"width": w, "height": h, "nologo": "true", "enhance": "true",
-                    "model": "flux"},
+            params=params,
             timeout=IMAGE_TIMEOUT,
             follow_redirects=True,
         )
