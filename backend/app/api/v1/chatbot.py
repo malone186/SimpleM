@@ -502,6 +502,15 @@ class SalesImportConfirmRequest(BaseModel):
     rows: list[SalesImportRow]
 
 
+class MenuRegisterItem(BaseModel):
+    name: str
+    selling_price: int = 0
+
+
+class MenuRegisterRequest(BaseModel):
+    menus: list[MenuRegisterItem]
+
+
 @router.post("/sales", status_code=201)
 def record_sales_api(
     body: SalesRecordRequest,
@@ -547,6 +556,23 @@ async def sales_import_preview_api(
         grid = sales_import_service.parse_grid(content, file.filename or "")
         mapping = await sales_import_service.infer_mapping(grid)
         return sales_import_service.build_preview(current_user.email, grid, mapping)
+    except sales_import_service.SalesImportError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/sales/import/register-menus", status_code=201)
+def sales_import_register_menus_api(
+    body: MenuRegisterRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """파일에서 발견된 미등록 메뉴를 메뉴로 등록한다(이름·판매가만).
+
+    미매칭 행이 그냥 버려지지 않도록, 사용자가 판매가를 확인한 뒤 여기로 등록하면
+    같은 파일의 해당 행들이 매칭으로 바뀌어 저장(재고 차감은 레시피 등록 후) 대상이 된다.
+    """
+    try:
+        return sales_import_service.register_menus(
+            current_user.email, [m.model_dump() for m in body.menus])
     except sales_import_service.SalesImportError as e:
         raise HTTPException(400, str(e))
 

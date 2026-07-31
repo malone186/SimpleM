@@ -6,8 +6,8 @@
 //   · LLM이 열을 잘못 분류할 수 있으니, DB에 넣기 전에 미리보기로 사용자에게 꼭 확인받는다.
 //   · 파일이 없거나 손으로 적고 싶은 경우를 위해 '직접 입력'은 버튼으로 분리해
 //     별도 화면(ManualSalesScreen)에서 열리게 했다.
-import { useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { ActivityIndicator, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 
@@ -15,8 +15,10 @@ import { useAuth } from '../../auth/AuthContext';
 import { PressableScale } from '../../components/motion';
 import { toast } from '../../components/toast';
 import { Badge, Card, Screen, ScreenTitle } from '../../components/ui';
-import { confirmSalesImport, previewSalesImport, type ImportPreview } from '../../lib/api/sales';
+import { confirmSalesImport, previewSalesImport, registerImportMenus, type ImportPreview } from '../../lib/api/sales';
 import { colors, typography } from '../../theme';
+
+const onlyDigits = (s: string) => s.replace(/[^0-9]/g, '');
 
 export default function SalesInputScreen() {
   const { token } = useAuth();
@@ -25,6 +27,21 @@ export default function SalesInputScreen() {
   const [importing, setImporting] = useState(false);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [importedName, setImportedName] = useState('');
+  // 미등록 메뉴 등록용 — 이름별 편집 중인 판매가, 등록 진행 상태
+  const [menuPrices, setMenuPrices] = useState<Record<string, string>>({});
+  const [registering, setRegistering] = useState(false);
+
+  // 미리보기에서 미매칭(=미등록) 메뉴를 중복 없이 모으고, 파일의 단가(금액/수량)로 판매가 추정
+  const unmatchedMenus = useMemo(() => {
+    if (!importPreview) return [] as { name: string; suggested: number }[];
+    const seen = new Map<string, number>();
+    for (const r of importPreview.rows) {
+      if (r.menu_id != null || seen.has(r.menu_name)) continue;
+      const unit = r.total_price && r.quantity ? Math.round(r.total_price / r.quantity) : 0;
+      seen.set(r.menu_name, unit);
+    }
+    return [...seen.entries()].map(([name, suggested]) => ({ name, suggested }));
+  }, [importPreview]);
 
   // ---- 파일 선택 → LLM 매핑 미리보기 (DB 저장은 아직 안 함) ----
   // 웹에서는 네이티브 모듈 없이 <input type="file">로 바로 고른다.
@@ -34,6 +51,7 @@ export default function SalesInputScreen() {
     if (!token) return;
     setImporting(true);
     setImportPreview(null);
+    setMenuPrices({});
     setImportedName(picked.fileName ?? '');
     try {
       const pv = await previewSalesImport(picked, token);
@@ -80,6 +98,52 @@ export default function SalesInputScreen() {
     } catch {
       // 네이티브 모듈이 이 빌드에 없을 때(구버전 앱) 여기로 온다
       toast('파일 선택은 다음 업데이트부터', '이 기능은 새 앱 빌드에 포함돼요. 지금은 웹(브라우저)에서 파일을 올려 테스트할 수 있어요.');
+    }
+  };
+
+  // ---- 파일에서 발견된 미등록 메뉴를 메뉴로 등록 → 해당 행을 매칭으로 전환 ----
+  const registerUnmatched = async () => {
+    if (!token || !importPreview || registering || unmatchedMenus.length === 0) return;
+    const payload = unmatchedMenus.map((m) => ({
+      name: m.name,
+      selling_price: Number(menuPrices[m.name] ?? String(m.suggested)) || 0,
+    }));
+    setRegistering(true);
+    try {
+      const { menus } = await registerImportMenus(token, payload);
+      const byName = new Map(menus.map((m) => [m.name, m]));
+      // 새로 등록된 메뉴 이름과 같은 미매칭 행을 매칭으로 바꾸고 요약을 다시 계산
+      setImportPreview((pv) => {
+        if (!pv) return pv;
+        const rows = pv.rows.map((r) => {
+          const hit = r.menu_id == null ? byName.get(r.menu_name) : undefined;
+          if (!hit) return r;
+          return {
+            ...r,
+            menu_id: hit.menu_id,
+            matched_name: r.menu_name,
+            total_price: r.total_price ?? hit.selling_price * r.quantity,
+            warnings: r.warnings.filter((w) => w !== '메뉴 매칭 안 됨'),
+          };
+        });
+        const matched = rows.filter((r) => r.menu_id != null).length;
+        return {
+          ...pv,
+          rows,
+          summary: {
+            ...pv.summary,
+            matched,
+            unmatched: rows.length - matched,
+            sum_amount: rows.reduce((s, r) => s + (r.total_price ?? 0), 0),
+          },
+        };
+      });
+      const created = menus.filter((m) => m.created).length;
+      toast('메뉴를 등록했어요', `${created}개 등록 · 이제 매칭돼요. 저장하면 매출에 반영됩니다.`);
+    } catch (e) {
+      toast('메뉴 등록 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+    } finally {
+      setRegistering(false);
     }
   };
 
@@ -165,8 +229,44 @@ export default function SalesInputScreen() {
             <Text style={styles.fileSummary}>
               총 {importPreview.summary.total_rows}행 · 매칭 {importPreview.summary.matched} · 미매칭 {importPreview.summary.unmatched} · 합계 {importPreview.summary.sum_amount.toLocaleString()}원
             </Text>
-            {importPreview.summary.unmatched > 0 && (
-              <Text style={styles.fileWarn}>⚠ 미매칭 메뉴는 저장에서 제외돼요. 메뉴 관리에 먼저 등록하면 매칭됩니다.</Text>
+            {/* 미등록 메뉴 등록: 파일에 있는데 앱에 없는 메뉴를 판매가 확인 후 바로 등록 → 매칭 전환 */}
+            {unmatchedMenus.length > 0 && (
+              <View style={styles.regBox}>
+                <View style={styles.regHead}>
+                  <Ionicons name="add-circle-outline" size={16} color={colors.pointOrange} />
+                  <Text style={styles.regTitle}>미등록 메뉴 {unmatchedMenus.length}개 — 등록할까요?</Text>
+                </View>
+                <Text style={styles.regSub}>
+                  파일엔 있지만 앱에 없는 메뉴예요. 판매가를 확인하고 등록하면 매칭돼 저장에 포함됩니다.
+                  (재고 자동 차감은 나중에 레시피를 넣어야 동작해요.)
+                </Text>
+                {unmatchedMenus.map((m) => (
+                  <View key={m.name} style={styles.regRow}>
+                    <Text style={styles.regName} numberOfLines={1}>{m.name}</Text>
+                    <View style={styles.regPriceBox}>
+                      <TextInput
+                        style={styles.regPriceInput}
+                        keyboardType="number-pad"
+                        inputMode="numeric"
+                        value={menuPrices[m.name] ?? (m.suggested ? String(m.suggested) : '')}
+                        onChangeText={(v) => setMenuPrices((p) => ({ ...p, [m.name]: onlyDigits(v) }))}
+                        placeholder="0"
+                        placeholderTextColor="#C4B5A5"
+                      />
+                      <Text style={styles.regWon}>원</Text>
+                    </View>
+                  </View>
+                ))}
+                <PressableScale
+                  style={[styles.regBtn, registering && { opacity: 0.6 }]}
+                  onPress={registerUnmatched}
+                  disabled={registering}
+                  to={0.97}
+                >
+                  <Ionicons name="checkmark-circle-outline" size={16} color={colors.white} />
+                  <Text style={styles.regBtnText}>{registering ? '등록 중…' : `${unmatchedMenus.length}개 메뉴 등록`}</Text>
+                </PressableScale>
+              </View>
             )}
             {importPreview.rows.slice(0, 30).map((r, i) => (
               <View key={i} style={[styles.fileRow, r.menu_id == null && styles.fileRowUnmatched]}>
@@ -240,6 +340,32 @@ const styles = StyleSheet.create({
   engineWarn: { ...typography.L5, color: colors.pointOrange, fontWeight: '600' },
   fileSummary: { ...typography.L5, color: colors.espressoBrown, fontWeight: '800' },
   fileWarn: { ...typography.L5, color: colors.pointOrange, fontWeight: '600' },
+
+  // ── 미등록 메뉴 등록 박스 ──
+  regBox: {
+    backgroundColor: '#FFF7EE', borderWidth: 1, borderColor: 'rgba(232, 131, 58, 0.28)',
+    borderRadius: 12, padding: 12, gap: 8,
+  },
+  regHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  regTitle: { fontSize: 13.5, fontWeight: '800', color: colors.espressoBrown },
+  regSub: { ...typography.L5, color: colors.mochaBrown, lineHeight: 16 },
+  regRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  regName: { flex: 1, ...typography.L5, color: colors.espressoBrown, fontWeight: '700' },
+  regPriceBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    backgroundColor: colors.white, borderWidth: 1, borderColor: colors.mutedSand,
+    borderRadius: 9, paddingHorizontal: 10, height: 38, minWidth: 96,
+  },
+  regPriceInput: {
+    flex: 1, fontSize: 15, fontWeight: '800', color: colors.espressoBrown, textAlign: 'right', padding: 0,
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : null),
+  },
+  regWon: { ...typography.L5, color: colors.mochaBrown },
+  regBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: colors.pointOrange, borderRadius: 11, paddingVertical: 11, marginTop: 2,
+  },
+  regBtnText: { color: colors.white, fontSize: 13.5, fontWeight: '800' },
   fileRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingVertical: 8, paddingHorizontal: 10, borderRadius: 10,

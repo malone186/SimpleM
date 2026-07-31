@@ -24,6 +24,7 @@ import ManualSalesScreen from '../screens/sales/ManualSalesScreen';
 import MarketingScreen from '../screens/marketing/MarketingScreen';
 import MenuScreen from '../screens/menu/MenuScreen';
 import OperationScreen from '../screens/operation/OperationScreen';
+import OrderScreen from '../screens/order/OrderScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 import SalesInputScreen from '../screens/sales/SalesInputScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';

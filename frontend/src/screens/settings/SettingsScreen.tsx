@@ -673,6 +673,21 @@ export default function SettingsScreen() {
 
 
 
+        {/* [한글 주석: 매장 센서 연동 ON/OFF 스위치 복원] */}
+        <Divider />
+        <Row
+          label="매장 센서 연동"
+          hint="센서가 없는 매장은 꺼 두세요 — 발주 화면의 라이브·배너·AI 코치 알림이 모두 숨겨져요"
+          right={
+            <Switch
+              value={sensorOn}
+              onValueChange={toggleSensor}
+              trackColor={{ false: '#D6CFC7', true: colors.espressoBrown }}
+              thumbColor={colors.white}
+            />
+          }
+        />
+
         <Divider />
         <Text style={[styles.fieldLabel, { marginTop: 4 }]}>비밀번호 변경</Text>
         <View style={styles.pwRow}>

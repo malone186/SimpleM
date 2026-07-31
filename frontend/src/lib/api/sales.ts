@@ -117,6 +117,19 @@ export async function previewSalesImport(
   return res.json();
 }
 
+export type RegisteredMenu = { name: string; menu_id: number; selling_price: number; created: boolean };
+
+/** 파일에서 발견된 미등록 메뉴를 메뉴로 등록 (이름·판매가). 등록하면 해당 행이 매칭으로 바뀐다. */
+export const registerImportMenus = (
+  token: string,
+  menus: { name: string; selling_price: number }[],
+) =>
+  apiFetch<{ menus: RegisteredMenu[] }>('/api/v1/chatbot/sales/import/register-menus', {
+    method: 'POST',
+    headers: auth(token),
+    body: JSON.stringify({ menus }),
+  });
+
 /** 미리보기에서 확인·수정한 행을 실제 매출로 저장 (Sale 기록 + 재고 차감) */
 export const confirmSalesImport = (
   token: string,
