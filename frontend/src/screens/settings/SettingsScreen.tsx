@@ -29,12 +29,8 @@ import { PressableScale } from '../../components/motion';
 import { confirmDialog, toast } from '../../components/toast';
 import { API_BASE_URL } from '../../lib/api/client';
 import { getSensorFeature, setSensorFeature } from '../../lib/api/sensor';
-import {
-  DEFAULT_SETTLEMENT_SETTINGS,
-  getSettlementSettings,
-  updateSettlementSettings,
-  type SettlementSettings,
-} from '../../lib/api/settlement';
+import SettlementSetupPanel from '../../components/settlement/SettlementSetupPanel';
+import { getSettlementSettings } from '../../lib/api/settlement';
 import { resolveStoreProfile, updateStoreProfile } from '../../lib/api/store';
 import { isNativePushAvailable } from '../../notifications/pushRegistration';
 import { colors, typography } from '../../theme';
@@ -116,6 +112,17 @@ export default function SettingsScreen() {
   // [한글 주석] 매장 센서 연동 기능 ON/OFF — 백엔드 기본값과 동일하게 ON으로 시작하고,
   // 서버 조회가 성공하면 실제 값으로 동기화. 조회가 실패해도 스위치는 항상 누를 수 있다.
   const [sensorOn, setSensorOn] = useState(true);
+
+  // 카드 정산을 한 번이라도 설정했는지 — 메뉴에 '설정 필요' 배지를 띄우는 용도.
+  // null이면 아직 모르는 상태라 배지를 띄우지 않는다(깜빡임 방지).
+  const [settlementConfigured, setSettlementConfigured] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    getSettlementSettings(token)
+      .then((r) => setSettlementConfigured(!!r.configured))
+      .catch(() => {}); // 조회 실패 시 배지는 그냥 띄우지 않는다
+  }, [token]);
 
   useEffect(() => {
     if (!token) return;
@@ -468,11 +475,18 @@ export default function SettingsScreen() {
                 <Ionicons name="card-outline" size={20} color={colors.espressoBrown} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.menuItemTitle}>{prefs.language === 'en' ? 'Card Settlement' : '카드 정산 설정'}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={styles.menuItemTitle}>{prefs.language === 'en' ? 'Card Settlement' : '카드 정산 설정'}</Text>
+                  {/* 한 번도 설정한 적이 없으면 여기서 먼저 눈에 띄어야 한다 —
+                      기본값으로 조용히 계산되고 있다는 걸 사장님은 모른다 */}
+                  {settlementConfigured === false && (
+                    <Badge label={prefs.language === 'en' ? 'Setup needed' : '설정 필요'} tone="orange" />
+                  )}
+                </View>
                 <Text style={styles.menuItemDesc}>
                   {prefs.language === 'en'
-                    ? 'Fee tier & per-issuer deposit lead time'
-                    : '수수료율 구간, 카드사별 입금 소요일'}
+                    ? 'Guided 3-step setup — fees & deposit dates'
+                    : '3단계 안내로 수수료율·입금일 설정 (처음이면 여기부터)'}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
@@ -715,7 +729,7 @@ export default function SettingsScreen() {
       )}
 
       {/* 카드 정산 설정 — 수수료율 구간과 카드사별 입금 소요일 */}
-      {subView === 'settlement' && <SettlementSettingsPanel />}
+      {subView === 'settlement' && <SettlementSetupPanel />}
 
       {/* ② 알림 설정 */}
       {subView === 'notification' && (
@@ -1292,201 +1306,6 @@ export default function SettingsScreen() {
     </Screen>
   );
 }
-
-// 카드 정산 설정 — 수수료율 구간과 카드사별 입금 소요일.
-//
-// 기본값은 법정 기준(여전법상 지급기일 상한)과 금융위 고시 우대수수료율이지만, 실제 계약과
-// 통장 입금일은 매장마다 다르다. 사장님이 통장을 보고 직접 고칠 수 있어야 예상 입금일이
-// 신뢰할 수 있는 숫자가 된다.
-// 백엔드는 lag_overrides를 통째로 덮어쓴다 — 한 카드사만 보내면 나머지 설정이 날아간다.
-// 그래서 현재 화면에 보이는 전체 값을 함께 실어 보낸다.
-function withLag(data: SettlementSettings, code: string, next: number): Record<string, number> {
-  const clamped = Math.max(0, Math.min(10, next));
-  return Object.fromEntries(
-    data.issuers.map((i) => [i.code, i.code === code ? clamped : i.lag]),
-  );
-}
-
-function SettlementSettingsPanel() {
-  const { token } = useAuth();
-  const [data, setData] = useState<SettlementSettings | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!token) {
-      setData(DEFAULT_SETTLEMENT_SETTINGS);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    getSettlementSettings(token)
-      .then((res) => {
-        if (!cancelled) {
-          setData(res);
-          setLoading(false);
-        }
-      })
-      .catch((e) => {
-        console.error('정산 설정 조회 실패:', e);
-        if (!cancelled) {
-          // [한글 주석: 백엔드가 응답하지 않거나 네트워크 오류 시에도 멈춤 화면을 보이지 않도록 기본 정산 설정 제공]
-          setData(DEFAULT_SETTLEMENT_SETTINGS);
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
-
-  const apply = async (body: Parameters<typeof updateSettlementSettings>[1]) => {
-    if (saving) return;
-    setSaving(true);
-    try {
-      if (token) {
-        setData(await updateSettlementSettings(token, body));
-      }
-      toast('설정 반영 완료', '카드 정산 설정이 적용되었습니다.');
-    } catch (e) {
-      console.error('정산 설정 저장 실패:', e);
-      // 백엔드가 비정상이어도 화면 로컬 상태에는 변경사항을 즉시 반영해 먹통을 방지함
-      if (body.revenue_tier && data) {
-        const selTier = data.tiers.find((t) => t.code === body.revenue_tier);
-        if (selTier) {
-          setData({
-            ...data,
-            revenue_tier: selTier.code,
-            tier_label: selTier.label,
-            credit_fee_pct: selTier.credit,
-            check_fee_pct: selTier.check,
-          });
-        }
-      }
-      toast('설정 저장 완료', '로컬 정산 설정이 반영되었습니다.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (loading && !data) {
-    return (
-      <Card>
-        <View style={{ paddingVertical: 24, alignItems: 'center', gap: 10 }}>
-          <ActivityIndicator color={colors.mochaBrown} />
-          <Text style={styles.rowHint}>정산 설정을 불러오는 중…</Text>
-        </View>
-      </Card>
-    );
-  }
-
-  if (!data) return null;
-
-  return (
-    <>
-      <Card>
-        <SectionTitle>카드 수수료율</SectionTitle>
-        <Text style={styles.rowHint}>
-          연매출 구간에 따라 우대수수료율이 정해져 있어요. 계약서에 적힌 요율이 다르면 ‘직접 입력’을 고르세요.
-        </Text>
-        <View style={{ marginTop: 12, gap: 7 }}>
-          {data.tiers.map((tier) => {
-            const active = data.revenue_tier === tier.code;
-            return (
-              <PressableScale
-                key={tier.code}
-                style={[stlStyles.tierRow, active && stlStyles.tierRowActive]}
-                onPress={() => apply({ revenue_tier: tier.code })}
-                to={0.98}
-              >
-                <Ionicons
-                  name={active ? 'radio-button-on' : 'radio-button-off'}
-                  size={17}
-                  color={active ? colors.espressoBrown : colors.mochaBrown}
-                />
-                <Text style={[stlStyles.tierLabel, active && { fontWeight: '800' }]}>{tier.label}</Text>
-                <Text style={stlStyles.tierRate}>
-                  신용 {tier.credit}% / 체크 {tier.check}%
-                </Text>
-              </PressableScale>
-            );
-          })}
-        </View>
-        <Text style={styles.rowHint}>
-          지금 적용 중: 신용 {data.credit_fee_pct}% · 체크 {data.check_fee_pct}%
-        </Text>
-      </Card>
-
-      <Card>
-        <SectionTitle>카드사별 입금 소요일</SectionTitle>
-        <Text style={styles.rowHint}>
-          매출이 발생한 날부터 통장에 들어오기까지 걸리는 영업일 수예요. 주말·공휴일은 자동으로
-          빼고 계산합니다. 통장 입금일과 다르면 여기서 고쳐 주세요.
-        </Text>
-        <View style={{ marginTop: 12 }}>
-          {data.issuers.map((iss) => (
-            <View key={iss.code} style={stlStyles.lagRow}>
-              <View style={[stlStyles.dot, { backgroundColor: iss.color }]} />
-              <Text style={stlStyles.lagName}>{iss.name}</Text>
-              <View style={stlStyles.stepper}>
-                <PressableScale
-                  style={stlStyles.stepBtn}
-                  onPress={() => apply({ lag_overrides: withLag(data, iss.code, iss.lag - 1) })}
-                  to={0.9}
-                >
-                  <Ionicons name="remove" size={15} color={colors.espressoBrown} />
-                </PressableScale>
-                <Text style={stlStyles.lagValue}>D+{iss.lag}</Text>
-                <PressableScale
-                  style={stlStyles.stepBtn}
-                  onPress={() => apply({ lag_overrides: withLag(data, iss.code, iss.lag + 1) })}
-                  to={0.9}
-                >
-                  <Ionicons name="add" size={15} color={colors.espressoBrown} />
-                </PressableScale>
-              </View>
-            </View>
-          ))}
-        </View>
-        <Text style={[styles.rowHint, { marginTop: 12 }]}>
-          기본값은 여신전문금융업법상 지급기일(영세·중소 가맹점 2영업일, 일반 3영업일)을 기준으로
-          한 추정치예요. 확정 금액과 날짜는 카드사 정산 내역을 확인하세요.
-        </Text>
-      </Card>
-    </>
-  );
-}
-
-const stlStyles = StyleSheet.create({
-  tierRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-    backgroundColor: colors.creamSand,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-  },
-  tierRowActive: { backgroundColor: colors.coffeeCream },
-  tierLabel: { ...typography.L5, color: colors.espressoBrown, flex: 1 },
-  tierRate: { fontSize: 10, fontWeight: '700', color: colors.mochaBrown },
-  lagRow: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 7 },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  lagName: { ...typography.L4, color: colors.espressoBrown, flex: 1 },
-  stepper: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  stepBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colors.coffeeCream,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  lagValue: { ...typography.L4, color: colors.espressoBrown, minWidth: 34, textAlign: 'center' },
-});
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10 },

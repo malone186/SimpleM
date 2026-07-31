@@ -23,10 +23,12 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+KST = timezone(timedelta(hours=9))
 
 
 class SettlementError(ValueError):
@@ -135,14 +137,26 @@ def get_settings(store_id: str) -> dict[str, Any]:
             overrides = {}
         issuers = [
             {**i, "selectable": i.get("selectable", True),
-             "lag": int(overrides.get(i["code"], i["default_lag"]))}
+             "lag": int(overrides.get(i["code"], i["default_lag"])),
+             # 사장님이 직접 고친 카드사인지 — 화면에서 '기본값'과 구분해 보여준다
+             "customized": i["code"] in overrides
+             and int(overrides[i["code"]]) != i["default_lag"]}
             for i in CARD_ISSUERS
         ]
         return {
+            # configured=False면 아직 한 번도 설정을 저장한 적이 없다는 뜻이다.
+            # 화면은 이때 '설정 마법사'를 먼저 띄운다 — 기본값이 조용히 적용된 채로
+            # 두면 사장님은 자기 매장 수수료율이 뭔지 영영 모른다.
+            "configured": row is not None,
             "revenue_tier": tier_code,
             "tier_label": tier["label"],
             "credit_fee_pct": credit,
             "check_fee_pct": check,
+            "custom_credit_fee": float(row.custom_credit_fee)
+            if (row and row.custom_credit_fee is not None) else None,
+            "custom_check_fee": float(row.custom_check_fee)
+            if (row and row.custom_check_fee is not None) else None,
+            "lag_customized": any(i["customized"] for i in issuers),
             "issuers": issuers,
             "tiers": REVENUE_TIERS,
         }
@@ -181,10 +195,164 @@ def update_settings(
                 if k in ISSUER_BY_CODE
             }
             row.lag_overrides = json.dumps(clean)
+        # '직접 입력'을 골라 놓고 요율을 안 적으면 화면엔 임의의 기본값(1.5%)이 뜬다.
+        # 사장님은 그게 자기 계약률인 줄 안다 — 그래서 저장 자체를 막는다.
+        if row.revenue_tier == "custom" and (
+            row.custom_credit_fee is None or row.custom_check_fee is None
+        ):
+            db.rollback()
+            raise SettlementError("직접 입력을 고르셨으면 신용·체크 수수료율을 모두 적어 주세요.")
         db.commit()
     finally:
         db.close()
     return get_settings(store_id)
+
+
+# ---------------------------------------------------------------------------
+# 처음 쓰는 사장님을 돕는 두 가지: 구간 추천 · 입금 미리보기
+# ---------------------------------------------------------------------------
+
+def suggest_tier(store_id: str, lookback_days: int = 90) -> dict[str, Any]:
+    """최근 매출로 연매출을 추정해 우대수수료율 구간을 추천한다.
+
+    "연매출이 3억 이하인가요?"는 사장님이 바로 답하기 어려운 질문이다(부가세 신고서를
+    꺼내 봐야 안다). 이미 앱에 들어와 있는 매출 — 수기 입력(daily_sales_entries)과
+    POS 판매(sales) — 로 하루 평균을 내고 365일로 환산해 구간을 먼저 제안한다.
+
+    두 출처를 더하면 같은 매출이 두 번 잡힐 수 있어(수기 입력한 날에 POS도 들어옴)
+    날짜별로 더 큰 쪽만 취한다. 어차피 구간 경계(3억/5억/10억/30억)를 가르는 데는
+    이 정도 정밀도로 충분하다.
+    """
+    from sqlalchemy import func as sa_func
+
+    from app.models.ai import DailySalesEntry
+    from app.models.inventory import Sale
+
+    lookback_days = max(7, min(int(lookback_days), 365))
+    today = date.today()
+    since = today - timedelta(days=lookback_days - 1)
+
+    by_date: dict[str, int] = {}
+    db = _session()
+    try:
+        manual = (
+            db.query(DailySalesEntry.entry_date, sa_func.sum(DailySalesEntry.amount))
+            .filter(DailySalesEntry.store_id == store_id,
+                    DailySalesEntry.entry_date >= since.isoformat(),
+                    DailySalesEntry.entry_date <= today.isoformat())
+            .group_by(DailySalesEntry.entry_date)
+            .all()
+        )
+        for d, amount in manual:
+            by_date[d] = int(amount or 0)
+
+        # sold_at은 timestamp라 날짜로 잘라 묶는다. 필터는 타입 이슈가 없는
+        # timestamp 비교로 걸어 SQLite/Postgres 양쪽에서 같게 동작하게 했다.
+        since_dt = datetime.combine(since, time.min, tzinfo=KST)
+        pos = (
+            db.query(sa_func.date(Sale.sold_at), sa_func.sum(Sale.total_price))
+            .filter(Sale.store_id == store_id, Sale.sold_at >= since_dt)
+            .group_by(sa_func.date(Sale.sold_at))
+            .all()
+        )
+        for d, amount in pos:
+            key = d.isoformat() if hasattr(d, "isoformat") else str(d)[:10]
+            by_date[key] = max(by_date.get(key, 0), int(amount or 0))
+    except Exception as e:  # POS 테이블이 없는 배포본이어도 추천 자체는 돌아가야 한다
+        logger.warning("구간 추천 매출 조회 실패: %s", e)
+    finally:
+        db.close()
+
+    observed_days = len([v for v in by_date.values() if v > 0])
+    total = sum(by_date.values())
+    daily_avg = round(total / observed_days) if observed_days else 0
+    annual = daily_avg * 365
+
+    if observed_days == 0:
+        return {
+            "available": False,
+            "observed_days": 0,
+            "reason": "아직 매출 기록이 없어 추정할 수 없어요. 며칠 입력한 뒤 다시 눌러 주세요.",
+        }
+
+    if annual <= 300_000_000:
+        code = "small"
+    elif annual <= 500_000_000:
+        code = "mid1"
+    elif annual <= 1_000_000_000:
+        code = "mid2"
+    elif annual <= 3_000_000_000:
+        code = "mid3"
+    else:
+        code = "general"
+    tier = TIER_BY_CODE[code]
+
+    # 며칠치로 1년을 짚는 것이라 관측 일수가 곧 신뢰도다
+    confidence = "high" if observed_days >= 28 else "medium" if observed_days >= 14 else "low"
+    return {
+        "available": True,
+        "recommended_tier": code,
+        "tier_label": tier["label"],
+        "credit_fee_pct": tier["credit"],
+        "check_fee_pct": tier["check"],
+        "observed_days": observed_days,
+        "daily_avg": daily_avg,
+        "annual_estimate": annual,
+        "confidence": confidence,
+        "basis": f"최근 {lookback_days}일 중 매출이 있는 {observed_days}일 기준, "
+                 f"하루 평균 {daily_avg:,}원 × 365일",
+        "note": "실제 우대수수료율 구간은 국세청 신고 매출을 기준으로 카드사가 정해 통보해요. "
+                "여기 추천은 앱에 쌓인 매출로 계산한 참고값이에요.",
+    }
+
+
+def preview(
+    store_id: str,
+    amount: int = 100_000,
+    card_type: str = "credit",
+    issuer: str = "",
+    sale_date: Optional[str] = None,
+) -> dict[str, Any]:
+    """'오늘 이 카드로 N원 결제되면 언제 얼마가 들어오는지'를 한 건만 계산해 준다.
+
+    설정 화면에서 숫자를 바꿀 때마다 결과가 눈앞에서 같이 바뀌어야 사장님이 그 설정이
+    무슨 뜻인지 안다. 건너뛴 주말·공휴일도 함께 돌려줘 'D+2 영업일'을 눈으로 보게 한다.
+    """
+    settings = get_settings(store_id)
+    lag_by_code = {i["code"]: i["lag"] for i in settings["issuers"]}
+    code = issuer if issuer in ISSUER_BY_CODE else "shinhan"
+    ctype = "check" if card_type == "check" else "credit"
+    amount = max(0, int(amount))
+
+    try:
+        start = date.fromisoformat(sale_date) if sale_date else date.today()
+    except ValueError:
+        raise SettlementError("날짜 형식이 올바르지 않습니다 (YYYY-MM-DD)")
+
+    detail = _card_detail(code, ctype, amount, start, lag_by_code, settings)
+    deposit = date.fromisoformat(detail["deposit_date"])
+
+    holidays = _holidays()
+    skipped: list[dict[str, str]] = []
+    cur = start + timedelta(days=1)
+    while cur <= deposit:
+        if not is_business_day(cur):
+            skipped.append({
+                "date": cur.isoformat(),
+                "label": f"{cur.month}/{cur.day}",
+                "reason": holidays.get(cur.isoformat())
+                or ("토요일" if cur.weekday() == 5 else "일요일"),
+            })
+        cur += timedelta(days=1)
+
+    return {
+        **detail,
+        "sale_date": start.isoformat(),
+        "deposit_weekday": "월화수목금토일"[deposit.weekday()],
+        "calendar_days": (deposit - start).days,
+        "skipped": skipped,
+        "tier_label": settings["tier_label"],
+    }
 
 
 # ---------------------------------------------------------------------------

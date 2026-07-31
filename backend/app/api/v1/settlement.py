@@ -61,6 +61,34 @@ def update_settings_api(
         raise HTTPException(400, str(e))
 
 
+@router.get("/tier-suggestion", summary="최근 매출로 추정한 우대수수료율 구간 추천")
+def suggest_tier_api(
+    lookback_days: int = 90,
+    current_user: User = Depends(get_current_user),
+):
+    return settlement_service.suggest_tier(current_user.email, lookback_days=lookback_days)
+
+
+@router.get("/preview", summary="설정 미리보기 — 이 금액이 언제 얼마로 들어오는지")
+def preview_api(
+    amount: int = 100_000,
+    card_type: str = "credit",
+    issuer: str = "",
+    sale_date: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return settlement_service.preview(
+            current_user.email,
+            amount=amount,
+            card_type=card_type,
+            issuer=issuer,
+            sale_date=sale_date,
+        )
+    except settlement_service.SettlementError as e:
+        raise HTTPException(400, str(e))
+
+
 @router.get("/day", summary="하루치 매출 입력 내용 + 그날 수수료·입금 예정")
 def get_day_api(date: str, current_user: User = Depends(get_current_user)):
     try:
