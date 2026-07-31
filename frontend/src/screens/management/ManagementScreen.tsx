@@ -97,6 +97,7 @@ export default function ManagementScreen() {
     { label: t('taxDocsTitle'), en: 'DOCUMENTS', desc: t('taxDocsSub'), color: '#9A8E82', route: 'Document' },
     { label: t('salesInputTitle'), en: 'SALES', desc: language === 'en' ? 'Cash/Card · Payout schedule' : '현금·카드 입력 · 입금 예정일', color: '#D1C6B9', route: 'SalesInput' },
     { label: t('costAnalysisTitle'), en: 'COST', desc: t('costAnalysisSub'), color: '#E1DCD7', route: 'Cost' },
+    { label: language === 'en' ? 'Marketing Studio' : '홍보 스튜디오', en: 'MARKETING', desc: language === 'en' ? 'AI promo copy & social image' : 'AI 홍보 문구 · SNS 이미지 생성', color: '#8A6F5A', route: 'Marketing' },
     { label: language === 'en' ? 'Bean Ops' : '운영·원두 분석', en: 'OPERATION', desc: language === 'en' ? 'Bean market price & Reviews' : '원두 최저가 시세 · 실리뷰 분석', color: '#463C34', route: 'BeanOperation' },
   ];
 
