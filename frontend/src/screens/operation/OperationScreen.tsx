@@ -276,7 +276,7 @@ function ScheduleCalendarCard({
       const DAY_CODES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
       const dObj = new Date(dateStr);
       const dayCode = DAY_CODES[dObj.getDay()];
-      const emp = dbEmployees.find((e: any) => e.id === empId);
+      const emp = dbEmployees.find((e: any) => e.id === empId) as any;
       const profileWorkDays = (emp?.profile?.work_days ?? []) as string[];
       return profileWorkDays.includes(dayCode);
     },

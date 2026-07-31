@@ -343,7 +343,6 @@ export default function StaffScreen() {
               <View style={styles.row}>
                 {/* [한글 주석: 카드 상단 헤더 — PressableScale로 쫀득한 손맛 피드백 & 스프링 바운스 모션] */}
                 <PressableScale
-                  activeOpacity={0.85}
                   style={styles.headerHit}
                   to={0.985}
                   onPress={() => {

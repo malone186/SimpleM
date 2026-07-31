@@ -18,6 +18,8 @@ export type StaffProfile = {
   hired_on: string | null;
   memo: string | null;
   unset?: boolean; // 아직 상세를 채우지 않은 직원
+  work_days?: string[];
+  color?: string;
 };
 
 export type LaborCost = {
