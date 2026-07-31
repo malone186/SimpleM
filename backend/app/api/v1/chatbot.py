@@ -372,6 +372,32 @@ def get_sales_forecast_api(
         raise HTTPException(409, str(e))
 
 
+@router.get("/forecast/accuracy")
+def get_forecast_accuracy_api(
+    target: str = "revenue",
+    horizon: int = 7,
+    folds: int = 4,
+    since: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+):
+    """예측 정확도 백테스트 — 과거 시점으로 돌아가 실제로 맞혔는지 채점한 결과.
+
+    WAPE(%)가 낮을수록 정확하다. 베이스라인(최근 4주 같은 요일 평균)과 나란히 주므로
+    시계열 모델이 단순 규칙보다 나은지도 함께 판단할 수 있다.
+    since(YYYY-MM-DD): 매출 수준이 크게 바뀐 시점 이후만 평가하고 싶을 때 쓴다 —
+    그 이전을 포함하면 오차가 모델 성능이 아니라 그 단절을 재게 된다.
+    판매 기록이 부족하면 409와 함께 필요한 일수를 안내한다.
+
+    SARIMAX를 fold 수만큼 다시 적합하므로 수 초가 걸린다 — 대시보드 첫 화면이 아니라
+    '정확도 보기'처럼 사용자가 명시적으로 요청했을 때만 부른다(그래서 캐시도 두지 않는다).
+    """
+    try:
+        return forecast_service.backtest(
+            current_user.email, target=target, horizon=horizon, folds=folds, since=since)
+    except forecast_service.ForecastError as e:
+        raise HTTPException(409, str(e))
+
+
 @router.get("/geocode")
 def geocode_address(query: str):
     """주소/상호 → 좌표 (회원가입 매장 위치 검색용 — 가입 전 화면이라 인증 불필요).

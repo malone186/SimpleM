@@ -142,8 +142,13 @@ def _weather_label(code: int) -> str:
 # 1) POS 판매 시계열 로드
 # ---------------------------------------------------------------------------
 
-def _load_daily_series(db, store_id: str):
-    """일별 (판매 잔 수, 매출) 시계열을 만든다. 기록 없는 날은 0으로 채운다 (휴무 가정)."""
+def _load_daily_series(db, store_id: str, mask_abnormal: bool = True):
+    """일별 (판매 잔 수, 매출) 시계열을 만든다.
+
+    기록 없는 날은 0으로 메워 연속성을 확보하되, 그 0은 '매출이 0이었던 영업일'이 아니라
+    대개 휴무다. mask_abnormal=True면 휴무·품절 의심일을 결측(NaN)으로 되돌린다
+    (_mask_abnormal_days 참고). 백테스트에서 마스킹 전/후를 비교하려고 끌 수 있게 남겨 둔다.
+    """
     import pandas as pd
 
     from app.models.inventory import Sale
@@ -157,7 +162,11 @@ def _load_daily_series(db, store_id: str):
     if not rows:
         return None
     df = pd.DataFrame(rows, columns=["sold_at", "quantity", "total_price"])
-    df["day"] = pd.to_datetime(df["sold_at"]).dt.date
+    # sold_at은 Neon(timestamptz)에서 UTC로 온다 — KST로 옮기지 않으면 오전 9시 이전 판매가
+    # 전날로 밀려 일별 집계가 통째로 어긋난다 (시간대별 집계와 같은 기준을 쓴다)
+    df["day"] = pd.to_datetime(
+        df["sold_at"].map(lambda d: _to_kst(d).replace(tzinfo=None) if isinstance(d, datetime) else d)
+    ).dt.date
     daily = df.groupby("day").agg(cups=("quantity", "sum"), revenue=("total_price", "sum"))
     daily.index = pd.to_datetime(daily.index)
     # 오늘은 하루가 끝나지 않아 미완성 집계다 — 학습에 넣으면 '판매가 급감한 날'로 오인해
@@ -167,7 +176,76 @@ def _load_daily_series(db, store_id: str):
         return None
     # 첫 판매일~마지막 판매일 사이 비는 날을 0으로 — 시계열 연속성 확보
     full = pd.date_range(daily.index.min(), daily.index.max(), freq="D")
-    return daily.reindex(full, fill_value=0)
+    daily = daily.reindex(full, fill_value=0)
+    return _mask_abnormal_days(daily)[0] if mask_abnormal else daily
+
+
+# ---------------------------------------------------------------------------
+# 1.5) 비정상 영업일 마스킹 — 휴무·품절로 '못 판' 날은 수요가 0이었던 게 아니다
+# ---------------------------------------------------------------------------
+
+ABNORMAL_RATIO = 0.35   # 그 시기 그 요일에 기대되는 양의 이 비율 미만이면 정상 영업으로 안 본다
+MAX_MASK_RATIO = 0.25   # 이 비율을 넘게 지워야 한다면 판정이 틀린 것으로 보고 마스킹을 접는다
+LOCAL_WINDOW = 7        # 지역 수준(level) 추정에 쓰는 이동 중앙값 창 — 7일이면 요일을 한 바퀴 돈다
+MIN_WEEKDAY_SAMPLES = 3  # 요일 비율 중앙값을 신뢰하려면 같은 요일이 최소 이만큼은 있어야 한다
+
+
+def _mask_abnormal_days(daily) -> tuple[Any, list[str]]:
+    """휴무(판매 0)·품절/장애 의심일을 결측(NaN)으로 바꾼 시계열과 그 날짜 목록을 돌려준다.
+
+    reindex가 빈 날을 0으로 채우기 때문에 휴무일이 '매출 0인 영업일'로 학습된다.
+    주 1회 정기휴무 매장이면 그 요일 평균이 통째로 눌려서, 모델을 아무리 바꿔도
+    해당 요일 예측이 구조적으로 낮게 나온다 — 피처를 더 넣어서 고칠 수 있는 문제가 아니다.
+    SARIMAX(상태공간)는 결측을 결측으로 다루므로 NaN이 0보다 항상 낫다.
+
+    판정 기준을 '전체 기간의 같은 요일 중앙값'으로 잡으면 안 된다. 매출 수준이 한 번
+    크게 바뀐 매장(신규 오픈 후 안정화, 리모델링, 경쟁점 개업, 성수기/비수기)에서는
+    낮은 쪽 구간이 통째로 '이상일'로 찍혀 데이터의 절반이 날아간다 — 실제로 이 저장소의
+    데모 데이터에서 그렇게 오판했다.
+
+    그래서 두 단계로 정규화한다:
+      1) 지역 수준 = 중심 7일 이동 중앙값 (요일 효과가 한 바퀴 안에서 상쇄된다)
+      2) 요일 비율 = 그날 판매 / 지역 수준 → 수준 변화와 무관한 값이 된다
+    이 비율이 같은 요일의 평소 비율 대비 ABNORMAL_RATIO 미만이면 품절·단축영업으로 본다.
+    판매 0인 날은 근거가 확실하므로 비율과 무관하게 항상 지운다.
+
+    마스킹이 전체의 MAX_MASK_RATIO를 넘으면 기준이 매장 현실과 안 맞는다는 뜻이므로
+    0인 날만 지우고 물러선다 (저매출·신규 매장을 통째로 지워버리는 사고 방지).
+    """
+    import numpy as np
+
+    masked = daily.copy().astype(float)
+    cups = masked["cups"].to_numpy(dtype=float)
+    weekdays = masked.index.dayofweek.to_numpy()
+
+    drop = cups <= 0  # 휴무 — 근거가 확실하므로 항상 지운다
+    suspect = np.zeros(len(cups), dtype=bool)
+
+    # 1) 지역 수준 — 판매 0인 날을 뺀 값으로 중심 이동 중앙값 (구간 양끝은 min_periods로 완화)
+    level_src = masked["cups"].where(~drop)
+    level = level_src.rolling(LOCAL_WINDOW, center=True, min_periods=3).median().to_numpy(dtype=float)
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = np.where((level > 0) & ~drop, cups / level, np.nan)
+
+    # 2) 요일별 평소 비율과 비교 — 비율끼리 재므로 매출 수준이 바뀌어도 판정이 흔들리지 않는다
+    for wd in range(7):
+        same_wd = (weekdays == wd) & ~drop & ~np.isnan(ratio)
+        if same_wd.sum() < MIN_WEEKDAY_SAMPLES:
+            continue  # 표본이 적으면 중앙값을 못 믿는다 — 판정하지 않는다
+        typical = float(np.median(ratio[same_wd]))
+        if typical <= 0:
+            continue
+        suspect |= same_wd & (ratio < typical * ABNORMAL_RATIO)
+
+    combined = drop | suspect
+    if combined.sum() > len(cups) * MAX_MASK_RATIO:
+        logger.info("비정상일 판정이 %d/%d일로 과도 — 판매 0인 날만 결측 처리",
+                    int(combined.sum()), len(cups))
+        combined = drop
+
+    masked.loc[combined, ["cups", "revenue"]] = np.nan
+    return masked, [d.date().isoformat() for d in masked.index[combined]]
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +268,11 @@ def _forecast_sarimax(series, horizon: int):
 
 
 def _forecast_seasonal(series, horizon: int):
-    """폴백: 요일별 평균(최근 2주는 2배 가중) × 최근 추세(직전 2주 / 그 전 2주, 0.7~1.3 클립)."""
+    """폴백: 요일별 평균(최근 2주는 2배 가중) × 최근 추세(직전 2주 / 그 전 2주, 0.7~1.3 클립).
+
+    휴무·품절로 결측(NaN) 처리된 날은 평균·추세 계산에서 통째로 빼야 한다 — 0으로 세면
+    그 요일 평균이 눌리고, NaN을 그냥 넣으면 평균 전체가 NaN이 된다.
+    """
     import numpy as np
 
     values = series.to_numpy(dtype=float)
@@ -198,22 +280,53 @@ def _forecast_seasonal(series, horizon: int):
     n = len(values)
     weights = np.ones(n)
     weights[-14:] = 2.0  # 최근 2주 가중
+    valid = ~np.isnan(values)
+    overall = float(np.mean(values[valid])) if valid.any() else 0.0
 
     wd_mean = {}
     for wd in range(7):
-        mask = weekdays == wd
-        wd_mean[wd] = (np.average(values[mask], weights=weights[mask])
-                       if mask.any() else float(values.mean()))
+        mask = (weekdays == wd) & valid
+        wd_mean[wd] = (float(np.average(values[mask], weights=weights[mask]))
+                       if mask.any() else overall)
+
+    def _window_mean(lo: int, hi: Optional[int]) -> float:
+        """구간 평균 — 결측을 뺀 값들로만 계산한다 (전부 결측이면 0)."""
+        chunk = values[lo:hi] if hi is not None else values[lo:]
+        ok = ~np.isnan(chunk)
+        return float(chunk[ok].mean()) if ok.any() else 0.0
 
     trend = 1.0
     if n >= 28:
-        recent, prev = values[-14:].mean(), values[-28:-14].mean()
+        recent, prev = _window_mean(-14, None), _window_mean(-28, -14)
         if prev > 0:
             trend = float(np.clip(recent / prev, 0.7, 1.3))
 
     last_day = series.index[-1]
     return [max(0.0, wd_mean[(last_day + timedelta(days=i + 1)).dayofweek] * trend)
             for i in range(horizon)]
+
+
+def _forecast_weekday_naive(series, horizon: int):
+    """베이스라인: 최근 4주 같은 요일의 평균 (결측 제외).
+
+    모델 평가의 기준선이다. SARIMAX가 이것보다 못하면 시계열 모델을 쓸 이유가 없다 —
+    백테스트가 실제로 그 질문에 답하라고 두는 비교군.
+    """
+    import numpy as np
+
+    values = series.to_numpy(dtype=float)
+    weekdays = series.index.dayofweek.to_numpy()
+    valid = ~np.isnan(values)
+    overall = float(np.mean(values[valid])) if valid.any() else 0.0
+
+    last_day = series.index[-1]
+    out = []
+    for i in range(horizon):
+        wd = (last_day + timedelta(days=i + 1)).dayofweek
+        mask = (weekdays == wd) & valid
+        recent = values[mask][-4:]  # 최근 4주치 같은 요일
+        out.append(float(recent.mean()) if len(recent) else overall)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -711,6 +824,203 @@ def _today_actuals(db, store_id: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# 6) 백테스트 — "그래서 예측이 얼마나 맞는가"를 숫자로 답한다
+# ---------------------------------------------------------------------------
+
+# 예측 방식별 함수 — 백테스트는 이 표를 그대로 돌려 서로 비교한다
+_METHODS = {
+    "weekday_naive": ("최근 4주 같은 요일 평균 (베이스라인)", _forecast_weekday_naive),
+    "seasonal": ("요일평균×추세 (현재 폴백)", _forecast_seasonal),
+    "sarimax": ("SARIMAX(1,0,1)×(1,0,1,7) (현재 기본)", _forecast_sarimax),
+}
+
+
+AVG_PRICE_WINDOW = 14  # 객단가를 볼 최근 기간(유효 영업일 기준)
+
+
+def _recent_avg_price(df, window: int = AVG_PRICE_WINDOW) -> Optional[float]:
+    """최근 영업일의 객단가(매출÷잔 수). 결측일은 빼고 센다. 계산 불가면 None.
+
+    개별 날의 객단가를 평균내지 않고 '매출 합 ÷ 잔 수 합'을 쓴다 — 한산한 날의
+    튀는 객단가가 평균을 흔드는 것을 막는다.
+    """
+    import numpy as np
+
+    cups = df["cups"].to_numpy(dtype=float)
+    rev = df["revenue"].to_numpy(dtype=float)
+    ok = ~np.isnan(cups) & ~np.isnan(rev) & (cups > 0)
+    if not ok.any():
+        return None
+    c, r = cups[ok][-window:], rev[ok][-window:]
+    total_cups = float(c.sum())
+    return float(r.sum()) / total_cups if total_cups > 0 else None
+
+
+# 채점 지표는 WAPE(가중절대백분율오차) = Σ|실제-예측| / Σ실제 를 주지표로 쓴다.
+# MAPE는 매출이 작은 날에서 분모가 작아져 값이 폭주하므로(한산한 날 하나가 전체 평균을
+# 지배한다) 카페 일매출 평가에 맞지 않는다. bias는 부호를 살린 오차로, 모델이 꾸준히
+# 과대예측(+)인지 과소예측(-)인지를 본다 — WAPE와 절댓값이 같으면 한 방향으로만 틀렸다는 뜻.
+
+
+def backtest(store_id: str, horizon: int = 7, folds: int = 4,
+             target: str = "revenue", min_train: Optional[int] = None,
+             since: Optional[str] = None) -> dict[str, Any]:
+    """롤링 오리진 백테스트 — 과거 시점으로 돌아가 실제로 맞혔는지 채점한다.
+
+    시계열은 미래를 훔쳐보기 쉬워서(전체 데이터로 적합한 뒤 그 안을 예측하면 항상 잘 맞는다)
+    학습 구간을 fold마다 잘라 뒤로 밀며 평가한다. 각 fold는 cut일까지만 학습하고
+    그 다음 horizon일을 예측한 뒤, 실제값과 비교한다.
+
+    비교군을 셋 둔다 — 베이스라인(요일 평균)·현재 폴백·SARIMAX. 그리고 각각을
+    '비정상일 마스킹 전/후'로 돌려서, 휴무일을 0으로 학습하는 게 실제로 얼마나
+    손해인지까지 같은 표에서 보이게 한다.
+
+    채점 대상 날짜는 항상 마스킹된 실제값이다 — 휴무일은 어떤 모델도 맞힐 수 없고,
+    맞혔다고 쳐주면(0을 예측한 모델이 유리해져) 순위가 뒤집힌다.
+
+    since: 'YYYY-MM-DD' 이후만 평가한다. 매장 매출 수준이 한 번 크게 바뀐 경우
+      (리모델링·이전·상권 변화, 또는 시드 데이터 교체) 그 이전 구간을 넣으면 오차가
+      모델 성능이 아니라 그 단절을 재게 된다 — 끊긴 지점부터 다시 재라고 두는 파라미터.
+    min_train: 학습 최소 일수. 기본은 주간 계절성을 4주기 보는 28일이다.
+    """
+    from app.services.ai.document_service import _session
+
+    if target not in ("revenue", "cups"):
+        raise ForecastError("target은 revenue 또는 cups만 됩니다.")
+    horizon = max(1, min(int(horizon), 14))
+
+    with _session() as db:
+        raw = _load_daily_series(db, store_id, mask_abnormal=False)
+    if raw is None:
+        raise ForecastError("판매 기록이 없어 백테스트할 수 없습니다.")
+
+    if since:
+        raw = raw[raw.index >= since]
+        if raw.empty:
+            raise ForecastError(f"{since} 이후 판매 기록이 없습니다.")
+
+    masked, masked_days = _mask_abnormal_days(raw)
+    n = len(raw)
+    # 주간 계절성을 최소 4주기는 보고 학습해야 의미가 있다 (호출자가 줄일 수는 있게 둔다)
+    min_train = MIN_HISTORY_DAYS * 2 if min_train is None else max(horizon, int(min_train))
+    if n < min_train + horizon:
+        raise ForecastError(
+            f"판매 기록이 {n}일치라 백테스트를 못 합니다. "
+            f"최소 {min_train + horizon}일(학습 {min_train} + 검증 {horizon})이 필요해요.")
+
+    folds = max(1, min(int(folds), (n - min_train) // horizon))
+    cuts = [n - horizon * k for k in range(folds, 0, -1)]
+
+    import numpy as np
+
+    # 평가 대상 조합 — (방식, 마스킹 여부, 객단가 환산 여부)
+    # 매출은 '매출을 직접 예측'과 '잔 수 예측 × 최근 객단가' 두 갈래를 모두 잰다.
+    # 지금 코드는 잔 수와 매출을 각각 따로 적합해서 서로 어긋난다(실측: 14잔인데 16만원 =
+    # 잔당 11,500원, 실제 객단가는 3,900원). 어느 쪽이 나은지는 취향이 아니라 측정 대상이다.
+    variants = [(key, use_mask, False) for key in _METHODS for use_mask in (True, False)]
+    if target == "revenue":
+        variants += [(key, True, True) for key in _METHODS]
+
+    results: list[dict[str, Any]] = []
+    for key, use_mask, derived in variants:
+        label, fn = _METHODS[key]
+        if derived:
+            label += " × 최근 객단가"
+        source = masked if use_mask else raw
+        abs_err = actual_sum = signed_err = 0.0
+        scored_days = 0
+        failed = False
+        for cut in cuts:
+            train_df = source.iloc[:cut]
+            truth = masked[target].iloc[cut:cut + horizon].to_numpy(dtype=float)
+            if derived:
+                cups_pred = fn(train_df["cups"], horizon)
+                price = _recent_avg_price(train_df)
+                pred = ([c * price for c in cups_pred]
+                        if cups_pred is not None and price else None)
+            else:
+                pred = fn(train_df[target], horizon)
+            if pred is None:  # SARIMAX 수렴 실패 — 이 조합은 평가에서 제외한다
+                failed = True
+                break
+            p = np.asarray(pred, dtype=float)
+            ok = ~np.isnan(truth) & ~np.isnan(p)
+            if not ok.any():
+                continue
+            abs_err += float(np.abs(truth[ok] - p[ok]).sum())
+            signed_err += float((p[ok] - truth[ok]).sum())
+            actual_sum += float(truth[ok].sum())
+            scored_days += int(ok.sum())
+        if failed or actual_sum <= 0:
+            continue
+        results.append({
+            "method": key,
+            "label": label,
+            "masked": use_mask,
+            "derived": derived,   # 매출을 '잔 수 × 객단가'로 환산했는지
+            "wape_pct": round(abs_err / actual_sum * 100, 1),
+            "bias_pct": round(signed_err / actual_sum * 100, 1),
+            "mae": round(abs_err / scored_days) if scored_days else None,
+            "scored_days": scored_days,
+        })
+
+    if not results:
+        raise ForecastError("채점 가능한 구간이 없어 백테스트 결과를 만들지 못했습니다.")
+
+    results.sort(key=lambda r: r["wape_pct"])
+    best = results[0]
+
+    # 마스킹이 실제로 이득인지 — 같은 방식끼리만 비교해야 의미가 있다
+    by_key = {(r["method"], r["masked"], r["derived"]): r for r in results}
+    mask_gains = []
+    for key in _METHODS:
+        on, off = by_key.get((key, True, False)), by_key.get((key, False, False))
+        if on and off:
+            mask_gains.append({
+                "method": key,
+                "wape_masked": on["wape_pct"],
+                "wape_raw": off["wape_pct"],
+                "gain_pp": round(off["wape_pct"] - on["wape_pct"], 1),  # 양수면 마스킹이 이득
+            })
+
+    # 매출을 직접 예측하는 것과 '잔 수 × 객단가'로 환산하는 것 중 어느 쪽이 나은지
+    derive_gains = []
+    if target == "revenue":
+        for key in _METHODS:
+            direct, via_cups = by_key.get((key, True, False)), by_key.get((key, True, True))
+            if direct and via_cups:
+                derive_gains.append({
+                    "method": key,
+                    "wape_direct": direct["wape_pct"],
+                    "wape_via_cups": via_cups["wape_pct"],
+                    "gain_pp": round(direct["wape_pct"] - via_cups["wape_pct"], 1),
+                })
+
+    return {
+        "store_id": store_id,
+        "target": target,
+        "horizon_days": horizon,
+        "folds": folds,
+        "since": since,
+        "min_train": min_train,
+        "history_days": n,
+        "abnormal_days": len(masked_days),
+        "abnormal_dates": masked_days[-20:],  # 최근 20건만 (전부 실으면 응답이 길어진다)
+        "results": results,
+        "best": best,
+        "mask_gain": mask_gains,
+        "derive_gain": derive_gains,
+        "note": (
+            "WAPE는 낮을수록 정확합니다(Σ|실제-예측|/Σ실제). bias가 양수면 과대예측, "
+            "음수면 과소예측입니다. masked=true는 휴무·품절 의심일을 학습에서 뺀 경우이고, "
+            "gain_pp가 양수면 그만큼 오차가 줄었다는 뜻입니다. "
+            "카페 일매출은 본래 변동이 커서 WAPE 15~25%면 실용 수준, 30% 이상이면 "
+            "학습 기간이 부족하거나 반영 안 된 요인(프로모션·휴무)이 있다는 신호입니다."
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
 # 공개 인터페이스
 # ---------------------------------------------------------------------------
 
@@ -820,22 +1130,29 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
 
     with _session() as db:
         series = _load_daily_series(db, store_id)
-        if series is None or len(series) < MIN_HISTORY_DAYS:
-            have = 0 if series is None else len(series)
+        # 휴무·품절 의심일은 결측이라 '학습에 쓸 수 있는 날'은 전체 길이가 아니라 유효일 수다
+        valid_days = 0 if series is None else int(series["cups"].notna().sum())
+        if series is None or valid_days < MIN_HISTORY_DAYS:
             raise ForecastError(
-                f"판매 데이터가 {have}일치뿐이라 아직 예측을 제공할 수 없어요. "
+                f"판매 데이터가 {valid_days}일치뿐이라 아직 예측을 제공할 수 없어요. "
                 f"최소 {MIN_HISTORY_DAYS}일의 판매 기록이 쌓이면 예측이 열립니다. "
                 "(POS 동기화 또는 판매 입력을 계속해 주세요)")
 
         # 예측 시작일은 실제 '내일'로 고정한다 — 마지막 판매일 다음 날로 잡으면
         # 판매 입력이 며칠 끊겼을 때 '내일 예측'이 과거 날짜의 예측이 되어버린다.
         # 공백(gap)만큼 예측 스텝을 더 뽑고, 실제 내일 이후 구간만 잘라 쓴다.
-        last_sale_day = series.index[-1].date()
-        start = max(date.today(), last_sale_day) + timedelta(days=1)
-        gap = (start - last_sale_day).days - 1
-        if gap > 90:
+        # 기준은 '마지막으로 실제 판매가 있던 날' — 꼬리의 결측(휴무)을 마지막 날로 잡으면
+        # 없는 공백을 만들어 낸다.
+        last_sale_day = series.index[series["cups"].notna()][-1].date()
+        # 모델은 시계열의 마지막 인덱스 다음 날부터 예측을 내놓는다. 꼬리가 결측(휴무)이면
+        # 그 날짜는 마지막 '판매일'과 다르므로, 잘라낼 구간은 시계열 끝을 기준으로 세야 한다.
+        series_end = series.index[-1].date()
+        start = max(date.today(), series_end) + timedelta(days=1)
+        gap = (start - series_end).days - 1
+        sales_gap = (start - last_sale_day).days - 1
+        if sales_gap > 90:
             raise ForecastError(
-                f"마지막 판매 기록({last_sale_day.isoformat()})이 {gap}일 전이라 예측 정확도를 보장할 수 없어요. "
+                f"마지막 판매 기록({last_sale_day.isoformat()})이 {sales_gap}일 전이라 예측 정확도를 보장할 수 없어요. "
                 "판매 입력 또는 POS 동기화를 다시 시작하면 예측이 열립니다.")
         horizon = days + gap
 
@@ -843,11 +1160,11 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
         events_future = _external_pool.submit(_fetch_nearby_events, lat, lon, start, days)
 
         # 시계열 기본 예측 (잔 수·매출 각각)
-        model_name = f"SARIMAX(1,0,1)×(1,0,1,7) 주간 계절성 (학습 {len(series)}일)"
+        model_name = f"SARIMAX(1,0,1)×(1,0,1,7) 주간 계절성 (학습 {valid_days}일)"
         cups_pred = _forecast_sarimax(series["cups"], horizon)
         rev_pred = _forecast_sarimax(series["revenue"], horizon) if cups_pred else None
         if cups_pred is None or rev_pred is None:
-            model_name = f"요일별 평균×추세 (학습 {len(series)}일, 폴백)"
+            model_name = f"요일별 평균×추세 (학습 {valid_days}일, 폴백)"
             cups_pred = _forecast_seasonal(series["cups"], horizon)
             rev_pred = _forecast_seasonal(series["revenue"], horizon)
         # 마지막 판매일~내일 사이 공백 구간은 버리고 실제 내일부터 days개만 사용
@@ -940,7 +1257,8 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
         "store_id": store_id,
         "location": {"lat": lat, "lon": lon, "region": region},
         "model": model_name,
-        "history_days": len(series),
+        "history_days": valid_days,       # 휴무·품절 의심일을 뺀 '학습에 쓴' 날 수
+        "excluded_days": len(series) - valid_days,
         "today": today_actual,
         "tomorrow": week[0],
         "tomorrow_hourly": tomorrow_hourly,
@@ -950,8 +1268,10 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
         "order_recommendations": recommendations,
         "nearby_events": nearby_events,   # 자동 수집 (서울 문화행사, 반경 3km)
         "events_applied": events,         # 사장님이 직접 입력한 행사
-        "note": (f"마지막 판매 기록({last_sale_day.isoformat()}) 이후 {gap}일의 공백을 건너뛰고 "
-                 "실제 내일부터 예측했습니다. " if gap > 0 else "")
+        "note": (f"마지막 판매 기록({last_sale_day.isoformat()}) 이후 {sales_gap}일의 공백을 건너뛰고 "
+                 "실제 내일부터 예측했습니다. " if sales_gap > 0 else "")
+                + (f"휴무·품절로 보이는 {len(series) - valid_days}일은 학습에서 제외했습니다. "
+                   if valid_days < len(series) else "")
                 + "시계열 예측에 날씨(강수 -10%, 폭염 +5%)·주변 행사(자동 +10%/건, 직접 입력 +20%) "
                 "보정을 적용한 참고치입니다. 행사 자동 수집은 서울 지역(반경 3km) 문화행사 기준이며, "
                 "그 외 지역이나 놓친 행사는 챗봇에 말하면 반영됩니다.",
