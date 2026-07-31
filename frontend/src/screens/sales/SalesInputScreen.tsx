@@ -7,7 +7,7 @@
 //   · 파일이 없거나 손으로 적고 싶은 경우를 위해 '직접 입력'은 버튼으로 분리해
 //     별도 화면(ManualSalesScreen)에서 열리게 했다.
 import { useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 
@@ -27,36 +27,59 @@ export default function SalesInputScreen() {
   const [importedName, setImportedName] = useState('');
 
   // ---- 파일 선택 → LLM 매핑 미리보기 (DB 저장은 아직 안 함) ----
-  const pickAndPreview = async () => {
-    if (!token) { toast('로그인 필요', '파일 불러오기는 로그인 후 가능합니다.'); return; }
-    let DocumentPicker: any;
-    try {
-      DocumentPicker = require('expo-document-picker');
-    } catch {
-      toast('파일 선택을 쓸 수 없어요', '이 버전 앱에는 파일 선택이 없어요. 앱을 업데이트해 주세요.');
-      return;
-    }
-    const res = await DocumentPicker.getDocumentAsync({
-      type: [
-        'text/csv', 'text/comma-separated-values', 'application/csv',
-        'application/vnd.ms-excel',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      ],
-      copyToCacheDirectory: true,
-      multiple: false,
-    });
-    if (res.canceled || !res.assets?.length) return;
-    const a = res.assets[0];
+  // 웹에서는 네이티브 모듈 없이 <input type="file">로 바로 고른다.
+  // 네이티브(안드로이드)에서는 expo-document-picker를 쓰는데, 이 네이티브 모듈이
+  // 포함된 새 앱 빌드가 있어야 동작한다(현재 구버전 빌드에는 없음 → 안내만).
+  const runPreview = async (picked: { uri: string; mimeType?: string | null; fileName?: string | null }) => {
+    if (!token) return;
     setImporting(true);
     setImportPreview(null);
-    setImportedName(a.name ?? '');
+    setImportedName(picked.fileName ?? '');
     try {
-      const pv = await previewSalesImport({ uri: a.uri, mimeType: a.mimeType, fileName: a.name }, token);
+      const pv = await previewSalesImport(picked, token);
       setImportPreview(pv);
     } catch (e) {
       toast('파일 분석 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
     } finally {
       setImporting(false);
+    }
+  };
+
+  const pickAndPreview = async () => {
+    if (!token) { toast('로그인 필요', '파일 불러오기는 로그인 후 가능합니다.'); return; }
+
+    // 웹: 브라우저 파일 선택창 — 네이티브 모듈 불필요
+    if (Platform.OS === 'web') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      input.onchange = () => {
+        const f = input.files?.[0];
+        if (!f) return;
+        runPreview({ uri: URL.createObjectURL(f), mimeType: f.type || 'text/csv', fileName: f.name });
+      };
+      input.click();
+      return;
+    }
+
+    // 네이티브: expo-document-picker (모듈이 빌드에 포함돼 있어야 함)
+    try {
+      const DocumentPicker = require('expo-document-picker');
+      const res = await DocumentPicker.getDocumentAsync({
+        type: [
+          'text/csv', 'text/comma-separated-values', 'application/csv',
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (res.canceled || !res.assets?.length) return;
+      const a = res.assets[0];
+      await runPreview({ uri: a.uri, mimeType: a.mimeType, fileName: a.name });
+    } catch {
+      // 네이티브 모듈이 이 빌드에 없을 때(구버전 앱) 여기로 온다
+      toast('파일 선택은 다음 업데이트부터', '이 기능은 새 앱 빌드에 포함돼요. 지금은 웹(브라우저)에서 파일을 올려 테스트할 수 있어요.');
     }
   };
 
@@ -163,6 +186,14 @@ export default function SalesInputScreen() {
         </View>
         <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown} />
       </PressableScale>
+
+      <TouchableOpacity
+        onPress={() => navigation.navigate('Settings', { section: 'settlement' })}
+        style={styles.settingsLink}
+      >
+        <Ionicons name="settings-outline" size={13} color={colors.mochaBrown} />
+        <Text style={styles.settingsLinkText}>수수료율·카드사 입금일 설정 바꾸기</Text>
+      </TouchableOpacity>
     </Screen>
   );
 }
@@ -220,4 +251,7 @@ const styles = StyleSheet.create({
   },
   manualTitle: { fontSize: 15, fontWeight: '800', color: colors.espressoBrown },
   manualSub: { ...typography.L5, color: colors.mochaBrown, marginTop: 3 },
+
+  settingsLink: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 8, marginTop: 4 },
+  settingsLinkText: { ...typography.L5, color: colors.mochaBrown, textDecorationLine: 'underline' },
 });
