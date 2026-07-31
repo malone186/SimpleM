@@ -363,7 +363,8 @@ export default function AlertsWatcher() {
         // 방해 금지 구간에는 음성 알림도 보류
         if (prefs.dndEnabled && isInDndWindow(new Date(), prefs.dndStart, prefs.dndEnd)) return;
 
-        const data = await fetchNotifications(lastVoiceCheck.current);
+        // 토큰을 실어 내 매장 직원의 완료 알림만 받는다 (토큰 없이 부르면 전 매장이 섞인다)
+        const data = await fetchNotifications(lastVoiceCheck.current, token);
 
         // 다음 폴링을 위해 서버 시각으로 갱신
         lastVoiceCheck.current = data.server_time;
@@ -393,7 +394,7 @@ export default function AlertsWatcher() {
     checkVoiceNotifications();
     const timer = setInterval(checkVoiceNotifications, VOICE_POLL_MS);
     return () => clearInterval(timer);
-  }, [signedIn, prefs.ready, prefs.dndEnabled, prefs.dndStart, prefs.dndEnd, prefs.voiceAlertEnabled]);
+  }, [signedIn, token, prefs.ready, prefs.dndEnabled, prefs.dndStart, prefs.dndEnd, prefs.voiceAlertEnabled]);
 
   // ⑦ 선제 인사이트 — 서버가 매장 DB를 훑어 찾아낸 "곧 할 일 · 놓친 일"을 알림으로 전한다.
   //    묻지 않아도 먼저 알려주되, 말을 걸지는 않는다(대화는 사장님이 시작한다).
@@ -407,7 +408,7 @@ export default function AlertsWatcher() {
       try {
         if (prefs.dndEnabled && isInDndWindow(new Date(), prefs.dndStart, prefs.dndEnd)) return;
 
-        const scan = await fetchInsights();
+        const scan = await fetchInsights(token);
         const urgent = scan.insights.filter((i) => i.severity !== 'low');
         if (urgent.length === 0) return;
 

@@ -118,6 +118,7 @@ DocumentKind = Literal[
     "payslip",              # 임금명세서 (매월, 임금대장 겸용)
     "employment_contract",  # 근로계약서 (발생 시)
     "management_report",    # AI 경영 리포트 (일간·주간·월간 — 전체 데이터 통합)
+    "marketing_content",    # 홍보/마케팅 콘텐츠 (홍보 문구 + 생성 이미지 목록)
 ]
 
 
@@ -138,6 +139,25 @@ class GeneratedDocumentUpdate(BaseModel):
 
     content: dict
     title: Optional[str] = Field(None, description="문서 제목 변경 (선택)")
+
+
+class MarketingCopyRequest(BaseModel):
+    """홍보 문구 생성 입력 — 전부 선택. 비우면 매장 정보만으로 일반 홍보 문구를 만든다."""
+
+    topic: str = Field("", description="홍보 주제 (예: 신메뉴 딸기라떼 출시, 여름 시즌)")
+    channel: str = Field("instagram", description="게시 채널: instagram | blog | banner | sms")
+    tone: str = Field("", description="원하는 말투 (예: 감성적으로, 유쾌하게)")
+    menu: str = Field("", description="특별히 강조할 메뉴 이름")
+
+
+class MarketingImageRequest(BaseModel):
+    """홍보 이미지 생성 입력 — doc_id를 주면 그 홍보 문구에 맞는 이미지가 만들어진다."""
+
+    doc_id: str = Field("", description="홍보 콘텐츠 문서 id (비우면 request로 직접 생성)")
+    request: str = Field("", description="원하는 이미지 설명 (한국어 가능, doc_id 없을 때 필수 권장)")
+    style: str = Field("", description="스타일 지시 (예: 수채화 일러스트) — 비우면 실사 사진풍")
+    aspect_ratio: str = Field("1:1", description="화면비: 1:1 | 4:5 | 9:16 | 16:9 등")
+    include_text: bool = Field(True, description="문서의 슬로건을 이미지에 한글로 새길지")
 
 
 class PayslipRequest(BaseModel):

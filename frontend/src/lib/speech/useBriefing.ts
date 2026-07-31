@@ -9,6 +9,7 @@
 // 브리핑과 완료 알림이 동시에 터져 겹치는 일이 없습니다.
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { useAuth } from '../../auth/AuthContext';
 import { fetchBriefing, type BriefingData } from '../api/assistant';
 import { enqueue as speechEnqueue, canPlayAudio } from './speechPlayer';
 import type { AudioPlaybackPermission } from './speechTypes';
@@ -22,6 +23,8 @@ export type UseBriefingOptions = {
 
 export function useBriefing(options: UseBriefingOptions = {}) {
   const { limit = 3, onError } = options;
+  // [매장 동기화] 토큰 없이 부르면 서버가 매장을 몰라 전 매장 스케줄이 섞여 온다
+  const { token } = useAuth();
 
   const [data, setData] = useState<BriefingData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -44,7 +47,7 @@ export function useBriefing(options: UseBriefingOptions = {}) {
     setError(null);
 
     try {
-      const briefing = await fetchBriefing(limit);
+      const briefing = await fetchBriefing(limit, token);
       if (!mountedRef.current) return;
       setData(briefing);
 
@@ -67,7 +70,7 @@ export function useBriefing(options: UseBriefingOptions = {}) {
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [limit, loading, onError]);
+  }, [limit, loading, onError, token]);
 
   /** 표시 중인 브리핑을 닫습니다 */
   const dismiss = useCallback(() => {

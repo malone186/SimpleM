@@ -34,16 +34,17 @@ except ImportError:
 # ═══════════════════════════════════════════════════
 
 @tool
-def get_voice_briefing_tool(limit: int = 3) -> dict:
+def get_voice_briefing_tool(store_id: str = "", limit: int = 3) -> dict:
     """오늘의 완료된 작업과 남은 할 일을 음성용 한국어 문단으로 요약합니다.
     "오늘 브리핑 해줘", "오늘 뭐 했지", "상황 정리해줘" 같은 질문에 사용합니다.
+    - store_id: 매장 식별자 (시스템이 로그인 매장으로 자동 지정)
     - limit: 음성 문단에 이름을 나열할 최대 작업 건수 (기본 3)
     """
     try:
         from app.core.database import SessionLocal
         with SessionLocal() as db:
             # [한글 주석] assemble_briefing이 내부에서 build_voice_briefing을 호출합니다.
-            result = assemble_briefing(db, limit=limit)
+            result = assemble_briefing(db, limit=limit, store_id=store_id or None)
 
         return {
             "success": True,
@@ -61,16 +62,17 @@ def get_voice_briefing_tool(limit: int = 3) -> dict:
 
 
 @tool
-def get_next_task_tool() -> dict:
+def get_next_task_tool(store_id: str = "") -> dict:
     """우선순위와 마감 시각을 기준으로 지금 해야 할 다음 작업 1건을 조회합니다.
     "다음 뭐 해야 해?", "이제 뭐 하지?" 같은 질문에 사용합니다.
     상태를 바꾸지 않고 조회만 합니다 — 실제로 시작하려면 start_next_task_by_voice_tool을 쓰세요.
+    - store_id: 매장 식별자 (시스템이 로그인 매장으로 자동 지정)
     """
     try:
         from app.core.database import SessionLocal
         with SessionLocal() as db:
             # [한글 주석] assemble_next_task가 내부에서 get_next_task를 호출합니다.
-            result = assemble_next_task(db)
+            result = assemble_next_task(db, store_id=store_id or None)
 
         return {
             "success": True,
@@ -92,7 +94,7 @@ def get_next_task_tool() -> dict:
 # ═══════════════════════════════════════════════════
 
 @tool
-def complete_task_by_voice_tool(task_hint: str = "", confirm: bool = False) -> dict:
+def complete_task_by_voice_tool(store_id: str = "", task_hint: str = "", confirm: bool = False) -> dict:
     """근무/작업을 완료 처리합니다. 되돌리기 어려운 작업이므로 반드시 두 번에 나눠 호출하세요.
 
     1단계) confirm=False (기본) 로 호출하면 실행하지 않고 확인 문장만 돌려줍니다.
@@ -112,7 +114,8 @@ def complete_task_by_voice_tool(task_hint: str = "", confirm: bool = False) -> d
 
         from app.core.database import SessionLocal
         with SessionLocal() as db:
-            result = handle_voice_command(db, text=command_text, confirm=confirm)
+            result = handle_voice_command(db, text=command_text, confirm=confirm,
+                                          store_id=store_id or None)
 
         data = result.model_dump(mode="json")
         return {
@@ -135,7 +138,7 @@ def complete_task_by_voice_tool(task_hint: str = "", confirm: bool = False) -> d
 
 
 @tool
-def start_next_task_by_voice_tool(task_hint: str = "") -> dict:
+def start_next_task_by_voice_tool(store_id: str = "", task_hint: str = "") -> dict:
     """다음 작업을 시작 상태로 만듭니다 (실제 출근 시각 기록).
 
     되돌릴 수 있는 작업이라 확인 없이 바로 실행됩니다.
@@ -148,7 +151,7 @@ def start_next_task_by_voice_tool(task_hint: str = "") -> dict:
 
         from app.core.database import SessionLocal
         with SessionLocal() as db:
-            result = handle_voice_command(db, text=command_text)
+            result = handle_voice_command(db, text=command_text, store_id=store_id or None)
 
         return {
             "success": result.status != "failed",

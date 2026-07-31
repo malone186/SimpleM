@@ -6,6 +6,7 @@
 // 그때 비로소 서버가 실행합니다. — 즉, 한 번의 발화로는 절대 완료 처리되지 않습니다.
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { useAuth } from '../../auth/AuthContext';
 import {
   sendVoiceCommand,
   type PendingAction,
@@ -33,6 +34,8 @@ export type UseVoiceCommandOptions = {
 
 export function useVoiceCommand(options: UseVoiceCommandOptions = {}) {
   const { speakResponse = true, onExecuted, onError } = options;
+  // [매장 동기화] 토큰을 실어야 서버가 내 매장 직원·스케줄만 대상으로 실행한다
+  const { token } = useAuth();
 
   const [phase, setPhase] = useState<VoicePhase>('idle');
   const [transcript, setTranscript] = useState('');       // 확정된 발화
@@ -82,7 +85,7 @@ export function useVoiceCommand(options: UseVoiceCommandOptions = {}) {
       }
 
       try {
-        const result = await sendVoiceCommand(trimmed, pendingActionRef.current, confirm);
+        const result = await sendVoiceCommand(trimmed, pendingActionRef.current, confirm, token);
         if (!mountedRef.current) return;
 
         setResponse(result);
@@ -111,7 +114,7 @@ export function useVoiceCommand(options: UseVoiceCommandOptions = {}) {
         return undefined;
       }
     },
-    [speakResponse, onExecuted, fail]
+    [speakResponse, onExecuted, fail, token]
   );
 
   /** 마이크를 열고 한 마디를 듣습니다 (말을 멈추면 자동 종료) */

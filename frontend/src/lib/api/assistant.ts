@@ -1,7 +1,13 @@
 // 음성 비서(Assistant) API 클라이언트
 // 백엔드 /api/v1/assistant/* 연동
+//
+// [매장 동기화] 모든 호출에 로그인 토큰을 실어 보낸다 — 토큰이 없으면 서버가 매장을
+// 구분할 수 없어 전 매장 스케줄이 섞여 내려온다(예전 증상: 내가 등록한 직원과
+// 브리핑·알림 속 직원이 따로 놀았다).
 import { apiFetch } from './client';
-import { createSchedule } from './operation';
+
+const auth = (token?: string | null): Record<string, string> | undefined =>
+  token ? { Authorization: `Bearer ${token}` } : undefined;
 
 type CommonResponse<T> = { success: boolean; data: T; message: string };
 
@@ -54,7 +60,7 @@ export type NotificationsData = {
 };
 
 /** 음성 명령의 의도 */
-export type VoiceIntent = 'start_next_task' | 'complete_task' | 'read_pending' | 'unknown';
+export type VoiceIntent = 'start_next_task' | 'complete_task' | 'create_task' | 'read_pending' | 'unknown';
 
 /** 음성 명령 처리 상태 */
 export type VoiceCommandStatus =
@@ -86,35 +92,39 @@ export type VoiceCommandData = {
 
 // ────────── API 호출 ──────────
 
-/** 오늘의 음성 브리핑을 가져옵니다 */
-export async function fetchBriefing(limit: number = 3): Promise<BriefingData> {
+/** 오늘의 음성 브리핑을 가져옵니다 (token: 내 매장 직원 스케줄만 받기 위해 필수 권장) */
+export async function fetchBriefing(limit: number = 3, token?: string | null): Promise<BriefingData> {
   try {
     const res = await apiFetch<CommonResponse<BriefingData>>(
-      `/api/v1/assistant/briefing?limit=${limit}`
+      `/api/v1/assistant/briefing?limit=${limit}`,
+      { headers: auth(token) }
     );
     return unwrap(res);
   } catch {
-    // [한글 주석] 백엔드 미응답이나 404 발생 시 사장님 화면에 404 토스트 팝업이 뜨지 않게 데모 브리핑 데이터로 안심 폴백
+    // [한글 주석] 백엔드 미응답 시 404 토스트가 뜨지 않게 폴백하되, 지어낸 데이터
+    // ("원가율 안정" 같은 가짜 브리핑)는 읽어주지 않는다 — 연결 실패 사실만 전한다.
     return {
       completed: [],
       pending: [],
-      speech_text: '오늘의 브리핑입니다. 현재 매장 주요 메뉴 원가율과 원두 재고 수량이 안정적인 수준을 유지하고 있습니다. ☕',
+      speech_text: '지금은 서버에 연결할 수 없어 브리핑을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.',
     };
   }
 }
 
 /** 다음 할 일 1건을 가져옵니다 */
-export async function fetchNextTask(): Promise<NextTaskData> {
+export async function fetchNextTask(token?: string | null): Promise<NextTaskData> {
   const res = await apiFetch<CommonResponse<NextTaskData>>(
-    '/api/v1/assistant/next-task'
+    '/api/v1/assistant/next-task',
+    { headers: auth(token) }
   );
   return unwrap(res);
 }
 
-/** since 이후 새로 발생한 알림을 가져옵니다 (폴링용) */
-export async function fetchNotifications(since: string): Promise<NotificationsData> {
+/** since 이후 새로 발생한 알림을 가져옵니다 (폴링용 — token이 있어야 내 매장 완료만 온다) */
+export async function fetchNotifications(since: string, token?: string | null): Promise<NotificationsData> {
   const res = await apiFetch<CommonResponse<NotificationsData>>(
-    `/api/v1/assistant/notifications?since=${encodeURIComponent(since)}`
+    `/api/v1/assistant/notifications?since=${encodeURIComponent(since)}`,
+    { headers: auth(token) }
   );
   return unwrap(res);
 }
@@ -132,13 +142,15 @@ export async function fetchNotifications(since: string): Promise<NotificationsDa
 export async function sendVoiceCommand(
   text: string,
   pendingAction?: PendingAction | null,
-  confirm: boolean = false
+  confirm: boolean = false,
+  token?: string | null
 ): Promise<VoiceCommandData> {
   try {
     const res = await apiFetch<CommonResponse<VoiceCommandData>>(
       '/api/v1/assistant/voice-command',
       {
         method: 'POST',
+        headers: auth(token),
         body: JSON.stringify({
           text,
           pending_action: pendingAction ?? null,
@@ -148,52 +160,18 @@ export async function sendVoiceCommand(
     );
     return unwrap(res);
   } catch (e) {
-    console.warn('백엔드 음성 명령 API 연결 실패, 지능형 음성 폴백 실행:', e);
+    console.warn('백엔드 음성 명령 API 연결 실패:', e);
 
-    // [한글 주석: 백엔드 미연결 시에도 fail이 발생하지 않도록 스마트 인텐트 폴백 실행]
-    const trimmed = text.trim();
-    let intent: VoiceIntent = 'unknown';
-    let speechText = `"${trimmed}" 명령을 접수했습니다. 카페 대시보드를 최신 상태로 관리해 드릴게요. ☕`;
-
-    if (trimmed.includes('추가') || trimmed.includes('등록') || trimmed.includes('만들어') || trimmed.includes('투두')) {
-      intent = 'create_task' as any;
-      const taskTitle = trimmed
-        .replace(/투두에|투두로|투두|할\s*일|일정|목록/g, '')
-        .replace(/추가해\s*줘|추가해|추가|등록해\s*줘|등록해|등록|만들어\s*줘|만들어|해\s*줘/g, '')
-        .trim() || trimmed;
-
-      speechText = `투두에 '${taskTitle}' 할 일을 성공적으로 추가했어요! 📝`;
-
-      try {
-        await createSchedule({
-          employee_id: 1,
-          start_time: `${new Date().toISOString().slice(0, 10)}T09:00:00`,
-          end_time: `${new Date().toISOString().slice(0, 10)}T18:00:00`,
-        });
-      } catch (err) {
-        console.warn('로컬 할 일 음성 추가 예외:', err);
-      }
-    } else if (trimmed.includes('다음') || trimmed.includes('할 일') || trimmed.includes('무슨')) {
-      intent = 'start_next_task';
-      speechText = '다음 주요 일정은 오후 원두 재고 확인 및 장비 점검입니다.';
-    } else if (trimmed.includes('완료') || trimmed.includes('끝') || trimmed.includes('해소')) {
-      intent = 'complete_task';
-      speechText = '요청하신 업무를 성공적으로 완료 처리하였습니다.';
-    } else if (trimmed.includes('알바') || trimmed.includes('스케줄') || trimmed.includes('근무')) {
-      intent = 'read_pending';
-      speechText = '오늘의 매장 알바 근무자는 소지원, 이우진 님이십니다.';
-    } else if (trimmed.includes('네') || trimmed.includes('응') || trimmed.includes('확인')) {
-      intent = 'complete_task';
-      speechText = '네, 확인되었습니다. 작업을 계속 진행합니다.';
-    }
-
+    // [한글 주석] 예전 폴백은 "완료 처리했다", "근무자는 소지원 님" 같은 가짜 실행 결과를
+    // 지어내 읽어줬다 — 실제 앱 데이터(등록 직원·스케줄)와 전혀 동기화되지 않는 응답이었다.
+    // 이제는 실행된 척하지 않고 연결 실패 사실만 음성으로 전한다.
     return {
-      transcript: trimmed,
-      intent,
-      confidence: 0.95,
-      status: 'executed',
-      executed: true,
-      speech_text: speechText,
+      transcript: text.trim(),
+      intent: 'unknown',
+      confidence: 0,
+      status: 'failed',
+      executed: false,
+      speech_text: '지금은 서버에 연결할 수 없어 명령을 처리하지 못했어요. 잠시 후 다시 말씀해 주세요.',
       task: null,
       tasks: [],
       pending_action: null,

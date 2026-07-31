@@ -40,18 +40,22 @@ export type InsightScan = {
   insights: Insight[];
 };
 
-/** 지금 챙겨야 할 일 목록 (심각한 것부터 정렬) */
-export async function fetchInsights(): Promise<InsightScan> {
-  return apiFetch<InsightScan>('/api/v1/chatbot/insights');
+const auth = (token?: string | null): Record<string, string> | undefined =>
+  token ? { Authorization: `Bearer ${token}` } : undefined;
+
+/** 지금 챙겨야 할 일 목록 (심각한 것부터 정렬) — 인증 필수 엔드포인트라 token이 없으면 401 */
+export async function fetchInsights(token?: string | null): Promise<InsightScan> {
+  return apiFetch<InsightScan>('/api/v1/chatbot/insights', { headers: auth(token) });
 }
 
 /**
  * 인사이트 확인 처리.
  * @param snoozeDays 0이면 영구 확인, 1 이상이면 그 일수만큼 숨겼다가 다시 알림
  */
-export async function dismissInsight(key: string, snoozeDays = 0): Promise<void> {
+export async function dismissInsight(key: string, snoozeDays = 0, token?: string | null): Promise<void> {
   await apiFetch(`/api/v1/chatbot/insights/${encodeURIComponent(key)}/dismiss`, {
     method: 'POST',
+    headers: auth(token),
     body: JSON.stringify({ snooze_days: snoozeDays }),
   });
 }

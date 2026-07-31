@@ -15,6 +15,7 @@ _TOOL_MODULES = [
     "app.services.ai.document_tools",            # 백엔드 B (문서 자동화 — 발주서·장부·임금명세서·계약서·부가세)
     "app.services.ai.forecast_tools",            # 백엔드 B (판매 예측·발주 추천)
     "app.services.ai.insight_tools",             # 백엔드 B (선제 인사이트 — 놓친 일·곧 할 일 스캔)
+    "app.services.ai.marketing_tools",           # 백엔드 B (홍보/마케팅 — AI 홍보 문구·홍보 이미지 생성)
     "app.services.ai.nearby_cafe_tools",         # 백엔드 B (주변 카페 상권 분석 — 네이버 지역·리뷰 수집)
     "app.services.ai.ocr_tools",                 # 백엔드 B
     "app.services.ai.price_tools",               # 백엔드 B (인터넷 가격 비교)
