@@ -41,6 +41,7 @@ from app.schemas.ai import (
     GeneratedDocumentUpdate,
     MarketingCopyRequest,
     MarketingImageRequest,
+    MarketingOverlayRequest,
     NotificationSettingBody,
     NotificationSettingResponse,
     OcrConfirmRequest,
@@ -561,7 +562,7 @@ def recent_sales_api(
     limit: int = 10,
     current_user: User = Depends(get_current_user),
 ):
-    """최근 판매 내역 (판매 입력 화면 표시용)."""
+    """최근 판매 내역 (매출 입력 화면 표시용)."""
     return sales_service.recent_sales(current_user.email, limit=limit)
 
 
@@ -727,13 +728,29 @@ def create_marketing_image(
 ) -> dict:
     """AI 홍보 이미지 생성 — doc_id를 주면 그 홍보 문구에 맞춰 만들고 문서에 기록한다.
 
-    반환의 url을 <Image>로 바로 표시하면 된다. 생성에 수십 초가 걸릴 수 있다.
+    반환의 url은 한글 슬로건이 얹힌 완성본, raw_url은 글자 없는 원본이다.
+    생성에 수십 초가 걸릴 수 있다.
     """
     try:
         return marketing_service.generate_promotion_image(
             current_user.email, doc_id=body.doc_id, request=body.request,
             style=body.style, aspect_ratio=body.aspect_ratio,
-            include_text=body.include_text)
+            include_text=body.include_text, overlay=body.overlay, quality=body.quality)
+    except marketing_service.MarketingError as e:
+        raise HTTPException(502, str(e))
+
+
+@router.post("/marketing/image/overlay")
+def restyle_marketing_image(
+    body: MarketingOverlayRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """홍보 이미지의 한글 슬로건 위치만 바꾼다 — 저장해 둔 원본을 다시 합성하므로
+    AI 호출 없이 즉시 끝나고 화질도 나빠지지 않는다."""
+    try:
+        return marketing_service.recompose_promotion_image(
+            current_user.email, doc_id=body.doc_id, image_id=body.image_id,
+            layout=body.layout)
     except marketing_service.MarketingError as e:
         raise HTTPException(502, str(e))
 

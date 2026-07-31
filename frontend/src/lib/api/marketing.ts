@@ -17,6 +17,16 @@ export const CHANNEL_META: Record<PromotionChannel, { label: string; icon: strin
   sms: { label: '안내 문자', icon: 'chatbox-outline', aspect: '1:1' },
 };
 
+/** 이미지에 새길 한글 슬로건의 위치 — 서버가 Pillow로 직접 합성한다 */
+export type OverlayLayout = 'auto' | 'none' | 'bottom' | 'center' | 'top';
+
+export const OVERLAY_META: { key: OverlayLayout; label: string }[] = [
+  { key: 'bottom', label: '아래' },
+  { key: 'center', label: '가운데' },
+  { key: 'top', label: '위' },
+  { key: 'none', label: '글자 없이' },
+];
+
 /** 생성된 홍보 이미지 1장 */
 export type PromotionImage = {
   image_id: string;
@@ -25,7 +35,14 @@ export type PromotionImage = {
   mime_type: string;
   aspect_ratio: string;
   style: string;
-  provider?: 'gemini' | 'pollinations'; // pollinations = 무료 생성(이미지에 글자 없음)
+  provider?: 'gemini' | 'pollinations'; // pollinations = 무료 생성
+  // --- 아래는 슬로건 합성이 들어간 뒤 생긴 필드 (옛 이미지에는 없다)
+  raw_filename?: string;
+  raw_url?: string; // 글자 없는 원본 — overlay가 none이면 url과 같다
+  overlay?: Exclude<OverlayLayout, 'auto'>;
+  slogan?: string;
+  quality?: 'high' | 'standard';
+  prompt?: string;
 };
 
 /** 홍보 콘텐츠 문서의 content 본문 */
@@ -77,7 +94,14 @@ export const createPromotionCopy = (
 /** AI 홍보 이미지 생성 — doc_id를 주면 그 문구에 맞춰 만들고 문서에 기록된다 */
 export const createPromotionImage = (
   token: string,
-  req: { doc_id?: string; request?: string; style?: string; aspect_ratio?: string }
+  req: {
+    doc_id?: string;
+    request?: string;
+    style?: string;
+    aspect_ratio?: string;
+    overlay?: OverlayLayout;
+    quality?: 'high' | 'standard';
+  }
 ) =>
   apiFetch<PromotionImage & { doc: PromotionDoc | null }>('/api/v1/chatbot/marketing/image', {
     method: 'POST',
@@ -88,8 +112,31 @@ export const createPromotionImage = (
       style: req.style ?? '',
       aspect_ratio: req.aspect_ratio ?? '1:1',
       include_text: true,
+      overlay: req.overlay ?? 'auto',
+      quality: req.quality ?? 'high',
     }),
   });
+
+/**
+ * 슬로건 위치만 바꾸기 — 서버가 저장해 둔 '글자 없는 원본'을 다시 합성한다.
+ * AI를 다시 부르지 않아 1초 안에 끝나고, 몇 번을 바꿔도 화질이 나빠지지 않는다.
+ */
+export const restylePromotionImage = (
+  token: string,
+  req: { doc_id: string; image_id?: string; layout: OverlayLayout }
+) =>
+  apiFetch<PromotionImage & { doc: PromotionDoc | null }>(
+    '/api/v1/chatbot/marketing/image/overlay',
+    {
+      method: 'POST',
+      headers: auth(token),
+      body: JSON.stringify({
+        doc_id: req.doc_id,
+        image_id: req.image_id ?? '',
+        layout: req.layout,
+      }),
+    }
+  );
 
 /** 만들어 둔 홍보 콘텐츠 목록 (최신순) */
 export const listPromotions = (token: string) =>
@@ -107,6 +154,22 @@ export const deletePromotion = (token: string, id: string) =>
 /** 이미지 상대 경로 → 표시 가능한 절대 URL */
 export const promoImageUrl = (url: string) =>
   url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
+
+/** 채널에 맞는 본문 — 인스타는 캡션, 나머지는 본문 */
+export const promotionBody = (c: PromotionContent) =>
+  c.channel === 'instagram' ? c.sns_caption : c.body;
+
+/** 그대로 붙여넣어 올릴 수 있는 문구 전문 (본문 + 해시태그) */
+export const promotionText = (c: PromotionContent, withHeadline = false) =>
+  [withHeadline ? c.headline : '', promotionBody(c), (c.hashtags ?? []).join(' ')]
+    .filter(Boolean)
+    .join('\n\n');
+
+/** 저장·공유용 파일명 — 한글이 섞이면 일부 OS에서 파일이 깨져 영문·숫자만 쓴다 */
+export const promoFilename = (image: PromotionImage) => {
+  const ext = image.mime_type === 'image/png' ? 'png' : image.mime_type === 'image/webp' ? 'webp' : 'jpg';
+  return `brewnote_promo_${image.image_id}.${ext}`;
+};
 
 /** '4:5' 같은 화면비 문자열 → <Image> aspectRatio 숫자 */
 export const aspectToNumber = (ar: string): number => {

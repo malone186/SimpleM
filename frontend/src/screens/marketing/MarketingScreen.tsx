@@ -1,15 +1,19 @@
 // 홍보 스튜디오 (백엔드 B) — AI 홍보 문구 + 고품질 홍보 이미지 자동 생성
 //
 // 흐름: 채널·주제 입력 → [홍보물 만들기] → ① 문구 생성(매장 실데이터 근거) →
-//       ② 그 문구에 맞는 이미지 자동 생성 → 결과 카드(이미지·캡션·해시태그·팁) + 공유.
-// 이미지는 서버가 Gemini(유료 키) → Pollinations(무료) 순으로 알아서 만든다.
+//       ② 그 문구에 맞는 이미지 자동 생성 → 결과 카드(이미지·캡션·해시태그·팁) → 복사·공유.
+//
+// 이미지는 서버가 프롬프트 정교화 → 생성(Gemini 유료 키 → Pollinations 무료) → 마감 보정 →
+// 한글 슬로건 합성까지 처리한다. 슬로건 위치는 AI 재호출 없이 즉시 바꿀 수 있고(원본을
+// 서버가 들고 있다), 마음에 안 들면 이미지만 다시 그릴 수 있다.
+//
 // 지난 홍보물은 보관함(문서 kind=marketing_content)에서 다시 열어볼 수 있다.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
   Platform,
-  Share,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -21,18 +25,37 @@ import { useAuth } from '../../auth/AuthContext';
 import { PressableScale } from '../../components/motion';
 import { toast } from '../../components/toast';
 import { Button, Card, Divider, Screen, SectionTitle } from '../../components/ui';
+import { SwipeDownModal } from '../../components/ui/SwipeDownModal';
 import { describeApiFailure } from '../../lib/api/errors';
 import {
   CHANNEL_META,
+  OVERLAY_META,
   aspectToNumber,
   createPromotionCopy,
   createPromotionImage,
   deletePromotion,
   listPromotions,
+  promoFilename,
   promoImageUrl,
+  promotionBody,
+  promotionText,
+  restylePromotionImage,
+  type OverlayLayout,
   type PromotionChannel,
   type PromotionDoc,
+  type PromotionImage,
 } from '../../lib/api/marketing';
+import {
+  canCopyImage,
+  canDownload,
+  copyImage,
+  copyText,
+  openSms,
+  openUrl,
+  saveImage,
+  shareImage,
+  shareText,
+} from '../../lib/share/promoShare';
 import { colors } from '../../theme';
 
 const CHANNELS = Object.keys(CHANNEL_META) as PromotionChannel[];
@@ -52,25 +75,7 @@ const IMAGE_STYLES: { key: string; label: string }[] = [
 ];
 
 /** 생성 진행 단계 — 문구와 이미지가 순차로 만들어지는 걸 사장님이 볼 수 있게 */
-type Phase = 'idle' | 'copy' | 'image';
-
-/** 클립보드 복사 — 웹은 바로 복사, 앱은 클립보드 모듈이 없어 공유 시트로 대신한다 */
-async function copyOrShare(text: string, label: string) {
-  if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast('📋 복사 완료', `${label}이(가) 클립보드에 복사됐어요.`);
-      return;
-    } catch {
-      // 권한 거부 등 — 공유 시트로 폴백
-    }
-  }
-  try {
-    await Share.share({ message: text });
-  } catch {
-    // 사용자가 공유 시트를 닫음 — 아무것도 안 함
-  }
-}
+type Phase = 'idle' | 'copy' | 'image' | 'restyle';
 
 export default function MarketingScreen() {
   const { token } = useAuth();
@@ -85,6 +90,9 @@ export default function MarketingScreen() {
   // 생성 상태·결과
   const [phase, setPhase] = useState<Phase>('idle');
   const [result, setResult] = useState<PromotionDoc | null>(null);
+  const [selectedImageId, setSelectedImageId] = useState<string>(''); // 여러 장 중 보고 있는 것
+  const [showRaw, setShowRaw] = useState(false); // 글자 없는 원본 보기
+  const [shareOpen, setShareOpen] = useState(false);
 
   // 보관함
   const [history, setHistory] = useState<PromotionDoc[]>([]);
@@ -102,16 +110,38 @@ export default function MarketingScreen() {
     refreshHistory();
   }, [refreshHistory]);
 
+  const c = result?.content;
+  const images = useMemo<PromotionImage[]>(() => c?.images ?? [], [c]);
+  const image = useMemo(
+    () => images.find((i) => i.image_id === selectedImageId) ?? images[images.length - 1] ?? null,
+    [images, selectedImageId]
+  );
+  const hashtagLine = (c?.hashtags ?? []).join(' ');
+  const body = c ? promotionBody(c) : '';
+  const fullText = c ? promotionText(c) : '';
+  // 화면에 실제로 보여주는(= 저장·공유될) 이미지
+  const shownUrl = image ? promoImageUrl(showRaw ? image.raw_url || image.url : image.url) : '';
+  const busy = phase !== 'idle';
+
+  /** 문서를 갱신하면서 보고 있던 이미지 선택을 유지한다 */
+  const applyDoc = (doc: PromotionDoc, focusImageId?: string) => {
+    setResult(doc);
+    const imgs = doc.content.images ?? [];
+    setSelectedImageId(focusImageId ?? imgs[imgs.length - 1]?.image_id ?? '');
+  };
+
   /** 문구 → 이미지 순서로 자동 생성. 문구가 나오는 즉시 화면에 먼저 보여준다. */
   const generate = async () => {
     if (!token) {
       toast('로그인이 필요해요', '로그인 후 홍보물을 만들 수 있습니다.');
       return;
     }
-    if (phase !== 'idle') return;
+    if (busy) return;
 
     setPhase('copy');
     setResult(null);
+    setSelectedImageId('');
+    setShowRaw(false);
     try {
       const doc = await createPromotionCopy(token, { topic, channel, tone, menu });
       setResult(doc); // 문구 먼저 표시 — 이미지는 아래에서 이어서
@@ -122,10 +152,72 @@ export default function MarketingScreen() {
         style: imageStyle,
         aspect_ratio: CHANNEL_META[channel].aspect,
       });
-      if (img.doc) setResult(img.doc);
+      if (img.doc) applyDoc(img.doc, img.image_id);
       refreshHistory();
     } catch (e) {
       toast('홍보물 생성 실패', describeApiFailure(e, '홍보물').message);
+    } finally {
+      setPhase('idle');
+    }
+  };
+
+  /** 문구는 그대로 두고 이미지만 새로 한 장 더 — 여러 장 중 마음에 드는 걸 고른다 */
+  const regenerateImage = async () => {
+    if (!token || !result || busy) return;
+    setPhase('image');
+    setShowRaw(false);
+    try {
+      const img = await createPromotionImage(token, {
+        doc_id: result.id,
+        style: imageStyle,
+        aspect_ratio: image?.aspect_ratio || CHANNEL_META[result.content.channel].aspect,
+      });
+      if (img.doc) applyDoc(img.doc, img.image_id);
+      refreshHistory();
+    } catch (e) {
+      toast('이미지 생성 실패', describeApiFailure(e, '홍보 이미지').message);
+    } finally {
+      setPhase('idle');
+    }
+  };
+
+  /** 문구만 다시 쓰기 — 같은 조건으로 새 홍보물을 만든다 (AI는 매번 다르게 쓴다) */
+  const rewriteCopy = async () => {
+    if (!token || !result || busy) return;
+    const src = result.content;
+    setPhase('copy');
+    try {
+      const doc = await createPromotionCopy(token, {
+        topic: src.topic,
+        channel: src.channel,
+        tone: src.tone,
+        menu: src.focus_menu,
+      });
+      applyDoc(doc);
+      setShowRaw(false);
+      refreshHistory();
+      toast('✍️ 문구를 새로 썼어요', '이미지도 새 문구에 맞춰 다시 그려보세요.');
+    } catch (e) {
+      toast('문구 생성 실패', describeApiFailure(e, '홍보 문구').message);
+    } finally {
+      setPhase('idle');
+    }
+  };
+
+  /** 슬로건 위치 변경 — 서버가 원본을 다시 합성한다 (AI 재호출 없음) */
+  const changeOverlay = async (layout: OverlayLayout) => {
+    if (!token || !result || !image || busy) return;
+    setPhase('restyle');
+    try {
+      const res = await restylePromotionImage(token, {
+        doc_id: result.id,
+        image_id: image.image_id,
+        layout,
+      });
+      if (res.doc) applyDoc(res.doc, res.image_id);
+      setShowRaw(false);
+    } catch (e) {
+      toast('글자 위치 변경 실패', describeApiFailure(e, '홍보 이미지').message);
     } finally {
       setPhase('idle');
     }
@@ -143,9 +235,80 @@ export default function MarketingScreen() {
     }
   };
 
-  const c = result?.content;
-  const image = c?.images?.length ? c.images[c.images.length - 1] : null;
-  const hashtagLine = (c?.hashtags ?? []).join(' ');
+  // --- 복사 ---------------------------------------------------------------
+  const doCopyText = async (text: string, label: string) => {
+    if (!text) return;
+    if (await copyText(text)) {
+      toast('📋 복사 완료', `${label}을(를) 클립보드에 복사했어요.`);
+    } else {
+      await shareText(text); // 클립보드가 막힌 환경 — 공유 시트로 대신
+    }
+  };
+
+  const doCopyImage = async () => {
+    if (!shownUrl) return;
+    toast('🖼️ 이미지 복사 중', '잠시만요...');
+    if (await copyImage(shownUrl)) {
+      toast('🖼️ 이미지 복사 완료', '인스타·카톡에 바로 붙여넣을 수 있어요.');
+    } else {
+      toast('이미지 복사 실패', '대신 [공유하기]로 이미지를 내보낼 수 있어요.');
+    }
+  };
+
+  // --- 공유 ---------------------------------------------------------------
+  const filename = image ? promoFilename(image) : 'promo.jpg';
+
+  /** 인스타그램 스토리 — 문구를 미리 복사해 두고 이미지 공유 시트를 연다 */
+  const shareToInstagram = async () => {
+    setShareOpen(false);
+    await copyText(fullText);
+    if (!shownUrl) {
+      await shareText(fullText);
+      return;
+    }
+    toast('📸 문구는 복사해뒀어요', '공유 시트에서 Instagram → 스토리를 선택하세요.');
+    if (!(await shareImage(shownUrl, filename, fullText))) {
+      toast('공유 실패', '이미지를 저장한 뒤 인스타그램에서 직접 올려주세요.');
+    }
+  };
+
+  /** 카카오톡·밴드 등 — 이미지 공유 시트 */
+  const shareToApps = async () => {
+    setShareOpen(false);
+    await copyText(fullText);
+    if (!shownUrl) {
+      await shareText(fullText);
+      return;
+    }
+    if (!(await shareImage(shownUrl, filename, fullText))) {
+      toast('공유 실패', '이미지를 저장한 뒤 직접 올려주세요.');
+    }
+  };
+
+  const shareToSms = async () => {
+    setShareOpen(false);
+    const text = c ? `${c.headline}\n${body}` : '';
+    if (Platform.OS === 'web') {
+      await doCopyText(text, '문자 문구');
+      return;
+    }
+    if (!(await openSms(text))) await doCopyText(text, '문자 문구');
+  };
+
+  const doSaveImage = async () => {
+    setShareOpen(false);
+    if (!shownUrl) return;
+    const res = await saveImage(shownUrl, filename);
+    if (res === 'downloaded') toast('💾 저장 완료', '다운로드 폴더에 이미지를 저장했어요.');
+    else if (res === 'failed') toast('저장 실패', '잠시 후 다시 시도해 주세요.');
+  };
+
+  const openBlogWrite = async () => {
+    setShareOpen(false);
+    await copyText(fullText);
+    toast('📝 문구를 복사했어요', '블로그 글쓰기 창에 붙여넣으세요.');
+    await openUrl('https://blog.naver.com/GoBlogWrite.naver');
+  };
 
   return (
     <Screen>
@@ -235,16 +398,16 @@ export default function MarketingScreen() {
                 : '✨ AI 홍보물 만들기 (문구 + 이미지)'
           }
           onPress={generate}
-          disabled={phase !== 'idle'}
+          disabled={busy}
           style={{ marginTop: 14 }}
         />
-        {phase !== 'idle' && (
+        {busy && phase !== 'restyle' && (
           <View style={styles.progressRow}>
             <ActivityIndicator size="small" color={colors.pointOrange} />
             <Text style={styles.progressText}>
               {phase === 'copy'
                 ? '매장 정보(베스트 메뉴·위치)를 바탕으로 작성하고 있어요'
-                : '문구에 어울리는 고화질 이미지를 만들고 있어요 (10초 안팎)'}
+                : '구도·조명까지 지시한 고화질 이미지를 그리고 슬로건을 얹는 중이에요 (15초 안팎)'}
             </Text>
           </View>
         )}
@@ -256,11 +419,35 @@ export default function MarketingScreen() {
           <SectionTitle>완성된 홍보물</SectionTitle>
           <Card>
             {image ? (
-              <Image
-                source={{ uri: promoImageUrl(image.url) }}
-                style={[styles.promoImage, { aspectRatio: aspectToNumber(image.aspect_ratio) }]}
-                resizeMode="cover"
-              />
+              <View>
+                <Image
+                  source={{ uri: shownUrl }}
+                  style={[styles.promoImage, { aspectRatio: aspectToNumber(image.aspect_ratio) }]}
+                  resizeMode="cover"
+                />
+                {phase === 'restyle' && (
+                  <View style={styles.imageBusy}>
+                    <ActivityIndicator color={colors.white} />
+                  </View>
+                )}
+                {/* 슬로건 버전 ↔ 글자 없는 원본 */}
+                {!!image.raw_url && image.raw_url !== image.url && (
+                  <PressableScale
+                    style={styles.rawToggle}
+                    onPress={() => setShowRaw((v) => !v)}
+                    to={0.9}
+                  >
+                    <Ionicons
+                      name={showRaw ? 'text-outline' : 'image-outline'}
+                      size={13}
+                      color={colors.white}
+                    />
+                    <Text style={styles.rawToggleText}>
+                      {showRaw ? '슬로건 버전' : '글자 없는 원본'}
+                    </Text>
+                  </PressableScale>
+                )}
+              </View>
             ) : phase === 'image' ? (
               <View style={[styles.promoImage, styles.imagePlaceholder]}>
                 <ActivityIndicator color={colors.pointOrange} />
@@ -268,21 +455,96 @@ export default function MarketingScreen() {
               </View>
             ) : null}
 
-            <Text style={styles.headline}>{c.headline}</Text>
-            {!!c.sub_headline && <Text style={styles.subHeadline}>{c.sub_headline}</Text>}
+            {/* 이미지 여러 장 — 썸네일로 골라 본다 */}
+            {images.length > 1 && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={{ marginBottom: 10 }}
+                contentContainerStyle={{ gap: 8 }}
+              >
+                {images.map((img, i) => (
+                  <PressableScale
+                    key={img.image_id}
+                    onPress={() => {
+                      setSelectedImageId(img.image_id);
+                      setShowRaw(false);
+                    }}
+                    to={0.92}
+                  >
+                    <Image
+                      source={{ uri: promoImageUrl(img.url) }}
+                      style={[
+                        styles.variantThumb,
+                        img.image_id === image?.image_id && styles.variantThumbActive,
+                      ]}
+                    />
+                    <Text style={styles.variantIndex}>{i + 1}</Text>
+                  </PressableScale>
+                ))}
+              </ScrollView>
+            )}
+
+            {/* 슬로건 위치 — 즉시 반영 (AI 재호출 없음) */}
+            {!!image && !!c.short_slogan && (
+              <View style={styles.overlayRow}>
+                <Text style={styles.overlayLabel}>글자 위치</Text>
+                {OVERLAY_META.map((o) => {
+                  const active = (image.overlay ?? 'none') === o.key;
+                  return (
+                    <PressableScale
+                      key={o.key}
+                      style={[styles.overlayChip, active && styles.overlayChipActive]}
+                      onPress={() => !active && changeOverlay(o.key)}
+                      to={0.92}
+                    >
+                      <Text style={[styles.overlayText, active && styles.overlayTextActive]}>
+                        {o.label}
+                      </Text>
+                    </PressableScale>
+                  );
+                })}
+              </View>
+            )}
+
+            {!!image && (
+              <View style={styles.redoRow}>
+                <PressableScale style={styles.redoBtn} onPress={regenerateImage} to={0.95}>
+                  <Ionicons name="refresh" size={13} color={colors.espressoBrown} />
+                  <Text style={styles.redoText}>이미지 다시 그리기</Text>
+                </PressableScale>
+                <PressableScale style={styles.redoBtn} onPress={rewriteCopy} to={0.95}>
+                  <Ionicons name="create-outline" size={13} color={colors.espressoBrown} />
+                  <Text style={styles.redoText}>문구 다시 쓰기</Text>
+                </PressableScale>
+              </View>
+            )}
+
+            <View style={styles.headlineRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.headline}>{c.headline}</Text>
+                {!!c.sub_headline && <Text style={styles.subHeadline}>{c.sub_headline}</Text>}
+              </View>
+              <CopyIcon onPress={() => doCopyText(c.headline, '헤드라인')} />
+            </View>
 
             <Divider style={{ marginVertical: 12 }} />
 
-            <Text style={styles.fieldLabel}>
-              {c.channel === 'sms' ? '문자 내용' : c.channel === 'instagram' ? '캡션' : '본문'}
-            </Text>
-            <Text style={styles.bodyText}>
-              {c.channel === 'instagram' ? c.sns_caption : c.body}
-            </Text>
+            <View style={styles.labelRow}>
+              <Text style={styles.fieldLabel}>
+                {c.channel === 'sms' ? '문자 내용' : c.channel === 'instagram' ? '캡션' : '본문'}
+                <Text style={styles.charCount}>  {body.length}자</Text>
+              </Text>
+              <CopyIcon onPress={() => doCopyText(body, '본문')} />
+            </View>
+            <Text style={styles.bodyText}>{body}</Text>
 
             {c.hashtags?.length > 0 && (
               <>
-                <Text style={[styles.fieldLabel, { marginTop: 12 }]}>해시태그</Text>
+                <View style={[styles.labelRow, { marginTop: 12 }]}>
+                  <Text style={styles.fieldLabel}>해시태그 {c.hashtags.length}개</Text>
+                  <CopyIcon onPress={() => doCopyText(hashtagLine, '해시태그')} />
+                </View>
                 <View style={styles.hashtagWrap}>
                   {c.hashtags.map((h) => (
                     <View key={h} style={styles.hashtagChip}>
@@ -302,29 +564,22 @@ export default function MarketingScreen() {
 
             <View style={styles.actionRow}>
               <Button
-                label="문구 복사"
+                label="문구 전체 복사"
                 variant="secondary"
                 style={{ flex: 1 }}
-                onPress={() =>
-                  copyOrShare(
-                    `${c.channel === 'instagram' ? c.sns_caption : c.body}\n\n${hashtagLine}`,
-                    '문구'
-                  )
-                }
+                onPress={() => doCopyText(fullText, '문구')}
               />
-              <Button
-                label="공유하기"
-                style={{ flex: 1 }}
-                onPress={() =>
-                  Share.share({
-                    message: `${c.headline}\n\n${
-                      c.channel === 'instagram' ? c.sns_caption : c.body
-                    }\n\n${hashtagLine}`,
-                  }).catch(() => {})
-                }
-              />
+              {canCopyImage && !!image && (
+                <Button
+                  label="이미지 복사"
+                  variant="secondary"
+                  style={{ flex: 1 }}
+                  onPress={doCopyImage}
+                />
+              )}
+              <Button label="공유하기" style={{ flex: 1 }} onPress={() => setShareOpen(true)} />
             </View>
-            {image?.provider === 'pollinations' && (
+            {image?.provider === 'pollinations' && !image?.overlay && (
               <Text style={styles.providerNote}>
                 무료 AI 이미지 — 글자는 캡션으로 함께 올려주세요
               </Text>
@@ -345,7 +600,10 @@ export default function MarketingScreen() {
                   {i > 0 && <Divider style={{ marginVertical: 8 }} />}
                   <PressableScale
                     style={styles.historyRow}
-                    onPress={() => setResult(doc)}
+                    onPress={() => {
+                      applyDoc(doc);
+                      setShowRaw(false);
+                    }}
                     to={0.97}
                   >
                     {thumb ? (
@@ -381,7 +639,100 @@ export default function MarketingScreen() {
           </Card>
         </>
       )}
+
+      {/* 공유 시트 */}
+      <SwipeDownModal visible={shareOpen} onClose={() => setShareOpen(false)}>
+        <Text style={styles.sheetTitle}>어디에 올릴까요?</Text>
+        <Text style={styles.sheetHint}>
+          어디로 보내든 문구는 자동으로 복사돼요 — 붙여넣기만 하면 됩니다.
+        </Text>
+        <ShareRow
+          icon="logo-instagram"
+          title="인스타그램 스토리·피드"
+          desc="공유 시트에서 Instagram → 스토리를 선택하세요"
+          onPress={shareToInstagram}
+          disabled={!image}
+        />
+        <ShareRow
+          icon="share-social-outline"
+          title="다른 앱으로 보내기"
+          desc="카카오톡·밴드·메일 등"
+          onPress={shareToApps}
+          disabled={!image}
+        />
+        <ShareRow
+          icon="chatbox-ellipses-outline"
+          title="단골에게 문자로"
+          desc={Platform.OS === 'web' ? '문구를 복사합니다' : '문자 앱이 문구와 함께 열려요'}
+          onPress={shareToSms}
+        />
+        {c?.channel === 'blog' && (
+          <ShareRow
+            icon="reader-outline"
+            title="네이버 블로그에 쓰기"
+            desc="글쓰기 창을 열고 문구를 복사해요"
+            onPress={openBlogWrite}
+          />
+        )}
+        <ShareRow
+          icon={canDownload ? 'download-outline' : 'save-outline'}
+          title={canDownload ? '이미지 저장' : '사진에 저장'}
+          desc={canDownload ? '고화질 원본을 내려받아요' : '공유 시트의 [이미지 저장]을 선택하세요'}
+          onPress={doSaveImage}
+          disabled={!image}
+        />
+        <ShareRow
+          icon="text-outline"
+          title="문구만 공유"
+          desc="이미지 없이 텍스트만"
+          onPress={() => {
+            setShareOpen(false);
+            shareText(fullText);
+          }}
+        />
+      </SwipeDownModal>
     </Screen>
+  );
+}
+
+/** 작은 복사 아이콘 버튼 — 항목별로 따로 복사할 수 있게 */
+function CopyIcon({ onPress }: { onPress: () => void }) {
+  return (
+    <PressableScale style={styles.copyIcon} onPress={onPress} to={0.85}>
+      <Ionicons name="copy-outline" size={15} color={colors.mochaBrown} />
+    </PressableScale>
+  );
+}
+
+/** 공유 시트의 한 줄 */
+function ShareRow({
+  icon,
+  title,
+  desc,
+  onPress,
+  disabled,
+}: {
+  icon: string;
+  title: string;
+  desc: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <PressableScale
+      style={[styles.shareRow, disabled && { opacity: 0.4 }]}
+      onPress={() => !disabled && onPress()}
+      to={0.97}
+    >
+      <View style={styles.shareIcon}>
+        <Ionicons name={icon as any} size={18} color={colors.espressoBrown} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.shareTitle}>{title}</Text>
+        <Text style={styles.shareDesc}>{desc}</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={16} color={colors.mochaBrown} />
+    </PressableScale>
   );
 }
 
@@ -412,6 +763,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     marginTop: 4,
   },
+  charCount: { fontSize: 11, fontWeight: '600', color: colors.mochaBrown + 'aa' },
   input: {
     backgroundColor: 'rgba(140,111,86,0.07)',
     borderRadius: 12,
@@ -453,6 +805,27 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     backgroundColor: 'rgba(140,111,86,0.08)',
   },
+  imageBusy: {
+    ...StyleSheet.absoluteFillObject,
+    bottom: 12,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  rawToggle: {
+    position: 'absolute',
+    right: 10,
+    top: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  rawToggleText: { fontSize: 11, fontWeight: '700', color: colors.white },
   imagePlaceholder: {
     aspectRatio: 1,
     alignItems: 'center',
@@ -460,6 +833,57 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   placeholderText: { fontSize: 12, color: colors.mochaBrown },
+
+  variantThumb: {
+    width: 54,
+    height: 54,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    backgroundColor: 'rgba(140,111,86,0.08)',
+  },
+  variantThumbActive: { borderColor: colors.pointOrange },
+  variantIndex: {
+    position: 'absolute',
+    bottom: 3,
+    right: 5,
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: colors.white,
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowRadius: 3,
+  },
+
+  overlayRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
+  overlayLabel: { fontSize: 11.5, fontWeight: '700', color: colors.mochaBrown, marginRight: 2 },
+  overlayChip: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(140,111,86,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(140,111,86,0.18)',
+  },
+  overlayChipActive: { backgroundColor: colors.espressoBrown, borderColor: colors.espressoBrown },
+  overlayText: { fontSize: 11, fontWeight: '700', color: colors.mochaBrown },
+  overlayTextActive: { color: colors.white },
+
+  redoRow: { flexDirection: 'row', gap: 8, marginTop: 10, marginBottom: 4 },
+  redoBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: 'rgba(140,111,86,0.09)',
+  },
+  redoText: { fontSize: 11.5, fontWeight: '700', color: colors.espressoBrown },
+
+  headlineRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 8 },
+  labelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  copyIcon: { padding: 6 },
 
   headline: { fontSize: 19, fontWeight: '900', color: colors.espressoBrown, letterSpacing: -0.4 },
   subHeadline: { fontSize: 13, color: colors.mochaBrown, marginTop: 4, fontWeight: '600' },
@@ -485,13 +909,37 @@ const styles = StyleSheet.create({
   },
   tipText: { flex: 1, fontSize: 12, color: colors.espressoBrown, lineHeight: 17 },
 
-  actionRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  actionRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
   providerNote: {
     fontSize: 10.5,
     color: colors.mochaBrown,
     textAlign: 'center',
     marginTop: 8,
   },
+
+  sheetTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: colors.espressoBrown,
+    marginBottom: 4,
+  },
+  sheetHint: { fontSize: 11.5, color: colors.mochaBrown, marginBottom: 12, lineHeight: 16 },
+  shareRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 11,
+  },
+  shareIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(140,111,86,0.1)',
+  },
+  shareTitle: { fontSize: 13.5, fontWeight: '800', color: colors.espressoBrown },
+  shareDesc: { fontSize: 11, color: colors.mochaBrown, marginTop: 2 },
 
   historyRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   historyThumb: { width: 44, height: 44, borderRadius: 10 },
