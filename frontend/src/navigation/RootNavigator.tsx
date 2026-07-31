@@ -21,6 +21,7 @@ import InventoryScreen from '../screens/inventory/InventoryScreen';
 import LegalScreen from '../screens/legal/LegalScreen';
 import ManagementScreen from '../screens/management/ManagementScreen';
 import ManualSalesScreen from '../screens/sales/ManualSalesScreen';
+import MarketingScreen from '../screens/marketing/MarketingScreen';
 import MenuScreen from '../screens/menu/MenuScreen';
 import OperationScreen from '../screens/operation/OperationScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
@@ -54,6 +55,7 @@ export type RootStackParamList = {
   Menu: undefined;
   SalesInput: undefined;
   ManualSales: undefined;
+  Marketing: undefined;
   Cost: undefined;
   Legal: { doc?: 'privacy' | 'terms' } | undefined;
   Document: undefined;
@@ -167,6 +169,7 @@ export default function RootNavigator() {
         <Stack.Screen name="Menu" component={MenuScreen} options={({ navigation }) => erpHeader('메뉴 관리', navigation)} />
         <Stack.Screen name="SalesInput" component={SalesInputScreen} options={({ navigation }) => erpHeader('판매 입력', navigation)} />
         <Stack.Screen name="ManualSales" component={ManualSalesScreen} options={({ navigation }) => erpHeader('직접 입력', navigation)} />
+        <Stack.Screen name="Marketing" component={MarketingScreen} options={({ navigation }) => erpHeader('홍보 스튜디오', navigation)} />
         <Stack.Screen name="Cost" component={CostScreen} options={({ navigation }) => erpHeader('원가 분석', navigation)} />
         <Stack.Screen name="Legal" component={LegalScreen} options={({ navigation }) => erpHeader('약관 및 정책', navigation)} />
         <Stack.Screen name="Document" component={DocumentScreen} options={({ navigation }) => erpHeader('서류 자동화', navigation)} />

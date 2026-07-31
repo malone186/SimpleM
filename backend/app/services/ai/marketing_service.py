@@ -363,7 +363,10 @@ def _pollinations_generate(prompt: str, aspect_ratio: str) -> tuple[bytes, str]:
             "https://image.pollinations.ai/prompt/" + encoded,
             # enhance=true: 서버 쪽 LLM이 프롬프트를 화보용으로 보강한다 — 실측으로
             # 구도·조명 묘사가 눈에 띄게 좋아져 기본 켠다
-            params={"width": w, "height": h, "nologo": "true", "enhance": "true"},
+            # model=flux: 익명 티어 기본 모델(sana, 경량)보다 품질이 좋은 FLUX를 명시.
+            # 실측 1024² 약 5초 — 홍보물은 품질이 우선이라 속도 손해를 감수한다.
+            params={"width": w, "height": h, "nologo": "true", "enhance": "true",
+                    "model": "flux"},
             timeout=IMAGE_TIMEOUT,
             follow_redirects=True,
         )
