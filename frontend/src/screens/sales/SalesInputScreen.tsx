@@ -31,7 +31,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { PressableScale } from '../../components/motion';
 import { toast } from '../../components/toast';
 import { Badge, Card, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
-import { listMenus, listRecentSales, recordSales, type MenuItem, type RecentSale } from '../../lib/api/sales';
+import { confirmSalesImport, listMenus, listRecentSales, previewSalesImport, recordSales, type ImportPreview, type MenuItem, type RecentSale } from '../../lib/api/sales';
 import {
   getDaySales,
   getDeposits,
@@ -94,6 +94,12 @@ export default function SalesInputScreen() {
   const [showMenuMode, setShowMenuMode] = useState(false);
   const [menus, setMenus] = useState<MenuItem[] | null>(null);
   const [cart, setCart] = useState<Record<number, number>>({});
+
+  // 파일 불러오기(엑셀/CSV) — 접이식 + LLM 매핑 미리보기 → 확인 후 저장
+  const [fileOpen, setFileOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
+  const [importedName, setImportedName] = useState('');
   const [recent, setRecent] = useState<RecentSale[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
@@ -288,12 +294,128 @@ export default function SalesInputScreen() {
 
   const nextDeposit = deposits?.next_deposit ?? null;
 
+  // ---- 파일 불러오기: 파일 선택 → LLM 매핑 미리보기 (DB 저장은 아직 안 함) ----
+  const pickAndPreview = async () => {
+    if (!token) { toast('로그인 필요', '파일 불러오기는 로그인 후 가능합니다.'); return; }
+    let DocumentPicker: any;
+    try {
+      DocumentPicker = require('expo-document-picker');
+    } catch {
+      toast('파일 선택을 쓸 수 없어요', '이 버전 앱에는 파일 선택이 없어요. 앱을 업데이트해 주세요.');
+      return;
+    }
+    const res = await DocumentPicker.getDocumentAsync({
+      type: [
+        'text/csv', 'text/comma-separated-values', 'application/csv',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ],
+      copyToCacheDirectory: true,
+      multiple: false,
+    });
+    if (res.canceled || !res.assets?.length) return;
+    const a = res.assets[0];
+    setImporting(true);
+    setImportPreview(null);
+    setImportedName(a.name ?? '');
+    try {
+      const pv = await previewSalesImport({ uri: a.uri, mimeType: a.mimeType, fileName: a.name }, token);
+      setImportPreview(pv);
+    } catch (e) {
+      toast('파일 분석 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  // ---- 파일 불러오기: 미리보기에서 확인한 (매칭된) 행만 실제 매출로 저장 ----
+  const submitImport = async () => {
+    if (!token || !importPreview) return;
+    const rows = importPreview.rows
+      .filter((r) => r.menu_id != null)
+      .map((r) => ({ menu_id: r.menu_id as number, quantity: r.quantity, total_price: r.total_price, sold_at: r.sold_at }));
+    if (rows.length === 0) {
+      toast('저장할 항목이 없어요', '메뉴가 매칭된 행이 없어요. 미매칭 메뉴는 메뉴 관리에 먼저 등록해 주세요.');
+      return;
+    }
+    setImporting(true);
+    try {
+      const result = await confirmSalesImport(token, rows);
+      toast('매출을 저장했어요', `${result.created}건 · ${result.total.toLocaleString()}원 반영 (재고 자동 차감)`);
+      setImportPreview(null);
+      setFileOpen(false);
+      setRecent(await listRecentSales(token, 5));
+    } catch (e) {
+      toast('저장 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <Screen>
       <ScreenTitle
         title="매출 입력"
         subtitle="현금·카드만 적으면 수수료와 입금 예정일까지 계산해 드려요"
       />
+
+      {/* ── POS 매출 파일 불러오기 (엑셀/CSV) — 접이식. 수동 입력과 함께 쓸 수 있다 ── */}
+      <Card>
+        <PressableScale style={styles.fileHead} onPress={() => setFileOpen((v) => !v)} to={0.98}>
+          <Ionicons name="document-attach-outline" size={20} color={colors.espressoBrown} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.fileTitle}>POS 매출 파일 불러오기</Text>
+            <Text style={styles.fileSub}>엑셀·CSV를 올리면 자동 분석해 매출로 등록해요 (저장 전 확인)</Text>
+          </View>
+          <Ionicons name={fileOpen ? 'chevron-up' : 'chevron-down'} size={18} color={colors.mochaBrown} />
+        </PressableScale>
+
+        {fileOpen && (
+          <View style={{ marginTop: 12, gap: 10 }}>
+            <PressableScale style={styles.filePickBtn} onPress={pickAndPreview} disabled={importing} to={0.97}>
+              <Ionicons name="cloud-upload-outline" size={16} color={colors.white} />
+              <Text style={styles.filePickText}>{importedName ? `파일 다시 선택 (${importedName})` : '파일 선택 (엑셀/CSV)'}</Text>
+            </PressableScale>
+
+            {importing && !importPreview && (
+              <View style={styles.fileRowCenter}>
+                <ActivityIndicator color={colors.mochaBrown} />
+                <Text style={styles.fileSub}>파일을 분석하고 있어요…</Text>
+              </View>
+            )}
+
+            {importPreview && (
+              <View style={{ gap: 8 }}>
+                <Text style={styles.fileSummary}>
+                  총 {importPreview.summary.total_rows}행 · 매칭 {importPreview.summary.matched} · 미매칭 {importPreview.summary.unmatched} · 합계 {importPreview.summary.sum_amount.toLocaleString()}원
+                </Text>
+                {importPreview.summary.unmatched > 0 && (
+                  <Text style={styles.fileWarn}>⚠ 미매칭 메뉴는 저장에서 제외돼요. 메뉴 관리에 먼저 등록하면 매칭됩니다.</Text>
+                )}
+                {importPreview.rows.slice(0, 30).map((r, i) => (
+                  <View key={i} style={[styles.fileRow, r.menu_id == null && styles.fileRowUnmatched]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.fileRowName}>
+                        {r.menu_name}{r.matched_name && r.matched_name !== r.menu_name ? ` → ${r.matched_name}` : ''}
+                      </Text>
+                      <Text style={styles.fileRowMeta}>
+                        {r.quantity}개 · {(r.total_price ?? 0).toLocaleString()}원{r.sold_at ? ` · ${r.sold_at.slice(0, 16).replace('T', ' ')}` : ''}
+                      </Text>
+                    </View>
+                    <Badge label={r.menu_id == null ? '미매칭' : '매칭'} tone={r.menu_id == null ? 'danger' : 'green'} />
+                  </View>
+                ))}
+                {importPreview.rows.length > 30 && (
+                  <Text style={styles.fileSub}>…외 {importPreview.rows.length - 30}행 (저장은 전체 반영)</Text>
+                )}
+                <PressableScale style={styles.fileSaveBtn} onPress={submitImport} disabled={importing} to={0.97}>
+                  <Text style={styles.fileSaveText}>매칭된 {importPreview.summary.matched}건 저장 (재고 자동 차감)</Text>
+                </PressableScale>
+              </View>
+            )}
+          </View>
+        )}
+      </Card>
 
       {/* ── 날짜 선택 (아이폰 물방울 쫀득 Bouncy Elastic 스위처) ── */}
       <BouncyDateBar
@@ -776,6 +898,31 @@ function BouncyDateBar({
 }
 
 const styles = StyleSheet.create({
+  // ── POS 파일 불러오기 섹션 ──
+  fileHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  fileTitle: { ...typography.L3, color: colors.espressoBrown, fontWeight: '800' },
+  fileSub: { ...typography.L5, color: colors.mochaBrown, marginTop: 2 },
+  filePickBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: colors.espressoBrown, borderRadius: 12, paddingVertical: 11,
+  },
+  filePickText: { color: colors.white, fontSize: 13.5, fontWeight: '800' },
+  fileRowCenter: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
+  fileSummary: { ...typography.L5, color: colors.espressoBrown, fontWeight: '800' },
+  fileWarn: { ...typography.L5, color: colors.pointOrange, fontWeight: '600' },
+  fileRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 8, paddingHorizontal: 10, borderRadius: 10,
+    backgroundColor: colors.coffeeCream,
+  },
+  fileRowUnmatched: { backgroundColor: 'rgba(178, 59, 46, 0.06)' },
+  fileRowName: { ...typography.L5, color: colors.espressoBrown, fontWeight: '700' },
+  fileRowMeta: { ...typography.L5, color: colors.mochaBrown, marginTop: 2 },
+  fileSaveBtn: {
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.trendGreenText, borderRadius: 12, paddingVertical: 12, marginTop: 4,
+  },
+  fileSaveText: { color: colors.white, fontSize: 14, fontWeight: '800' },
   dateBar: {
     flexDirection: 'row',
     alignItems: 'center',
