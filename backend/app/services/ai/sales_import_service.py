@@ -33,7 +33,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "") or os.getenv("GOOGLE_API_KEY", 
 GEMINI_MODEL = os.getenv("SALES_IMPORT_GEMINI_MODEL") or os.getenv("OCR_GEMINI_MODEL", "gemini-3.1-flash-lite")
 GEMINI_TIMEOUT = float(os.getenv("SALES_IMPORT_GEMINI_TIMEOUT", "45"))
 
-MAX_ROWS = 5000  # 한 번에 임포트할 최대 행 (안전장치)
+MAX_ROWS = 20000  # 한 번에 임포트할 최대 행 (안전장치) — 한 달치 POS 상세내역(수천~1만행) 수용
 
 
 class SalesImportError(Exception):
@@ -140,8 +140,9 @@ def _heuristic_mapping(grid: list[list[str]]) -> dict[str, Any]:
             best_hits, best_row = hits, i
     header = [str(c).lower() for c in grid[best_row]]
     mapping: dict[str, Any] = {"header_row": best_row, "date_format": None,
+                               "source": "heuristic",
                                "confidence": 0.4 if best_hits > 0 else 0.1,
-                               "notes": "키워드 휴리스틱 (LLM 미사용)"}
+                               "notes": "키워드 휴리스틱 (AI 미사용)"}
     for field, kws in KEYS.items():
         idx = None
         for ci, col in enumerate(header):
@@ -153,9 +154,15 @@ def _heuristic_mapping(grid: list[list[str]]) -> dict[str, Any]:
 
 
 async def infer_mapping(grid: list[list[str]]) -> dict[str, Any]:
-    """열 매핑을 LLM으로 추론. 키가 없거나 실패하면 휴리스틱으로 폴백."""
+    """열 매핑을 LLM으로 추론. 키가 없거나 실패하면 휴리스틱으로 폴백.
+
+    어떤 엔진이 왜 쓰였는지 결과에 남긴다(source/notes/error) — 폴백이 조용히 일어나
+    "무엇이 문제인지" 알기 어렵던 걸, 미리보기에서 바로 보이게 하기 위함.
+    """
     if not GEMINI_API_KEY:
-        return _heuristic_mapping(grid)
+        m = _heuristic_mapping(grid)
+        m["notes"] = "AI 키 없음 → 키워드 휴리스틱"
+        return m
     payload = {
         "contents": [{"parts": [{"text": _MAPPING_PROMPT + _sample_text(grid)}]}],
         "generationConfig": {
@@ -176,11 +183,14 @@ async def infer_mapping(grid: list[list[str]]) -> dict[str, Any]:
             data = json.loads(content)
             data.setdefault("header_row", 0)
             data.setdefault("confidence", 0.5)
+            data["source"] = "ai"
+            data.setdefault("notes", "AI 자동 분석")
             return data
     except Exception as e:
         logger.warning(f"[매출 임포트] LLM 매핑 실패 — 휴리스틱 폴백: {e}")
         fallback = _heuristic_mapping(grid)
-        fallback["notes"] = f"LLM 실패로 휴리스틱 폴백 ({e})"
+        fallback["notes"] = "AI 분석 실패 → 키워드 휴리스틱 폴백"
+        fallback["error"] = str(e)[:200]
         return fallback
 
 
@@ -190,6 +200,25 @@ async def infer_mapping(grid: list[list[str]]) -> dict[str, Any]:
 
 def _norm(s: str) -> str:
     return re.sub(r"\s+", "", str(s or "")).lower()
+
+
+# 온도·사이즈 표기 — 매장 메뉴명엔 없지만 POS 상품명엔 붙는 꼬리표(예: 아메리카노(ICE)).
+# 매칭 오염을 막으려 한 글자 한글(대/중/소/냉/온)은 넣지 않는다.
+_VARIANT_TOKENS = (
+    "ice", "hot", "아이스", "핫", "따뜻한", "차가운",
+    "large", "regular", "small", "grande", "tall", "venti",
+    "라지", "레귤러", "스몰", "그란데", "톨", "벤티",
+)
+
+
+def _norm_menu(s: str) -> str:
+    """메뉴 매칭용 정규화 — 괄호류와 온도/사이즈 꼬리표를 떼어
+    '아메리카노(ICE)'·'아메리카노 HOT'을 매장 메뉴 '아메리카노'와 매칭시킨다."""
+    x = re.sub(r"[\(\[\{（【].*?[\)\]\}）】]", "", str(s or ""))  # (ICE)/[아이스]/{L} 등 괄호 표기 제거
+    x = _norm(x)
+    for tok in _VARIANT_TOKENS:
+        x = x.replace(tok, "")
+    return x
 
 
 def _to_int(s: str) -> Optional[int]:
@@ -245,7 +274,23 @@ def build_preview(store_id: str, grid: list[list[str]], mapping: dict[str, Any])
         menus = db.query(Menu).filter(Menu.store_id == store_id).all()
         by_name = {_norm(m.name): {"id": m.id, "name": m.name, "price": m.selling_price} for m in menus}
 
+    # 온도·사이즈 꼬리표를 뗀 정규화 인덱스 (예: '아메리카노(ICE)' → '아메리카노').
+    # 두 메뉴가 같은 키로 겹치면 모호하므로 그 키는 제외해 오매칭을 막는다.
+    by_menu_norm: dict[str, Any] = {}
+    _ambiguous: set[str] = set()
+    for m in menus:
+        k = _norm_menu(m.name)
+        if not k:
+            continue
+        if k in by_menu_norm and by_menu_norm[k]["id"] != m.id:
+            _ambiguous.add(k)
+        else:
+            by_menu_norm[k] = {"id": m.id, "name": m.name, "price": m.selling_price}
+    for k in _ambiguous:
+        by_menu_norm.pop(k, None)
+
     data_rows = grid[header_row + 1:]
+    truncated = max(0, len(data_rows) - MAX_ROWS)  # MAX_ROWS 초과분(조용한 누락 방지용)
     rows: list[dict[str, Any]] = []
     for r in data_rows[:MAX_ROWS]:
         def cell(ci: Optional[Any]) -> str:
@@ -265,6 +310,11 @@ def build_preview(store_id: str, grid: list[list[str]], mapping: dict[str, Any])
 
         matched = by_name.get(_norm(name))
         warnings = []
+        if matched is None:
+            # 온도·사이즈 꼬리표를 무시하고 재시도 (예: 아메리카노(ICE) → 아메리카노)
+            matched = by_menu_norm.get(_norm_menu(name))
+            if matched is not None:
+                warnings.append("온도·사이즈 표기 무시하고 매칭")
         if matched is None:
             warnings.append("메뉴 매칭 안 됨")
         if amount is None:
@@ -289,12 +339,20 @@ def build_preview(store_id: str, grid: list[list[str]], mapping: dict[str, Any])
     matched_cnt = sum(1 for x in rows if x["menu_id"] is not None)
     return {
         "mapping": mapping,
+        # 어떤 엔진으로 열을 매핑했는지 한눈에 (미리보기 배지·디버깅용)
+        "source": mapping.get("source", "heuristic"),  # 'ai' | 'heuristic'
+        "mapping_note": mapping.get("notes"),
+        "mapping_error": mapping.get("error"),          # AI 실패 사유(있을 때만)
+        "confidence": mapping.get("confidence"),
         "rows": rows,
         "summary": {
             "total_rows": len(rows),
             "matched": matched_cnt,
             "unmatched": len(rows) - matched_cnt,
             "sum_amount": sum(x["total_price"] or 0 for x in rows),
+            # 파일이 MAX_ROWS를 초과해 잘렸으면 몇 행이 제외됐는지 알린다(조용한 누락 방지)
+            "truncated": truncated,
+            "max_rows": MAX_ROWS,
         },
     }
 
@@ -318,6 +376,20 @@ def save_import(store_id: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     with _session() as db:
         # 매장 메뉴 검증용
         menu_ids = {m.id for m in db.query(Menu).filter(Menu.store_id == store_id).all()}
+
+        # [성능] 레시피·재고를 한 번에 선로드해 행별 조회(N+1)를 없앤다.
+        # 예전엔 매칭 행마다 Recipe·Stock를 개별 조회해, 수천 행 임포트 시 원격 DB
+        # 왕복이 수천 번 발생하며 저장이 매우 느리거나 타임아웃됐다.
+        recipes_by_menu: dict[int, list[tuple[int, float]]] = {}
+        if menu_ids:
+            for rc in db.query(Recipe).filter(Recipe.menu_id.in_(menu_ids)).all():
+                recipes_by_menu.setdefault(rc.menu_id, []).append((rc.ingredient_id, rc.quantity))
+        ing_ids = {ing for lst in recipes_by_menu.values() for (ing, _q) in lst}
+        stock_by_ing = {
+            s.ingredient_id: s
+            for s in db.query(Stock).filter(Stock.ingredient_id.in_(ing_ids)).all()
+        } if ing_ids else {}
+
         for r in valid:
             mid = int(r["menu_id"])
             if mid not in menu_ids:
@@ -327,13 +399,13 @@ def save_import(store_id: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
             sold_at = _coerce_dt(r.get("sold_at"))
             db.add(Sale(menu_id=mid, quantity=qty, total_price=amount,
                         store_id=store_id, sold_at=sold_at))
-            # 레시피 기준 재고 차감 (수동 입력과 동일)
-            for recipe in db.query(Recipe).filter(Recipe.menu_id == mid).all():
-                use = recipe.quantity * qty
-                stock = db.query(Stock).filter(Stock.ingredient_id == recipe.ingredient_id).first()
+            # 레시피 기준 재고 차감 (수동 입력과 동일) — 선로드한 딕셔너리만 사용
+            for ing_id, rqty in recipes_by_menu.get(mid, []):
+                use = rqty * qty
+                stock = stock_by_ing.get(ing_id)
                 if stock is not None:
                     stock.current_quantity = max(0.0, stock.current_quantity - use)
-                db.add(StockTransaction(ingredient_id=recipe.ingredient_id, quantity_change=-use,
+                db.add(StockTransaction(ingredient_id=ing_id, quantity_change=-use,
                                         type="OUT", description="POS 파일 매출 반영"))
             created += 1
             total_amount += amount
