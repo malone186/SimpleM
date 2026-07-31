@@ -153,6 +153,126 @@ def _absolute(url: str) -> str:
     return url
 
 
+# ═══════════════════════════════════════════════════
+# [한글 주석] 렌더링된 카드 구조 파서 (all_beans.html 등)
+#
+# 정적 HTML에는 상품이 없고 JS가 그린다. Playwright로 렌더링하면 아래 카드가 나온다:
+#   <div class="_card_xkhrv_5" data-product-id="802">
+#     <p class="_roastery_...">코스피어</p>              ← 로스터리
+#     <h3 class="_name_...">프루츠프루츠 (언스페셜티 블렌드)</h3>
+#     <p class="_cupnotes_...">백합, 과일 바구니, 핵과류</p>  ← 컵노트
+#     <span class="_weight_...">200g</span>              ← 용량 (g당 단가 계산 가능)
+#     <span class="_originalPrice_...">19,000원</span>
+#     <span class="_priceValue_...">17,500원</span>       ← 실제 판매가
+#
+# 홈페이지(prdList 구조)보다 정보가 훨씬 풍부하다 —
+# 컵노트와 용량은 기존 DB에 아예 없던 데이터다.
+#
+# 주의: 클래스명 뒤 해시(_xkhrv_)는 빌드할 때마다 바뀔 수 있으므로
+# 정확한 이름이 아니라 '접두어'로 매칭한다.
+# ═══════════════════════════════════════════════════
+
+_CARD_RE = re.compile(r'<div class="_card_[^"]*"\s+data-product-id="(\d+)"(.*?)(?=<div class="_card_[^"]*"\s+data-product-id=|\Z)', re.S)
+_ROASTERY_RE = re.compile(r'class="_roastery_[^"]*"[^>]*>(.*?)</p>', re.S)
+_NAME_RE = re.compile(r'class="_name_[^"]*"[^>]*>(.*?)</h3>', re.S)
+_CUPNOTES_RE = re.compile(r'class="_cupnotes_[^"]*"[^>]*>(.*?)</p>', re.S)
+_WEIGHT_RE = re.compile(r'class="_weight_[^"]*"[^>]*>(.*?)</span>', re.S)
+_PRICEVAL_RE = re.compile(r'class="[^"]*_priceValue_[^"]*"[^>]*>(.*?)</span>', re.S)
+_ORIGPRICE_RE = re.compile(r'class="[^"]*_originalPrice_[^"]*"[^>]*>(.*?)</span>', re.S)
+
+
+def _won_to_int(text: str) -> Optional[int]:
+    """'17,500원' → 17500"""
+    if not text:
+        return None
+    m = re.search(r"([\d,]+)\s*원", _clean_text(text))
+    if not m:
+        return None
+    try:
+        return int(m.group(1).replace(",", ""))
+    except ValueError:
+        return None
+
+
+def _weight_to_grams(text: str) -> Optional[float]:
+    """'200g' → 200.0 / '1kg' → 1000.0"""
+    if not text:
+        return None
+    m = re.search(r"([\d.]+)\s*(kg|g)\b", _clean_text(text), re.I)
+    if not m:
+        return None
+    try:
+        v = float(m.group(1))
+        return v * 1000 if m.group(2).lower() == "kg" else v
+    except ValueError:
+        return None
+
+
+def parse_unspecialty_cards(html: str, beans_only: bool = True) -> List[Dict[str, Any]]:
+    """렌더링된 페이지의 상품 카드를 파싱한다 (컵노트·용량 포함).
+
+    반환 항목에 cup_notes, weight_g, price_per_gram, roastery_name이 추가된다.
+    """
+    if not html:
+        return []
+
+    results: List[Dict[str, Any]] = []
+    seen: set = set()
+    skipped = 0
+
+    for m in _CARD_RE.finditer(html):
+        product_no = m.group(1)
+        block = m.group(2)
+        if product_no in seen:
+            continue
+
+        name_m = _NAME_RE.search(block)
+        name = _clean_text(name_m.group(1)) if name_m else ""
+        if not name:
+            continue
+
+        # 할인가(_priceValue_)가 실제 판매가다. _originalPrice_는 할인 전 정가.
+        price = _won_to_int(_PRICEVAL_RE.search(block).group(1)) if _PRICEVAL_RE.search(block) else None
+        orig_m = _ORIGPRICE_RE.search(block)
+        original_price = _won_to_int(orig_m.group(1)) if orig_m else None
+
+        if beans_only and not is_bean_product(name, price):
+            seen.add(product_no)
+            skipped += 1
+            continue
+
+        r_m = _ROASTERY_RE.search(block)
+        c_m = _CUPNOTES_RE.search(block)
+        w_m = _WEIGHT_RE.search(block)
+
+        grams = _weight_to_grams(w_m.group(1)) if w_m else None
+        ppg = round(price / grams, 2) if (price and grams) else None
+
+        img = _IMG_RE.search(block)
+        seen.add(product_no)
+
+        results.append({
+            "product_no": product_no,
+            "name": name,
+            "price": price,
+            "original_price": original_price,
+            "roastery_name": _clean_text(r_m.group(1)) if r_m else "",
+            "cup_notes": _clean_text(c_m.group(1)) if c_m else "",
+            "weight_g": grams,
+            "price_per_gram": ppg,
+            "product_url": f"{BASE_URL}/product/detail.html?product_no={product_no}",
+            "thumbnail_url": _absolute(img.group(1) if img else ""),
+            "source_site": SOURCE_SITE,
+        })
+
+    if not results:
+        logger.warning("언스페셜티 카드 파싱 결과 0건 — 렌더링이 안 됐거나 구조가 바뀌었습니다")
+    elif skipped:
+        logger.info("언스페셜티 카드 파싱: 원두 %d건 / 장비 %d건 제외", len(results), skipped)
+
+    return results
+
+
 def parse_unspecialty_products(html: str, beans_only: bool = True) -> List[Dict[str, Any]]:
     """언스페셜티 상품 목록 HTML에서 상품들을 추출한다.
 

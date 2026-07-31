@@ -33,8 +33,9 @@ UA = "SimpleM-BrewNote/1.0 (bean price research; contact: admin@simplem.com)"
 # [한글 주석] 정찰 대상. 사장님이 알려주신 사이트의 '상품 목록' 또는 '상품 상세' URL을 넣으면 된다.
 # 여기 URL은 예시이며, 실제 주소로 교체해야 한다.
 DEFAULT_TARGETS = [
-    # "https://<코케비즈 주소>/상품목록페이지",
-    # "https://<생두모아 주소>/상품목록페이지",
+    # 언스페셜티 원두 카테고리 — 수집 건수가 적은 원인(페이지네이션?)을 확인하기 위한 대상
+    "https://unspecialty.com/product/coffee_beans.html?cate_no=85",
+    "https://unspecialty.com/product/coffee_beans.html?cate_no=85&page=2",
 ]
 
 

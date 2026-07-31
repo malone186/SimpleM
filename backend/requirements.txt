@@ -36,3 +36,8 @@ chromadb>=0.5
 
 # FCM 푸시 알림 (백엔드 B push_service — 서비스 계정 OAuth2, 액세스 토큰 자동 갱신)
 google-auth>=2.35
+
+# 원두 시세 수집 — JS로 상품을 그리는 쇼핑몰(언스페셜티 등) 렌더링용.
+# 설치 후 브라우저도 받아야 한다: python -m playwright install chromium (~150MB)
+# 미설치 환경에서는 정적 수집으로 자동 폴백하므로 서버는 정상 기동된다.
+playwright>=1.55.0

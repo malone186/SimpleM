@@ -24,18 +24,24 @@ from sqlalchemy.orm import Session
 
 from app.models.roastery import ProductOffer, Roastery, RoasteryBean
 from app.services.operation.crawling.base_scraper import BaseScraper
+from app.services.operation.crawling.rendered_scraper import fetch_rendered, is_available
 from app.services.operation.crawling.unspecialty_parser import (
     BASE_URL,
     SOURCE_SITE,
+    parse_unspecialty_cards,
     parse_unspecialty_products,
 )
 
 logger = logging.getLogger(__name__)
 
-# 원두 목록이 있는 페이지들 (홈 + 원두 카테고리)
-DEFAULT_LIST_URLS = [
+# [한글 주석] 전체 원두 목록 — JS로 그려지므로 브라우저 렌더링이 필요하다.
+# 정적으로 받으면 0건, 렌더링하면 151건이 나온다(실측).
+RENDERED_LIST_URL = f"{BASE_URL}/product/all_beans.html?cate_no=85"
+
+# 렌더링을 못 쓰는 환경(Playwright 미설치)에서 쓰는 폴백.
+# 홈페이지는 서버가 상품을 HTML로 그려줘서 정적으로도 17건 정도는 얻을 수 있다.
+STATIC_FALLBACK_URLS = [
     f"{BASE_URL}/",
-    f"{BASE_URL}/product/coffee_beans.html?cate_no=85",
 ]
 
 _CATEGORY_RE = re.compile(r"^\s*\[([^\]]+)\]\s*")
@@ -108,41 +114,67 @@ def collect_unspecialty(
 ) -> Dict[str, Any]:
     """언스페셜티 원두를 수집해 DB에 반영한다.
 
+    기본은 브라우저 렌더링(all_beans.html)으로 전체 목록을 가져온다.
+    Playwright가 없으면 홈페이지 정적 수집으로 폴백한다(건수가 크게 줄어든다).
+
     html을 직접 넘기면 그것만 파싱한다(테스트용).
-    아니면 urls(기본: 홈 + 원두 카테고리)를 순회하며 가져온다.
     dry_run=True면 DB에 쓰지 않고 결과만 돌려준다.
     """
-    pages: List[str] = []
+    merged: Dict[str, Dict[str, Any]] = {}
+    mode = "rendered"
+    pages = 0
 
     if html:
-        pages.append(html)
+        # 넘겨받은 HTML — 카드 구조를 먼저 시도하고, 없으면 정적 구조로 해석한다.
+        mode = "provided"
+        pages = 1
+        for item in parse_unspecialty_cards(html, beans_only=True) or parse_unspecialty_products(html, beans_only=True):
+            merged[item["product_url"]] = item
+
+    elif is_available():
+        # [한글 주석] 전체 목록은 JS로 그려지므로 렌더링이 필요하다.
+        content = fetch_rendered(RENDERED_LIST_URL)
+        if content:
+            pages = 1
+            for item in parse_unspecialty_cards(content, beans_only=True):
+                merged[item["product_url"]] = item
+        if not merged:
+            logger.warning("렌더링 수집이 0건 — 정적 폴백으로 전환합니다")
+            mode = "static-fallback"
+
     else:
+        mode = "static-fallback"
+        logger.info("Playwright 미설치 — 정적 수집으로 진행합니다(건수가 적습니다)")
+
+    # 렌더링을 못 썼거나 결과가 없으면 홈페이지라도 긁는다.
+    if not merged:
         scraper = BaseScraper(rate_limit_sec=1.0, max_retries=2)
-        for u in (urls or DEFAULT_LIST_URLS):
+        for u in (urls or STATIC_FALLBACK_URLS):
             content = scraper.fetch_url(u)
             if content:
-                pages.append(content)
+                pages += 1
+                for item in parse_unspecialty_products(content, beans_only=True):
+                    merged[item["product_url"]] = item
             else:
                 logger.warning("언스페셜티 페이지 수집 실패: %s", u)
-
-    # 여러 페이지에 같은 상품이 겹쳐 나오므로 product_url로 합친다.
-    merged: Dict[str, Dict[str, Any]] = {}
-    for page in pages:
-        for item in parse_unspecialty_products(page, beans_only=True):
-            merged[item["product_url"]] = item
 
     items = list(merged.values())
     created, updated, skipped = 0, 0, 0
 
     if dry_run:
+        with_notes = sum(1 for i in items if i.get("cup_notes"))
+        with_ppg = sum(1 for i in items if i.get("price_per_gram"))
         return {
-            "pages": len(pages),
+            "mode": mode,
+            "pages": pages,
             "parsed": len(items),
+            "with_cup_notes": with_notes,
+            "with_price_per_gram": with_ppg,
             "created": 0,
             "updated": 0,
             "dry_run": True,
             "sample": items[:10],
-            "message": f"[미리보기] 원두 {len(items)}건 파싱 (DB 미반영)",
+            "message": f"[미리보기] 원두 {len(items)}건 파싱 — 컵노트 {with_notes}건, g당단가 {with_ppg}건 (DB 미반영)",
         }
 
     for it in items:
@@ -152,7 +184,12 @@ def collect_unspecialty(
             skipped += 1
             continue
 
-        roastery_name, pure_name = _split_roastery(name)
+        # 렌더링 카드는 로스터리를 별도 필드로 준다. 없으면 상품명 대괄호에서 뽑는다.
+        card_roastery = (it.get("roastery_name") or "").strip()
+        if card_roastery:
+            roastery_name, pure_name = card_roastery, name
+        else:
+            roastery_name, pure_name = _split_roastery(name)
         roastery = _get_or_create_roastery(db, roastery_name or SOURCE_SITE)
 
         bean = (
@@ -161,7 +198,9 @@ def collect_unspecialty(
             .first()
         )
 
-        ppg = _extract_price_per_gram(name, price)
+        # 카드에 용량이 있으면 그걸로 계산된 g당 단가를 쓰고, 없으면 이름에서 추정한다.
+        ppg = it.get("price_per_gram") or _extract_price_per_gram(name, price)
+        cup_notes = (it.get("cup_notes") or "").strip()
 
         if bean is None:
             bean = RoasteryBean(
@@ -171,6 +210,10 @@ def collect_unspecialty(
                 thumbnail_url=(it.get("thumbnail_url") or "")[:255] or None,
                 product_url=it["product_url"],
                 price_per_gram=ppg,
+                # [한글 주석] 컵노트를 description에 넣는다.
+                # 기존 599개 원두는 description이 전부 비어 있어 화면에 맛 정보가
+                # 하나도 안 나왔다. 렌더링 수집은 이걸 100% 채워준다.
+                description=cup_notes or None,
                 sold_out=False,
             )
             db.add(bean)
@@ -182,6 +225,8 @@ def collect_unspecialty(
             bean.name = pure_name[:100]
             if ppg is not None:
                 bean.price_per_gram = ppg
+            if cup_notes:
+                bean.description = cup_notes
             if it.get("thumbnail_url"):
                 bean.thumbnail_url = it["thumbnail_url"][:255]
             updated += 1
@@ -209,10 +254,13 @@ def collect_unspecialty(
 
     db.commit()
     return {
-        "pages": len(pages),
+        "mode": mode,
+        "pages": pages,
         "parsed": len(items),
         "created": created,
         "updated": updated,
         "skipped": skipped,
+        "with_cup_notes": sum(1 for i in items if i.get("cup_notes")),
+        "with_price_per_gram": sum(1 for i in items if i.get("price_per_gram")),
         "message": f"원두 {len(items)}건 처리 — 신규 {created}건, 갱신 {updated}건",
     }
