@@ -73,20 +73,26 @@ except Exception:
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    """앱 수명 훅 — POS 자동 동기화 폴링을 백그라운드로 돌린다 (백엔드 B).
+    """앱 수명 훅 — 백그라운드 폴링 작업들을 띄운다 (백엔드 B).
 
-    웹훅이 실시간을 담당하고, 이 폴링은 웹훅 미설정/유실 매장의 안전망이다.
-    POS_AUTO_SYNC_INTERVAL=0 이면 루프가 즉시 종료되어 아무 것도 하지 않는다.
+    · POS 자동 동기화: 웹훅이 실시간을 담당하고, 이 폴링은 웹훅 미설정/유실 매장의 안전망.
+      POS_AUTO_SYNC_INTERVAL=0 이면 루프가 즉시 종료되어 아무 것도 하지 않는다.
+    · 원두 시세 스냅샷: 가격 이력을 하루 1회 쌓아 추이(트렌드)의 원천 데이터를 만든다.
+      오늘 쌓기 시작해야 다음 주에 그래프가 나오므로 앱이 뜰 때부터 돌린다.
+      BEAN_SNAPSHOT_INTERVAL=0 이면 비활성.
     """
     import asyncio
 
     from app.api.v1.pos import auto_sync_loop
+    from app.services.operation.bean_market_service import price_snapshot_loop
 
     pos_task = asyncio.create_task(auto_sync_loop())
+    snapshot_task = asyncio.create_task(price_snapshot_loop())
     try:
         yield
     finally:
         pos_task.cancel()
+        snapshot_task.cancel()
 
 
 app = FastAPI(

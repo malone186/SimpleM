@@ -221,6 +221,58 @@ def snapshot_prices(db: Session, force: bool = False) -> Dict[str, Any]:
     return {"recorded": recorded, "skipped": False, "message": f"원두 {recorded}건의 가격을 기록했습니다."}
 
 
+async def price_snapshot_loop() -> None:
+    """가격 스냅샷을 하루 1회 자동 기록하는 백그라운드 루프.
+
+    [한글 주석] 왜 자동화가 필요한가:
+      추이(트렌드)는 과거 값이 있어야 그린다. 그런데 ProductOffer는 가격을
+      덮어써서 이력이 남지 않으므로, 매일 스냅샷을 쌓아두지 않으면
+      한 달 뒤에도 그래프를 못 그린다. 늦게 시작할수록 그만큼 밀린다.
+
+      원두 가격은 월 단위로 느리게 움직여서 하루 1회면 충분하다.
+      더 자주 찍어봐야 같은 값만 쌓인다.
+
+    BEAN_SNAPSHOT_INTERVAL=0 이면 루프가 즉시 종료된다(비활성).
+    snapshot_prices가 멱등이라 하루에 여러 번 깨어나도 중복 기록되지 않는다.
+    """
+    import asyncio
+    import logging as _logging
+    import os
+
+    from app.core.database import SessionLocal
+
+    log = _logging.getLogger(__name__)
+
+    # 기본 6시간마다 깨어나되, 같은 날 이미 기록했으면 건너뛴다.
+    # (컨테이너 재시작이 잦아도 하루 1건은 확보되도록 짧게 잡는다)
+    try:
+        interval = int(os.getenv("BEAN_SNAPSHOT_INTERVAL", "21600"))
+    except ValueError:
+        interval = 21600
+
+    if interval <= 0:
+        log.info("[원두 시세 스냅샷] BEAN_SNAPSHOT_INTERVAL<=0 — 자동 기록 비활성")
+        return
+
+    log.info("[원두 시세 스냅샷] %d초 간격으로 확인 시작 (하루 1회만 기록)", interval)
+
+    while True:
+        try:
+            await asyncio.sleep(interval)
+            db = SessionLocal()
+            try:
+                # 블로킹 DB 작업이라 이벤트 루프를 막지 않도록 스레드로 넘긴다.
+                result = await asyncio.to_thread(snapshot_prices, db)
+                if not result.get("skipped"):
+                    log.info("[원두 시세 스냅샷] %s", result.get("message"))
+            finally:
+                db.close()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("[원두 시세 스냅샷] 루프 오류 — 다음 주기에 재시도")
+
+
 def get_price_trend(db: Session, bean_id: int, days: int = 30) -> Dict[str, Any]:
     """특정 원두의 가격 추이를 반환한다.
 
