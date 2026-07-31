@@ -1106,7 +1106,10 @@ export default function SettingsScreen() {
                 }}
                 to={0.92}
               >
-                <Text style={[styles.rateChipText, active && styles.rateChipTextActive]}>
+                <Text
+                  numberOfLines={1}
+                  style={[styles.rateChipText, active && styles.rateChipTextActive]}
+                >
                   {step.label}
                 </Text>
               </PressableScale>
@@ -1717,28 +1720,35 @@ const styles = StyleSheet.create({
     lineHeight: 13,
   },
   // [한글 주석: 말하는 속도 5단계 칩]
+  // [한글 주석] 5단계가 반드시 한 줄에 들어가야 한다 — 줄바꿈되면 '아주 빠르게'만 아래로
+  // 떨어져 단계가 이어져 보이지 않는다. 그래서 wrap 없이 다섯 칸을 균등 분할한다.
   rateRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
+    flexWrap: 'nowrap',
+    gap: 4,
     marginTop: 8,
   },
   rateChip: {
-    paddingHorizontal: 11,
+    flex: 1,
+    paddingHorizontal: 2,
     paddingVertical: 7,
     borderRadius: 999,
     backgroundColor: '#FFFDF9',
     borderWidth: 1,
     borderColor: '#EFECE6',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   rateChipActive: {
     backgroundColor: colors.espressoBrown,
     borderColor: colors.espressoBrown,
   },
   rateChipText: {
-    fontSize: 11.5,
+    fontSize: 10.5,
     fontWeight: '700',
     color: colors.mochaBrown,
+    textAlign: 'center',
+    letterSpacing: -0.4, // 좁은 칸에 '아주 느리게'가 한 줄로 들어가도록 자간을 살짝 줄인다
   },
   rateChipTextActive: {
     color: colors.white,
