@@ -23,6 +23,7 @@ requests>=2.31
 python-dotenv>=1.0
 psycopg2-binary>=2.9
 statsmodels>=0.14  # AI-3 판매 예측 (SARIMAX)
+holidays>=0.60  # 한국 공휴일 자동 계산 (음력·대체공휴일 포함) — 예측 보정·카드 입금 영업일
 
 # 운영/예측 (백엔드 B 인수) — 판매예측 시계열·집계
 pandas>=2.2

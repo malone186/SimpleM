@@ -12,9 +12,10 @@ NCP 콘솔에서 Maps > Geocoding / Reverse Geocoding 구독이 켜진 키가 �
       요일별 평균(최근 가중) × 추세 폴백. 둘 다 '단순 예측 + 이벤트 부스팅' 원칙을 따른다.
 
 전제: 최소 MIN_HISTORY_DAYS일치 판매 데이터가 있어야 예측을 제공한다 (미달 시 안내).
-행사 데이터: 서울 열린데이터광장 문화행사 API에서 매장 반경 내 행사를 자동 수집한다
-  (샘플 키로도 동작, .env에 SEOUL_OPENAPI_KEY를 넣으면 수집량이 늘어난다 — 무료 즉시 발급).
-  서울 외 지역이나 API가 놓친 행사는 events 파라미터로 직접 넣으면 부스팅(기본 +20%)한다.
+행사 데이터: 매장 반경 내 행사를 두 소스에서 자동 수집한다.
+  · 전국 — 한국관광공사 TourAPI 축제·행사 (.env TOUR_API_KEY, data.go.kr 무료 발급)
+  · 서울 — 열린데이터광장 문화행사 (샘플 키로도 동작, SEOUL_OPENAPI_KEY로 수집량 확대)
+  API가 놓친 행사는 events 파라미터로 직접 넣으면 부스팅(기본 +20%)한다.
 """
 
 import logging
@@ -106,7 +107,38 @@ def invalidate_forecast_cache(store_id: str) -> None:
     for k in [k for k in _forecast_cache if k[0] == store_id]:
         _forecast_cache.pop(k, None)
 
-# 2026년 대한민국 공휴일 (하드코딩 — 매년 갱신 필요, 대체공휴일 포함)
+# 대한민국 공휴일 — holidays 라이브러리로 연도 무관 자동 계산 (음력·대체공휴일 포함).
+# 아래 2026 하드코딩은 라이브러리 미설치 환경의 폴백으로만 남긴다.
+_holiday_cache: dict[int, dict[str, str]] = {}
+
+
+def kr_holidays(*years: int) -> dict[str, str]:
+    """요청한 연도들의 공휴일 {'YYYY-MM-DD': 이름}. 설·추석·부처님오신날 같은 음력
+    공휴일과 대체공휴일까지 자동 계산되므로 매년 갱신할 필요가 없다."""
+    out: dict[str, str] = {}
+    for y in years:
+        if y not in _holiday_cache:
+            try:
+                import holidays as _hol
+
+                _holiday_cache[y] = {d.isoformat(): name
+                                     for d, name in _hol.KR(years=y, language="ko").items()}
+            except Exception:
+                logger.warning("holidays 라이브러리 사용 불가 — 2026 하드코딩 폴백", exc_info=True)
+                _holiday_cache[y] = {k: v for k, v in KR_HOLIDAYS_2026.items()
+                                     if k.startswith(str(y))}
+        out.update(_holiday_cache[y])
+    return out
+
+
+def holiday_name(day_iso: str) -> Optional[str]:
+    """해당 날짜(YYYY-MM-DD)가 공휴일이면 이름, 아니면 None."""
+    try:
+        return kr_holidays(int(day_iso[:4])).get(day_iso)
+    except ValueError:
+        return None
+
+
 KR_HOLIDAYS_2026 = {
     "2026-01-01": "신정", "2026-02-16": "설 연휴", "2026-02-17": "설날",
     "2026-02-18": "설 연휴", "2026-03-01": "삼일절", "2026-03-02": "삼일절 대체",
@@ -422,19 +454,70 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 6371 * 2 * math.asin(math.sqrt(a))
 
 
-def _fetch_nearby_events(lat: float, lon: float, start: date, days: int) -> list[dict[str, Any]]:
-    """예측 기간 내 매장 반경 EVENT_RADIUS_KM의 문화행사를 날짜별로 수집한다.
+def _fetch_events_tourapi(lat: float, lon: float, start: date, days: int) -> list[dict[str, Any]]:
+    """한국관광공사 TourAPI 축제·행사 — **전국** 커버. TOUR_API_KEY(data.go.kr 무료 발급) 필요.
 
-    키가 없으면 '샘플 키'(호출당 5건)로 동작하고, .env의 SEOUL_OPENAPI_KEY(무료 즉시 발급)를
-    넣으면 호출당 최대 500건까지 훑는다. 서울 지역만 커버 — 그 외는 수동 입력으로 보완.
-    실패해도 예측은 계속한다.
+    행사 기간(eventstartdate~eventenddate)이 예측 기간과 겹치고 매장 반경 안이면
+    날짜별 이벤트로 펼친다. 진행 중인 장기 행사를 놓치지 않도록 120일 전 시작분부터 조회.
+    실패하거나 키가 없으면 빈 목록 — 예측은 계속한다.
     """
     import requests
 
-    cache_key = f"{round(lat, 3)},{round(lon, 3)},{start.isoformat()},{days}"
-    cached = _event_cache.get(cache_key)
-    if cached and time.time() - cached[0] < _EVENT_CACHE_TTL:
-        return cached[1]
+    api_key = os.getenv("TOUR_API_KEY", "")
+    if not api_key:
+        return []
+    try:
+        r = requests.get(
+            "https://apis.data.go.kr/B551011/KorService1/searchFestival1",
+            params={"serviceKey": api_key, "MobileOS": "ETC", "MobileApp": "brewnote",
+                    "_type": "json", "numOfRows": 1000, "pageNo": 1, "arrange": "A",
+                    "eventStartDate": (start - timedelta(days=120)).strftime("%Y%m%d")},
+            timeout=8,
+        )
+        r.raise_for_status()
+        body = r.json().get("response", {}).get("body", {})
+        items = (body.get("items") or {}).get("item", [])
+    except Exception:
+        logger.warning("TourAPI 행사 조회 실패 — 전국 행사 없이 계속", exc_info=True)
+        return []
+
+    events: list[dict[str, Any]] = []
+    for row in items if isinstance(items, list) else [items]:
+        try:
+            elat, elon = float(row.get("mapy") or 0), float(row.get("mapx") or 0)
+            ev_start = datetime.strptime(str(row.get("eventstartdate")), "%Y%m%d").date()
+            ev_end = datetime.strptime(str(row.get("eventenddate")), "%Y%m%d").date()
+        except (TypeError, ValueError):
+            continue
+        if not elat or not elon:
+            continue
+        dist = _haversine_km(lat, lon, elat, elon)
+        if dist > EVENT_RADIUS_KM:
+            continue
+        title = (row.get("title") or "행사").strip()[:40]
+        for i in range(days):
+            d = start + timedelta(days=i)
+            if ev_start <= d <= ev_end:
+                events.append({
+                    "name": title,
+                    "date": d.isoformat(),
+                    "boost_pct": AUTO_EVENT_BOOST,
+                    "distance_km": round(dist, 1),
+                    "place": (row.get("addr1") or "").strip()[:30],
+                    "source": "한국관광공사 TourAPI",
+                    "lat": elat,
+                    "lon": elon,
+                })
+    return events
+
+
+def _fetch_events_seoul(lat: float, lon: float, start: date, days: int) -> list[dict[str, Any]]:
+    """서울 열린데이터광장 문화행사 — 서울 한정 보조 소스 (샘플 키로도 동작).
+
+    키가 없으면 '샘플 키'(호출당 5건)로 동작하고, .env의 SEOUL_OPENAPI_KEY(무료 즉시 발급)를
+    넣으면 호출당 최대 500건까지 훑는다. 실패해도 예측은 계속한다.
+    """
+    import requests
 
     api_key = os.getenv("SEOUL_OPENAPI_KEY", "sample")
     limit = 5 if api_key == "sample" else 500
@@ -476,6 +559,27 @@ def _fetch_nearby_events(lat: float, lon: float, start: date, days: int) -> list
                 "lat": elat,
                 "lon": elon,
             })
+    return events
+
+
+def _fetch_nearby_events(lat: float, lon: float, start: date, days: int) -> list[dict[str, Any]]:
+    """예측 기간 내 매장 반경 EVENT_RADIUS_KM의 행사를 날짜별로 수집한다.
+
+    전국은 TourAPI(TOUR_API_KEY 필요), 서울은 열린데이터광장(키 없이도 샘플 동작)으로
+    수집해 (제목, 날짜) 기준으로 합친다 — 서울 매장은 두 소스가 겹칠 수 있어 중복 제거.
+    """
+    cache_key = f"{round(lat, 3)},{round(lon, 3)},{start.isoformat()},{days}"
+    cached = _event_cache.get(cache_key)
+    if cached and time.time() - cached[0] < _EVENT_CACHE_TTL:
+        return cached[1]
+
+    events = _fetch_events_tourapi(lat, lon, start, days)
+    seen = {(e["name"], e["date"]) for e in events}
+    for ev in _fetch_events_seoul(lat, lon, start, days):
+        if (ev["name"], ev["date"]) not in seen:
+            seen.add((ev["name"], ev["date"]))
+            events.append(ev)
+
     _event_cache[cache_key] = (time.time(), events)
     return events
 
@@ -497,7 +601,7 @@ def _day_adjustment(day_iso: str, weather: dict, events: list[dict]) -> tuple[fl
             factor *= 1.05
             reasons.append(f"최고기온 {w['temp_max']}°C 폭염 → 아이스 음료 수요 +5%")
 
-    holiday = KR_HOLIDAYS_2026.get(day_iso)
+    holiday = holiday_name(day_iso)
     if holiday:
         reasons.append(f"공휴일({holiday}) — 상권 특성에 따라 변동 가능")
 
@@ -879,7 +983,7 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
                 "temp_max": w.get("temp_max"),
                 "precip_prob": w.get("precip_prob"),
                 "adjustments": reasons,
-                "holiday": KR_HOLIDAYS_2026.get(iso),
+                "holiday": holiday_name(iso),
             })
 
         week_cups = sum(d["cups"] for d in week)
@@ -948,13 +1052,13 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
         "week": week,
         "week_total": {"cups": week_cups, "revenue": sum(d["revenue"] for d in week)},
         "order_recommendations": recommendations,
-        "nearby_events": nearby_events,   # 자동 수집 (서울 문화행사, 반경 3km)
+        "nearby_events": nearby_events,   # 자동 수집 (전국 TourAPI + 서울 문화행사, 반경 3km)
         "events_applied": events,         # 사장님이 직접 입력한 행사
         "note": (f"마지막 판매 기록({last_sale_day.isoformat()}) 이후 {gap}일의 공백을 건너뛰고 "
                  "실제 내일부터 예측했습니다. " if gap > 0 else "")
                 + "시계열 예측에 날씨(강수 -10%, 폭염 +5%)·주변 행사(자동 +10%/건, 직접 입력 +20%) "
-                "보정을 적용한 참고치입니다. 행사 자동 수집은 서울 지역(반경 3km) 문화행사 기준이며, "
-                "그 외 지역이나 놓친 행사는 챗봇에 말하면 반영됩니다.",
+                "보정을 적용한 참고치입니다. 행사는 매장 반경 3km의 전국 축제·행사(한국관광공사)와 "
+                "서울 문화행사를 자동 수집하며, 놓친 행사는 챗봇에 말하면 반영됩니다.",
     }
     if not events:  # 직접 입력 행사가 섞인 결과는 캐시하지 않는다 (대시보드 기본 호출만)
         _forecast_cache[cache_key] = (time.time(), datetime.now(KST).date().isoformat(), result)
