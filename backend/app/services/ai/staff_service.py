@@ -733,6 +733,80 @@ def add_shift(store_id: str, employee_id: int, day: str,
         db.close()
 
 
+def apply_availability(store_id: str, month: Optional[str] = None,
+                       employee_id: Optional[int] = None) -> dict[str, Any]:
+    """등록해 둔 근무 가능 시간을 그 달 달력에 실제 근무로 채운다.
+
+    "언제 돼요?"를 받아 놨는데 달력은 여전히 비어 있으면, 사장님이 그 답을 보고 31일치를
+    손으로 옮겨 적어야 한다. 여기서 한 번에 만들어 주면 기존 '알바 근무 달력 스케줄표'에
+    그대로 나타난다(같은 schedules 테이블을 쓴다).
+
+    · 지난 날짜는 만들지 않는다 (이번 달이면 오늘부터)
+    · 그 날 그 직원의 근무가 이미 있으면 건너뛴다 — 여러 번 눌러도 중복이 안 쌓인다
+    """
+    from app.models.operation import Employee, Schedule
+
+    target = month or date.today().strftime("%Y-%m")
+    try:
+        year, mon = int(target[:4]), int(target[5:7])
+        first = date(year, mon, 1)
+    except (ValueError, IndexError):
+        raise StaffError("월 형식이 올바르지 않습니다 (YYYY-MM).")
+    last = date(year, mon, _calendar.monthrange(year, mon)[1])
+    today = date.today()
+    start_day = max(first, today) if first <= today <= last else first
+
+    db = _session()
+    try:
+        q = db.query(Employee).filter(Employee.store_id == store_id)
+        if employee_id is not None:
+            q = q.filter(Employee.id == employee_id)
+        employees = q.order_by(Employee.id).all()
+        emp_ids = [e.id for e in employees]
+        if not emp_ids:
+            return {"month": target, "created": 0, "skipped": 0, "shifts": []}
+
+        avail = _availability_by_employee(db, emp_ids)
+        existing = {
+            (s.employee_id, s.date)
+            for s in db.query(Schedule).filter(
+                Schedule.employee_id.in_(emp_ids), Schedule.date.like(f"{target}%")
+            ).all()
+        }
+
+        created, skipped = [], 0
+        for e in employees:
+            windows = avail.get(e.id, [])
+            if not windows:
+                continue
+            cur = start_day
+            while cur <= last:
+                for w in windows:
+                    if w["day_of_week"] != cur.weekday():
+                        continue
+                    key = (e.id, cur.isoformat())
+                    if key in existing:
+                        skipped += 1
+                        continue
+                    st, et = _shift_times(cur.isoformat(), f"{w['start_hour']:02d}:00",
+                                          f"{w['end_hour'] % 24:02d}:00")
+                    s = Schedule(employee_id=e.id, start_time=st, end_time=et,
+                                 date=cur.isoformat())
+                    db.add(s)
+                    existing.add(key)  # 같은 날 두 시간대가 있어도 한 번만 넣는다
+                    created.append((s, e))
+                cur += timedelta(days=1)
+
+        db.commit()
+        shifts = []
+        for s, e in created:
+            db.refresh(s)
+            shifts.append(_shift_dict(s, e, avail.get(e.id, [])))
+        return {"month": target, "created": len(shifts), "skipped": skipped, "shifts": shifts}
+    finally:
+        db.close()
+
+
 def update_shift(store_id: str, schedule_id: int, employee_id: Optional[int] = None,
                  start: Optional[str] = None, end: Optional[str] = None,
                  day: Optional[str] = None) -> dict[str, Any]:

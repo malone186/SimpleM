@@ -248,6 +248,17 @@ export const updateShift = (
     body: JSON.stringify(body),
   });
 
+/** 근무 가능 시간 → 그 달 달력에 실제 근무로 채우기 (지난 날짜 제외, 중복은 건너뜀).
+ *  같은 schedules 테이블을 쓰므로 '직원·스케줄'의 알바 근무 달력에도 그대로 나타난다. */
+export const applyAvailability = (
+  token: string,
+  body: { month?: string; employee_id?: number } = {},
+) =>
+  apiFetch<{ month: string; created: number; skipped: number; shifts: Shift[] }>(
+    '/api/v1/staff/shifts/apply-availability',
+    { method: 'POST', headers: auth(token), body: JSON.stringify(body) },
+  );
+
 export const deleteShift = (token: string, shiftId: number) =>
   apiFetch<{ ok: boolean }>(`/api/v1/staff/shifts/${shiftId}`, {
     method: 'DELETE',

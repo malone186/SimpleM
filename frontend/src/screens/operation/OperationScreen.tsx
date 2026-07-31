@@ -11,6 +11,7 @@ import { supplyPriceOf, type VatMode } from '../../components/PriceInput';
 import { toast } from '../../components/toast';
 import { colors, typography } from '../../theme';
 import { useAuth } from '../../auth/AuthContext';
+import { listStaff } from '../../lib/api/staff';
 import { useTranslation } from '../../i18n/translations';
 import {
   getSettlement, listPayroll, forecastSales, createExpense,
@@ -139,12 +140,24 @@ function ScheduleCalendarCard({
       // 토큰을 안 넘기면 백엔드가 매장 구분 없이 전 직원·전 급여를 돌려준다
       // (다른 매장 직원이 달력·모달에 섞여 나오던 경로). 반드시 함께 보낸다.
       const ym = `${year}-${String(month + 1).padStart(2, '0')}`;
-      const [payrollList, empList] = await Promise.all([
+      // 직원 목록(/operation/employees)에는 대표 색·근무 요일이 없다. 그 값들은 '직원·인건비'
+      // 쪽(/api/v1/staff)의 프로필에 있고, 근무 요일은 거기 등록한 '근무 가능 시간'에서
+      // 파생된다. 달력 선·색이 그 데이터를 따라가도록 여기서 합쳐 준다.
+      const [payrollList, empList, staffList] = await Promise.all([
         listPayroll(ym, token ?? undefined).catch(() => [] as Payroll[]),
         listEmployees(token ?? undefined).catch(() => [] as Employee[]),
+        token ? listStaff(token).catch(() => null) : Promise.resolve(null),
       ]);
+      const profileMap = new Map(
+        (staffList?.staff ?? []).map((m) => [m.id, m.profile] as const),
+      );
       setPayrollEmployees(payrollList);
-      setDbEmployees(empList);
+      setDbEmployees(
+        empList.map((e) => {
+          const profile = profileMap.get(e.id);
+          return profile ? ({ ...e, profile } as Employee) : e;
+        }),
+      );
 
       // 알바생을 안 고르고 [등록]만 눌러도 되게 첫 번째 사람을 미리 선택해 둔다.
       // 다만 직원이 하나도 없으면 예전처럼 ID 1로 넘기지 않는다 — 존재하지 않는 직원의

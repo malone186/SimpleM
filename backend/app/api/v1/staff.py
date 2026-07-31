@@ -165,6 +165,27 @@ def add_shift_api(
         raise HTTPException(400, str(e))
 
 
+class ApplyAvailability(BaseModel):
+    """가능 시간 → 달력 반영 (해당 월, 지난 날짜 제외, 중복은 건너뜀)"""
+
+    month: Optional[str] = Field(None, description="YYYY-MM, 생략하면 이번 달")
+    employee_id: Optional[int] = Field(None, description="비우면 매장 전체 직원")
+
+
+@router.post("/shifts/apply-availability", summary="근무 가능 시간대로 달력 채우기")
+def apply_availability_api(
+    body: ApplyAvailability,
+    current_user: User = Depends(get_current_user),
+):
+    """등록해 둔 가능 시간을 그 달의 실제 근무로 만든다 — 기존 근무 달력에 그대로 뜬다."""
+    try:
+        return staff_service.apply_availability(
+            current_user.email, month=body.month, employee_id=body.employee_id,
+        )
+    except staff_service.StaffError as e:
+        raise HTTPException(400, str(e))
+
+
 @router.put("/shifts/{schedule_id}", summary="근무 교대 · 시간 변경")
 def update_shift_api(
     schedule_id: int,

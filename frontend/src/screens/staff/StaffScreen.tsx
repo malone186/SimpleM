@@ -40,6 +40,7 @@ import { confirmDialog, toast } from '../../components/toast';
 import { Badge, Button, Card, Divider, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
 import { createEmployee, deleteEmployee } from '../../lib/api/operation';
 import {
+  applyAvailability,
   createStaff,
   EMPLOYMENT_TYPE_FALLBACK,
   getWeeklyPayroll,
@@ -378,12 +379,52 @@ export default function StaffScreen() {
       setData((cur) => (cur ? withTotals(cur, [...cur.staff, created]) : cur));
       setDrafts((prev) => ({ ...prev, [created.id]: draftOf(created) }));
       setOpenId(created.id);
+
+      // 가능 시간을 받아 놓고 달력이 비어 있으면 사장님이 31일치를 손으로 옮겨 적게 된다.
+      // 등록하면서 바로 이번 달 근무까지 만들어 둔다 — 근무 달력에 그대로 나타난다.
+      if ((body.availability?.length ?? 0) > 0) {
+        try {
+          const r = await applyAvailability(token, { employee_id: created.id });
+          toast(
+            '직원을 추가했어요',
+            r.created > 0
+              ? `${created.name} · 이번 달 근무 ${r.created}일을 달력에 넣었어요.`
+              : `${created.name} · ${won(created.cost.total_cost)} (이번 달 예상 부담)`,
+          );
+          await load();
+          return;
+        } catch (e) {
+          console.error('가능 시간 달력 반영 실패:', e);
+        }
+      }
       toast('직원을 추가했어요', `${created.name} · ${won(created.cost.total_cost)} (이번 달 예상 부담)`);
     } catch (e) {
       console.error('직원 등록 실패:', e);
       toast('추가 실패', describeApiError(e));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // 가능 시간을 그 달 근무로 만든다 — '직원·스케줄'의 알바 근무 달력에도 같은 데이터가 뜬다
+  const [filling, setFilling] = useState<number | null>(null);
+  const fillCalendar = async (emp: StaffMember) => {
+    if (!token || filling) return;
+    setFilling(emp.id);
+    try {
+      const r = await applyAvailability(token, { employee_id: emp.id });
+      await load();
+      toast(
+        r.created > 0 ? '달력에 넣었어요' : '이미 다 들어가 있어요',
+        r.created > 0
+          ? `${emp.name} · 이번 달 ${r.created}일 (이미 있던 ${r.skipped}일은 그대로 뒀어요)`
+          : `${emp.name}의 이번 달 남은 근무가 이미 달력에 있어요.`,
+      );
+    } catch (e) {
+      console.error('가능 시간 달력 반영 실패:', e);
+      toast('반영 실패', describeApiError(e));
+    } finally {
+      setFilling(null);
     }
   };
 
@@ -618,6 +659,19 @@ export default function StaffScreen() {
                         : undefined
                     }
                   />
+
+                  {d.avail.length > 0 && (
+                    <PressableScale
+                      style={styles.fillBtn}
+                      to={0.97}
+                      onPress={() => fillCalendar(emp)}
+                    >
+                      <Ionicons name="calendar-outline" size={14} color={colors.white} />
+                      <Text style={styles.fillText}>
+                        {filling === emp.id ? '넣는 중…' : '이 가능 시간대로 이번 달 달력 채우기'}
+                      </Text>
+                    </PressableScale>
+                  )}
 
                   <Divider />
 
@@ -1276,6 +1330,17 @@ const styles = StyleSheet.create({
   costRowSub: { fontSize: 9.5, color: colors.mochaBrown, marginTop: 2, opacity: 0.85 },
   costRowValue: { ...typography.L4, color: colors.espressoBrown },
 
+  fillBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: colors.espressoBrown,
+    borderRadius: 10,
+    paddingVertical: 11,
+    marginTop: 14,
+  },
+  fillText: { ...typography.L5, color: colors.white, fontWeight: '800' },
   deleteBtn: {
     flexDirection: 'row',
     alignItems: 'center',
