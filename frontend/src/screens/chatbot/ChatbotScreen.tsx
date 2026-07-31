@@ -27,8 +27,14 @@ import { useTranslation } from '../../i18n/translations';
 import Brew from '../../components/brew/Brew';
 import DocumentCard from '../../components/chatbot/DocumentCard';
 import { FadeInUp, PressableScale } from '../../components/motion';
-import { sendChatMessage } from '../../lib/api/chatbot';
-import { toast } from '../../components/toast';
+import {
+  ChatQuotaExhaustedError,
+  grantChatQuotaFromAd,
+  sendChatMessage,
+  type ChatHistoryItem,
+} from '../../lib/api/chatbot';
+import { isRewardedReady, preloadRewarded, showRewarded } from '../../lib/ads';
+import { confirmDialog, toast } from '../../components/toast';
 import {
   clearSessions,
   deleteSession,
@@ -122,6 +128,56 @@ export default function ChatbotScreen() {
     ).catch(() => {});
   };
 
+  // 브루의 말풍선을 한 줄 붙인다 (안내·오류 문구 공용)
+  const botSay = (text: string) => {
+    commit([...messagesRef.current, { id: `e${Date.now()}`, role: 'bot', text }]);
+    scrollDown();
+  };
+
+  // 실제 호출 + 답변 말풍선. 광고 시청 후 재시도할 때도 같은 경로를 탄다.
+  const askBrew = async (q: string, history: ChatHistoryItem[]) => {
+    const res = await sendChatMessage(q, history, token);
+    commit([
+      ...messagesRef.current,
+      { id: `b${Date.now()}`, role: 'bot', text: res.response, docs: res.documents },
+    ]);
+  };
+
+  // 무료 턴 소진 → 보상형 광고로 충전을 제안한다.
+  // AdMob 정책상 보상형은 사용자가 명시적으로 동의한 뒤에만 띄울 수 있어서, 기존 확인
+  // 다이얼로그를 그대로 쓴다 (새 UI를 만들지 않는다).
+  const offerAdForMoreTurns = (err: ChatQuotaExhaustedError, q: string, history: ChatHistoryItem[]) => {
+    // 하루 광고 상한에 걸렸거나(can_watch_ad) 띄울 광고가 없으면 권하지 않는다 —
+    // "광고 보기"를 눌렀는데 아무 일도 안 일어나는 게 최악이다.
+    if (err.quota?.can_watch_ad === false || !isRewardedReady()) {
+      botSay('오늘 무료 대화 횟수를 다 썼어요. 내일 다시 이야기해요.');
+      return;
+    }
+
+    const bonus = err.quota?.turns_per_ad ?? 5;
+    confirmDialog(`오늘 무료 대화를 다 썼어요. 광고를 보면 ${bonus}번 더 이야기할 수 있어요.`, {
+      confirmLabel: '광고 보기',
+      onConfirm: async () => {
+        setSending(true);
+        try {
+          const earned = await showRewarded();
+          if (!earned) {
+            // 중간에 닫은 경우. 정책상 닫을 수 있어야 하고, 그때는 보상을 주지 않는다.
+            botSay('광고를 끝까지 보지 않아서 충전되지 않았어요.');
+            return;
+          }
+          await grantChatQuotaFromAd(token);
+          await askBrew(q, history);
+        } catch {
+          botSay('앗, 충전에 실패했어요. 잠시 후 다시 시도해 주세요.');
+        } finally {
+          setSending(false);
+          scrollDown();
+        }
+      },
+    });
+  };
+
   // 백엔드 멀티에이전트 두뇌(/chatbot/chat) 호출 — 이전 대화도 함께 보내 맥락을 유지한다
   const send = async (text: string) => {
     const q = text.trim();
@@ -132,22 +188,20 @@ export default function ChatbotScreen() {
     setInput('');
     setSending(true);
     scrollDown();
+    // 인사말(g0)을 제외한 지금까지의 대화를 두뇌가 이해하는 형식으로 변환
+    const history = afterUser
+      .filter((m) => m.id !== 'g0' && m.id !== userMsg.id)
+      .map((m) => ({ role: m.role === 'user' ? ('user' as const) : ('model' as const), text: m.text }));
     try {
-      // 인사말(g0)을 제외한 지금까지의 대화를 두뇌가 이해하는 형식으로 변환
-      const history = afterUser
-        .filter((m) => m.id !== 'g0' && m.id !== userMsg.id)
-        .map((m) => ({ role: m.role === 'user' ? ('user' as const) : ('model' as const), text: m.text }));
-      const res = await sendChatMessage(q, history, token);
-      commit([
-        ...messagesRef.current,
-        { id: `b${Date.now()}`, role: 'bot', text: res.response, docs: res.documents },
-      ]);
-    } catch {
-      commit([...messagesRef.current, {
-        id: `e${Date.now()}`,
-        role: 'bot',
-        text: '앗, 답변을 가져오지 못했어요. 서버가 켜져 있는지 확인하고 잠시 후 다시 시도해 주세요.',
-      }]);
+      await askBrew(q, history);
+    } catch (e) {
+      if (e instanceof ChatQuotaExhaustedError) {
+        // 광고 흐름은 사용자 응답을 기다리므로 finally에서 sending을 풀고 별도로 진행한다
+        setSending(false);
+        offerAdForMoreTurns(e, q, history);
+        return;
+      }
+      botSay('앗, 답변을 가져오지 못했어요. 서버가 켜져 있는지 확인하고 잠시 후 다시 시도해 주세요.');
     } finally {
       setSending(false);
       scrollDown();
@@ -200,6 +254,12 @@ export default function ChatbotScreen() {
       startNewChat();
     });
   };
+
+  // 무료 턴이 소진되는 순간 광고가 준비돼 있어야 한다 (로드에 1~3초).
+  // 실패하면 광고 없이 "내일 다시" 안내로 떨어진다.
+  useEffect(() => {
+    preloadRewarded();
+  }, []);
 
   // 경영 리포트 등에서 버튼으로 넘어오면 그 질문을 자동으로 전송한다 (입력만 채우지 않고 바로 물어봄).
   // ts가 함께 바뀌므로 같은 질문 버튼을 다시 눌러도 매번 새로 전송된다.

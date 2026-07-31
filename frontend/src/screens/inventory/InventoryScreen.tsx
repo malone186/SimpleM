@@ -19,6 +19,7 @@ import Brew from '../../components/brew/Brew';
 import { confirmDialog, toast } from '../../components/toast';
 import { Badge, Button, Card, ProgressBar, SectionTitle } from '../../components/ui';
 import { SwipeDownModal } from '../../components/ui/SwipeDownModal';
+import { preloadInterstitial, showAdWhile } from '../../lib/ads';
 import { API_BASE_URL } from '../../lib/api/client';
 import { adjustStock, createIngredient, listStocks, StockItem } from '../../lib/api/inventory';
 import { confirmOcrDocument, listOcrDocuments, rejectOcrDocument, uploadOcrImage, OcrDocument, updateOcrDocument, OcrItem, type UploadAsset } from '../../lib/api/ocr';
@@ -135,6 +136,12 @@ export default function InventoryScreen() {
     loadDrafts();
   }, [loadStocks, loadDrafts]);
 
+  // OCR 대기 시간에 광고를 태우려면 미리 받아둬야 한다 (로드에 1~3초).
+  // 실패하면 광고 없이 기존 흐름대로 동작한다.
+  useEffect(() => {
+    preloadInterstitial();
+  }, []);
+
   // 재료 직접 등록 → 같은 이름의 재료가 이미 있으면 새로 만들지 않고 기존 재고에 추가 입고
   const registerIngredient = async () => {
     if (!token) return notify('로그인 필요', '재료 등록은 로그인 후 가능합니다.');
@@ -187,7 +194,9 @@ export default function InventoryScreen() {
   const uploadAsset = async (asset: UploadAsset) => {
     setScanning(true);
     try {
-      const doc = await uploadOcrImage(asset, token);
+      // 인식이 도는 동안 전면 광고를 띄우고, 광고가 닫히면 결과가 바로 나온다.
+      // 광고가 없으면(웹·미로드·노출 간격) 지금까지와 똑같이 결과만 기다린다.
+      const doc = await showAdWhile(uploadOcrImage(asset, token));
       setDrafts((prev) => [doc, ...prev]);
       const secs = doc.elapsed_sec != null ? ` (${doc.elapsed_sec}초)` : '';
       notify('인식 완료' + secs, `${doc.result.items.length}개 품목을 인식했어요. 내용을 확인하고 반영하세요.`);
