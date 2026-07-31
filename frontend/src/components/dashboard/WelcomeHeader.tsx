@@ -105,7 +105,7 @@ const NOTICE_ROUTE_RULES: { keywords: string[]; route: string; label: string }[]
   { keywords: ['급여', '알바', '아르바이트', '스케줄', '근무', '인건비', '주휴'], route: 'Operation', label: '스케줄 · 급여' },
   { keywords: ['세금', '세무', '부가세', '신고', '계약서', '서류', '문서', '명세서', '장부'], route: 'Document', label: '서류 자동화' },
   { keywords: ['원가', '마진', '손익'], route: 'Cost', label: '원가 분석' },
-  { keywords: ['매출', '판매'], route: 'SalesInput', label: '판매 입력' },
+  { keywords: ['매출', '판매'], route: 'SalesInput', label: '매출 입력' },
   // 디저트는 메뉴 관리 안의 '디저트' 탭으로 합쳐졌다
   { keywords: ['디저트', '메뉴', '레시피'], route: 'Menu', label: '메뉴 관리' },
   { keywords: ['발주', '주문', '입고', '거래처'], route: 'Order', label: '발주' },

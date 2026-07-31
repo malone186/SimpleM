@@ -27,7 +27,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useIsFocused, useNavigation } from '@react-navigation/native';
+import { useIsFocused } from '@react-navigation/native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -227,7 +227,6 @@ function withTotals(list: StaffList, staff: StaffMember[]): StaffList {
 export default function StaffScreen() {
   const { token } = useAuth();
   const isFocused = useIsFocused();
-  const navigation = useNavigation<any>();
   const [data, setData] = useState<StaffList | null>(null);
   const [weekly, setWeekly] = useState<WeeklyPayroll | null>(null);
   // 실패 사유를 그대로 들고 있는다 — "가져오지 못했어요"만 띄우면 사장님도 나도
@@ -516,24 +515,6 @@ export default function StaffScreen() {
             <Text style={styles.note}>{weekly.note}</Text>
           </Card>
         )}
-
-        {/* 가능 시간을 받아 두면 여기서 바로 달력에 배정할 수 있다 */}
-        <PressableScale
-          style={styles.calendarLink}
-          to={0.98}
-          onPress={() => navigation.navigate('StaffCalendar')}
-        >
-          <View style={styles.calendarIcon}>
-            <Ionicons name="calendar-outline" size={17} color={colors.espressoBrown} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.calendarTitle}>근무 달력 · 교대</Text>
-            <Text style={styles.calendarSub}>
-              가능 시간에 맞춰 근무를 넣고, 바뀐 날은 다른 직원으로 교대할 수 있어요
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.mochaBrown} />
-        </PressableScale>
 
         <Button label="+ 직원 추가" variant="secondary" onPress={() => setAdding(true)} />
 
@@ -1364,26 +1345,6 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   retryText: { ...typography.L5, color: colors.espressoBrown, fontWeight: '800' },
-  calendarLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: colors.white,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.mutedSand,
-    padding: 12,
-  },
-  calendarIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: colors.coffeeCream,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  calendarTitle: { ...typography.L3, color: colors.espressoBrown },
-  calendarSub: { ...typography.L5, color: colors.mochaBrown, marginTop: 3, lineHeight: 15 },
   stateWrap: { alignItems: 'center', gap: 8, paddingVertical: 8 },
   stateText: { ...typography.L5, color: colors.mochaBrown, textAlign: 'center', lineHeight: 17 },
 });

@@ -24,14 +24,14 @@ def get_pos_status(store_id: str) -> str:
     '마지막으로 언제 동기화됐어?'처럼 물을 때 쓴다.
     연결 여부, 환경(production/sandbox), 웹훅 설정 여부, 자동 동기화 여부,
     마지막 동기화 시각과 최근 성공/실패 상태를 준다.
-    연결이 안 돼 있으면 판매 입력 화면의 'POS 실시간 연동' 카드에서 연결하라고 안내한다."""
+    연결이 안 돼 있으면 매출 입력 화면의 'POS 실시간 연동' 카드에서 연결하라고 안내한다."""
     from app.core.database import SessionLocal
 
     with SessionLocal() as db:
         conn = db.query(PosConnection).filter(PosConnection.store_id == store_id).first()
         if conn is None:
             return _dump({"connected": False,
-                          "안내": "POS가 연결돼 있지 않습니다. 판매 입력 화면의 'POS 실시간 연동' 카드에서 Square 토큰을 저장하면 됩니다."})
+                          "안내": "POS가 연결돼 있지 않습니다. 매출 입력 화면의 'POS 실시간 연동' 카드에서 Square 토큰을 저장하면 됩니다."})
         return _dump({
             "connected": True,
             "provider": conn.provider,
@@ -56,7 +56,7 @@ async def sync_pos_now(store_id: str, hours: float = 0) -> str:
     with SessionLocal() as db:
         conn = db.query(PosConnection).filter(PosConnection.store_id == store_id).first()
         if conn is None:
-            return "POS가 연결돼 있지 않습니다. 판매 입력 화면의 'POS 실시간 연동' 카드에서 먼저 연결해 주세요."
+            return "POS가 연결돼 있지 않습니다. 매출 입력 화면의 'POS 실시간 연동' 카드에서 먼저 연결해 주세요."
         try:
             result = await pos_service.sync_connection(db, conn, hours=hours if hours > 0 else None)
         except pos_service.PosError as e:

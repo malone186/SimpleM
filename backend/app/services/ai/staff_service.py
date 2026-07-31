@@ -734,7 +734,8 @@ def add_shift(store_id: str, employee_id: int, day: str,
 
 
 def apply_availability(store_id: str, month: Optional[str] = None,
-                       employee_id: Optional[int] = None) -> dict[str, Any]:
+                       employee_id: Optional[int] = None,
+                       from_today: bool = True) -> dict[str, Any]:
     """등록해 둔 근무 가능 시간을 그 달 달력에 실제 근무로 채운다.
 
     "언제 돼요?"를 받아 놨는데 달력은 여전히 비어 있으면, 사장님이 그 답을 보고 31일치를
@@ -754,7 +755,9 @@ def apply_availability(store_id: str, month: Optional[str] = None,
         raise StaffError("월 형식이 올바르지 않습니다 (YYYY-MM).")
     last = date(year, mon, _calendar.monthrange(year, mon)[1])
     today = date.today()
-    start_day = max(first, today) if first <= today <= last else first
+    # 기본은 오늘부터 — 지난 날짜에 근무를 새로 만들면 이미 지급한 급여가 바뀐다.
+    # (데모 시드 스크립트만 from_today=False로 그 달 전체를 채운다)
+    start_day = max(first, today) if (from_today and first <= today <= last) else first
 
     db = _session()
     try:

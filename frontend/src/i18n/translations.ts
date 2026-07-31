@@ -114,7 +114,7 @@ export const translations = {
     menuMgmtSub: '메뉴 · 디저트 · 레시피 · 원가율',
     costAnalysisTitle: '원가 분석',
     costAnalysisSub: '메뉴별 원가율 · 단가 변동 자동 반영',
-    salesInputTitle: '판매 입력',
+    salesInputTitle: '매출 입력',
     salesInputSub: '입력하면 레시피 기준 재고 자동 차감',
     taxDocsTitle: '서류·세금 자동화',
     taxDocsSub: '서류 초안 생성과 세금 관리',
