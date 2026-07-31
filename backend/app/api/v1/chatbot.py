@@ -61,6 +61,7 @@ from app.services.ai import (
     price_service,
     push_service,
     report_service,
+    sales_import_service,
     sales_service,
     todo_service,
 )
@@ -485,6 +486,17 @@ class SalesRecordRequest(BaseModel):
     items: list[SaleItemIn]
 
 
+class SalesImportRow(BaseModel):
+    menu_id: Optional[int] = None
+    quantity: int = 1
+    total_price: Optional[int] = None
+    sold_at: Optional[str] = None
+
+
+class SalesImportConfirmRequest(BaseModel):
+    rows: list[SalesImportRow]
+
+
 @router.post("/sales", status_code=201)
 def record_sales_api(
     body: SalesRecordRequest,
@@ -511,6 +523,42 @@ def recent_sales_api(
 ):
     """최근 판매 내역 (판매 입력 화면 표시용)."""
     return sales_service.recent_sales(current_user.email, limit=limit)
+
+
+@router.post("/sales/import/preview")
+async def sales_import_preview_api(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """POS 매출 파일(엑셀/CSV)을 업로드하면 LLM이 열을 매핑해 미리보기를 만든다.
+
+    아직 DB에 저장하지 않는다 — LLM이 틀릴 수 있으므로, 사용자가 미리보기에서 확인·수정한
+    뒤 /sales/import/confirm 으로 확정해야 실제 매출(Sale)로 들어간다.
+    """
+    content = await file.read()
+    if len(content) > MAX_IMAGE_BYTES:
+        raise HTTPException(413, "파일이 15MB를 초과합니다")
+    try:
+        grid = sales_import_service.parse_grid(content, file.filename or "")
+        mapping = await sales_import_service.infer_mapping(grid)
+        return sales_import_service.build_preview(current_user.email, grid, mapping)
+    except sales_import_service.SalesImportError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/sales/import/confirm", status_code=201)
+def sales_import_confirm_api(
+    body: SalesImportConfirmRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """미리보기에서 확인·수정한 행을 실제 Sale로 저장하고 레시피 기준 재고를 차감한다."""
+    try:
+        result = sales_import_service.save_import(
+            current_user.email, [r.model_dump() for r in body.rows])
+    except sales_import_service.SalesImportError as e:
+        raise HTTPException(400, str(e))
+    forecast_service.invalidate_forecast_cache(current_user.email)
+    return result
 
 
 @router.get("/sales/contribution")
