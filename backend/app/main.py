@@ -73,8 +73,20 @@ except Exception:
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    """OCR이 Gemini API 호출로 전환되어 예열할 로컬 모델이 없다 — 자리만 유지."""
-    yield
+    """앱 수명 훅 — POS 자동 동기화 폴링을 백그라운드로 돌린다 (백엔드 B).
+
+    웹훅이 실시간을 담당하고, 이 폴링은 웹훅 미설정/유실 매장의 안전망이다.
+    POS_AUTO_SYNC_INTERVAL=0 이면 루프가 즉시 종료되어 아무 것도 하지 않는다.
+    """
+    import asyncio
+
+    from app.api.v1.pos import auto_sync_loop
+
+    pos_task = asyncio.create_task(auto_sync_loop())
+    try:
+        yield
+    finally:
+        pos_task.cancel()
 
 
 app = FastAPI(

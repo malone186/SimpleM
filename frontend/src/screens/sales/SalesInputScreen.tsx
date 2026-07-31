@@ -6,8 +6,8 @@
 //   · LLM이 열을 잘못 분류할 수 있으니, DB에 넣기 전에 미리보기로 사용자에게 꼭 확인받는다.
 //   · 파일이 없거나 손으로 적고 싶은 경우를 위해 '직접 입력'은 버튼으로 분리해
 //     별도 화면(ManualSalesScreen)에서 열리게 했다.
-import { useMemo, useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Platform, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 
@@ -15,6 +15,13 @@ import { useAuth } from '../../auth/AuthContext';
 import { PressableScale } from '../../components/motion';
 import { toast } from '../../components/toast';
 import { Badge, Card, Screen, ScreenTitle } from '../../components/ui';
+import {
+  deletePosConnection,
+  getPosConnection,
+  savePosConnection,
+  syncPosNow,
+  type PosConnection,
+} from '../../lib/api/pos';
 import { confirmSalesImport, previewSalesImport, registerImportMenus, type ImportPreview } from '../../lib/api/sales';
 import { colors, typography } from '../../theme';
 
@@ -33,6 +40,90 @@ export default function SalesInputScreen() {
   // 버리기로 결정한 미등록 메뉴 이름들 — 미매칭은 말없이 버려지지 않는다.
   // 모든 미등록 메뉴가 '등록' 또는 '버리기'로 결정돼야 저장할 수 있다.
   const [discardedMenus, setDiscardedMenus] = useState<Set<string>>(new Set());
+
+  // ── POS 실시간 연동 (Square) ──
+  const [posConn, setPosConn] = useState<PosConnection | null>(null);
+  const [posFormOpen, setPosFormOpen] = useState(false);
+  const [posToken, setPosToken] = useState('');
+  const [posSigKey, setPosSigKey] = useState('');
+  const [posEnv, setPosEnv] = useState<'production' | 'sandbox'>('production');
+  const [posAutoSync, setPosAutoSync] = useState(true);
+  const [posSaving, setPosSaving] = useState(false);
+  const [posSyncing, setPosSyncing] = useState(false);
+
+  const loadPosConnection = async () => {
+    if (!token) return;
+    try {
+      setPosConn(await getPosConnection(token));
+    } catch {
+      // 조회 실패는 카드에 '확인 불가'로만 — 화면 전체를 막지 않는다
+      setPosConn(null);
+    }
+  };
+
+  useEffect(() => {
+    loadPosConnection();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  const savePos = async () => {
+    if (!token || posSaving) return;
+    if (posToken.trim().length < 8) {
+      toast('토큰 확인', 'Square Access Token을 입력해 주세요.');
+      return;
+    }
+    setPosSaving(true);
+    try {
+      const conn = await savePosConnection(token, {
+        provider: 'square',
+        environment: posEnv,
+        access_token: posToken.trim(),
+        webhook_signature_key: posSigKey.trim() || null,
+        auto_sync: posAutoSync,
+      });
+      setPosConn(conn);
+      setPosFormOpen(false);
+      setPosToken('');
+      setPosSigKey('');
+      toast('POS 연결 완료', 'Square 계정 검증까지 끝났어요. 이제 주문이 자동으로 매출에 반영됩니다.');
+    } catch (e) {
+      toast('연결 실패', e instanceof Error ? e.message : 'Square 토큰을 확인해 주세요.');
+    } finally {
+      setPosSaving(false);
+    }
+  };
+
+  const disconnectPos = async () => {
+    if (!token) return;
+    try {
+      await deletePosConnection(token);
+      setPosConn({ connected: false });
+      toast('연결 해제', 'POS 연동을 해제했어요.');
+    } catch (e) {
+      toast('해제 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+    }
+  };
+
+  const runPosSync = async () => {
+    if (!token || posSyncing) return;
+    setPosSyncing(true);
+    try {
+      const r = await syncPosNow(token);
+      const unmatched = r.unmatched_items.length
+        ? ` · 미등록 메뉴 ${r.unmatched_items.length}종 제외`
+        : '';
+      toast(
+        '동기화 완료',
+        `주문 ${r.orders_synced}건 → 매출 ${r.sales_created}건 · ${r.total_amount.toLocaleString()}원 반영${unmatched}`,
+      );
+      loadPosConnection();
+    } catch (e) {
+      toast('동기화 실패', e instanceof Error ? e.message : 'Square 통신을 확인해 주세요.');
+      loadPosConnection();
+    } finally {
+      setPosSyncing(false);
+    }
+  };
 
   // 미리보기에서 미매칭(=미등록) 메뉴를 중복 없이 모으고, 파일의 단가(금액/수량)로 판매가 추정
   const unmatchedMenus = useMemo(() => {
@@ -415,6 +506,109 @@ export default function SalesInputScreen() {
         <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown} />
       </PressableScale>
 
+      {/* ── POS 실시간 연동 (Square) — 웹훅 즉시 반영 + 5분 자동 폴링 안전망 ── */}
+      <Card>
+        <View style={styles.posHead}>
+          <View style={[styles.posDot, { backgroundColor: posConn?.connected ? (posConn.last_status === 'error' ? '#D97706' : '#16A34A') : '#A1A1AA' }]} />
+          <Text style={styles.posTitle}>POS 실시간 연동</Text>
+          <Badge
+            label={posConn?.connected ? (posConn.last_status === 'error' ? '오류' : '연결됨') : '미연결'}
+            tone={posConn?.connected ? (posConn.last_status === 'error' ? 'orange' : 'green') : 'neutral'}
+          />
+        </View>
+
+        {posConn?.connected ? (
+          <View style={{ gap: 6, marginTop: 8 }}>
+            <Text style={styles.posMeta}>
+              Square ({posConn.environment === 'sandbox' ? '샌드박스' : '운영'}) · 토큰 {posConn.access_token_masked}
+              {posConn.auto_sync ? ' · 5분 자동 동기화' : ' · 자동 동기화 꺼짐'}
+            </Text>
+            <Text style={styles.posMeta}>
+              마지막 동기화: {posConn.last_synced_at ? posConn.last_synced_at.slice(0, 16).replace('T', ' ') : '아직 없음'}
+              {posConn.last_status === 'error' && posConn.last_error ? `\n⚠️ ${posConn.last_error}` : ''}
+            </Text>
+            {posConn.webhook_configured ? (
+              <Text style={styles.posMeta}>
+                ⚡ 웹훅 실시간 수신 켜짐 — Square 대시보드 Webhooks에 아래 주소를 구독해 두세요:{'\n'}
+                {posConn.webhook_url}
+              </Text>
+            ) : (
+              <Text style={styles.posHint}>
+                웹훅 서명키를 등록하면 주문 발생 '즉시' 반영돼요 (지금은 5분 폴링만). [설정]에서 추가할 수 있어요.
+              </Text>
+            )}
+            <View style={styles.posBtnRow}>
+              <PressableScale style={[styles.posSyncBtn, posSyncing && { opacity: 0.6 }]} onPress={runPosSync} disabled={posSyncing} to={0.97}>
+                {posSyncing ? <ActivityIndicator color={colors.white} size="small" /> : <Ionicons name="sync" size={15} color={colors.white} />}
+                <Text style={styles.posSyncText}>{posSyncing ? '동기화 중…' : '지금 동기화'}</Text>
+              </PressableScale>
+              <PressableScale style={styles.posGhostBtn} onPress={() => setPosFormOpen((v) => !v)} to={0.97}>
+                <Text style={styles.posGhostText}>설정</Text>
+              </PressableScale>
+              <PressableScale style={styles.posGhostBtn} onPress={disconnectPos} to={0.97}>
+                <Text style={[styles.posGhostText, { color: '#B23B2E' }]}>연결 해제</Text>
+              </PressableScale>
+            </View>
+          </View>
+        ) : (
+          <View style={{ gap: 8, marginTop: 8 }}>
+            <Text style={styles.posHint}>
+              Square POS 계정을 연결하면 주문이 결제되는 대로 매출·재고에 자동 반영돼요. 파일 업로드가 필요 없어집니다.
+            </Text>
+            {!posFormOpen && (
+              <PressableScale style={styles.posSyncBtn} onPress={() => setPosFormOpen(true)} to={0.97}>
+                <Ionicons name="link-outline" size={15} color={colors.white} />
+                <Text style={styles.posSyncText}>연결 설정</Text>
+              </PressableScale>
+            )}
+          </View>
+        )}
+
+        {posFormOpen && (
+          <View style={styles.posForm}>
+            <Text style={styles.posLabel}>Square Access Token</Text>
+            <TextInput
+              style={styles.posInput}
+              value={posToken}
+              onChangeText={setPosToken}
+              placeholder="developer.squareup.com에서 발급"
+              placeholderTextColor="#C4B5A5"
+              autoCapitalize="none"
+              secureTextEntry
+            />
+            <Text style={styles.posLabel}>Webhook Signature Key (선택 — 즉시 반영용)</Text>
+            <TextInput
+              style={styles.posInput}
+              value={posSigKey}
+              onChangeText={setPosSigKey}
+              placeholder="Square Webhooks 구독의 서명 키"
+              placeholderTextColor="#C4B5A5"
+              autoCapitalize="none"
+              secureTextEntry
+            />
+            <View style={styles.posSwitchRow}>
+              <Text style={styles.posLabel}>환경: {posEnv === 'production' ? '운영' : '샌드박스'}</Text>
+              <Switch
+                value={posEnv === 'production'}
+                onValueChange={(v) => setPosEnv(v ? 'production' : 'sandbox')}
+                trackColor={{ true: colors.espressoBrown, false: '#D4D4D8' }}
+              />
+            </View>
+            <View style={styles.posSwitchRow}>
+              <Text style={styles.posLabel}>5분 자동 동기화</Text>
+              <Switch
+                value={posAutoSync}
+                onValueChange={setPosAutoSync}
+                trackColor={{ true: colors.espressoBrown, false: '#D4D4D8' }}
+              />
+            </View>
+            <PressableScale style={[styles.posSyncBtn, posSaving && { opacity: 0.6 }]} onPress={savePos} disabled={posSaving} to={0.97}>
+              <Text style={styles.posSyncText}>{posSaving ? '검증 중…' : '저장 (토큰 검증 후 연결)'}</Text>
+            </PressableScale>
+          </View>
+        )}
+      </Card>
+
       <TouchableOpacity
         onPress={() => navigation.navigate('Settings', { section: 'settlement' })}
         style={styles.settingsLink}
@@ -529,6 +723,32 @@ const styles = StyleSheet.create({
   },
   manualTitle: { fontSize: 15, fontWeight: '800', color: colors.espressoBrown },
   manualSub: { ...typography.L5, color: colors.mochaBrown, marginTop: 3 },
+
+  // ── POS 실시간 연동 카드 ──
+  posHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  posDot: { width: 8, height: 8, borderRadius: 4 },
+  posTitle: { flex: 1, fontSize: 15, fontWeight: '800', color: colors.espressoBrown },
+  posMeta: { ...typography.L5, color: colors.mochaBrown, lineHeight: 17 },
+  posHint: { ...typography.L5, color: colors.mochaBrown, lineHeight: 17 },
+  posBtnRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+  posSyncBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: colors.espressoBrown, borderRadius: 11, paddingVertical: 10, paddingHorizontal: 14,
+  },
+  posSyncText: { color: colors.white, fontSize: 13, fontWeight: '800' },
+  posGhostBtn: {
+    borderWidth: 1, borderColor: colors.mutedSand, borderRadius: 11,
+    paddingVertical: 9, paddingHorizontal: 12,
+  },
+  posGhostText: { fontSize: 12.5, fontWeight: '700', color: colors.mochaBrown },
+  posForm: { gap: 6, marginTop: 10, borderTopWidth: 1, borderTopColor: colors.mutedSand, paddingTop: 10 },
+  posLabel: { ...typography.L5, fontWeight: '700', color: colors.espressoBrown },
+  posInput: {
+    height: 40, backgroundColor: colors.coffeeCream, borderRadius: 10, paddingHorizontal: 11,
+    fontSize: 12.5, color: colors.espressoBrown,
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : null),
+  },
+  posSwitchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
 
   settingsLink: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 8, marginTop: 4 },
   settingsLinkText: { ...typography.L5, color: colors.mochaBrown, textDecorationLine: 'underline' },
