@@ -71,6 +71,11 @@ def mask_token(token: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _base_url(environment: str) -> str:
+    # 로컬 검증용 우회로 — 값이 있으면 그 주소를 Square 대신 부른다(모의 Square 서버).
+    # 운영/배포에서는 이 env를 비워 두므로 항상 진짜 Square로 나간다.
+    override = os.getenv("POS_SQUARE_BASE_URL", "").strip()
+    if override:
+        return override.rstrip("/")
     host = "connect.squareup.com" if environment == "production" else "connect.squareupsandbox.com"
     return f"https://{host}/v2"
 

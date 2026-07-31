@@ -122,7 +122,7 @@ export const translations = {
     storeMapSub: '전국 카페 가맹점 및 매장 위치',
     dessertTitle: '디저트 관리',
     dessertSub: '소비기한 · 폐기 손실 · 마진 순위',
-    beanOpsTitle: '운영·원두 분석',
+    beanOpsTitle: '원두 분석',
     beanOpsSub: '원두 최저가 시세 · 실리뷰 분석',
 
     // 8. 서브 스크린 공통 요소
@@ -274,7 +274,7 @@ export const translations = {
     storeMapSub: 'Nationwide cafe stores & map info',
     dessertTitle: 'Dessert Mgmt',
     dessertSub: 'Expiration date · Waste loss · Margin rank',
-    beanOpsTitle: 'Bean Ops',
+    beanOpsTitle: 'Bean Analysis',
     beanOpsSub: 'Bean market prices & User reviews',
 
     // 8. Sub Screen Common Items
