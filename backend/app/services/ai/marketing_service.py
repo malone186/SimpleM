@@ -17,9 +17,11 @@
 
 필요 키 (backend/.env):
   GEMINI_API_KEY — 문구·이미지 모두 여기 하나로 (팀 공유 키, 쿼터 주의)
-  주의: 이미지 생성 모델은 무료 티어 한도가 0이다(실측 2026-07-31, 전 계열 limit: 0).
-        문구 생성은 무료로 동작하고, 이미지는 유료 결제가 붙은 키에서만 열린다 —
-        코드는 이미 대응돼 있어 키만 바꾸면 된다 (MARKETING_IMAGE_MODEL로 모델 교체 가능).
+  이미지 경로: Gemini 이미지 모델은 무료 티어 한도가 0이라(실측 2026-07-31, 전 계열
+  limit: 0) 유료 키가 없으면 실패한다 → 그 경우 Pollinations.ai(키 불필요, 무료,
+  FLUX 기반)로 자동 폴백해 이미지 생성은 항상 동작한다. 단 FLUX는 한글이 깨져
+  폴백 이미지에는 글자를 넣지 않는다 — 한글 슬로건 오버레이는 유료 Gemini 키를
+  넣으면 자동으로 살아난다 (MARKETING_IMAGE_MODEL로 모델 교체 가능).
 모델 교체 (env):
   MARKETING_GEMINI_MODEL — 문구 생성 (기본: GEMINI_MODEL과 동일)
   MARKETING_IMAGE_MODEL  — 이미지 생성 (기본: gemini-2.5-flash-image)
@@ -330,18 +332,65 @@ def _extract_image(raw: dict[str, Any]) -> tuple[bytes, str]:
     raise MarketingError("이미지 생성 응답이 비어 있습니다. 잠시 후 다시 시도해 주세요.")
 
 
+# Pollinations 무료 생성용 화면비 → 픽셀 크기.
+# 홍보물은 품질이 곧 설득력이라 고해상도(1400px대)로 뽑는다 — 실측 1472² 약 10초로
+# 체감 손해가 크지 않다. FLUX는 64 배수 해상도가 안전해 전부 64의 배수로 맞췄다.
+_AR_SIZES: dict[str, tuple[int, int]] = {
+    "1:1": (1472, 1472), "4:5": (1152, 1440), "5:4": (1440, 1152),
+    "3:4": (1056, 1408), "4:3": (1408, 1056), "2:3": (960, 1440), "3:2": (1440, 960),
+    "9:16": (864, 1536), "16:9": (1536, 864), "21:9": (1792, 768),
+}
+
+
+def _pollinations_generate(prompt: str, aspect_ratio: str) -> tuple[bytes, str]:
+    """무료 폴백 — Pollinations.ai (FLUX 기반, API 키 불필요).
+
+    Gemini 이미지 모델은 무료 티어 한도가 0이라(실측 2026-07-31) 유료 키가 없으면
+    항상 막힌다. Pollinations는 키 없이 GET 한 번으로 이미지를 주며 품질도 실측으로
+    확인했다(카페 홍보 사진 수준 충분). 다만 FLUX는 한글 렌더링이 깨지므로
+    글자 없는 이미지 프롬프트로만 부른다 — 슬로건은 앱 화면에서 이미지 위에 얹으면 된다.
+    """
+    import urllib.parse
+
+    import httpx
+
+    w, h = _AR_SIZES.get(aspect_ratio, (1024, 1024))
+    # 프롬프트가 URL 경로에 실리므로 '/'까지 전부 인코딩해야 한다(safe='') —
+    # 기본 quote는 '/'를 남겨 경로가 쪼개지며 404가 난다(실측). 줄바꿈도 공백으로.
+    encoded = urllib.parse.quote(" ".join(prompt[:1500].split()), safe="")
+    try:
+        r = httpx.get(
+            "https://image.pollinations.ai/prompt/" + encoded,
+            # enhance=true: 서버 쪽 LLM이 프롬프트를 화보용으로 보강한다 — 실측으로
+            # 구도·조명 묘사가 눈에 띄게 좋아져 기본 켠다
+            params={"width": w, "height": h, "nologo": "true", "enhance": "true"},
+            timeout=IMAGE_TIMEOUT,
+            follow_redirects=True,
+        )
+        r.raise_for_status()
+    except httpx.HTTPError as e:
+        raise MarketingError(f"무료 이미지 생성(Pollinations)도 실패했습니다: {e}")
+    ctype = (r.headers.get("content-type") or "").split(";")[0].strip()
+    if not ctype.startswith("image/") or not r.content:
+        raise MarketingError("무료 이미지 생성 응답이 이미지가 아닙니다. 잠시 후 다시 시도해 주세요.")
+    return r.content, ctype
+
+
 def generate_promotion_image(store_id: str, doc_id: str = "", request: str = "",
                              style: str = "", aspect_ratio: str = "1:1",
                              include_text: bool = True) -> dict[str, Any]:
     """홍보 이미지를 생성해 저장하고 표시용 URL을 돌려준다.
 
+    1순위 Gemini(유료 키가 있으면 한글 슬로건 오버레이까지 가능) →
+    실패(무료 티어 한도 0·쿼터) 시 Pollinations 무료 생성으로 자동 폴백.
     doc_id: generate_promotion_copy로 만든 문서 id — 그 문서의 image_prompt를 쓰고,
             생성 결과가 문서 content.images에 기록된다 (챗봇 카드에 함께 표시).
     request: doc_id가 없거나 프롬프트를 직접 바꾸고 싶을 때의 이미지 설명 (한국어 가능).
     style: 추가 스타일 지시 (예: "수채화 일러스트", "필름 감성").
-    include_text: 문서의 short_slogan을 이미지 위에 한글로 새길지 (기본 켜짐).
+    include_text: 문서의 short_slogan을 이미지 위에 한글로 새길지 (Gemini 경로만 지원).
 
-    반환: {image_id, filename, url, mime_type, aspect_ratio, doc(있으면 갱신된 문서 전문)}
+    반환: {image_id, filename, url, mime_type, aspect_ratio, provider,
+           doc(있으면 갱신된 문서 전문)}
     """
     from app.services.ai import document_service
 
@@ -373,6 +422,9 @@ def generate_promotion_image(store_id: str, doc_id: str = "", request: str = "",
     ]
     if style.strip():
         parts.append(f"Style: {style.strip()}")
+    # 글자 없는 공통 프롬프트 — Pollinations(FLUX)는 한글이 깨져서 텍스트 지시를 못 넣는다
+    textless_prompt = "\n".join(parts + ["No text, no letters, no captions in the image."])
+
     slogan = (doc["content"].get("short_slogan") or "").strip() if doc else ""
     if include_text and slogan:
         parts.append(
@@ -384,15 +436,22 @@ def generate_promotion_image(store_id: str, doc_id: str = "", request: str = "",
     if aspect_ratio not in _ASPECT_RATIOS:
         aspect_ratio = "1:1"
 
-    raw = _gemini_call(IMAGE_MODEL, {
-        "contents": [{"parts": [{"text": final_prompt}]}],
-        "generationConfig": {
-            "responseModalities": ["TEXT", "IMAGE"],
-            "imageConfig": {"aspectRatio": aspect_ratio},
-        },
-    }, IMAGE_TIMEOUT)
+    provider = "gemini"
+    try:
+        raw = _gemini_call(IMAGE_MODEL, {
+            "contents": [{"parts": [{"text": final_prompt}]}],
+            "generationConfig": {
+                "responseModalities": ["TEXT", "IMAGE"],
+                "imageConfig": {"aspectRatio": aspect_ratio},
+            },
+        }, IMAGE_TIMEOUT)
+        image_bytes, mime = _extract_image(raw)
+    except MarketingError as e:
+        # 무료 티어 한도 0·쿼터 소진 — 키 없이 되는 무료 생성으로 폴백해 기능을 살린다
+        logger.info("Gemini 이미지 생성 실패 → Pollinations 무료 폴백: %s", e)
+        provider = "pollinations"
+        image_bytes, mime = _pollinations_generate(textless_prompt, aspect_ratio)
 
-    image_bytes, mime = _extract_image(raw)
     ext = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}.get(mime, ".png")
     image_id = uuid.uuid4().hex[:12]
     filename = f"{image_id}{ext}"
@@ -406,6 +465,7 @@ def generate_promotion_image(store_id: str, doc_id: str = "", request: str = "",
         "mime_type": mime,
         "aspect_ratio": aspect_ratio,
         "style": style,
+        "provider": provider,  # gemini(한글 슬로건 가능) | pollinations(무료, 글자 없음)
     }
 
     if doc:
