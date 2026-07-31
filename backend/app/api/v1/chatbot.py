@@ -39,6 +39,8 @@ from app.schemas.ai import (
     EmploymentContractRequest,
     GeneratedDocumentResponse,
     GeneratedDocumentUpdate,
+    MarketingCopyRequest,
+    MarketingImageRequest,
     NotificationSettingBody,
     NotificationSettingResponse,
     OcrConfirmRequest,
@@ -56,12 +58,14 @@ from app.services.ai import (
     document_service,
     forecast_service,
     insight_service,
+    marketing_service,
     nearby_cafe_service,
     notification_service,
     ocr_service,
     price_service,
     push_service,
     report_service,
+    sales_import_service,
     sales_service,
     todo_service,
 )
@@ -486,6 +490,17 @@ class SalesRecordRequest(BaseModel):
     items: list[SaleItemIn]
 
 
+class SalesImportRow(BaseModel):
+    menu_id: Optional[int] = None
+    quantity: int = 1
+    total_price: Optional[int] = None
+    sold_at: Optional[str] = None
+
+
+class SalesImportConfirmRequest(BaseModel):
+    rows: list[SalesImportRow]
+
+
 @router.post("/sales", status_code=201)
 def record_sales_api(
     body: SalesRecordRequest,
@@ -512,6 +527,42 @@ def recent_sales_api(
 ):
     """최근 판매 내역 (판매 입력 화면 표시용)."""
     return sales_service.recent_sales(current_user.email, limit=limit)
+
+
+@router.post("/sales/import/preview")
+async def sales_import_preview_api(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """POS 매출 파일(엑셀/CSV)을 업로드하면 LLM이 열을 매핑해 미리보기를 만든다.
+
+    아직 DB에 저장하지 않는다 — LLM이 틀릴 수 있으므로, 사용자가 미리보기에서 확인·수정한
+    뒤 /sales/import/confirm 으로 확정해야 실제 매출(Sale)로 들어간다.
+    """
+    content = await file.read()
+    if len(content) > MAX_IMAGE_BYTES:
+        raise HTTPException(413, "파일이 15MB를 초과합니다")
+    try:
+        grid = sales_import_service.parse_grid(content, file.filename or "")
+        mapping = await sales_import_service.infer_mapping(grid)
+        return sales_import_service.build_preview(current_user.email, grid, mapping)
+    except sales_import_service.SalesImportError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/sales/import/confirm", status_code=201)
+def sales_import_confirm_api(
+    body: SalesImportConfirmRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """미리보기에서 확인·수정한 행을 실제 Sale로 저장하고 레시피 기준 재고를 차감한다."""
+    try:
+        result = sales_import_service.save_import(
+            current_user.email, [r.model_dump() for r in body.rows])
+    except sales_import_service.SalesImportError as e:
+        raise HTTPException(400, str(e))
+    forecast_service.invalidate_forecast_cache(current_user.email)
+    return result
 
 
 @router.get("/sales/contribution")
@@ -591,6 +642,58 @@ def get_management_report_api(
             current_user.email, period_type=period_type, force_refresh=True)
     except report_service.ReportError as e:
         raise HTTPException(400, str(e))
+
+
+# ---------------------------------------------------------------------------
+# 홍보/마케팅 도우미 — AI 홍보 문구 + AI 홍보 이미지 생성
+# 목록·수정·삭제는 기존 /documents 엔드포인트를 그대로 쓴다 (kind=marketing_content)
+# ---------------------------------------------------------------------------
+
+@router.post("/marketing/promotions", response_model=GeneratedDocumentResponse, status_code=201)
+def create_marketing_promotion(
+    body: MarketingCopyRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """홍보 문구 세트 생성 — 헤드라인·SNS 캡션·해시태그·이미지 프롬프트를 한 번에.
+
+    매장의 실제 정보(상호·위치·베스트 메뉴)를 근거로 만들어 지어낸 내용이 들어가지 않는다.
+    결과는 문서(kind=marketing_content)로 저장돼 다시 볼 수 있다.
+    """
+    try:
+        return marketing_service.generate_promotion_copy(
+            current_user.email, topic=body.topic, channel=body.channel,
+            tone=body.tone, menu=body.menu)
+    except marketing_service.MarketingError as e:
+        raise HTTPException(502, str(e))
+
+
+@router.post("/marketing/image")
+def create_marketing_image(
+    body: MarketingImageRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """AI 홍보 이미지 생성 — doc_id를 주면 그 홍보 문구에 맞춰 만들고 문서에 기록한다.
+
+    반환의 url을 <Image>로 바로 표시하면 된다. 생성에 수십 초가 걸릴 수 있다.
+    """
+    try:
+        return marketing_service.generate_promotion_image(
+            current_user.email, doc_id=body.doc_id, request=body.request,
+            style=body.style, aspect_ratio=body.aspect_ratio,
+            include_text=body.include_text)
+    except marketing_service.MarketingError as e:
+        raise HTTPException(502, str(e))
+
+
+@router.get("/marketing/images/{filename}")
+def get_marketing_image(filename: str) -> FileResponse:
+    """생성된 홍보 이미지 서빙 — 파일명이 12자리 랜덤 hex라 URL 추측이 사실상 불가능하고,
+    홍보 이미지는 어차피 공개가 목적이라 인증 없이 서빙한다 (앱 <Image>가 헤더 없이 로드)."""
+    try:
+        path = marketing_service.image_file(filename)
+    except marketing_service.MarketingError as e:
+        raise HTTPException(404, str(e))
+    return FileResponse(path, headers={"Cache-Control": "public, max-age=86400"})
 
 
 # ---------------------------------------------------------------------------

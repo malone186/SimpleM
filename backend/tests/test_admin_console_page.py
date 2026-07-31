@@ -23,6 +23,12 @@ def test_console_page_renders():
     # 정적 자원이 마운트 경로로 링크되고 캐시 무효화 버전이 붙는다
     assert "/console/static/style.css?v=" in html
     assert "/console/static/app.js?v=" in html
+    # 반드시 루트 상대 경로여야 한다 — url_for 절대 URL은 Cloud Run(TLS 프록시 종료)에서
+    # 스킴이 http로 잡혀 https 페이지가 mixed content로 차단, app.js가 통째로 안 돈다
+    # (실사고: 배포 콘솔에서 로그인 폼이 아예 안 떴다)
+    assert 'href="/console/static/' in html
+    assert 'src="/console/static/' in html
+    assert "http://testserver/console/static" not in html
 
 
 def test_console_static_files_served():

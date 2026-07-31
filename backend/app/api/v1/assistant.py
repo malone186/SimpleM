@@ -1,8 +1,17 @@
-"""음성 비서(Assistant) API 라우터 — 1단계 (브리핑 / 다음 할 일) + 2단계 (알림 폴링) + 3단계 (음성 명령)"""
+"""음성 비서(Assistant) API 라우터 — 1단계 (브리핑 / 다음 할 일) + 2단계 (알림 폴링) + 3단계 (음성 명령)
+
+[매장 동기화] 로그인 토큰이 오면 그 매장(이메일) 직원·스케줄만 읽고 바꾼다.
+예전엔 매장 구분 없이 전체를 읽어서, 음성 브리핑·완료 알림이 앱에 등록된 내 직원
+데이터와 따로 놀았다. 토큰이 없으면 기존처럼 전체 조회(하위 호환·데모)로 동작한다.
+"""
 from datetime import datetime
+from typing import Optional
+
 from fastapi import APIRouter, Query, Depends, HTTPException
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
+from app.core.auth import get_current_user
 from app.core.database import get_db
 from app.schemas.operation import CommonResponse
 from app.schemas.assistant import (
@@ -23,6 +32,21 @@ from app.services.operation.assistant_service import (
 # [한글 주석] prefix="/assistant" → 최종 경로: /api/v1/assistant/*
 router = APIRouter(prefix="/assistant", tags=["Assistant (음성 비서)"])
 
+_oauth2_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
+
+
+def _optional_store_id(
+    token: Optional[str] = Depends(_oauth2_optional),
+    db: Session = Depends(get_db),
+) -> Optional[str]:
+    """로그인했으면 매장 식별자(이메일)를, 아니면 None — chatbot.py와 같은 패턴."""
+    if not token:
+        return None
+    try:
+        return get_current_user(token=token, db=db).email
+    except HTTPException:
+        return None
+
 
 # ──────────────────────────────────────────────
 # GET /api/v1/assistant/briefing
@@ -31,14 +55,15 @@ router = APIRouter(prefix="/assistant", tags=["Assistant (음성 비서)"])
 def briefing_api(
     limit: int = Query(3, ge=1, le=10, description="음성 문단에 나열할 최대 작업 건수"),
     db: Session = Depends(get_db),
+    store_id: Optional[str] = Depends(_optional_store_id),
 ):
-    """오늘의 음성 브리핑을 생성합니다.
+    """오늘의 음성 브리핑을 생성합니다 (로그인 시 내 매장 직원 스케줄만).
 
     완료된 작업과 남은 할 일을 조회한 뒤,
     화면용 데이터(completed/pending 리스트)와 음성용 speech_text를 함께 반환합니다.
     """
     try:
-        result: BriefingResponse = assemble_briefing(db, limit=limit)
+        result: BriefingResponse = assemble_briefing(db, limit=limit, store_id=store_id)
         return CommonResponse(
             success=True,
             data=result.model_dump(),
@@ -54,13 +79,14 @@ def briefing_api(
 @router.get("/next-task", response_model=CommonResponse)
 def next_task_api(
     db: Session = Depends(get_db),
+    store_id: Optional[str] = Depends(_optional_store_id),
 ):
-    """우선순위/마감 기준으로 다음 할 일 1건을 반환합니다.
+    """우선순위/마감 기준으로 다음 할 일 1건을 반환합니다 (로그인 시 내 매장만).
 
     화면용 task 데이터와 음성용 speech_text를 함께 반환합니다.
     """
     try:
-        result: NextTaskResponse = assemble_next_task(db)
+        result: NextTaskResponse = assemble_next_task(db, store_id=store_id)
         return CommonResponse(
             success=True,
             data=result.model_dump(),
@@ -83,13 +109,14 @@ def notifications_api(
         examples=["2026-07-22T14:00:00"],
     ),
     db: Session = Depends(get_db),
+    store_id: Optional[str] = Depends(_optional_store_id),
 ):
-    """since 이후 새로 완료된 작업 알림을 반환합니다.
+    """since 이후 새로 완료된 작업 알림을 반환합니다 (로그인 시 내 매장 직원의 완료만).
 
     프론트엔드는 응답의 server_time을 다음 폴링의 since 값으로 사용합니다.
     """
     try:
-        result: NotificationsResponse = assemble_notifications(db, since=since)
+        result: NotificationsResponse = assemble_notifications(db, since=since, store_id=store_id)
         return CommonResponse(
             success=True,
             data=result.model_dump(mode="json"),
@@ -108,6 +135,7 @@ def notifications_api(
 def voice_command_api(
     payload: VoiceCommandRequest,
     db: Session = Depends(get_db),
+    store_id: Optional[str] = Depends(_optional_store_id),
 ):
     """음성 명령을 해석하고 실행합니다.
 
@@ -125,6 +153,7 @@ def voice_command_api(
             text=payload.text,
             pending_action=payload.pending_action,
             confirm=payload.confirm,
+            store_id=store_id,
         )
         return CommonResponse(
             success=True,

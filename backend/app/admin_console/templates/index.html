@@ -16,7 +16,9 @@
     // 로컬(uvicorn)이든 Cloud Run이든 주소 하드코딩 없이 그대로 동작한다.
     window.__ADMIN_API_BASE__ = "{{ api_base }}";
   </script>
-  <link rel="stylesheet" href="{{ url_for('console_static', path='style.css') }}?v={{ asset_version }}">
+  {# url_for는 절대 URL을 만드는데 Cloud Run(TLS 프록시 종료) 뒤에선 스킴이 http로 잡혀
+     https 페이지에서 mixed content로 차단된다 — 루트 상대 경로로 스킴을 물려받는다. #}
+  <link rel="stylesheet" href="/console/static/style.css?v={{ asset_version }}">
 </head>
 <body>
   <div class="desktop-layout">
@@ -67,11 +69,9 @@
             <span class="profile-email" id="admin-email">-</span>
           </div>
         </div>
-        <!-- 비밀번호 변경 — POST /admin/password가 있는데 여기로 들어올 입구가 없었다 -->
-        <button class="logout-btn" id="change-pw-btn" style="margin-bottom:6px;">
-          <i data-lucide="key-round"></i>
-          <span>비밀번호 변경</span>
-        </button>
+        <!-- 비밀번호 변경 버튼은 7/31 제거 — 관리자 자격증명을 고정하기로 결정(백엔드도 403으로 잠금).
+             다시 열려면 이 버튼 복구 + admin.py의 ADMIN_PASSWORD_LOCK 해제. -->
+
         <button class="logout-btn" id="logout-btn">
           <i data-lucide="log-out"></i>
           <span>로그아웃</span>
@@ -613,6 +613,6 @@
     </div>
   </div>
 
-  <script src="{{ url_for('console_static', path='app.js') }}?v={{ asset_version }}"></script>
+  <script src="/console/static/app.js?v={{ asset_version }}"></script>
 </body>
 </html>
