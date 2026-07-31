@@ -61,7 +61,8 @@ export type RootStackParamList = {
   Operation: undefined;
   Staff: undefined;
   BeanOperation: undefined;
-  Settings: undefined;
+  // section: 특정 설정 하위 화면으로 바로 진입 (예: 카드 정산 설정)
+  Settings: { section?: 'account' | 'notification' | 'appearance' | 'inquiry' | 'legal' | 'settlement' } | undefined;
   StoreMap: undefined;
 };
 const Stack = createNativeStackNavigator<RootStackParamList>();

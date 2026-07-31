@@ -655,7 +655,7 @@ export default function ManualSalesScreen() {
         </>
       )}
 
-      <TouchableOpacity onPress={() => navigation.navigate('Settings')} style={styles.settingsLink}>
+      <TouchableOpacity onPress={() => navigation.navigate('Settings', { section: 'settlement' })} style={styles.settingsLink}>
         <Ionicons name="settings-outline" size={13} color={colors.mochaBrown} />
         <Text style={styles.settingsLinkText}>수수료율·카드사 입금일 설정 바꾸기</Text>
       </TouchableOpacity>

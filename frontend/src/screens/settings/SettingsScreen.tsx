@@ -9,7 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 
 import { useAuth } from '../../auth/AuthContext';
 import {
@@ -87,6 +87,11 @@ function Field({
 
 export default function SettingsScreen() {
   const navigation = useNavigation<any>();
+  // 다른 화면에서 특정 설정 하위 화면으로 바로 들어오는 경우(예: 매출 입력 → 카드 정산 설정)
+  const route = useRoute<any>();
+  const initialSection = route.params?.section as
+    | 'account' | 'notification' | 'appearance' | 'inquiry' | 'legal' | 'settlement'
+    | undefined;
   const { user, token, updateProfile, logout } = useAuth();
   const prefs = usePreferences();
 
@@ -176,7 +181,7 @@ export default function SettingsScreen() {
   const { t } = useTranslation();
 
   // [한글 주석: 설정 창 내부 서브 라우팅 뷰 관리 상태 ('main'일 때는 메뉴 목록 노출)]
-  const [subView, setSubView] = useState<'main' | 'account' | 'notification' | 'appearance' | 'inquiry' | 'legal' | 'settlement'>('main');
+  const [subView, setSubView] = useState<'main' | 'account' | 'notification' | 'appearance' | 'inquiry' | 'legal' | 'settlement'>(initialSection ?? 'main');
 
   // [한글 주석: 현재 진입한 subView 상태에 맞춰 상단 헤더 타이틀과 뒤로가기 동작을 동적으로 변경]
   useEffect(() => {
