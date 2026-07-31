@@ -94,6 +94,16 @@ function getPosition(bean: BeanRow, market: MarketSummary | null): Position | nu
   return { label, diffPct, peer: group ? country : '전체', tone };
 }
 
+/** 외부 링크 열기 — 웹은 새 탭, 앱은 기본 브라우저 */
+function openUrl(url: string) {
+  if (!url) return;
+  if (Platform.OS === 'web') {
+    window.open(url, '_blank');
+  } else {
+    Linking.openURL(url);
+  }
+}
+
 export default function BeanOperationScreen() {
   // [한글 주석: 전역 다국어 번역 훅 연동]
   const { t, language } = useTranslation();
@@ -374,16 +384,14 @@ export default function BeanOperationScreen() {
                 ))}
               </View>
 
-              {/* 바로 구매 — 카드 하단으로 이동 */}
+              {/* [한글 주석] 구매 버튼을 '최저가 검색'으로 바꿨다.
+                  원두 판매처의 상당수가 생두 도매상이라 상품 페이지를 보려면
+                  사업자 회원 로그인을 요구한다. 눌렀더니 로그인 화면이 뜨면
+                  구매로 이어지지 않고, 우리가 보여준 가격을 확인할 방법도 없다.
+                  네이버쇼핑 검색은 로그인이 필요 없고 여러 판매처 가격을 함께 보여준다.
+                  판매처 직링크는 아래 보조 링크로 남겨 선택할 수 있게 했다. */}
               <Pressable
-                onPress={() => {
-                  const targetUrl = bean.product_url || `https://search.shopping.naver.com/search/all?query=${encodeURIComponent(bean.name)}`;
-                  if (Platform.OS === 'web') {
-                    window.open(targetUrl, '_blank');
-                  } else {
-                    Linking.openURL(targetUrl);
-                  }
-                }}
+                onPress={() => openUrl(`https://search.shopping.naver.com/search/all?query=${encodeURIComponent(bean.name)}`)}
                 style={{
                   backgroundColor: colors.pointOrange,
                   paddingVertical: 9,
@@ -395,9 +403,22 @@ export default function BeanOperationScreen() {
                   marginTop: 10,
                 }}
               >
-                <Ionicons name="cart-outline" size={14} color="#FFF" />
-                <Text style={{ color: '#FFF', fontSize: 12.5, fontWeight: 'bold' }}>바로 구매</Text>
+                <Ionicons name="search" size={14} color="#FFF" />
+                <Text style={{ color: '#FFF', fontSize: 12.5, fontWeight: 'bold' }}>최저가 검색 · 구매</Text>
               </Pressable>
+
+              {/* 판매처 원본 페이지 — 로그인이 필요할 수 있음을 미리 알린다 */}
+              {!!bean.product_url && (
+                <Pressable
+                  onPress={() => openUrl(bean.product_url)}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: 7 }}
+                >
+                  <Ionicons name="open-outline" size={11} color="#9A8F86" />
+                  <Text style={{ fontSize: 11, color: '#9A8F86' }}>
+                    판매처 페이지 열기 (로그인 필요할 수 있음)
+                  </Text>
+                </Pressable>
+              )}
 
               {/* [추가] 대체 추천 — 사기 전에 "더 싼 대안"을 먼저 볼 수 있게 구매 버튼 아래 배치 */}
               {bean.price_per_gram != null && (
