@@ -248,7 +248,13 @@ _COPY_PROMPT = """너는 동네 카페 전문 마케팅 카피라이터다.
 - hashtags: 8~12개, 각 항목 # 포함 (지역명 + 메뉴 + 감성 태그 조합)
 - short_slogan: 홍보 이미지에 크게 새길 8자 이내 문구
 - image_prompt: 이 홍보물에 어울리는 이미지 생성용 영어 프롬프트 1~3문장.
-  카페 분위기·메뉴·조명·구도를 구체적으로, 실사 사진 스타일로 묘사할 것.
+  주제와 톤에서 어울리는 아트 디렉션을 스스로 골라 첫 문장에 명시할 것 —
+  실사 사진(photorealistic photography), 수채화(watercolor illustration),
+  플랫 벡터 일러스트(bold flat vector illustration), 레트로 필름(retro film),
+  미니멀(minimal design), 아늑한 손그림(cozy hand-drawn art) 등에서 컨셉에 맞게.
+  poster·sign·menu board처럼 글자를 유발하는 단어는 쓰지 말 것.
+  '나무 테이블 위 커피잔' 같은 뻔한 구도를 피하고 주제에 맞는 장면·색감·분위기로
+  매번 다르게 묘사할 것 (예: 여름 이벤트면 시원한 청량감, 유쾌한 톤이면 팝한 색).
   글자·텍스트를 넣으라는 지시는 쓰지 말 것.
 - posting_tip: 이 채널에 올릴 때 도움이 될 팁 한 문장 (업로드 시간대·구도 등)"""
 
@@ -425,22 +431,32 @@ def generate_promotion_image(store_id: str, doc_id: str = "", request: str = "",
     if not base and doc:
         base = (doc["content"].get("image_prompt") or "").strip()
     if not base:
+        # 아무 지시가 없을 때만 기본으로 '실사 사진' 스타일을 깐다 — 그 외에는
+        # 스타일을 강제하지 않아야 프롬프트에 따라 느낌이 완전히 달라진다.
+        # (예전엔 아래에서 'marketing photography'를 항상 덧붙여, 수채화를 시켜도
+        #  사진풍으로 회귀하고 결과가 죄다 '나무 테이블 위 커피잔'처럼 비슷해졌다)
         ctx = _store_context(store_id)
         name = ctx["store_name"] or "a cozy local cafe"
         menus = ", ".join(ctx["best_menus"]) or "signature coffee"
-        base = (f"A warm, inviting promotional photo for the cafe '{name}', "
+        base = (f"A warm, inviting professional promotional photo for the cafe '{name}', "
                 f"featuring {menus}, soft natural lighting, shallow depth of field")
 
     parts = [
         "Create a single eye-catching cafe promotional image.",
         base,
-        "High quality, appetizing, professional food/beverage marketing photography. "
-        "No watermark, no logo, no brand marks.",
     ]
     if style.strip():
-        parts.append(f"Style: {style.strip()}")
-    # 글자 없는 공통 프롬프트 — Pollinations(FLUX)는 한글이 깨져서 텍스트 지시를 못 넣는다
-    textless_prompt = "\n".join(parts + ["No text, no letters, no captions in the image."])
+        # 사용자가 고른 스타일이 최우선 — image_prompt에 다른 스타일이 있어도 이걸 따른다
+        parts.append(f"Art direction: {style.strip()}. Follow this style strictly, "
+                     "it overrides any other style mentioned above.")
+    parts.append("High quality, no watermark, no logo, no brand marks.")
+    # 글자 없는 공통 프롬프트 — Pollinations(FLUX)는 한글이 깨져서 텍스트 지시를 못 넣는다.
+    # 포스터·네온 같은 스타일은 모델이 가짜 글자(외계 문자) 간판·헤드라인을 그려 넣는
+    # 버릇이 있어(실측) 금지를 강하게 반복한다.
+    textless_prompt = "\n".join(parts + [
+        "IMPORTANT: absolutely no text, no letters, no words, no numbers, no typography, "
+        "no signs with writing, no captions anywhere in the image. Pure visual imagery only.",
+    ])
 
     slogan = (doc["content"].get("short_slogan") or "").strip() if doc else ""
     if include_text and slogan:

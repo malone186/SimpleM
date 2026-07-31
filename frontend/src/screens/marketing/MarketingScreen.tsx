@@ -37,6 +37,20 @@ import { colors } from '../../theme';
 
 const CHANNELS = Object.keys(CHANNEL_META) as PromotionChannel[];
 
+// 이미지 느낌 프리셋 — 서버에 영어 아트 디렉션으로 전달돼 결과 느낌이 완전히 달라진다.
+// '자동'은 문구 AI가 주제·톤에 맞는 스타일을 스스로 고른다.
+// 주의: 'poster'·'sign' 같은 단어는 모델이 가짜 글자(깨진 활자)를 그려 넣게 유발한다
+// (실측) — 글자를 부르지 않는 표현으로 같은 느낌을 묘사한다.
+const IMAGE_STYLES: { key: string; label: string }[] = [
+  { key: '', label: '자동' },
+  { key: 'photorealistic professional photography', label: '실사 사진' },
+  { key: 'soft watercolor illustration, gentle pastel tones', label: '수채화' },
+  { key: 'bold flat vector illustration, vivid color blocks, strong geometric shapes', label: '그래픽 아트' },
+  { key: 'retro film photography, warm grain, nostalgic 90s mood', label: '레트로 필름' },
+  { key: 'cozy hand-drawn illustration, storybook style', label: '손그림 동화' },
+  { key: 'vivid neon color palette, glowing light effects, energetic pop mood', label: '네온 팝' },
+];
+
 /** 생성 진행 단계 — 문구와 이미지가 순차로 만들어지는 걸 사장님이 볼 수 있게 */
 type Phase = 'idle' | 'copy' | 'image';
 
@@ -66,6 +80,7 @@ export default function MarketingScreen() {
   const [topic, setTopic] = useState('');
   const [tone, setTone] = useState('');
   const [menu, setMenu] = useState('');
+  const [imageStyle, setImageStyle] = useState(''); // IMAGE_STYLES의 key (빈 값 = 자동)
 
   // 생성 상태·결과
   const [phase, setPhase] = useState<Phase>('idle');
@@ -104,6 +119,7 @@ export default function MarketingScreen() {
       setPhase('image');
       const img = await createPromotionImage(token, {
         doc_id: doc.id,
+        style: imageStyle,
         aspect_ratio: CHANNEL_META[channel].aspect,
       });
       if (img.doc) setResult(img.doc);
@@ -168,6 +184,25 @@ export default function MarketingScreen() {
           placeholder="예: 신메뉴 딸기라떼 출시 (비우면 매장 일반 홍보)"
           placeholderTextColor={colors.mochaBrown + '88'}
         />
+        <Text style={[styles.fieldLabel, { marginTop: 10 }]}>이미지 느낌</Text>
+        <View style={styles.styleRow}>
+          {IMAGE_STYLES.map((s) => {
+            const active = imageStyle === s.key;
+            return (
+              <PressableScale
+                key={s.label}
+                style={[styles.styleChip, active && styles.styleChipActive]}
+                onPress={() => setImageStyle(s.key)}
+                to={0.93}
+              >
+                <Text style={[styles.styleText, active && styles.styleTextActive]}>
+                  {s.label}
+                </Text>
+              </PressableScale>
+            );
+          })}
+        </View>
+
         <View style={styles.inputRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.fieldLabel}>말투 (선택)</Text>
@@ -386,6 +421,22 @@ const styles = StyleSheet.create({
     color: colors.espressoBrown,
   },
   inputRow: { flexDirection: 'row', gap: 10, marginTop: 8 },
+
+  styleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  styleChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(140,111,86,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(140,111,86,0.18)',
+  },
+  styleChipActive: {
+    backgroundColor: colors.pointOrange,
+    borderColor: colors.pointOrange,
+  },
+  styleText: { fontSize: 11.5, fontWeight: '700', color: colors.mochaBrown },
+  styleTextActive: { color: colors.white },
 
   progressRow: {
     flexDirection: 'row',
