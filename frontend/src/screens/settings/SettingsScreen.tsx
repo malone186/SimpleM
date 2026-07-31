@@ -177,14 +177,29 @@ export default function SettingsScreen() {
   const [csTrackWidth, setCsTrackWidth] = useState(300);
   const csSlideAnim = useRef(new Animated.Value(0)).current;
 
-  // [한글 주석: 화면 subView 전환 시 툭툭 끊기지 않게 쫀득한 반동을 주는 커스텀 스프링 트랜지션]
+  const subViewAnim = useRef(new Animated.Value(1)).current;
+
+  // [한글 주석: 설정 메뉴 들어갔다 나올 때 쫀득한 입체 반동과 부드러운 슬라이딩을 주는 트랜지션 모션]
   const springTransition = () => {
     LayoutAnimation.configureNext({
-      duration: 380,
-      create: { type: LayoutAnimation.Types.spring, property: LayoutAnimation.Properties.opacity, springDamping: 0.78 },
-      update: { type: LayoutAnimation.Types.spring, springDamping: 0.78 },
-      delete: { type: LayoutAnimation.Types.spring, property: LayoutAnimation.Properties.opacity, springDamping: 0.78 }
+      duration: 320,
+      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+      update: { type: LayoutAnimation.Types.spring, springDamping: 0.76 },
+      delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
     });
+  };
+
+  const changeSubView = (nextView: typeof subView) => {
+    springTransition();
+    subViewAnim.setValue(0.95);
+    Animated.spring(subViewAnim, {
+      toValue: 1,
+      friction: 6,
+      tension: 180,
+      useNativeDriver: true,
+    }).start();
+
+    setSubView(nextView);
   };
 
   useEffect(() => {
@@ -251,13 +266,11 @@ export default function SettingsScreen() {
       headerTitleContainerStyle: { marginLeft: 4 },
       headerLeft: () => (
         <PressableScale
-          style={{ marginLeft: 2, marginRight: 10, padding: 4 }} // [한글 주석: 화살표 뒤에 10px 여백을 부여하여 바짝 붙지 않도록 띄움]
-          to={0.88}
+          style={{ marginLeft: 2, marginRight: 10, padding: 6 }}
+          to={0.84}
           onPress={() => {
-            // [한글 주석: 뒤로가기 시 투박하게 딱딱 전환되던 easeInEaseOut 대신 부드럽고 쫀득한 스프링 탄성 애니메이션 적용]
-            springTransition();
             if (subView !== 'main') {
-              setSubView('main');
+              changeSubView('main');
             } else {
               navigation.goBack();
             }
@@ -446,15 +459,14 @@ export default function SettingsScreen() {
   return (
     <Screen>
       {/* ── [한글 주석: 설정 첫 화면 진입 시 카테고리 6개 항목 메뉴 리스트 노출] ── */}
+      {/* ── [한글 주석: 설정 첫 화면 진입 시 카테고리 6개 항목 메뉴 리스트 노출] ── */}
       {subView === 'main' && (
-        <View style={{ gap: 12, marginTop: 8 }}>
+        <Animated.View style={{ gap: 12, marginTop: 8, opacity: subViewAnim, transform: [{ scale: subViewAnim }] }}>
           {/* 가게 & 계정 설정 */}
           <PressableScale
             style={styles.menuItemCard}
-            onPress={() => {
-              springTransition();
-              setSubView('account');
-            }}
+            to={0.975}
+            onPress={() => changeSubView('account')}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               <View style={styles.menuIconWrap}>
@@ -475,10 +487,8 @@ export default function SettingsScreen() {
           {/* 알림 수신 설정 */}
           <PressableScale
             style={styles.menuItemCard}
-            onPress={() => {
-              springTransition();
-              setSubView('notification');
-            }}
+            to={0.975}
+            onPress={() => changeSubView('notification')}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               <View style={styles.menuIconWrap}>
@@ -499,10 +509,8 @@ export default function SettingsScreen() {
           {/* 카드 정산 설정 — 수수료율 구간·카드사별 입금 소요일 */}
           <PressableScale
             style={styles.menuItemCard}
-            onPress={() => {
-              springTransition();
-              setSubView('settlement');
-            }}
+            to={0.975}
+            onPress={() => changeSubView('settlement')}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               <View style={styles.menuIconWrap}>
@@ -527,14 +535,11 @@ export default function SettingsScreen() {
             </View>
           </PressableScale>
 
-
           {/* 화면 표시 & 접근성 */}
           <PressableScale
             style={styles.menuItemCard}
-            onPress={() => {
-              springTransition();
-              setSubView('appearance');
-            }}
+            to={0.975}
+            onPress={() => changeSubView('appearance')}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               <View style={styles.menuIconWrap}>
@@ -553,10 +558,8 @@ export default function SettingsScreen() {
           {/* 1대1 문의 & 요청사항 */}
           <PressableScale
             style={styles.menuItemCard}
-            onPress={() => {
-              springTransition();
-              setSubView('inquiry');
-            }}
+            to={0.975}
+            onPress={() => changeSubView('inquiry')}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               <View style={styles.menuIconWrap}>
@@ -575,10 +578,8 @@ export default function SettingsScreen() {
           {/* 약관 및 정책 */}
           <PressableScale
             style={styles.menuItemCard}
-            onPress={() => {
-              springTransition();
-              setSubView('legal');
-            }}
+            to={0.975}
+            onPress={() => changeSubView('legal')}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               <View style={styles.menuIconWrap}>
@@ -593,7 +594,7 @@ export default function SettingsScreen() {
               <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
             </View>
           </PressableScale>
-        </View>
+        </Animated.View>
       )}
 
       {/* ① 계정 / 가게 정보 */}
@@ -1460,10 +1461,7 @@ export default function SettingsScreen() {
           label={t('returnToSettingsHome')}
           variant="secondary"
           style={{ marginTop: 14 }}
-          onPress={() => {
-            springTransition();
-            setSubView('main');
-          }}
+          onPress={() => changeSubView('main')}
         />
       )}
 

@@ -3,6 +3,7 @@
 [한글 주석] 원두 리뷰 수집, 정규화 URL 처리, RAG 증분 임베딩, 상품 검색/정렬 및 대체 상품 추천 핵심 비즈니스 로직 서비스
 """
 
+import html
 import os
 import re
 import logging
@@ -37,6 +38,30 @@ TRACKING_PARAMS = {
 }
 
 
+def _unescape_url_entities(url: str) -> str:
+    """상품 URL에 섞여 들어온 HTML 엔티티를 되돌린다.
+
+    [한글 주석] 쇼핑몰 HTML의 href는 앰퍼샌드를 &amp; 로 이스케이프해서 담는다.
+    이걸 풀지 않고 parse_qs에 넣으면 키가 'amp;cate_no'로 잡히고,
+    urlencode가 세미콜론을 %3B로 이스케이프하면서 아래처럼 망가진다.
+
+        원본 : ...?product_no=7126&amp;cate_no=56
+        결과 : ...?product_no=7126&amp%3Bcate_no=56   <- 파라미터가 통째로 오독됨
+
+    실제로 원두 284건(15%)의 링크가 이 상태였다. 상품 페이지가 열리지 않고
+    홈이나 로그인 화면으로 튕기는 원인이다.
+    이미 망가진 형태(amp%3B, amp;)도 함께 복구한다.
+    """
+    # [한글 주석] 순서가 중요하다. html.unescape를 먼저 부르면 세미콜론 없는 '&amp'까지
+    # 앰퍼샌드로 바꿔버려 '&amp%3B'가 '&%3B'가 되고, 그 뒤 규칙이 안 걸린다.
+    # 이미 저장된 깨진 형태부터 먼저 되돌린 다음 엔티티를 푼다.
+    fixed = re.sub(r"(?i)&amp(?:%3B|;)", "&", url)
+    fixed = html.unescape(fixed)
+    # 위 단계를 거치고도 남는 잔여물 정리 ('&%3B' / '?%3B')
+    fixed = re.sub(r"(?i)([?&])%3B", r"\1", fixed)
+    return fixed
+
+
 def normalize_product_url(url: Optional[str], bean_id: Optional[int] = None) -> Tuple[str, bool]:
     """
     [한글 주석]
@@ -49,7 +74,7 @@ def normalize_product_url(url: Optional[str], bean_id: Optional[int] = None) -> 
         fallback_url = f"/api/v1/roastery/public/beans/{bean_id or 0}"
         return fallback_url, True
 
-    cleaned_url = url.strip()
+    cleaned_url = _unescape_url_entities(url.strip())
     try:
         parsed = urlparse(cleaned_url)
         if not parsed.scheme or not parsed.netloc:

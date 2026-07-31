@@ -147,10 +147,18 @@ export default function BeanAlternativeModal({ visible, beanId, beanName, onClos
                     </Text>
                   )}
 
+                  {/* [한글 주석] 판매처 직링크는 로그인을 요구하는 도매상이 많아
+                      네이버쇼핑 검색을 기본으로 둔다. 직링크는 아래 보조 링크로 남긴다. */}
+                  <Pressable
+                    style={styles.linkBtn}
+                    onPress={() => open(`https://search.shopping.naver.com/search/all?query=${encodeURIComponent(a.name)}`)}
+                  >
+                    <Ionicons name="search" size={13} color="#FFF" />
+                    <Text style={styles.linkText}>최저가 검색</Text>
+                  </Pressable>
                   {!!a.product_url && (
-                    <Pressable style={styles.linkBtn} onPress={() => open(a.product_url)}>
-                      <Ionicons name="open-outline" size={13} color="#FFF" />
-                      <Text style={styles.linkText}>상품 보기</Text>
+                    <Pressable onPress={() => open(a.product_url)}>
+                      <Text style={styles.vendorLink}>판매처 페이지 (로그인 필요할 수 있음)</Text>
                     </Pressable>
                   )}
                 </View>
@@ -243,6 +251,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   linkText: { color: '#FFF', fontSize: 12, fontWeight: 'bold' },
+  vendorLink: { fontSize: 10.5, color: '#9A8F86', textAlign: 'center', marginTop: 5 },
 
   disclaimer: {
     fontSize: 10.5,

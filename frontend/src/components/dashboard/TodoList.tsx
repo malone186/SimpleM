@@ -103,6 +103,7 @@ export default function TodoList({
   onAddTodo,
   onEditTodo,
   onDeleteTodo,
+  onRestoreAiTodos,
 }: {
   todos: Todo[];
   selectedDateInfo?: DateInfo;
@@ -111,6 +112,7 @@ export default function TodoList({
   onAddTodo?: (title: string, dateKey?: string) => void;
   onEditTodo?: (id: string, newTitle: string) => void;
   onDeleteTodo?: (id: string) => void;
+  onRestoreAiTodos?: () => void;
   hideCard?: boolean;
 }) {
   const [modalVisible, setModalVisible] = useState(false);
@@ -257,16 +259,42 @@ export default function TodoList({
         )}
       </Animated.View>
 
-      {/* ── [새 업무 등록 모달 오픈 트리거 버튼 - 지난 날짜(isPast)일 때는 숨김] ── */}
+      {/* ── [한 줄 가로 정렬: 메인 새 업무 등록하기 + ✨ 브루 추천 미니 칩] ── */}
       {!isPastDate && (
-        <PressableScale
-          onPress={openCreateModal}
-          style={styles.openModalBtn}
-          to={0.96}
-        >
-          <Ionicons name="add-circle" size={18} color="#FFFFFF" />
-          <Text style={styles.openModalBtnText}>새 업무 등록하기</Text>
-        </PressableScale>
+        <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', marginTop: 4 }}>
+          <PressableScale
+            onPress={openCreateModal}
+            style={[styles.openModalBtn, { flex: 1, height: 42, paddingVertical: 0 }]}
+            to={0.96}
+          >
+            <Ionicons name="add-circle" size={17} color="#FFFFFF" />
+            <Text style={styles.openModalBtnText}>새 업무 등록하기</Text>
+          </PressableScale>
+
+          {onRestoreAiTodos && (
+            <PressableScale
+              onPress={onRestoreAiTodos}
+              style={{
+                height: 42,
+                paddingHorizontal: 12,
+                borderRadius: 14,
+                backgroundColor: 'rgba(245, 239, 232, 0.9)',
+                borderWidth: 1,
+                borderColor: 'rgba(226, 215, 199, 0.9)',
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 4,
+              }}
+              to={0.94}
+            >
+              <Ionicons name="sparkles" size={13} color="#8C6F56" />
+              <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#5B4333' }}>
+                브루 추천
+              </Text>
+            </PressableScale>
+          )}
+        </View>
       )}
 
       {/* ── [iOS 팝업 모달 다이얼로그: 새 업무 등록 / 업무 수정 통합 모달] ── */}

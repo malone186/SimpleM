@@ -508,44 +508,47 @@ export default function InventoryScreen() {
 
         {/* 둥근 크림 시트 — 콘텐츠가 위로 올라오며 헤더를 덮는다 */}
         <View style={styles.brownSheet}>
-          {/* 메뉴·레시피 관리 진입 */}
-      <PressableScale style={styles.menuNav} onPress={() => navigation.navigate('Menu')} to={0.97}>
-        <View style={styles.menuNavIcon}>
-          <Ionicons name="cafe-outline" size={20} color={colors.espressoBrown} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.menuNavTitle}>{t('menuMgmtTitle')}</Text>
-          <Text style={styles.menuNavSub}>{t('menuMgmtSub')}</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown} />
-      </PressableScale>
+          {/* [한글 주석: 상단 관리 & 입고 연관 카드 그룹 — 8px 밀착 간격으로 유기적 배치] */}
+          <View style={{ gap: 8 }}>
+            {/* 메뉴·레시피 관리 진입 */}
+            <PressableScale style={styles.menuNav} onPress={() => navigation.navigate('Menu')} to={0.97}>
+              <View style={styles.menuNavIcon}>
+                <Ionicons name="cafe-outline" size={20} color={colors.espressoBrown} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.menuNavTitle}>{t('menuMgmtTitle')}</Text>
+                <Text style={styles.menuNavSub}>{t('menuMgmtSub')}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown} />
+            </PressableScale>
 
-      {/* OCR 입고 — 카드를 누르면 소스 선택 시트(촬영/앨범/PDF)가 열린다 */}
-      <Card>
-        <PressableScale
-          style={styles.ocrHead}
-          onPress={() => setSourceSheetOpen(true)}
-          disabled={scanning}
-          to={0.98}
-        >
-          <View style={styles.ocrHeadIcon}>
-            <Ionicons name="scan-outline" size={20} color={colors.pointOrange} />
+            {/* OCR 입고 — 카드를 누르면 소스 선택 시트(촬영/앨범/PDF)가 열린다 */}
+            <Card>
+              <PressableScale
+                style={styles.ocrHead}
+                onPress={() => setSourceSheetOpen(true)}
+                disabled={scanning}
+                to={0.98}
+              >
+                <View style={styles.ocrHeadIcon}>
+                  <Ionicons name="scan-outline" size={20} color={colors.pointOrange} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <SectionTitle>{language === 'en' ? 'Statement OCR Inbound' : '명세서 자동 입고'}</SectionTitle>
+                  <Text style={styles.hint}>
+                    {scanning
+                      ? (language === 'en' ? 'Recognizing... (Takes a few seconds)' : '인식 중… (수 초 걸려요)')
+                      : (language === 'en'
+                        ? 'Tap to pick a photo or PDF — items, prices & quantities become an inbound draft'
+                        : '눌러서 사진이나 PDF를 고르면, 상품·단가·수량을 읽어 입고 초안을 만들어요')}
+                  </Text>
+                </View>
+                {scanning
+                  ? <ActivityIndicator color={colors.pointOrange} />
+                  : <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown} />}
+              </PressableScale>
+            </Card>
           </View>
-          <View style={{ flex: 1 }}>
-            <SectionTitle>{language === 'en' ? 'Statement OCR Inbound' : '명세서 자동 입고'}</SectionTitle>
-            <Text style={styles.hint}>
-              {scanning
-                ? (language === 'en' ? 'Recognizing... (Takes a few seconds)' : '인식 중… (수 초 걸려요)')
-                : (language === 'en'
-                  ? 'Tap to pick a photo or PDF — items, prices & quantities become an inbound draft'
-                  : '눌러서 사진이나 PDF를 고르면, 상품·단가·수량을 읽어 입고 초안을 만들어요')}
-            </Text>
-          </View>
-          {scanning
-            ? <ActivityIndicator color={colors.pointOrange} />
-            : <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown} />}
-        </PressableScale>
-      </Card>
 
       {/* OCR 인식 초안 확인 */}
       {drafts.length > 0 && (
@@ -1067,8 +1070,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.mutedSand,
     padding: 14,
-    marginTop: 12,
-    marginBottom: 10,
+    marginTop: 4,
+    marginBottom: 0,
   },
   menuNavIcon: {
     width: 40,
