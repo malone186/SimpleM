@@ -63,10 +63,26 @@ def process_unprocessed_reviews_batch(db: Session, batch_size: int = 50) -> Dict
             review.origin = extraction.origin
             review.caffeine = extraction.caffeine
 
-            review.sentiment = extraction.sentiment
+            # [한글 주석] sentiment·keywords는 '더 강한 값'일 때만 덮어쓴다.
+            #
+            # 수집 단계에서 이미 계산해 둔 감성이 있는데 배치가 무조건 덮어쓰고 있었다.
+            # 표본 300건으로 재보니 46%가 바뀌는데 방향이 전부 정보 손실이었다.
+            #   positive -> neutral 126건 / negative -> neutral 11건 / 개선 0건
+            # 키워드도 47%가 빈 값으로 지워졌다.
+            #
+            # 감성·키워드는 평점과 긍정비율의 근거이므로, 이대로 돌리면
+            # 화면의 별점이 일제히 중립으로 눌린다.
+            # neutral은 '판단 못 함'에 가까우므로 기존 판단을 이기지 못하게 한다.
+            if extraction.sentiment and extraction.sentiment != "neutral":
+                review.sentiment = extraction.sentiment
+            elif not review.sentiment:
+                review.sentiment = extraction.sentiment
+
             if extraction.keywords:
                 review.keywords = extraction.keywords
-            review.evidence = extraction.evidence
+
+            if extraction.evidence:
+                review.evidence = extraction.evidence
 
             # 증분 처리 완료 플래그 세팅
             review.processed = True
