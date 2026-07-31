@@ -5,7 +5,7 @@
 붙여 '실제로 매장에서 나가는 돈'을 계산한다.
 """
 
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -17,6 +17,14 @@ from app.services.ai import staff_service
 router = APIRouter(prefix="/staff", tags=["staff"])
 
 
+class AvailabilityWindow(BaseModel):
+    """근무 가능 시간 한 칸 — 요일(0=월 … 6=일)과 시작·종료 시각(정시 단위)"""
+
+    day_of_week: int = Field(..., ge=0, le=6)
+    start_hour: int = Field(9, ge=0, le=23)
+    end_hour: int = Field(18, ge=1, le=24)
+
+
 class ProfileUpdate(BaseModel):
     """직원 상세 화면에서 고칠 수 있는 모든 값 — 이름·시급(employees)과 고용 상세를 함께 받는다.
 
@@ -24,6 +32,8 @@ class ProfileUpdate(BaseModel):
     또 찾아 들어가는" 일이 없다.
     """
 
+    # 보낸 경우에만 통째로 교체된다 (빈 배열 = 가능 시간 전부 삭제)
+    availability: Optional[List[AvailabilityWindow]] = None
     name: Optional[str] = None
     hourly_rate: Optional[int] = Field(None, ge=0)
     role: Optional[str] = None
@@ -85,6 +95,98 @@ def save_profile_api(
             current_user.email, employee_id,
             **body.model_dump(exclude_none=True),
         )
+    except staff_service.StaffError as e:
+        raise HTTPException(400, str(e))
+
+
+class AvailabilityUpdate(BaseModel):
+    """근무 가능 시간만 따로 저장할 때 (통째 교체)"""
+
+    availability: List[AvailabilityWindow] = Field(default_factory=list)
+
+
+class ShiftCreate(BaseModel):
+    employee_id: int
+    date: str = Field(..., description="근무 날짜 YYYY-MM-DD")
+    start: str = Field("09:00", description="시작 시각 HH:MM")
+    end: str = Field("18:00", description="종료 시각 HH:MM (시작보다 이르면 익일로 본다)")
+
+
+class ShiftUpdate(BaseModel):
+    """교대·시간 변경 — 담당 직원을 바꾸는 것이 핵심이다"""
+
+    employee_id: Optional[int] = Field(None, description="이 근무를 대신할 직원 ID (교대)")
+    date: Optional[str] = None
+    start: Optional[str] = None
+    end: Optional[str] = None
+
+
+@router.put("/{employee_id}/availability", summary="직원 근무 가능 시간 저장 (통째 교체)")
+def save_availability_api(
+    employee_id: int,
+    body: AvailabilityUpdate,
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        windows = staff_service.save_availability(
+            current_user.email, employee_id,
+            [w.model_dump() for w in body.availability],
+        )
+        return {"employee_id": employee_id, "availability": windows,
+                "availability_text": staff_service.describe_windows(windows)}
+    except staff_service.StaffError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.get("/calendar", summary="월 근무 달력 — 날짜별 배정 근무 + 그날 가능한 직원")
+def calendar_api(
+    month: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+):
+    """month는 YYYY-MM, 생략하면 이번 달."""
+    try:
+        return staff_service.month_calendar(current_user.email, month=month)
+    except staff_service.StaffError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/shifts", summary="근무 배정 추가")
+def add_shift_api(
+    body: ShiftCreate,
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return staff_service.add_shift(
+            current_user.email, body.employee_id, body.date, body.start, body.end,
+        )
+    except staff_service.StaffError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.put("/shifts/{schedule_id}", summary="근무 교대 · 시간 변경")
+def update_shift_api(
+    schedule_id: int,
+    body: ShiftUpdate,
+    current_user: User = Depends(get_current_user),
+):
+    """employee_id를 보내면 그 근무를 다른 직원이 대신하는 것으로 바뀐다 (출퇴근 기록 유지)."""
+    try:
+        return staff_service.update_shift(
+            current_user.email, schedule_id,
+            employee_id=body.employee_id, day=body.date, start=body.start, end=body.end,
+        )
+    except staff_service.StaffError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.delete("/shifts/{schedule_id}", summary="근무 배정 삭제")
+def delete_shift_api(
+    schedule_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        staff_service.remove_shift(current_user.email, schedule_id)
+        return {"ok": True}
     except staff_service.StaffError as e:
         raise HTTPException(400, str(e))
 

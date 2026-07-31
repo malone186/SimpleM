@@ -6,7 +6,11 @@
 //
 // 그 위에 '주변 카페 상권 분석'을 얹는다 — 백엔드가 네이버 지역검색으로 반경 안의 카페를 모으고,
 // 네이버 블로그 후기를 수집해 Gemini로 분석한 결과를 마커·카드로 보여 준다.
-import { useCallback, useEffect, useState } from 'react';
+//
+// 그리고 '주변 행사'(축제·팝업·문화행사)를 같은 지도 위에 오렌지 핀으로 얹는다. 수집 소스는
+// 판매 예측이 쓰는 것과 같아서(관광공사·서울 문화행사·네이버 검색+AI) 예측의 매출 부스팅과
+// 화면에 보이는 행사가 어긋나지 않는다. 카페는 반경 선택(500m~2km), 행사는 예측과 같은 3km 고정.
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -30,6 +34,8 @@ import {
   type NearbyCafe,
   type NeighborhoodResult,
 } from '../../lib/api/nearbyCafes';
+import { describeApiFailure, type ApiFailure } from '../../lib/api/errors';
+import { getNearbyEvents, type NearbyEventsResult } from '../../lib/api/nearbyEvents';
 import {
   cacheRegisteredStore,
   resolveStoreLocation,
@@ -39,6 +45,9 @@ import {
 import { colors, shadows, spacing, typography } from '../../theme';
 
 const RADIUS_OPTIONS = [500, 1000, 2000] as const;
+
+// 행사 조회 기간 — 예측(1주)보다 넉넉히 잡아 "다음 주말 축제"까지 미리 보이게 한다
+const EVENT_DAYS = 14;
 
 export default function StoreMapScreen() {
   const { token, user } = useAuth();
@@ -52,6 +61,14 @@ export default function StoreMapScreen() {
   const [nearby, setNearby] = useState<NeighborhoodResult | null>(null);
   const [loadingNearby, setLoadingNearby] = useState(false);
   const [nearbyError, setNearbyError] = useState('');
+
+  // 주변 행사 — 카페와 독립적으로 뜬다(반경 고정 3km). 한쪽이 실패해도 다른 쪽은 보인다.
+  const [events, setEvents] = useState<NearbyEventsResult | null>(null);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+  // 행사는 '못 찾은 것'과 '못 불러온 것'을 같은 말투로 보여 준다 — 사장님에게는 둘 다
+  // "지금은 볼 수 있는 행사가 없다"는 같은 상황이고, 원인은 작은 글씨로만 덧붙인다.
+  const [eventsError, setEventsError] = useState<ApiFailure | null>(null);
+  const [showAllEvents, setShowAllEvents] = useState(false);
 
   const [selected, setSelected] = useState<NearbyCafe | null>(null);
   const [analysis, setAnalysis] = useState<CafeAnalysisResult | null>(null);
@@ -110,6 +127,45 @@ export default function StoreMapScreen() {
     setShowAllCafes(false);
     setDetailOpen(false);
   }, [loadNearby, radius]);
+
+  // 2-b) 주변 행사 — 반경 칩과 무관하게 한 번만. 카페 조회와 병렬로 돈다.
+  const loadEvents = useCallback(async () => {
+    if (!token || !store) return;
+    setLoadingEvents(true);
+    setEventsError(null);
+    try {
+      setEvents(await getNearbyEvents(token, EVENT_DAYS));
+    } catch (e) {
+      setEventsError(describeApiFailure(e, '주변 행사'));
+    } finally {
+      setLoadingEvents(false);
+    }
+  }, [token, store]);
+
+  useEffect(() => {
+    loadEvents();
+  }, [loadEvents]);
+
+  // 지도 마커용 변환 — 지도는 '행사 한 건 = 핀 하나'로 날짜 문자열만 보여 주면 된다.
+  // (좌표를 못 구한 행사는 핀을 찍을 수 없으니 목록에만 남긴다.)
+  // 훅 순서를 지키기 위해 매장 미등록 early return보다 위에 둔다.
+  const mapEvents = useMemo(
+    () =>
+      (events?.events ?? [])
+        .filter((e) => !!e.lat && !!e.lon)
+        .slice(0, 15) // 네이티브는 지도 URL에 payload를 실어 보내므로 길이를 묶어 둔다
+        .map((e) => ({
+          name: e.name,
+          place: e.place || '장소 미상',
+          date: e.start_date === e.end_date ? e.start_date : `${e.start_date} ~ ${e.end_date}`,
+          distance_km: e.distance_km ?? 0,
+          boost_pct: e.boost_pct,
+          source: e.source,
+          lat: e.lat,
+          lon: e.lon,
+        })),
+    [events],
+  );
 
   // 3) 카페 하나를 고르면 그 집의 네이버 후기 분석을 불러온다
   const openCafe = useCallback(
@@ -184,6 +240,9 @@ export default function StoreMapScreen() {
   }
 
   const insight = nearby?.insight ?? null;
+  const eventList = events?.events ?? [];
+  const visibleEvents = showAllEvents ? eventList : eventList.slice(0, 3);
+  const eventInsight = events?.insight ?? null;
   // 목록은 거리순이라 첫 항목이 곧 가장 가까운 경쟁점이다
   const nearest = nearby?.cafes[0]?.distance_m ?? null;
   const visibleCafes = showAllCafes ? (nearby?.cafes ?? []) : (nearby?.cafes ?? []).slice(0, 5);
@@ -199,6 +258,7 @@ export default function StoreMapScreen() {
             regionName={nearby?.region ?? store.region ?? ''}
             shopLabel={user?.name ? `내 매장 (${user.name})` : '내 매장'}
             nearbyCafes={nearby?.cafes ?? []}
+            nearbyEvents={mapEvents}
             onCafePress={openCafe}
             containerId="standalone-store-map"
           />
@@ -356,6 +416,121 @@ export default function StoreMapScreen() {
               )}
             </>
           )}
+
+          {/* ④ 주변 행사 — 지도의 오렌지 핀과 같은 데이터. 반경은 예측과 맞춰 3km 고정 */}
+          <View style={styles.radiusRow}>
+            <Text style={styles.sectionTitle}>주변 행사</Text>
+            <Text style={styles.sectionNote}>
+              반경 {events?.radius_km ?? 3}km · 앞으로 {events?.days ?? EVENT_DAYS}일
+            </Text>
+          </View>
+
+          {loadingEvents ? (
+            <View style={styles.inlineLoading}>
+              <ActivityIndicator size="small" color={colors.pointOrange} />
+              <Text style={styles.inlineLoadingText}>
+                축제·팝업·문화행사 일정을 모으는 중...
+              </Text>
+            </View>
+          ) : eventsError ? (
+            <View style={styles.eventEmptyBox}>
+              <Text style={styles.eventEmptyTitle}>
+                앞으로 {EVENT_DAYS}일 안에 열리는 주변 행사를 찾을 수 없어요.
+              </Text>
+              <Text style={styles.emptyHint}>{eventsError.message}</Text>
+              {eventsError.retryable && (
+                <TouchableOpacity style={styles.retryBtn} onPress={loadEvents}>
+                  <Text style={styles.retryText}>다시 시도</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : eventList.length === 0 ? (
+            <View style={styles.eventEmptyBox}>
+              <Text style={styles.eventEmptyTitle}>
+                앞으로 {events?.days ?? EVENT_DAYS}일 안에 반경 {events?.radius_km ?? 3}km에서
+                열리는 행사를 찾을 수 없어요.
+              </Text>
+              <Text style={styles.emptyHint}>
+                한국관광공사·서울시 공공데이터와 뉴스·블로그 검색 기준이라
+                소규모 행사는 빠질 수 있어요.
+              </Text>
+            </View>
+          ) : (
+            <>
+              {/* 행사 요약 — 얼마나 붐빌지와 미리 해 둘 일을 먼저 */}
+              {eventInsight && (
+                <View style={styles.eventInsightCard}>
+                  <View style={styles.eventInsightHead}>
+                    <Text style={styles.eventInsightHeadline}>🎉 {eventInsight.headline}</Text>
+                    <View style={styles.impactBadge}>
+                      <Text style={styles.impactText}>영향 {eventInsight.impact_level}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.insightSummary}>{eventInsight.summary}</Text>
+
+                  {eventInsight.peak_days?.length > 0 && (
+                    <TagBlock title="📈 붐빌 날" items={eventInsight.peak_days} tone="warn" />
+                  )}
+
+                  {eventInsight.actions?.length > 0 && (
+                    <View style={styles.actionBox}>
+                      <Text style={styles.actionTitle}>행사 전에 해 둘 일</Text>
+                      {eventInsight.actions.slice(0, 3).map((text, i) => (
+                        <View key={`ev-action-${i}`} style={styles.actionRow}>
+                          <View style={[styles.actionNum, styles.actionNumEvent]}>
+                            <Text style={styles.actionNumText}>{i + 1}</Text>
+                          </View>
+                          <Text style={styles.actionText}>{text}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {visibleEvents.map((e) => (
+                <View key={`${e.name}-${e.start_date}`} style={styles.eventCard}>
+                  <View style={styles.eventHead}>
+                    <View style={[styles.ddayBadge, e.ongoing && styles.ddayBadgeNow]}>
+                      <Text style={[styles.ddayText, e.ongoing && styles.ddayTextNow]}>
+                        {e.ongoing ? '진행 중' : `D-${e.d_day}`}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.eventName} numberOfLines={2}>
+                        {e.name}
+                      </Text>
+                      <Text style={styles.eventMeta} numberOfLines={1}>
+                        {formatEventRange(e.start_date, e.end_date)} · {e.place || '장소 미상'}
+                        {e.distance_km != null ? ` · ${e.distance_km}km` : ''}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {!!e.tip && <Text style={styles.eventTip}>💡 {e.tip}</Text>}
+
+                  <Text style={styles.eventSource}>
+                    {e.source}
+                    {e.boost_pct ? ` · 예측 매출 +${e.boost_pct}% 반영 중` : ''}
+                  </Text>
+                </View>
+              ))}
+
+              {eventList.length > visibleEvents.length && (
+                <TouchableOpacity style={styles.moreBtn} onPress={() => setShowAllEvents(true)}>
+                  <Text style={styles.moreBtnText}>
+                    행사 {eventList.length - visibleEvents.length}건 더 보기
+                  </Text>
+                  <Ionicons name="chevron-down" size={14} color={colors.espressoBrown} />
+                </TouchableOpacity>
+              )}
+
+              <Text style={styles.aiNote}>
+                공공데이터와 뉴스·블로그 검색으로 모은 일정이라 변동될 수 있어요.
+                같은 행사가 판매 예측의 매출 보정에도 함께 반영됩니다.
+              </Text>
+            </>
+          )}
         </View>
       </ScrollView>
 
@@ -462,6 +637,19 @@ export default function StoreMapScreen() {
       />
     </View>
   );
+}
+
+const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+
+// 행사 기간 표기 — 사장님이 보는 건 '몇 월 며칠 무슨 요일'이지 ISO 날짜가 아니다.
+// 하루짜리면 한 날짜만, 여러 날이면 시작~종료로 묶는다.
+function formatEventRange(start: string, end: string) {
+  const label = (iso: string) => {
+    const [y, m, d] = iso.split('-').map(Number);
+    const weekday = WEEKDAYS[new Date(y, (m ?? 1) - 1, d ?? 1).getDay()] ?? '';
+    return `${m}/${d}(${weekday})`;
+  };
+  return start === end ? label(start) : `${label(start)} ~ ${label(end)}`;
 }
 
 // 한눈 요약 숫자 한 칸 (주변 카페 수 · 최근접 거리 · 경쟁 강도)
@@ -572,6 +760,7 @@ const styles = StyleSheet.create({
 
   radiusRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 },
   sectionTitle: { ...typography.L3, color: colors.espressoBrown },
+  sectionNote: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: {
     paddingHorizontal: 11,
@@ -650,6 +839,8 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   actionNumText: { fontSize: 10, fontWeight: '900', color: colors.white },
+  // 행사 쪽 번호는 지도 핀과 같은 오렌지 — 어느 카드의 할 일인지 색으로 구분된다
+  actionNumEvent: { backgroundColor: colors.pointOrange },
   actionText: { ...typography.L5, color: colors.espressoBrown, flex: 1, lineHeight: 17, fontWeight: '600' },
 
   moreBtn: {
@@ -689,6 +880,85 @@ const styles = StyleSheet.create({
   distanceText: { ...typography.L5, color: colors.trendGreenText, fontWeight: '800' },
   cafeName: { ...typography.L4, color: colors.espressoBrown },
   cafeMeta: { ...typography.L5, color: colors.mochaBrown, marginTop: 2 },
+
+  // --- 주변 행사 ---
+  // '없음'과 '못 불러옴'을 같은 상자로 — 화면이 빨간 오류 카드로 놀라게 하지 않는다
+  eventEmptyBox: {
+    backgroundColor: colors.white,
+    borderRadius: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 14,
+    gap: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+  },
+  // 상자 안에서는 emptyText의 위아래 여백(paddingVertical)이 이중이 되므로 따로 둔다
+  eventEmptyTitle: {
+    ...typography.L4,
+    color: colors.espressoBrown,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  emptyHint: {
+    ...typography.L5,
+    color: '#A99C90',
+    textAlign: 'center',
+    lineHeight: 16,
+  },
+  // 카페 카드(초록 거리 배지)와 헷갈리지 않게 행사는 오렌지 계열로 통일한다 (지도 핀과 같은 색)
+  eventInsightCard: {
+    backgroundColor: colors.white,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(226, 130, 87, 0.35)',
+    ...shadows.soft,
+  },
+  eventInsightHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  eventInsightHeadline: { ...typography.L3, color: colors.espressoBrown, flex: 1, lineHeight: 21 },
+  impactBadge: {
+    backgroundColor: 'rgba(226, 130, 87, 0.14)',
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+  },
+  impactText: { ...typography.L5, color: '#B4542C', fontWeight: '800' },
+
+  eventCard: {
+    backgroundColor: colors.white,
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    gap: 7,
+  },
+  eventHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  // D-day를 왼쪽에 — 목록을 훑을 때 '언제 대비해야 하나'가 먼저 보이게
+  ddayBadge: {
+    minWidth: 46,
+    paddingVertical: 5,
+    paddingHorizontal: 7,
+    borderRadius: 9,
+    backgroundColor: 'rgba(226, 130, 87, 0.12)',
+    alignItems: 'center',
+  },
+  ddayBadgeNow: { backgroundColor: colors.pointOrange },
+  ddayText: { ...typography.L5, color: '#B4542C', fontWeight: '800' },
+  ddayTextNow: { color: colors.white },
+  eventName: { ...typography.L4, color: colors.espressoBrown, lineHeight: 18 },
+  eventMeta: { ...typography.L5, color: colors.mochaBrown, marginTop: 3 },
+  eventTip: {
+    ...typography.L5,
+    color: colors.espressoBrown,
+    fontWeight: '700',
+    lineHeight: 17,
+    backgroundColor: colors.creamSand,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  eventSource: { ...typography.L5, color: '#A99C90' },
   emptyText: { ...typography.L5, color: colors.mochaBrown, textAlign: 'center', paddingVertical: 18 },
 
   modalRoot: { flex: 1, justifyContent: 'flex-end', width: '100%', maxWidth: 420, alignSelf: 'center' },

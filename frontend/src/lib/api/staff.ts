@@ -41,6 +41,13 @@ export type LaborCost = {
   disclaimer: string;
 };
 
+/** 근무 가능 시간 한 칸 — day_of_week는 0=월 … 6=일 (백엔드 기피시간과 같은 규칙) */
+export type AvailabilityWindow = {
+  day_of_week: number;
+  start_hour: number;
+  end_hour: number;
+};
+
 export type StaffMember = {
   id: number;
   name: string;
@@ -49,7 +56,53 @@ export type StaffMember = {
   /** 근무 달력에 등록된 이번 달 시간 (0이면 스케줄 없음) */
   scheduled_hours: number;
   profile: StaffProfile;
+  /** "언제 일할 수 있어요?"의 답 — 달력에서 배정 가능한 사람을 뽑는 근거 */
+  availability: AvailabilityWindow[];
+  /** '월·수 09~14시' 같은 한 줄 요약 (서버가 만든다 — 화면·챗봇이 같은 문장을 쓰게) */
+  availability_text: string;
   cost: LaborCost;
+};
+
+/** 달력의 근무 한 칸 */
+export type Shift = {
+  id: number;
+  employee_id: number;
+  name: string;
+  role: string;
+  date: string;
+  start: string; // HH:MM
+  end: string;   // HH:MM
+  hours: number;
+  /** true=가능 시간 안 / false=가능 시간 밖 / null=가능 시간 미입력 */
+  fits_availability: boolean | null;
+};
+
+export type CalendarDay = {
+  date: string;
+  weekday: number;      // 0=월
+  weekday_label: string;
+  shifts: Shift[];
+  hours: number;
+  available: {
+    employee_id: number;
+    name: string;
+    role: string;
+    windows: AvailabilityWindow[];
+    already_assigned: boolean;
+  }[];
+};
+
+export type StaffCalendar = {
+  month: string;
+  days: CalendarDay[];
+  staff: {
+    id: number;
+    name: string;
+    role: string;
+    availability: AvailabilityWindow[];
+    availability_text: string;
+  }[];
+  weekday_labels: string[];
 };
 
 export type StaffList = {
@@ -95,6 +148,8 @@ export type StaffEditable = {
   name: string;
   role: string;
   hourly_rate: number;
+  /** 보낸 경우에만 통째로 교체된다 (빈 배열이면 가능 시간 전부 삭제) */
+  availability: AvailabilityWindow[];
   employment_type: EmploymentType;
   pay_type: 'hourly' | 'monthly';
   monthly_salary: number;
@@ -145,6 +200,54 @@ export const saveStaffProfile = (
     headers: auth(token),
     body: JSON.stringify(body),
   });
+
+/** 근무 가능 시간만 따로 저장 (통째 교체) */
+export const saveAvailability = (
+  token: string,
+  employeeId: number,
+  availability: AvailabilityWindow[],
+) =>
+  apiFetch<{ employee_id: number; availability: AvailabilityWindow[]; availability_text: string }>(
+    `/api/v1/staff/${employeeId}/availability`,
+    { method: 'PUT', headers: auth(token), body: JSON.stringify({ availability }) },
+  );
+
+/** 월 근무 달력 — 날짜별 배정 근무 + 그날 근무 가능한 직원 */
+export const getStaffCalendar = (token: string, month?: string) =>
+  apiFetch<StaffCalendar>(`/api/v1/staff/calendar${month ? `?month=${month}` : ''}`, {
+    headers: auth(token),
+  });
+
+export const addShift = (
+  token: string,
+  body: { employee_id: number; date: string; start: string; end: string },
+) =>
+  apiFetch<Shift>('/api/v1/staff/shifts', {
+    method: 'POST',
+    headers: auth(token),
+    body: JSON.stringify(body),
+  });
+
+/** 교대(담당 직원 교체)와 시간 변경 — employee_id를 보내면 그 근무를 다른 사람이 맡는다 */
+export const updateShift = (
+  token: string,
+  shiftId: number,
+  body: { employee_id?: number; date?: string; start?: string; end?: string },
+) =>
+  apiFetch<Shift>(`/api/v1/staff/shifts/${shiftId}`, {
+    method: 'PUT',
+    headers: auth(token),
+    body: JSON.stringify(body),
+  });
+
+export const deleteShift = (token: string, shiftId: number) =>
+  apiFetch<{ ok: boolean }>(`/api/v1/staff/shifts/${shiftId}`, {
+    method: 'DELETE',
+    headers: auth(token),
+  });
+
+/** 요일 라벨 — 0=월 … 6=일 (서버와 같은 순서) */
+export const WEEKDAY_LABELS = ['월', '화', '수', '목', '금', '토', '일'];
 
 export const getWeeklyPayroll = (token: string, weekStart?: string) =>
   apiFetch<WeeklyPayroll>(

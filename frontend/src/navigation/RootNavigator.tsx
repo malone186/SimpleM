@@ -28,6 +28,7 @@ import OrderScreen from '../screens/order/OrderScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 import SalesInputScreen from '../screens/sales/SalesInputScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
+import StaffCalendarScreen from '../screens/staff/StaffCalendarScreen';
 import StaffScreen from '../screens/staff/StaffScreen';
 import TaxDraftDetailScreen from '../screens/document/TaxDraftDetailScreen';
 import { colors, typography } from '../theme';
@@ -63,6 +64,7 @@ export type RootStackParamList = {
   TaxDraftDetail: { tax: TaxEstimate };
   Operation: undefined;
   Staff: undefined;
+  StaffCalendar: undefined;
   BeanOperation: undefined;
   // section: 특정 설정 하위 화면으로 바로 진입 (예: 카드 정산 설정)
   Settings: { section?: 'account' | 'notification' | 'appearance' | 'inquiry' | 'legal' | 'settlement' } | undefined;
@@ -168,7 +170,7 @@ export default function RootNavigator() {
         />
         <Stack.Screen name="Ingredient" component={IngredientScreen} options={({ navigation }) => erpHeader('재료 관리', navigation)} />
         <Stack.Screen name="Menu" component={MenuScreen} options={({ navigation }) => erpHeader('메뉴 관리', navigation)} />
-        <Stack.Screen name="SalesInput" component={SalesInputScreen} options={({ navigation }) => erpHeader('판매 입력', navigation)} />
+        <Stack.Screen name="SalesInput" component={SalesInputScreen} options={({ navigation }) => erpHeader('매출 입력', navigation)} />
         <Stack.Screen name="ManualSales" component={ManualSalesScreen} options={({ navigation }) => erpHeader('직접 입력', navigation)} />
         <Stack.Screen name="Marketing" component={MarketingScreen} options={({ navigation }) => erpHeader('홍보 스튜디오', navigation)} />
         <Stack.Screen name="Cost" component={CostScreen} options={({ navigation }) => erpHeader('원가 분석', navigation)} />
@@ -177,6 +179,7 @@ export default function RootNavigator() {
         <Stack.Screen name="TaxDraftDetail" component={TaxDraftDetailScreen} options={({ navigation }) => erpHeader('세금 신고 초안', navigation)} />
         <Stack.Screen name="Operation" component={OperationScreen} options={({ navigation }) => erpHeader('직원 · 스케줄', navigation)} />
         <Stack.Screen name="Staff" component={StaffScreen} options={({ navigation }) => erpHeader('직원 · 인건비', navigation)} />
+        <Stack.Screen name="StaffCalendar" component={StaffCalendarScreen} options={({ navigation }) => erpHeader('근무 달력 · 교대', navigation)} />
         <Stack.Screen name="BeanOperation" component={BeanOperationScreen} options={({ navigation }) => erpHeader('운영 · 원두 실리뷰 분석', navigation)} />
 
         <Stack.Screen name="Settings" component={SettingsScreen} options={({ navigation }) => erpHeader('설정', navigation)} />

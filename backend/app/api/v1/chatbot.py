@@ -61,6 +61,7 @@ from app.services.ai import (
     insight_service,
     marketing_service,
     nearby_cafe_service,
+    nearby_event_service,
     notification_service,
     ocr_service,
     price_service,
@@ -507,6 +508,31 @@ def get_cafe_analysis_api(
     if not result["review_count"]:
         raise HTTPException(404, f"'{name}'에 대한 네이버 후기를 찾지 못했습니다.")
     return result
+
+
+@router.get("/nearby-events")
+def get_nearby_events_api(
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
+    days: int = nearby_event_service.DEFAULT_DAYS,
+    insight: bool = True,
+    current_user: User = Depends(get_current_user),
+):
+    """매장 반경 3km에서 앞으로 days일 안에 열리는 행사 + 대비 조언 (매장 지도 화면).
+
+    수집 소스는 예측과 같다(한국관광공사·서울 문화행사·네이버 검색+AI 정리).
+    insight=false면 AI 조언 없이 목록만 — 챗봇·위젯처럼 빨라야 하는 호출용.
+    행사가 0건이어도 200으로 빈 목록을 준다 (없는 것도 정보다).
+    """
+    p_lat, p_lon = _store_point(current_user, lat, lon)
+    if not insight:
+        return nearby_event_service.find_nearby_events(p_lat, p_lon, days=days)
+    return nearby_event_service.analyze_nearby_events(
+        p_lat, p_lon,
+        store_name=current_user.store_name or current_user.name or "내 매장",
+        biz_type=current_user.store_biz_type or "",
+        days=days,
+    )
 
 
 class SaleItemIn(BaseModel):

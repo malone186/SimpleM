@@ -27,7 +27,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -46,6 +46,8 @@ import {
   INSURANCE_TYPE_FALLBACK,
   listStaff,
   saveStaffProfile,
+  WEEKDAY_LABELS,
+  type AvailabilityWindow,
   type EmploymentType,
   type InsuranceType,
   type StaffEditable,
@@ -101,6 +103,37 @@ type Draft = {
   weekly_hours: string;
   insurance: InsuranceType;
   weekly_holiday_pay: boolean;
+  /** 근무 가능 시간 — 화면에서는 "요일 여러 개 + 시간대 하나"가 한 줄이다 */
+  avail: AvailRow[];
+};
+
+/** '월·수 09~14시'를 한 줄로 편집하기 위한 모양. 저장할 땐 요일마다 한 칸으로 펼친다. */
+type AvailRow = { days: number[]; start: number; end: number };
+
+const rowsFromWindows = (ws: AvailabilityWindow[] = []): AvailRow[] => {
+  const map = new Map<string, AvailRow>();
+  ws.forEach((w) => {
+    const key = `${w.start_hour}-${w.end_hour}`;
+    const row = map.get(key) ?? { days: [], start: w.start_hour, end: w.end_hour };
+    if (!row.days.includes(w.day_of_week)) row.days.push(w.day_of_week);
+    map.set(key, row);
+  });
+  return [...map.values()]
+    .map((r) => ({ ...r, days: [...r.days].sort((a, b) => a - b) }))
+    .sort((a, b) => (a.days[0] ?? 0) - (b.days[0] ?? 0) || a.start - b.start);
+};
+
+const windowsFromRows = (rows: AvailRow[]): AvailabilityWindow[] =>
+  rows
+    .filter((r) => r.end > r.start)
+    .flatMap((r) => r.days.map((d) => ({ day_of_week: d, start_hour: r.start, end_hour: r.end })));
+
+/** 서버가 주는 요약 문장과 같은 규칙 — 저장 전(등록 시트)에도 같은 문장을 보여주려고 둔다 */
+const describeRows = (rows: AvailRow[]): string => {
+  const parts = rows
+    .filter((r) => r.days.length > 0 && r.end > r.start)
+    .map((r) => `${r.days.map((d) => WEEKDAY_LABELS[d]).join('·')} ${String(r.start).padStart(2, '0')}~${String(r.end).padStart(2, '0')}시`);
+  return parts.length ? parts.join(', ') : '가능 시간 미입력';
 };
 
 const EMPTY_DRAFT: Draft = {
@@ -113,6 +146,7 @@ const EMPTY_DRAFT: Draft = {
   weekly_hours: '',
   insurance: 'two',
   weekly_holiday_pay: true,
+  avail: [],
 };
 
 const draftOf = (m: StaffMember): Draft => ({
@@ -125,6 +159,7 @@ const draftOf = (m: StaffMember): Draft => ({
   weekly_hours: String(m.profile.weekly_hours || ''),
   insurance: m.profile.insurance,
   weekly_holiday_pay: m.profile.weekly_holiday_pay,
+  avail: rowsFromWindows(m.availability),
 });
 
 /** 화면의 문자열 입력값을 서버가 받는 숫자/불리언으로 바꾼다 (보낸 키만 저장된다) */
@@ -139,6 +174,7 @@ function toApi(patch: Partial<Draft>): Partial<StaffEditable> {
   if (patch.weekly_hours !== undefined) body.weekly_hours = Math.min(80, toNum(patch.weekly_hours));
   if (patch.insurance !== undefined) body.insurance = patch.insurance;
   if (patch.weekly_holiday_pay !== undefined) body.weekly_holiday_pay = patch.weekly_holiday_pay;
+  if (patch.avail !== undefined) body.availability = windowsFromRows(patch.avail);
   return body;
 }
 
@@ -174,6 +210,7 @@ function withTotals(list: StaffList, staff: StaffMember[]): StaffList {
 export default function StaffScreen() {
   const { token } = useAuth();
   const isFocused = useIsFocused();
+  const navigation = useNavigation<any>();
   const [data, setData] = useState<StaffList | null>(null);
   const [weekly, setWeekly] = useState<WeeklyPayroll | null>(null);
   // 실패 사유를 그대로 들고 있는다 — "가져오지 못했어요"만 띄우면 사장님도 나도
@@ -231,8 +268,11 @@ export default function StaffScreen() {
     }, 700);
   }, [token]);
 
+  const availTimer = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+
   useEffect(() => () => {
     if (weeklyTimer.current) clearTimeout(weeklyTimer.current);
+    Object.values(availTimer.current).forEach(clearTimeout);
   }, []);
 
   /** 편집 반영 — 화면부터 바꾸고(persist=false면 여기까지), 서버 저장은 뒤따른다 */
@@ -271,6 +311,20 @@ export default function StaffScreen() {
     },
     [token, load, refreshWeekly],
   );
+
+  // 디바운스된 저장이 옛 edit을 붙잡지 않도록 최신 함수를 참조로 들고 있는다
+  const editRef = useRef(edit);
+  useEffect(() => {
+    editRef.current = edit;
+  }, [edit]);
+
+  // 가능 시간은 요일 칩·시간 화살표를 연달아 누르며 맞춘다 — 누를 때마다 저장하면
+  // 요청이 줄줄이 나가므로, 손이 멈춘 뒤 한 번만 보낸다.
+  const editAvail = useCallback((emp: StaffMember, rows: AvailRow[]) => {
+    setDrafts((d) => ({ ...d, [emp.id]: { ...(d[emp.id] ?? draftOf(emp)), avail: rows } }));
+    clearTimeout(availTimer.current[emp.id]);
+    availTimer.current[emp.id] = setTimeout(() => editRef.current(emp, { avail: rows }, true), 900);
+  }, []);
 
   const submitNew = async () => {
     if (!token || submitting) return;
@@ -406,6 +460,24 @@ export default function StaffScreen() {
           </Card>
         )}
 
+        {/* 가능 시간을 받아 두면 여기서 바로 달력에 배정할 수 있다 */}
+        <PressableScale
+          style={styles.calendarLink}
+          to={0.98}
+          onPress={() => navigation.navigate('StaffCalendar')}
+        >
+          <View style={styles.calendarIcon}>
+            <Ionicons name="calendar-outline" size={17} color={colors.espressoBrown} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.calendarTitle}>근무 달력 · 교대</Text>
+            <Text style={styles.calendarSub}>
+              가능 시간에 맞춰 근무를 넣고, 바뀐 날은 다른 직원으로 교대할 수 있어요
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.mochaBrown} />
+        </PressableScale>
+
         <Button label="+ 직원 추가" variant="secondary" onPress={() => setAdding(true)} />
 
         {!data && !failed && (
@@ -478,6 +550,7 @@ export default function StaffScreen() {
                         <Badge label={`주 ${c.weekly_hours}시간 (직접 입력)`} tone="neutral" />
                       )}
                       {c.hours_source === 'none' && <Badge label="근무 시간 미입력" tone="orange" />}
+                      {d.avail.length > 0 && <Badge label={describeRows(d.avail)} tone="neutral" />}
                       {c.weekly_holiday_pay > 0 && <Badge label="주휴수당 발생" tone="green" />}
                       {c.below_min_wage && <Badge label="최저임금 미달" tone="danger" />}
                     </View>
@@ -515,8 +588,13 @@ export default function StaffScreen() {
                     employmentTypes={employmentTypes}
                     insuranceTypes={insuranceTypes}
                     minWage={minWage}
-                    // 상세에서는 고른 즉시 저장한다. 숫자는 입력이 끝났을 때(onCommit) 한 번만.
-                    onChange={(patch) => edit(emp, patch, false)}
+                    // 상세에서는 고른 즉시 저장한다. 숫자는 입력이 끝났을 때(onCommit),
+                    // 가능 시간은 연달아 누르므로 손이 멈춘 뒤(디바운스) 한 번만 보낸다.
+                    onChange={(patch) =>
+                      patch.avail !== undefined
+                        ? editAvail(emp, patch.avail)
+                        : edit(emp, patch, false)
+                    }
                     onCommit={(patch) => edit(emp, patch)}
                     scheduleNote={
                       c.hours_source === 'schedule' && d.pay_type !== 'monthly'
@@ -729,6 +807,86 @@ function StaffFields({
         {insuranceTypes.find((t) => t.code === draft.insurance)?.note}
       </Text>
 
+      <Divider />
+
+      {/* 근무 가능 시간 — 알바를 받을 때 실제로 가장 먼저 묻는 질문 */}
+      <View style={styles.rowBetween}>
+        <Text style={styles.fieldLabel}>근무 가능 시간</Text>
+        <Text style={styles.availSummary}>{describeRows(draft.avail)}</Text>
+      </View>
+      <Text style={[styles.optionNote, { marginTop: 0, marginBottom: 8 }]}>
+        요일을 고르고 시간대를 맞춰 주세요. 달력에서 이 시간에 맞춰 근무를 넣을 수 있어요.
+      </Text>
+
+      {draft.avail.map((row, i) => (
+        <View key={i} style={styles.availRow}>
+          <View style={styles.dayWrap}>
+            {WEEKDAY_LABELS.map((label, dow) => {
+              const on = row.days.includes(dow);
+              return (
+                <TouchableOpacity
+                  key={label}
+                  activeOpacity={0.7}
+                  style={[styles.dayChip, on && styles.dayChipOn]}
+                  onPress={() => {
+                    const days = on ? row.days.filter((d) => d !== dow) : [...row.days, dow].sort((a, b) => a - b);
+                    onChange({ avail: draft.avail.map((r, j) => (j === i ? { ...r, days } : r)) });
+                  }}
+                >
+                  <Text style={[styles.dayChipText, on && styles.dayChipTextOn]}>{label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <View style={styles.hourRow}>
+            <HourStepper
+              label="시작"
+              value={row.start}
+              min={0}
+              max={23}
+              onChange={(v) =>
+                onChange({
+                  avail: draft.avail.map((r, j) =>
+                    j === i ? { ...r, start: v, end: Math.max(r.end, v + 1) } : r,
+                  ),
+                })
+              }
+            />
+            <HourStepper
+              label="종료"
+              value={row.end}
+              min={1}
+              max={24}
+              onChange={(v) =>
+                onChange({
+                  avail: draft.avail.map((r, j) =>
+                    j === i ? { ...r, end: v, start: Math.min(r.start, v - 1) } : r,
+                  ),
+                })
+              }
+            />
+            <TouchableOpacity
+              activeOpacity={0.7}
+              style={styles.availDelete}
+              onPress={() => onChange({ avail: draft.avail.filter((_, j) => j !== i) })}
+            >
+              <Ionicons name="close" size={14} color="#B23B2E" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      ))}
+
+      <TouchableOpacity
+        activeOpacity={0.7}
+        style={styles.availAdd}
+        onPress={() => onChange({ avail: [...draft.avail, { days: [], start: 9, end: 18 }] })}
+      >
+        <Ionicons name="add" size={14} color={colors.espressoBrown} />
+        <Text style={styles.availAddText}>
+          {draft.avail.length === 0 ? '가능 시간 추가' : '다른 시간대 추가 (주말은 따로 등)'}
+        </Text>
+      </TouchableOpacity>
+
       {/* 주휴수당 토글 */}
       <View style={styles.switchRow}>
         <View style={{ flex: 1 }}>
@@ -780,6 +938,44 @@ function CostRow({
       >
         {value}
       </Text>
+    </View>
+  );
+}
+
+// 시각 선택 — 키보드를 띄우지 않고 한 시간씩 —/+ (알바 시간은 대부분 정시 단위다)
+function HourStepper({
+  label,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <View style={styles.stepper}>
+      <TouchableOpacity
+        activeOpacity={0.7}
+        style={styles.stepBtn}
+        onPress={() => onChange(Math.max(min, value - 1))}
+      >
+        <Ionicons name="remove" size={13} color={colors.espressoBrown} />
+      </TouchableOpacity>
+      <View style={{ alignItems: 'center', minWidth: 42 }}>
+        <Text style={styles.stepLabel}>{label}</Text>
+        <Text style={styles.stepValue}>{String(value).padStart(2, '0')}시</Text>
+      </View>
+      <TouchableOpacity
+        activeOpacity={0.7}
+        style={styles.stepBtn}
+        onPress={() => onChange(Math.min(max, value + 1))}
+      >
+        <Ionicons name="add" size={13} color={colors.espressoBrown} />
+      </TouchableOpacity>
     </View>
   );
 }
@@ -942,6 +1138,70 @@ const styles = StyleSheet.create({
 
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
 
+  availSummary: { ...typography.L5, color: colors.pointOrange, fontWeight: '800', flexShrink: 1, textAlign: 'right' },
+  availRow: {
+    backgroundColor: colors.white,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    padding: 8,
+    marginBottom: 8,
+    gap: 8,
+  },
+  dayWrap: { flexDirection: 'row', gap: 4 },
+  dayChip: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: colors.creamSand,
+  },
+  dayChipOn: { backgroundColor: colors.espressoBrown },
+  dayChipText: { fontSize: 11, fontWeight: '800', color: colors.mochaBrown },
+  dayChipTextOn: { color: colors.white },
+  hourRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  stepper: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.creamSand,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+  },
+  stepBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepLabel: { fontSize: 9, color: colors.mochaBrown },
+  stepValue: { ...typography.L4, color: colors.espressoBrown },
+  availDelete: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(178,59,46,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  availAdd: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    backgroundColor: colors.white,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    borderStyle: 'dashed',
+    paddingVertical: 10,
+  },
+  availAddText: { ...typography.L5, color: colors.espressoBrown, fontWeight: '800' },
+
   numBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -990,6 +1250,26 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   retryText: { ...typography.L5, color: colors.espressoBrown, fontWeight: '800' },
+  calendarLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: colors.white,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    padding: 12,
+  },
+  calendarIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: colors.coffeeCream,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  calendarTitle: { ...typography.L3, color: colors.espressoBrown },
+  calendarSub: { ...typography.L5, color: colors.mochaBrown, marginTop: 3, lineHeight: 15 },
   stateWrap: { alignItems: 'center', gap: 8, paddingVertical: 8 },
   stateText: { ...typography.L5, color: colors.mochaBrown, textAlign: 'center', lineHeight: 17 },
 });

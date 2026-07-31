@@ -98,10 +98,94 @@ def test_nearby_events_merges_and_dedupes(monkeypatch):
          "distance_km": 1.2, "place": "", "source": "서울 열린데이터광장",
          "lat": 37.56, "lon": 126.97},
     ])
+    monkeypatch.setattr(fs, "_fetch_events_naver", lambda *a: [
+        # 띄어쓰기만 다른 같은 행사 — 공백 무시 키로 중복 제거되어야 한다
+        {"name": "겹치는축제", "date": "2026-08-01", "boost_pct": 5,
+         "distance_km": 0.5, "place": "", "source": "네이버 검색",
+         "lat": 37.57, "lon": 126.98},
+        {"name": "골목 플리마켓", "date": "2026-08-01", "boost_pct": 5,
+         "distance_km": 0.8, "place": "골목시장", "source": "네이버 검색",
+         "lat": 37.57, "lon": 126.97},
+    ])
     try:
         events = fs._fetch_nearby_events(37.5665, 126.9780, date(2026, 8, 1), 7)
     finally:
         fs._event_cache.clear()  # 몽키패치로 만든 결과가 6시간 캐시에 남지 않게
     names = [e["name"] for e in events]
     assert names.count("겹치는 축제") == 1        # (제목, 날짜) 중복 제거
+    assert "겹치는축제" not in names               # 공백만 다른 중복도 제거
     assert "서울만 아는 공연" in names             # 서울 고유 행사는 유지
+    assert "골목 플리마켓" in names                # 검색으로만 잡히는 행사는 추가
+
+
+def test_nearby_events_survives_dead_source(monkeypatch):
+    """한 소스가 예외를 던져도 나머지 소스 결과로 예측이 계속돼야 한다."""
+    fs._event_cache.clear()
+
+    def _boom(*a):
+        raise RuntimeError("API down")
+
+    monkeypatch.setattr(fs, "_fetch_events_tourapi", _boom)
+    monkeypatch.setattr(fs, "_fetch_events_seoul", _boom)
+    monkeypatch.setattr(fs, "_fetch_events_naver", lambda *a: [
+        {"name": "살아남은 축제", "date": "2026-08-01", "boost_pct": 5,
+         "distance_km": 0.3, "place": "광장", "source": "네이버 검색",
+         "lat": 37.57, "lon": 126.98},
+    ])
+    try:
+        events = fs._fetch_nearby_events(37.5665, 126.9780, date(2026, 8, 1), 7)
+    finally:
+        fs._event_cache.clear()
+    assert [e["name"] for e in events] == ["살아남은 축제"]
+
+
+# ---------------------------------------------------------------------------
+# 3) 전국 행사 (네이버 검색 + Gemini 정리) — 키 발급 없이 도는 기본 소스
+# ---------------------------------------------------------------------------
+
+def _patch_naver_source(monkeypatch, extracted):
+    """역지오코딩·네이버 검색·Gemini·지오코딩을 전부 가짜로 바꾼다 (외부 호출 없음)."""
+    from app.services.ai import nearby_cafe_service as ncs
+
+    monkeypatch.setattr(fs, "_reverse_geocode", lambda lat, lon: "서울특별시 중구 소공동")
+    monkeypatch.setattr(ncs, "_search_naver", lambda *a, **kw: [
+        {"title": "중구 <b>여름축제</b> 8월 1일 개막", "description": "시청 앞 광장에서 이틀간",
+         "pubDate": "Fri, 24 Jul 2026 09:00:00 +0900"},
+    ])
+    monkeypatch.setattr(ncs, "_gemini_json", lambda *a, **kw: {"events": extracted})
+    # 장소명 → 좌표: '시청'만 매장 근처, 나머지는 부산(반경 밖)
+    monkeypatch.setattr(fs, "geocode", lambda q: (
+        {"lat": 37.5700, "lon": 126.9800, "address": q, "name": q, "source": "test"}
+        if "시청" in q else {"lat": 35.1531, "lon": 129.1187, "address": q,
+                             "name": q, "source": "test"}
+    ))
+
+
+def test_naver_events_filters_by_radius_and_window(monkeypatch):
+    _patch_naver_source(monkeypatch, [
+        {"name": "시청앞 여름축제", "start_date": "2026-08-01", "end_date": "2026-08-02",
+         "place": "서울시청 광장"},
+        {"name": "부산 불꽃축제", "start_date": "2026-08-01", "end_date": "2026-08-01",
+         "place": "광안리해수욕장"},                                   # 반경 밖
+        {"name": "지난달 행사", "start_date": "2026-07-01", "end_date": "2026-07-03",
+         "place": "서울시청 광장"},                                    # 예측 기간 밖
+        {"name": "날짜 없는 행사", "start_date": "미정", "end_date": "미정",
+         "place": "서울시청 광장"},                                    # 날짜 파싱 불가
+        {"name": "상설 미디어아트 전시", "start_date": "2026-06-01", "end_date": "2026-12-31",
+         "place": "서울시청 광장"},                                    # 한 달 초과 = 상설
+        {"name": "장소가 구청뿐인 행사", "start_date": "2026-08-01", "end_date": "2026-08-01",
+         "place": "서울특별시 중구"},                                  # 행정구역명뿐
+    ])
+    events = fs._fetch_events_naver(37.5665, 126.9780, date(2026, 8, 1), 7)
+
+    assert {e["name"] for e in events} == {"시청앞 여름축제"}
+    assert sorted(e["date"] for e in events) == ["2026-08-01", "2026-08-02"]
+    assert all(e["source"] == "네이버 검색" for e in events)
+    # 검색 기반이라 공공 API보다 보수적으로 부스팅한다
+    assert all(e["boost_pct"] == fs.SEARCH_EVENT_BOOST < fs.AUTO_EVENT_BOOST for e in events)
+
+
+def test_naver_events_skipped_without_region(monkeypatch):
+    """역지오코딩이 실패하면(좌표 문자열) 검색 키워드를 못 만드니 조용히 건너뛴다."""
+    monkeypatch.setattr(fs, "_reverse_geocode", lambda lat, lon: "위도 37.5665, 경도 126.9780")
+    assert fs._fetch_events_naver(37.5665, 126.9780, date(2026, 8, 1), 7) == []

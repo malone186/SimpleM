@@ -19,8 +19,9 @@
 
 from __future__ import annotations
 
+import calendar as _calendar
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -134,6 +135,7 @@ def _staff_entry(db, emp, prof: dict[str, Any], month: Optional[str] = None) -> 
     """
     target_month = month or date.today().strftime("%Y-%m")
     scheduled = _scheduled_hours_by_employee(db, [emp.id], target_month).get(emp.id, 0.0)
+    windows = _availability_by_employee(db, [emp.id]).get(emp.id, [])
     return {
         "id": emp.id,
         "name": emp.name,
@@ -141,6 +143,8 @@ def _staff_entry(db, emp, prof: dict[str, Any], month: Optional[str] = None) -> 
         "hourly_rate": emp.hourly_rate,
         "scheduled_hours": scheduled,
         "profile": prof,
+        "availability": windows,
+        "availability_text": describe_windows(windows),
         "cost": estimate_labor_cost(emp.hourly_rate or 0, prof, scheduled),
     }
 
@@ -159,6 +163,7 @@ def create_staff(store_id: str, name: str, hourly_rate: int = 0,
     name = (name or "").strip()
     if not name:
         raise StaffError("직원 이름을 입력해 주세요.")
+    windows = _clean_windows(fields.pop("availability", None) or [])
     _validate(fields)
 
     db = _session()
@@ -177,6 +182,10 @@ def create_staff(store_id: str, name: str, hourly_rate: int = 0,
         base.update({k: v for k, v in fields.items() if k in PROFILE_FIELDS and v is not None})
         p = EmployeeProfile(store_id=store_id, **base)
         db.add(p)
+        # 근무 가능 시간도 같은 트랜잭션에서 — 등록할 때 물어본 답이 흩어지지 않게
+        from app.models.ai import EmployeeAvailability
+        for w in windows:
+            db.add(EmployeeAvailability(employee_id=emp.id, store_id=store_id, **w))
         db.commit()
         db.refresh(emp)
         db.refresh(p)
@@ -186,9 +195,12 @@ def create_staff(store_id: str, name: str, hourly_rate: int = 0,
 
 
 def save_profile(store_id: str, employee_id: int, **fields) -> dict[str, Any]:
-    from app.models.ai import EmployeeProfile
+    from app.models.ai import EmployeeAvailability, EmployeeProfile
     from app.models.operation import Employee
 
+    # 근무 가능 시간은 통째로 교체한다. 키가 아예 안 오면 건드리지 않는다(부분 저장 보호).
+    raw_windows = fields.pop("availability", None)
+    windows = _clean_windows(raw_windows) if raw_windows is not None else None
     _validate(fields)
 
     db = _session()
@@ -220,6 +232,13 @@ def save_profile(store_id: str, employee_id: int, **fields) -> dict[str, Any]:
         for k, v in fields.items():
             if k in PROFILE_FIELDS and v is not None:
                 setattr(p, k, v)
+
+        if windows is not None:
+            db.query(EmployeeAvailability).filter(
+                EmployeeAvailability.employee_id == employee_id
+            ).delete(synchronize_session=False)
+            for w in windows:
+                db.add(EmployeeAvailability(employee_id=employee_id, store_id=store_id, **w))
         db.commit()
         db.refresh(emp)
         db.refresh(p)
@@ -384,6 +403,7 @@ def list_staff(store_id: str, month: Optional[str] = None) -> dict[str, Any]:
         }
         # 근무 달력에 등록된 이번 달 시간 — 인건비 계산의 1순위 근거
         scheduled = _scheduled_hours_by_employee(db, emp_ids, target_month)
+        availability = _availability_by_employee(db, emp_ids)
     finally:
         db.close()
 
@@ -391,6 +411,7 @@ def list_staff(store_id: str, month: Optional[str] = None) -> dict[str, Any]:
     for e in employees:
         prof = profiles.get(e.id) or _default_profile(e.id)
         cost = estimate_labor_cost(e.hourly_rate or 0, prof, scheduled.get(e.id))
+        windows = availability.get(e.id, [])
         staff.append({
             "id": e.id,
             "name": e.name,
@@ -398,6 +419,8 @@ def list_staff(store_id: str, month: Optional[str] = None) -> dict[str, Any]:
             "hourly_rate": e.hourly_rate,
             "scheduled_hours": scheduled.get(e.id, 0.0),
             "profile": prof,
+            "availability": windows,
+            "availability_text": describe_windows(windows),
             "cost": cost,
         })
 
@@ -415,6 +438,330 @@ def list_staff(store_id: str, month: Optional[str] = None) -> dict[str, Any]:
         "min_wage": MIN_WAGE_2026,
         "rates": RATES,
     }
+
+
+# ---------------------------------------------------------------------------
+# 근무 가능 시간 (주간 반복) — "이 알바 언제 돼요?"의 답을 그대로 담는다
+# ---------------------------------------------------------------------------
+WEEKDAY_LABELS = ["월", "화", "수", "목", "금", "토", "일"]  # 0=월 (employee_unavailabilities와 같은 규칙)
+
+
+def _clean_windows(windows: list[dict[str, Any]]) -> list[dict[str, int]]:
+    """화면에서 온 가능 시간대를 정리한다 — 범위 검증, 중복 제거, 요일·시작시각 순 정렬."""
+    out: dict[tuple[int, int, int], dict[str, int]] = {}
+    for w in windows or []:
+        try:
+            dow = int(w.get("day_of_week"))
+            start = int(w.get("start_hour", 9))
+            end = int(w.get("end_hour", 18))
+        except (TypeError, ValueError):
+            raise StaffError("근무 가능 시간 형식이 올바르지 않습니다.")
+        if not 0 <= dow <= 6:
+            raise StaffError(f"요일 값이 올바르지 않습니다: {dow}")
+        start = max(0, min(23, start))
+        end = max(1, min(24, end))
+        if end <= start:
+            raise StaffError(f"{WEEKDAY_LABELS[dow]}요일 가능 시간이 잘못됐어요 (시작 {start}시 ≥ 종료 {end}시).")
+        out[(dow, start, end)] = {"day_of_week": dow, "start_hour": start, "end_hour": end}
+    return sorted(out.values(), key=lambda w: (w["day_of_week"], w["start_hour"]))
+
+
+def _availability_by_employee(db, emp_ids: list[int]) -> dict[int, list[dict[str, int]]]:
+    from app.models.ai import EmployeeAvailability
+
+    if not emp_ids:
+        return {}
+    rows = (
+        db.query(EmployeeAvailability)
+        .filter(EmployeeAvailability.employee_id.in_(emp_ids))
+        .all()
+    )
+    out: dict[int, list[dict[str, int]]] = {}
+    for r in rows:
+        out.setdefault(r.employee_id, []).append({
+            "day_of_week": r.day_of_week,
+            "start_hour": r.start_hour,
+            "end_hour": r.end_hour,
+        })
+    for v in out.values():
+        v.sort(key=lambda w: (w["day_of_week"], w["start_hour"]))
+    return out
+
+
+def describe_windows(windows: list[dict[str, int]]) -> str:
+    """'월·수 09~14시, 토 13~22시'처럼 한 줄로 — 화면과 챗봇이 같은 문장을 쓰게."""
+    if not windows:
+        return "가능 시간 미입력"
+    by_time: dict[tuple[int, int], list[int]] = {}
+    for w in windows:
+        by_time.setdefault((w["start_hour"], w["end_hour"]), []).append(w["day_of_week"])
+    parts = []
+    for (start, end), days in sorted(by_time.items(), key=lambda kv: (min(kv[1]), kv[0])):
+        label = "·".join(WEEKDAY_LABELS[d] for d in sorted(days))
+        parts.append(f"{label} {start:02d}~{end:02d}시")
+    return ", ".join(parts)
+
+
+def save_availability(store_id: str, employee_id: int,
+                      windows: list[dict[str, Any]]) -> list[dict[str, int]]:
+    """근무 가능 시간을 통째로 교체한다 (부분 수정보다 화면과 어긋날 여지가 없다)."""
+    from app.models.ai import EmployeeAvailability
+    from app.models.operation import Employee
+
+    cleaned = _clean_windows(windows)
+    db = _session()
+    try:
+        emp = db.get(Employee, employee_id)
+        if emp is None:
+            raise StaffError(f"직원(id={employee_id})을 찾을 수 없습니다.")
+        if emp.store_id and emp.store_id != store_id:
+            raise StaffError("다른 매장의 직원입니다.")
+        db.query(EmployeeAvailability).filter(
+            EmployeeAvailability.employee_id == employee_id
+        ).delete(synchronize_session=False)
+        for w in cleaned:
+            db.add(EmployeeAvailability(employee_id=employee_id, store_id=store_id, **w))
+        db.commit()
+        return cleaned
+    finally:
+        db.close()
+
+
+def _covers(windows: list[dict[str, int]], dow: int, start_hour: float, end_hour: float) -> Optional[bool]:
+    """그 요일·시간대가 가능 시간 안에 들어가나? 가능 시간을 아예 안 적었으면 None(판단 보류)."""
+    if not windows:
+        return None
+    for w in windows:
+        if w["day_of_week"] == dow and w["start_hour"] <= start_hour and end_hour <= w["end_hour"]:
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# 근무 달력 — 배정된 근무 + 그날 가능한 직원 + 교대
+# ---------------------------------------------------------------------------
+
+def _shift_dict(s, emp, windows: list[dict[str, int]]) -> dict[str, Any]:
+    st, et = s.start_time, s.end_time
+    hours = round((et - st).total_seconds() / 3600, 1) if st and et else 0.0
+    if hours < 0:
+        hours += 24
+    dow = (st.weekday()) if st else 0
+    end_hour = et.hour + et.minute / 60 if et else 0
+    if et and et.date() > st.date():  # 자정을 넘긴 근무는 24시로 본다
+        end_hour = 24
+    fits = _covers(windows, dow, (st.hour + st.minute / 60) if st else 0, end_hour)
+    return {
+        "id": s.id,
+        "employee_id": s.employee_id,
+        "name": emp.name if emp else "(삭제된 직원)",
+        "role": emp.role if emp else "",
+        "date": s.date,
+        "start": st.strftime("%H:%M") if st else "",
+        "end": et.strftime("%H:%M") if et else "",
+        "hours": hours,
+        # True=가능 시간 안 / False=가능 시간 밖(교대 필요할 수 있음) / None=가능 시간 미입력
+        "fits_availability": fits,
+    }
+
+
+def month_calendar(store_id: str, month: Optional[str] = None) -> dict[str, Any]:
+    """한 달 치 근무 배정표 — 날짜별로 '누가 일하는지'와 '누가 가능한지'를 함께 준다.
+
+    달력이 배정만 보여주면 빈 날에 누구를 넣어야 할지 매번 직원 목록을 뒤져야 한다.
+    그날 요일에 가능하다고 적어 둔 직원을 같이 실어 보내면 바로 고를 수 있다.
+    """
+    from app.models.operation import Employee, Schedule
+
+    target = month or date.today().strftime("%Y-%m")
+    try:
+        year, mon = int(target[:4]), int(target[5:7])
+        first = date(year, mon, 1)
+    except (ValueError, IndexError):
+        raise StaffError("월 형식이 올바르지 않습니다 (YYYY-MM).")
+    last = date(year, mon, _calendar.monthrange(year, mon)[1])
+
+    db = _session()
+    try:
+        employees = db.query(Employee).filter(Employee.store_id == store_id).order_by(Employee.id).all()
+        emp_ids = [e.id for e in employees]
+        emp_map = {e.id: e for e in employees}
+        avail = _availability_by_employee(db, emp_ids)
+        rows = (
+            db.query(Schedule)
+            .filter(Schedule.employee_id.in_(emp_ids), Schedule.date.like(f"{target}%"))
+            .order_by(Schedule.start_time)
+            .all()
+        ) if emp_ids else []
+        shifts_by_date: dict[str, list[dict[str, Any]]] = {}
+        for s in rows:
+            shifts_by_date.setdefault(s.date, []).append(
+                _shift_dict(s, emp_map.get(s.employee_id), avail.get(s.employee_id, []))
+            )
+    finally:
+        db.close()
+
+    days = []
+    cur = first
+    while cur <= last:
+        dow = cur.weekday()
+        iso = cur.isoformat()
+        shifts = shifts_by_date.get(iso, [])
+        assigned = {s["employee_id"] for s in shifts}
+        available = [
+            {
+                "employee_id": e.id,
+                "name": e.name,
+                "role": e.role,
+                "windows": [w for w in avail.get(e.id, []) if w["day_of_week"] == dow],
+                "already_assigned": e.id in assigned,
+            }
+            for e in employees
+            if any(w["day_of_week"] == dow for w in avail.get(e.id, []))
+        ]
+        days.append({
+            "date": iso,
+            "weekday": dow,
+            "weekday_label": WEEKDAY_LABELS[dow],
+            "shifts": shifts,
+            "hours": round(sum(s["hours"] for s in shifts), 1),
+            "available": available,
+        })
+        cur += timedelta(days=1)
+
+    return {
+        "month": target,
+        "days": days,
+        "staff": [
+            {
+                "id": e.id,
+                "name": e.name,
+                "role": e.role,
+                "availability": avail.get(e.id, []),
+                "availability_text": describe_windows(avail.get(e.id, [])),
+            }
+            for e in employees
+        ],
+        "weekday_labels": WEEKDAY_LABELS,
+    }
+
+
+def _parse_hhmm(value: str, field: str) -> tuple[int, int]:
+    try:
+        hh, mm = value.split(":")
+        h, m = int(hh), int(mm)
+        if not (0 <= h <= 24 and 0 <= m < 60):
+            raise ValueError
+        return h, m
+    except (AttributeError, ValueError):
+        raise StaffError(f"{field} 시간 형식이 올바르지 않습니다 (예: 09:00).")
+
+
+def _shift_times(day: str, start: str, end: str) -> tuple[datetime, datetime]:
+    try:
+        base = date.fromisoformat(day)
+    except ValueError:
+        raise StaffError("근무 날짜 형식이 올바르지 않습니다 (YYYY-MM-DD).")
+    sh, sm = _parse_hhmm(start, "시작")
+    eh, em = _parse_hhmm(end, "종료")
+    st = datetime(base.year, base.month, base.day) + timedelta(hours=sh, minutes=sm)
+    et = datetime(base.year, base.month, base.day) + timedelta(hours=eh, minutes=em)
+    if et <= st:
+        et += timedelta(days=1)  # 자정을 넘긴 마감 근무
+    if (et - st) > timedelta(hours=24):
+        raise StaffError("근무 시간이 24시간을 넘을 수 없어요.")
+    return st, et
+
+
+def _employee_of_store(db, employee_id: int, store_id: str):
+    from app.models.operation import Employee
+
+    emp = db.get(Employee, employee_id)
+    if emp is None:
+        raise StaffError(f"직원(id={employee_id})을 찾을 수 없습니다.")
+    if emp.store_id and emp.store_id != store_id:
+        raise StaffError("다른 매장의 직원입니다.")
+    return emp
+
+
+def add_shift(store_id: str, employee_id: int, day: str,
+              start: str = "09:00", end: str = "18:00") -> dict[str, Any]:
+    """달력에 근무 하나를 넣는다 (가능 시간 밖이어도 막지 않고 표시만 한다).
+
+    사장님이 급할 땐 가능 시간 밖에도 부탁해서 넣는다 — 막아 버리면 앱을 못 쓰게 된다.
+    대신 응답의 fits_availability로 화면이 "이 날은 원래 안 된다고 했어요"를 보여 준다.
+    """
+    from app.models.operation import Schedule
+
+    st, et = _shift_times(day, start, end)
+    db = _session()
+    try:
+        emp = _employee_of_store(db, employee_id, store_id)
+        s = Schedule(employee_id=emp.id, start_time=st, end_time=et, date=st.strftime("%Y-%m-%d"))
+        db.add(s)
+        db.commit()
+        db.refresh(s)
+        return _shift_dict(s, emp, _availability_by_employee(db, [emp.id]).get(emp.id, []))
+    finally:
+        db.close()
+
+
+def update_shift(store_id: str, schedule_id: int, employee_id: Optional[int] = None,
+                 start: Optional[str] = None, end: Optional[str] = None,
+                 day: Optional[str] = None) -> dict[str, Any]:
+    """근무를 다른 직원에게 넘기거나(교대) 시간을 고친다.
+
+    교대는 실제로 가장 자주 일어나는 변경인데(알바끼리 바꿔 오면 사장님이 반영해야 한다),
+    기존 스케줄 수정 API는 시각만 바꿀 수 있어 담당자를 바꿀 방법이 없었다. 지우고 다시
+    만들면 실제 출퇴근 기록(actual_*)이 날아가므로 같은 행의 담당자만 갈아 끼운다.
+    """
+    from app.models.operation import Employee, Schedule
+
+    db = _session()
+    try:
+        s = db.get(Schedule, schedule_id)
+        if s is None:
+            raise StaffError("해당 근무를 찾을 수 없습니다.")
+        owner = db.get(Employee, s.employee_id)
+        if owner is not None and owner.store_id and owner.store_id != store_id:
+            raise StaffError("다른 매장의 근무입니다.")
+
+        emp = owner
+        if employee_id is not None and employee_id != s.employee_id:
+            emp = _employee_of_store(db, employee_id, store_id)
+            s.employee_id = emp.id
+
+        if start or end or day:
+            base_day = day or s.date
+            cur_start = s.start_time.strftime("%H:%M") if s.start_time else "09:00"
+            cur_end = s.end_time.strftime("%H:%M") if s.end_time else "18:00"
+            st, et = _shift_times(base_day, start or cur_start, end or cur_end)
+            s.start_time, s.end_time = st, et
+            s.date = st.strftime("%Y-%m-%d")
+
+        db.commit()
+        db.refresh(s)
+        windows = _availability_by_employee(db, [s.employee_id]).get(s.employee_id, [])
+        return _shift_dict(s, emp, windows)
+    finally:
+        db.close()
+
+
+def remove_shift(store_id: str, schedule_id: int) -> None:
+    from app.models.operation import Employee, Schedule
+
+    db = _session()
+    try:
+        s = db.get(Schedule, schedule_id)
+        if s is None:
+            raise StaffError("해당 근무를 찾을 수 없습니다.")
+        owner = db.get(Employee, s.employee_id)
+        if owner is not None and owner.store_id and owner.store_id != store_id:
+            raise StaffError("다른 매장의 근무입니다.")
+        db.delete(s)
+        db.commit()
+    finally:
+        db.close()
 
 
 def weekly_payroll(store_id: str, week_start: Optional[str] = None) -> dict[str, Any]:

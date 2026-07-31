@@ -216,6 +216,33 @@ class EmployeeProfile(Base):
     )
 
 
+class EmployeeAvailability(Base):
+    """직원이 "이 요일 이 시간대엔 일할 수 있어요"라고 알려 준 근무 가능 시간 (주간 반복).
+
+    이미 있는 employee_unavailabilities(백엔드 C)는 반대 방향 — '기피/불가' 시간이다.
+    사장님이 알바를 받을 때 실제로 물어보는 건 "언제 돼요?"이고, 그 답을 그대로 담아야
+    달력에서 "이 날 넣을 수 있는 사람"을 바로 뽑을 수 있다. 불가 시간으로 뒤집어
+    저장하면(24시간에서 빼기) 원래 답이 무엇이었는지 복원이 안 된다.
+
+    한 직원이 여러 줄을 가진다 (예: 월·수 09~14, 토 13~22).
+    요일 번호는 employee_unavailabilities와 같은 규칙(0=월 … 6=일)을 쓴다.
+    """
+
+    __tablename__ = "employee_availabilities"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("employees.id", ondelete="CASCADE"), index=True
+    )
+    store_id: Mapped[str] = mapped_column(String(100), index=True)
+    day_of_week: Mapped[int] = mapped_column(Integer)  # 0=월 … 6=일
+    start_hour: Mapped[int] = mapped_column(Integer, default=9)   # 0~23
+    end_hour: Mapped[int] = mapped_column(Integer, default=18)    # 1~24
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class SettlementSetting(Base):
     """매장별 카드 정산 설정 — 수수료율 구간과 카드사별 입금 소요일.
 

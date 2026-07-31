@@ -57,4 +57,25 @@ def simulate_labor_cost(hourly_rate: int, weekly_hours: float,
     return _dump(staff_service.estimate_labor_cost(int(hourly_rate), profile))
 
 
-TOOLS = [get_staff_costs, get_weekly_payroll, simulate_labor_cost]
+@tool
+def who_can_work(store_id: str, work_date: str) -> str:
+    """특정 날짜에 근무 가능하다고 등록해 둔 직원과, 그날 이미 잡힌 근무를 알려 준다.
+    '내일 누가 돼?', '토요일에 넣을 수 있는 사람?', '금요일 누구 일해?'에 쓴다.
+    work_date는 YYYY-MM-DD. 가능 시간을 아직 안 적은 직원은 목록에 나오지 않는다."""
+    try:
+        cal = staff_service.month_calendar(store_id, month=work_date[:7])
+    except staff_service.StaffError as e:
+        return str(e)
+    day = next((d for d in cal["days"] if d["date"] == work_date), None)
+    if day is None:
+        return f"{work_date}은(는) 조회 범위에 없습니다."
+    return _dump({
+        "date": work_date,
+        "weekday": day["weekday_label"],
+        "scheduled": day["shifts"],
+        "available": day["available"],
+        "note": "available은 그 요일에 '근무 가능'으로 등록해 둔 직원이다.",
+    })
+
+
+TOOLS = [get_staff_costs, get_weekly_payroll, simulate_labor_cost, who_can_work]
