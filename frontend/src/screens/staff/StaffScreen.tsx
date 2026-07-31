@@ -6,7 +6,14 @@
 //   · 4대보험 / 2대보험(고용·산재) / 미가입
 //   · 주휴수당이 얼마나 더 붙는지
 // 이 네 가지를 고르면 월 인건비와 사업주 부담까지 즉시 계산해 준다.
-import { useCallback, useEffect, useState } from 'react';
+//
+// 등록 화면과 상세 화면은 같은 항목(StaffFields)을 쓴다. 예전엔 등록할 땐 이름·시급·직책만
+// 받고 나머지는 나중에 상세에서 다시 고르게 했는데, 추가한 직원이 전부 '단시간 알바 · 2대보험
+// · 월급 0원' 기본값으로 남아 인건비가 0원으로 보였다.
+//
+// 선택은 서버 응답을 기다리지 않고 화면에 먼저 반영한다(낙관적 갱신). 공유 DB 왕복이
+// 0.5~2초라 예전엔 칩을 눌러도 한참 그대로여서 "선택이 안 된다"고 느껴졌다.
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   LayoutAnimation,
@@ -20,21 +27,28 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
 import { useAuth } from '../../auth/AuthContext';
-import FormSheet, { LabeledInput } from '../../components/FormSheet';
+import FormSheet from '../../components/FormSheet';
 import { PressableScale } from '../../components/motion';
 import { confirmDialog, toast } from '../../components/toast';
 import { Badge, Button, Card, Divider, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
 import { createEmployee, deleteEmployee } from '../../lib/api/operation';
 import {
+  createStaff,
+  EMPLOYMENT_TYPE_FALLBACK,
   getWeeklyPayroll,
+  INSURANCE_TYPE_FALLBACK,
   listStaff,
   saveStaffProfile,
+  type EmploymentType,
+  type InsuranceType,
+  type StaffEditable,
   type StaffList,
   type StaffMember,
   type WeeklyPayroll,
@@ -42,7 +56,7 @@ import {
 import { colors, typography } from '../../theme';
 
 const won = (n: number) => `₩${Math.round(n || 0).toLocaleString('ko-KR')}`;
-const toNum = (s: string) => Number(s.replace(/[^\d.]/g, '')) || 0;
+const toNum = (s: string) => Number(String(s).replace(/[^\d.]/g, '')) || 0;
 
 /**
  * API 실패를 사장님이 뭘 해야 할지 아는 문장으로 바꾼다.
@@ -75,8 +89,91 @@ const TYPE_ICON: Record<string, keyof typeof Ionicons.glyphMap> = {
   manager: 'ribbon-outline',
 };
 
+// ── 등록·상세가 공유하는 입력값 ────────────────────────────────────────────────
+// 숫자를 문자열로 들고 있는 이유: 입력 도중의 ''(빈칸)과 0을 구분해야 하기 때문이다.
+type Draft = {
+  name: string;
+  role: string;
+  hourly_rate: string;
+  employment_type: EmploymentType;
+  pay_type: 'hourly' | 'monthly';
+  monthly_salary: string;
+  weekly_hours: string;
+  insurance: InsuranceType;
+  weekly_holiday_pay: boolean;
+};
+
+const EMPTY_DRAFT: Draft = {
+  name: '',
+  role: '',
+  hourly_rate: '',
+  employment_type: 'part_time',
+  pay_type: 'hourly',
+  monthly_salary: '',
+  weekly_hours: '',
+  insurance: 'two',
+  weekly_holiday_pay: true,
+};
+
+const draftOf = (m: StaffMember): Draft => ({
+  name: m.name,
+  role: m.role,
+  hourly_rate: String(m.hourly_rate || ''),
+  employment_type: m.profile.employment_type,
+  pay_type: m.profile.pay_type,
+  monthly_salary: String(m.profile.monthly_salary || ''),
+  weekly_hours: String(m.profile.weekly_hours || ''),
+  insurance: m.profile.insurance,
+  weekly_holiday_pay: m.profile.weekly_holiday_pay,
+});
+
+/** 화면의 문자열 입력값을 서버가 받는 숫자/불리언으로 바꾼다 (보낸 키만 저장된다) */
+function toApi(patch: Partial<Draft>): Partial<StaffEditable> {
+  const body: Partial<StaffEditable> = {};
+  if (patch.name !== undefined) body.name = patch.name.trim();
+  if (patch.role !== undefined) body.role = patch.role.trim() || '알바';
+  if (patch.hourly_rate !== undefined) body.hourly_rate = Math.round(toNum(patch.hourly_rate));
+  if (patch.employment_type !== undefined) body.employment_type = patch.employment_type;
+  if (patch.pay_type !== undefined) body.pay_type = patch.pay_type;
+  if (patch.monthly_salary !== undefined) body.monthly_salary = Math.round(toNum(patch.monthly_salary));
+  if (patch.weekly_hours !== undefined) body.weekly_hours = Math.min(80, toNum(patch.weekly_hours));
+  if (patch.insurance !== undefined) body.insurance = patch.insurance;
+  if (patch.weekly_holiday_pay !== undefined) body.weekly_holiday_pay = patch.weekly_holiday_pay;
+  return body;
+}
+
+/**
+ * 고용형태를 고르면 같이 따라오는 통상값 — 등록과 상세가 똑같이 동작해야 해서 한 곳에 둔다.
+ * 매니저는 대개 월급 계약이고, 정규직은 주 40시간이 기본이다.
+ */
+function presetFor(code: EmploymentType, current: Draft): Partial<Draft> {
+  const weekly = toNum(current.weekly_hours);
+  const patch: Partial<Draft> = { employment_type: code };
+  if (code === 'manager') patch.pay_type = 'monthly';
+  if (code === 'full_time' || code === 'manager') {
+    if (weekly < 15) patch.weekly_hours = '40';
+  } else if (code === 'part_time_15' && weekly < 15) {
+    patch.weekly_hours = '20';
+  }
+  return patch;
+}
+
+/** 목록 합계는 직원 줄에서 그대로 유도된다 — 한 명을 고칠 때마다 목록을 다시 부르지 않게 */
+function withTotals(list: StaffList, staff: StaffMember[]): StaffList {
+  return {
+    ...list,
+    staff,
+    total_gross: staff.reduce((a, s) => a + s.cost.gross_pay, 0),
+    total_owner_burden: staff.reduce((a, s) => a + s.cost.owner_burden, 0),
+    total_cost: staff.reduce((a, s) => a + s.cost.total_cost, 0),
+    total_hours: Math.round(staff.reduce((a, s) => a + s.cost.monthly_hours, 0) * 10) / 10,
+    unknown_hours_count: staff.filter((s) => s.cost.hours_source === 'none').length,
+  };
+}
+
 export default function StaffScreen() {
   const { token } = useAuth();
+  const isFocused = useIsFocused();
   const [data, setData] = useState<StaffList | null>(null);
   const [weekly, setWeekly] = useState<WeeklyPayroll | null>(null);
   // 실패 사유를 그대로 들고 있는다 — "가져오지 못했어요"만 띄우면 사장님도 나도
@@ -84,12 +181,17 @@ export default function StaffScreen() {
   const [failed, setFailed] = useState<string | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
   const [saving, setSaving] = useState<number | null>(null);
+  // 화면에서 편집 중인 값 — 서버 응답을 기다리지 않고 여기부터 먼저 바뀐다
+  const [drafts, setDrafts] = useState<Record<number, Draft>>({});
 
-  // 직원 추가 폼
+  // 직원 추가 폼 (상세와 같은 항목을 처음부터 받는다)
   const [adding, setAdding] = useState(false);
-  const [nName, setNName] = useState('');
-  const [nRate, setNRate] = useState('');
-  const [nRole, setNRole] = useState('');
+  const [newDraft, setNewDraft] = useState<Draft>(EMPTY_DRAFT);
+  const [submitting, setSubmitting] = useState(false);
+
+  const employmentTypes = data?.employment_types ?? EMPLOYMENT_TYPE_FALLBACK;
+  const insuranceTypes = data?.insurance_types ?? INSURANCE_TYPE_FALLBACK;
+  const minWage = data?.min_wage ?? 10320;
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -100,6 +202,7 @@ export default function StaffScreen() {
       ]);
       setData(s);
       setWeekly(w);
+      setDrafts(Object.fromEntries(s.staff.map((m) => [m.id, draftOf(m)])));
       setFailed(null);
     } catch (e) {
       console.error('직원 목록 조회 실패:', e);
@@ -107,41 +210,110 @@ export default function StaffScreen() {
     }
   }, [token]);
 
+  // 근무 달력·스케줄은 옆 화면(직원·스케줄)에서 바뀐다. 그 화면에서 돌아왔을 때
+  // 인건비가 옛날 시간으로 남아 있으면 두 화면이 서로 다른 말을 하게 된다.
   useEffect(() => {
-    load();
-  }, [load]);
+    if (isFocused) load();
+  }, [isFocused, load]);
 
-  const patch = async (emp: StaffMember, body: Record<string, unknown>) => {
+  // 직원별 저장 순번 — 겹친 요청 중 마지막 것만 화면에 반영하기 위한 표식
+  const saveSeq = useRef<Record<number, number>>({});
+
+  // 주급 카드는 저장 때마다 같이 부르면 왕복이 두 배가 된다 — 마지막 저장 뒤 한 번만.
+  const weeklyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshWeekly = useCallback(() => {
     if (!token) return;
-    setSaving(emp.id);
-    try {
-      await saveStaffProfile(token, emp.id, body as any);
-      await load();
-    } catch (e) {
-      console.error('직원 상세 저장 실패:', e);
-      toast('저장 실패', '잠시 후 다시 시도해 주세요.');
-    } finally {
-      setSaving(null);
-    }
-  };
+    if (weeklyTimer.current) clearTimeout(weeklyTimer.current);
+    weeklyTimer.current = setTimeout(() => {
+      getWeeklyPayroll(token)
+        .then(setWeekly)
+        .catch(() => undefined);
+    }, 700);
+  }, [token]);
+
+  useEffect(() => () => {
+    if (weeklyTimer.current) clearTimeout(weeklyTimer.current);
+  }, []);
+
+  /** 편집 반영 — 화면부터 바꾸고(persist=false면 여기까지), 서버 저장은 뒤따른다 */
+  const edit = useCallback(
+    (emp: StaffMember, patch: Partial<Draft>, persist = true) => {
+      setDrafts((d) => ({ ...d, [emp.id]: { ...(d[emp.id] ?? draftOf(emp)), ...patch } }));
+      if (!persist || !token) return;
+      // 칩을 연달아 누르면 저장 요청도 겹친다. 늦게 도착한 옛 응답이 방금 고른 값을
+      // 되돌리지 않게, 마지막 요청의 응답만 화면에 반영한다.
+      const seq = (saveSeq.current[emp.id] ?? 0) + 1;
+      saveSeq.current[emp.id] = seq;
+      setSaving(emp.id);
+      saveStaffProfile(token, emp.id, toApi(patch))
+        .then((updated) => {
+          if (saveSeq.current[emp.id] !== seq) return; // 더 최신 저장이 진행 중
+          // 구버전 서버는 프로필만 돌려준다(계산 결과 없음) — 그때는 목록을 다시 받는다
+          if (!updated || !updated.id || !updated.cost) {
+            load();
+            return;
+          }
+          // 서버가 다시 계산한 그 직원 한 줄로 교체 → 인건비·합계가 즉시 맞춰진다
+          setData((cur) =>
+            cur ? withTotals(cur, cur.staff.map((s) => (s.id === updated.id ? updated : s))) : cur,
+          );
+          setDrafts((d) => ({ ...d, [updated.id]: draftOf(updated) }));
+          refreshWeekly();
+        })
+        .catch((e) => {
+          console.error('직원 상세 저장 실패:', e);
+          toast('저장 실패', describeApiError(e));
+          load(); // 서버 값으로 되돌린다 — 화면만 바뀐 채 남지 않게
+        })
+        .finally(() => {
+          if (saveSeq.current[emp.id] === seq) setSaving((cur) => (cur === emp.id ? null : cur));
+        });
+    },
+    [token, load, refreshWeekly],
+  );
 
   const submitNew = async () => {
-    const rate = toNum(nRate);
-    if (!nName.trim() || rate <= 0) {
-      toast('추가 실패', '이름과 시급을 입력해 주세요.');
+    if (!token || submitting) return;
+    const d = newDraft;
+    if (!d.name.trim()) {
+      toast('추가 실패', '직원 이름을 입력해 주세요.');
       return;
     }
+    if (d.pay_type === 'monthly' ? toNum(d.monthly_salary) <= 0 : toNum(d.hourly_rate) <= 0) {
+      toast('추가 실패', d.pay_type === 'monthly' ? '월급을 입력해 주세요.' : '시급을 입력해 주세요.');
+      return;
+    }
+    setSubmitting(true);
     try {
-      await createEmployee({ name: nName.trim(), hourly_rate: rate, role: nRole.trim() || '알바' }, token ?? undefined);
-      setNName('');
-      setNRate('');
-      setNRole('');
+      const body = { ...toApi(d), name: d.name.trim() };
+      // 서버가 아직 옛 버전이면(등록+상세 한 번에 저장이 없음) 예전 두 단계로 돌아간다 —
+      // 배포 전에도 추가는 되게, 대신 고른 값이 버려지지 않게.
+      const created = await createStaff(token, body).catch(async (e) => {
+        if (!(e instanceof Error) || !e.message.startsWith('404')) throw e;
+        const emp = await createEmployee(
+          { name: body.name, hourly_rate: body.hourly_rate ?? 0, role: body.role || '알바' },
+          token,
+        );
+        return saveStaffProfile(token, emp.id, body);
+      });
+      setNewDraft(EMPTY_DRAFT);
       setAdding(false);
-      await load();
-      toast('직원을 추가했어요', '아래에서 고용형태와 보험을 골라 주세요.');
+      refreshWeekly();
+      // 목록을 아직 못 받았거나 구버전 응답이면 목록을 다시 받아 채운다
+      if (!data || !created?.id || !created.cost) {
+        await load();
+        toast('직원을 추가했어요', `${body.name} 직원이 목록에 들어갔어요.`);
+        return;
+      }
+      setData((cur) => (cur ? withTotals(cur, [...cur.staff, created]) : cur));
+      setDrafts((prev) => ({ ...prev, [created.id]: draftOf(created) }));
+      setOpenId(created.id);
+      toast('직원을 추가했어요', `${created.name} · ${won(created.cost.total_cost)} (이번 달 예상 부담)`);
     } catch (e) {
       console.error('직원 등록 실패:', e);
-      toast('추가 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+      toast('추가 실패', describeApiError(e));
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -152,7 +324,8 @@ export default function StaffScreen() {
       onConfirm: async () => {
         try {
           await deleteEmployee(emp.id);
-          await load();
+          setData((cur) => (cur ? withTotals(cur, cur.staff.filter((s) => s.id !== emp.id)) : cur));
+          refreshWeekly();
           toast('삭제 완료', `${emp.name} 직원을 삭제했어요.`);
         } catch (e) {
           toast('삭제 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
@@ -260,7 +433,7 @@ export default function StaffScreen() {
         {data && data.staff.length === 0 && (
           <Card>
             <Text style={styles.stateText}>
-              등록된 직원이 없어요. 위 ‘직원 추가’로 이름과 시급을 먼저 넣어 주세요.
+              등록된 직원이 없어요. 위 ‘직원 추가’에서 이름·시급과 고용형태까지 한 번에 넣어 주세요.
             </Text>
           </Card>
         )}
@@ -269,12 +442,10 @@ export default function StaffScreen() {
 
         {(data?.staff ?? []).map((emp) => {
           const expanded = openId === emp.id;
-          const p = emp.profile;
+          const d = drafts[emp.id] ?? draftOf(emp);
           const c = emp.cost;
-          const typeLabel =
-            data?.employment_types.find((t) => t.code === p.employment_type)?.label ?? p.employment_type;
-          const insLabel =
-            data?.insurance_types.find((t) => t.code === p.insurance)?.label ?? p.insurance;
+          const typeLabel = employmentTypes.find((t) => t.code === d.employment_type)?.label ?? d.employment_type;
+          const insLabel = insuranceTypes.find((t) => t.code === d.insurance)?.label ?? d.insurance;
           return (
             <Card key={emp.id}>
               <View style={styles.row}>
@@ -286,18 +457,20 @@ export default function StaffScreen() {
                     setOpenId(expanded ? null : emp.id);
                   }}
                 >
-                  <View style={[styles.avatar, { backgroundColor: p.pay_type === 'monthly' ? '#E7DFD4' : colors.coffeeCream }]}>
-                    <Ionicons name={TYPE_ICON[p.employment_type] ?? 'person-outline'} size={17} color={colors.espressoBrown} />
+                  <View style={[styles.avatar, { backgroundColor: d.pay_type === 'monthly' ? '#E7DFD4' : colors.coffeeCream }]}>
+                    <Ionicons name={TYPE_ICON[d.employment_type] ?? 'person-outline'} size={17} color={colors.espressoBrown} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.name}>
-                      {emp.name} <Text style={styles.role}>· {emp.role}</Text>
+                      {d.name} <Text style={styles.role}>· {d.role}</Text>
                     </Text>
                     <Text style={styles.sub}>
-                      {typeLabel} · {p.pay_type === 'monthly' ? `월급 ${won(p.monthly_salary)}` : `시급 ${won(emp.hourly_rate)}`}
+                      {typeLabel} · {d.pay_type === 'monthly'
+                        ? `월급 ${won(toNum(d.monthly_salary))}`
+                        : `시급 ${won(toNum(d.hourly_rate))}`}
                     </Text>
                     <View style={styles.chipRow}>
-                      <Badge label={insLabel} tone={p.insurance === 'none' ? 'orange' : 'neutral'} />
+                      <Badge label={insLabel} tone={d.insurance === 'none' ? 'orange' : 'neutral'} />
                       {c.hours_source === 'schedule' && (
                         <Badge label={`이번 달 ${c.monthly_hours}시간`} tone="green" />
                       )}
@@ -314,7 +487,7 @@ export default function StaffScreen() {
                       {c.hours_source === 'none' ? '—' : won(c.total_cost)}
                     </Text>
                     <Text style={styles.costLabel}>
-                      {c.hours_source === 'none' ? '시간 필요' : '이번 달 부담'}
+                      {saving === emp.id ? '저장 중…' : c.hours_source === 'none' ? '시간 필요' : '이번 달 부담'}
                     </Text>
                   </View>
                   <Ionicons
@@ -337,118 +510,20 @@ export default function StaffScreen() {
 
               {expanded && (
                 <View style={styles.detail}>
-                  {/* 고용형태 */}
-                  <Text style={styles.fieldLabel}>고용형태</Text>
-                  <View style={styles.optionWrap}>
-                    {(data?.employment_types ?? []).map((t) => {
-                      const active = p.employment_type === t.code;
-                      return (
-                        <TouchableOpacity
-                          key={t.code}
-                          style={[styles.option, active && styles.optionActive]}
-                          onPress={() => {
-                            // 고용형태를 고르면 주 소정근로시간의 통상값도 같이 채워 준다
-                            const presetHours =
-                              t.code === 'full_time' || t.code === 'manager' ? 40 :
-                              t.code === 'part_time_15' && p.weekly_hours < 15 ? 20 :
-                              undefined;
-                            patch(emp, {
-                              employment_type: t.code,
-                              ...(t.code === 'manager' ? { pay_type: 'monthly' } : {}),
-                              ...(presetHours ? { weekly_hours: presetHours } : {}),
-                            });
-                          }}
-                        >
-                          <Text style={[styles.optionText, active && styles.optionTextActive]}>{t.label}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                  <Text style={styles.optionNote}>
-                    {data?.employment_types.find((t) => t.code === p.employment_type)?.note}
-                  </Text>
-
-                  <Divider />
-
-                  {/* 급여형태 */}
-                  <Text style={styles.fieldLabel}>급여형태</Text>
-                  <View style={styles.optionWrap}>
-                    {(['hourly', 'monthly'] as const).map((k) => {
-                      const active = p.pay_type === k;
-                      return (
-                        <TouchableOpacity
-                          key={k}
-                          style={[styles.option, active && styles.optionActive]}
-                          onPress={() => patch(emp, { pay_type: k })}
-                        >
-                          <Text style={[styles.optionText, active && styles.optionTextActive]}>
-                            {k === 'hourly' ? '시급제' : '월급제'}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-
-                  {c.hours_source === 'schedule' && p.pay_type !== 'monthly' && (
-                    <Text style={styles.scheduleNote}>
-                      이번 달은 근무 달력에 등록된 {c.monthly_hours}시간으로 계산했어요.
-                      아래 주 소정근로시간은 스케줄이 없는 달에만 쓰입니다.
-                    </Text>
-                  )}
-
-                  <NumberField
-                    label={p.pay_type === 'monthly' ? '월급 (원)' : '주 소정근로시간'}
-                    suffix={p.pay_type === 'monthly' ? '원' : '시간'}
-                    initial={p.pay_type === 'monthly' ? String(p.monthly_salary || '') : String(p.weekly_hours || '')}
-                    onCommit={(v) =>
-                      patch(emp, p.pay_type === 'monthly' ? { monthly_salary: v } : { weekly_hours: v })
+                  <StaffFields
+                    draft={d}
+                    employmentTypes={employmentTypes}
+                    insuranceTypes={insuranceTypes}
+                    minWage={minWage}
+                    // 상세에서는 고른 즉시 저장한다. 숫자는 입력이 끝났을 때(onCommit) 한 번만.
+                    onChange={(patch) => edit(emp, patch, false)}
+                    onCommit={(patch) => edit(emp, patch)}
+                    scheduleNote={
+                      c.hours_source === 'schedule' && d.pay_type !== 'monthly'
+                        ? `이번 달은 근무 달력에 등록된 ${c.monthly_hours}시간으로 계산했어요. 아래 주 소정근로시간은 스케줄이 없는 달에만 쓰입니다.`
+                        : undefined
                     }
                   />
-                  {p.pay_type === 'monthly' && (
-                    <NumberField
-                      label="주 소정근로시간 (최저임금 확인용)"
-                      suffix="시간"
-                      initial={String(p.weekly_hours || '')}
-                      onCommit={(v) => patch(emp, { weekly_hours: v })}
-                    />
-                  )}
-
-                  <Divider />
-
-                  {/* 보험 */}
-                  <Text style={styles.fieldLabel}>보험 가입</Text>
-                  <View style={styles.optionWrap}>
-                    {(data?.insurance_types ?? []).map((t) => {
-                      const active = p.insurance === t.code;
-                      return (
-                        <TouchableOpacity
-                          key={t.code}
-                          style={[styles.option, active && styles.optionActive]}
-                          onPress={() => patch(emp, { insurance: t.code })}
-                        >
-                          <Text style={[styles.optionText, active && styles.optionTextActive]}>{t.label}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                  <Text style={styles.optionNote}>
-                    {data?.insurance_types.find((t) => t.code === p.insurance)?.note}
-                  </Text>
-
-                  {/* 주휴수당 토글 */}
-                  <View style={styles.switchRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.fieldLabel}>주휴수당 지급</Text>
-                      <Text style={styles.optionNote}>
-                        주 15시간 이상이면 법적으로 지급 대상이에요. 시급에 이미 포함해 계약했다면 꺼 두세요.
-                      </Text>
-                    </View>
-                    <Switch
-                      value={p.weekly_holiday_pay}
-                      onValueChange={(v) => patch(emp, { weekly_holiday_pay: v })}
-                      trackColor={{ true: colors.espressoBrown, false: colors.mutedSand }}
-                    />
-                  </View>
 
                   <Divider />
 
@@ -480,12 +555,6 @@ export default function StaffScreen() {
                     <Ionicons name="trash-outline" size={14} color="#B23B2E" />
                     <Text style={styles.deleteText}>이 직원 삭제</Text>
                   </PressableScale>
-
-                  {saving === emp.id && (
-                    <View style={styles.savingOverlay}>
-                      <ActivityIndicator size="small" color={colors.mochaBrown} />
-                    </View>
-                  )}
                 </View>
               )}
             </Card>
@@ -496,21 +565,188 @@ export default function StaffScreen() {
       <FormSheet
         visible={adding}
         title="직원 추가"
+        submitLabel={submitting ? '추가 중…' : '추가'}
         onClose={() => setAdding(false)}
         onSubmit={submitNew}
-        submitDisabled={nName.trim() === '' || nRate.trim() === ''}
+        submitDisabled={submitting || newDraft.name.trim() === ''}
       >
-        <LabeledInput label="이름" value={nName} onChangeText={setNName} placeholder="예: 김바리" />
-        <LabeledInput
-          label="시급 (원)"
-          value={nRate}
-          onChangeText={setNRate}
-          placeholder="예: 10320"
-          keyboardType="number-pad"
+        {/* 상세와 완전히 같은 항목 — 추가하는 순간부터 인건비가 제대로 계산된다 */}
+        <StaffFields
+          draft={newDraft}
+          employmentTypes={employmentTypes}
+          insuranceTypes={insuranceTypes}
+          minWage={minWage}
+          onChange={(patch) => setNewDraft((d) => ({ ...d, ...patch }))}
         />
-        <LabeledInput label="직책" value={nRole} onChangeText={setNRole} placeholder="예: 바리스타 / 매니저" />
       </FormSheet>
     </>
+  );
+}
+
+/**
+ * 등록 시트와 상세 패널이 공유하는 고용 조건 입력부.
+ *
+ * onChange는 값이 바뀔 때마다(칩 선택·스위치·타이핑), onCommit은 숫자 입력이 끝났을 때
+ * 호출된다. 등록 시트는 onCommit을 쓰지 않고 제출할 때 한 번에 보낸다.
+ */
+function StaffFields({
+  draft,
+  employmentTypes,
+  insuranceTypes,
+  minWage,
+  onChange,
+  onCommit,
+  scheduleNote,
+}: {
+  draft: Draft;
+  employmentTypes: { code: EmploymentType; label: string; note: string }[];
+  insuranceTypes: { code: InsuranceType; label: string; note: string }[];
+  minWage: number;
+  onChange: (patch: Partial<Draft>) => void;
+  onCommit?: (patch: Partial<Draft>) => void;
+  scheduleNote?: string;
+}) {
+  const commit = onCommit ?? (() => undefined);
+  const belowMin = draft.pay_type === 'hourly' && toNum(draft.hourly_rate) > 0 && toNum(draft.hourly_rate) < minWage;
+
+  return (
+    <View>
+      {/* 이름·직책도 여기서 고친다 — 등록 화면과 상세 화면이 같은 항목을 다뤄야
+          "이름을 잘못 넣었는데 어디서 고치지?"가 안 생긴다 */}
+      <TextField
+        label="이름"
+        value={draft.name}
+        placeholder="예: 김바리"
+        onChangeText={(v) => onChange({ name: v })}
+        onCommit={(v) => commit({ name: v })}
+      />
+      <TextField
+        label="직책"
+        value={draft.role}
+        placeholder="예: 바리스타 / 매니저 (비우면 '알바')"
+        onChangeText={(v) => onChange({ role: v })}
+        onCommit={(v) => commit({ role: v })}
+      />
+
+      <Divider />
+
+      {/* 고용형태 */}
+      <Text style={styles.fieldLabel}>고용형태</Text>
+      <View style={styles.optionWrap}>
+        {employmentTypes.map((t) => {
+          const active = draft.employment_type === t.code;
+          return (
+            <TouchableOpacity
+              key={t.code}
+              activeOpacity={0.7}
+              style={[styles.option, active && styles.optionActive]}
+              onPress={() => {
+                const patch = presetFor(t.code, draft);
+                onChange(patch);
+                commit(patch);
+              }}
+            >
+              <Text style={[styles.optionText, active && styles.optionTextActive]}>{t.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      <Text style={styles.optionNote}>
+        {employmentTypes.find((t) => t.code === draft.employment_type)?.note}
+      </Text>
+
+      <Divider />
+
+      {/* 급여형태 */}
+      <Text style={styles.fieldLabel}>급여형태</Text>
+      <View style={styles.optionWrap}>
+        {(['hourly', 'monthly'] as const).map((k) => {
+          const active = draft.pay_type === k;
+          return (
+            <TouchableOpacity
+              key={k}
+              activeOpacity={0.7}
+              style={[styles.option, active && styles.optionActive]}
+              onPress={() => {
+                onChange({ pay_type: k });
+                commit({ pay_type: k });
+              }}
+            >
+              <Text style={[styles.optionText, active && styles.optionTextActive]}>
+                {k === 'hourly' ? '시급제' : '월급제'}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {scheduleNote ? <Text style={styles.scheduleNote}>{scheduleNote}</Text> : null}
+
+      {/* 시급은 월급제에서도 최저임금 환산 근거로 쓰이므로 항상 받는다 */}
+      <NumberField
+        label={draft.pay_type === 'monthly' ? '월급 (원)' : '시급 (원)'}
+        suffix="원"
+        value={draft.pay_type === 'monthly' ? draft.monthly_salary : draft.hourly_rate}
+        onChangeText={(v) => onChange(draft.pay_type === 'monthly' ? { monthly_salary: v } : { hourly_rate: v })}
+        onCommit={(v) => commit(draft.pay_type === 'monthly' ? { monthly_salary: v } : { hourly_rate: v })}
+      />
+      {belowMin && (
+        <Text style={styles.minWageNote}>
+          2026년 최저임금 {won(minWage)}보다 낮아요. 계약 전에 한 번 확인해 주세요.
+        </Text>
+      )}
+      <NumberField
+        label={draft.pay_type === 'monthly' ? '주 소정근로시간 (최저임금 확인용)' : '주 소정근로시간'}
+        suffix="시간"
+        value={draft.weekly_hours}
+        onChangeText={(v) => onChange({ weekly_hours: v })}
+        onCommit={(v) => commit({ weekly_hours: v })}
+      />
+
+      <Divider />
+
+      {/* 보험 */}
+      <Text style={styles.fieldLabel}>보험 가입</Text>
+      <View style={styles.optionWrap}>
+        {insuranceTypes.map((t) => {
+          const active = draft.insurance === t.code;
+          return (
+            <TouchableOpacity
+              key={t.code}
+              activeOpacity={0.7}
+              style={[styles.option, active && styles.optionActive]}
+              onPress={() => {
+                onChange({ insurance: t.code });
+                commit({ insurance: t.code });
+              }}
+            >
+              <Text style={[styles.optionText, active && styles.optionTextActive]}>{t.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      <Text style={styles.optionNote}>
+        {insuranceTypes.find((t) => t.code === draft.insurance)?.note}
+      </Text>
+
+      {/* 주휴수당 토글 */}
+      <View style={styles.switchRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.fieldLabel}>주휴수당 지급</Text>
+          <Text style={styles.optionNote}>
+            주 15시간 이상이면 법적으로 지급 대상이에요. 시급에 이미 포함해 계약했다면 꺼 두세요.
+          </Text>
+        </View>
+        <Switch
+          value={draft.weekly_holiday_pay}
+          onValueChange={(v) => {
+            onChange({ weekly_holiday_pay: v });
+            commit({ weekly_holiday_pay: v });
+          }}
+          trackColor={{ true: colors.espressoBrown, false: colors.mutedSand }}
+        />
+      </View>
+    </View>
   );
 }
 
@@ -548,31 +784,72 @@ function CostRow({
   );
 }
 
-// 입력하는 동안 매번 저장하면 요청이 폭주하므로, 편집을 끝냈을 때(blur) 한 번만 보낸다
+// 글자 입력 — 숫자 칸과 같은 규칙(화면은 즉시, 저장은 blur에서 한 번)
+function TextField({
+  label,
+  value,
+  placeholder,
+  onChangeText,
+  onCommit,
+}: {
+  label: string;
+  value: string;
+  placeholder?: string;
+  onChangeText: (v: string) => void;
+  onCommit: (v: string) => void;
+}) {
+  const start = useRef(value);
+  return (
+    <View style={{ marginTop: 10 }}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <View style={styles.numBox}>
+        <TextInput
+          style={[styles.numInput, { textAlign: 'left' }]}
+          value={value}
+          onFocus={() => {
+            start.current = value;
+          }}
+          onChangeText={onChangeText}
+          onBlur={() => {
+            if (value.trim() && value.trim() !== start.current.trim()) onCommit(value);
+          }}
+          placeholder={placeholder}
+          placeholderTextColor="#C4B5A5"
+        />
+      </View>
+    </View>
+  );
+}
+
+// 값은 부모가 들고 있고(입력 즉시 화면 반영), 서버 저장은 편집이 끝났을 때(blur) 한 번만 —
+// 글자마다 저장하면 공유 DB에 요청이 폭주한다.
 function NumberField({
   label,
   suffix,
-  initial,
+  value,
+  onChangeText,
   onCommit,
 }: {
   label: string;
   suffix: string;
-  initial: string;
-  onCommit: (v: number) => void;
+  value: string;
+  onChangeText: (v: string) => void;
+  onCommit: (v: string) => void;
 }) {
-  const [text, setText] = useState(initial);
-  useEffect(() => setText(initial), [initial]);
+  const start = useRef(value);
   return (
     <View style={{ marginTop: 10 }}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <View style={styles.numBox}>
         <TextInput
           style={styles.numInput}
-          value={text}
-          onChangeText={(v) => setText(v.replace(/[^0-9.]/g, ''))}
+          value={value}
+          onFocus={() => {
+            start.current = value;
+          }}
+          onChangeText={(v) => onChangeText(v.replace(/[^0-9.]/g, ''))}
           onBlur={() => {
-            const v = Number(text) || 0;
-            if (String(v) !== String(Number(initial) || 0)) onCommit(v);
+            if (toNum(value) !== toNum(start.current)) onCommit(value);
           }}
           keyboardType="decimal-pad"
           inputMode="decimal"
@@ -598,6 +875,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 10,
   },
+  minWageNote: { ...typography.L5, color: '#B23B2E', marginTop: 6, lineHeight: 15 },
   totalBreak: { flexDirection: 'row', alignItems: 'stretch', marginTop: 14 },
   totalCol: { flex: 1, alignItems: 'center', gap: 3 },
   colDivider: { width: 1, backgroundColor: colors.mutedSand, marginHorizontal: 6 },
@@ -700,7 +978,6 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   deleteText: { ...typography.L5, color: '#B23B2E', fontWeight: '800' },
-  savingOverlay: { alignItems: 'center', paddingTop: 8 },
 
   retryBtn: {
     flexDirection: 'row',

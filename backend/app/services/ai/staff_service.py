@@ -110,16 +110,86 @@ def _default_profile(employee_id: int) -> dict[str, Any]:
     }
 
 
-def save_profile(store_id: str, employee_id: int, **fields) -> dict[str, Any]:
-    from app.models.ai import EmployeeProfile
-    from app.models.operation import Employee
+PROFILE_FIELDS = {"employment_type", "pay_type", "monthly_salary", "weekly_hours",
+                  "insurance", "weekly_holiday_pay", "hired_on", "memo"}
+# 직원 기본 정보(employees 테이블) — 이름·시급·직책은 프로필과 한 화면에서 같이 고치므로
+# 여기서 함께 받는다. 따로 두면 "시급만 저장이 안 됐다" 같은 반쪽 저장이 생긴다.
+BASIC_FIELDS = {"name", "hourly_rate", "role"}
 
-    allowed = {"employment_type", "pay_type", "monthly_salary", "weekly_hours",
-               "insurance", "weekly_holiday_pay", "hired_on", "memo"}
+
+def _validate(fields: dict[str, Any]) -> None:
     if fields.get("employment_type") and fields["employment_type"] not in {t["code"] for t in EMPLOYMENT_TYPES}:
         raise StaffError(f"알 수 없는 고용형태입니다: {fields['employment_type']}")
     if fields.get("insurance") and fields["insurance"] not in {t["code"] for t in INSURANCE_TYPES}:
         raise StaffError(f"알 수 없는 보험 유형입니다: {fields['insurance']}")
+    if fields.get("pay_type") and fields["pay_type"] not in {"hourly", "monthly"}:
+        raise StaffError(f"알 수 없는 급여형태입니다: {fields['pay_type']}")
+
+
+def _staff_entry(db, emp, prof: dict[str, Any], month: Optional[str] = None) -> dict[str, Any]:
+    """목록(list_staff)의 한 줄과 똑같은 모양 — 저장 직후 화면이 그 줄만 갈아끼울 수 있게.
+
+    저장할 때마다 목록 전체를 다시 부르면 Neon 왕복이 한 번 더 붙어 '눌러도 반응이 없는'
+    체감이 생긴다. 저장 응답이 곧 최신 상태가 되도록 계산 결과까지 함께 돌려준다.
+    """
+    target_month = month or date.today().strftime("%Y-%m")
+    scheduled = _scheduled_hours_by_employee(db, [emp.id], target_month).get(emp.id, 0.0)
+    return {
+        "id": emp.id,
+        "name": emp.name,
+        "role": emp.role,
+        "hourly_rate": emp.hourly_rate,
+        "scheduled_hours": scheduled,
+        "profile": prof,
+        "cost": estimate_labor_cost(emp.hourly_rate or 0, prof, scheduled),
+    }
+
+
+def create_staff(store_id: str, name: str, hourly_rate: int = 0,
+                 role: str = "알바", **fields) -> dict[str, Any]:
+    """직원 등록 + 고용 상세를 한 번에 저장한다.
+
+    예전엔 등록(operation의 /employees)과 상세 저장이 두 번의 요청으로 나뉘어 있었다.
+    그래서 이름·시급만 등록되고 고용형태·보험은 기본값으로 남는 직원이 생겼고, 사장님은
+    추가 직후 목록에서 다시 펼쳐 네 가지를 또 골라야 했다. 한 트랜잭션으로 묶는다.
+    """
+    from app.models.ai import EmployeeProfile
+    from app.models.operation import Employee
+
+    name = (name or "").strip()
+    if not name:
+        raise StaffError("직원 이름을 입력해 주세요.")
+    _validate(fields)
+
+    db = _session()
+    try:
+        emp = Employee(
+            store_id=store_id,
+            name=name,
+            hourly_rate=int(hourly_rate or 0),
+            role=(role or "").strip() or "알바",
+        )
+        db.add(emp)
+        db.flush()  # id 확보 — 프로필이 이 id를 참조한다
+
+        base = _default_profile(emp.id)
+        base.pop("unset", None)
+        base.update({k: v for k, v in fields.items() if k in PROFILE_FIELDS and v is not None})
+        p = EmployeeProfile(store_id=store_id, **base)
+        db.add(p)
+        db.commit()
+        db.refresh(emp)
+        db.refresh(p)
+        return _staff_entry(db, emp, _profile_dict(p))
+    finally:
+        db.close()
+
+
+def save_profile(store_id: str, employee_id: int, **fields) -> dict[str, Any]:
+    from app.models.ai import EmployeeProfile
+    from app.models.operation import Employee
+
+    _validate(fields)
 
     db = _session()
     try:
@@ -130,17 +200,30 @@ def save_profile(store_id: str, employee_id: int, **fields) -> dict[str, Any]:
         if emp.store_id and emp.store_id != store_id:
             raise StaffError("다른 매장의 직원입니다.")
 
+        for k in BASIC_FIELDS:
+            v = fields.get(k)
+            if v is None:
+                continue
+            if k in {"name", "role"}:
+                v = str(v).strip()
+                if not v:
+                    continue
+            if k == "hourly_rate":
+                v = int(v)
+            setattr(emp, k, v)
+
         p = db.get(EmployeeProfile, employee_id)
         if p is None:
             p = EmployeeProfile(employee_id=employee_id, store_id=store_id)
             db.add(p)
         p.store_id = store_id
         for k, v in fields.items():
-            if k in allowed and v is not None:
+            if k in PROFILE_FIELDS and v is not None:
                 setattr(p, k, v)
         db.commit()
+        db.refresh(emp)
         db.refresh(p)
-        return _profile_dict(p)
+        return _staff_entry(db, emp, _profile_dict(p))
     finally:
         db.close()
 

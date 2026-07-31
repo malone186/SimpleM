@@ -18,6 +18,15 @@ router = APIRouter(prefix="/staff", tags=["staff"])
 
 
 class ProfileUpdate(BaseModel):
+    """직원 상세 화면에서 고칠 수 있는 모든 값 — 이름·시급(employees)과 고용 상세를 함께 받는다.
+
+    등록 화면과 상세 화면이 같은 항목을 다뤄야 사장님이 "추가할 때 못 고른 걸 나중에
+    또 찾아 들어가는" 일이 없다.
+    """
+
+    name: Optional[str] = None
+    hourly_rate: Optional[int] = Field(None, ge=0)
+    role: Optional[str] = None
     employment_type: Optional[str] = Field(None, description="part_time | part_time_15 | full_time | manager")
     pay_type: Optional[str] = Field(None, description="hourly | monthly")
     monthly_salary: Optional[int] = Field(None, ge=0)
@@ -26,6 +35,13 @@ class ProfileUpdate(BaseModel):
     weekly_holiday_pay: Optional[bool] = None
     hired_on: Optional[str] = None
     memo: Optional[str] = None
+
+
+class StaffCreate(ProfileUpdate):
+    """직원 등록 — 이름만 필수, 나머지는 상세 화면과 같은 항목이며 생략하면 기본값."""
+
+    name: str = Field(..., min_length=1)
+    hourly_rate: int = Field(0, ge=0)
 
 
 @router.get("", summary="직원 목록 + 고용 상세 + 월 인건비 추정")
@@ -40,12 +56,30 @@ def list_staff_api(
     return staff_service.list_staff(current_user.email, month=month)
 
 
-@router.put("/{employee_id}/profile", summary="직원 고용 상세 저장")
+@router.post("", summary="직원 등록 + 고용 상세 한 번에")
+def create_staff_api(
+    body: StaffCreate,
+    current_user: User = Depends(get_current_user),
+):
+    """등록과 상세 저장을 한 트랜잭션으로 묶는다 — 반쪽만 저장되는 직원이 안 생기게.
+
+    반환값은 목록의 한 줄과 같은 모양(프로필 + 인건비 계산)이라 화면이 바로 붙일 수 있다.
+    """
+    try:
+        return staff_service.create_staff(
+            current_user.email, **body.model_dump(exclude_none=True),
+        )
+    except staff_service.StaffError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.put("/{employee_id}/profile", summary="직원 기본 정보 + 고용 상세 저장")
 def save_profile_api(
     employee_id: int,
     body: ProfileUpdate,
     current_user: User = Depends(get_current_user),
 ):
+    """저장된 결과를 목록 한 줄 모양(인건비 재계산 포함)으로 돌려준다."""
     try:
         return staff_service.save_profile(
             current_user.email, employee_id,
