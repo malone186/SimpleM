@@ -1,9 +1,9 @@
 // AI 경영 리포트 카드 — 홈에서 일간/주간/월간을 눌러 바로 확인 (모달·편지 연출 없음)
 // 데이터: GET /chatbot/reports/management (매출·매입·지출·인건비·재고·발주·갱신 통합 집계)
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { useAuth } from '../../auth/AuthContext';
@@ -50,6 +50,7 @@ export default function ManagementReportCard() {
   const { t, language } = useTranslation();
   const { token } = useAuth();
   const navigation = useNavigation<NativeStackNavigationProp<RootTabParamList>>();
+  const isFocused = useIsFocused();
   const { reportFrequency } = usePreferences();
 
   const periodsOptions: { value: ReportPeriodType; label: string }[] = [
@@ -64,8 +65,46 @@ export default function ManagementReportCard() {
     monthly: t('thisMonthRevenue'),
   };
 
-  // 설정의 'AI 경영 리포트 수신 주기'(매일/매주)를 첫 화면 기간으로 반영
-  const [period, setPeriod] = useState<ReportPeriodType>(reportFrequency === 'daily' ? 'daily' : 'weekly');
+  // [한글 주석: 카드 진입 시 기본 탭이 항상 '일간'(daily)으로 선택되어 있도록 고정]
+  const [period, setPeriod] = useState<ReportPeriodType>('daily');
+
+  // [한글 주석:다른 탭을 다녀왔을 때(포커스 재활성화) 탭을 무조건 '일간'으로 자동 리셋]
+  useEffect(() => {
+    if (isFocused) {
+      setPeriod('daily');
+    }
+  }, [isFocused]);
+
+  // [한글 주석: 탭 전환 시 콘텐츠가 스무스하고 자연스럽게 슬라이드/페이드되도록 고성능 애니메이션 추가]
+  const contentFadeAnim = useRef(new Animated.Value(1)).current;
+  const contentSlideAnim = useRef(new Animated.Value(0)).current;
+  const prevPeriodRef = useRef<ReportPeriodType>(period);
+
+  useEffect(() => {
+    if (prevPeriodRef.current !== period) {
+      const isRight =
+        (prevPeriodRef.current === 'daily' && (period === 'weekly' || period === 'monthly')) ||
+        (prevPeriodRef.current === 'weekly' && period === 'monthly');
+      prevPeriodRef.current = period;
+
+      contentFadeAnim.setValue(0);
+      contentSlideAnim.setValue(isRight ? 18 : -18);
+
+      Animated.parallel([
+        Animated.timing(contentFadeAnim, {
+          toValue: 1,
+          duration: 180,
+          useNativeDriver: true,
+        }),
+        Animated.spring(contentSlideAnim, {
+          toValue: 0,
+          friction: 8,
+          tension: 90,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [period]);
   // 기간별 응답 캐시 — 탭을 오가도 다시 로딩하지 않는다 (카드 리마운트 시 초기화 = 당겨서 새로고침)
   const [reports, setReports] = useState<Partial<Record<ReportPeriodType, GeneratedDocument>>>({});
   const [loading, setLoading] = useState(false);
@@ -131,238 +170,240 @@ export default function ManagementReportCard() {
 
       <Segmented options={periodsOptions} value={period} onChange={setPeriod} />
 
-      {!report && loading && (
-        <View style={styles.stateWrap}>
-          <ActivityIndicator color={colors.mochaBrown} />
-          <Text style={styles.stateText}>{periodWordMap[period]} {language === 'en' ? 'loading...' : '데이터를 모으는 중…'}</Text>
-        </View>
-      )}
+      <Animated.View style={{ opacity: contentFadeAnim, transform: [{ translateX: contentSlideAnim }] }}>
+        {!report && loading && (
+          <View style={styles.stateWrap}>
+            <ActivityIndicator color={colors.mochaBrown} />
+            <Text style={styles.stateText}>{periodWordMap[period]} {language === 'en' ? 'loading...' : '데이터를 모으는 중…'}</Text>
+          </View>
+        )}
 
-      {/* 실패 안내 — 데이터가 없어서 못 만든 경우(needs_data)는 서버가 준 조건 문장을 그대로 보여주고
-          '다시 시도'도 감춘다. 다시 눌러도 데이터가 생기지 않기 때문이다. */}
-      {!report && failure && !loading && (
-        <View style={styles.stateWrap}>
-          {failure.kind === 'needs_data' && (
-            <Ionicons name="hourglass-outline" size={22} color={colors.mochaBrown} style={{ marginBottom: 6 }} />
-          )}
-          <Text style={styles.stateText}>{failure.message}</Text>
-          {failure.retryable && (
-            <PressableScale style={styles.retryBtn} onPress={() => setRetryKey((k) => k + 1)}>
-              <Text style={styles.retryText}>{language === 'en' ? 'Retry' : '다시 시도'}</Text>
-            </PressableScale>
-          )}
-        </View>
-      )}
-
-      {/* 신규 계정 — 리포트는 열렸지만 집계할 기록이 아직 없는 상태 */}
-      {isEmptyReport && (
-        <View style={styles.emptyWrap}>
-          <Ionicons name="sparkles-outline" size={24} color={colors.pointOrange} />
-          <Text style={styles.emptyTitle}>
-            {language === 'en' ? 'No records to report yet' : '아직 리포트에 담을 기록이 없어요'}
-          </Text>
-          <Text style={styles.emptyText}>
-            {language === 'en'
-              ? 'Enter sales or scan a supplier statement and this report fills in right away.\nThe AI sales forecast opens once 14 days (2 weeks) of sales history are in.'
-              : '판매를 입력하거나 명세서를 촬영하면 이 리포트가 바로 채워져요.\nAI 매출 예측은 판매 기록이 14일(2주)치 모이면 열려요.'}
-          </Text>
-        </View>
-      )}
-
-      {report && !isEmptyReport && (
-        <>
-          {/* 히어로 숫자 — 기간 매출 + 이전 기간 대비 증감 (화살표 + 퍼센트) */}
-          <View style={styles.heroRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.heroLabel}>{periodWordMap[period]}</Text>
-              <Text style={styles.heroValue}>{won(salesTotal)}</Text>
-            </View>
-            {salesDelta !== null ? (
-              <View style={[styles.deltaBadge, !deltaUp && styles.deltaBadgeDown]}>
-                <Text style={[styles.deltaText, !deltaUp && styles.deltaTextDown]}>
-                  {deltaUp ? '▲' : '▼'} {Math.abs(salesDelta)}%
-                </Text>
-              </View>
-            ) : (
-              <View style={styles.deltaBadgeNeutral}>
-                <Text style={styles.deltaTextNeutral}>{t('noComparisonData')}</Text>
-              </View>
+        {/* 실패 안내 — 데이터가 없어서 못 만든 경우(needs_data)는 서버가 준 조건 문장을 그대로 보여주고
+            '다시 시도'도 감춘다. 다시 눌러도 데이터가 생기지 않기 때문이다. */}
+        {!report && failure && !loading && (
+          <View style={styles.stateWrap}>
+            {failure.kind === 'needs_data' && (
+              <Ionicons name="hourglass-outline" size={22} color={colors.mochaBrown} style={{ marginBottom: 6 }} />
+            )}
+            <Text style={styles.stateText}>{failure.message}</Text>
+            {failure.retryable && (
+              <PressableScale style={styles.retryBtn} onPress={() => setRetryKey((k) => k + 1)}>
+                <Text style={styles.retryText}>{language === 'en' ? 'Retry' : '다시 시도'}</Text>
+              </PressableScale>
             )}
           </View>
+        )}
 
-          {/* [한글 주석: 터치 가능한 스탯 타일 3개 — 평소엔 깔끔한 큰글씨만 표출] */}
-          <View style={styles.tileRow}>
-            <PressableScale
-              style={[styles.tile, selectedTile === 'profit' && styles.tileActive]}
-              onPress={() => toggleTile('profit')}
-            >
-              <Text style={styles.tileLabel}>{t('estProfit')}</Text>
-              <Text style={styles.tileValue} numberOfLines={1} adjustsFontSizeToFit>
-                {won(c.profit?.estimated_profit ?? 0)}
-              </Text>
-            </PressableScale>
-
-            <PressableScale
-              style={[styles.tile, selectedTile === 'cost' && styles.tileActive]}
-              onPress={() => toggleTile('cost')}
-            >
-              <Text style={styles.tileLabel}>{t('totalExpenses')}</Text>
-              <Text style={styles.tileValue} numberOfLines={1} adjustsFontSizeToFit>
-                {won(c.profit?.total_cost ?? 0)}
-              </Text>
-            </PressableScale>
-
-            <PressableScale
-              style={[styles.tile, selectedTile === 'sales' && styles.tileActive]}
-              onPress={() => toggleTile('sales')}
-            >
-              <Text style={styles.tileLabel}>{t('soldCups')}</Text>
-              <Text style={styles.tileValue} numberOfLines={1} adjustsFontSizeToFit>
-                {(c.sales?.cups ?? 0).toLocaleString('ko-KR')}{t('cups')}
-              </Text>
-            </PressableScale>
+        {/* 신규 계정 — 리포트는 열렸지만 집계할 기록이 아직 없는 상태 */}
+        {isEmptyReport && (
+          <View style={styles.emptyWrap}>
+            <Ionicons name="sparkles-outline" size={24} color={colors.pointOrange} />
+            <Text style={styles.emptyTitle}>
+              {language === 'en' ? 'No records to report yet' : '아직 리포트에 담을 기록이 없어요'}
+            </Text>
+            <Text style={styles.emptyText}>
+              {language === 'en'
+                ? 'Enter sales or scan a supplier statement and this report fills in right away.\nThe AI sales forecast opens once 14 days (2 weeks) of sales history are in.'
+                : '판매를 입력하거나 명세서를 촬영하면 이 리포트가 바로 채워져요.\nAI 매출 예측은 판매 기록이 14일(2주)치 모이면 열려요.'}
+            </Text>
           </View>
+        )}
 
-          {/* [한글 주석: 살짝 떠오르는 미니 팝업 창 — 1위, 2위 메뉴 순위 및 세부 정보 표출] */}
-          <Modal
-            visible={selectedTile !== null}
-            transparent
-            animationType="fade"
-            onRequestClose={() => setSelectedTile(null)}
-          >
-            <Pressable style={styles.modalOverlay} onPress={() => setSelectedTile(null)}>
-              <Pressable style={styles.miniPopupCard} onPress={(e) => e.stopPropagation?.()}>
-                {selectedTile === 'sales' && (
-                  <>
-                    <View style={styles.popupHeader}>
-                      <Text style={styles.popupTitle}>☕ 판매 잔수 & 인기 메뉴</Text>
-                    </View>
-                    <View style={styles.popupBody}>
-                      {Array.isArray(c.sales?.top_menus) && c.sales.top_menus.length > 0 ? (
-                        c.sales.top_menus.map((item: any, idx: number) => (
-                          <View key={idx} style={styles.rankRow}>
-                            <Text style={styles.rankBadge}>{idx + 1}위</Text>
-                            <Text style={styles.rankMenuName}>{item.menu}</Text>
-                            {item.quantity && <Text style={styles.rankCount}>{item.quantity}잔</Text>}
-                          </View>
-                        ))
-                      ) : (
-                        <>
-                          <View style={styles.rankRow}>
-                            <Text style={styles.rankBadge}>1위</Text>
-                            <Text style={styles.rankMenuName}>
-                              {c.sales?.top_menus?.[0]?.menu || '아메리카노'}
-                            </Text>
-                          </View>
-                          <View style={styles.rankRow}>
-                            <Text style={styles.rankBadgeNeutral}>2위</Text>
-                            <Text style={styles.rankMenuName}>카페라떼</Text>
-                          </View>
-                          <View style={styles.rankRow}>
-                            <Text style={styles.rankBadgeNeutral}>3위</Text>
-                            <Text style={styles.rankMenuName}>바닐라라떼</Text>
-                          </View>
-                        </>
-                      )}
-                      <View style={styles.popupDivider} />
-                      <Text style={styles.totalCupsText}>
-                        총 판매 잔수: <Text style={{ fontWeight: '800' }}>{(c.sales?.cups ?? 0).toLocaleString('ko-KR')}잔</Text>
-                      </Text>
-                    </View>
-                  </>
-                )}
-
-                {selectedTile === 'profit' && (
-                  <>
-                    <View style={styles.popupHeader}>
-                      <Text style={styles.popupTitle}>💰 추정 수익 상세 분석</Text>
-                    </View>
-                    <View style={styles.popupBody}>
-                      <View style={styles.detailInfoRow}>
-                        <Text style={styles.detailInfoLabel}>추정 마진율</Text>
-                        <Text style={styles.detailInfoValue}>
-                          {c.profit?.margin_pct != null ? `${c.profit.margin_pct}%` : '계산 중'}
-                        </Text>
-                      </View>
-                      <View style={styles.detailInfoRow}>
-                        <Text style={styles.detailInfoLabel}>순 추정 수익</Text>
-                        <Text style={[styles.detailInfoValue, { color: colors.trendGreenText }]}>
-                          {won(c.profit?.estimated_profit ?? 0)}
-                        </Text>
-                      </View>
-                      <View style={styles.popupDivider} />
-                      <Text style={styles.totalCupsText}>
-                        매출 대비 수익 구조가 매우 안정적입니다 ☕
-                      </Text>
-                    </View>
-                  </>
-                )}
-
-                {selectedTile === 'cost' && (
-                  <>
-                    <View style={styles.popupHeader}>
-                      <Text style={styles.popupTitle}>🧾 비용 세부 구성 내역</Text>
-                    </View>
-                    <View style={styles.popupBody}>
-                      <View style={styles.detailInfoRow}>
-                        <Text style={styles.detailInfoLabel}>총 비용 합계</Text>
-                        <Text style={styles.detailInfoValue}>{won(c.profit?.total_cost ?? 0)}</Text>
-                      </View>
-                      <View style={styles.detailInfoRow}>
-                        <Text style={styles.detailInfoLabel}>추정 인건비</Text>
-                        <Text style={styles.detailInfoValue}>{won(c.labor?.estimated_cost ?? 0)}</Text>
-                      </View>
-                      <View style={styles.detailInfoRow}>
-                        <Text style={styles.detailInfoLabel}>재료비 및 매장 기타경비</Text>
-                        <Text style={styles.detailInfoValue}>
-                          {won(Math.max(0, (c.profit?.total_cost ?? 0) - (c.labor?.estimated_cost ?? 0)))}
-                        </Text>
-                      </View>
-                    </View>
-                  </>
-                )}
-
-                <PressableScale
-                  style={styles.popupCloseBtn}
-                  onPress={() => setSelectedTile(null)}
-                >
-                  <Text style={styles.popupCloseText}>확인</Text>
-                </PressableScale>
-              </Pressable>
-            </Pressable>
-          </Modal>
-
-          {/* 핵심 요약 — 집계에서 바로 읽어낸 사실들 */}
-          {highlights.length > 0 && (
-            <View style={styles.highlightWrap}>
-              {highlights.map((h, i) => (
-                <Text key={i} style={styles.highlight}>
-                  <Text style={styles.highlightDot}>✦ </Text>
-                  {formatFriendlyText(h)}
-                </Text>
-              ))}
+        {report && !isEmptyReport && (
+          <>
+            {/* 히어로 숫자 — 기간 매출 + 이전 기간 대비 증감 (화살표 + 퍼센트) */}
+            <View style={styles.heroRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.heroLabel}>{periodWordMap[period]}</Text>
+                <Text style={styles.heroValue}>{won(salesTotal)}</Text>
+              </View>
+              {salesDelta !== null ? (
+                <View style={[styles.deltaBadge, !deltaUp && styles.deltaBadgeDown]}>
+                  <Text style={[styles.deltaText, !deltaUp && styles.deltaTextDown]}>
+                    {deltaUp ? '▲' : '▼'} {Math.abs(salesDelta)}%
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.deltaBadgeNeutral}>
+                  <Text style={styles.deltaTextNeutral}>{t('noComparisonData')}</Text>
+                </View>
+              )}
             </View>
-          )}
 
-          {/* 운영 체크 + 상세 안내 */}
-          <Text style={styles.opsLine}>
-            {language === 'en'
-              ? `${c.inventory?.low_stock?.length ?? 0} Low Stock · ${c.orders?.open_count ?? 0} Pending Orders · ${c.compliance_alerts?.length ?? 0} Docs`
-              : `재고 부족 알림 ${c.inventory?.low_stock?.length ?? 0}건 · 진행 중 발주 ${c.orders?.open_count ?? 0}건 · 갱신 확인 서류 ${c.compliance_alerts?.length ?? 0}건`}
-          </Text>
-          {/* 품목별 상세는 전용 화면이 없으므로, 눌러서 챗봇에 질문을 바로 채워 넣는다 */}
-          <PressableScale
-            style={styles.detailBtn}
-            onPress={() => {
-              const label = periodsOptions.find((p) => p.value === period)?.label ?? '일간';
-              navigation.navigate('Chatbot', { prefill: `${label} 품목별 상세 표 보여줘`, ts: Date.now() });
-            }}
-          >
-            <Ionicons name="chatbubble-ellipses" size={15} color={colors.white} />
-            <Text style={styles.detailBtnText}>{t('viewItemizedDetail')}</Text>
-          </PressableScale>
-        </>
-      )}
+            {/* [한글 주석: 터치 가능한 스탯 타일 3개 — 평소엔 깔끔한 큰글씨만 표출] */}
+            <View style={styles.tileRow}>
+              <PressableScale
+                style={[styles.tile, selectedTile === 'profit' && styles.tileActive]}
+                onPress={() => toggleTile('profit')}
+              >
+                <Text style={styles.tileLabel}>{t('estProfit')}</Text>
+                <Text style={styles.tileValue} numberOfLines={1} adjustsFontSizeToFit>
+                  {won(c.profit?.estimated_profit ?? 0)}
+                </Text>
+              </PressableScale>
+
+              <PressableScale
+                style={[styles.tile, selectedTile === 'cost' && styles.tileActive]}
+                onPress={() => toggleTile('cost')}
+              >
+                <Text style={styles.tileLabel}>{t('totalExpenses')}</Text>
+                <Text style={styles.tileValue} numberOfLines={1} adjustsFontSizeToFit>
+                  {won(c.profit?.total_cost ?? 0)}
+                </Text>
+              </PressableScale>
+
+              <PressableScale
+                style={[styles.tile, selectedTile === 'sales' && styles.tileActive]}
+                onPress={() => toggleTile('sales')}
+              >
+                <Text style={styles.tileLabel}>{t('soldCups')}</Text>
+                <Text style={styles.tileValue} numberOfLines={1} adjustsFontSizeToFit>
+                  {(c.sales?.cups ?? 0).toLocaleString('ko-KR')}{t('cups')}
+                </Text>
+              </PressableScale>
+            </View>
+
+            {/* [한글 주석: 살짝 떠오르는 미니 팝업 창 — 1위, 2위 메뉴 순위 및 세부 정보 표출] */}
+            <Modal
+              visible={selectedTile !== null}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setSelectedTile(null)}
+            >
+              <Pressable style={styles.modalOverlay} onPress={() => setSelectedTile(null)}>
+                <Pressable style={styles.miniPopupCard} onPress={(e) => e.stopPropagation?.()}>
+                  {selectedTile === 'sales' && (
+                    <>
+                      <View style={styles.popupHeader}>
+                        <Text style={styles.popupTitle}>☕ 판매 잔수 & 인기 메뉴</Text>
+                      </View>
+                      <View style={styles.popupBody}>
+                        {Array.isArray(c.sales?.top_menus) && c.sales.top_menus.length > 0 ? (
+                          c.sales.top_menus.map((item: any, idx: number) => (
+                            <View key={idx} style={styles.rankRow}>
+                              <Text style={styles.rankBadge}>{idx + 1}위</Text>
+                              <Text style={styles.rankMenuName}>{item.menu}</Text>
+                              {item.quantity && <Text style={styles.rankCount}>{item.quantity}잔</Text>}
+                            </View>
+                          ))
+                        ) : (
+                          <>
+                            <View style={styles.rankRow}>
+                              <Text style={styles.rankBadge}>1위</Text>
+                              <Text style={styles.rankMenuName}>
+                                {c.sales?.top_menus?.[0]?.menu || '아메리카노'}
+                              </Text>
+                            </View>
+                            <View style={styles.rankRow}>
+                              <Text style={styles.rankBadgeNeutral}>2위</Text>
+                              <Text style={styles.rankMenuName}>카페라떼</Text>
+                            </View>
+                            <View style={styles.rankRow}>
+                              <Text style={styles.rankBadgeNeutral}>3위</Text>
+                              <Text style={styles.rankMenuName}>바닐라라떼</Text>
+                            </View>
+                          </>
+                        )}
+                        <View style={styles.popupDivider} />
+                        <Text style={styles.totalCupsText}>
+                          총 판매 잔수: <Text style={{ fontWeight: '800' }}>{(c.sales?.cups ?? 0).toLocaleString('ko-KR')}잔</Text>
+                        </Text>
+                      </View>
+                    </>
+                  )}
+
+                  {selectedTile === 'profit' && (
+                    <>
+                      <View style={styles.popupHeader}>
+                        <Text style={styles.popupTitle}>💰 추정 수익 상세 분석</Text>
+                      </View>
+                      <View style={styles.popupBody}>
+                        <View style={styles.detailInfoRow}>
+                          <Text style={styles.detailInfoLabel}>추정 마진율</Text>
+                          <Text style={styles.detailInfoValue}>
+                            {c.profit?.margin_pct != null ? `${c.profit.margin_pct}%` : '계산 중'}
+                          </Text>
+                        </View>
+                        <View style={styles.detailInfoRow}>
+                          <Text style={styles.detailInfoLabel}>순 추정 수익</Text>
+                          <Text style={[styles.detailInfoValue, { color: colors.trendGreenText }]}>
+                            {won(c.profit?.estimated_profit ?? 0)}
+                          </Text>
+                        </View>
+                        <View style={styles.popupDivider} />
+                        <Text style={styles.totalCupsText}>
+                          매출 대비 수익 구조가 매우 안정적입니다 ☕
+                        </Text>
+                      </View>
+                    </>
+                  )}
+
+                  {selectedTile === 'cost' && (
+                    <>
+                      <View style={styles.popupHeader}>
+                        <Text style={styles.popupTitle}>🧾 비용 세부 구성 내역</Text>
+                      </View>
+                      <View style={styles.popupBody}>
+                        <View style={styles.detailInfoRow}>
+                          <Text style={styles.detailInfoLabel}>총 비용 합계</Text>
+                          <Text style={styles.detailInfoValue}>{won(c.profit?.total_cost ?? 0)}</Text>
+                        </View>
+                        <View style={styles.detailInfoRow}>
+                          <Text style={styles.detailInfoLabel}>추정 인건비</Text>
+                          <Text style={styles.detailInfoValue}>{won(c.labor?.estimated_cost ?? 0)}</Text>
+                        </View>
+                        <View style={styles.detailInfoRow}>
+                          <Text style={styles.detailInfoLabel}>재료비 및 매장 기타경비</Text>
+                          <Text style={styles.detailInfoValue}>
+                            {won(Math.max(0, (c.profit?.total_cost ?? 0) - (c.labor?.estimated_cost ?? 0)))}
+                          </Text>
+                        </View>
+                      </View>
+                    </>
+                  )}
+
+                  <PressableScale
+                    style={styles.popupCloseBtn}
+                    onPress={() => setSelectedTile(null)}
+                  >
+                    <Text style={styles.popupCloseText}>확인</Text>
+                  </PressableScale>
+                </Pressable>
+              </Pressable>
+            </Modal>
+
+            {/* 핵심 요약 — 집계에서 바로 읽어낸 사실들 */}
+            {highlights.length > 0 && (
+              <View style={styles.highlightWrap}>
+                {highlights.map((h, i) => (
+                  <Text key={i} style={styles.highlight}>
+                    <Text style={styles.highlightDot}>✦ </Text>
+                    {formatFriendlyText(h)}
+                  </Text>
+                ))}
+              </View>
+            )}
+
+            {/* 운영 체크 + 상세 안내 */}
+            <Text style={styles.opsLine}>
+              {language === 'en'
+                ? `${c.inventory?.low_stock?.length ?? 0} Low Stock · ${c.orders?.open_count ?? 0} Pending Orders · ${c.compliance_alerts?.length ?? 0} Docs`
+                : `재고 부족 알림 ${c.inventory?.low_stock?.length ?? 0}건 · 진행 중 발주 ${c.orders?.open_count ?? 0}건 · 갱신 확인 서류 ${c.compliance_alerts?.length ?? 0}건`}
+            </Text>
+            {/* 품목별 상세는 전용 화면이 없으므로, 눌러서 챗봇에 질문을 바로 채워 넣는다 */}
+            <PressableScale
+              style={styles.detailBtn}
+              onPress={() => {
+                const label = periodsOptions.find((p) => p.value === period)?.label ?? '일간';
+                navigation.navigate('Chatbot', { prefill: `${label} 품목별 상세 표 보여줘`, ts: Date.now() });
+              }}
+            >
+              <Ionicons name="chatbubble-ellipses" size={15} color={colors.white} />
+              <Text style={styles.detailBtnText}>{t('viewItemizedDetail')}</Text>
+            </PressableScale>
+          </>
+        )}
+      </Animated.View>
     </View>
   );
 }

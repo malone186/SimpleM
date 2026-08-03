@@ -95,14 +95,19 @@ function getWeekDays(referenceDate: Date = new Date()): DateInfo[] {
   });
 }
 
-// 월간 캘린더 그리드 — 실제 연·월 기준으로 셀을 만든다 (월요일 시작, 앞쪽 공백 포함)
+// 월간 캘린더 그리드 — 실제 연·월 기준으로 셀을 만든다 (월요일 시작, 6주 42칸 고정으로 모달 높이 고정)
 function buildMonthCells(year: number, month0: number): (number | null)[] {
   const firstOffset = (new Date(year, month0, 1).getDay() + 6) % 7; // 월=0 … 일=6
   const daysInMonth = new Date(year, month0 + 1, 0).getDate();
-  return [
+  const cells: (number | null)[] = [
     ...Array.from({ length: firstOffset }, () => null as number | null),
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
   ];
+  // [한글 주석: 42칸(6주×7일)을 고정 채움하여 월이 이동할 때 모달 네모 박스 높이가 덜컹거리지 않게 방지]
+  while (cells.length < 42) {
+    cells.push(null);
+  }
+  return cells;
 }
 
 
@@ -263,6 +268,10 @@ export default function SalesCard({
   const [forecast, setForecast] = useState<SalesForecast | null>(null);
   const [calendar, setCalendar] = useState<SalesCalendar | null>(null); // 이번 달 일별 실판매 집계
   const [loadingForecast, setLoadingForecast] = useState(false);
+  // [한글 주석: 월간 달력 넘김을 위한 선택 연도/월 상태 관리]
+  const [selectedYear, setSelectedYear] = useState<number>(() => new Date().getFullYear());
+  const [selectedMonth0, setSelectedMonth0] = useState<number>(() => new Date().getMonth());
+
   // 예측을 못 받은 이유 — 신규 계정은 판매 기록이 14일 미만이라 백엔드가 409로 조건을 알려준다.
   // 예전엔 콘솔에만 남겨서 화면에는 예측이 조용히 사라졌고, 미래 날짜를 누르면 '불러오는 중'만 돌았다.
   const [forecastFailure, setForecastFailure] = useState<ApiFailure | null>(null);
@@ -354,10 +363,18 @@ export default function SalesCard({
         if (!cancelled) setLoadingForecast(false);
       }
     })();
-    // 월간 캘린더 집계 — 예측(GPS 대기)과 독립적으로 병렬 조회
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  // [한글 주석: 선택한 연도/월이 변경될 때마다 월간 캘린더 데이터를 백엔드에서 다시 가져온다]
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
     (async () => {
       try {
-        const cal = await getSalesCalendar(token);
+        const cal = await getSalesCalendar(token, selectedYear, selectedMonth0 + 1);
         if (!cancelled) setCalendar(cal);
       } catch (e) {
         console.error('월간 판매 캘린더 조회 실패:', e);
@@ -366,7 +383,7 @@ export default function SalesCard({
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, selectedYear, selectedMonth0]);
   // [한글 주석: 전역 다국어 번역 훅 연동]
   const { t, language } = useTranslation();
 
@@ -402,11 +419,69 @@ export default function SalesCard({
     }
   }
 
-  // 실제 오늘 날짜 기준 캘린더 좌표
-  const year = now.getFullYear();
-  const month0 = now.getMonth(); // 0-based
+  // [한글 주석: 월간 캘린더 부드러운 전환을 위한 페이드 & 슬라이드 애니메이션 제어]
+  const monthAnim = useRef(new Animated.Value(1)).current;
+  const monthSlideAnim = useRef(new Animated.Value(0)).current;
+
+  const triggerMonthTransition = (updateFn: () => void, direction: 'prev' | 'next') => {
+    Animated.parallel([
+      Animated.timing(monthAnim, {
+        toValue: 0,
+        duration: 90,
+        useNativeDriver: true,
+      }),
+      Animated.timing(monthSlideAnim, {
+        toValue: direction === 'next' ? -24 : 24,
+        duration: 90,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      updateFn();
+      monthSlideAnim.setValue(direction === 'next' ? 24 : -24);
+      Animated.parallel([
+        Animated.timing(monthAnim, {
+          toValue: 1,
+          duration: 160,
+          useNativeDriver: true,
+        }),
+        Animated.spring(monthSlideAnim, {
+          toValue: 0,
+          friction: 7.5,
+          tension: 95,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    });
+  };
+
+  const handlePrevMonth = () => {
+    triggerMonthTransition(() => {
+      if (selectedMonth0 === 0) {
+        setSelectedYear((prev) => prev - 1);
+        setSelectedMonth0(11);
+      } else {
+        setSelectedMonth0((prev) => prev - 1);
+      }
+    }, 'prev');
+  };
+
+  const handleNextMonth = () => {
+    triggerMonthTransition(() => {
+      if (selectedMonth0 === 11) {
+        setSelectedYear((prev) => prev + 1);
+        setSelectedMonth0(0);
+      } else {
+        setSelectedMonth0((prev) => prev + 1);
+      }
+    }, 'next');
+  };
+
+  // 실제 선택된 연/월 기준 캘린더 좌표
+  const todayYear = now.getFullYear();
+  const todayMonth0 = now.getMonth();
   const todayDay = now.getDate();
-  const monthCells = useMemo(() => buildMonthCells(year, month0), [year, month0]);
+  const isCurrentMonthView = selectedYear === todayYear && selectedMonth0 === todayMonth0;
+  const monthCells = useMemo(() => buildMonthCells(selectedYear, selectedMonth0), [selectedYear, selectedMonth0]);
 
   // 일(day) → 실판매 집계 맵
   const calDayMap = useMemo(() => {
@@ -417,15 +492,15 @@ export default function SalesCard({
     return m;
   }, [calendar]);
 
-  // 일(day) → AI 예측 맵 — 예측 API가 준 이번 달 미래 날짜만 (하드코딩 폴백 없음)
+  // 일(day) → AI 예측 맵 — 예측 API가 준 해당 연/월의 미래 날짜만
   const futureForecasts = useMemo(() => {
     const m: Record<number, ForecastDay> = {};
     forecast?.week.forEach((d) => {
       const [fy, fm, fd] = d.date.split('-').map(Number);
-      if (fy === year && fm === month0 + 1) m[fd] = d;
+      if (fy === selectedYear && fm === selectedMonth0 + 1) m[fd] = d;
     });
     return m;
-  }, [forecast, year, month0]);
+  }, [forecast, selectedYear, selectedMonth0]);
 
   // 오늘 실적 — 백엔드 실데이터 (없으면 0: AI 경영 리포트와 같은 집계 기준)
   const todayActual = forecast?.today ?? null;
@@ -644,56 +719,76 @@ export default function SalesCard({
             <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 440 }}>
               {analyticsTab === 'month' ? (
                 <View style={styles.calendarContainer}>
+                  {/* ━━━ [한글 주석: 연/월 이동 넘김 컨트롤러 UI 헤더] ━━━ */}
+                  <View style={styles.monthHeaderRow}>
+                    <PressableScale onPress={handlePrevMonth} style={styles.monthNavBtn} to={0.88}>
+                      <Ionicons name="chevron-back" size={18} color={colors.espressoBrown} />
+                    </PressableScale>
+
+                    <Animated.View style={{ opacity: monthAnim, transform: [{ translateX: monthSlideAnim }] }}>
+                      <Text style={styles.monthTitleText}>
+                        {selectedYear}년 {selectedMonth0 + 1}월
+                      </Text>
+                    </Animated.View>
+
+                    <PressableScale onPress={handleNextMonth} style={styles.monthNavBtn} to={0.88}>
+                      <Ionicons name="chevron-forward" size={18} color={colors.espressoBrown} />
+                    </PressableScale>
+                  </View>
+
                   {/* 요일 행 */}
                   <View style={styles.calendarHeaderRow}>
                     {DAYS.map(day => (
                       <Text key={day} style={styles.calendarHeaderDay}>{day}</Text>
                     ))}
                   </View>
-                  {/* 날짜 그리드 행 — 실제 이번 달 달력 + DB 일별 판매 집계 */}
-                  <View style={styles.calendarGrid}>
-                    {monthCells.map((day, idx) => {
-                      const dayData = day !== null ? calDayMap[day] : undefined;
-                      const fDay = day !== null && day > todayDay ? futureForecasts[day] : undefined;
-                      const hasData = !!dayData && dayData.revenue > 0;
-                      const isFuture = !!fDay;
-                      const isToday = day === todayDay;
-                      const income = dayData?.revenue ?? 0;
-                      return (
-                        <PressableScale
-                          key={idx}
-                          disabled={!hasData && !isFuture}
-                          onPress={() => {
-                            if (hasData && day !== null) setSelectedDate(day);
-                            else if (isFuture && day !== null) setSelectedFutureDate(day);
-                          }}
-                          style={[
-                            styles.calendarCell,
-                            isToday && styles.calendarTodayCell,
-                            isFuture && { backgroundColor: 'rgba(140, 111, 86, 0.04)' },
-                            !hasData && !isFuture && { opacity: 0.35 }
-                          ]}
-                          to={0.9}
-                        >
-                          <Text style={[
-                            styles.calendarDateText,
-                            isToday && styles.calendarTodayText,
-                            isFuture && { color: colors.mochaBrown }
-                          ]}>{day ?? ''}</Text>
-                          {income > 0 && (
-                            <Text style={styles.calendarIncomeText}>
-                              {`+${(income / 10000) % 1 === 0 ? income / 10000 : (Math.floor((income / 10000) * 10) / 10)}만`}
-                            </Text>
-                          )}
-                          {isFuture && (
-                            <Text style={[styles.calendarIncomeText, { color: colors.mochaBrown, fontSize: 7 }]}>
-                              {`+${fDay.cups}잔`}
-                            </Text>
-                          )}
-                        </PressableScale>
-                      );
-                    })}
-                  </View>
+
+                  {/* [한글 주석: 달 이동 시 부드러운 페이드 & 스무스 슬라이드가 적용되는 날짜 그리드 영역] */}
+                  <Animated.View style={[styles.calendarGridContainer, { opacity: monthAnim, transform: [{ translateX: monthSlideAnim }] }]}>
+                    <View style={styles.calendarGrid}>
+                      {monthCells.map((day, idx) => {
+                        const dayData = day !== null ? calDayMap[day] : undefined;
+                        const fDay = day !== null && isCurrentMonthView && day > todayDay ? futureForecasts[day] : undefined;
+                        const hasData = !!dayData && dayData.revenue > 0;
+                        const isFuture = !!fDay;
+                        const isToday = isCurrentMonthView && day === todayDay;
+                        const income = dayData?.revenue ?? 0;
+                        return (
+                          <PressableScale
+                            key={idx}
+                            disabled={!hasData && !isFuture}
+                            onPress={() => {
+                              if (hasData && day !== null) setSelectedDate(day);
+                              else if (isFuture && day !== null) setSelectedFutureDate(day);
+                            }}
+                            style={[
+                              styles.calendarCell,
+                              isToday && styles.calendarTodayCell,
+                              isFuture && { backgroundColor: 'rgba(140, 111, 86, 0.04)' },
+                              !hasData && !isFuture && { opacity: 0.35 }
+                            ]}
+                            to={0.9}
+                          >
+                            <Text style={[
+                              styles.calendarDateText,
+                              isToday && styles.calendarTodayText,
+                              isFuture && { color: colors.mochaBrown }
+                            ]}>{day ?? ''}</Text>
+                            {income > 0 && (
+                              <Text style={styles.calendarIncomeText}>
+                                {`+${(income / 10000) % 1 === 0 ? income / 10000 : (Math.floor((income / 10000) * 10) / 10)}만`}
+                              </Text>
+                            )}
+                            {isFuture && (
+                              <Text style={[styles.calendarIncomeText, { color: colors.mochaBrown, fontSize: 7 }]}>
+                                {`+${fDay.cups}잔`}
+                              </Text>
+                            )}
+                          </PressableScale>
+                        );
+                      })}
+                    </View>
+                  </Animated.View>
                 </View>
               ) : (
                 /* ━━━ [한글 주석: 착시를 제거하고 안정적인 시각을 제공하는 독립 캔버스 카드 (chartCanvasCard)] ━━━ */
@@ -928,7 +1023,7 @@ export default function SalesCard({
                 <View style={{ gap: 16 }}>
                   {/* 헤더 */}
                   <View style={styles.modalHeader}>
-                    <Text style={styles.modalDateTitle}>{month0 + 1}월 {selectedDate}일 매출 상세 리포트</Text>
+                    <Text style={styles.modalDateTitle}>{selectedMonth0 + 1}월 {selectedDate}일 매출 상세 리포트</Text>
                     <Pressable onPress={() => setSelectedDate(null)} style={{ padding: 4 }}>
                       <Ionicons name="close" size={22} color={colors.espressoBrown} />
                     </Pressable>
@@ -1003,7 +1098,7 @@ export default function SalesCard({
               <View style={{ gap: 16 }}>
                 {/* 헤더 */}
                 <View style={styles.modalHeader}>
-                  <Text style={styles.modalDateTitle}>{month0 + 1}월 {selectedFutureDate}일 AI 판매량 예측</Text>
+                  <Text style={styles.modalDateTitle}>{selectedMonth0 + 1}월 {selectedFutureDate}일 AI 판매량 예측</Text>
                   <Pressable onPress={() => setSelectedFutureDate(null)} style={{ padding: 4 }}>
                     <Ionicons name="close" size={22} color={colors.espressoBrown} />
                   </Pressable>
@@ -1943,5 +2038,27 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
     color: colors.mochaBrown,
+  },
+  // [한글 주석: 월 선택 넘김 UI 헤더 및 달력 그리드 고정 용기 스타일 정의]
+  calendarGridContainer: {
+    minHeight: 250,
+  },
+  monthHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+    gap: 16,
+  },
+  monthNavBtn: {
+    padding: 6,
+    borderRadius: 20,
+    backgroundColor: 'rgba(140, 111, 86, 0.08)',
+  },
+  monthTitleText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.espressoBrown,
+    letterSpacing: -0.3,
   },
 });

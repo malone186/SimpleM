@@ -37,6 +37,17 @@ export class ChatQuotaExhaustedError extends Error {
   }
 }
 
+/**
+ * 할당량 소진 오류인지 판정한다.
+ *
+ * `instanceof`만 쓰지 않는 이유: Metro Fast Refresh가 이 모듈만 다시 불러오면 클래스
+ * 객체가 새로 만들어져, 화면이 들고 있던 예전 클래스와 동일성 비교가 실패한다. 그러면
+ * 개발 중에만 광고 유도가 조용히 사라지고 일반 오류 문구가 뜬다 — 원인 찾기 매우 어렵다.
+ */
+export function isChatQuotaExhausted(e: unknown): e is ChatQuotaExhaustedError {
+  return e instanceof ChatQuotaExhaustedError || (e as Error | null)?.name === 'ChatQuotaExhaustedError';
+}
+
 const authHeader = (token?: string | null): Record<string, string> =>
   token ? { Authorization: `Bearer ${token}` } : {};
 
@@ -60,6 +71,7 @@ export async function sendChatMessage(
 
   if (res.status === 429) {
     const body = await res.json().catch(() => null);
+    if (__DEV__) console.log('[quota] 429 수신 — detail:', JSON.stringify(body?.detail));
     if (body?.detail?.quota_exhausted) {
       throw new ChatQuotaExhaustedError(body.detail.quota ?? null);
     }

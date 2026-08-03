@@ -30,6 +30,7 @@ import { FadeInUp, PressableScale } from '../../components/motion';
 import {
   ChatQuotaExhaustedError,
   grantChatQuotaFromAd,
+  isChatQuotaExhausted,
   sendChatMessage,
   type ChatHistoryItem,
 } from '../../lib/api/chatbot';
@@ -149,7 +150,11 @@ export default function ChatbotScreen() {
   const offerAdForMoreTurns = (err: ChatQuotaExhaustedError, q: string, history: ChatHistoryItem[]) => {
     // 하루 광고 상한에 걸렸거나(can_watch_ad) 띄울 광고가 없으면 권하지 않는다 —
     // "광고 보기"를 눌렀는데 아무 일도 안 일어나는 게 최악이다.
-    if (err.quota?.can_watch_ad === false || !isRewardedReady()) {
+    const adReady = isRewardedReady();
+    if (__DEV__) {
+      console.log('[quota] 할당량 소진 — can_watch_ad:', err.quota?.can_watch_ad, '| 광고 준비됨:', adReady);
+    }
+    if (err.quota?.can_watch_ad === false || !adReady) {
       botSay('오늘 무료 대화 횟수를 다 썼어요. 내일 다시 이야기해요.');
       return;
     }
@@ -195,7 +200,7 @@ export default function ChatbotScreen() {
     try {
       await askBrew(q, history);
     } catch (e) {
-      if (e instanceof ChatQuotaExhaustedError) {
+      if (isChatQuotaExhausted(e)) {
         // 광고 흐름은 사용자 응답을 기다리므로 finally에서 sending을 풀고 별도로 진행한다
         setSending(false);
         offerAdForMoreTurns(e, q, history);

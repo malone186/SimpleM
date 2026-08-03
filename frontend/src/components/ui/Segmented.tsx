@@ -23,8 +23,8 @@ export function Segmented<T extends string>({
     Animated.spring(pos, {
       toValue: index * pillWidth,
       useNativeDriver: true,
-      speed: 26, // [스프링 튜닝] 더 기민하고 신속한 이동
-      bounciness: 4, // 쫀득한 안착을 위해 오버슛을 감소시킴
+      tension: 130,
+      friction: 12,
     }).start();
   }, [index, pillWidth, pos]);
 
