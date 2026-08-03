@@ -780,23 +780,28 @@ export default function AuthScreen() {
                     <Text style={styles.checkLabel}>자동 로그인</Text>
                   </PressableScale>
 
-                  <PressableScale
-                    onPress={() => {
-                      setFindResult(null);
-                      setFindNameInput('');
-                      setFindPhoneInput('');
-                      setFindEmailInput('');
-                      setFindNewPwInput('');
-                      setShowFindModal(true);
-                    }}
-                    to={0.96}
-                  >
-                    <Text style={styles.findAccountLink}>아이디·비밀번호 찾기</Text>
-                  </PressableScale>
-                  <Text style={styles.findAccountLink}>  ·  </Text>
-                  <PressableScale onPress={() => { setError(''); setStaffMode(true); }} to={0.96}>
-                    <Text style={styles.findAccountLink}>직원 로그인</Text>
-                  </PressableScale>
+                  {/* 두 링크는 한 덩어리로 묶는다 — 행이 space-between이라 따로 두면
+                      사이의 구분점이 가운데로 밀려 세 번째 링크처럼 보인다 */}
+                  <View style={styles.loginLinkGroup}>
+                    <PressableScale
+                      onPress={() => {
+                        setFindResult(null);
+                        setFindNameInput('');
+                        setFindPhoneInput('');
+                        setFindEmailInput('');
+                        setFindNewPwInput('');
+                        setShowFindModal(true);
+                      }}
+                      to={0.96}
+                    >
+                      <Text style={styles.findAccountLink}>아이디·비밀번호 찾기</Text>
+                    </PressableScale>
+                    {/* 구분점은 링크가 아니므로 밑줄을 씌우지 않는다 */}
+                    <Text style={styles.linkSeparator}>·</Text>
+                    <PressableScale onPress={() => { setError(''); setStaffMode(true); }} to={0.96}>
+                      <Text style={styles.findAccountLink}>직원 로그인</Text>
+                    </PressableScale>
+                  </View>
                 </View>
 
                 {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -1783,6 +1788,17 @@ const styles = StyleSheet.create({
     color: colors.mochaBrown,
     textDecorationLine: 'underline',
     fontWeight: '600',
+  },
+  loginLinkGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  linkSeparator: {
+    ...typography.L5,
+    fontSize: 12,
+    color: colors.mochaBrown,
+    opacity: 0.45,
   },
   findTabRow: {
     flexDirection: 'row',
