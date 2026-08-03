@@ -555,9 +555,16 @@ class SalesImportConfirmRequest(BaseModel):
     rows: list[SalesImportRow]
 
 
+class RecipeLineIn(BaseModel):
+    ingredient_id: int
+    quantity: float = Field(..., gt=0, description="1잔 조리 시 소요량 (재료 단위 기준)")
+
+
 class MenuRegisterItem(BaseModel):
     name: str
     selling_price: int = 0
+    # 레시피를 함께 주면 등록과 동시에 재고 차감이 연결된다 (비우면 이름·판매가만 등록)
+    recipe: list[RecipeLineIn] = []
 
 
 class MenuRegisterRequest(BaseModel):
@@ -618,10 +625,12 @@ def sales_import_register_menus_api(
     body: MenuRegisterRequest,
     current_user: User = Depends(get_current_user),
 ):
-    """파일에서 발견된 미등록 메뉴를 메뉴로 등록한다(이름·판매가만).
+    """파일에서 발견된 미등록 메뉴를 메뉴로 등록한다(이름·판매가, 그리고 선택적으로 레시피).
 
     미매칭 행이 그냥 버려지지 않도록, 사용자가 판매가를 확인한 뒤 여기로 등록하면
-    같은 파일의 해당 행들이 매칭으로 바뀌어 저장(재고 차감은 레시피 등록 후) 대상이 된다.
+    같은 파일의 해당 행들이 매칭으로 바뀌어 저장 대상이 된다.
+    각 메뉴에 recipe([{ingredient_id, quantity}])를 함께 주면 등록과 동시에 레시피가
+    연결돼, 재고 차감까지 바로 동작한다(재료 목록은 GET /inventory/ingredients).
     """
     try:
         return sales_import_service.register_menus(
