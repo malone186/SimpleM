@@ -500,6 +500,7 @@ export default function SettingsScreen() {
       <SubViewTransition viewKey={subView}>
       {/* ── [한글 주석: 설정 첫 화면 진입 시 카테고리 6개 항목 메뉴 리스트 노출] ── */}
       {/* ── [한글 주석: 설정 첫 화면 진입 시 카테고리 6개 항목 메뉴 리스트 노출] ── */}
+      {/* ── [한글 주석: 설정 첫 화면 진입 시 카테고리 6개 항목 메뉴 리스트 노출] ── */}
       {subView === 'main' && (
         <Animated.View style={{ gap: 12, marginTop: 8, opacity: subViewAnim, transform: [{ scale: subViewAnim }] }}>
           {/* 가게 & 계정 설정 */}

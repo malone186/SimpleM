@@ -6,7 +6,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import type { ChatDocument } from '../../lib/api/chatbot';
-import { formatValue, labelFor } from '../../lib/documentLabels';
+import { formatValue, labelFor, visibleEntries } from '../../lib/documentLabels';
 import { colors, typography } from '../../theme';
 import { PressableScale } from '../motion';
 
@@ -61,7 +61,11 @@ function ArraySection({ name, list }: { name: string; list: unknown[] }) {
         isPlainObject(it) ? (
           <ItemBlock key={i} item={it} />
         ) : (
-          <Text key={i} style={styles.itemDetail}>{fmt(name, it)}</Text>
+          // 핵심 요약 같은 문장 목록은 불릿을 붙여 줄 단위로 읽기 쉽게
+          <Text key={i} style={styles.itemDetail}>
+            <Text style={styles.bulletDot}>✦ </Text>
+            {fmt(name, it)}
+          </Text>
         ),
       )}
       {hidden > 0 && (
@@ -115,7 +119,8 @@ function renderField(key: string, value: unknown) {
 }
 
 export default function DocumentCard({ doc }: { doc: ChatDocument }) {
-  const entries = Object.entries(doc.content ?? {});
+  // 내부 관리용 키(ai_advice_hash 등)는 걸러내고, 경영 리포트는 요약·조언이 위로 오게 정렬
+  const entries = visibleEntries(doc.content ?? {}, doc.kind);
   const note = typeof doc.content?.note === 'string' ? (doc.content.note as string) : null;
   // 경영 리포트처럼 항목이 많은 문서는 채팅을 길게 밀어내므로 접힌 상태로 시작한다
   const isLong = doc.kind === 'management_report' || entries.length > 6;
@@ -224,6 +229,7 @@ const styles = StyleSheet.create({
   },
   itemTitle: { ...typography.L5, fontSize: 11, fontWeight: '700', color: colors.espressoBrown },
   itemDetail: { ...typography.L5, color: colors.mochaBrown, lineHeight: 16 },
+  bulletDot: { color: colors.pointOrange, fontWeight: '700' },
   adviceWrap: {
     backgroundColor: colors.coffeeCream,
     borderWidth: 1,

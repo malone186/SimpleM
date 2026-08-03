@@ -35,7 +35,7 @@ import {
   listDocuments,
   updateDocument,
 } from '../../lib/api/documents';
-import { formatValue, labelFor } from '../../lib/documentLabels';
+import { formatValue, labelFor, visibleEntries } from '../../lib/documentLabels';
 import { getTaxEstimate, estimateTaxManual, type TaxEstimate } from '../../lib/api/operation';
 import { TAX_DOC_GROUPS } from '../../lib/taxDocuments';
 import { colors, typography } from '../../theme';
@@ -65,10 +65,10 @@ const normalizeDate = (raw: string): string | null => {
 // 숫자 입력 관용 처리: "10,500원" → 10500
 const toNumber = (raw: string): number => Number(raw.replace(/[^\d.]/g, '')) || 0;
 
-function ContentRows({ content }: { content: Record<string, unknown> }) {
+function ContentRows({ content, kind }: { content: Record<string, unknown>; kind?: string }) {
   return (
     <View>
-      {Object.entries(content).map(([key, value]) => {
+      {visibleEntries(content, kind).map(([key, value]) => {
         // 안내 문구는 표가 아니라 하단 안내 박스로
         if (key === 'note') {
           return (
@@ -172,7 +172,7 @@ function EditableRows({ content, path = [], edits, onEdit }: {
 }) {
   return (
     <View style={{ marginLeft: path.length * 10 }}>
-      {Object.entries(content).map(([key, value]) => {
+      {visibleEntries(content).map(([key, value]) => {
         const childPath = [...path, key];
         const pathKey = childPath.join('.');
         if (Array.isArray(value)) {
@@ -226,8 +226,8 @@ const fmtRaw = (v: unknown): string => (v === null || v === undefined ? '' : Str
 const esc = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-function contentToHtml(content: Record<string, unknown>): string {
-  return Object.entries(content)
+function contentToHtml(content: Record<string, unknown>, kind?: string): string {
+  return visibleEntries(content, kind)
     .map(([key, value]) => {
       // 안내 문구(note)는 사장님용 내부 참고 — 직원·거래처에 건네는 인쇄물에는 찍지 않는다
       if (key === 'note') return '';
@@ -277,7 +277,7 @@ function buildPrintHtml(d: GeneratedDocument, autoPrint = true): string {
   @media print { .print-hint { display: none; } }
 </style></head><body>
 <header><h1>${esc(d.title)}</h1><div class="meta">${d.period ? `대상 기간: ${esc(d.period)} · ` : ''}작성일: ${created} · 브루노트 자동 생성 초안</div></header>
-${contentToHtml(d.content)}
+${contentToHtml(d.content, d.kind)}
 ${autoPrint ? `<div class="print-hint">인쇄 창이 닫혔으면 Ctrl+P로 다시 열 수 있어요 · 'PDF로 저장'을 선택하면 파일로 보관됩니다</div>
 <script>window.onload = () => setTimeout(() => window.print(), 300);</script>` : ''}
 </body></html>`;
@@ -618,7 +618,7 @@ export default function DocumentScreen() {
                     <EditableRows content={d.content} edits={edits}
                       onEdit={(pathKey, text) => setEdits((prev) => ({ ...prev, [pathKey]: text }))} />
                   ) : (
-                    <ContentRows content={d.content} />
+                    <ContentRows content={d.content} kind={d.kind} />
                   )}
                   <View style={styles.docActions}>
                     {isEditing ? (
