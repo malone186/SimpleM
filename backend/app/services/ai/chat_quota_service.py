@@ -9,6 +9,7 @@
 """
 
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -16,15 +17,20 @@ logger = logging.getLogger(__name__)
 
 KST = timezone(timedelta(hours=9))
 
-# 하루에 공짜로 쓸 수 있는 턴 수
-FREE_DAILY_TURNS = 5
+# 하루에 공짜로 쓸 수 있는 턴 수.
+#
+# 환경변수로 뺀 이유가 두 가지다.
+# 1) 킬 스위치 — 앱 업데이트가 퍼지기 전에 백엔드만 배포되면, 구버전 앱은 429를 해석하지
+#    못해 광고 유도 없이 오류만 띄운다. 그럴 때 아주 큰 값을 넣어 제한을 사실상 끈다.
+# 2) 테스트 — 광고 흐름을 확인할 때마다 5턴을 채우는 건 번거롭다. 1로 낮춰 바로 확인한다.
+FREE_DAILY_TURNS = int(os.getenv("CHAT_FREE_DAILY_TURNS", "5"))
 
 # 광고 1회 시청으로 늘어나는 턴 수
-TURNS_PER_AD = 5
+TURNS_PER_AD = int(os.getenv("CHAT_TURNS_PER_AD", "5"))
 
 # 하루 광고 시청 상한. 없으면 광고를 계속 돌려 사실상 무제한이 되고,
 # 짧은 시간에 같은 사용자가 광고를 과다 노출받아 AdMob 쪽에서도 문제가 된다.
-MAX_ADS_PER_DAY = 6
+MAX_ADS_PER_DAY = int(os.getenv("CHAT_MAX_ADS_PER_DAY", "6"))
 
 
 class QuotaExhausted(RuntimeError):

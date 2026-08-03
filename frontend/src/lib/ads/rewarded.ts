@@ -8,11 +8,17 @@ import { AdEventType, RewardedAd, RewardedAdEventType } from 'react-native-googl
 
 import { adUnitId } from './ids';
 import { initAds } from './init';
+import { mockAvailable, showMockRewarded } from './mockRewarded';
 
 const SHOW_TIMEOUT_MS = 5 * 60 * 1000;
 
 let ready: RewardedAd | null = null;
 let loading = false;
+
+// SDK를 아예 쓸 수 없는 환경(Expo Go 등)인지. preload 시점에 확정된다.
+// '아직 로드 안 됨'과 구분해야 한다 — 개발 빌드에서는 진짜 테스트 광고를 띄워야 하므로,
+// 단순히 로드가 안 끝난 상태에 모의 광고가 끼어들면 안 된다.
+let sdkUnavailable = false;
 
 /** 광고를 미리 받아둔다 (로드 1~3초). 보상형은 사용자를 기다리게 하면 안 되므로 선로딩이 중요하다. */
 export function preloadRewarded(): void {
@@ -22,6 +28,8 @@ export function preloadRewarded(): void {
   initAds()
     .then((allowed) => {
       if (!allowed) {
+        // SDK 초기화 실패 = Expo Go처럼 네이티브 모듈이 없는 환경
+        sdkUnavailable = true;
         loading = false;
         return;
       }
@@ -33,6 +41,7 @@ export function preloadRewarded(): void {
         ad.addAdEventListener(RewardedAdEventType.LOADED, () => {
           ready = ad;
           loading = false;
+          if (__DEV__) console.log('[ads] 보상형 광고 로드 완료 — 띄울 준비됨');
           cleanup();
         }),
       );
@@ -54,7 +63,8 @@ export function preloadRewarded(): void {
 
 /** 지금 당장 띄울 수 있는 광고가 준비되어 있는지. 없으면 사용자에게 광고를 권하지 말 것. */
 export function isRewardedReady(): boolean {
-  return ready != null && ready.loaded;
+  if (ready != null && ready.loaded) return true;
+  return sdkUnavailable && mockAvailable();
 }
 
 /**
@@ -66,6 +76,8 @@ export function isRewardedReady(): boolean {
 export async function showRewarded(): Promise<boolean> {
   const ad = ready;
   if (!ad || !ad.loaded) {
+    // SDK가 없는 개발 환경에서는 모의 광고로 흐름만 확인한다 (릴리즈에서는 도달하지 않음)
+    if (sdkUnavailable && mockAvailable()) return showMockRewarded();
     preloadRewarded(); // 다음 기회를 위해 받아둔다
     return false;
   }

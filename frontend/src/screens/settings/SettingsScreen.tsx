@@ -1,7 +1,7 @@
 // 설정 화면 — 관리 허브에서 진입. (P0)
 // ① 계정/가게 정보  ② 알림 설정  ③ 화면 표시/접근성
 // 계정은 백엔드 /auth 실연동, 나머지 환경설정은 PreferencesContext(AsyncStorage)에 저장.
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, type ReactNode } from 'react';
 import { Modal, ScrollView, StyleSheet, Switch, Text, TextInput, View, LayoutAnimation, Platform, UIManager, Animated, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -10,6 +10,45 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 import { useNavigation, useRoute } from '@react-navigation/native';
+
+/**
+ * 설정 하위 화면 전환 효과.
+ *
+ * 기존 springTransition()은 LayoutAnimation인데, 이건 웹(react-native-web)에서 아무 동작도
+ * 하지 않는다. 그래서 박스를 눌러 하위 화면으로 들어가도 툭 하고 바뀌기만 했다.
+ * Animated는 웹·네이티브 모두에서 동작하므로 여기서 직접 그린다.
+ *
+ * 방향은 스택 화면 전환(slide_from_right)과 맞춘다 — 깊이 들어갈 땐 오른쪽에서,
+ * 목록으로 되돌아올 땐 왼쪽에서 밀려 들어온다. 어디로 이동했는지가 몸으로 읽힌다.
+ *
+ * 자식을 remount하지 않고 컨테이너만 움직인다. key로 갈아끼우면 문의 작성 폼처럼
+ * 입력 중이던 하위 화면의 상태가 날아간다.
+ */
+function SubViewTransition({ viewKey, children }: { viewKey: string; children: ReactNode }) {
+  const anim = useRef(new Animated.Value(1)).current;
+  const goingDeeper = viewKey !== 'main';
+
+  useEffect(() => {
+    anim.setValue(0);
+    Animated.spring(anim, {
+      toValue: 1,
+      useNativeDriver: true,
+      tension: 120,
+      friction: 14,
+    }).start();
+  }, [viewKey, anim]);
+
+  const translateX = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [goingDeeper ? 24 : -24, 0],
+  });
+
+  return (
+    <Animated.View style={{ opacity: anim, transform: [{ translateX }] }}>
+      {children}
+    </Animated.View>
+  );
+}
 
 import { useAuth } from '../../auth/AuthContext';
 import {
@@ -404,6 +443,7 @@ export default function SettingsScreen() {
 
   return (
     <Screen>
+      <SubViewTransition viewKey={subView}>
       {/* ── [한글 주석: 설정 첫 화면 진입 시 카테고리 6개 항목 메뉴 리스트 노출] ── */}
       {subView === 'main' && (
         <View style={{ gap: 12, marginTop: 8 }}>
@@ -1273,7 +1313,7 @@ export default function SettingsScreen() {
           }}
         />
       )}
-
+      </SubViewTransition>
     </Screen>
   );
 }

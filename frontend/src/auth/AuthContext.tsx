@@ -92,11 +92,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // [한글 주석] 자동 로그인 여부에 따라 디스크에 세션을 남기거나 지웁니다.
   const persistSession = useCallback(async (u: User & { token: string }, autoLogin: boolean) => {
-    if (autoLogin) {
+    // 복원할 수 없는 토큰은 아예 저장하지 않는다.
+    //
+    // 백엔드가 안 뜬 상태로 로그인하면 아래 데모 폴백이 'demo-local-access-token-owner-cafe'
+    // 같은 JWT가 아닌 문자열을 토큰으로 넘긴다. 그걸 저장해두면 다음 실행 때 isTokenExpired가
+    // (파싱 실패 → 만료로 간주) 세션을 지워버려서, 사장님 눈에는 "자동 로그인이 안 된다"로 보인다.
+    // 게다가 그 토큰은 백엔드가 401로 거절하므로 억지로 복원해봐야 모든 API가 실패한다.
+    // 저장 시점에 한 번 걸러두면 이 상태 자체가 만들어지지 않는다.
+    if (autoLogin && !isTokenExpired(u.token)) {
       await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(u));
-    } else {
-      await AsyncStorage.removeItem(SESSION_KEY);
+      return;
     }
+    if (autoLogin && __DEV__) {
+      console.warn(
+        '[auth] 자동 로그인 저장을 건너뜁니다 — 복원 불가능한 토큰. ' +
+          '백엔드 로그인이 실패해 데모 세션으로 우회했는지 확인하세요 (백엔드 실행 및 --host 0.0.0.0).',
+      );
+    }
+    await AsyncStorage.removeItem(SESSION_KEY);
   }, []);
 
   // [로그인 속도] 백엔드 프로필 동기화(Lazy Signup 유도)는 로그인 완료를 막지 않는다.
