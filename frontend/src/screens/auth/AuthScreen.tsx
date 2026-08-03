@@ -163,7 +163,7 @@ function ShiftTimePicker({
 }
 
 export default function AuthScreen() {
-  const { login, signup, loginWithGoogle } = useAuth();
+  const { login, signup, loginWithGoogle, firebaseAuthEnabled, sendResetEmail } = useAuth();
   const [mode, setMode] = useState<Mode>('login');
   const prefs = usePreferences(); // 가입 때 받은 운영 시간을 기기 설정에 남기기 위해
   const [step, setStep] = useState<1 | 2>(1); // [한글 주석] 회원가입 1단계/2단계 구분 상태
@@ -306,6 +306,28 @@ export default function AuthScreen() {
       });
     } catch {
       setFindResult({ type: 'error', message: '서버에 연결하지 못했어요. 네트워크를 확인해 주세요.' });
+    } finally {
+      setFindBusy(false);
+    }
+  };
+
+  // [Firebase 비밀번호 재설정 메일] 로그인이 Firebase 비밀번호를 검증하므로, 재설정도 Firebase 메일이
+  // 정답이다(백엔드 비번만 바꾸면 로그인은 그대로 실패한다). 이메일만 받아 재설정 링크를 보낸다.
+  const submitResetEmail = async () => {
+    if (!findEmailInput.trim() || !findEmailInput.includes('@')) {
+      setFindResult({ type: 'error', message: '올바른 이메일 주소를 입력해 주세요.' });
+      return;
+    }
+    setFindBusy(true);
+    setFindResult(null);
+    try {
+      await sendResetEmail(findEmailInput.trim());
+      setFindResult({
+        type: 'success',
+        message: '가입된 이메일이면 비밀번호 재설정 메일을 보냈어요.\n메일함(스팸함 포함)의 링크에서 새 비밀번호를 설정한 뒤 로그인해 주세요.',
+      });
+    } catch (e) {
+      setFindResult({ type: 'error', message: e instanceof Error ? e.message : '재설정 메일 발송에 실패했어요.' });
     } finally {
       setFindBusy(false);
     }
@@ -1216,7 +1238,29 @@ export default function AuthScreen() {
                   <Text style={styles.submitText}>{findBusy ? '조회 중…' : '아이디 찾기'}</Text>
                 </PressableScale>
               </View>
+            ) : firebaseAuthEnabled ? (
+              // Firebase 로그인 환경 — 로그인이 검증하는 Firebase 비밀번호를 바꾸려면 재설정 메일이 정답.
+              <View style={{ gap: 10, marginTop: 12 }}>
+                <Text style={styles.findDesc}>
+                  가입하신 이메일로 비밀번호 재설정 링크를 보내드려요. 메일의 링크에서 새 비밀번호를 설정하면 바로 로그인할 수 있어요.
+                </Text>
+                <Field
+                  icon="mail-outline"
+                  placeholder="가입 이메일 주소 (예: owner@cafe.com)"
+                  value={findEmailInput}
+                  onChangeText={setFindEmailInput}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+                <PressableScale
+                  style={[styles.submitBtn, findBusy && { opacity: 0.6 }]}
+                  onPress={() => !findBusy && submitResetEmail()}
+                >
+                  <Text style={styles.submitText}>{findBusy ? '메일 보내는 중…' : '재설정 메일 보내기'}</Text>
+                </PressableScale>
+              </View>
             ) : (
+              // Firebase 미설정(mock) 폴백 — 메일 인프라가 없으니 본인확인 후 즉시 재설정.
               <View style={{ gap: 10, marginTop: 12 }}>
                 <Text style={styles.findDesc}>
                   본인 확인을 위해 가입 이메일과 휴대폰 번호를 입력하시면 새 비밀번호로 즉시 재설정됩니다.

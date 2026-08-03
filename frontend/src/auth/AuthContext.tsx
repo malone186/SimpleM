@@ -5,6 +5,7 @@ import { Platform } from 'react-native';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  sendPasswordResetEmail,
   signOut,
   updateProfile as updateFirebaseProfile,
   GoogleAuthProvider,
@@ -52,6 +53,11 @@ type AuthContextValue = {
   loginWithGoogle: (autoLogin: boolean) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (patch: { name?: string; store_name?: string; password?: string; photo?: string }) => Promise<void>;
+  // Firebase Auth가 실제로 켜져 있는지 — 켜져 있으면 비밀번호 재설정은 Firebase 메일 방식이 맞다
+  // (로그인이 Firebase 비밀번호를 검증하므로). 꺼져 있으면(mock) 백엔드 본인확인 방식으로 폴백.
+  firebaseAuthEnabled: boolean;
+  // Firebase 비밀번호 재설정 메일 발송 — 로그인이 검증하는 바로 그 비밀번호를 바꾼다.
+  sendResetEmail: (email: string) => Promise<void>;
 };
 
 const SESSION_KEY = 'simplem:session'; // [한글 주석] 자동 로그인 체크 시 로컬에 저장할 세션 키
@@ -632,6 +638,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [user, token]
   );
 
+  // auth는 실제 Firebase 키가 있을 때만 non-null (lib/firebase.ts). 로그인이 Firebase 비밀번호를
+  // 검증하므로, 재설정도 Firebase 메일 방식이어야 로그인이 보는 비밀번호가 실제로 바뀐다.
+  const firebaseAuthEnabled = !!auth;
+
+  // Firebase 비밀번호 재설정 메일 발송. 계정 존재 여부가 새어나가지 않도록 user-not-found는
+  // 조용히 성공 처리한다(호출부가 "가입된 이메일이면 발송된다"고 안내). 그 외 오류만 던진다.
+  const sendResetEmail = useCallback(async (email: string) => {
+    if (!auth) throw new Error('이 환경에서는 이메일 재설정을 쓸 수 없습니다.');
+    try {
+      await sendPasswordResetEmail(auth, email.trim().toLowerCase());
+    } catch (e: any) {
+      if (e?.code === 'auth/user-not-found') return; // 이메일 열거 방지
+      if (e?.code === 'auth/invalid-email') throw new Error('유효하지 않은 이메일 형식입니다.');
+      throw new Error('재설정 메일 발송에 실패했어요. 잠시 후 다시 시도해 주세요.');
+    }
+  }, []);
+
   return (
     <AuthContext.Provider
       value={{
@@ -643,6 +666,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loginWithGoogle,
         logout,
         updateProfile,
+        firebaseAuthEnabled,
+        sendResetEmail,
       }}
     >
       {children}
