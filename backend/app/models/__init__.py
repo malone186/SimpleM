@@ -12,7 +12,7 @@ from app.models.inquiry import Inquiry
 from app.models.inventory import Ingredient, IngredientPriceHistory, Menu, Recipe, Stock, StockTransaction, Sale, Order, OrderItem
 
 # M (membership.py) — 단골 회원 · 선불 충전
-from app.models.membership import BalanceTransaction, ChargePlan, Customer
+from app.models.membership import BalanceTransaction, ChargePlan, CheckIn, Customer, StoreQr
 
 # O (operation.py)
 from app.models.operation import Employee, EstimatedPayroll, EstimatedSettlement, Expense, Schedule  # 정산/급여 및 지출 모델 불러오기

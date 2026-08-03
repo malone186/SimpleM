@@ -131,6 +131,58 @@ class BalanceTransaction(Base):
     customer = relationship("Customer", back_populates="transactions")
 
 
+class StoreQr(Base):
+    """매장별 계산대 QR 토큰.
+
+    [한글 주석] store_id(사장님 이메일)를 QR에 그대로 넣을 수는 없다.
+    QR을 찍은 사람에게 매장 계정 이메일이 노출되고, 남의 매장 주소도
+    쉽게 만들어낼 수 있게 된다. 추측 불가능한 토큰을 따로 둔다.
+
+    토큰을 새로 발급하면 이전 QR 인쇄물은 즉시 무효가 된다 —
+    QR이 유출됐을 때 되돌릴 방법이 있어야 하기 때문이다.
+    """
+    __tablename__ = "store_qrs"
+
+    store_id = Column(String(100), primary_key=True)
+    token = Column(String(32), unique=True, index=True,
+                   default=generate_access_token, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+# 체크인 상태
+CHECKIN_WAITING = "WAITING"   # 손님이 요청함, 사장님이 아직 처리 안 함
+CHECKIN_DONE = "DONE"         # 결제 처리됨
+CHECKIN_CANCELED = "CANCELED"  # 취소/만료
+
+
+class CheckIn(Base):
+    """손님이 계산대 QR을 찍고 누른 '결제 요청'.
+
+    [한글 주석] 왜 이게 필요한가:
+
+      선불 잔액으로 결제하려면 직원이 '누구인지'를 알아야 하는데,
+      구두로 이름이나 번호를 묻는 건 느리고 손님도 번거롭다.
+      그렇다고 사장님 앱에 카메라를 넣으면 네이티브 재빌드가 필요하다.
+
+      방향을 뒤집었다. 매장에 QR을 붙여두고 손님이 자기 폰의 기본 카메라로 찍는다.
+      우리 앱에는 카메라가 필요 없고, 손님은 QR만 찍으면 된다.
+      손님이 '결제 요청'을 누르면 여기에 한 줄 쌓이고,
+      사장님 화면 맨 위에 떠서 탭 한 번으로 처리된다.
+    """
+    __tablename__ = "checkins"
+
+    id = Column(Integer, primary_key=True, index=True)
+    store_id = Column(String(100), nullable=False, index=True)
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"),
+                         nullable=False, index=True)
+    status = Column(String(10), default=CHECKIN_WAITING, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(),
+                        nullable=False, index=True)
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+
+    customer = relationship("Customer")
+
+
 def ensure_sale_customer_columns(engine) -> None:
     """[자가치유 스키마] sales 테이블에 고객·결제수단 컬럼을 보강한다.
 

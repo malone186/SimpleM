@@ -24,23 +24,30 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { SvgXml } from 'react-native-svg';
+import * as Print from 'expo-print';
 
 import {
   chargeBalance,
   createChargePlan,
   createCustomer,
   deleteChargePlan,
+  dismissCheckIn,
   fetchChargePlans,
+  fetchCheckIns,
   fetchChurnRisk,
   fetchPrepaidSummary,
+  fetchStoreQr,
   fetchQuickMenus,
   searchCustomers,
   useBalance,
   type ChargePlan,
+  type CheckIn,
   type ChurnRiskCustomer,
   type Customer,
   type PrepaidSummary,
   type QuickMenu,
+  type StoreQr,
 } from '../../lib/api/membership';
 import { sendNotification } from '../../lib/membership/notify';
 import { useAuth } from '../../auth/AuthContext';
@@ -55,6 +62,9 @@ export default function MembershipScreen() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [plans, setPlans] = useState<ChargePlan[]>([]);
   const [menus, setMenus] = useState<QuickMenu[]>([]);
+  const [checkins, setCheckins] = useState<CheckIn[]>([]);
+  const [storeQr, setStoreQr] = useState<StoreQr | null>(null);
+  const [qrOpen, setQrOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -87,18 +97,20 @@ export default function MembershipScreen() {
     if (!token) return;
     setError(null);
     try {
-      const [s, c, p, list, m] = await Promise.all([
+      const [s, c, p, list, m, ci] = await Promise.all([
         fetchPrepaidSummary(token, 30),
         fetchChurnRisk(token, 20),
         fetchChargePlans(token),
         searchCustomers(token, query),
         fetchQuickMenus(token).catch(() => [] as QuickMenu[]),
+        fetchCheckIns(token).catch(() => [] as CheckIn[]),
       ]);
       setSummary(s);
       setChurn(c);
       setPlans(p.filter((x) => x.is_active));
       setCustomers(list);
       setMenus(m);
+      setCheckins(ci);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -243,6 +255,62 @@ export default function MembershipScreen() {
         </View>
       )}
 
+      {/* ⓪ 결제 요청 대기 — 계산대에서 지금 당장 처리할 일이라 최상단에 둔다.
+             손님이 QR을 찍고 누르면 여기 뜬다. 구두로 이름·번호를 묻지 않아도 된다. */}
+      {checkins.length > 0 && (
+        <View style={[styles.card, styles.waitCard]}>
+          <View style={styles.cardHead}>
+            <Ionicons name="hand-left-outline" size={16} color={colors.pointOrange} />
+            <Text style={styles.cardTitle}>결제 요청</Text>
+            <Text style={styles.waitBadge}>{checkins.length}명 대기</Text>
+          </View>
+          <View style={{ gap: 8 }}>
+            {checkins.map((ci) => {
+              // [한글 주석] 회원 목록은 50명까지만 받는다. 회원이 그보다 많으면
+              // 대기 중인 손님이 목록 밖에 있을 수 있으므로, 없으면 대기 정보로
+              // 바로 만들어 쓴다. 결제 모달에 필요한 값(id·이름·잔액)은 다 들어있다.
+              const c: Customer =
+                customers.find((x) => x.id === ci.customer_id) ?? {
+                  id: ci.customer_id,
+                  phone: ci.phone,
+                  phone_masked: ci.phone_masked,
+                  name: ci.name,
+                  balance: ci.balance,
+                  memo: null,
+                  is_active: true,
+                  created_at: '',
+                  visit_count: 0,
+                  last_visit_at: null,
+                  days_since_visit: null,
+                };
+              return (
+                <View key={ci.checkin_id} style={styles.waitRow}>
+                  <Pressable style={{ flex: 1 }} onPress={() => setTarget(c)}>
+                    <Text style={styles.waitName}>{ci.name || ci.phone_masked}</Text>
+                    <Text style={styles.sub}>
+                      잔액 {won(ci.balance)}
+                      {ci.waited_minutes > 0 ? ` · ${ci.waited_minutes}분 전 요청` : ' · 방금'}
+                    </Text>
+                  </Pressable>
+                  <Pressable style={styles.waitBtn} onPress={() => setTarget(c)}>
+                    <Text style={styles.waitBtnText}>결제</Text>
+                  </Pressable>
+                  <Pressable
+                    hitSlop={8}
+                    onPress={async () => {
+                      await dismissCheckIn(token!, ci.checkin_id);
+                      await load();
+                    }}
+                  >
+                    <Ionicons name="close" size={16} color="#B0A79E" />
+                  </Pressable>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      )}
+
       {/* ① 뜸해진 단골 — 이 기능의 목적이라 맨 위에 둔다 */}
       <View style={styles.card}>
         <View style={styles.cardHead}>
@@ -309,6 +377,28 @@ export default function MembershipScreen() {
           </View>
         </View>
       )}
+
+      {/* 계산대 QR — 손님이 자기 폰으로 찍는다 (우리 앱엔 카메라가 필요 없다) */}
+      <Pressable
+        style={styles.qrCta}
+        onPress={async () => {
+          try {
+            if (!storeQr) setStoreQr(await fetchStoreQr(token!));
+            setQrOpen(true);
+          } catch (e) {
+            Alert.alert('QR 오류', e instanceof Error ? e.message : String(e));
+          }
+        }}
+      >
+        <Ionicons name="qr-code-outline" size={18} color={colors.espressoBrown} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.qrCtaTitle}>계산대 QR</Text>
+          <Text style={styles.qrCtaSub}>
+            붙여두면 손님이 폰으로 찍어 결제 요청을 보냅니다
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={14} color="#B0A79E" />
+      </Pressable>
 
       {/* ③ 충전 상품 — 사장님이 직접 설계한다 */}
       <View style={styles.card}>
@@ -387,6 +477,61 @@ export default function MembershipScreen() {
           </View>
         )}
       </View>
+
+      {/* 계산대 QR 모달 */}
+      <Modal visible={qrOpen} transparent animationType="fade"
+             onRequestClose={() => setQrOpen(false)}>
+        <View style={styles.backdrop}>
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>계산대 QR</Text>
+            <Text style={styles.dim}>
+              인쇄해서 계산대에 붙여 두세요. 손님이 폰 카메라로 찍으면
+              결제 요청이 이 화면 맨 위에 뜹니다.
+            </Text>
+
+            {!!storeQr?.svg && (
+              <View style={styles.qrBox}>
+                <SvgXml xml={storeQr.svg} width={200} height={200} />
+              </View>
+            )}
+
+            <Text style={styles.qrUrl} selectable numberOfLines={2}>
+              {storeQr?.url}
+            </Text>
+
+            <View style={styles.sheetBtns}>
+              <Pressable style={styles.cancelBtn} onPress={() => setQrOpen(false)}>
+                <Text style={styles.cancelText}>닫기</Text>
+              </Pressable>
+              <Pressable
+                style={styles.primaryBtn}
+                onPress={async () => {
+                  if (!storeQr) return;
+                  try {
+                    // [한글 주석] SVG를 그대로 인쇄한다. 비트맵으로 바꾸면
+                    // A4로 크게 뽑을 때 가장자리가 뭉개져 스캔 실패가 는다.
+                    await Print.printAsync({
+                      html: `<html><body style="margin:0;display:flex;flex-direction:column;
+                        align-items:center;justify-content:center;height:100vh;
+                        font-family:-apple-system,'Malgun Gothic',sans-serif;">
+                        <div style="font-size:28px;font-weight:700;margin-bottom:8px;">
+                          ${storeQr.store_name ?? '선불 회원'}</div>
+                        <div style="font-size:16px;color:#666;margin-bottom:24px;">
+                          카메라로 찍어 잔액 결제를 요청하세요</div>
+                        ${storeQr.svg}
+                      </body></html>`,
+                    });
+                  } catch (e) {
+                    Alert.alert('인쇄 실패', e instanceof Error ? e.message : String(e));
+                  }
+                }}
+              >
+                <Text style={styles.primaryText}>인쇄</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* 충전 상품 만들기 모달 */}
       <Modal visible={planOpen} transparent animationType="fade"
@@ -682,6 +827,27 @@ const styles = StyleSheet.create({
   menuName: { fontSize: 11.5, fontWeight: '600', color: colors.espressoBrown },
   menuPrice: { fontSize: 12.5, fontWeight: '800', color: colors.pointOrange, marginTop: 2 },
   menuTextOver: { color: '#9A8F86' },
+
+  // 결제 요청 대기 — 계산대에서 지금 처리할 일이라 눈에 띄게
+  waitCard: { borderColor: colors.pointOrange, borderWidth: 1.5 },
+  waitBadge: { fontSize: 11, fontWeight: '800', color: '#FFF',
+               backgroundColor: colors.pointOrange, paddingHorizontal: 8,
+               paddingVertical: 3, borderRadius: 9, overflow: 'hidden' },
+  waitRow: { flexDirection: 'row', alignItems: 'center', gap: 8,
+             backgroundColor: '#FFF8F2', borderRadius: 10, padding: 11 },
+  waitName: { fontSize: 14, fontWeight: '800', color: colors.espressoBrown },
+  waitBtn: { backgroundColor: colors.pointOrange, paddingHorizontal: 14,
+             paddingVertical: 8, borderRadius: 8 },
+  waitBtnText: { color: '#FFF', fontSize: 12.5, fontWeight: 'bold' },
+
+  qrCta: { flexDirection: 'row', alignItems: 'center', gap: 10,
+           backgroundColor: '#FFF', borderRadius: 14, padding: 14,
+           borderWidth: 1, borderColor: colors.mutedSand },
+  qrCtaTitle: { fontSize: 13.5, fontWeight: 'bold', color: colors.espressoBrown },
+  qrCtaSub: { fontSize: 11, color: '#7A6E65', marginTop: 2 },
+  qrBox: { alignItems: 'center', backgroundColor: '#FFF', borderRadius: 12,
+           padding: 12, marginVertical: 4 },
+  qrUrl: { fontSize: 10.5, color: '#B0A79E', textAlign: 'center' },
 
   fieldLabel: { fontSize: 11.5, color: '#7A6E65', marginBottom: 3 },
   previewBox: { backgroundColor: '#F4F8F4', borderRadius: 9, padding: 11, gap: 3 },

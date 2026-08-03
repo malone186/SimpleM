@@ -28,8 +28,9 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.membership import (
+    CHECKIN_CANCELED, CHECKIN_DONE, CHECKIN_WAITING,
     TX_ADJUST, TX_CHARGE, TX_REFUND, TX_USE,
-    BalanceTransaction, ChargePlan, Customer,
+    BalanceTransaction, ChargePlan, CheckIn, Customer, StoreQr,
 )
 
 logger = logging.getLogger(__name__)
@@ -275,6 +276,8 @@ def use(db: Session, customer: Customer, amount: int,
     tx = _append_transaction(db, customer, TX_USE, amount=-amount, memo=memo)
     db.commit()
     db.refresh(tx)
+    # 차감이 끝났으면 대기 줄에서 뺀다 (남아 있으면 두 번 처리하게 된다)
+    close_waiting_for_customer(db, customer.id)
     return tx, f"{amount:,}원이 사용되었습니다."
 
 
@@ -386,6 +389,157 @@ def build_sms_text(customer: Customer, tx: Optional[BalanceTransaction] = None,
 
     # 2차 축약 — 거래 내용을 빼고 잔액만 남긴다
     return f"[{short_shop}] 잔액 {customer.balance:,}원\n{url}"
+
+
+# --- 계산대 QR · 체크인 ---
+
+# [한글 주석] 대기 유효시간.
+#   손님이 결제 요청을 눌러놓고 그냥 나가버리면 목록에 계속 남아 사장님이 헷갈린다.
+#   반대로 너무 짧으면 줄이 길 때 손님 요청이 사라진다.
+#   주문하고 받기까지의 현실적인 시간을 감안해 20분으로 뒀다.
+CHECKIN_TTL_MINUTES = 20
+
+
+def get_or_create_store_qr(db: Session, store_id: str) -> StoreQr:
+    """매장 QR 토큰을 가져오거나 없으면 만든다."""
+    qr = db.query(StoreQr).filter(StoreQr.store_id == store_id).first()
+    if not qr:
+        qr = StoreQr(store_id=store_id)
+        db.add(qr)
+        db.commit()
+        db.refresh(qr)
+    return qr
+
+
+def store_checkin_url(token: str) -> str:
+    return f"{PUBLIC_BASE_URL}/s/{token}"
+
+
+def qr_svg(url: str, scale: int = 6) -> str:
+    """QR을 SVG 문자열로 만든다.
+
+    [한글 주석] PNG가 아니라 SVG인 이유는 인쇄 때문이다.
+    계산대에 붙이려면 A4로 크게 뽑는 경우가 많은데, 비트맵은 확대하면
+    가장자리가 뭉개져 스캔 실패가 는다. SVG는 아무리 키워도 선명하다.
+
+    오류 정정 수준을 M으로 둔다 — 인쇄물이 커피에 젖거나 일부가 가려져도
+    읽히게 하려면 여유가 필요하고, H까지 올리면 격자가 촘촘해져 오히려
+    작은 인쇄에서 불리하다.
+    """
+    try:
+        import segno
+    except ImportError:
+        logger.warning("segno 미설치 — QR 이미지를 만들 수 없습니다 (URL은 그대로 사용 가능)")
+        return ""
+
+    import io
+
+    # segno의 SVG writer는 바이트를 쓴다 (StringIO를 주면 TypeError)
+    buf = io.BytesIO()
+    segno.make(url, error="m").save(buf, kind="svg", scale=scale, border=2,
+                                    dark="#2E2521", light="#FFFFFF")
+    return buf.getvalue().decode("utf-8")
+
+
+def store_by_qr_token(db: Session, token: str) -> Optional[str]:
+    qr = db.query(StoreQr).filter(StoreQr.token == token).first()
+    return qr.store_id if qr else None
+
+
+def create_checkin(db: Session, store_id: str,
+                   customer: Customer) -> Tuple[Optional[CheckIn], str]:
+    """손님이 '결제 요청'을 눌렀을 때 대기 줄에 세운다.
+
+    [한글 주석] 같은 손님이 연달아 누르면 줄에 여러 번 서게 되어
+    사장님 화면이 지저분해진다. 이미 대기 중이면 그 요청을 그대로 돌려준다.
+    """
+    existing = (
+        db.query(CheckIn)
+        .filter(CheckIn.customer_id == customer.id,
+                CheckIn.status == CHECKIN_WAITING)
+        .order_by(CheckIn.created_at.desc())
+        .first()
+    )
+    if existing:
+        return existing, "이미 요청하셨습니다. 직원이 확인 중입니다."
+
+    ci = CheckIn(store_id=store_id, customer_id=customer.id, status=CHECKIN_WAITING)
+    db.add(ci)
+    db.commit()
+    db.refresh(ci)
+    return ci, "요청되었습니다. 직원에게 말씀해 주세요."
+
+
+def list_waiting_checkins(db: Session, store_id: str) -> List[Dict[str, Any]]:
+    """대기 중인 결제 요청 — 오래된 것은 자동으로 정리한다."""
+    cutoff = _now() - timedelta(minutes=CHECKIN_TTL_MINUTES)
+
+    # 만료 처리 (손님이 누르고 그냥 간 경우)
+    stale = (
+        db.query(CheckIn)
+        .filter(CheckIn.store_id == store_id,
+                CheckIn.status == CHECKIN_WAITING,
+                CheckIn.created_at < cutoff)
+        .all()
+    )
+    if stale:
+        for s in stale:
+            s.status = CHECKIN_CANCELED
+            s.resolved_at = _now()
+        db.commit()
+
+    rows = (
+        db.query(CheckIn)
+        .filter(CheckIn.store_id == store_id, CheckIn.status == CHECKIN_WAITING)
+        .order_by(CheckIn.created_at)
+        .all()
+    )
+    out = []
+    for ci in rows:
+        c = ci.customer
+        if not c:
+            continue
+        waited = int((_now() - ci.created_at).total_seconds() // 60)
+        out.append({
+            "checkin_id": ci.id,
+            "customer_id": c.id,
+            "name": c.name,
+            "phone": c.phone,
+            "phone_masked": mask_phone(c.phone),
+            "balance": c.balance or 0,
+            "waited_minutes": max(0, waited),
+        })
+    return out
+
+
+def resolve_checkin(db: Session, store_id: str, checkin_id: int,
+                    status: str = CHECKIN_DONE) -> bool:
+    ci = db.query(CheckIn).filter(CheckIn.id == checkin_id).first()
+    if not ci or ci.store_id != store_id:
+        return False
+    ci.status = status
+    ci.resolved_at = _now()
+    db.commit()
+    return True
+
+
+def close_waiting_for_customer(db: Session, customer_id: int) -> None:
+    """이 손님의 대기 요청을 닫는다 — 차감이 끝나면 줄에서 빠져야 한다.
+
+    [한글 주석] 차감했는데 대기 목록에 그대로 남아 있으면
+    직원이 두 번 처리하거나 다음 손님과 헷갈린다.
+    """
+    rows = (
+        db.query(CheckIn)
+        .filter(CheckIn.customer_id == customer_id,
+                CheckIn.status == CHECKIN_WAITING)
+        .all()
+    )
+    for r in rows:
+        r.status = CHECKIN_DONE
+        r.resolved_at = _now()
+    if rows:
+        db.commit()
 
 
 # --- 방문 지표 ---

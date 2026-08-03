@@ -15,7 +15,7 @@
 import html as html_mod
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Form
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
@@ -80,11 +80,32 @@ def _page(body: str, title: str = "잔액 조회") -> str:
           text-align: center; box-shadow: 0 6px 18px rgba(78,54,41,0.06); }}
   .err h1 {{ font-size: 16px; margin: 0 0 8px; }}
   .err p {{ font-size: 13px; color: #8C6F56; margin: 0; line-height: 1.6; }}
+  .card {{ background: #FFF; border-radius: 16px; padding: 18px;
+           box-shadow: 0 6px 18px rgba(78,54,41,0.06); margin-bottom: 14px; }}
+  input[type=tel] {{
+    width: 100%; padding: 14px 12px; font-size: 17px; border-radius: 10px;
+    border: 1px solid rgba(140,111,86,0.25); background: #FAF9F6; color: inherit;
+    margin-bottom: 10px;
+  }}
+  button {{
+    width: 100%; padding: 15px; font-size: 16px; font-weight: 700;
+    border: 0; border-radius: 12px; background: #2E2521; color: #FFF;
+    cursor: pointer; font-family: inherit;
+  }}
+  button:disabled {{ opacity: .4; }}
+  .agree {{ display: flex; gap: 8px; align-items: flex-start;
+            font-size: 12px; color: #8C6F56; line-height: 1.5; margin: 10px 0 14px; }}
+  .agree input {{ margin-top: 2px; width: 18px; height: 18px; flex: none; }}
+  .big-btn {{ padding: 20px; font-size: 18px; }}
+  .ok-box {{ background: #E9F5EA; color: #2E7D32; border-radius: 12px;
+             padding: 16px; text-align: center; font-weight: 700; font-size: 15px;
+             margin-bottom: 14px; }}
   @media (prefers-color-scheme: dark) {{
     body {{ background: #201A16; color: #F0E9E4; }}
-    .balance-card, .list, .err {{ background: #2B2320; box-shadow: none; }}
+    .balance-card, .list, .err, .card {{ background: #2B2320; box-shadow: none; }}
     .row {{ border-bottom-color: #3A312C; }}
     .amt.minus {{ color: #F0E9E4; }}
+    input[type=tel] {{ background: #241E1B; border-color: #3A312C; }}
   }}
 </style>
 </head>
@@ -153,3 +174,120 @@ def public_balance_page(token: str, db: Session = Depends(get_db)):
         f'매장에서 말씀해 주시면 잔액으로 결제해 드립니다.</div>'
     )
     return HTMLResponse(_page(body, f"{shop} 잔액 조회"))
+
+
+# ---------------------------------------------------------------------------
+# 계산대 QR — 손님이 자기 폰으로 찍는다
+#
+# [한글 주석] 스캔 방향을 뒤집은 이유:
+#   손님 QR을 사장님 앱이 읽으려면 앱에 카메라가 필요하고, 그러면 네이티브
+#   재빌드를 해야 한다. 반대로 매장에 QR을 붙여두고 손님이 자기 폰의
+#   기본 카메라로 찍게 하면 우리 앱에는 카메라가 아예 필요 없다.
+#   iOS·안드로이드 모두 기본 카메라가 QR을 인식해 브라우저를 열어준다.
+# ---------------------------------------------------------------------------
+
+def _checkin_page(shop: str, token: str, customer=None,
+                  message: str = "", requested: bool = False) -> str:
+    """계산대 QR을 찍은 손님에게 보여줄 화면."""
+    if requested and customer:
+        body = (
+            f'<div class="shop">{html_mod.escape(shop)}</div>'
+            f'<div class="who">{html_mod.escape(customer.name or "")}님</div>'
+            f'<div class="ok-box">직원에게 전달되었습니다</div>'
+            f'<div class="balance-card">'
+            f'<div class="balance-label">사용하실 수 있는 잔액</div>'
+            f'<div class="balance">{customer.balance or 0:,}원</div></div>'
+            f'<div class="note">직원이 확인하고 결제해 드립니다.<br>'
+            f'화면을 닫으셔도 됩니다.</div>'
+        )
+        return _page(body, f"{shop} 결제 요청")
+
+    if customer:
+        # 이미 등록된 손님 — 버튼 하나만 보여준다
+        who = customer.name or svc.mask_phone(customer.phone)
+        body = (
+            f'<div class="shop">{html_mod.escape(shop)}</div>'
+            f'<div class="who">{html_mod.escape(who)}님</div>'
+            f'<div class="balance-card">'
+            f'<div class="balance-label">사용하실 수 있는 잔액</div>'
+            f'<div class="balance">{customer.balance or 0:,}원</div></div>'
+            f'<form method="post" action="/s/{html_mod.escape(token)}/request">'
+            f'<input type="hidden" name="phone" value="{html_mod.escape(customer.phone)}">'
+            f'<button class="big-btn" type="submit">잔액으로 결제 요청</button></form>'
+            f'<div class="note">누르시면 직원 화면에 표시됩니다.<br>'
+            f'주문하실 메뉴는 직원에게 말씀해 주세요.</div>'
+        )
+        return _page(body, f"{shop} 결제 요청")
+
+    # 첫 방문 — 번호 입력 + 동의
+    err = f'<div class="err" style="margin-bottom:14px"><p>{html_mod.escape(message)}</p></div>' if message else ""
+    body = (
+        f'<div class="shop">{html_mod.escape(shop)}</div>'
+        f'<div class="who">선불 회원 조회</div>'
+        f'{err}'
+        f'<div class="card">'
+        f'<form method="post" action="/s/{html_mod.escape(token)}/request">'
+        f'<input type="tel" name="phone" inputmode="numeric" autocomplete="tel" '
+        f'placeholder="010-1234-5678" required>'
+        f'<label class="agree"><input type="checkbox" name="agree" value="1" required>'
+        f'<span>선불 잔액 조회·안내를 위해 휴대폰 번호 수집에 동의합니다. '
+        f'번호는 이 목적 외에는 사용하지 않습니다.</span></label>'
+        f'<button type="submit">확인</button></form></div>'
+        f'<div class="note">아직 선불 회원이 아니시면 직원에게 충전을 요청해 주세요.</div>'
+    )
+    return _page(body, f"{shop} 선불 회원")
+
+
+def _shop_name(db: Session, store_id: str) -> str:
+    owner = db.query(User).filter(User.email == store_id).first()
+    return (getattr(owner, "store_name", None) or "브루노트") if owner else "브루노트"
+
+
+@router.get("/s/{token}", response_class=HTMLResponse, include_in_schema=False)
+def store_checkin_page(token: str, db: Session = Depends(get_db)):
+    """계산대에 붙여둔 QR을 찍으면 열리는 화면."""
+    store_id = svc.store_by_qr_token(db, token)
+    if not store_id:
+        return HTMLResponse(
+            _page('<div class="err"><h1>유효하지 않은 QR입니다</h1>'
+                  '<p>매장에 문의해 주세요.</p></div>'), status_code=404)
+    return HTMLResponse(_checkin_page(_shop_name(db, store_id), token))
+
+
+@router.post("/s/{token}/request", response_class=HTMLResponse, include_in_schema=False)
+def store_checkin_request(token: str, phone: str = Form(...),
+                          db: Session = Depends(get_db)):
+    """번호 확인 → 회원이면 결제 요청을 대기 줄에 세운다.
+
+    [한글 주석] 여기서 회원을 새로 만들지 않는다.
+    선불 잔액은 사장님이 돈을 받아야 생기는 것이라, 손님이 스스로 회원이 되어도
+    잔액이 0이라 할 수 있는 게 없다. 오히려 빈 회원만 쌓인다.
+    등록은 충전할 때 사장님이 하고, 여기서는 '이미 회원인지'만 확인한다.
+    """
+    store_id = svc.store_by_qr_token(db, token)
+    if not store_id:
+        return HTMLResponse(
+            _page('<div class="err"><h1>유효하지 않은 QR입니다</h1>'
+                  '<p>매장에 문의해 주세요.</p></div>'), status_code=404)
+
+    shop = _shop_name(db, store_id)
+    normalized = svc.normalize_phone(phone)
+    if not normalized:
+        return HTMLResponse(
+            _checkin_page(shop, token, message="휴대폰 번호를 다시 확인해 주세요."),
+            status_code=400)
+
+    customer = (
+        db.query(Customer)
+        .filter(Customer.store_id == store_id, Customer.phone == normalized,
+                Customer.is_active.is_(True))
+        .first()
+    )
+    if not customer:
+        return HTMLResponse(
+            _checkin_page(shop, token,
+                          message="등록된 선불 회원이 아닙니다. 직원에게 충전을 요청해 주세요."),
+            status_code=404)
+
+    svc.create_checkin(db, store_id, customer)
+    return HTMLResponse(_checkin_page(shop, token, customer, requested=True))

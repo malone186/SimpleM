@@ -105,6 +105,46 @@ def list_transactions_api(customer_id: int, limit: int = Query(30, ge=1, le=200)
     return [_tx_out(t) for t in svc.list_transactions(db, customer_id, limit)]
 
 
+@router.get("/store-qr", summary="계산대 QR (손님이 자기 폰으로 찍는다)")
+def store_qr_api(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """[한글 주석] 계산대에 붙여둘 QR입니다.
+
+    손님 QR을 사장님 앱이 읽으려면 앱에 카메라가 필요하고 네이티브 재빌드를 해야 합니다.
+    방향을 뒤집어, 매장에 QR을 붙여두고 손님이 자기 폰의 기본 카메라로 찍게 했습니다.
+    iOS·안드로이드 모두 기본 카메라가 QR을 인식해 브라우저를 열어줍니다.
+
+    SVG로 주는 이유는 인쇄 때문입니다. 확대해도 깨지지 않아
+    A4로 뽑아 붙여도 스캔이 잘 됩니다.
+    """
+    qr = svc.get_or_create_store_qr(db, user.email)
+    url = svc.store_checkin_url(qr.token)
+    return {
+        "token": qr.token,
+        "url": url,
+        "svg": svc.qr_svg(url),
+        "store_name": getattr(user, "store_name", None),
+        "guide": "이 QR을 계산대에 붙여 두세요. 손님이 폰 카메라로 찍으면 결제 요청이 사장님 화면에 뜹니다.",
+    }
+
+
+@router.get("/checkins", summary="결제 요청 대기 목록")
+def list_checkins_api(db: Session = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+    """[한글 주석] 손님이 QR을 찍고 '결제 요청'을 누른 목록입니다.
+    20분이 지난 요청은 자동으로 정리됩니다 — 누르고 그냥 가신 분이
+    계속 남아 있으면 직원이 헷갈립니다."""
+    return svc.list_waiting_checkins(db, user.email)
+
+
+@router.post("/checkins/{checkin_id}/dismiss", summary="결제 요청 무시")
+def dismiss_checkin_api(checkin_id: int, db: Session = Depends(get_db),
+                        user: User = Depends(get_current_user)):
+    from app.models.membership import CHECKIN_CANCELED
+    if not svc.resolve_checkin(db, user.email, checkin_id, CHECKIN_CANCELED):
+        raise HTTPException(status_code=404, detail="요청을 찾을 수 없습니다.")
+    return {"success": True}
+
+
 @router.get("/quick-menus", summary="차감용 메뉴 버튼 목록")
 def quick_menus_api(limit: int = Query(8, ge=1, le=20), db: Session = Depends(get_db),
                     user: User = Depends(get_current_user)):

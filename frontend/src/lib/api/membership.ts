@@ -112,6 +112,47 @@ export async function fetchTransactions(token: string, customerId: number): Prom
   return apiFetch<Transaction[]>(`/api/v1/membership/customers/${customerId}/transactions`, { headers: auth(token) });
 }
 
+/** 계산대 QR — 손님이 자기 폰으로 찍는다 */
+export type StoreQr = {
+  token: string;
+  url: string;
+  svg: string;          // 인쇄해도 안 깨지도록 SVG로 받는다
+  store_name: string | null;
+  guide: string;
+};
+
+/** 손님이 QR을 찍고 누른 결제 요청 */
+export type CheckIn = {
+  checkin_id: number;
+  customer_id: number;
+  name: string | null;
+  phone: string;
+  phone_masked: string;
+  balance: number;
+  waited_minutes: number;
+};
+
+export async function fetchStoreQr(token: string): Promise<StoreQr> {
+  return apiFetch<StoreQr>('/api/v1/membership/store-qr', { headers: auth(token) });
+}
+
+/**
+ * 결제 요청 대기 목록을 가져옵니다.
+ *
+ * [한글 주석] 손님이 계산대 QR을 찍고 '결제 요청'을 누르면 여기 뜹니다.
+ * 직원이 구두로 이름·번호를 묻지 않아도 누구인지 알 수 있습니다.
+ */
+export async function fetchCheckIns(token: string): Promise<CheckIn[]> {
+  return apiFetch<CheckIn[]>('/api/v1/membership/checkins', { headers: auth(token) });
+}
+
+export async function dismissCheckIn(token: string, checkinId: number): Promise<{ success: boolean }> {
+  return apiFetch(`/api/v1/membership/checkins/${checkinId}/dismiss`, {
+    method: 'POST',
+    headers: auth(token),
+  });
+}
+
 /** 차감용 메뉴 버튼 */
 export type QuickMenu = { id: number; name: string; price: number };
 
