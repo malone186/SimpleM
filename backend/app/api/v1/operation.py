@@ -5,10 +5,10 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.auth import get_current_user, get_current_user_optional
 from app.models.user import User
-from app.models.operation import Employee, EmployeeUnavailability, Schedule, EstimatedPayroll, EstimatedSettlement
+from app.models.operation import Employee, EmployeeUnavailability, Schedule, EstimatedPayroll
 from app.schemas.operation import (
     CommonResponse, ScheduleCreate, ScheduleUpdate, ScheduleResponse,
-    PayrollResponse, PayrollListItem, SettlementResponse, SettlementListItem,
+    PayrollResponse, PayrollListItem, SettlementResponse,
     TaxEstimateRequest, TaxEstimateResponse, ForecastRequest, ForecastResponse,
     RAGDocumentResponse, ReportSourceResponse, PayrollCalculateRequest, PayrollCalculateResponse,
     SettlementCalculateRequest, SettlementCalculateResponse,
@@ -426,37 +426,11 @@ def delete_unavailability_api(
         raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
 
 
-@router.get("/settlements/estimated", response_model=CommonResponse)
-def get_estimated_settlements_api(
-    period_start: Optional[str] = Query(None, description="조회 시작일 (YYYY-MM-DD)"),
-    period_end: Optional[str] = Query(None, description="조회 종료일 (YYYY-MM-DD)"),
-    db: Session = Depends(get_db)
-):
-    """데이터베이스에 저장되어 있는 매장의 기간별 예상 정산 결과들을 조회합니다."""
-    try:
-        query = db.query(EstimatedSettlement)
-        if period_start:
-            query = query.filter(EstimatedSettlement.period_start >= period_start)
-        if period_end:
-            query = query.filter(EstimatedSettlement.period_end <= period_end)
-            
-        results = query.all()
-        data_list = []
-        for r in results:
-            data_list.append(
-                SettlementListItem(
-                    id=r.id,
-                    period_start=r.period_start,
-                    period_end=r.period_end,
-                    total_sales=r.total_sales,
-                    total_expense=r.total_expense,
-                    total_payroll=r.total_payroll,
-                    net_profit=r.net_profit
-                )
-            )
-        return CommonResponse(success=True, data=data_list, message="저장된 예상 정산 목록 조회가 완료되었습니다.")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
+# GET /settlements/estimated 제거됨:
+#   estimated_settlements 테이블에 쓰는 코드가 어디에도 없고(계산은 /settlements/calculate가
+#   실시간으로 함), 프론트도 호출하지 않으며, 모델에 store_id가 없어 매장 격리도 불가능했다.
+#   → 항상 빈 배열만 주는 오해 소지의 죽은 엔드포인트라 삭제한다. 실시간 정산은
+#   POST /settlements/calculate가 담당한다. (모델/테이블은 마이그레이션 이력이라 그대로 둠)
 
 
 # --- [지출(Expense) 관리] ---
@@ -770,7 +744,7 @@ def calculate_settlement_api(
         )
         response_payload = SettlementCalculateResponse(**result)
         data = response_payload.model_dump()
-        # 프론트 정산 카드가 쓰는 total_* 네이밍 호환 필드 (settlements/estimated 목록과 동일 규격)
+        # 프론트 정산 카드가 쓰는 total_* 네이밍 호환 필드 (total_sales/expense/payroll/net_profit)
         data.update({
             "total_sales": data["revenue"],
             "total_expense": data["cost"],
