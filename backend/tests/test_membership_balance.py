@@ -154,6 +154,8 @@ def test_환불은_사용과_다른_종류로_남는다(db):
     assert tx.tx_type == TX_REFUND
     db.refresh(c)
     assert c.balance == 6000
+    # 보너스 없이 충전했으므로 잔액 차감액과 현금이 같다
+    assert tx.paid_amount == 4000
 
 
 def test_잔액보다_많이_환불할_수_없다(db):
@@ -162,6 +164,42 @@ def test_잔액보다_많이_환불할_수_없다(db):
     db.refresh(c)
     assert tx is None
     assert c.balance == 3000
+
+
+def test_나눠서_환불해도_받은_돈보다_많이_나가지_않는다(db):
+    """[핵심] 분할 환불에서 실제로 돈이 새던 버그.
+
+    잔액에서 빼는 금액과 건네는 현금을 같은 값으로 쓰면
+    보너스가 계속 남아 다음 계산에서 또 환불 대상이 된다.
+
+        50,000원 받고 60,000원 적립한 손님에게
+          1차 30,000 환불(잔액 30,000 남음) → 2차 25,000 → 3차 4,166 …
+          총 59,166원. 9,166원 손해.
+
+    잔액은 요청한 만큼 빼고, 현금은 거기에 (낸 돈/적립액)을 곱해 건넨다.
+    """
+    plan = ChargePlan(store_id=STORE, pay_amount=50000, credit_amount=60000)
+    db.add(plan)
+    db.commit()
+    db.refresh(plan)
+
+    c, _ = svc.create_customer(db, STORE, "01077776666", "분할환불")
+    svc.charge(db, c, charge_plan_id=plan.id)
+
+    cash_out = 0
+    for _ in range(5):
+        db.refresh(c)
+        if c.balance <= 0:
+            break
+        tx, _ = svc.refund(db, c, min(30000, c.balance), "분할 환불")
+        cash_out += tx.paid_amount
+
+    db.refresh(c)
+    assert c.balance == 0
+    assert cash_out == 50000, f"받은 돈만큼만 나가야 한다 (실제 {cash_out:,}원)"
+
+    s = svc.get_prepaid_summary(db, STORE)
+    assert s["net_cash_in"] == 0, "충전 50,000 - 환불 50,000 = 0"
 
 
 def test_환불_기준액은_보너스를_뺀_실제_낸_돈이다(db):
@@ -179,7 +217,8 @@ def test_환불_기준액은_보너스를_뺀_실제_낸_돈이다(db):
     assert c.balance == 30000
 
     est = svc.refundable_estimate(db, c)
-    assert est["suggested"] == 25000       # 30,000 × (50/60)
+    assert est["balance"] == 30000, "잔액에서 뺄 금액은 전액"
+    assert est["suggested"] == 25000, "건네는 현금은 30,000 × (50/60)"
     assert est["bonus_excluded"] == 5000
 
 

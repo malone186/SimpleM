@@ -262,9 +262,13 @@ export default function MembershipScreen() {
 
 적립 보너스 ${won(est.bonus_excluded)}은 실제로 받은 돈이 아니라 제외한 금액입니다.`
           : '';
+        // [한글 주석] 잔액에서 빼는 금액과 건네는 현금이 다르다.
+        // 잔액 60,000(실제 낸 돈 50,000)이면 잔액은 60,000이 사라지고 현금은 50,000이 나간다.
+        // 둘을 같은 값으로 보내면 보너스가 남아 다음 환불에서 또 계산돼 돈이 샌다.
         Alert.alert(
           '잔액 환불',
-          `잔액 ${won(est.balance)} 중 ${won(est.suggested)}을 돌려드립니다.` +
+          `잔액 ${won(est.balance)}을 모두 차감하고
+현금 ${won(est.suggested)}을 돌려드립니다.` +
           bonusNote +
           `
 
@@ -277,10 +281,10 @@ export default function MembershipScreen() {
               onPress: async () => {
                 try {
                   await refundBalance(token!, customer.id,
-                    { amount: est.suggested, memo: '고객 요청 환불' });
+                    { amount: est.balance, memo: '고객 요청 환불' });
                   setTarget(null);
                   await load();
-                  Alert.alert('환불 완료', `${won(est.suggested)}을 환불 처리했습니다.`);
+                  Alert.alert('환불 완료', `현금 ${won(est.suggested)}을 환불 처리했습니다.`);
                 } catch (e) {
                   Alert.alert('환불 실패', e instanceof Error ? e.message : String(e));
                 }

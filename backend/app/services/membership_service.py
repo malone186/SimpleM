@@ -259,8 +259,20 @@ def _lock_customer(db: Session, customer: Customer) -> Customer:
     try:
         locked = q.with_for_update().first()
     except Exception as e:
-        logger.debug("행 잠금 미지원 — 잠금 없이 진행합니다: %s", e)
-        locked = q.first()
+        # [한글 주석] SQLite에는 행 잠금이 없다. 개발용 폴백에서는 동시 요청이
+        # 없으므로 그냥 진행한다.
+        #
+        # 하지만 운영 DB(Postgres)에서 실패했다면 얘기가 다르다.
+        # 잠금 없이 진행하면 동시 결제에서 잔액이 마이너스가 되는데,
+        # 예전엔 이걸 debug 로그만 남기고 넘어갔다 — 아무도 못 본다.
+        # 개발 편의를 위한 폴백이 조용한 사고 경로가 되면 안 되므로
+        # 운영 DB에서는 막고 에러를 올린다.
+        if db.bind is not None and db.bind.dialect.name == "sqlite":
+            logger.debug("SQLite는 행 잠금을 지원하지 않습니다 — 폴백: %s", e)
+            locked = q.first()
+        else:
+            logger.error("잔액 잠금 실패 — 동시 결제로 잔액이 어긋날 수 있어 중단합니다: %s", e)
+            raise
     return locked or customer
 
 
@@ -329,6 +341,27 @@ def use(db: Session, customer: Customer, amount: int,
     return tx, f"{amount:,}원이 사용되었습니다."
 
 
+def _paid_ratio(db: Session, customer: Customer) -> float:
+    """이 손님이 낸 돈 / 적립받은 돈.
+
+    [한글 주석] 5만원 내고 6만원을 적립받았다면 0.8333이다.
+    잔액 1원의 '현금 가치'가 0.8333원이라는 뜻이다.
+    """
+    rows = (
+        db.query(
+            func.coalesce(func.sum(BalanceTransaction.paid_amount), 0),
+            func.coalesce(func.sum(BalanceTransaction.amount), 0),
+        )
+        .filter(BalanceTransaction.customer_id == customer.id,
+                BalanceTransaction.tx_type == TX_CHARGE)
+        .first()
+    )
+    paid, credited = int(rows[0] or 0), int(rows[1] or 0)
+    if not credited or paid >= credited:
+        return 1.0
+    return paid / credited
+
+
 def refund(db: Session, customer: Customer, amount: int,
            memo: Optional[str] = None) -> Tuple[Optional[BalanceTransaction], str]:
     """잔액을 현금으로 돌려준다.
@@ -354,46 +387,49 @@ def refund(db: Session, customer: Customer, amount: int,
             f"잔액보다 많이 환불할 수 없습니다. (잔액 {customer.balance:,}원)"
         )
 
-    tx = _append_transaction(db, customer, TX_REFUND, amount=-amount, memo=memo)
+    # [한글 주석] amount는 '잔액에서 빼는 금액'이고, 실제로 건네는 현금은 그보다 적다.
+    #
+    #   처음엔 둘을 같은 값으로 썼는데 분할 환불에서 받은 돈보다 많이 나갔다.
+    #   50,000원 받고 60,000원을 적립한 손님에게
+    #     1차 30,000 환불(잔액 30,000 남음) → 2차에 또 25,000 → 3차 4,166 …
+    #     총 59,166원. 9,166원 손해.
+    #   잔액은 25,000만 줄었는데 사라져야 할 보너스 5,000이 남아
+    #   다음 계산에서 또 환불 대상이 됐기 때문이다.
+    #
+    #   그래서 잔액은 amount만큼 빼고, 현금은 amount × (낸 돈/적립액)만 건넨다.
+    #   전액 환불이면 잔액 60,000이 사라지고 현금 50,000이 나가 정확히 맞는다.
+    cash = int(round(amount * _paid_ratio(db, customer)))
+
+    tx = _append_transaction(db, customer, TX_REFUND, amount=-amount,
+                             paid_amount=cash, memo=memo)
     db.commit()
     db.refresh(tx)
-    return tx, f"{amount:,}원을 환불 처리했습니다."
+    return tx, f"잔액 {amount:,}원을 차감하고 현금 {cash:,}원을 환불했습니다."
 
 
 def refundable_estimate(db: Session, customer: Customer) -> Dict[str, Any]:
-    """환불 기준액을 추정한다 — 보너스는 뺀 '실제 낸 돈' 기준.
+    """전액 환불 시 잔액에서 뺄 금액과 실제로 건넬 현금을 계산한다.
 
-    [한글 주석] 6만원을 적립받았지만 실제로 낸 돈은 5만원이다.
-    잔액 3만원을 전액 현금으로 돌려주면 매장이 손해를 본다.
-    실제 결제액 비율(50/60)을 곱해 25,000원을 기준액으로 제시한다.
+    [한글 주석] 두 숫자가 다르다는 게 핵심이다.
 
-    다만 이건 '제안'이고 강제하지 않는다 — 환불 기준은 약관과 매장 정책에
-    달린 문제이고, 법적 판단은 사장님 몫이다. 우리는 근거가 되는 숫자만 준다.
+      잔액 60,000원(실제 낸 돈 50,000원)인 손님을 전액 환불하면
+        잔액에서 빼는 금액: 60,000원   (보너스까지 사라진다)
+        건네는 현금:        50,000원   (실제로 받았던 돈)
+
+      이걸 같은 값으로 쓰면 분할 환불에서 보너스가 계속 남아
+      받은 돈보다 많이 나간다.
+
+    강제하지는 않는다 — 환불 기준은 약관과 매장 정책, 나아가 법적 판단의
+    영역이라 우리는 근거가 되는 숫자만 준다.
     """
-    rows = (
-        db.query(
-            func.coalesce(func.sum(BalanceTransaction.paid_amount), 0),
-            func.coalesce(func.sum(BalanceTransaction.amount), 0),
-        )
-        .filter(BalanceTransaction.customer_id == customer.id,
-                BalanceTransaction.tx_type == TX_CHARGE)
-        .first()
-    )
-    paid, credited = int(rows[0] or 0), int(rows[1] or 0)
     balance = customer.balance or 0
-
-    if not credited or paid >= credited:
-        # 보너스 없이 충전했거나 이력이 없으면 잔액 그대로
-        return {"balance": balance, "suggested": balance, "paid_ratio": 1.0,
-                "bonus_excluded": 0}
-
-    ratio = paid / credited
-    suggested = int(balance * ratio)
+    ratio = _paid_ratio(db, customer)
+    cash = int(round(balance * ratio))
     return {
-        "balance": balance,
-        "suggested": suggested,
+        "balance": balance,          # 잔액에서 뺄 금액 (전액)
+        "suggested": cash,           # 실제로 건넬 현금
         "paid_ratio": round(ratio, 4),
-        "bonus_excluded": balance - suggested,
+        "bonus_excluded": balance - cash,
     }
 
 
@@ -680,11 +716,26 @@ def _visit_dates(db: Session, customer_id: int) -> List[datetime]:
         .order_by(func.date(BalanceTransaction.created_at))
         .all()
     )
+    # [한글 주석] func.date()의 반환 타입이 DB마다 다르다.
+    #   Postgres는 date 객체, SQLite는 'YYYY-MM-DD' 문자열을 준다.
+    #   문자열을 date처럼 다루면 AttributeError로 이탈 감지가 통째로 죽는다.
+    #   운영에서는 Postgres라 안 터지지만, 그래서 더 위험하다 —
+    #   테스트(SQLite)에서만 죽으면 아무도 이 함수를 검증하지 못한다.
     out = []
     for (d,) in rows:
+        if d is None:
+            continue
         if isinstance(d, datetime):
             out.append(d)
-        elif d is not None:
+        elif isinstance(d, str):
+            try:
+                parsed = datetime.strptime(d[:10], "%Y-%m-%d")
+            except ValueError:
+                logger.warning("방문일 형식을 읽지 못했습니다: %r", d)
+                continue
+            out.append(parsed.replace(tzinfo=timezone.utc))
+        else:
+            # date 객체 (Postgres)
             out.append(datetime(d.year, d.month, d.day, tzinfo=timezone.utc))
     return out
 
@@ -808,7 +859,14 @@ def get_prepaid_summary(db: Session, store_id: str, days: int = 30) -> Dict[str,
     used = abs(_sum(base.filter(BalanceTransaction.tx_type == TX_USE)))
     # [한글 주석] 환불은 매출이 아니라 받아둔 돈을 돌려주는 현금 유출이다.
     # 사용액과 섞으면 매출이 부풀고, 현금 유입에서 빼지 않으면 실제 남은 돈이 과대계상된다.
-    refunded = abs(_sum(base.filter(BalanceTransaction.tx_type == TX_REFUND)))
+    # [한글 주석] 환불의 현금 유출은 amount(잔액 차감분)가 아니라
+    # paid_amount(실제 건넨 현금)로 세야 한다.
+    # 잔액 60,000을 지우고 현금 50,000을 줬다면 나간 돈은 50,000이다.
+    refunded = int(
+        base.filter(BalanceTransaction.tx_type == TX_REFUND)
+        .with_entities(func.coalesce(func.sum(BalanceTransaction.paid_amount), 0))
+        .scalar() or 0
+    )
 
     # 미사용 잔액 = 지금 우리가 진 빚 (기간과 무관한 현재 시점 값)
     outstanding = int(

@@ -84,12 +84,16 @@ def test_환불은_매출이_아니라_현금_유출이다(db, plan):
     c, _ = svc.create_customer(db, STORE, "01011112222")
     svc.charge(db, c, charge_plan_id=plan.id)
     svc.use(db, c, 4500, "아메리카노")
-    svc.refund(db, c, 20000, "고객 요청")
+    tx, _ = svc.refund(db, c, 20000, "고객 요청")
+
+    # [한글 주석] 잔액에서 20,000원을 빼지만 실제로 건네는 현금은 그보다 적다.
+    # 이 손님은 50,000원을 내고 60,000원을 적립받았으므로 비율이 50/60이다.
+    assert tx.paid_amount == 16667, "20,000 × (50/60)"
 
     s = svc.get_prepaid_summary(db, STORE)
     assert s["used_total"] == 4500, "환불이 매출에 섞이면 안 된다"
-    assert s["refunded_total"] == 20000
-    assert s["net_cash_in"] == 30000, "실제 남은 현금 = 충전 50,000 - 환불 20,000"
+    assert s["refunded_total"] == 16667, "현금 유출은 건넨 돈 기준"
+    assert s["net_cash_in"] == 33333, "충전 50,000 - 환불 16,667"
     assert s["active_balance_total"] == 35500
 
 
