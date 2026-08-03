@@ -124,6 +124,11 @@ class BalanceTransaction(Base):
                             nullable=True)
     paid_amount = Column(Integer, nullable=True)        # 충전 시 실제 결제액 (선수금 계산용)
 
+    # [한글 주석] 어떤 메뉴로 차감했는지. 메모(이름 문자열)만 있으면
+    # 원가 분석 때 이름으로 메뉴를 되찾아야 하는데, 이름이 바뀌거나
+    # 비슷한 메뉴가 있으면 어긋난다. 실제 원가는 레시피에서 나오므로 ID가 필요하다.
+    menu_id = Column(Integer, ForeignKey("menus.id", ondelete="SET NULL"), nullable=True)
+
     memo = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(),
                         nullable=False, index=True)
@@ -183,6 +188,32 @@ class CheckIn(Base):
     customer = relationship("Customer")
 
 
+def _ensure_transaction_menu_column(engine) -> None:
+    """[자가치유 스키마] balance_transactions에 menu_id를 보강한다.
+
+    [한글 주석] 이 컬럼이 생기기 전에 쌓인 거래는 menu_id가 비어 있다.
+    메모(메뉴명)로 되채우지 않는다 — 이름이 겹치거나 바뀐 경우
+    엉뚱한 메뉴의 원가가 붙어 분석이 조용히 틀어지기 때문이다.
+    비어 있는 건 '알 수 없음'으로 두고 집계에서 제외하는 편이 정직하다.
+    """
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("balance_transactions"):
+            return
+        existing = {c["name"] for c in insp.get_columns("balance_transactions")}
+    except Exception as e:
+        logger.warning(f"[단골 스키마] balance_transactions 점검 실패: {e}")
+        return
+    if "menu_id" in existing:
+        return
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE balance_transactions ADD COLUMN menu_id INTEGER"))
+        logger.info("[단골 스키마] balance_transactions.menu_id 추가 완료")
+    except Exception as e:
+        logger.warning(f"[단골 스키마] menu_id 보강 실패: {e}")
+
+
 def ensure_sale_customer_columns(engine) -> None:
     """[자가치유 스키마] sales 테이블에 고객·결제수단 컬럼을 보강한다.
 
@@ -209,6 +240,7 @@ def ensure_sale_customer_columns(engine) -> None:
         for col, coltype in (("customer_id", "INTEGER"), ("payment_method", "VARCHAR(10)"))
         if col not in existing
     ]
+    _ensure_transaction_menu_column(engine)
     if not to_add:
         return
 

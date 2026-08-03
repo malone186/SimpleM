@@ -223,7 +223,7 @@ def charge_api(customer_id: int, payload: ChargeRequest,
 def use_api(customer_id: int, payload: UseRequest,
             db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     c = _get_customer(db, customer_id, user.email)
-    tx, msg = svc.use(db, c, payload.amount, payload.memo)
+    tx, msg = svc.use(db, c, payload.amount, payload.memo, payload.menu_id)
     if not tx:
         raise HTTPException(status_code=400, detail=msg)
     return _balance_result(c, tx, user)
@@ -261,6 +261,22 @@ def churn_risk_api(limit: int = Query(20, ge=1, le=100), db: Session = Depends(g
     각자의 평소 주기(중앙값) 대비로 판단한다."""
     return [ChurnRiskCustomer(**x) for x in
             svc.find_churn_risk(db, user.email, limit, getattr(user, "store_name", None))]
+
+
+@router.get("/cost-analysis", summary="선불 고객 실질 원가율")
+def cost_analysis_api(days: int = Query(90, ge=7, le=365),
+                      db: Session = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+    """[한글 주석] 선불 회원제가 남는 장사인지 판단하는 숫자입니다.
+
+    메뉴판 원가율만 보면 충전 보너스로 깎인 몫이 안 보입니다.
+    아메리카노 3,000원/원가 900원이면 원가율 30%지만,
+    5만원에 6만원을 적립해 줬다면 손님이 실제로 낸 돈은 2,500원이라
+    실질 원가율은 36%입니다. 이 6%p가 통째로 가려집니다.
+
+    일반 판매 원가율과 나란히 보여 차이를 드러냅니다.
+    """
+    return svc.get_prepaid_cost_analysis(db, user.email, days)
 
 
 @router.get("/reconcile", summary="잔액 검증 (캐시 vs 거래이력)")

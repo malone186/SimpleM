@@ -35,6 +35,7 @@ import {
   dismissCheckIn,
   fetchChargePlans,
   fetchCheckIns,
+  fetchCostAnalysis,
   fetchChurnRisk,
   fetchPrepaidSummary,
   fetchStoreQr,
@@ -44,6 +45,7 @@ import {
   type ChargePlan,
   type CheckIn,
   type ChurnRiskCustomer,
+  type CostAnalysis,
   type Customer,
   type PrepaidSummary,
   type QuickMenu,
@@ -64,6 +66,7 @@ export default function MembershipScreen() {
   const [menus, setMenus] = useState<QuickMenu[]>([]);
   const [checkins, setCheckins] = useState<CheckIn[]>([]);
   const [storeQr, setStoreQr] = useState<StoreQr | null>(null);
+  const [cost, setCost] = useState<CostAnalysis | null>(null);
   const [qrOpen, setQrOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -97,13 +100,14 @@ export default function MembershipScreen() {
     if (!token) return;
     setError(null);
     try {
-      const [s, c, p, list, m, ci] = await Promise.all([
+      const [s, c, p, list, m, ci, ca] = await Promise.all([
         fetchPrepaidSummary(token, 30),
         fetchChurnRisk(token, 20),
         fetchChargePlans(token),
         searchCustomers(token, query),
         fetchQuickMenus(token).catch(() => [] as QuickMenu[]),
         fetchCheckIns(token).catch(() => [] as CheckIn[]),
+        fetchCostAnalysis(token, 90).catch(() => null),
       ]);
       setSummary(s);
       setChurn(c);
@@ -111,6 +115,7 @@ export default function MembershipScreen() {
       setCustomers(list);
       setMenus(m);
       setCheckins(ci);
+      setCost(ca);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -208,12 +213,13 @@ export default function MembershipScreen() {
     }
   };
 
-  const onUse = async (customer: Customer, presetAmount?: number, memo?: string) => {
+  const onUse = async (customer: Customer, presetAmount?: number, memo?: string,
+                       menuId?: number) => {
     const amount = presetAmount ?? parseInt(useAmount.replace(/\D/g, ''), 10);
     if (!amount) return;
     setBusy(true);
     try {
-      const res = await useBalance(token!, customer.id, { amount, memo });
+      const res = await useBalance(token!, customer.id, { amount, memo, menu_id: menuId });
       setUseAmount('');
       setTarget(null);
       await load();
@@ -375,6 +381,65 @@ export default function MembershipScreen() {
             <Stat label="매출 인식" value={won(summary.used_total)} highlight />
             <Stat label="나간 보너스" value={won(summary.bonus_given)} />
           </View>
+        </View>
+      )}
+
+      {/* 실질 원가율 — 선불 회원제가 남는 장사인지 판단하는 숫자 */}
+      {cost?.has_data && (
+        <View style={styles.card}>
+          <View style={styles.cardHead}>
+            <Ionicons name="calculator-outline" size={16} color={colors.mochaBrown} />
+            <Text style={styles.cardTitle}>선불 고객 실질 원가율</Text>
+            <Text style={styles.periodText}>최근 {cost.period_days}일</Text>
+          </View>
+
+          {/* [한글 주석] 메뉴판 원가율과 나란히 둔다.
+              충전 보너스로 깎인 몫이 몇 %p인지 눈으로 보여야 판단이 된다. */}
+          <View style={styles.rateRow}>
+            <View style={styles.rateBox}>
+              <Text style={styles.rateLabel}>메뉴판 기준</Text>
+              <Text style={styles.rateValue}>{cost.list_cost_rate}%</Text>
+            </View>
+            <Ionicons name="arrow-forward" size={14} color="#B0A79E" />
+            <View style={[styles.rateBox, styles.rateBoxMain]}>
+              <Text style={styles.rateLabel}>실질 (할인 반영)</Text>
+              <Text style={[styles.rateValue, styles.rateValueMain]}>
+                {cost.real_cost_rate}%
+              </Text>
+            </View>
+          </View>
+
+          <Text style={styles.rateNote}>
+            충전 보너스 {cost.discount_rate}% 때문에 실제 받는 돈이 적어
+            원가율이 {Math.round((cost.real_cost_rate - cost.list_cost_rate) * 10) / 10}%p 높습니다.
+            {cost.normal_cost_rate != null
+              ? ` 일반 판매는 ${cost.normal_cost_rate}%입니다.`
+              : ''}
+          </Text>
+
+          {cost.items.length > 0 && (
+            <View style={{ gap: 5, marginTop: 4 }}>
+              {cost.items.slice(0, 5).map((it) => (
+                <View key={it.menu_id} style={styles.costItem}>
+                  <Text style={styles.costName} numberOfLines={1}>{it.name}</Text>
+                  <Text style={styles.costCount}>{it.count}잔</Text>
+                  <Text style={[
+                    styles.costRate,
+                    it.real_cost_rate >= 40 && { color: '#B23B2E' },
+                  ]}>
+                    {it.real_cost_rate}%
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {cost.unknown_count > 0 && (
+            <Text style={styles.dim}>
+              메뉴 없이 금액만 차감한 {cost.unknown_count}건({won(cost.unknown_sales)})은
+              원가를 알 수 없어 제외했습니다.
+            </Text>
+          )}
         </View>
       )}
 
@@ -687,7 +752,7 @@ export default function MembershipScreen() {
                         <Pressable
                           key={m.id}
                           style={[styles.menuBtn, over && styles.menuBtnOver]}
-                          onPress={() => onUse(target, m.price, m.name)}
+                          onPress={() => onUse(target, m.price, m.name, m.id)}
                           disabled={busy || over}
                         >
                           <Text style={[styles.menuName, over && styles.menuTextOver]}
@@ -848,6 +913,20 @@ const styles = StyleSheet.create({
   qrBox: { alignItems: 'center', backgroundColor: '#FFF', borderRadius: 12,
            padding: 12, marginVertical: 4 },
   qrUrl: { fontSize: 10.5, color: '#B0A79E', textAlign: 'center' },
+
+  rateRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  rateBox: { flex: 1, backgroundColor: '#FAF8F6', borderRadius: 10, padding: 11 },
+  rateBoxMain: { backgroundColor: '#FFF4EC' },
+  rateLabel: { fontSize: 10.5, color: '#9A8F86' },
+  rateValue: { fontSize: 20, fontWeight: '800', color: '#9A8F86', marginTop: 2 },
+  rateValueMain: { color: colors.pointOrange },
+  rateNote: { fontSize: 11, color: '#7A6E65', lineHeight: 17 },
+  costItem: { flexDirection: 'row', alignItems: 'center', gap: 8,
+              paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: '#F2EFEC' },
+  costName: { flex: 1, fontSize: 12, color: colors.espressoBrown },
+  costCount: { fontSize: 11, color: '#9A8F86' },
+  costRate: { fontSize: 12.5, fontWeight: '800', color: colors.espressoBrown,
+              minWidth: 46, textAlign: 'right' },
 
   fieldLabel: { fontSize: 11.5, color: '#7A6E65', marginBottom: 3 },
   previewBox: { backgroundColor: '#F4F8F4', borderRadius: 9, padding: 11, gap: 3 },

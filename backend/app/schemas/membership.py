@@ -90,6 +90,9 @@ class ChargeRequest(BaseModel):
 class UseRequest(BaseModel):
     amount: int = Field(..., gt=0, description="차감할 금액")
     memo: Optional[str] = Field(None, description="예: 아메리카노 1잔")
+    # [한글 주석] 원가 분석에 쓴다. 메모(이름)만으로는 이름이 바뀌거나
+    # 비슷한 메뉴가 있을 때 엉뚱한 원가가 붙는다.
+    menu_id: Optional[int] = Field(None, description="메뉴 버튼으로 차감한 경우")
 
 
 class AdjustRequest(BaseModel):

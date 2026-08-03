@@ -112,6 +112,43 @@ export async function fetchTransactions(token: string, customerId: number): Prom
   return apiFetch<Transaction[]>(`/api/v1/membership/customers/${customerId}/transactions`, { headers: auth(token) });
 }
 
+/** 선불 고객 실질 원가율 */
+export type CostAnalysis = {
+  period_days: number;
+  discount_rate: number;          // 실효 충전 할인율(%)
+  prepaid_sales: number;
+  prepaid_cost: number;
+  list_cost_rate: number;         // 메뉴판 기준
+  real_cost_rate: number;         // 충전 할인까지 반영 — 이게 진짜
+  normal_cost_rate: number | null; // 일반 판매 비교군
+  gap: number | null;
+  items: {
+    menu_id: number;
+    name: string;
+    count: number;
+    sales: number;
+    cost: number;
+    list_cost_rate: number;
+    real_cost_rate: number;
+  }[];
+  unknown_count: number;          // 메뉴 없이 금액만 차감한 건
+  unknown_sales: number;
+  has_data: boolean;
+};
+
+/**
+ * 선불 회원제가 남는 장사인지 판단하는 숫자입니다.
+ *
+ * [한글 주석] 메뉴판 원가율만 보면 충전 보너스로 깎인 몫이 안 보입니다.
+ * 3,000원 커피(원가 900원)는 원가율 30%지만, 16.7% 할인된 잔액으로 샀다면
+ * 실제로 받은 돈은 2,500원이라 실질 원가율은 36%입니다.
+ */
+export async function fetchCostAnalysis(token: string, days = 90): Promise<CostAnalysis> {
+  return apiFetch<CostAnalysis>(`/api/v1/membership/cost-analysis?days=${days}`, {
+    headers: auth(token),
+  });
+}
+
 /** 계산대 QR — 손님이 자기 폰으로 찍는다 */
 export type StoreQr = {
   token: string;
@@ -210,7 +247,9 @@ export async function chargeBalance(
 export async function useBalance(
   token: string,
   customerId: number,
-  payload: { amount: number; memo?: string }
+  // [한글 주석] menu_id는 원가 분석에 쓴다. 메모(이름)만으로는 메뉴명이 바뀌거나
+  // 비슷한 메뉴가 있을 때 엉뚱한 원가가 붙는다.
+  payload: { amount: number; memo?: string; menu_id?: number }
 ): Promise<BalanceResult> {
   return apiFetch<BalanceResult>(`/api/v1/membership/customers/${customerId}/use`, {
     method: 'POST',

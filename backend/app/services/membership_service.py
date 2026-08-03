@@ -206,7 +206,8 @@ def quick_menus(db: Session, store_id: str, limit: int = 8) -> List[Dict[str, An
 def _append_transaction(db: Session, customer: Customer, tx_type: str, amount: int,
                         paid_amount: Optional[int] = None,
                         charge_plan_id: Optional[int] = None,
-                        memo: Optional[str] = None) -> BalanceTransaction:
+                        memo: Optional[str] = None,
+                        menu_id: Optional[int] = None) -> BalanceTransaction:
     """잔액을 바꾸는 유일한 통로.
 
     [한글 주석] 어디서든 customer.balance를 직접 건드리지 않고 이 함수만 쓴다.
@@ -224,6 +225,7 @@ def _append_transaction(db: Session, customer: Customer, tx_type: str, amount: i
         paid_amount=paid_amount,
         charge_plan_id=charge_plan_id,
         memo=memo,
+        menu_id=menu_id,
     )
     customer.balance = new_balance
     db.add(tx)
@@ -265,15 +267,21 @@ def charge(db: Session, customer: Customer,
 
 
 def use(db: Session, customer: Customer, amount: int,
-        memo: Optional[str] = None) -> Tuple[Optional[BalanceTransaction], str]:
-    """잔액을 차감한다."""
+        memo: Optional[str] = None,
+        menu_id: Optional[int] = None) -> Tuple[Optional[BalanceTransaction], str]:
+    """잔액을 차감한다.
+
+    [한글 주석] menu_id를 함께 받는 이유는 원가 분석 때문이다.
+    메모(메뉴명)만 있으면 이름이 바뀌거나 비슷한 메뉴가 있을 때 어긋난다.
+    """
     if amount <= 0:
         return None, "차감 금액이 올바르지 않습니다."
     if (customer.balance or 0) < amount:
         return None, (
             f"잔액이 부족합니다. (잔액 {customer.balance:,}원 / 필요 {amount:,}원)"
         )
-    tx = _append_transaction(db, customer, TX_USE, amount=-amount, memo=memo)
+    tx = _append_transaction(db, customer, TX_USE, amount=-amount, memo=memo,
+                             menu_id=menu_id)
     db.commit()
     db.refresh(tx)
     # 차감이 끝났으면 대기 줄에서 뺀다 (남아 있으면 두 번 처리하게 된다)
@@ -702,6 +710,133 @@ def get_prepaid_summary(db: Session, store_id: str, days: int = 30) -> Dict[str,
         "used_total": used,
         "bonus_given": max(0, credited - charged_paid),
         "period_days": days,
+    }
+
+
+def get_prepaid_cost_analysis(db: Session, store_id: str, days: int = 90) -> Dict[str, Any]:
+    """선불 고객의 '실질' 원가율.
+
+    [한글 주석] 왜 그냥 원가율이 아니라 '실질'인가:
+
+      아메리카노 3,000원 / 원가 900원이면 원가율은 30%다.
+      그런데 5만원에 6만원을 적립해 줬다면 손님이 실제로 낸 돈은
+      3,000원이 아니라 2,500원이다(16.7% 할인).
+      실질 원가율 = 900 / 2,500 = 36%.
+
+      메뉴판 원가율만 보면 이 6%p가 통째로 안 보인다.
+      게다가 손님이 원가율 높은 메뉴에 몰리면 차이는 더 벌어진다.
+      선불 회원제가 남는 장사인지 아닌지는 이 숫자로 판단해야 한다.
+
+      할인율은 매장이 실제로 팔아온 충전 상품들의 가중평균으로 낸다.
+      상품마다 할인율이 다르므로 특정 상품 기준으로 잡으면 왜곡된다.
+    """
+    from app.models.inventory import Menu, Recipe  # 지역 import
+
+    since = _now() - timedelta(days=days)
+
+    # 1) 실효 할인율 — 이 매장이 실제로 내준 보너스 비중
+    charged = (
+        db.query(
+            func.coalesce(func.sum(BalanceTransaction.paid_amount), 0),
+            func.coalesce(func.sum(BalanceTransaction.amount), 0),
+        )
+        .filter(BalanceTransaction.store_id == store_id,
+                BalanceTransaction.tx_type == TX_CHARGE,
+                BalanceTransaction.created_at >= since)
+        .first()
+    )
+    paid_total, credited_total = int(charged[0] or 0), int(charged[1] or 0)
+    # 손님이 6만원어치를 5만원에 샀으므로 분모는 적립액이다
+    discount_rate = ((credited_total - paid_total) / credited_total
+                     if credited_total else 0.0)
+
+    # 2) 메뉴별 원가 (레시피량 × 재료 현재단가) — 기존 원가 계산과 같은 공식
+    menus = db.query(Menu).filter(Menu.store_id == store_id).all()
+    cost_by_menu: Dict[int, int] = {}
+    for m in menus:
+        total = 0
+        for r in m.recipes:
+            if r.ingredient:
+                total += int(r.quantity * (r.ingredient.current_price or 0))
+        cost_by_menu[m.id] = total
+
+    # 3) 선불로 나간 메뉴들을 집계
+    rows = (
+        db.query(BalanceTransaction.menu_id,
+                 func.count(BalanceTransaction.id),
+                 func.coalesce(func.sum(func.abs(BalanceTransaction.amount)), 0))
+        .filter(BalanceTransaction.store_id == store_id,
+                BalanceTransaction.tx_type == TX_USE,
+                BalanceTransaction.created_at >= since)
+        .group_by(BalanceTransaction.menu_id)
+        .all()
+    )
+
+    menu_names = {m.id: m.name for m in menus}
+    items: List[Dict[str, Any]] = []
+    known_sales = known_cost = 0
+    unknown_count = unknown_sales = 0
+
+    for menu_id, cnt, amount in rows:
+        amount = int(amount or 0)
+        if menu_id is None or menu_id not in cost_by_menu:
+            # menu_id 없이 금액만 차감한 건 — 원가를 알 수 없어 집계에서 뺀다
+            unknown_count += int(cnt)
+            unknown_sales += amount
+            continue
+        cost = cost_by_menu[menu_id] * int(cnt)
+        known_sales += amount
+        known_cost += cost
+        # 손님이 실제로 낸 돈 기준 (할인 반영)
+        effective = amount * (1 - discount_rate)
+        items.append({
+            "menu_id": menu_id,
+            "name": menu_names.get(menu_id, "(삭제된 메뉴)"),
+            "count": int(cnt),
+            "sales": amount,
+            "cost": cost,
+            "list_cost_rate": round(cost / amount * 100, 1) if amount else 0.0,
+            "real_cost_rate": round(cost / effective * 100, 1) if effective else 0.0,
+        })
+
+    items.sort(key=lambda x: x["sales"], reverse=True)
+
+    effective_sales = known_sales * (1 - discount_rate)
+    list_rate = round(known_cost / known_sales * 100, 1) if known_sales else 0.0
+    real_rate = round(known_cost / effective_sales * 100, 1) if effective_sales else 0.0
+
+    # 4) 비교군 — 일반 판매(선불이 아닌 매출)의 원가율
+    from app.models.inventory import Sale
+
+    normal = (
+        db.query(Sale.menu_id,
+                 func.coalesce(func.sum(Sale.quantity), 0),
+                 func.coalesce(func.sum(Sale.total_price), 0))
+        .filter(Sale.store_id == store_id, Sale.sold_at >= since)
+        .group_by(Sale.menu_id)
+        .all()
+    )
+    n_sales = n_cost = 0
+    for menu_id, qty, total in normal:
+        if menu_id in cost_by_menu:
+            n_sales += int(total or 0)
+            n_cost += cost_by_menu[menu_id] * int(qty or 0)
+    normal_rate = round(n_cost / n_sales * 100, 1) if n_sales else None
+
+    return {
+        "period_days": days,
+        "discount_rate": round(discount_rate * 100, 1),
+        "prepaid_sales": known_sales,
+        "prepaid_cost": known_cost,
+        "list_cost_rate": list_rate,      # 메뉴판 기준
+        "real_cost_rate": real_rate,      # 충전 할인까지 반영
+        "normal_cost_rate": normal_rate,  # 일반 판매 비교군
+        "gap": (round(real_rate - normal_rate, 1)
+                if normal_rate is not None else None),
+        "items": items[:10],
+        "unknown_count": unknown_count,   # 메뉴 없이 금액만 차감한 건
+        "unknown_sales": unknown_sales,
+        "has_data": bool(items),
     }
 
 
