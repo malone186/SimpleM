@@ -25,6 +25,18 @@ logger = logging.getLogger(__name__)
 # 링크 생성에 필요한 스코프 (푸시용 messaging 스코프와 별개 — 여기선 계정/재설정 admin)
 _IDENTITY_SCOPE = "https://www.googleapis.com/auth/identitytoolkit"
 
+# 이메일 상단 로고 — Gmail은 base64/data-URI 이미지를 막으므로 CID 인라인 첨부로 넣는다.
+_LOGO_PATH = os.path.join(os.path.dirname(__file__), "..", "static", "email", "brewnote_logo.png")
+
+
+def _logo_bytes() -> Optional[bytes]:
+    """이메일에 넣을 로고 바이트. 파일이 없으면 None (로고 없이 발송)."""
+    try:
+        with open(_LOGO_PATH, "rb") as f:
+            return f.read()
+    except Exception:
+        return None
+
 
 class MailError(RuntimeError):
     """재설정 링크 생성 또는 메일 발송 실패."""
@@ -108,12 +120,22 @@ def smtp_configured() -> bool:
 
 
 def _build_message(to_email: str, link: str) -> EmailMessage:
+    from email.utils import make_msgid
+
     sender = os.getenv("MAIL_FROM", "")
     sender_name = os.getenv("MAIL_FROM_NAME", "브루노트")
     msg = EmailMessage()
     msg["Subject"] = "[브루노트] 비밀번호 재설정 안내"
     msg["From"] = f"{sender_name} <{sender}>"
     msg["To"] = to_email
+
+    logo = _logo_bytes()
+    logo_cid = make_msgid(domain="brewnote") if logo else None
+    logo_img = (
+        f'<img src="cid:{logo_cid[1:-1]}" alt="브루노트" width="240" '
+        'style="display:block;width:240px;max-width:80%;height:auto;margin:0 auto 20px"/>'
+        if logo_cid else ""
+    )
 
     text = (
         "안녕하세요, 브루노트입니다.\n\n"
@@ -126,12 +148,15 @@ def _build_message(to_email: str, link: str) -> EmailMessage:
     msg.add_alternative(
         f"""<!doctype html><html><body style="margin:0;background:#F4ECE0;padding:24px;font-family:'Apple SD Gothic Neo',sans-serif;color:#3E2F23">
   <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:16px;padding:28px">
-    <h1 style="font-size:20px;margin:0 0 6px">비밀번호 재설정</h1>
-    <p style="color:#7A6A5A;font-size:14px;line-height:1.6;margin:0 0 20px">
+    {logo_img}
+    <h1 style="font-size:20px;margin:0 0 6px;text-align:center">비밀번호 재설정</h1>
+    <p style="color:#7A6A5A;font-size:14px;line-height:1.6;margin:0 0 20px;text-align:center">
       안녕하세요, 브루노트입니다.<br/>비밀번호 재설정 요청이 접수되었습니다.<br/>
       아래 버튼을 눌러 새 비밀번호를 설정해 주세요.
     </p>
-    <a href="{link}" style="display:inline-block;background:#E8833A;color:#fff;text-decoration:none;font-weight:800;padding:13px 22px;border-radius:12px;font-size:15px">비밀번호 재설정하기</a>
+    <div style="text-align:center">
+      <a href="{link}" style="display:inline-block;background:#E8833A;color:#fff;text-decoration:none;font-weight:800;padding:13px 24px;border-radius:12px;font-size:15px">비밀번호 재설정하기</a>
+    </div>
     <p style="color:#A99C90;font-size:12px;line-height:1.6;margin:22px 0 0">
       버튼이 눌리지 않으면 이 주소를 브라우저에 붙여 넣으세요:<br/>
       <a href="{link}" style="color:#E8833A;word-break:break-all">{link}</a>
@@ -143,6 +168,8 @@ def _build_message(to_email: str, link: str) -> EmailMessage:
 </body></html>""",
         subtype="html",
     )
+    if logo:
+        msg.get_payload()[-1].add_related(logo, maintype="image", subtype="png", cid=logo_cid)
     return msg
 
 
