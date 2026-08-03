@@ -92,6 +92,11 @@ class FindEmailResponse(BaseModel):
 
 
 # 8. [비밀번호 재설정] 요청 규격 — 메일 인프라가 없어 본인확인(휴대폰 또는 상호명) 후 즉시 재설정한다.
+class ResetEmailRequest(BaseModel):
+    """커스텀 재설정 메일 발송 요청 — 이메일만 받아 Firebase 재설정 링크를 담은 메일을 보낸다."""
+    email: EmailStr = Field(..., description="비밀번호 재설정 링크를 받을 가입 이메일")
+
+
 class ResetPasswordRequest(BaseModel):
     email: EmailStr = Field(..., description="가입 이메일")
     # 본인 확인값 — 휴대폰 번호(등록 계정) 또는 상호명(휴대폰 미등록 기존 계정) 중 하나가 일치하면 통과.

@@ -642,12 +642,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // 검증하므로, 재설정도 Firebase 메일 방식이어야 로그인이 보는 비밀번호가 실제로 바뀐다.
   const firebaseAuthEnabled = !!auth;
 
-  // Firebase 비밀번호 재설정 메일 발송. 계정 존재 여부가 새어나가지 않도록 user-not-found는
-  // 조용히 성공 처리한다(호출부가 "가입된 이메일이면 발송된다"고 안내). 그 외 오류만 던진다.
+  // 비밀번호 재설정 메일 발송. 계정 존재 여부가 새어나가지 않도록 계정 없음도 조용히 성공 처리.
+  //  1) 백엔드 커스텀 메일 우선 — 서버에 서비스계정+SMTP가 설정돼 있으면 우리 문구·디자인 메일이 나간다.
+  //  2) 미설정(503)/실패면 Firebase 기본 재설정 메일로 폴백 — 어느 경우든 재설정은 동작한다.
   const sendResetEmail = useCallback(async (email: string) => {
+    const clean = email.trim().toLowerCase();
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/reset-password-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: clean }),
+      });
+      if (res.ok) return; // 커스텀 메일 발송(또는 계정없음 → 조용히 성공)
+      // 503(미설정) 등 → 아래 Firebase 기본 메일로 폴백
+    } catch {
+      // 네트워크 실패 → 폴백
+    }
+
     if (!auth) throw new Error('이 환경에서는 이메일 재설정을 쓸 수 없습니다.');
     try {
-      await sendPasswordResetEmail(auth, email.trim().toLowerCase());
+      await sendPasswordResetEmail(auth, clean);
     } catch (e: any) {
       if (e?.code === 'auth/user-not-found') return; // 이메일 열거 방지
       if (e?.code === 'auth/invalid-email') throw new Error('유효하지 않은 이메일 형식입니다.');
