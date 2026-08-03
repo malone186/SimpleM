@@ -22,6 +22,8 @@ import { Linking, Platform } from 'react-native';
 export type NotifyResult = {
   ok: boolean;
   reason?: string;
+  /** 복사가 실패했을 때 사장님이 직접 복사하도록 보여줄 문구 */
+  text?: string;
 };
 
 /** 사장님 폰의 문자앱을 열고 수신번호·본문을 미리 채운다. */
@@ -45,17 +47,57 @@ async function sendViaDeviceSms(phone: string, text: string): Promise<NotifyResu
   }
 }
 
-/** 웹에서는 문자앱이 없다 — 문구를 클립보드에 복사해 준다. */
+/**
+ * 웹에서는 문자앱이 없다 — 문구를 클립보드에 복사해 준다.
+ *
+ * [한글 주석] 복사가 실패하는 경우가 실제로 있다.
+ *
+ *   navigator.clipboard는 '문서에 포커스가 있을 때'만 동작한다.
+ *   확인 대화상자(window.confirm)가 포커스를 가져갔다 막 닫힌 직후에 부르면
+ *   "Document is not focused" 오류가 난다.
+ *
+ *   그래서 세 단계로 시도한다.
+ *     1) 포커스를 되돌리고 clipboard API
+ *     2) 실패하면 textarea + execCommand (구식이지만 포커스를 직접 잡는다)
+ *     3) 그래도 안 되면 실패로 알리고, 부르는 쪽이 문구를 보여준다
+ *
+ *   복사가 안 됐는데 "복사했습니다"라고 하면 사장님이 빈 클립보드를
+ *   붙여넣게 되므로, 실패를 감추지 않는 게 중요하다.
+ */
 async function copyToClipboard(text: string): Promise<NotifyResult> {
+  // 1) 표준 API — 포커스를 먼저 되돌린다
   try {
+    if (typeof window !== 'undefined') window.focus();
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
       await navigator.clipboard.writeText(text);
       return { ok: true };
     }
-    return { ok: false, reason: '클립보드를 사용할 수 없습니다.' };
-  } catch (e) {
-    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+  } catch {
+    // 포커스 문제 등 — 아래 폴백으로 넘어간다
   }
+
+  // 2) 구식 폴백 — textarea에 넣고 직접 선택해 복사한다
+  try {
+    if (typeof document === 'undefined') {
+      return { ok: false, reason: '클립보드를 사용할 수 없습니다.' };
+    }
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    // 화면에 보이지 않게 하되 focus는 가능해야 하므로 display:none은 쓸 수 없다
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    ta.style.top = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (ok) return { ok: true };
+  } catch {
+    // 마지막 폴백으로 넘어간다
+  }
+
+  return { ok: false, reason: '복사에 실패했습니다. 아래 문구를 직접 복사해 주세요.' };
 }
 
 /**
@@ -67,9 +109,11 @@ async function copyToClipboard(text: string): Promise<NotifyResult> {
 export async function sendNotification(phone: string, text: string): Promise<NotifyResult> {
   if (Platform.OS === 'web') {
     const r = await copyToClipboard(text);
+    // 실패하면 문구를 함께 돌려준다 — 복사가 안 됐는데 안내만 하면
+    // 사장님이 빈 클립보드를 붙여넣게 된다
     return r.ok
       ? { ok: true, reason: '문구를 복사했습니다. 문자앱에 붙여넣어 보내세요.' }
-      : r;
+      : { ...r, text };
   }
   return sendViaDeviceSms(phone, text);
 }

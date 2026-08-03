@@ -136,8 +136,15 @@ export default function MembershipScreen() {
 
   const notify = async (phone: string, text: string) => {
     const r = await sendNotification(phone, text);
-    if (!r.ok) showAlert('알림 전송', r.reason ?? '전송할 수 없습니다.');
-    else if (r.reason) showAlert('알림', r.reason);
+    if (!r.ok) {
+      // [한글 주석] 복사가 실패했으면 문구를 그대로 보여준다.
+      // "복사 실패"만 알리면 사장님이 할 수 있는 게 없다.
+      showAlert('알림 문구', r.text ? `${r.reason}
+
+${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
+    } else if (r.reason) {
+      showAlert('알림', r.reason);
+    }
   };
 
   const onRegister = async () => {
