@@ -1157,9 +1157,14 @@ async def chat_message(
             store_id=store_key,
             history=body.history
         )
+        # generate_response는 내부에서 예외를 전부 삼켜 정상 dict로 돌려주므로(사과 문구),
+        # 아래 except로는 AI 실패가 안 잡힌다. ok=False면 실질 답변을 못 만든 턴이니
+        # 차감한 쿼터를 여기서 되돌린다 (안 그러면 실패한 턴도 사장님 쿼터가 깎인다).
+        if not result.get("ok", True):
+            chat_quota_service.refund(store_key)
         return ChatResponse(response=result["text"], documents=result["documents"])
     except Exception as e:
-        # 답을 못 준 턴까지 차감하면 부당하다 — 되돌린다
+        # 답을 못 준 턴까지 차감하면 부당하다 — 되돌린다 (예외가 여기까지 올라온 드문 경우)
         chat_quota_service.refund(store_key)
         # [한글 주석] 장애 추적을 위해 로컬 콘솔에 상세 예외 Traceback을 기록합니다.
         logger.exception("챗봇 서비스 실행 중 장애 발생")

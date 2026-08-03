@@ -170,21 +170,25 @@ _DOMAINS: list[dict[str, Any]] = [
         "extra": "- 확정하면 품목이 실제 재고에 더해집니다 — 반영 결과(몇 개 품목 입고)를 보고하세요.",
     },
     {
-        # [상권 분석] 등록된 매장 고정 위치 기준으로 주변 카페를 조사·분석하는 전문가
+        # [상권 분석] 등록된 매장 고정 위치 기준으로 주변 카페·행사를 조사·분석하는 전문가
         "name": "market_expert",
-        "title": "상권·경쟁 분석 전문가",
+        "title": "상권·경쟁·주변 행사 전문가",
         "description": (
             "매장 주변 상권을 조사한다 — 반경 안의 경쟁 카페 목록(네이버 지역정보), "
             "특정 카페의 후기 기반 강점·약점·대표 메뉴·가격대 분석, "
-            "동네 전체의 경쟁 밀도·트렌드·기회·위협과 실행안 정리."
+            "동네 전체의 경쟁 밀도·트렌드·기회·위협과 실행안 정리. "
+            "또한 매장 반경에서 곧 열리는 축제·팝업·플리마켓·문화행사 일정을 조회한다 "
+            "('이번 주말 근처에 무슨 행사 있어?', '주변에 축제 뭐 있어?')."
         ),
-        "modules": ["app.services.ai.nearby_cafe_tools"],
+        "modules": ["app.services.ai.nearby_cafe_tools", "app.services.ai.nearby_event_tools"],
         "extra": (
             "- 기준 좌표는 사장님이 등록한 매장 위치입니다. 등록이 안 됐다는 안내가 오면 "
             "매장 지도 화면에서 위치를 등록하시라고 그대로 전하세요.\n"
             "- 분석 근거는 네이버 지역정보와 블로그 후기입니다 — 도구가 준 사실만 쓰고, "
             "후기가 없으면 '후기가 적어 판단이 어렵다'고 솔직히 보고하세요.\n"
-            "- 경쟁 카페를 말할 때는 이름과 함께 우리 매장에서 몇 m인지 꼭 붙이세요."
+            "- 경쟁 카페를 말할 때는 이름과 함께 우리 매장에서 몇 m인지 꼭 붙이세요.\n"
+            "- 주변 행사는 list_nearby_events로 조회하고, 행사가 없으면 지어내지 말고 "
+            "'예정된 행사가 없다'고 그대로 보고하세요."
         ),
     },
     {
@@ -233,6 +237,42 @@ _DOMAINS: list[dict[str, Any]] = [
             "- 사장님이 주변 행사를 언급하면 events_json으로 넣어 부스팅을 반영하세요.\n"
             "- 예측 보고에는 근거(모델·날씨·보정 사유)와 발주 추천 요약을 포함하세요.\n"
             "- 세금 추정치는 참고용이며 최종 신고는 세무사 확인이 필요하다고 항상 덧붙이세요."
+        ),
+    },
+    {
+        # POS 실시간 연동 — 레지스트리엔 있으나 편성이 빠져 챗봇이 못 쓰던 도구
+        "name": "pos_expert",
+        "title": "POS 연동 전문가",
+        "description": (
+            "매장 POS(Square 등) 연동 상태를 확인하고 즉시 동기화한다 — "
+            "'포스 연동 잘 돼 있어?', '지금 매출 동기화해줘', '마지막으로 언제 동기화됐어?' "
+            "같은 요청을 처리한다."
+        ),
+        "modules": ["app.services.ai.pos_tools"],
+        "extra": (
+            "- get_pos_status로 연동 여부·마지막 동기화 시각을 먼저 확인하고, 사장님이 "
+            "동기화를 원하면 sync_pos_now를 부르세요.\n"
+            "- 연동이 안 된 매장이라는 응답이 오면 지어내지 말고 'POS가 아직 연동되지 않았다'고 "
+            "그대로 안내하고, 설정 화면에서 연결하시라고 전하세요."
+        ),
+    },
+    {
+        # 원두 추천·리뷰 RAG·시세 — 백엔드 C 도구지만 편성이 빠져 챗봇 사각지대였다
+        "name": "bean_expert",
+        "title": "원두 추천·구매 전문가",
+        "description": (
+            "로스터리 원두를 추천·검색하고, 리뷰 근거로 특성을 설명하며, 더 싼 대체 원두와 "
+            "최저가를 찾아 준다 — '고소한 원두 추천해줘', '이 원두 리뷰 어때?', "
+            "'○○ 원두 더 싼 데 있어?', '△△ 원두 최저가 얼마야?' 같은 요청을 처리한다."
+        ),
+        "modules": ["app.services.operation.bean_chatbot_tools"],
+        "extra": (
+            "- 추천·설명 근거는 수집된 로스터리 상품 정보와 리뷰입니다 — 도구가 준 사실만 쓰고, "
+            "리뷰가 부족하면 '근거가 적다'고 솔직히 보고하세요.\n"
+            "- 가격·최저가는 수집 시점 기준 참고값입니다. 금액을 말할 때 '수집 시점 기준'임을 "
+            "한 번은 밝히세요.\n"
+            "- 이 도구들은 시장(로스터리) 정보라 특정 매장에 묶이지 않습니다 — 매장 재고와 혼동하지 "
+            "마세요(내 재고 질문은 재고 전문가 소관)."
         ),
     },
     {
@@ -314,17 +354,19 @@ _DOMAINS: list[dict[str, Any]] = [
         "description": (
             "사장님의 할 일 목록(홈 화면)에 항목을 추가·조회하고 완료 처리한다. "
             "'잊지 말라고 해줘', '메모해줘', '할 일에 넣어줘', '오늘 뭐 해야 해?', "
-            "'그거 했어' 같은 요청을 담당한다."
+            "'그거 했어' 같은 요청을 담당한다. 또한 '오늘 브리핑 해줘', '다음 할 일 뭐야?', "
+            "'그거 시작할게' 같은 요약·진행 요청도 처리한다."
         ),
-        "modules": ["app.services.ai.todo_tools"],
+        "modules": ["app.services.ai.todo_tools", "app.services.operation.assistant_tools"],
         "extra": (
             "- 사장님이 나중에 할 일을 말하면 대화로만 답하지 말고 반드시 add_todo로 목록에 남기세요. "
             "말로만 '알겠습니다'라고 하면 홈 화면에는 아무것도 안 생깁니다.\n"
             "- title은 홈 화면에 한 줄로 보이므로 짧게 쓰고(예: '원두 발주'), 배경 설명은 note에 담으세요.\n"
             "- 재고 부족·서류 갱신은 홈 화면이 자동으로 잡아 주므로 할 일로 또 추가하지 마세요. "
             "중복해서 보이기만 합니다.\n"
-            "- 완료 처리에서 비슷한 항목이 여럿이라 못 찾았다고 나오면, 임의로 고르지 말고 "
-            "후보를 보여주며 어느 것인지 되물으세요."
+            "- '오늘 뭐 해야 해?'·목록 조회는 todo 도구를, '브리핑 해줘'·'다음 할 일'은 "
+            "get_voice_briefing_tool·get_next_task_tool를 쓰세요. 완료 처리는 한 가지 도구로만 "
+            "하고(둘로 중복 처리하지 마세요), 대상이 애매하면 후보를 보여주며 되물으세요."
         ),
     },
     {
@@ -470,14 +512,21 @@ def _extract_document(result: Any) -> Optional[dict[str, Any]]:
 
 
 def _bind_store(t, store_id: str, created_docs: list[dict[str, Any]]):
-    """store_id 인자를 받는 도구는 모델이 뭐라 넣든 로그인 사용자 값으로 강제 덮어쓴다 (보안).
+    """모든 도구를 공통 래퍼로 감싼다 — 예외 안전망 + 문서 수집, 그리고 store_id 강제.
 
-    같은 래퍼에서 결과가 문서 전문이면 created_docs에 모아 — 최종 응답에 카드로 실어 보낸다.
+    · store_id 인자를 받는 도구는 모델이 뭐라 넣든 로그인 사용자 값으로 덮어쓴다 (보안).
+    · store_id가 없는 도구(원두 검색·웹 검색 등)도 예외 안전망은 똑같이 필요하다 —
+      예전엔 이런 도구를 감싸지 않고 그대로 돌려줘, 그 도구가 터지면 턴 전체가 죽고
+      사장님은 "앗! 문제가 생겼어요"만 받았다. 이제는 어느 도구가 터져도 문자열로
+      돌려줘 모델이 그 도구만 포기하고 대화를 이어갈 수 있다.
+    · 결과가 문서 전문이면 created_docs에 모아 — 최종 응답에 카드로 실어 보낸다.
     """
     from langchain_core.tools import StructuredTool
 
-    if not (getattr(t, "args", None) and "store_id" in t.args):
+    # args_schema가 없는 특수 도구는 StructuredTool로 다시 감쌀 수 없으므로 원본을 쓴다
+    if getattr(t, "args_schema", None) is None:
         return t
+    has_store = bool(getattr(t, "args", None) and "store_id" in t.args)
 
     def _collect(result):
         doc = _extract_document(result)
@@ -486,14 +535,13 @@ def _bind_store(t, store_id: str, created_docs: list[dict[str, Any]]):
         return result
 
     def _run(**kwargs):
-        kwargs["store_id"] = store_id
+        if has_store:
+            kwargs["store_id"] = store_id
         try:
             result = t.invoke(kwargs)
         except Exception as e:
-            # 도구 하나의 예상 밖 예외(의존성 누락·외부 API 죽음 등)가 턴 전체를 죽이면
-            # 사장님은 "앗! 문제가 생겼어요"만 받는다. 문자열로 돌려주면 모델이 이 도구만
-            # 포기하고 다른 도구나 사과로 대화를 이어갈 수 있다. (각 도구의 자체 except가
-            # 1차 방어이고 여기는 전 도구 공통의 마지막 그물이다)
+            # 도구 하나의 예상 밖 예외(의존성 누락·외부 API 죽음 등)가 턴 전체를 죽이지
+            # 않도록 문자열로 돌려준다. (각 도구의 자체 except가 1차 방어, 여기가 마지막 그물)
             logger.exception("도구 실행 실패: %s", t.name)
             return f"도구 '{t.name}' 실행 실패: {type(e).__name__}: {e}"
         return _collect(result)
@@ -502,7 +550,8 @@ def _bind_store(t, store_id: str, created_docs: list[dict[str, Any]]):
         # async 도구(pos_tools 등)는 sync 경로(t.invoke)가 NotImplementedError라
         # 코루틴 경로가 반드시 있어야 한다. generate_response가 ainvoke를 쓰므로
         # 실제 실행은 이쪽을 탄다 — sync 도구도 ainvoke가 executor로 처리해 준다.
-        kwargs["store_id"] = store_id
+        if has_store:
+            kwargs["store_id"] = store_id
         try:
             result = await t.ainvoke(kwargs)
         except Exception as e:
@@ -654,15 +703,18 @@ async def generate_response(
 ) -> dict[str, Any]:
     """멀티에이전트 실행: 서브에이전트 구성 → 메인 오케스트레이터가 위임 판단 → 최종 답변.
 
-    반환: {"text": 답변 텍스트, "documents": 이번 턴에 생성/수정된 문서 전문 리스트}
+    반환: {"text": 답변 텍스트, "documents": 이번 턴에 생성/수정된 문서 전문 리스트, "ok": bool}
     documents는 챗봇 화면이 말풍선 아래에 카드로 그대로 렌더링한다.
+    ok=False면 이번 턴이 실제 AI 답변을 만들지 못한 것(키 없음·전문가 없음·예외) —
+    호출부(/chat)가 이걸 보고 차감한 챗봇 쿼터를 되돌린다. 여기서 예외를 전부 삼켜
+    정상 dict로 돌려주므로, ok 없이는 호출부의 환불(except)에 영영 도달하지 못한다.
     """
     from datetime import date
 
     from langchain.agents import create_agent
 
     if not GEMINI_API_KEY:
-        return {"text": "죄송합니다. 챗봇의 핵심 API 키(GEMINI_API_KEY)가 설정되어 있지 않아 대화가 불가능합니다. 시스템 관리자에게 문의해 주세요.", "documents": []}
+        return {"text": "죄송합니다. 챗봇의 핵심 API 키(GEMINI_API_KEY)가 설정되어 있지 않아 대화가 불가능합니다. 시스템 관리자에게 문의해 주세요.", "documents": [], "ok": False}
 
     # created_docs: 이번 요청에서 문서 도구가 만든/수정한 문서 전문이 여기 모인다
     created_docs: list[dict[str, Any]] = []
@@ -716,9 +768,11 @@ async def generate_response(
         answer = await _run_turn(GEMINI_MODEL)
 
         if answer is None:
-            return {"text": "지금은 연결된 기능이 없어 일반 대화만 가능해요. 무엇이 궁금하신가요?", "documents": []}
+            return {"text": "지금은 연결된 기능이 없어 일반 대화만 가능해요. 무엇이 궁금하신가요?",
+                    "documents": [], "ok": False}
+        # 모델이 빈 답을 준 경우(answer == "")도 실패로 본다 — 사장님은 실질 답변을 못 받았다
         return {"text": answer or "죄송해요, 답변을 만들지 못했어요. 조금 다르게 질문해 주시겠어요?",
-                "documents": created_docs}
+                "documents": created_docs, "ok": bool(answer)}
     except Exception as e:
         logger.exception("멀티에이전트 실행 실패")
         # 429 — 분당 제한(잠시 뒤 풀림)과 일일 할당량 소진(내일까지 못 씀)은 안내가 달라야 한다
@@ -726,15 +780,15 @@ async def generate_response(
             if _is_rate_limit(e):
                 return {"text": ("질문이 잠깐 몰려서 AI 응답이 잠시 제한됐어요. "
                                  "1분쯤 뒤에 다시 물어봐 주시면 정상적으로 답변드릴 수 있어요."),
-                        "documents": created_docs}
+                        "documents": created_docs, "ok": False}
             return {"text": ("오늘 사용할 수 있는 AI 응답 무료 사용량을 모두 써서 지금은 답변을 만들 수 없어요. "
                              "내일 다시 시도해 주시거나, 관리자에게 API 사용량 확인을 요청해 주세요."),
-                    "documents": created_docs}
+                    "documents": created_docs, "ok": False}
         # DB 연결 실패는 원인을 알려줘야 사용자가 조치할 수 있다 (공유 DB 호스트 꺼짐 등)
         if "OperationalError" in type(e).__name__ or "connection" in str(e).lower():
             return {"text": ("지금 매장 데이터베이스에 연결할 수 없어서 데이터 조회를 못 하고 있어요. "
                              "DB 서버가 켜져 있는지 확인해 주세요. (일반 대화는 계속 가능해요)"),
-                    "documents": created_docs}
+                    "documents": created_docs, "ok": False}
         # 실패 전에 이미 만들어진 문서가 있으면 함께 보여준다 (문서는 DB에 저장된 상태)
         return {"text": "앗! 답변을 준비하다가 문제가 생겼어요. 잠시 후 다시 물어봐 주세요.",
-                "documents": created_docs}
+                "documents": created_docs, "ok": False}
