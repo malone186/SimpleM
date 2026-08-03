@@ -510,29 +510,114 @@ def get_cafe_analysis_api(
     return result
 
 
+class CafeLinkRequest(BaseModel):
+    place_name: str = Field(..., description="'내 카페'로 지정할 네이버 장소 상호")
+    place_address: str = Field("", description="그 장소의 주소 (동명 카페 구분용)")
+
+
+def _get_cafe_link(store_id: str) -> Optional[dict]:
+    """사장님이 지정한 '내 카페' 장소(이름+주소)를 읽는다. 없으면 None."""
+    from app.models.ai import CafeReviewLink
+    from app.services.ai.document_service import _session
+
+    with _session() as db:
+        row = db.get(CafeReviewLink, store_id)
+        if row:
+            return {"place_name": row.place_name, "place_address": row.place_address or ""}
+    return None
+
+
+@router.get("/my-cafe/candidates")
+def get_my_cafe_candidates_api(
+    query: str = "",
+    current_user: User = Depends(get_current_user),
+):
+    """'내 카페' 지정용 후보 — 상호로 네이버 지역검색을 쳐서 카페 목록을 돌려준다.
+
+    query 생략 시 등록된 매장 상호로 검색한다. 사장님은 이 목록에서 주소를 보고
+    자기 가게를 골라 /my-cafe/link로 지정한다.
+    """
+    q = (query or current_user.store_name or current_user.name or "").strip()
+    if not q:
+        raise HTTPException(409, "검색할 매장 이름이 없습니다. 설정에서 매장 정보를 입력해 주세요.")
+    try:
+        cafes = nearby_cafe_service.search_cafe_candidates(
+            q, lat=current_user.store_lat, lon=current_user.store_lon)
+    except nearby_cafe_service.NearbyCafeError as e:
+        raise HTTPException(503, str(e))
+    return {"query": q, "candidates": cafes}
+
+
+@router.post("/my-cafe/link")
+def link_my_cafe_api(
+    body: CafeLinkRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """후보 중 '이게 내 가게'를 지정해 저장한다 (매장당 한 곳, 재지정은 덮어쓰기).
+
+    지정하면 '내 카페 리뷰'가 이 이름+주소로만 후기를 찾아 이름 충돌(남의 카페 후기)을 막는다.
+    """
+    from app.models.ai import CafeReviewLink
+    from app.services.ai.document_service import _session
+
+    name = (body.place_name or "").strip()
+    if not name:
+        raise HTTPException(400, "place_name이 비어 있습니다.")
+    address = (body.place_address or "").strip() or None
+    with _session() as db:
+        row = db.get(CafeReviewLink, current_user.email)
+        if row is None:
+            row = CafeReviewLink(store_id=current_user.email)
+            db.add(row)
+        row.place_name = name
+        row.place_address = address
+        db.commit()
+    return {"linked": True, "place_name": name, "place_address": address or ""}
+
+
+@router.delete("/my-cafe/link")
+def unlink_my_cafe_api(
+    current_user: User = Depends(get_current_user),
+):
+    """내 카페 지정을 해제한다 (다시 후보에서 고를 수 있게)."""
+    from app.models.ai import CafeReviewLink
+    from app.services.ai.document_service import _session
+
+    with _session() as db:
+        row = db.get(CafeReviewLink, current_user.email)
+        if row:
+            db.delete(row)
+            db.commit()
+    return {"linked": False}
+
+
 @router.get("/my-cafe/analysis")
 def get_my_cafe_analysis_api(
     current_user: User = Depends(get_current_user),
 ):
-    """내 카페(로그인 매장)의 네이버 블로그 후기 수집 + AI 분석 — 지도 화면 '내 카페 리뷰' 카드.
+    """지정한 '내 카페'의 네이버 블로그 후기 수집 + AI 분석 — 지도 화면 '내 카페 리뷰' 카드.
 
-    경쟁 카페 분석과 달리 후기가 0건이어도 404를 던지지 않고 그대로 돌려준다.
-    사장님이 '아직 내 카페 후기가 없다'는 사실 자체를 화면에서 확인할 수 있어야 하기 때문이다.
+    사장님이 아직 자기 가게를 지정하지 않았으면(linked=false) 후기를 찾지 않고 그대로 알린다 —
+    프론트가 '내 카페 연결' 안내를 띄운다. 상호만으로 검색하면 이름이 같은 남의 카페 후기가
+    내 것처럼 나올 수 있어, 반드시 지정된 장소(이름+주소)로만 조회한다.
+    후기가 0건이어도 404를 던지지 않고 그대로 돌려준다.
     """
-    name = (current_user.store_name or current_user.name or "").strip()
-    if not name:
-        raise HTTPException(
-            409, "매장 이름이 등록되어 있지 않습니다. 설정에서 매장 정보를 입력해 주세요.")
-    # 지역명은 동명 카페 혼동을 줄이는 힌트일 뿐 — 매장 위치가 없어도 이름만으로 검색한다.
-    region = ""
-    if current_user.store_lat is not None and current_user.store_lon is not None:
+    link = _get_cafe_link(current_user.email)
+    if not link:
+        return {"linked": False, "review_count": 0, "reviews": [], "analysis": None}
+
+    name = link["place_name"]
+    address = link["place_address"] or ""
+    # 지역명은 동명 카페 혼동을 더 줄이는 힌트 — 매장 위치가 있으면 붙인다.
+    region = address
+    if not region and current_user.store_lat is not None and current_user.store_lon is not None:
         try:
             region = nearby_cafe_service._region_names(
                 current_user.store_lat, current_user.store_lon).get("full", "")
         except Exception:
             region = ""
-    return nearby_cafe_service.analyze_cafe(
-        name, address=current_user.store_address or "", region=region)
+    result = nearby_cafe_service.analyze_cafe(name, address=address, region=region)
+    return {"linked": True, "place_name": name, "place_address": address, **result}
 
 
 @router.get("/nearby-events")

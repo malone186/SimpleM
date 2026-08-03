@@ -250,6 +250,52 @@ def find_nearby_cafes(lat: float, lon: float, radius_m: int = 1000, limit: int =
     return result
 
 
+def search_cafe_candidates(query: str, lat: Optional[float] = None, lon: Optional[float] = None,
+                           limit: int = 8) -> list[dict[str, Any]]:
+    """상호로 네이버 지역검색을 쳐서 '내 카페' 후보를 돌려준다 (사장님이 자기 가게를 고르는 용도).
+
+    반환: [{name, address, category, telephone, lat, lon, distance_m|None}] — 매장 위치가 있으면
+    가까운 순(내 가게가 대개 가장 가깝다). 이름이 같은 카페가 여럿이어도 주소로 구분해 고를 수 있다.
+    """
+    if not _naver_headers():
+        raise NearbyCafeError(
+            "네이버 검색 API 키가 없어 카페를 검색할 수 없습니다 "
+            "(backend/.env의 NAVER_CLIENT_ID/NAVER_CLIENT_SECRET 확인)"
+        )
+    q = (query or "").strip()
+    if not q:
+        return []
+
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for kw in (q, f"{q} 카페"):
+        for item in _search_local(kw, display=5, sort="random"):
+            category = _strip_tags(item.get("category", ""))
+            if not any(hint in category for hint in _CAFE_CATEGORY_HINTS):
+                continue
+            name = _strip_tags(item.get("title", ""))
+            address = item.get("roadAddress") or item.get("address") or ""
+            key = re.sub(r"\s+", "", f"{name}|{address}").lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                c_lon, c_lat = int(item["mapx"]) / 1e7, int(item["mapy"]) / 1e7
+            except (KeyError, ValueError, TypeError):
+                c_lat = c_lon = None
+            dist = None
+            if lat is not None and lon is not None and c_lat and c_lon:
+                dist = round(_haversine_m(lat, lon, c_lat, c_lon))
+            out.append({
+                "name": name, "address": address, "category": category,
+                "telephone": item.get("telephone") or "",
+                "lat": c_lat, "lon": c_lon, "distance_m": dist,
+            })
+
+    out.sort(key=lambda c: (c["distance_m"] is None, c["distance_m"] or 0))
+    return out[:limit]
+
+
 # ---------------------------------------------------------------------------
 # 2) Gemini 분석 (리뷰 수집 → 구조화)
 # ---------------------------------------------------------------------------

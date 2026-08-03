@@ -29,9 +29,12 @@ import StoreLocationMap from '../../components/dashboard/StoreLocationMap';
 import StoreLocationPicker from '../../components/dashboard/StoreLocationPicker';
 import {
   getCafeAnalysis,
+  getMyCafeCandidates,
   getMyCafeReviews,
   getNeighborhoodInsight,
+  linkMyCafe,
   type CafeAnalysisResult,
+  type CafeCandidate,
   type NearbyCafe,
   type NeighborhoodResult,
 } from '../../lib/api/nearbyCafes';
@@ -80,6 +83,13 @@ export default function StoreMapScreen() {
   const [loadingMyCafe, setLoadingMyCafe] = useState(false);
   const [myCafeError, setMyCafeError] = useState('');
   const [myReviewsOpen, setMyReviewsOpen] = useState(false);
+
+  // 내 카페 지정(연결) — 후보 목록에서 '이게 내 가게'를 직접 고른다 (이름 충돌 방지)
+  const [cafePickerOpen, setCafePickerOpen] = useState(false);
+  const [candidates, setCandidates] = useState<CafeCandidate[]>([]);
+  const [loadingCandidates, setLoadingCandidates] = useState(false);
+  const [candidatesError, setCandidatesError] = useState('');
+  const [linking, setLinking] = useState(false);
 
   // 첫 화면은 '요약 + 이번 주 할 일'까지만 — 나머지 분석과 카페 목록은 눌러서 펼친다.
   // (항목을 전부 펼쳐 두면 불릿이 스무 개 넘게 쌓여 무엇부터 볼지 알 수 없다.)
@@ -171,6 +181,43 @@ export default function StoreMapScreen() {
   useEffect(() => {
     loadMyCafe();
   }, [loadMyCafe]);
+
+  // 내 카페 후보 목록 열기 (상호로 네이버 지역검색 → 사장님이 주소 보고 자기 가게 선택)
+  const openCafePicker = useCallback(async () => {
+    if (!token) return;
+    setCafePickerOpen(true);
+    setCandidatesError('');
+    setLoadingCandidates(true);
+    try {
+      const res = await getMyCafeCandidates(token);
+      setCandidates(res.candidates);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setCandidatesError(msg.replace(/^\d+\s·\s/, ''));
+    } finally {
+      setLoadingCandidates(false);
+    }
+  }, [token]);
+
+  // 후보 하나를 '내 가게'로 지정 → 저장 후 그 장소로 후기 다시 로드
+  const chooseCafe = useCallback(
+    async (c: CafeCandidate) => {
+      if (!token || linking) return;
+      setLinking(true);
+      try {
+        await linkMyCafe(token, c.name, c.address);
+        setCafePickerOpen(false);
+        setMyReviewsOpen(false);
+        await loadMyCafe();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setCandidatesError(msg.replace(/^\d+\s·\s/, ''));
+      } finally {
+        setLinking(false);
+      }
+    },
+    [token, linking, loadMyCafe],
+  );
 
   // 지도 마커용 변환 — 지도는 '행사 한 건 = 핀 하나'로 날짜 문자열만 보여 주면 된다.
   // (좌표를 못 구한 행사는 핀을 찍을 수 없으니 목록에만 남긴다.)
@@ -275,24 +322,24 @@ export default function StoreMapScreen() {
 
   return (
     <View style={styles.root}>
-      {/* [한글 주석: 지도 상단 고정(Fixed) — 스크롤 시에도 지도는 고정되고 하단 UI만 독립 스크롤됨]
+      {/* 지도와 본문이 하나로 스크롤된다 — 지도를 스크롤뷰 밖에 고정하면 아래 내용을 볼 때
+          지도만 덩그러니 남아 어색하다. 지도를 스크롤뷰 첫 요소로 넣어 함께 위로 밀려 올라가게 한다.
           핀 색: 브라운=내 매장(고정), 초록=주변 카페, 오렌지=인근 행사 */}
-      <View style={styles.mapBox}>
-        <StoreLocationMap
-          lat={store.lat}
-          lon={store.lon}
-          regionName={nearby?.region ?? store.region ?? ''}
-          shopLabel={user?.name ? `내 매장 (${user.name})` : '내 매장'}
-          nearbyCafes={nearby?.cafes ?? []}
-          nearbyEvents={mapEvents}
-          onCafePress={openCafe}
-          containerId="standalone-store-map"
-          radius={radius}
-        />
-      </View>
-
-      {/* 하단 상권 분석 및 주변 카페 목록 정보 UI만 독립적으로 스크롤 */}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 28 }} showsVerticalScrollIndicator={false}>
+        <View style={styles.mapBox}>
+          <StoreLocationMap
+            lat={store.lat}
+            lon={store.lon}
+            regionName={nearby?.region ?? store.region ?? ''}
+            shopLabel={user?.name ? `내 매장 (${user.name})` : '내 매장'}
+            nearbyCafes={nearby?.cafes ?? []}
+            nearbyEvents={mapEvents}
+            onCafePress={openCafe}
+            containerId="standalone-store-map"
+            radius={radius}
+          />
+        </View>
+
         <View style={styles.body}>
           {/* 등록된 매장 위치 + 변경 버튼 */}
           <View style={styles.storeRow}>
@@ -308,13 +355,13 @@ export default function StoreMapScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* 내 카페 리뷰 — 내 가게가 손님들에게 어떻게 보이는지 한눈에 (경쟁 카페와 같은 방식으로 분석) */}
+          {/* 내 카페 리뷰 — 내가 지정한 '내 가게'가 손님들에게 어떻게 보이는지 (경쟁 카페와 같은 분석) */}
           <View style={styles.myCafeCard}>
             <View style={styles.myCafeHead}>
               <Ionicons name="storefront-outline" size={16} color={colors.pointOrange} />
               <Text style={styles.myCafeTitle}>내 카페 리뷰</Text>
-              {!!myCafe?.name && (
-                <Text style={styles.myCafeName} numberOfLines={1}>{myCafe.name}</Text>
+              {myCafe?.linked && !!myCafe.place_name && (
+                <Text style={styles.myCafeName} numberOfLines={1}>{myCafe.place_name}</Text>
               )}
             </View>
 
@@ -330,11 +377,29 @@ export default function StoreMapScreen() {
                   <Text style={styles.retryText}>다시 시도</Text>
                 </TouchableOpacity>
               </>
-            ) : !myCafe || myCafe.review_count === 0 ? (
-              <Text style={styles.myCafeEmpty}>
-                아직 내 카페를 다룬 네이버 블로그 후기를 찾지 못했어요.{'\n'}
-                설정에서 상호가 정확한지 확인해 주세요. 후기가 쌓이면 여기서 자동으로 정리해 드려요.
-              </Text>
+            ) : !myCafe || myCafe.linked === false ? (
+              // 아직 '내 가게'를 지정하지 않음 — 이름 충돌로 남의 카페 후기가 섞이지 않게 직접 고르게 한다
+              <>
+                <Text style={styles.myCafeEmpty}>
+                  어느 가게가 사장님 카페인지 지정하면, 그 가게의 네이버 후기를 모아 보여드려요.
+                  상호가 같은 다른 카페 후기가 섞이지 않도록 직접 골라 주세요.
+                </Text>
+                <TouchableOpacity style={styles.linkCafeBtn} onPress={openCafePicker}>
+                  <Ionicons name="search" size={14} color={colors.white} />
+                  <Text style={styles.linkCafeBtnText}>내 카페 찾아 지정하기</Text>
+                </TouchableOpacity>
+              </>
+            ) : myCafe.review_count === 0 ? (
+              <>
+                <Text style={styles.myCafeEmpty}>
+                  ‘{myCafe.place_name}’을(를) 다룬 네이버 블로그 후기를 아직 못 찾았어요.
+                  후기가 쌓이면 여기서 자동으로 정리해 드려요.
+                </Text>
+                <TouchableOpacity style={styles.changeCafeBtn} onPress={openCafePicker}>
+                  <Ionicons name="swap-horizontal" size={13} color={colors.mochaBrown} />
+                  <Text style={styles.changeCafeText}>다른 가게로 변경</Text>
+                </TouchableOpacity>
+              </>
             ) : (
               <>
                 {myCafe.analysis ? (
@@ -383,6 +448,11 @@ export default function StoreMapScreen() {
                       ))}
                   </>
                 )}
+
+                <TouchableOpacity style={styles.changeCafeBtn} onPress={openCafePicker}>
+                  <Ionicons name="swap-horizontal" size={13} color={colors.mochaBrown} />
+                  <Text style={styles.changeCafeText}>내 카페가 아니에요 · 변경</Text>
+                </TouchableOpacity>
               </>
             )}
           </View>
@@ -736,6 +806,60 @@ export default function StoreMapScreen() {
         </View>
       </Modal>
 
+      {/* 내 카페 지정 — 상호로 검색한 후보 중 사장님이 주소를 보고 자기 가게를 고른다 */}
+      <Modal visible={cafePickerOpen} animationType="slide" transparent onRequestClose={() => setCafePickerOpen(false)}>
+        <View style={styles.modalRoot}>
+          <Pressable style={styles.backdrop} onPress={() => setCafePickerOpen(false)} />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHead}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sheetTitle}>내 카페 지정</Text>
+                <Text style={styles.sheetMeta}>목록에서 사장님 가게를 골라 주세요 (주소로 구분)</Text>
+              </View>
+              <TouchableOpacity onPress={() => setCafePickerOpen(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Ionicons name="close" size={22} color={colors.espressoBrown} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
+              {loadingCandidates ? (
+                <View style={styles.inlineLoading}>
+                  <ActivityIndicator size="small" color={colors.mochaBrown} />
+                  <Text style={styles.inlineLoadingText}>네이버에서 후보 카페를 찾는 중...</Text>
+                </View>
+              ) : candidatesError ? (
+                <>
+                  <Text style={styles.errorText}>{candidatesError}</Text>
+                  <TouchableOpacity style={styles.retryBtn} onPress={openCafePicker}>
+                    <Text style={styles.retryText}>다시 시도</Text>
+                  </TouchableOpacity>
+                </>
+              ) : candidates.length === 0 ? (
+                <Text style={styles.myCafeEmpty}>
+                  검색된 카페가 없어요. 매장 상호가 네이버 지도에 등록돼 있는지 확인해 주세요.
+                </Text>
+              ) : (
+                candidates.map((c, i) => (
+                  <TouchableOpacity
+                    key={`${c.name}-${i}`}
+                    style={[styles.candidateItem, linking && { opacity: 0.5 }]}
+                    onPress={() => chooseCafe(c)}
+                    disabled={linking}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.candidateName} numberOfLines={1}>{c.name}</Text>
+                      <Text style={styles.candidateAddr} numberOfLines={1}>{c.address || '주소 정보 없음'}</Text>
+                    </View>
+                    {c.distance_m != null && <Text style={styles.candidateDist}>{c.distance_m}m</Text>}
+                    <Ionicons name="chevron-forward" size={16} color={colors.mochaBrown} />
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       <StoreLocationPicker
         visible={pickerOpen}
         initial={{ lat: store.lat, lon: store.lon, address: store.region }}
@@ -941,6 +1065,26 @@ const styles = StyleSheet.create({
   myCafeTitle: { ...typography.L3, color: colors.espressoBrown },
   myCafeName: { flex: 1, ...typography.L5, color: colors.mochaBrown, textAlign: 'right' },
   myCafeEmpty: { ...typography.L5, color: colors.mochaBrown, lineHeight: 18, marginTop: 2 },
+  // '내 카페 지정' CTA + 변경 링크
+  linkCafeBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: colors.pointOrange, borderRadius: 11, paddingVertical: 11, marginTop: 8,
+  },
+  linkCafeBtnText: { color: colors.white, fontSize: 13.5, fontWeight: '800' },
+  changeCafeBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4,
+    paddingVertical: 8, marginTop: 4,
+  },
+  changeCafeText: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700', textDecorationLine: 'underline' },
+  // 후보 선택 목록
+  candidateItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: colors.white, borderWidth: 1, borderColor: colors.mutedSand,
+    borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12, marginBottom: 8,
+  },
+  candidateName: { ...typography.L4, color: colors.espressoBrown, fontWeight: '800' },
+  candidateAddr: { ...typography.L5, color: colors.mochaBrown, marginTop: 3 },
+  candidateDist: { ...typography.L5, color: colors.pointOrange, fontWeight: '800' },
 
   // 이번 주 할 일 — 번호를 붙여 '해야 할 목록'으로 읽히게 한다
   actionBox: {

@@ -293,6 +293,25 @@ class SettlementSetting(Base):
     )
 
 
+class CafeReviewLink(Base):
+    """사장님이 '이게 내 카페'라고 지정한 네이버 장소 (매장당 한 곳).
+
+    '내 카페 리뷰'는 매장 상호로 네이버 블로그를 검색하는데, 상호만으로는 이름이 같은
+    다른 카페의 후기를 내 것처럼 가져올 위험이 있다. 사장님이 후보 목록에서 자기 가게를
+    직접 골라 여기 저장해 두면, 그 이름+주소로만 후기를 찾아 오매칭을 막는다.
+    지정 전에는 '내 카페 리뷰'가 후기를 보여주지 않고 '내 카페 연결' 안내만 띄운다.
+    """
+
+    __tablename__ = "cafe_review_links"
+
+    store_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    place_name: Mapped[str] = mapped_column(String(150))
+    place_address: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class StoreProfile(Base):
     """매장 기본 정보 — 업종·영업 시작/종료 시각
 
