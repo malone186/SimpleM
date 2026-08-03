@@ -124,6 +124,15 @@ class Sale(Base):
     store_id = Column(String(100), nullable=False)                    # 매장 식별 아이디
     sold_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+    # [단골 관리 — 백엔드 B 추가] 누가 샀는지. 재방문 주기 계산의 근거가 된다.
+    # 비회원 판매는 NULL이므로 기존 매출 집계에는 영향이 없다.
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"),
+                         nullable=True, index=True)
+    # CASH / CARD / CREDIT(선불잔액) / UNKNOWN(과거 데이터)
+    # CREDIT은 그날 새로 들어온 돈이 아니라 예전 선수금이 매출로 바뀐 것이라
+    # 실제 입금액을 볼 때 반드시 분리해야 한다.
+    payment_method = Column(String(10), nullable=True)
+
     menu = relationship("Menu", back_populates="sales")
 
 

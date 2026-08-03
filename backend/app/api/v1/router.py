@@ -25,6 +25,10 @@ from app.api.v1.inquiry import router as inquiry_router
 api_router.include_router(inquiry_router)
 api_router.include_router(inventory_router)
 
+# M (membership) — 단골 회원 · 선불 충전
+from app.api.v1.membership import router as membership_router
+api_router.include_router(membership_router)
+
 # O (operation)
 api_router.include_router(operation_router)
 
