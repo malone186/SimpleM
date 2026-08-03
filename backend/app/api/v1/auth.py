@@ -37,8 +37,12 @@ def signup(user_in: UserCreate, db: Session = Depends(get_db)):
     """
     새로운 매장 점주님의 회원가입 신청을 처리합니다.
     """
-    # [검사 1] 이미 동일한 이메일로 가입한 사람이 있는지 DB에서 검색해 봅니다.
-    existing_user = db.query(User).filter(User.email == user_in.email).first()
+    # 이메일은 소문자·공백제거로 정규화해 저장한다 — 대소문자만 다른 중복 가입을 막고,
+    # 로그인/재설정(대소문자 무시 매칭)과 저장값이 어긋나지 않게 한다.
+    norm_email = user_in.email.strip().lower()
+
+    # [검사 1] 이미 동일한 이메일로 가입한 사람이 있는지 DB에서 검색해 봅니다 (대소문자 무시).
+    existing_user = db.query(User).filter(sa_func.lower(User.email) == norm_email).first()
     if existing_user:
         # 이미 있다면 "이메일 중복" 에러(HTTP 400 Bad Request)를 던져 중단합니다.
         raise HTTPException(
@@ -58,7 +62,7 @@ def signup(user_in: UserCreate, db: Session = Depends(get_db)):
 
     # [DB 저장] 새로운 User 객체를 조립해서 데이터베이스에 밀어 넣습니다.
     new_user = User(
-        email=user_in.email,
+        email=norm_email,
         hashed_password=hashed_pwd,
         name=user_in.name,
         store_name=user_in.store_name,
@@ -89,8 +93,10 @@ def login(user_in: UserLogin, db: Session = Depends(get_db)):
     이메일과 비밀번호를 검증하여 로그인 처리를 수행하고 JWT 토큰을 발행합니다.
     """
     # [검사 1] 입력한 이메일의 가입자가 존재하는지 조회합니다.
-    user = db.query(User).filter(User.email == user_in.email).first()
-    
+    # 이메일은 대소문자·공백을 무시해 찾는다 — 재설정·아이디찾기와 같은 규칙. 예전엔 로그인만
+    # 정확 일치라, 재설정(느슨한 매칭)으로 비번을 바꿨는데도 로그인은 안 되던 불일치가 있었다.
+    user = db.query(User).filter(sa_func.lower(User.email) == user_in.email.strip().lower()).first()
+
     # 가입자가 아예 없거나, 혹은 가입자는 있는데 비밀번호 암호가 틀린 경우
     if not user or not verify_password(user_in.password, user.hashed_password):
         # 보안을 위해 이메일이 틀렸는지 비밀번호가 틀렸는지 꼬집어 말하지 않고 둘러대서 공격자를 골탕 먹입니다.

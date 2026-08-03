@@ -56,21 +56,28 @@ const webSupportsTextSecurity =
   CSS.supports('-webkit-text-security', 'disc');
 
 // hidden=false 면 눈 아이콘으로 "보기"를 켠 상태 — 가림 처리를 모두 풀어 평문으로 보여준다.
-const passwordFieldProps = (hidden: boolean): Partial<React.ComponentProps<typeof TextInput>> =>
-  Platform.OS === 'web'
-    ? webSupportsTextSecurity
-      ? {
-          secureTextEntry: false,
-          autoComplete: 'off',
-          style: { WebkitTextSecurity: hidden ? 'disc' : 'none' } as any,
-        }
-      : { secureTextEntry: hidden, autoComplete: 'off' }
-    : {
-        secureTextEntry: hidden,
-        autoComplete: 'off',
-        importantForAutofill: 'no',
-        textContentType: 'oneTimeCode',
-      };
+//
+// autoCapitalize:'none' / autoCorrect:false 는 반드시 있어야 한다 — '보기'를 켜면 secureTextEntry가
+// 꺼져 일반 텍스트 입력이 되는데, 이게 없으면 키보드가 비밀번호 첫 글자를 자동 대문자로 바꾼다.
+// 그러면 재설정 때(보기 켜고 입력) 대문자로 저장되고 로그인 때(가림, 소문자) 달라져 "비밀번호 불일치"가 난다.
+const passwordFieldProps = (hidden: boolean): Partial<React.ComponentProps<typeof TextInput>> => {
+  const common = {
+    autoCapitalize: 'none' as const,
+    autoCorrect: false,
+    autoComplete: 'off' as const,
+  };
+  if (Platform.OS === 'web') {
+    return webSupportsTextSecurity
+      ? { ...common, secureTextEntry: false, style: { WebkitTextSecurity: hidden ? 'disc' : 'none' } as any }
+      : { ...common, secureTextEntry: hidden };
+  }
+  return {
+    ...common,
+    secureTextEntry: hidden,
+    importantForAutofill: 'no',
+    textContentType: 'oneTimeCode',
+  };
+};
 
 // 상권 유형 옵션 (이모지 전면 제거 및 텍스트 정돈)
 const BIZ_TYPES = ['오피스 상권', '주택가 상권', '대학가 상권', '복합 상권'];
