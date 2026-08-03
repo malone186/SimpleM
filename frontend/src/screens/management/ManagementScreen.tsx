@@ -154,7 +154,15 @@ export default function ManagementScreen() {
         <View style={styles.headerLeft}>
           <FadeInUp key={`title-${runId}`}>
             <Text style={styles.bigTitle}>{t('tabManagement')}</Text>
-            <Text style={styles.sub}>{t('managementHubSubtitle')}</Text>
+            {/* [한글 주석] 지금 누구로 로그인했는지 화면에서 보여야 한다.
+                직원 모드인 줄 모르고 "메뉴가 안 보인다"고 헤매는 걸 막는다. */}
+            {user?.isStaff ? (
+              <Text style={styles.staffBadge}>
+                직원 모드 · {user.name}님 — 단골 결제만 사용할 수 있습니다
+              </Text>
+            ) : (
+              <Text style={styles.sub}>{t('managementHubSubtitle')}</Text>
+            )}
           </FadeInUp>
         </View>
         {/* 우측 세로열 — 설정 버튼(오른쪽 위) + 마스코트(그 아래) */}
@@ -287,6 +295,11 @@ const styles = StyleSheet.create({
   headerRight: { alignItems: 'flex-end', gap: 6 },
   bigTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
   sub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
+  // 직원 모드임을 헤더에서 바로 알 수 있게 — 색을 달리해 눈에 띄게 둔다
+  staffBadge: {
+    fontSize: 11, color: '#F0C9A8', marginTop: 5, fontWeight: '600',
+    letterSpacing: -0.2, lineHeight: 16,
+  },
   gearBtn: {
     flexDirection: 'row',
     alignItems: 'center',

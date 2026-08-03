@@ -185,7 +185,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (raw) {
           const saved = JSON.parse(raw) as User & { token?: string };
           if (saved.token && !isTokenExpired(saved.token)) {
-            setUser({ email: saved.email, name: saved.name, photo: saved.photo });
+            // [한글 주석] isStaff를 반드시 함께 복원한다.
+            // 빠뜨리면 직원으로 로그인해도 새로고침 한 번에 사장님 화면으로 돌아가
+            // 매출·정산 카드가 다시 보인다(서버는 막지만 화면이 어긋난다).
+            setUser({
+              email: saved.email, name: saved.name, photo: saved.photo,
+              isStaff: saved.isStaff,
+            });
             setToken(saved.token);
           } else {
             // 토큰이 없거나 만료됨 — 로그인된 척하다가 API마다 401 나는 것보다
