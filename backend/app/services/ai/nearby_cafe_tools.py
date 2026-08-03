@@ -54,12 +54,14 @@ def list_nearby_cafes(store_id: str, radius_m: int = 1000, limit: int = 15) -> s
 
 @tool
 def analyze_nearby_cafe(cafe_name: str, address: str = "", category: str = "") -> str:
-    """경쟁 카페 한 곳의 네이버 블로그 후기를 모아 강점·약점·대표 메뉴·가격대·주 고객층·
-    분위기·여론(긍/부정)과 우리 매장의 대응 전략을 분석한다.
-    "○○카페 어때?", "그 집 왜 잘돼?" 같은 질문에 쓴다. cafe_name은 정확한 상호로 넣는다."""
+    """경쟁 카페 한 곳의 후기를 여러 사이트(네이버 블로그·구글 지도 평점·다이닝코드 등)에서
+    모아 강점·약점·대표 메뉴·가격대·주 고객층·분위기·여론(긍/부정)과 우리 매장의
+    대응 전략을 분석한다.
+    "○○카페 어때?", "그 집 구글 평점 어때?", "그 집 왜 잘돼?" 같은 질문에 쓴다.
+    cafe_name은 정확한 상호로 넣는다."""
     result = nearby_cafe_service.analyze_cafe(cafe_name, address=address, category=category)
     if not result["review_count"]:
-        return f"'{cafe_name}'에 대한 네이버 블로그 후기를 찾지 못했습니다."
+        return f"'{cafe_name}'에 대한 후기를 네이버·구글 등에서 찾지 못했습니다."
     return json.dumps(result, ensure_ascii=False)
 
 
