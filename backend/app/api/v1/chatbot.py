@@ -510,6 +510,31 @@ def get_cafe_analysis_api(
     return result
 
 
+@router.get("/my-cafe/analysis")
+def get_my_cafe_analysis_api(
+    current_user: User = Depends(get_current_user),
+):
+    """내 카페(로그인 매장)의 네이버 블로그 후기 수집 + AI 분석 — 지도 화면 '내 카페 리뷰' 카드.
+
+    경쟁 카페 분석과 달리 후기가 0건이어도 404를 던지지 않고 그대로 돌려준다.
+    사장님이 '아직 내 카페 후기가 없다'는 사실 자체를 화면에서 확인할 수 있어야 하기 때문이다.
+    """
+    name = (current_user.store_name or current_user.name or "").strip()
+    if not name:
+        raise HTTPException(
+            409, "매장 이름이 등록되어 있지 않습니다. 설정에서 매장 정보를 입력해 주세요.")
+    # 지역명은 동명 카페 혼동을 줄이는 힌트일 뿐 — 매장 위치가 없어도 이름만으로 검색한다.
+    region = ""
+    if current_user.store_lat is not None and current_user.store_lon is not None:
+        try:
+            region = nearby_cafe_service._region_names(
+                current_user.store_lat, current_user.store_lon).get("full", "")
+        except Exception:
+            region = ""
+    return nearby_cafe_service.analyze_cafe(
+        name, address=current_user.store_address or "", region=region)
+
+
 @router.get("/nearby-events")
 def get_nearby_events_api(
     lat: Optional[float] = None,

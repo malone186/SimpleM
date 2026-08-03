@@ -84,6 +84,10 @@ export const getNeighborhoodInsight = (token: string, radiusM = 1000, limit = 20
     auth(token),
   );
 
+/** 내 카페(로그인 매장)의 네이버 후기 수집 + AI 분석. 후기가 0건이어도 200으로 돌려준다. */
+export const getMyCafeReviews = (token: string) =>
+  apiFetch<CafeAnalysisResult>('/api/v1/chatbot/my-cafe/analysis', auth(token));
+
 /** 경쟁 카페 한 곳의 네이버 후기 수집 + AI 분석 (지도 마커/카드를 눌렀을 때) */
 export const getCafeAnalysis = (token: string, cafe: NearbyCafe, region = '') => {
   const params = new URLSearchParams({

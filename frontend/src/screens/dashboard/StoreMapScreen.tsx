@@ -29,6 +29,7 @@ import StoreLocationMap from '../../components/dashboard/StoreLocationMap';
 import StoreLocationPicker from '../../components/dashboard/StoreLocationPicker';
 import {
   getCafeAnalysis,
+  getMyCafeReviews,
   getNeighborhoodInsight,
   type CafeAnalysisResult,
   type NearbyCafe,
@@ -73,6 +74,12 @@ export default function StoreMapScreen() {
   const [selected, setSelected] = useState<NearbyCafe | null>(null);
   const [analysis, setAnalysis] = useState<CafeAnalysisResult | null>(null);
   const [analysisError, setAnalysisError] = useState('');
+
+  // 내 카페 리뷰 — 사장님이 자기 가게 후기를 지도 화면에서 바로 확인
+  const [myCafe, setMyCafe] = useState<CafeAnalysisResult | null>(null);
+  const [loadingMyCafe, setLoadingMyCafe] = useState(false);
+  const [myCafeError, setMyCafeError] = useState('');
+  const [myReviewsOpen, setMyReviewsOpen] = useState(false);
 
   // 첫 화면은 '요약 + 이번 주 할 일'까지만 — 나머지 분석과 카페 목록은 눌러서 펼친다.
   // (항목을 전부 펼쳐 두면 불릿이 스무 개 넘게 쌓여 무엇부터 볼지 알 수 없다.)
@@ -145,6 +152,25 @@ export default function StoreMapScreen() {
   useEffect(() => {
     loadEvents();
   }, [loadEvents]);
+
+  // 2-c) 내 카페 리뷰 — 상호만 있으면 조회된다(매장 위치 등록과 무관). 한 번만 부른다.
+  const loadMyCafe = useCallback(async () => {
+    if (!token) return;
+    setLoadingMyCafe(true);
+    setMyCafeError('');
+    try {
+      setMyCafe(await getMyCafeReviews(token));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setMyCafeError(msg.replace(/^\d+\s·\s/, ''));
+    } finally {
+      setLoadingMyCafe(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    loadMyCafe();
+  }, [loadMyCafe]);
 
   // 지도 마커용 변환 — 지도는 '행사 한 건 = 핀 하나'로 날짜 문자열만 보여 주면 된다.
   // (좌표를 못 구한 행사는 핀을 찍을 수 없으니 목록에만 남긴다.)
@@ -280,6 +306,85 @@ export default function StoreMapScreen() {
               <Ionicons name="create-outline" size={14} color={colors.espressoBrown} />
               <Text style={styles.ghostBtnText}>위치 변경</Text>
             </TouchableOpacity>
+          </View>
+
+          {/* 내 카페 리뷰 — 내 가게가 손님들에게 어떻게 보이는지 한눈에 (경쟁 카페와 같은 방식으로 분석) */}
+          <View style={styles.myCafeCard}>
+            <View style={styles.myCafeHead}>
+              <Ionicons name="storefront-outline" size={16} color={colors.pointOrange} />
+              <Text style={styles.myCafeTitle}>내 카페 리뷰</Text>
+              {!!myCafe?.name && (
+                <Text style={styles.myCafeName} numberOfLines={1}>{myCafe.name}</Text>
+              )}
+            </View>
+
+            {loadingMyCafe ? (
+              <View style={styles.inlineLoading}>
+                <ActivityIndicator size="small" color={colors.mochaBrown} />
+                <Text style={styles.inlineLoadingText}>내 카페 후기를 모아 분석하는 중...</Text>
+              </View>
+            ) : myCafeError ? (
+              <>
+                <Text style={styles.myCafeEmpty}>{myCafeError}</Text>
+                <TouchableOpacity style={styles.retryBtn} onPress={loadMyCafe}>
+                  <Text style={styles.retryText}>다시 시도</Text>
+                </TouchableOpacity>
+              </>
+            ) : !myCafe || myCafe.review_count === 0 ? (
+              <Text style={styles.myCafeEmpty}>
+                아직 내 카페를 다룬 네이버 블로그 후기를 찾지 못했어요.{'\n'}
+                설정에서 상호가 정확한지 확인해 주세요. 후기가 쌓이면 여기서 자동으로 정리해 드려요.
+              </Text>
+            ) : (
+              <>
+                {myCafe.analysis ? (
+                  <>
+                    <View style={styles.tagRow}>
+                      <Tag label={`여론 ${myCafe.analysis.sentiment}`} />
+                      <Tag label={`가격 ${myCafe.analysis.price_level}`} />
+                      {!!myCafe.analysis.main_customers && <Tag label={myCafe.analysis.main_customers} />}
+                      {!!myCafe.analysis.atmosphere && <Tag label={myCafe.analysis.atmosphere} />}
+                    </View>
+                    <Text style={styles.sheetSummary}>{myCafe.analysis.summary}</Text>
+
+                    <TagBlock title="👍 손님들이 좋아하는 점" items={myCafe.analysis.strengths} tone="good" />
+                    <TagBlock title="👎 아쉬워하는 점" items={myCafe.analysis.weaknesses} tone="warn" />
+                    <TagBlock title="🍰 자주 언급된 메뉴" items={myCafe.analysis.signature_menus} />
+                  </>
+                ) : (
+                  <Text style={styles.sheetSummary}>
+                    후기는 모았지만 AI 요약을 만들지 못했어요. 아래 후기 원문을 참고해 주세요.
+                  </Text>
+                )}
+
+                {myCafe.reviews.length > 0 && (
+                  <>
+                    <TouchableOpacity style={styles.moreBtn} onPress={() => setMyReviewsOpen((v) => !v)}>
+                      <Text style={styles.moreBtnText}>
+                        {myReviewsOpen ? '후기 접기' : `내 카페 후기 ${myCafe.review_count}건 원문 보기`}
+                      </Text>
+                      <Ionicons
+                        name={myReviewsOpen ? 'chevron-up' : 'chevron-down'}
+                        size={14}
+                        color={colors.espressoBrown}
+                      />
+                    </TouchableOpacity>
+                    {myReviewsOpen &&
+                      myCafe.reviews.map((r) => (
+                        <TouchableOpacity
+                          key={r.link}
+                          style={styles.reviewItem}
+                          onPress={() => r.link && Linking.openURL(r.link)}
+                        >
+                          <Text style={styles.reviewTitle} numberOfLines={1}>{r.title}</Text>
+                          <Text style={styles.reviewSnippet} numberOfLines={2}>{r.snippet}</Text>
+                          <Text style={styles.reviewMeta}>{r.blogger} · {r.date}</Text>
+                        </TouchableOpacity>
+                      ))}
+                  </>
+                )}
+              </>
+            )}
           </View>
 
           {/* 반경 선택 */}
@@ -821,6 +926,21 @@ const styles = StyleSheet.create({
   },
   insightHeadline: { ...typography.L3, color: colors.espressoBrown, lineHeight: 21 },
   insightSummary: { ...typography.L5, color: colors.mochaBrown, lineHeight: 17, marginTop: 6 },
+
+  // 내 카페 리뷰 카드 — 경쟁 카페 시트와 같은 톤이되, 상단에 오렌지 포인트로 '내 것'임을 표시
+  myCafeCard: {
+    backgroundColor: colors.white,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(232, 131, 58, 0.28)',
+    gap: 4,
+    ...shadows.soft,
+  },
+  myCafeHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+  myCafeTitle: { ...typography.L3, color: colors.espressoBrown },
+  myCafeName: { flex: 1, ...typography.L5, color: colors.mochaBrown, textAlign: 'right' },
+  myCafeEmpty: { ...typography.L5, color: colors.mochaBrown, lineHeight: 18, marginTop: 2 },
 
   // 이번 주 할 일 — 번호를 붙여 '해야 할 목록'으로 읽히게 한다
   actionBox: {
