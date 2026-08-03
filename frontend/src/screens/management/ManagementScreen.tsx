@@ -94,6 +94,7 @@ export default function ManagementScreen() {
     { label: t('costAnalysisTitle'), en: 'COST', desc: t('costAnalysisSub'), color: '#E1DCD7', route: 'Cost' },
     { label: language === 'en' ? 'Marketing Studio' : '홍보 스튜디오', en: 'MARKETING', desc: language === 'en' ? 'AI promo copy & SNS banner creator' : 'AI 홍보 문구 · SNS 이미지 원스톱 생성', color: '#8A6F5A', route: 'Marketing' },
     { label: language === 'en' ? 'Bean Analysis' : '원두 분석', en: 'OPERATION', desc: language === 'en' ? 'Bean market price & Reviews' : '원두 최저가 시세 · 실리뷰 분석', color: '#463C34', route: 'BeanOperation' },
+    { label: language === 'en' ? 'Regulars & Prepaid' : '단골 · 선불 충전', en: 'MEMBERSHIP', desc: language === 'en' ? 'Prepaid balance · Win-back alerts' : '선불 잔액 관리 · 뜸해진 단골 알림', color: '#6B5B4E', route: 'Membership' },
   ];
 
   // 탭에 다시 들어올 때마다 카드 등장 애니메이션을 재생한다 (홈 화면과 같은 방식)

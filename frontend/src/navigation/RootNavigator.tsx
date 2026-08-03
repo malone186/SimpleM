@@ -47,6 +47,7 @@ const ADMIN_EMAILS = ['admin@simplem.com'];
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
 import BeanOperationScreen from '../screens/operation/BeanOperationScreen';
+import MembershipScreen from '../screens/membership/MembershipScreen';
 import StoreMapScreen from '../screens/dashboard/StoreMapScreen';
 
 export type RootStackParamList = {
@@ -65,6 +66,7 @@ export type RootStackParamList = {
   Operation: undefined;
   Staff: undefined;
   BeanOperation: undefined;
+  Membership: undefined;
   // section: 특정 설정 하위 화면으로 바로 진입 (예: 카드 정산 설정)
   Settings: { section?: 'account' | 'notification' | 'appearance' | 'inquiry' | 'legal' | 'settlement' } | undefined;
   StoreMap: undefined;
@@ -179,6 +181,7 @@ export default function RootNavigator() {
         <Stack.Screen name="Operation" component={OperationScreen} options={({ navigation }) => erpHeader('직원 · 스케줄', navigation)} />
         <Stack.Screen name="Staff" component={StaffScreen} options={({ navigation }) => erpHeader('직원 · 인건비', navigation)} />
         <Stack.Screen name="BeanOperation" component={BeanOperationScreen} options={({ navigation }) => erpHeader('운영 · 원두 실리뷰 분석', navigation)} />
+        <Stack.Screen name="Membership" component={MembershipScreen} options={({ navigation }) => erpHeader('단골 · 선불 충전', navigation)} />
 
         <Stack.Screen name="Settings" component={SettingsScreen} options={({ navigation }) => erpHeader('설정', navigation)} />
         <Stack.Screen name="StoreMap" component={StoreMapScreen} options={({ navigation }) => erpHeader('매장 위치', navigation)} />

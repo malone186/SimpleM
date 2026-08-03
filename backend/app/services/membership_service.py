@@ -268,20 +268,54 @@ def balance_url(customer: Customer) -> str:
     return f"{PUBLIC_BASE_URL}/b/{customer.access_token}"
 
 
+def sms_byte_length(text: str) -> int:
+    """문자 규격상의 바이트 수를 센다.
+
+    [한글 주석] UTF-8로 세면 안 된다. 국내 SMS는 EUC-KR 기준이라
+    한글이 3바이트가 아니라 2바이트다. UTF-8로 재면 실제보다 길게 나와,
+    단문으로 보낼 수 있는 문구를 장문으로 오판하게 된다.
+    """
+    try:
+        return len(text.encode("euc-kr"))
+    except UnicodeEncodeError:
+        # EUC-KR에 없는 문자(이모지 등)가 섞이면 어차피 장문이다
+        return len(text.encode("utf-8"))
+
+
+# 단문(SMS) 한도. 넘으면 장문(LMS)이 되어 나중에 API 전환 시 요금이 2~3배가 된다.
+SMS_MAX_BYTES = 90
+
+
 def build_sms_text(customer: Customer, tx: Optional[BalanceTransaction] = None,
                    store_name: Optional[str] = None) -> str:
     """사장님 폰 문자앱에 채워 넣을 문구.
 
-    [한글 주석] 짧게 쓴다. 90바이트를 넘으면 장문(LMS)이 되어
-    나중에 API로 전환할 때 요금이 2~3배가 된다.
+    [한글 주석] 한도(90바이트)를 넘으면 매장명을 먼저 줄이고,
+    그래도 넘으면 잔액 안내만 남긴다.
+    링크는 손님이 잔액을 확인하는 유일한 경로라 절대 자르지 않는다.
     """
-    shop = store_name or "브루노트"
+    shop = (store_name or "브루노트").strip()
     url = balance_url(customer)
+
     if tx and tx.tx_type == TX_CHARGE:
-        return f"[{shop}] {tx.amount:,}원 충전 완료. 잔액 {customer.balance:,}원\n{url}"
-    if tx and tx.tx_type == TX_USE:
-        return f"[{shop}] {abs(tx.amount):,}원 사용. 잔액 {customer.balance:,}원\n{url}"
-    return f"[{shop}] 잔액 {customer.balance:,}원 남아있습니다.\n{url}"
+        body = f"{tx.amount:,}원 충전. 잔액 {customer.balance:,}원"
+    elif tx and tx.tx_type == TX_USE:
+        body = f"{abs(tx.amount):,}원 사용. 잔액 {customer.balance:,}원"
+    else:
+        body = f"잔액 {customer.balance:,}원 남아있습니다"
+
+    text = f"[{shop}] {body}\n{url}"
+    if sms_byte_length(text) <= SMS_MAX_BYTES:
+        return text
+
+    # 1차 축약 — 긴 매장명이 원인인 경우가 대부분이다
+    short_shop = shop[:6]
+    text = f"[{short_shop}] {body}\n{url}"
+    if sms_byte_length(text) <= SMS_MAX_BYTES:
+        return text
+
+    # 2차 축약 — 거래 내용을 빼고 잔액만 남긴다
+    return f"[{short_shop}] 잔액 {customer.balance:,}원\n{url}"
 
 
 # --- 방문 지표 ---
