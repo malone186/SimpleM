@@ -1,22 +1,26 @@
-"""마감 리포트(규칙 5)·원두 시세 하락(규칙 6) 알림 테스트.
+"""마감 리포트(규칙 5)·원두 시세 하락(규칙 6) 알림 테스트 — sqlite 인메모리 DB.
 
 FCM은 실제로 쏘지 않는다 — push_service.send_to_store를 가로채 payload만 검증한다.
+
+DB는 테스트마다 새 인메모리 sqlite를 만들고 SessionLocal을 갈아 끼운다.
+(과거에는 os.environ.setdefault로 sqlite 파일을 지정했지만, 전체 스위트에서는
+다른 테스트가 .env를 먼저 로드해 무력화됐다 — 그 결과 공유 DB에 발송 이력이 남아
+같은 날 두 번째 실행부터 dedupe에 걸려 실패하는 테스트였다.)
 """
-import os
 from datetime import datetime, timedelta
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
-os.environ.setdefault("DATABASE_URL", "sqlite:///./_test_alerts.db")
-os.environ.setdefault("ALLOW_SQLITE_FALLBACK", "1")
-
-from app.core.database import Base, engine, SessionLocal  # noqa: E402
-import app.models  # noqa: E402,F401
-from app.models.inventory import Ingredient, Menu, Sale, Stock  # noqa: E402
-from app.models.roastery import RoasteryBean, Roastery  # noqa: E402
-from app.services.ai import bean_price_watch_service as W  # noqa: E402
-from app.services.ai import notification_service as N  # noqa: E402
-from app.services.ai import push_service  # noqa: E402
+import app.core.database as core_db
+import app.models  # noqa: F401 — 모든 모델을 Base.metadata에 등록
+from app.core.database import Base
+from app.models.inventory import Ingredient, Menu, Sale, Stock
+from app.models.roastery import RoasteryBean, Roastery
+from app.services.ai import bean_price_watch_service as W
+from app.services.ai import notification_service as N
+from app.services.ai import push_service
 
 STORE = "closing@test.com"
 STORE_EMPTY = "closing_empty@test.com"
@@ -24,7 +28,12 @@ STORE_EMPTY = "closing_empty@test.com"
 
 @pytest.fixture(autouse=True)
 def _setup(monkeypatch):
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     Base.metadata.create_all(bind=engine)
+    TestSession = sessionmaker(bind=engine, expire_on_commit=False)
+    # 서비스들은 호출 시점에 core_db.SessionLocal을 읽으므로(각자의 _session())
+    # 여기만 갈아 끼우면 내부에서 여는 세션까지 전부 이 인메모리 DB로 온다.
+    monkeypatch.setattr(core_db, "SessionLocal", TestSession)
     sent: list[dict] = []
 
     def fake_send(db, store_id, title, body, payload, urgent=False):
@@ -35,6 +44,7 @@ def _setup(monkeypatch):
     monkeypatch.setattr(push_service, "is_configured", lambda: True)
     W._cache.update({"day": None, "drops": []})  # 하루 캐시 초기화
     yield sent
+    engine.dispose()
 
 
 def _seed_sales(db, store_id: str):
@@ -51,7 +61,7 @@ def _seed_sales(db, store_id: str):
 
 def test_closing_report_sends_once(_setup):
     sent = _setup
-    db = SessionLocal()
+    db = core_db.SessionLocal()
     try:
         _seed_sales(db, STORE)
         settings = N.get_settings(db, STORE)
@@ -72,7 +82,7 @@ def test_closing_report_sends_once(_setup):
 
 def test_closing_report_reminds_on_empty_day(_setup):
     sent = _setup
-    db = SessionLocal()
+    db = core_db.SessionLocal()
     try:
         settings = N.get_settings(db, STORE_EMPTY)
         late = datetime.now(N.KST).replace(hour=23, minute=0)
@@ -84,7 +94,7 @@ def test_closing_report_reminds_on_empty_day(_setup):
 
 def test_bean_price_drop_alert(_setup, monkeypatch):
     sent = _setup
-    db = SessionLocal()
+    db = core_db.SessionLocal()
     try:
         r = Roastery(name="테스트로스터리")
         db.add(r); db.flush()
@@ -114,7 +124,7 @@ def test_bean_price_drop_alert(_setup, monkeypatch):
 
 def test_bean_price_silent_without_drops(_setup, monkeypatch):
     sent = _setup
-    db = SessionLocal()
+    db = core_db.SessionLocal()
     try:
         monkeypatch.setattr(W, "fetch_current_prices", lambda: {})
         W._cache.update({"day": None, "drops": []})
