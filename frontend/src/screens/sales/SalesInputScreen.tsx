@@ -23,9 +23,15 @@ import {
   type PosConnection,
 } from '../../lib/api/pos';
 import { confirmSalesImport, previewSalesImport, registerImportMenus, type ImportPreview } from '../../lib/api/sales';
+import { listStocks, type StockItem } from '../../lib/api/inventory';
 import { colors, typography } from '../../theme';
 
 const onlyDigits = (s: string) => s.replace(/[^0-9]/g, '');
+// 레시피 소요량은 소수(예: 우유 0.2L)라 소수점 하나까지 허용한다
+const onlyDecimal = (s: string) => s.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
+
+// 등록과 함께 연결할 레시피 한 줄 (수량은 입력 중이라 문자열로 들고 있다가 보낼 때 숫자로 변환)
+type RecipeDraft = { ingredient_id: number; name: string; unit: string; quantity: string };
 
 export default function SalesInputScreen() {
   const { token } = useAuth();
@@ -40,6 +46,10 @@ export default function SalesInputScreen() {
   // 버리기로 결정한 미등록 메뉴 이름들 — 미매칭은 말없이 버려지지 않는다.
   // 모든 미등록 메뉴가 '등록' 또는 '버리기'로 결정돼야 저장할 수 있다.
   const [discardedMenus, setDiscardedMenus] = useState<Set<string>>(new Set());
+  // 등록 시 레시피(재고 차감) 연결용 — 매장 재료 목록, 메뉴별 편집 중인 레시피, 펼친 메뉴
+  const [stocks, setStocks] = useState<StockItem[]>([]);
+  const [recipeDrafts, setRecipeDrafts] = useState<Record<string, RecipeDraft[]>>({});
+  const [recipeOpen, setRecipeOpen] = useState<Set<string>>(new Set());
 
   // ── POS 실시간 연동 (Square) ──
   const [posConn, setPosConn] = useState<PosConnection | null>(null);
@@ -143,15 +153,15 @@ export default function SalesInputScreen() {
     [unmatchedMenus, discardedMenus],
   );
 
-  // 행 단위 집계 — 버리기로 결정된 행 수 / 아직 결정 안 된 미매칭 행 수
-  const { discardedRows, undecidedRows } = useMemo(() => {
-    let d = 0, u = 0;
+  // 행 단위 집계 — 버리기/미결정 행 수와, 미결정(=아직 빠질 위기) 매출 금액
+  const { discardedRows, undecidedRows, undecidedAmount } = useMemo(() => {
+    let d = 0, u = 0, ua = 0;
     for (const r of importPreview?.rows ?? []) {
       if (r.menu_id != null) continue;
       if (discardedMenus.has(r.menu_name)) d += 1;
-      else u += 1;
+      else { u += 1; ua += r.total_price ?? 0; }
     }
-    return { discardedRows: d, undecidedRows: u };
+    return { discardedRows: d, undecidedRows: u, undecidedAmount: ua };
   }, [importPreview, discardedMenus]);
 
   const toggleDiscard = (name: string) =>
@@ -169,6 +179,34 @@ export default function SalesInputScreen() {
       return next;
     });
 
+  // ---- 레시피(재고 차감) 연결 편집 ----
+  const toggleRecipeOpen = (name: string) =>
+    setRecipeOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+
+  // 재료 칩 탭 → 그 메뉴의 레시피에 넣거나 뺀다
+  const toggleRecipeIngredient = (menuName: string, s: StockItem) =>
+    setRecipeDrafts((prev) => {
+      const lines = prev[menuName] ?? [];
+      const exists = lines.some((l) => l.ingredient_id === s.ingredient_id);
+      const next = exists
+        ? lines.filter((l) => l.ingredient_id !== s.ingredient_id)
+        : [...lines, { ingredient_id: s.ingredient_id, name: s.name, unit: s.unit, quantity: '' }];
+      return { ...prev, [menuName]: next };
+    });
+
+  const setRecipeQty = (menuName: string, ingredientId: number, q: string) =>
+    setRecipeDrafts((prev) => ({
+      ...prev,
+      [menuName]: (prev[menuName] ?? []).map((l) =>
+        l.ingredient_id === ingredientId ? { ...l, quantity: q } : l,
+      ),
+    }));
+
   // ---- 파일 선택 → LLM 매핑 미리보기 (DB 저장은 아직 안 함) ----
   // 웹에서는 네이티브 모듈 없이 <input type="file">로 바로 고른다.
   // 네이티브(안드로이드)에서는 expo-document-picker를 쓰는데, 이 네이티브 모듈이
@@ -179,10 +217,16 @@ export default function SalesInputScreen() {
     setImportPreview(null);
     setMenuPrices({});
     setDiscardedMenus(new Set());
+    setRecipeDrafts({});
+    setRecipeOpen(new Set());
     setImportedName(picked.fileName ?? '');
     try {
       const pv = await previewSalesImport(picked, token);
       setImportPreview(pv);
+      // 미등록 메뉴가 있으면 레시피 연결에 쓸 재료 목록을 미리 받아 둔다(실패해도 등록은 가능)
+      if (pv.summary.unmatched > 0) {
+        listStocks(token).then(setStocks).catch(() => setStocks([]));
+      }
     } catch (e) {
       toast('파일 분석 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
     } finally {
@@ -231,11 +275,18 @@ export default function SalesInputScreen() {
   // ---- 파일에서 발견된 미등록 메뉴를 메뉴로 등록 → 해당 행을 매칭으로 전환 ----
   const registerUnmatched = async () => {
     if (!token || !importPreview || registering || pendingMenus.length === 0) return;
-    // 버리기로 결정한 메뉴는 등록하지 않는다 — 남은(결정 대기) 메뉴만 등록
-    const payload = pendingMenus.map((m) => ({
-      name: m.name,
-      selling_price: Number(menuPrices[m.name] ?? String(m.suggested)) || 0,
-    }));
+    // 버리기로 결정한 메뉴는 등록하지 않는다 — 남은(결정 대기) 메뉴만 등록.
+    // 레시피를 채워 뒀으면 함께 보내 재고 차감까지 바로 연결한다(수량>0인 줄만).
+    const payload = pendingMenus.map((m) => {
+      const recipe = (recipeDrafts[m.name] ?? [])
+        .map((l) => ({ ingredient_id: l.ingredient_id, quantity: Number(l.quantity) }))
+        .filter((l) => l.quantity > 0);
+      return {
+        name: m.name,
+        selling_price: Number(menuPrices[m.name] ?? String(m.suggested)) || 0,
+        ...(recipe.length ? { recipe } : {}),
+      };
+    });
     setRegistering(true);
     try {
       const { menus } = await registerImportMenus(token, payload);
@@ -267,7 +318,11 @@ export default function SalesInputScreen() {
         };
       });
       const created = menus.filter((m) => m.created).length;
-      toast('메뉴를 등록했어요', `${created}개 등록 · 이제 매칭돼요. 저장하면 매출에 반영됩니다.`);
+      const withRecipe = menus.filter((m) => m.has_recipe).length;
+      toast(
+        '메뉴를 등록했어요',
+        `${created}개 등록${withRecipe ? ` · ${withRecipe}개는 재고 차감까지 연결됨` : ''} · 저장하면 매출에 반영됩니다.`,
+      );
     } catch (e) {
       toast('메뉴 등록 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
     } finally {
@@ -369,6 +424,16 @@ export default function SalesInputScreen() {
               총 {importPreview.summary.total_rows}행 · 매칭 {importPreview.summary.matched} · 미매칭 {importPreview.summary.unmatched}
               {discardedRows > 0 ? ` (버리기 ${discardedRows})` : ''} · 합계 {importPreview.summary.sum_amount.toLocaleString()}원
             </Text>
+            {/* 매출 누락 경고 — 미등록 메뉴 때문에 저장에서 빠질 금액을 눈에 띄게 알린다.
+                재고보다 매출 누락이 더 치명적이라(총매출이 실제보다 적게 잡힘) 별도 배너로 뺀다. */}
+            {undecidedAmount > 0 && (
+              <View style={styles.lossBanner}>
+                <Ionicons name="alert-circle" size={15} color="#B23B2E" />
+                <Text style={styles.lossBannerText}>
+                  미등록 메뉴 때문에 매출 {undecidedAmount.toLocaleString()}원이 저장에서 빠져요. 아래에서 등록하면 포함됩니다.
+                </Text>
+              </View>
+            )}
             {/* 미등록 메뉴 처리: 등록(→매칭 전환) 또는 버리기 — 결정 전에는 저장이 막힌다.
                 미매칭 행이 사장님 모르게 조용히 사라지지 않게 하기 위한 명시적 결정 단계. */}
             {unmatchedMenus.length > 0 && (
@@ -384,42 +449,112 @@ export default function SalesInputScreen() {
                 </Text>
                 {unmatchedMenus.map((m) => {
                   const isDiscarded = discardedMenus.has(m.name);
+                  const lines = recipeDrafts[m.name] ?? [];
+                  const open = recipeOpen.has(m.name);
                   return (
-                    <View key={m.name} style={styles.regRow}>
-                      <Text
-                        style={[styles.regName, isDiscarded && styles.regNameDiscarded]}
-                        numberOfLines={1}
-                      >
-                        {m.name}
-                      </Text>
-                      {!isDiscarded && (
-                        <View style={styles.regPriceBox}>
-                          <TextInput
-                            style={styles.regPriceInput}
-                            keyboardType="number-pad"
-                            inputMode="numeric"
-                            value={menuPrices[m.name] ?? (m.suggested ? String(m.suggested) : '')}
-                            onChangeText={(v) => setMenuPrices((p) => ({ ...p, [m.name]: onlyDigits(v) }))}
-                            placeholder="0"
-                            placeholderTextColor="#C4B5A5"
+                    <View key={m.name} style={styles.regItem}>
+                      <View style={styles.regRow}>
+                        <Text
+                          style={[styles.regName, isDiscarded && styles.regNameDiscarded]}
+                          numberOfLines={1}
+                        >
+                          {m.name}
+                        </Text>
+                        {!isDiscarded && (
+                          <View style={styles.regPriceBox}>
+                            <TextInput
+                              style={styles.regPriceInput}
+                              keyboardType="number-pad"
+                              inputMode="numeric"
+                              value={menuPrices[m.name] ?? (m.suggested ? String(m.suggested) : '')}
+                              onChangeText={(v) => setMenuPrices((p) => ({ ...p, [m.name]: onlyDigits(v) }))}
+                              placeholder="0"
+                              placeholderTextColor="#C4B5A5"
+                            />
+                            <Text style={styles.regWon}>원</Text>
+                          </View>
+                        )}
+                        <PressableScale
+                          style={[styles.discardBtn, isDiscarded && styles.discardBtnActive]}
+                          onPress={() => toggleDiscard(m.name)}
+                          to={0.92}
+                        >
+                          <Ionicons
+                            name={isDiscarded ? 'arrow-undo-outline' : 'trash-outline'}
+                            size={13}
+                            color={isDiscarded ? colors.mochaBrown : '#B23B2E'}
                           />
-                          <Text style={styles.regWon}>원</Text>
+                          <Text style={[styles.discardBtnText, isDiscarded && styles.discardBtnTextActive]}>
+                            {isDiscarded ? '되돌리기' : '버리기'}
+                          </Text>
+                        </PressableScale>
+                      </View>
+                      {/* 레시피(재고 차감) 연결 — 선택. 채우면 등록과 동시에 재고 차감이 켜진다. */}
+                      {!isDiscarded && (
+                        <View style={styles.recipeBox}>
+                          <TouchableOpacity
+                            style={styles.recipeToggle}
+                            onPress={() => toggleRecipeOpen(m.name)}
+                            activeOpacity={0.7}
+                          >
+                            <Ionicons
+                              name={open ? 'chevron-down' : 'chevron-forward'}
+                              size={13}
+                              color={colors.mochaBrown}
+                            />
+                            <Text style={styles.recipeToggleText}>
+                              재고 차감 연결 {lines.length ? `· 재료 ${lines.length}개` : '(선택)'}
+                            </Text>
+                          </TouchableOpacity>
+                          {open && (
+                            <View style={styles.recipeBody}>
+                              {stocks.length === 0 ? (
+                                <Text style={styles.recipeEmpty}>
+                                  등록된 재료가 없어요. 재고 화면에서 재료를 먼저 추가하면 여기서 연결할 수 있어요.
+                                </Text>
+                              ) : (
+                                <>
+                                  <View style={styles.chipWrap}>
+                                    {stocks.map((s) => {
+                                      const on = lines.some((l) => l.ingredient_id === s.ingredient_id);
+                                      return (
+                                        <TouchableOpacity
+                                          key={s.ingredient_id}
+                                          style={[styles.chip, on && styles.chipOn]}
+                                          onPress={() => toggleRecipeIngredient(m.name, s)}
+                                          activeOpacity={0.7}
+                                        >
+                                          <Text style={[styles.chipText, on && styles.chipTextOn]}>{s.name}</Text>
+                                        </TouchableOpacity>
+                                      );
+                                    })}
+                                  </View>
+                                  {lines.map((l) => (
+                                    <View key={l.ingredient_id} style={styles.qtyRow}>
+                                      <Text style={styles.qtyName} numberOfLines={1}>{l.name}</Text>
+                                      <View style={styles.qtyBox}>
+                                        <TextInput
+                                          style={styles.qtyInput}
+                                          keyboardType="decimal-pad"
+                                          inputMode="decimal"
+                                          value={l.quantity}
+                                          onChangeText={(v) => setRecipeQty(m.name, l.ingredient_id, onlyDecimal(v))}
+                                          placeholder="0"
+                                          placeholderTextColor="#C4B5A5"
+                                        />
+                                        <Text style={styles.qtyUnit}>{l.unit}</Text>
+                                      </View>
+                                    </View>
+                                  ))}
+                                  <Text style={styles.recipeHint}>
+                                    1잔 만들 때 쓰는 양을 재료 단위로 적어주세요 (예: 원두 18g). 저장하면 판매 수량만큼 재고에서 빠져요.
+                                  </Text>
+                                </>
+                              )}
+                            </View>
+                          )}
                         </View>
                       )}
-                      <PressableScale
-                        style={[styles.discardBtn, isDiscarded && styles.discardBtnActive]}
-                        onPress={() => toggleDiscard(m.name)}
-                        to={0.92}
-                      >
-                        <Ionicons
-                          name={isDiscarded ? 'arrow-undo-outline' : 'trash-outline'}
-                          size={13}
-                          color={isDiscarded ? colors.mochaBrown : '#B23B2E'}
-                        />
-                        <Text style={[styles.discardBtnText, isDiscarded && styles.discardBtnTextActive]}>
-                          {isDiscarded ? '되돌리기' : '버리기'}
-                        </Text>
-                      </PressableScale>
                     </View>
                   );
                 })}
@@ -647,7 +782,18 @@ const styles = StyleSheet.create({
   fileSummary: { ...typography.L5, color: colors.espressoBrown, fontWeight: '800' },
   fileWarn: { ...typography.L5, color: colors.pointOrange, fontWeight: '600' },
 
+  // ── 매출 누락 경고 배너 ──
+  lossBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: 'rgba(178, 59, 46, 0.08)', borderWidth: 1, borderColor: 'rgba(178, 59, 46, 0.28)',
+    borderRadius: 10, paddingHorizontal: 11, paddingVertical: 9,
+  },
+  lossBannerText: { flex: 1, ...typography.L5, color: '#B23B2E', fontWeight: '700', lineHeight: 16 },
+
   // ── 미등록 메뉴 등록 박스 ──
+  regItem: {
+    gap: 6, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(232, 131, 58, 0.18)',
+  },
   regBox: {
     backgroundColor: '#FFF7EE', borderWidth: 1, borderColor: 'rgba(232, 131, 58, 0.28)',
     borderRadius: 12, padding: 12, gap: 8,
@@ -677,6 +823,37 @@ const styles = StyleSheet.create({
   discardBtnActive: { borderColor: colors.mutedSand, backgroundColor: colors.coffeeCream },
   discardBtnText: { fontSize: 12, fontWeight: '800', color: '#B23B2E' },
   discardBtnTextActive: { color: colors.mochaBrown },
+  // ── 레시피(재고 차감) 연결 편집 ──
+  recipeBox: { gap: 6 },
+  recipeToggle: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2 },
+  recipeToggleText: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700' },
+  recipeBody: {
+    gap: 7, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.mutedSand,
+    borderRadius: 10, padding: 10,
+  },
+  recipeEmpty: { ...typography.L5, color: colors.mochaBrown, lineHeight: 16 },
+  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  chip: {
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999,
+    borderWidth: 1, borderColor: colors.mutedSand, backgroundColor: colors.coffeeCream,
+  },
+  chipOn: { backgroundColor: colors.espressoBrown, borderColor: colors.espressoBrown },
+  chipText: { fontSize: 12, fontWeight: '700', color: colors.mochaBrown },
+  chipTextOn: { color: colors.white },
+  qtyRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  qtyName: { flex: 1, ...typography.L5, color: colors.espressoBrown, fontWeight: '700' },
+  qtyBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    backgroundColor: colors.coffeeCream, borderWidth: 1, borderColor: colors.mutedSand,
+    borderRadius: 9, paddingHorizontal: 10, height: 36, minWidth: 92,
+  },
+  qtyInput: {
+    flex: 1, fontSize: 14, fontWeight: '800', color: colors.espressoBrown, textAlign: 'right', padding: 0,
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : null),
+  },
+  qtyUnit: { ...typography.L5, color: colors.mochaBrown, minWidth: 18 },
+  recipeHint: { ...typography.L5, color: colors.mochaBrown, lineHeight: 15 },
+
   regActions: { gap: 6, marginTop: 2 },
   regBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
