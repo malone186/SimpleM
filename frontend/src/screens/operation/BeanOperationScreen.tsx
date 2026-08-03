@@ -2,9 +2,16 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, Platform, Pressable, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from '../../i18n/translations';
+import BeanAlternativeModal from '../../components/operation/BeanAlternativeModal';
+import BeanReviewModal from '../../components/operation/BeanReviewModal';
 import { Badge, Card, Screen, ScreenTitle } from '../../components/ui';
 import { colors } from '../../theme';
-import { searchBeans, type BeanItem } from '../../lib/api/beans';
+import {
+  fetchMarketSummary,
+  searchBeans,
+  type BeanItem,
+  type MarketSummary,
+} from '../../lib/api/beans';
 
 // 1잔 추출 기준 원두량(g) — 잔당 원가 환산용 (에스프레소 더블샷 통용값)
 const GRAMS_PER_SHOT = 20;
@@ -55,6 +62,48 @@ function toRow(b: BeanItem): BeanRow {
   };
 }
 
+/** 시세 포지션 판정 결과 */
+type Position = {
+  label: string;   // 저렴 / 시세 수준 / 비쌈
+  diffPct: number; // 중앙값 대비 %
+  peer: string;    // 비교군 이름 (원산지)
+  tone: 'cheap' | 'normal' | 'pricey';
+};
+
+/**
+ * 이 원두가 같은 원산지 중 어느 가격대인지 판정한다.
+ *
+ * [한글 주석] 비교 기준은 평균이 아니라 '중앙값'이다.
+ * g당 900원대(50g 고급 게이샤) 같은 극단값이 섞여 있어 평균은 크게 부풀고,
+ * 그 평균으로 재면 평범한 원두도 전부 "저렴"으로 나온다.
+ */
+function getPosition(bean: BeanRow, market: MarketSummary | null): Position | null {
+  if (!market || bean.price_per_gram == null) return null;
+
+  const country = (bean.country || '').trim();
+  const group = country ? market.by_country[country] : undefined;
+  const stats = group ?? market.overall;
+  if (!stats || !stats.median) return null;
+
+  const diffPct = Math.round(((bean.price_per_gram - stats.median) / stats.median) * 100);
+
+  // 5% 이내 차이는 '시세 수준'으로 본다 (미세한 차이를 과장하지 않기 위해)
+  const tone: Position['tone'] = diffPct <= -5 ? 'cheap' : diffPct >= 5 ? 'pricey' : 'normal';
+  const label = tone === 'cheap' ? '저렴' : tone === 'pricey' ? '비쌈' : '시세 수준';
+
+  return { label, diffPct, peer: group ? country : '전체', tone };
+}
+
+/** 외부 링크 열기 — 웹은 새 탭, 앱은 기본 브라우저 */
+function openUrl(url: string) {
+  if (!url) return;
+  if (Platform.OS === 'web') {
+    window.open(url, '_blank');
+  } else {
+    Linking.openURL(url);
+  }
+}
+
 export default function BeanOperationScreen() {
   // [한글 주석: 전역 다국어 번역 훅 연동]
   const { t, language } = useTranslation();
@@ -63,16 +112,26 @@ export default function BeanOperationScreen() {
 
   const [beans, setBeans] = useState<BeanRow[]>([]);
   const [totalCount, setTotalCount] = useState(0);
+  const [market, setMarket] = useState<MarketSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 후기 원문 모달 대상 (null이면 닫힘)
+  const [reviewTarget, setReviewTarget] = useState<{ id: number; name: string } | null>(null);
+  // 대체 추천 모달 대상
+  const [altTarget, setAltTarget] = useState<{ id: number; name: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await searchBeans({ sortBy: 'reviews', limit: 50 });
+      // 시세표는 실패해도 목록은 보여야 하므로 따로 처리한다.
+      const [res, summary] = await Promise.all([
+        searchBeans({ sortBy: 'reviews', limit: 50 }),
+        fetchMarketSummary().catch(() => null),
+      ]);
       setBeans(res.items.map(toRow));
       setTotalCount(res.total_count);
+      setMarket(summary);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setBeans([]);
@@ -182,7 +241,9 @@ export default function BeanOperationScreen() {
 
         {/* 원두 카드 리스트 */}
         <View style={{ gap: 10 }}>
-          {filteredBeans.map(bean => (
+          {filteredBeans.map(bean => {
+            const pos = getPosition(bean, market);
+            return (
             <View
               key={bean.id}
               style={{
@@ -237,6 +298,35 @@ export default function BeanOperationScreen() {
                 )}
               </View>
 
+              {/* [추가] 시세 포지션 — 같은 원산지 원두들의 중앙값과 비교해 저렴/비쌈 판정 */}
+              {pos && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }}>
+                  <View
+                    style={{
+                      paddingHorizontal: 8,
+                      paddingVertical: 3,
+                      borderRadius: 10,
+                      backgroundColor:
+                        pos.tone === 'cheap' ? '#E6F4EA' : pos.tone === 'pricey' ? '#FBE9E7' : '#F0ECE8',
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        fontWeight: '800',
+                        color:
+                          pos.tone === 'cheap' ? '#2E7D32' : pos.tone === 'pricey' ? '#B23B2E' : '#7A6E65',
+                      }}
+                    >
+                      {pos.label}
+                    </Text>
+                  </View>
+                  <Text style={{ fontSize: 11, color: '#7A6E65' }}>
+                    {pos.peer} 시세 대비 {pos.diffPct > 0 ? '+' : ''}{pos.diffPct}%
+                  </Text>
+                </View>
+              )}
+
               {/* [추가] 컵노트 / 로스터리 설명 */}
               {!!bean.description && (
                 <Text style={{ fontSize: 11.5, color: '#7A6E65', marginTop: 8, lineHeight: 17 }} numberOfLines={2}>
@@ -244,17 +334,46 @@ export default function BeanOperationScreen() {
                 </Text>
               )}
 
-              {/* 리뷰 통계 바 */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 12, backgroundColor: '#F8F6F4', padding: 8, borderRadius: 6 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Ionicons name="star" size={14} color="#FFB800" />
-                  <Text style={{ fontSize: 13, fontWeight: 'bold', color: colors.espressoBrown }}>{bean.rating.toFixed(1)}</Text>
-                  <Text style={{ fontSize: 12, color: '#888' }}>({bean.review_count}개 리뷰)</Text>
-                </View>
-                <Text style={{ fontSize: 12, fontWeight: '600', color: bean.positive_ratio >= 80 ? '#2E7D32' : bean.positive_ratio >= 50 ? '#B8860B' : '#B23B2E' }}>
-                  긍정 비율 {bean.positive_ratio}%
-                </Text>
-              </View>
+              {/* 리뷰 통계 바 — 누르면 후기 원문을 볼 수 있다.
+                  숫자만으로는 왜 그 평점인지 알 수 없어서, 원문 열람 경로를 만들었다. */}
+              <Pressable
+                onPress={() => bean.review_count > 0 && setReviewTarget({ id: bean.id, name: bean.name })}
+                disabled={bean.review_count === 0}
+                style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 12, backgroundColor: '#F8F6F4', padding: 8, borderRadius: 6 }}
+              >
+                {/* [한글 주석] 별점을 카드에서 뺐다.
+                    별점과 긍정비율은 같은 감성 분석 결과에서 나오므로 나란히 두면
+                    같은 근거를 두 번 세는 것이 된다. 게다가 블로그 글에는 별점이 없어
+                    우리가 역산한 값이라 3.5~4.5에 뭉쳐 변별력이 없다.
+                    ★3.6과 ★3.8을 비교하는 건 노이즈를 읽는 것이므로,
+                    실제로 판단에 쓸 수 있는 '근거의 양(건수)'을 앞세운다. */}
+                {bean.review_count === 0 ? (
+                  /* [한글 주석] 후기가 없는 원두가 전체의 44%다.
+                     '후기 0건 · 긍정 0%'로 두면 평가가 나쁜 것처럼 읽힌다.
+                     없는 것과 나쁜 것은 다르므로 문구로 구분한다. */
+                  <Text style={{ fontSize: 12, color: '#B0A79E' }}>수집된 후기 없음</Text>
+                ) : (
+                  <>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Ionicons name="chatbubble-ellipses-outline" size={13} color={colors.mochaBrown} />
+                      <Text style={{ fontSize: 13, fontWeight: 'bold', color: colors.espressoBrown }}>후기 {bean.review_count}건</Text>
+                    </View>
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: bean.positive_ratio >= 80 ? '#2E7D32' : bean.positive_ratio >= 50 ? '#B8860B' : '#B23B2E' }}>
+                      긍정 {bean.positive_ratio}%
+                    </Text>
+                    {/* 표본이 적으면 비율 자체를 믿기 어렵다 — 숫자 옆에 바로 알려준다 */}
+                    {bean.review_count < 5 && (
+                      <Text style={{ fontSize: 11, color: '#B0A79E' }}>표본 적음</Text>
+                    )}
+                  </>
+                )}
+                {bean.review_count > 0 && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, marginLeft: 'auto' }}>
+                    <Text style={{ fontSize: 11, color: colors.pointOrange, fontWeight: '700' }}>후기 보기</Text>
+                    <Ionicons name="chevron-forward" size={12} color={colors.pointOrange} />
+                  </View>
+                )}
+              </Pressable>
 
               {/* 키워드 태그 */}
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
@@ -265,16 +384,14 @@ export default function BeanOperationScreen() {
                 ))}
               </View>
 
-              {/* 바로 구매 — 카드 하단으로 이동 */}
+              {/* [한글 주석] 구매 버튼을 '최저가 검색'으로 바꿨다.
+                  원두 판매처의 상당수가 생두 도매상이라 상품 페이지를 보려면
+                  사업자 회원 로그인을 요구한다. 눌렀더니 로그인 화면이 뜨면
+                  구매로 이어지지 않고, 우리가 보여준 가격을 확인할 방법도 없다.
+                  네이버쇼핑 검색은 로그인이 필요 없고 여러 판매처 가격을 함께 보여준다.
+                  판매처 직링크는 아래 보조 링크로 남겨 선택할 수 있게 했다. */}
               <Pressable
-                onPress={() => {
-                  const targetUrl = bean.product_url || `https://search.shopping.naver.com/search/all?query=${encodeURIComponent(bean.name)}`;
-                  if (Platform.OS === 'web') {
-                    window.open(targetUrl, '_blank');
-                  } else {
-                    Linking.openURL(targetUrl);
-                  }
-                }}
+                onPress={() => openUrl(`https://search.shopping.naver.com/search/all?query=${encodeURIComponent(bean.name)}`)}
                 style={{
                   backgroundColor: colors.pointOrange,
                   paddingVertical: 9,
@@ -286,13 +403,67 @@ export default function BeanOperationScreen() {
                   marginTop: 10,
                 }}
               >
-                <Ionicons name="cart-outline" size={14} color="#FFF" />
-                <Text style={{ color: '#FFF', fontSize: 12.5, fontWeight: 'bold' }}>바로 구매</Text>
+                <Ionicons name="search" size={14} color="#FFF" />
+                <Text style={{ color: '#FFF', fontSize: 12.5, fontWeight: 'bold' }}>최저가 검색 · 구매</Text>
               </Pressable>
+
+              {/* 판매처 원본 페이지 — 로그인이 필요할 수 있음을 미리 알린다 */}
+              {!!bean.product_url && (
+                <Pressable
+                  onPress={() => openUrl(bean.product_url)}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: 7 }}
+                >
+                  <Ionicons name="open-outline" size={11} color="#9A8F86" />
+                  <Text style={{ fontSize: 11, color: '#9A8F86' }}>
+                    판매처 페이지 열기 (로그인 필요할 수 있음)
+                  </Text>
+                </Pressable>
+              )}
+
+              {/* [추가] 대체 추천 — 사기 전에 "더 싼 대안"을 먼저 볼 수 있게 구매 버튼 아래 배치 */}
+              {bean.price_per_gram != null && (
+                <Pressable
+                  onPress={() => setAltTarget({ id: bean.id, name: bean.name })}
+                  style={{
+                    marginTop: 6,
+                    borderRadius: 8,
+                    paddingVertical: 8,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 5,
+                    borderWidth: 1,
+                    borderColor: '#CDE5D3',
+                    backgroundColor: '#F2F9F4',
+                  }}
+                >
+                  <Ionicons name="swap-horizontal" size={14} color="#2E7D32" />
+                  <Text style={{ color: '#2E7D32', fontSize: 12, fontWeight: '700' }}>
+                    더 저렴한 대체 원두 찾기
+                  </Text>
+                </Pressable>
+              )}
             </View>
-          ))}
+            );
+          })}
         </View>
       </Card>
+
+      {/* 후기 원문 모달 — 수집한 블로그·카페 글을 그대로 보여준다 */}
+      <BeanReviewModal
+        visible={reviewTarget !== null}
+        beanId={reviewTarget?.id ?? null}
+        beanName={reviewTarget?.name ?? ''}
+        onClose={() => setReviewTarget(null)}
+      />
+
+      {/* 대체 추천 모달 — 비슷하면서 더 싼 원두 */}
+      <BeanAlternativeModal
+        visible={altTarget !== null}
+        beanId={altTarget?.id ?? null}
+        beanName={altTarget?.name ?? ''}
+        onClose={() => setAltTarget(null)}
+      />
     </Screen>
   );
 }

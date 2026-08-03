@@ -337,6 +337,27 @@ def build_preview(store_id: str, grid: list[list[str]], mapping: dict[str, Any])
         })
 
     matched_cnt = sum(1 for x in rows if x["menu_id"] is not None)
+
+    # 미등록(미매칭) 메뉴 → 저장에서 통째로 빠진다. 재고보다 '매출 누락'이 더 큰 문제라
+    # (총매출이 실제 POS보다 적게 잡힘), 빠지는 금액과 '한 번에 등록' 후보를 함께 준다.
+    unmatched_rows = [x for x in rows if x["menu_id"] is None]
+    unmatched_amount = sum(x["total_price"] or 0 for x in unmatched_rows)
+    agg: dict[str, dict[str, Any]] = {}
+    for x in unmatched_rows:
+        key = _norm(x["menu_name"])
+        a = agg.get(key)
+        if a is None:
+            a = agg[key] = {"name": x["menu_name"], "rows": 0, "quantity": 0, "amount": 0}
+        a["rows"] += 1
+        a["quantity"] += x["quantity"] or 0
+        a["amount"] += x["total_price"] or 0
+    unmatched_menus = []
+    for a in agg.values():
+        qty = a["quantity"] or 0
+        # 등록 화면에 채워 넣을 판매가 제안 = 누락 매출 ÷ 수량 (행별 단가가 같다는 가정)
+        unmatched_menus.append({**a, "suggested_price": round(a["amount"] / qty) if qty else 0})
+    unmatched_menus.sort(key=lambda m: m["amount"], reverse=True)  # 누락액 큰 것부터
+
     return {
         "mapping": mapping,
         # 어떤 엔진으로 열을 매핑했는지 한눈에 (미리보기 배지·디버깅용)
@@ -350,11 +371,91 @@ def build_preview(store_id: str, grid: list[list[str]], mapping: dict[str, Any])
             "matched": matched_cnt,
             "unmatched": len(rows) - matched_cnt,
             "sum_amount": sum(x["total_price"] or 0 for x in rows),
+            # 미등록 메뉴 때문에 저장에서 빠질 매출 총액 + 그 메뉴 목록(등록 후보)
+            "unmatched_amount": unmatched_amount,
+            "unmatched_menus": unmatched_menus,
             # 파일이 MAX_ROWS를 초과해 잘렸으면 몇 행이 제외됐는지 알린다(조용한 누락 방지)
             "truncated": truncated,
             "max_rows": MAX_ROWS,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# 3.5) 미등록 메뉴 등록 — 파일에서 처음 발견된 메뉴를 매출로 넣기 전에 메뉴로 만든다.
+#      미매칭 행이 그냥 버려지지 않도록, 확인 후 등록하면 다음 저장에서 매칭된다.
+#      레시피(재료·소요량)를 함께 주면 그 자리에서 연결해 재고 차감까지 바로 된다.
+#      (레시피 없이 이름·판매가만 등록하면 매출은 잡히지만 재고는 안 빠진다.)
+# ---------------------------------------------------------------------------
+
+def register_menus(store_id: str, items: list[dict[str, Any]]) -> dict[str, Any]:
+    """[{name, selling_price, recipe?}] 목록을 메뉴로 등록한다. 이미 있는(정규화 동일) 이름은 재사용.
+
+    recipe: [{ingredient_id, quantity}] — 있으면 그 메뉴에 레시피로 연결한다(재고 차감용).
+      · 이 매장이 소유한 재료만 연결한다 (남의 매장 재료 id는 무시).
+      · 이미 그 재료가 그 메뉴 레시피에 있으면 건너뛴다 (중복 방지).
+
+    반환: {"menus": [{name, menu_id, selling_price, created,
+                     recipe_added(int), recipe_skipped([ingredient_id]), has_recipe(bool)}]}
+      · created=False면 기존 메뉴 재사용.
+      · has_recipe=True면 이제 이 메뉴는 저장 시 재고가 차감된다.
+    """
+    from app.models.inventory import Ingredient, Menu, Recipe
+    from app.services.ai.document_service import _session
+
+    out: list[dict[str, Any]] = []
+    with _session() as db:
+        existing = {_norm(m.name): m for m in db.query(Menu).filter(Menu.store_id == store_id).all()}
+        # 이 매장이 소유한 재료 id — 레시피는 반드시 여기 안에서만 걸 수 있다(교차 매장 방어)
+        store_ing_ids = {
+            i.id for i in db.query(Ingredient).filter(Ingredient.store_id == store_id).all()
+        }
+        for it in items:
+            name = str(it.get("name") or "").strip()
+            if not name:
+                continue
+            price = max(0, int(it.get("selling_price") or 0))
+            key = _norm(name)
+            hit = existing.get(key)
+            if hit is not None:
+                menu, created = hit, False
+            else:
+                menu = Menu(name=name, selling_price=price, store_id=store_id)
+                db.add(menu)
+                db.flush()
+                existing[key] = menu
+                created = True
+
+            # 레시피 연결 (선택)
+            existing_pairs = {
+                rc.ingredient_id
+                for rc in db.query(Recipe).filter(Recipe.menu_id == menu.id).all()
+            }
+            added, skipped = 0, []
+            for line in (it.get("recipe") or []):
+                try:
+                    ing_id = int(line.get("ingredient_id") or 0)
+                    qty = float(line.get("quantity") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if ing_id not in store_ing_ids or qty <= 0:
+                    skipped.append(ing_id)  # 남의 매장 재료거나 수량 이상 → 무시
+                    continue
+                if ing_id in existing_pairs:
+                    continue                # 이미 연결됨
+                db.add(Recipe(menu_id=menu.id, ingredient_id=ing_id, quantity=qty))
+                existing_pairs.add(ing_id)
+                added += 1
+
+            out.append({
+                "name": name, "menu_id": menu.id, "selling_price": menu.selling_price,
+                "created": created,
+                "recipe_added": added,
+                "recipe_skipped": skipped,
+                "has_recipe": bool(existing_pairs),
+            })
+        db.commit()
+    return {"menus": out}
 
 
 # ---------------------------------------------------------------------------

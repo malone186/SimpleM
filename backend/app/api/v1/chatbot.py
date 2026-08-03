@@ -41,6 +41,7 @@ from app.schemas.ai import (
     GeneratedDocumentUpdate,
     MarketingCopyRequest,
     MarketingImageRequest,
+    MarketingOverlayRequest,
     NotificationSettingBody,
     NotificationSettingResponse,
     OcrConfirmRequest,
@@ -60,6 +61,7 @@ from app.services.ai import (
     insight_service,
     marketing_service,
     nearby_cafe_service,
+    nearby_event_service,
     notification_service,
     ocr_service,
     price_service,
@@ -372,6 +374,32 @@ def get_sales_forecast_api(
         raise HTTPException(409, str(e))
 
 
+@router.get("/forecast/accuracy")
+def get_forecast_accuracy_api(
+    target: str = "revenue",
+    horizon: int = 7,
+    folds: int = 4,
+    since: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+):
+    """예측 정확도 백테스트 — 과거 시점으로 돌아가 실제로 맞혔는지 채점한 결과.
+
+    WAPE(%)가 낮을수록 정확하다. 베이스라인(최근 4주 같은 요일 평균)과 나란히 주므로
+    시계열 모델이 단순 규칙보다 나은지도 함께 판단할 수 있다.
+    since(YYYY-MM-DD): 매출 수준이 크게 바뀐 시점 이후만 평가하고 싶을 때 쓴다 —
+    그 이전을 포함하면 오차가 모델 성능이 아니라 그 단절을 재게 된다.
+    판매 기록이 부족하면 409와 함께 필요한 일수를 안내한다.
+
+    SARIMAX를 fold 수만큼 다시 적합하므로 수 초가 걸린다 — 대시보드 첫 화면이 아니라
+    '정확도 보기'처럼 사용자가 명시적으로 요청했을 때만 부른다(그래서 캐시도 두지 않는다).
+    """
+    try:
+        return forecast_service.backtest(
+            current_user.email, target=target, horizon=horizon, folds=folds, since=since)
+    except forecast_service.ForecastError as e:
+        raise HTTPException(409, str(e))
+
+
 @router.get("/geocode")
 def geocode_address(query: str):
     """주소/상호 → 좌표 (회원가입 매장 위치 검색용 — 가입 전 화면이라 인증 불필요).
@@ -482,6 +510,31 @@ def get_cafe_analysis_api(
     return result
 
 
+@router.get("/nearby-events")
+def get_nearby_events_api(
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
+    days: int = nearby_event_service.DEFAULT_DAYS,
+    insight: bool = True,
+    current_user: User = Depends(get_current_user),
+):
+    """매장 반경 3km에서 앞으로 days일 안에 열리는 행사 + 대비 조언 (매장 지도 화면).
+
+    수집 소스는 예측과 같다(한국관광공사·서울 문화행사·네이버 검색+AI 정리).
+    insight=false면 AI 조언 없이 목록만 — 챗봇·위젯처럼 빨라야 하는 호출용.
+    행사가 0건이어도 200으로 빈 목록을 준다 (없는 것도 정보다).
+    """
+    p_lat, p_lon = _store_point(current_user, lat, lon)
+    if not insight:
+        return nearby_event_service.find_nearby_events(p_lat, p_lon, days=days)
+    return nearby_event_service.analyze_nearby_events(
+        p_lat, p_lon,
+        store_name=current_user.store_name or current_user.name or "내 매장",
+        biz_type=current_user.store_biz_type or "",
+        days=days,
+    )
+
+
 class SaleItemIn(BaseModel):
     menu_id: int
     quantity: int = Field(1, ge=1)
@@ -500,6 +553,22 @@ class SalesImportRow(BaseModel):
 
 class SalesImportConfirmRequest(BaseModel):
     rows: list[SalesImportRow]
+
+
+class RecipeLineIn(BaseModel):
+    ingredient_id: int
+    quantity: float = Field(..., gt=0, description="1잔 조리 시 소요량 (재료 단위 기준)")
+
+
+class MenuRegisterItem(BaseModel):
+    name: str
+    selling_price: int = 0
+    # 레시피를 함께 주면 등록과 동시에 재고 차감이 연결된다 (비우면 이름·판매가만 등록)
+    recipe: list[RecipeLineIn] = []
+
+
+class MenuRegisterRequest(BaseModel):
+    menus: list[MenuRegisterItem]
 
 
 @router.post("/sales", status_code=201)
@@ -526,7 +595,7 @@ def recent_sales_api(
     limit: int = 10,
     current_user: User = Depends(get_current_user),
 ):
-    """최근 판매 내역 (판매 입력 화면 표시용)."""
+    """최근 판매 내역 (매출 입력 화면 표시용)."""
     return sales_service.recent_sales(current_user.email, limit=limit)
 
 
@@ -547,6 +616,25 @@ async def sales_import_preview_api(
         grid = sales_import_service.parse_grid(content, file.filename or "")
         mapping = await sales_import_service.infer_mapping(grid)
         return sales_import_service.build_preview(current_user.email, grid, mapping)
+    except sales_import_service.SalesImportError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/sales/import/register-menus", status_code=201)
+def sales_import_register_menus_api(
+    body: MenuRegisterRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """파일에서 발견된 미등록 메뉴를 메뉴로 등록한다(이름·판매가, 그리고 선택적으로 레시피).
+
+    미매칭 행이 그냥 버려지지 않도록, 사용자가 판매가를 확인한 뒤 여기로 등록하면
+    같은 파일의 해당 행들이 매칭으로 바뀌어 저장 대상이 된다.
+    각 메뉴에 recipe([{ingredient_id, quantity}])를 함께 주면 등록과 동시에 레시피가
+    연결돼, 재고 차감까지 바로 동작한다(재료 목록은 GET /inventory/ingredients).
+    """
+    try:
+        return sales_import_service.register_menus(
+            current_user.email, [m.model_dump() for m in body.menus])
     except sales_import_service.SalesImportError as e:
         raise HTTPException(400, str(e))
 
@@ -675,13 +763,29 @@ def create_marketing_image(
 ) -> dict:
     """AI 홍보 이미지 생성 — doc_id를 주면 그 홍보 문구에 맞춰 만들고 문서에 기록한다.
 
-    반환의 url을 <Image>로 바로 표시하면 된다. 생성에 수십 초가 걸릴 수 있다.
+    반환의 url은 한글 슬로건이 얹힌 완성본, raw_url은 글자 없는 원본이다.
+    생성에 수십 초가 걸릴 수 있다.
     """
     try:
         return marketing_service.generate_promotion_image(
             current_user.email, doc_id=body.doc_id, request=body.request,
             style=body.style, aspect_ratio=body.aspect_ratio,
-            include_text=body.include_text)
+            include_text=body.include_text, overlay=body.overlay, quality=body.quality)
+    except marketing_service.MarketingError as e:
+        raise HTTPException(502, str(e))
+
+
+@router.post("/marketing/image/overlay")
+def restyle_marketing_image(
+    body: MarketingOverlayRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """홍보 이미지의 한글 슬로건 위치만 바꾼다 — 저장해 둔 원본을 다시 합성하므로
+    AI 호출 없이 즉시 끝나고 화질도 나빠지지 않는다."""
+    try:
+        return marketing_service.recompose_promotion_image(
+            current_user.email, doc_id=body.doc_id, image_id=body.image_id,
+            layout=body.layout)
     except marketing_service.MarketingError as e:
         raise HTTPException(502, str(e))
 

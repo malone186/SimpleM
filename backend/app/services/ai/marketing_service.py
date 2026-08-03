@@ -8,9 +8,18 @@
      kind="marketing_content"로 저장돼 챗봇 카드·문서 목록에서 다시 볼 수 있다.
 
   2) 홍보 이미지 생성 → generate_promotion_image()
-     Gemini 이미지 생성 모델로 홍보물 이미지를 만들어 uploads/marketing/에 저장하고,
-     앱이 바로 <Image>로 띄울 수 있는 URL을 돌려준다. 문구 문서(doc_id)를 주면
-     그 문서의 image_prompt를 쓰고, 생성된 이미지가 문서에 함께 기록된다.
+     4단계 파이프라인으로 '팔리는 홍보물'을 만든다:
+       ① 프롬프트 정교화 — 무료 텍스트 모델이 짧은 아이디어를 구도·조명·렌즈·색감까지
+          지정된 영어 아트 디렉션으로 확장한다 (_refine_image_prompt).
+       ② 이미지 생성 — Gemini(유료 키) → Pollinations(무료) 자동 폴백. 글자는 넣지 않는다.
+       ③ 마감 보정 — 언샤프 마스크·미세 채도/대비로 화면에서 또렷하게 (_polish).
+       ④ 한글 슬로건 합성 — Pillow로 그라데이션 스크림 + 슬로건/보조문구/상호를 얹는다
+          (_compose_overlay). 모델이 한글을 못 그리는 문제를 우회하면서, 오히려
+          모델 렌더링보다 훨씬 반듯한 타이포가 나온다.
+     결과는 '슬로건 버전'과 '원본(글자 없는 버전)' 두 URL로 돌려준다.
+
+  3) 슬로건 레이아웃 변경 → recompose_promotion_image()
+     이미 만든 이미지의 원본을 재사용해 글자 위치만 바꾼다 (AI 재호출 없이 즉시).
 
 과장·허위 금지: 프롬프트가 '매장 정보에 있는 사실 + 사장님 요청'만 재료로 쓰도록 강제한다.
 없는 메뉴·지어낸 수상 경력·근거 없는 '전국 1위' 류 문구는 만들지 않는다.
@@ -19,12 +28,14 @@
   GEMINI_API_KEY — 문구·이미지 모두 여기 하나로 (팀 공유 키, 쿼터 주의)
   이미지 경로: Gemini 이미지 모델은 무료 티어 한도가 0이라(실측 2026-07-31, 전 계열
   limit: 0) 유료 키가 없으면 실패한다 → 그 경우 Pollinations.ai(키 불필요, 무료,
-  FLUX 기반)로 자동 폴백해 이미지 생성은 항상 동작한다. 단 FLUX는 한글이 깨져
-  폴백 이미지에는 글자를 넣지 않는다 — 한글 슬로건 오버레이는 유료 Gemini 키를
-  넣으면 자동으로 살아난다 (MARKETING_IMAGE_MODEL로 모델 교체 가능).
+  FLUX 기반)로 자동 폴백해 이미지 생성은 항상 동작한다.
 모델 교체 (env):
   MARKETING_GEMINI_MODEL — 문구 생성 (기본: GEMINI_MODEL과 동일)
   MARKETING_IMAGE_MODEL  — 이미지 생성 (기본: gemini-2.5-flash-image)
+한글 폰트 (슬로건 합성용):
+  MARKETING_FONT_BOLD / MARKETING_FONT_REGULAR — 없으면 시스템 한글 폰트를 자동 탐색
+  (리눅스 나눔고딕·노토, 윈도우 맑은고딕, macOS 애플고딕). 하나도 없으면 슬로건 합성만
+  건너뛰고 이미지 자체는 정상 반환한다 → 배포 이미지에는 fonts-nanum을 넣어 둔다.
 """
 
 import base64
@@ -34,6 +45,8 @@ import os
 import re
 import time
 import uuid
+from functools import lru_cache
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Optional
 
@@ -50,7 +63,11 @@ UPLOAD_DIR = Path(os.getenv("MARKETING_UPLOAD_DIR",
 IMAGE_URL_PREFIX = "/api/v1/chatbot/marketing/images"
 
 COPY_TIMEOUT = float(os.getenv("MARKETING_COPY_TIMEOUT", "30"))
-IMAGE_TIMEOUT = float(os.getenv("MARKETING_IMAGE_TIMEOUT", "60"))
+IMAGE_TIMEOUT = float(os.getenv("MARKETING_IMAGE_TIMEOUT", "90"))
+# 프롬프트 정교화 — 무료 텍스트 모델을 한 번 더 부르는 대신 결과 품질이 크게 오른다.
+# 쿼터가 아까우면 0으로 끈다 (끄면 문구 AI가 준 image_prompt를 그대로 쓴다).
+PROMPT_REFINE = os.getenv("MARKETING_PROMPT_REFINE", "1") not in ("0", "false", "False")
+REFINE_TIMEOUT = float(os.getenv("MARKETING_REFINE_TIMEOUT", "20"))
 
 # Gemini 이미지 모델이 지원하는 화면비 — SNS 정방형(1:1)이 기본, 스토리는 9:16
 _ASPECT_RATIOS = {"1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"}
@@ -248,7 +265,13 @@ _COPY_PROMPT = """너는 동네 카페 전문 마케팅 카피라이터다.
 - hashtags: 8~12개, 각 항목 # 포함 (지역명 + 메뉴 + 감성 태그 조합)
 - short_slogan: 홍보 이미지에 크게 새길 8자 이내 문구
 - image_prompt: 이 홍보물에 어울리는 이미지 생성용 영어 프롬프트 1~3문장.
-  카페 분위기·메뉴·조명·구도를 구체적으로, 실사 사진 스타일로 묘사할 것.
+  주제와 톤에서 어울리는 아트 디렉션을 스스로 골라 첫 문장에 명시할 것 —
+  실사 사진(photorealistic photography), 수채화(watercolor illustration),
+  플랫 벡터 일러스트(bold flat vector illustration), 레트로 필름(retro film),
+  미니멀(minimal design), 아늑한 손그림(cozy hand-drawn art) 등에서 컨셉에 맞게.
+  poster·sign·menu board처럼 글자를 유발하는 단어는 쓰지 말 것.
+  '나무 테이블 위 커피잔' 같은 뻔한 구도를 피하고 주제에 맞는 장면·색감·분위기로
+  매번 다르게 묘사할 것 (예: 여름 이벤트면 시원한 청량감, 유쾌한 톤이면 팝한 색).
   글자·텍스트를 넣으라는 지시는 쓰지 말 것.
 - posting_tip: 이 채널에 올릴 때 도움이 될 팁 한 문장 (업로드 시간대·구도 등)"""
 
@@ -340,9 +363,22 @@ _AR_SIZES: dict[str, tuple[int, int]] = {
     "3:4": (1056, 1408), "4:3": (1408, 1056), "2:3": (960, 1440), "3:2": (1440, 960),
     "9:16": (864, 1536), "16:9": (1536, 864), "21:9": (1792, 768),
 }
+# quality="high"에서 쓰는 배율 — 1.16배(64 배수 반올림, 최대 1792px)면 디테일이 눈에
+# 띄게 살아나면서 생성 시간은 3~5초만 늘어난다. 더 키우면 FLUX가 구도를 흐트러뜨린다.
+_HIGH_SCALE = 1.16
+_MAX_SIDE = 1792
 
 
-def _pollinations_generate(prompt: str, aspect_ratio: str) -> tuple[bytes, str]:
+def _target_size(aspect_ratio: str, quality: str) -> tuple[int, int]:
+    """화면비·품질 → 생성 픽셀 크기. 가로세로에 같은 배율을 써서 비율이 틀어지지 않게 한다."""
+    w, h = _AR_SIZES.get(aspect_ratio, (1472, 1472))
+    if quality != "high":
+        return w, h
+    factor = min(_HIGH_SCALE, _MAX_SIDE / max(w, h))
+    return (max(512, round(w * factor / 64) * 64), max(512, round(h * factor / 64) * 64))
+
+
+def _pollinations_generate(prompt: str, aspect_ratio: str, quality: str = "high") -> tuple[bytes, str]:
     """무료 폴백 — Pollinations.ai (FLUX 기반, API 키 불필요).
 
     Gemini 이미지 모델은 무료 티어 한도가 0이라(실측 2026-07-31) 유료 키가 없으면
@@ -354,19 +390,35 @@ def _pollinations_generate(prompt: str, aspect_ratio: str) -> tuple[bytes, str]:
 
     import httpx
 
-    w, h = _AR_SIZES.get(aspect_ratio, (1024, 1024))
+    w, h = _target_size(aspect_ratio, quality)
     # 프롬프트가 URL 경로에 실리므로 '/'까지 전부 인코딩해야 한다(safe='') —
     # 기본 quote는 '/'를 남겨 경로가 쪼개지며 404가 난다(실측). 줄바꿈도 공백으로.
     encoded = urllib.parse.quote(" ".join(prompt[:1500].split()), safe="")
+    params: dict[str, str] = {
+        "width": str(w), "height": str(h), "nologo": "true",
+        # 매장 홍보물이 Pollinations 공개 피드에 뜨지 않게 한다 (사장님 콘텐츠 보호)
+        "private": "true", "nofeed": "true",
+        # enhance=true: 서버 쪽 LLM이 프롬프트를 화보용으로 보강한다 — 실측으로
+        # 구도·조명 묘사가 눈에 띄게 좋아져 기본 켠다
+        "enhance": "true",
+        # model=flux: 익명 티어에서는 모델명이 사실상 무시되고 기본 모델로 수렴하지만
+        # (실측: flux/turbo/sana/sdxl 전부 같은 md5), 가입 토큰을 붙이면 존중되므로 명시해 둔다
+        "model": "flux",
+        # [같은 이미지 반복 버그 수정] Pollinations는 같은 URL을 캐시로 응답한다 —
+        # seed 없이 부르면 같은 프롬프트는 영원히 같은 이미지가 나온다(실측: seed만
+        # 바꾸면 매번 다른 이미지). 매 호출 랜덤 seed로 항상 새 이미지를 받는다.
+        "seed": str(uuid.uuid4().int % 1_000_000_000),
+    }
+    # 가입(무료 seed 티어~) 토큰이 있으면 상위 모델(seedream·kontext 등)이 열린다 —
+    # 익명은 이 파라미터 없이 동작하므로 없으면 그냥 뺀다.
+    poll_token = os.getenv("POLLINATIONS_TOKEN", "").strip()
+    if poll_token:
+        params["token"] = poll_token
+        params["model"] = os.getenv("POLLINATIONS_MODEL", "flux")
     try:
         r = httpx.get(
             "https://image.pollinations.ai/prompt/" + encoded,
-            # enhance=true: 서버 쪽 LLM이 프롬프트를 화보용으로 보강한다 — 실측으로
-            # 구도·조명 묘사가 눈에 띄게 좋아져 기본 켠다
-            # model=flux: 익명 티어 기본 모델(sana, 경량)보다 품질이 좋은 FLUX를 명시.
-            # 실측 1024² 약 5초 — 홍보물은 품질이 우선이라 속도 손해를 감수한다.
-            params={"width": w, "height": h, "nologo": "true", "enhance": "true",
-                    "model": "flux"},
+            params=params,
             timeout=IMAGE_TIMEOUT,
             follow_redirects=True,
         )
@@ -379,21 +431,363 @@ def _pollinations_generate(prompt: str, aspect_ratio: str) -> tuple[bytes, str]:
     return r.content, ctype
 
 
+# ---------------------------------------------------------------------------
+# 2-①) 프롬프트 정교화 — 무료 텍스트 모델로 아트 디렉션을 붙인다
+# ---------------------------------------------------------------------------
+
+_REFINE_PROMPT = """너는 광고 사진 아트 디렉터다. 아래 '이미지 아이디어'를 이미지 생성 모델에
+넣을 영어 프롬프트 한 문단으로 정교하게 다듬어라.
+
+반드시 구체적으로 담을 것:
+1) 피사체와 디테일(재료의 질감, 김·물방울·crema 같은 미시 묘사)
+2) 카메라 구도와 앵글(예: 45-degree angle, overhead flat lay, close-up macro)
+3) 조명(예: soft window light from the left, golden hour backlight, moody low-key)
+4) 렌즈·촬영 스펙 — 실사 계열일 때만 (예: 85mm f/1.8, shallow depth of field)
+5) 색감 팔레트와 분위기, 배경·소품 구성
+
+규칙:
+- 아트 디렉션 지시가 주어졌다면 그 스타일을 최우선으로 따르고, 사진 용어는 그 스타일의
+  언어로 바꿔라 (일러스트면 brush stroke·line weight·flat color 등).
+- 글자·문자·타이포그래피·간판·로고·메뉴판은 절대 넣지 않는다. poster, sign, text, menu board,
+  label, logo 같은 단어 자체를 쓰지 마라 (모델이 깨진 가짜 글자를 그려 넣는다).
+- 사람은 얼굴 클로즈업 대신 손·실루엣·뒷모습 위주로만 등장시켜라.
+- {composition_hint}
+- 60~90 단어의 영어 산문 한 문단만 출력한다. 목록·설명·따옴표 금지.
+
+[이미지 아이디어]
+{idea}
+
+[아트 디렉션 지시]
+{style}
+
+[화면비]
+{aspect_ratio}"""
+
+# 슬로건을 얹을 자리를 미리 비워 두게 한다 — 합성 결과가 눈에 띄게 깔끔해진다
+_COMPOSITION_HINTS = {
+    "bottom": "화면 아래 1/3은 피사체를 두지 말고 어둡고 차분한 여백으로 비워라 "
+              "(그 자리에 문구가 올라간다).",
+    "top": "화면 위 1/3은 피사체를 두지 말고 차분한 여백으로 비워라 (그 자리에 문구가 올라간다).",
+    "center": "화면 한가운데는 시선이 쉬도록 단순하게 두고 피사체는 가장자리로 배치해라 "
+              "(가운데에 문구가 올라간다).",
+    "none": "화면 전체를 꽉 채우는 완결된 구도로 만들어라.",
+}
+
+
+def _refine_image_prompt(idea: str, style: str, aspect_ratio: str, layout: str) -> str:
+    """짧은 이미지 아이디어를 상세 아트 디렉션 프롬프트로 확장한다.
+
+    실패(쿼터·타임아웃)해도 홍보물 생성 자체는 막지 않는다 — 원본 아이디어를 그대로 쓴다.
+    """
+    if not PROMPT_REFINE or not idea.strip():
+        return idea
+    prompt = _REFINE_PROMPT.format(
+        idea=idea.strip()[:1200],
+        style=style.strip() or "지정 없음 — 아이디어에 가장 어울리는 스타일을 골라라",
+        aspect_ratio=aspect_ratio,
+        composition_hint=_COMPOSITION_HINTS.get(layout, _COMPOSITION_HINTS["none"]),
+    )
+    generation_config: dict[str, Any] = {"temperature": 0.85, "maxOutputTokens": 512}
+    thinking = _thinking_config(COPY_MODEL)
+    if thinking:
+        generation_config["thinkingConfig"] = thinking
+    try:
+        raw = _gemini_call(COPY_MODEL, {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": generation_config,
+        }, REFINE_TIMEOUT)
+        text = raw["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except (MarketingError, KeyError, IndexError) as e:
+        logger.info("이미지 프롬프트 정교화 건너뜀 (%s) — 원본 프롬프트 사용", e)
+        return idea
+    text = " ".join(text.replace("\n", " ").split())
+    # 모델이 가끔 따옴표로 감싸 돌려준다 — 그대로 두면 프롬프트에 그대로 실린다
+    text = text.strip('"').strip("'").strip()
+    return text or idea
+
+
+# ---------------------------------------------------------------------------
+# 2-③) 마감 보정 — 언샤프 마스크로 화면에서 또렷하게
+# ---------------------------------------------------------------------------
+
+# 최종 저장 포맷: 사진형 홍보물이라 JPEG 고품질이 PNG보다 10배 가볍고 화질 차이가 없다.
+# 모바일에서 로딩이 체감으로 빨라진다.
+_JPEG_QUALITY = int(os.getenv("MARKETING_JPEG_QUALITY", "93"))
+
+
+def _polish(image_bytes: bytes, fallback_mime: str = "image/png") -> tuple[bytes, str]:
+    """생성 이미지를 인쇄물 느낌으로 다듬는다 — 선명도 ↑, 채도·대비 미세 보정.
+
+    보정 실패(포맷 이상 등)는 원본 바이트와 원래 mime을 그대로 반환한다.
+    """
+    try:
+        from PIL import Image, ImageEnhance, ImageFilter
+
+        im = Image.open(BytesIO(image_bytes))
+        im = im.convert("RGB")
+        # radius/percent는 과하면 윤곽에 흰 테두리(halo)가 생긴다 — 실측으로 잡은 보수적 값
+        im = im.filter(ImageFilter.UnsharpMask(radius=1.4, percent=52, threshold=3))
+        im = ImageEnhance.Color(im).enhance(1.05)
+        im = ImageEnhance.Contrast(im).enhance(1.04)
+        buf = BytesIO()
+        im.save(buf, format="JPEG", quality=_JPEG_QUALITY, subsampling=0, optimize=True)
+        return buf.getvalue(), "image/jpeg"
+    except Exception:
+        logger.warning("이미지 마감 보정 실패 — 원본 사용", exc_info=True)
+        return image_bytes, fallback_mime
+
+
+# ---------------------------------------------------------------------------
+# 2-④) 한글 슬로건 합성 — Pillow로 직접 그린다
+# ---------------------------------------------------------------------------
+
+OVERLAY_LAYOUTS = ("auto", "none", "bottom", "center", "top")
+
+_FONT_CANDIDATES_BOLD = [
+    os.getenv("MARKETING_FONT_BOLD", ""),
+    "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
+    "/usr/share/fonts/truetype/nanum/NanumBarunGothicBold.ttf",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+    "C:/Windows/Fonts/malgunbd.ttf",
+    "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+]
+_FONT_CANDIDATES_REGULAR = [
+    os.getenv("MARKETING_FONT_REGULAR", ""),
+    "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "C:/Windows/Fonts/malgun.ttf",
+    "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+]
+
+
+@lru_cache(maxsize=2)
+def _font_path(bold: bool) -> str:
+    """설치된 한글 폰트 경로 하나를 고른다 (없으면 빈 문자열)."""
+    for cand in (_FONT_CANDIDATES_BOLD if bold else _FONT_CANDIDATES_REGULAR):
+        if cand and Path(cand).is_file():
+            return cand
+    # 굵은 폰트가 없으면 일반 폰트라도 (반대도 마찬가지)
+    for cand in (_FONT_CANDIDATES_REGULAR if bold else _FONT_CANDIDATES_BOLD):
+        if cand and Path(cand).is_file():
+            return cand
+    return ""
+
+
+def korean_font_available() -> bool:
+    """슬로건 합성이 가능한 환경인지 — 프론트에 기능 노출 여부를 알릴 때 쓴다."""
+    return bool(_font_path(True))
+
+
+def _load_font(bold: bool, size: int):
+    from PIL import ImageFont
+
+    path = _font_path(bold)
+    if not path:
+        raise MarketingError("한글 폰트를 찾을 수 없습니다")
+    return ImageFont.truetype(path, size)
+
+
+def _wrap_lines(draw, text: str, font, max_width: int, max_lines: int) -> tuple[list[str], bool]:
+    """글자 단위 줄바꿈 — 한국어는 공백이 드물어 단어 단위로는 거의 안 접힌다.
+
+    반환: (줄 목록, 전부 담겼는지). 다 못 담으면 마지막 줄 끝을 …으로 줄인다.
+    """
+    lines: list[str] = []
+    cur = ""
+    for ch in text:
+        if not cur or draw.textlength(cur + ch, font=font) <= max_width:
+            cur += ch
+            continue
+        lines.append(cur)
+        cur = ch
+        if len(lines) == max_lines:
+            last = lines[-1]
+            while last and draw.textlength(last + "…", font=font) > max_width:
+                last = last[:-1]
+            lines[-1] = last + "…"
+            return lines, False
+    if cur:
+        lines.append(cur)
+    return lines, True
+
+
+def _fit_text(draw, text: str, max_width: int, start: int, bold: bool,
+              floor_1line: int, floor_2line: int) -> tuple[Any, list[str]]:
+    """한 줄로 들어가게 최대한 줄여 보고, 그래도 안 되면 두 줄로 접는다.
+
+    슬로건은 한 줄이 가장 예쁘지만, 무리하게 줄이면 글자가 작아 눈에 안 띈다 —
+    한 줄 하한(floor_1line)까지만 줄이고 그 아래로는 두 줄 배치로 넘어간다.
+    """
+    for max_lines, floor in ((1, floor_1line), (2, floor_2line)):
+        size = start
+        while size >= floor:
+            font = _load_font(bold, size)
+            lines, ok = _wrap_lines(draw, text, font, max_width, max_lines)
+            if ok:
+                return font, lines
+            size = int(size * 0.94)
+    font = _load_font(bold, floor_2line)
+    return font, _wrap_lines(draw, text, font, max_width, 2)[0]
+
+
+def _scrim(size: tuple[int, int], anchor: str, coverage: float, strength: int):
+    """텍스트 가독성용 그라데이션 검은 막 — anchor 쪽이 진하고 반대쪽으로 투명해진다."""
+    from PIL import Image
+
+    w, h = size
+    span = max(1, int(h * coverage))
+    grad = Image.new("L", (1, span))
+    for y in range(span):
+        t = y / max(1, span - 1)
+        # 제곱 커브: 가장자리는 확실히 가리고 가운데로 갈수록 자연스럽게 사라진다
+        value = int(strength * (t ** 1.6)) if anchor == "bottom" else int(strength * ((1 - t) ** 1.6))
+        grad.putpixel((0, y), value)
+    mask = grad.resize((w, span))
+    layer = Image.new("L", (w, h), 0)
+    layer.paste(mask, (0, 0 if anchor == "top" else h - span))
+    return layer
+
+
+def _draw_text(draw, xy, text, font, fill, shadow=True, anchor="la"):
+    """그림자를 깐 텍스트 — 밝은 사진 위에서도 글자가 뜬다."""
+    if shadow:
+        off = max(1, font.size // 22)
+        draw.text((xy[0] + off, xy[1] + off), text, font=font, fill=(0, 0, 0, 130), anchor=anchor)
+    draw.text(xy, text, font=font, fill=fill, anchor=anchor)
+
+
+_ACCENT = (226, 130, 87)  # colors.pointOrange — 앱 테마와 같은 색
+
+
+def _compose_overlay(image_bytes: bytes, *, slogan: str, sub: str, store: str,
+                     layout: str) -> Optional[bytes]:
+    """홍보 이미지 위에 한글 슬로건·보조문구·상호를 얹는다.
+
+    반환: 합성된 JPEG 바이트. 합성할 게 없거나 폰트가 없으면 None (원본을 그대로 쓴다).
+    """
+    slogan = (slogan or "").strip()
+    if layout == "none" or not slogan or not korean_font_available():
+        return None
+    try:
+        from PIL import Image, ImageDraw
+
+        im = Image.open(BytesIO(image_bytes)).convert("RGB")
+        W, H = im.size
+        pad = int(W * 0.065)
+        max_w = W - pad * 2
+
+        # --- 배경 막
+        if layout == "center":
+            veil = Image.new("RGB", (W, H), (0, 0, 0))
+            im = Image.blend(im, veil, 0.34)
+        else:
+            anchor = "top" if layout == "top" else "bottom"
+            shade = Image.new("RGB", (W, H), (0, 0, 0))
+            im = Image.composite(shade, im, _scrim((W, H), anchor, 0.52, 215))
+
+        overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+
+        # --- 폰트 (이미지 높이 기준 상대 크기 → 어떤 화면비에서도 균형이 맞는다)
+        base = min(W, int(H * 0.9))
+        slogan_font, slogan_lines = _fit_text(
+            draw, slogan, max_w, int(base * 0.135), True,
+            floor_1line=int(base * 0.082), floor_2line=int(base * 0.052))
+        sub_font = _load_font(False, max(14, int(base * 0.042)))
+        store_font = _load_font(True, max(12, int(base * 0.031)))
+
+        sub_lines = _wrap_lines(draw, sub.strip(), sub_font, max_w, 2)[0] if sub.strip() else []
+        gap = int(base * 0.028)
+
+        slogan_h = int(slogan_font.size * 1.18) * len(slogan_lines)
+        sub_h = int(sub_font.size * 1.45) * len(sub_lines)
+        store_h = int(store_font.size * 1.5) if store else 0
+        bar_h = max(3, int(base * 0.009))
+        bar_w = int(base * 0.11)
+        block_h = bar_h + gap + slogan_h + (gap // 2 + sub_h if sub_lines else 0) + \
+            (gap + store_h if store else 0)
+
+        centered = layout == "center"
+        if layout == "top":
+            y = pad
+        elif centered:
+            y = (H - block_h) // 2
+        else:
+            y = H - pad - block_h
+
+        x = W // 2 if centered else pad
+        text_anchor = "ma" if centered else "la"
+
+        # 액센트 바 — 브랜드 색 한 줄이 들어가면 '광고물' 느낌이 확 산다
+        bar_x0 = (W - bar_w) // 2 if centered else pad
+        draw.rounded_rectangle([bar_x0, y, bar_x0 + bar_w, y + bar_h],
+                               radius=bar_h // 2, fill=(*_ACCENT, 255))
+        y += bar_h + gap
+
+        for line in slogan_lines:
+            _draw_text(draw, (x, y), line, slogan_font, (255, 255, 255, 255), anchor=text_anchor)
+            y += int(slogan_font.size * 1.18)
+
+        if sub_lines:
+            y += gap // 2
+            for line in sub_lines:
+                _draw_text(draw, (x, y), line, sub_font, (255, 255, 255, 226), anchor=text_anchor)
+                y += int(sub_font.size * 1.45)
+
+        if store:
+            y += gap
+            # 상호는 자간을 벌려 캡션처럼 — 광고물에서 브랜드 서명 역할
+            spaced = " ".join(store[:24])
+            _draw_text(draw, (x, y), spaced, store_font, (*_ACCENT, 240), anchor=text_anchor)
+
+        im = Image.alpha_composite(im.convert("RGBA"), overlay).convert("RGB")
+        buf = BytesIO()
+        im.save(buf, format="JPEG", quality=_JPEG_QUALITY, subsampling=0, optimize=True)
+        return buf.getvalue()
+    except MarketingError:
+        return None
+    except Exception:
+        logger.warning("슬로건 합성 실패 — 글자 없는 원본으로 대체", exc_info=True)
+        return None
+
+
+def _auto_layout(aspect_ratio: str) -> str:
+    """화면비에 어울리는 기본 슬로건 위치 — 세로가 길수록 아래쪽 여백이 넉넉하다."""
+    return "center" if aspect_ratio in ("1:1", "16:9", "21:9") else "bottom"
+
+
+def _save_image(image_bytes: bytes, mime: str) -> tuple[str, str]:
+    """uploads/marketing에 저장하고 (image_id, filename)을 돌려준다."""
+    ext = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}.get(mime, ".png")
+    image_id = uuid.uuid4().hex[:12]
+    filename = f"{image_id}{ext}"
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    (UPLOAD_DIR / filename).write_bytes(image_bytes)
+    return image_id, filename
+
+
 def generate_promotion_image(store_id: str, doc_id: str = "", request: str = "",
                              style: str = "", aspect_ratio: str = "1:1",
-                             include_text: bool = True) -> dict[str, Any]:
+                             include_text: bool = True, overlay: str = "auto",
+                             quality: str = "high") -> dict[str, Any]:
     """홍보 이미지를 생성해 저장하고 표시용 URL을 돌려준다.
 
-    1순위 Gemini(유료 키가 있으면 한글 슬로건 오버레이까지 가능) →
-    실패(무료 티어 한도 0·쿼터) 시 Pollinations 무료 생성으로 자동 폴백.
+    파이프라인: 프롬프트 정교화 → 생성(Gemini→Pollinations 폴백) → 마감 보정 →
+    한글 슬로건 합성. 이미지 모델에는 항상 '글자 없는' 프롬프트만 보내고 한글은
+    우리가 직접 얹는다 — 어떤 모델이든 한글을 제대로 못 그리기 때문이다.
+
     doc_id: generate_promotion_copy로 만든 문서 id — 그 문서의 image_prompt를 쓰고,
             생성 결과가 문서 content.images에 기록된다 (챗봇 카드에 함께 표시).
     request: doc_id가 없거나 프롬프트를 직접 바꾸고 싶을 때의 이미지 설명 (한국어 가능).
     style: 추가 스타일 지시 (예: "수채화 일러스트", "필름 감성").
-    include_text: 문서의 short_slogan을 이미지 위에 한글로 새길지 (Gemini 경로만 지원).
+    include_text: False면 슬로건을 얹지 않는다 (overlay="none"과 같다, 구버전 호환).
+    overlay: auto(화면비에 맞춰 자동) | none | bottom | center | top
+    quality: high(기본, 고해상도) | standard
 
-    반환: {image_id, filename, url, mime_type, aspect_ratio, provider,
-           doc(있으면 갱신된 문서 전문)}
+    반환: {image_id, filename, url, raw_url, overlay, slogan, mime_type, aspect_ratio,
+           provider, prompt, doc(있으면 갱신된 문서 전문)}
     """
     from app.services.ai import document_service
 
@@ -406,39 +800,61 @@ def generate_promotion_image(store_id: str, doc_id: str = "", request: str = "",
         if doc["kind"] != DOC_KIND:
             raise MarketingError(f"문서 {doc_id}는 홍보 콘텐츠가 아닙니다 (kind={doc['kind']})")
 
+    if aspect_ratio not in _ASPECT_RATIOS:
+        aspect_ratio = "1:1"
+    quality = quality if quality in ("high", "standard") else "high"
+
+    content = doc["content"] if doc else {}
+    slogan = (content.get("short_slogan") or "").strip()
+    layout = overlay if overlay in OVERLAY_LAYOUTS else "auto"
+    if not include_text:
+        layout = "none"
+    if layout == "auto":
+        layout = _auto_layout(aspect_ratio) if slogan else "none"
+    if not slogan or not korean_font_available():
+        layout = "none"
+
     # 프롬프트 조립: 직접 요청 > 문서의 image_prompt > 매장 정보 기반 기본 프롬프트
     base = (request or "").strip()
     if not base and doc:
-        base = (doc["content"].get("image_prompt") or "").strip()
+        base = (content.get("image_prompt") or "").strip()
     if not base:
+        # 아무 지시가 없을 때만 기본으로 '실사 사진' 스타일을 깐다 — 그 외에는
+        # 스타일을 강제하지 않아야 프롬프트에 따라 느낌이 완전히 달라진다.
+        # (예전엔 아래에서 'marketing photography'를 항상 덧붙여, 수채화를 시켜도
+        #  사진풍으로 회귀하고 결과가 죄다 '나무 테이블 위 커피잔'처럼 비슷해졌다)
         ctx = _store_context(store_id)
         name = ctx["store_name"] or "a cozy local cafe"
         menus = ", ".join(ctx["best_menus"]) or "signature coffee"
-        base = (f"A warm, inviting promotional photo for the cafe '{name}', "
+        base = (f"A warm, inviting professional promotional photo for the cafe '{name}', "
                 f"featuring {menus}, soft natural lighting, shallow depth of field")
 
+    # ① 무료 텍스트 모델로 구도·조명·렌즈까지 지정된 프롬프트로 확장
+    base = _refine_image_prompt(base, style, aspect_ratio, layout)
+
     parts = [
-        "Create a single eye-catching cafe promotional image.",
+        "Create a single eye-catching, professional-grade cafe advertising image.",
         base,
-        "High quality, appetizing, professional food/beverage marketing photography. "
-        "No watermark, no logo, no brand marks.",
     ]
     if style.strip():
-        parts.append(f"Style: {style.strip()}")
-    # 글자 없는 공통 프롬프트 — Pollinations(FLUX)는 한글이 깨져서 텍스트 지시를 못 넣는다
-    textless_prompt = "\n".join(parts + ["No text, no letters, no captions in the image."])
-
-    slogan = (doc["content"].get("short_slogan") or "").strip() if doc else ""
-    if include_text and slogan:
-        parts.append(
-            f'Overlay the Korean text "{slogan}" as a short, elegant headline — '
-            "large, clearly legible, well-integrated into the composition. "
-            "Render the Korean characters exactly as given.")
+        # 사용자가 고른 스타일이 최우선 — image_prompt에 다른 스타일이 있어도 이걸 따른다
+        parts.append(f"Art direction: {style.strip()}. Follow this style strictly, "
+                     "it overrides any other style mentioned above.")
+    parts.append(
+        "Award-winning commercial quality, immaculate composition, rich micro-detail and "
+        "texture, professional color grading, clean edges, no watermark, no logo, no brand marks.")
+    # 포스터·네온 같은 스타일은 모델이 가짜 글자(외계 문자) 간판·헤드라인을 그려 넣는
+    # 버릇이 있어(실측) 금지를 강하게 반복한다. 한글은 어차피 우리가 얹는다.
+    parts.append(
+        "IMPORTANT: absolutely no text, no letters, no words, no numbers, no typography, "
+        "no signs with writing, no captions anywhere in the image. Pure visual imagery only.")
+    if layout != "none":
+        hint = {"bottom": "the lower third", "top": "the upper third",
+                "center": "the central area"}[layout]
+        parts.append(f"Leave {hint} of the frame visually calm and uncluttered.")
     final_prompt = "\n".join(parts)
 
-    if aspect_ratio not in _ASPECT_RATIOS:
-        aspect_ratio = "1:1"
-
+    # ② 생성 — Gemini(유료 키) 우선, 실패 시 무료 폴백
     provider = "gemini"
     try:
         raw = _gemini_call(IMAGE_MODEL, {
@@ -453,30 +869,117 @@ def generate_promotion_image(store_id: str, doc_id: str = "", request: str = "",
         # 무료 티어 한도 0·쿼터 소진 — 키 없이 되는 무료 생성으로 폴백해 기능을 살린다
         logger.info("Gemini 이미지 생성 실패 → Pollinations 무료 폴백: %s", e)
         provider = "pollinations"
-        image_bytes, mime = _pollinations_generate(textless_prompt, aspect_ratio)
+        image_bytes, mime = _pollinations_generate(final_prompt, aspect_ratio, quality)
 
-    ext = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}.get(mime, ".png")
-    image_id = uuid.uuid4().hex[:12]
-    filename = f"{image_id}{ext}"
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    (UPLOAD_DIR / filename).write_bytes(image_bytes)
+    # ③ 마감 보정 후 '글자 없는 원본'으로 저장 — 슬로건 위치를 바꿀 때 재사용한다
+    image_bytes, mime = _polish(image_bytes, mime)
+    raw_id, raw_filename = _save_image(image_bytes, mime)
+
+    # ④ 한글 슬로건 합성 (가능할 때만 별도 파일로)
+    composed = _compose_overlay(image_bytes, slogan=slogan,
+                                sub=(content.get("sub_headline") or ""),
+                                store=(content.get("store_name") or ""), layout=layout)
+    if composed:
+        image_id, filename = _save_image(composed, "image/jpeg")
+        mime = "image/jpeg"
+    else:
+        layout = "none"
+        image_id, filename = raw_id, raw_filename
 
     entry = {
         "image_id": image_id,
         "filename": filename,
         "url": f"{IMAGE_URL_PREFIX}/{filename}",
+        "raw_filename": raw_filename,
+        "raw_url": f"{IMAGE_URL_PREFIX}/{raw_filename}",  # 글자 없는 버전
+        "overlay": layout,          # none이면 url == raw_url
+        "slogan": slogan if layout != "none" else "",
         "mime_type": mime,
         "aspect_ratio": aspect_ratio,
         "style": style,
-        "provider": provider,  # gemini(한글 슬로건 가능) | pollinations(무료, 글자 없음)
+        "quality": quality,
+        "provider": provider,  # gemini(유료 키) | pollinations(무료)
+        "prompt": final_prompt[:2000],  # 재현·디버깅용
     }
 
     if doc:
-        images = list(doc["content"].get("images") or [])
+        images = list(content.get("images") or [])
         images.append(entry)
-        doc["content"]["images"] = images
-        doc = document_service.update_document(store_id, doc_id, doc["content"])
+        content["images"] = images
+        doc = document_service.update_document(store_id, doc_id, content)
 
+    return {**entry, "doc": doc}
+
+
+def recompose_promotion_image(store_id: str, doc_id: str, image_id: str = "",
+                              layout: str = "bottom") -> dict[str, Any]:
+    """이미 만든 홍보 이미지의 슬로건 위치만 바꾼다 — AI 재호출 없이 즉시 처리.
+
+    글자 없는 원본(raw)을 다시 합성하므로 여러 번 바꿔도 화질이 나빠지지 않는다.
+    image_id를 비우면 문서의 마지막 이미지를 대상으로 한다.
+    """
+    from app.services.ai import document_service
+
+    try:
+        doc = document_service.get_document(store_id, doc_id)
+    except document_service.DocumentError as e:
+        raise MarketingError(str(e))
+    if doc["kind"] != DOC_KIND:
+        raise MarketingError(f"문서 {doc_id}는 홍보 콘텐츠가 아닙니다 (kind={doc['kind']})")
+
+    content = doc["content"]
+    images = list(content.get("images") or [])
+    if not images:
+        raise MarketingError("이 홍보물에는 아직 이미지가 없습니다")
+    idx = next((i for i, e in enumerate(images) if e.get("image_id") == image_id),
+               len(images) - 1) if image_id else len(images) - 1
+    entry = dict(images[idx])
+
+    if layout not in OVERLAY_LAYOUTS:
+        layout = "bottom"
+    if layout == "auto":
+        layout = _auto_layout(entry.get("aspect_ratio") or "1:1")
+
+    raw_name = entry.get("raw_filename") or entry.get("filename") or ""
+    try:
+        raw_bytes = image_file(raw_name).read_bytes()
+    except MarketingError:
+        raise MarketingError(
+            "원본 이미지를 찾을 수 없어 위치를 바꿀 수 없습니다. 이미지를 다시 만들어 주세요.")
+
+    slogan = (content.get("short_slogan") or "").strip()
+    if layout == "none" or not slogan:
+        composed, new_layout = None, "none"
+    else:
+        composed = _compose_overlay(raw_bytes, slogan=slogan,
+                                    sub=(content.get("sub_headline") or ""),
+                                    store=(content.get("store_name") or ""), layout=layout)
+        new_layout = layout if composed else "none"
+
+    old_filename = entry.get("filename")
+    if composed:
+        _, filename = _save_image(composed, "image/jpeg")
+        entry["mime_type"] = "image/jpeg"
+    else:
+        filename = raw_name
+        entry["mime_type"] = "image/jpeg"
+    entry["filename"] = filename
+    entry["url"] = f"{IMAGE_URL_PREFIX}/{filename}"
+    entry["raw_filename"] = raw_name
+    entry["raw_url"] = f"{IMAGE_URL_PREFIX}/{raw_name}"
+    entry["overlay"] = new_layout
+    entry["slogan"] = slogan if new_layout != "none" else ""
+
+    # 이전 합성본은 지운다 (원본은 남긴다) — 레이아웃을 여러 번 바꿔도 디스크가 안 샌다
+    if old_filename and old_filename not in (filename, raw_name):
+        try:
+            (UPLOAD_DIR / old_filename).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    images[idx] = entry
+    content["images"] = images
+    doc = document_service.update_document(store_id, doc_id, content)
     return {**entry, "doc": doc}
 
 

@@ -62,6 +62,107 @@ export type BeanSearchParams = {
   limit?: number;
 };
 
+/** 후기 1건 */
+export type BeanReview = {
+  id: number;
+  bean_id: number;
+  source_site: string;      // Naver Blog / Naver Cafe
+  source_url: string | null; // 원문 링크
+  rating: number;
+  content: string;
+  sentiment: 'positive' | 'neutral' | 'negative' | null;
+  keywords: string[] | null;
+  collected_at: string;
+};
+
+export type BeanReviewsResponse = {
+  summary: BeanReviewSummary;
+  reviews: BeanReview[];
+};
+
+/**
+ * 특정 원두의 후기 목록과 집계를 가져옵니다.
+ *
+ * [한글 주석] 후기는 네이버 블로그·카페 검색 API로 모은 실제 글입니다.
+ * 별점이 없는 글이라 rating은 감성 분석 기반 추정치입니다.
+ */
+export async function fetchBeanReviews(beanId: number): Promise<BeanReviewsResponse> {
+  return apiFetch<BeanReviewsResponse>(`/api/v1/roastery/beans/${beanId}/reviews`);
+}
+
+/** 대체 추천 원두 1건 */
+export type BeanAlternative = {
+  id: number;
+  name: string;
+  roastery_name: string;
+  price: number;
+  price_per_gram: number;
+  grams: number | null;   // 포장 중량 (비교 기준을 보여주기 위해 함께 노출)
+  country: string | null;
+  process: string | null;
+  cup_notes: string | null;
+  product_url: string | null;
+  review_count: number;
+  avg_rating: number;
+  similarity: number;
+  reasons: string[];       // 추천 근거 (같은 원산지 등)
+  saving_per_gram: number;
+  saving_per_shot: number; // 잔당 절감액 (20g 기준)
+  saving_pct: number;
+};
+
+export type BeanAlternativesResponse = {
+  bean_id: number;
+  bean_name: string;
+  base_price_per_gram: number;
+  base_grams: number | null;
+  grams_per_shot: number;
+  candidates_considered: number;
+  alternatives: BeanAlternative[];
+  message: string;
+};
+
+/**
+ * 이 원두와 비슷하면서 더 저렴한 대체 원두를 가져옵니다.
+ *
+ * [한글 주석] 카페 사장님에게는 "취향에 맞는 원두"보다
+ * "맛은 비슷한데 잔당 얼마 싼 원두"가 발주 결정에 직접적입니다.
+ */
+export async function fetchBeanAlternatives(
+  beanId: number,
+  limit = 5
+): Promise<BeanAlternativesResponse> {
+  return apiFetch<BeanAlternativesResponse>(
+    `/api/v1/roastery/beans/${beanId}/alternatives?limit=${limit}`
+  );
+}
+
+/** 원산지·가공방식 그룹별 g당 단가 통계 */
+export type MarketStats = {
+  count: number;
+  avg: number;
+  median: number;
+  min: number;
+  max: number;
+};
+
+export type MarketSummary = {
+  overall: MarketStats | null;
+  by_country: Record<string, MarketStats>;
+  by_process: Record<string, MarketStats>;
+  min_group_size: number;
+};
+
+/**
+ * 시세표를 가져옵니다 (원산지별 g당 단가 통계).
+ *
+ * [한글 주석] 원두마다 API를 부르면 50번 호출이 되므로, 그룹 통계만 한 번 받아
+ * 각 원두의 g당 단가와 화면에서 비교합니다.
+ */
+export async function fetchMarketSummary(): Promise<MarketSummary> {
+  return apiFetch<MarketSummary>('/api/v1/roastery/market/summary');
+}
+
 /** 원두 목록을 실제 DB에서 검색합니다 (이름·원산지·풍미 텍스트 + 정렬/필터) */
 export async function searchBeans(params: BeanSearchParams = {}): Promise<BeanSearchResponse> {
   const q = new URLSearchParams();

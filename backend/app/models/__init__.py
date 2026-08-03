@@ -4,7 +4,7 @@
 from app.models.ai import (
     AdminAccount, AdminNotification, ChatSession, ComplianceItem, DailySalesEntry, DeviceToken,
     EmployeeProfile, GeneratedDocument, InsightAck, NotificationSetting, OcrDocument, OcrItem,
-    SentNotification, SettlementSetting, TodoItem,
+    PosConnection, PosSyncedOrder, SentNotification, SettlementSetting, TodoItem,
 )
 
 # I (inquiry.py & inventory.py)

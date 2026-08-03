@@ -54,13 +54,18 @@ import { useAuth } from '../../auth/AuthContext';
 import {
   FONT_SIZE_LABEL,
   LANGUAGE_LABEL,
+  SPEECH_RATE_STEPS,
   VOICE_TYPE_LABEL,
+  nearestSpeechRate,
   usePreferences,
   type FontSize,
   type Language,
+  type VoiceAlertOutput,
   type VoiceType,
 } from '../../preferences/PreferencesContext';
 import speechPlayer from '../../lib/speech/speechPlayer';
+import { resetEarphoneCache } from '../../lib/speech/audioPolicy';
+import type { EarphoneStatus } from '../../lib/speech/speechTypes';
 import { useTranslation } from '../../i18n/translations';
 import { Badge, Button, Card, Divider, Screen, SectionTitle, IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
@@ -68,12 +73,8 @@ import { PressableScale } from '../../components/motion';
 import { confirmDialog, toast } from '../../components/toast';
 import { API_BASE_URL } from '../../lib/api/client';
 import { getSensorFeature, setSensorFeature } from '../../lib/api/sensor';
-import {
-  DEFAULT_SETTLEMENT_SETTINGS,
-  getSettlementSettings,
-  updateSettlementSettings,
-  type SettlementSettings,
-} from '../../lib/api/settlement';
+import SettlementSetupPanel from '../../components/settlement/SettlementSetupPanel';
+import { getSettlementSettings } from '../../lib/api/settlement';
 import { resolveStoreProfile, updateStoreProfile } from '../../lib/api/store';
 import { isNativePushAvailable } from '../../notifications/pushRegistration';
 import { colors, typography } from '../../theme';
@@ -156,6 +157,17 @@ export default function SettingsScreen() {
   // 서버 조회가 성공하면 실제 값으로 동기화. 조회가 실패해도 스위치는 항상 누를 수 있다.
   const [sensorOn, setSensorOn] = useState(true);
 
+  // 카드 정산을 한 번이라도 설정했는지 — 메뉴에 '설정 필요' 배지를 띄우는 용도.
+  // null이면 아직 모르는 상태라 배지를 띄우지 않는다(깜빡임 방지).
+  const [settlementConfigured, setSettlementConfigured] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    getSettlementSettings(token)
+      .then((r) => setSettlementConfigured(!!r.configured))
+      .catch(() => {}); // 조회 실패 시 배지는 그냥 띄우지 않는다
+  }, [token]);
+
   useEffect(() => {
     if (!token) return;
     getSensorFeature(token)
@@ -180,18 +192,53 @@ export default function SettingsScreen() {
     }
   };
 
+  // ── 음성 알림 출력 상태 ─────────────────────────────────────────
+  // [한글 주석] "이어폰을 꼈는데 왜 안 읽어주지?"를 사장님이 직접 확인할 수 있게,
+  // 지금 앱이 판단한 출력 장치를 알림 설정 화면에 그대로 보여준다.
+  // (안드로이드 이어폰 감지 API가 false를 내놓는 기기가 있어, 감지 결과를 숨기면
+  //  음성이 안 나오는 이유를 알 방법이 없었다)
+  const [audioOut, setAudioOut] = useState<EarphoneStatus | null>(null);
+  const [audioChecking, setAudioChecking] = useState(false);
+
+  const refreshAudioOut = async (force = false) => {
+    if (force) resetEarphoneCache();
+    setAudioChecking(true);
+    try {
+      setAudioOut(await speechPlayer.isEarphoneConnected());
+    } catch {
+      setAudioOut({ connected: false, supported: false, via: null, reason: '확인 실패' });
+    } finally {
+      setAudioChecking(false);
+    }
+  };
+
   // [한글 주석: 1대1 CS 탭 슬라이더 너비 및 슬라이드 애니메이션 상태]
   const [csTrackWidth, setCsTrackWidth] = useState(300);
   const csSlideAnim = useRef(new Animated.Value(0)).current;
 
-  // [한글 주석: 화면 subView 전환 시 툭툭 끊기지 않게 쫀득한 반동을 주는 커스텀 스프링 트랜지션]
+  const subViewAnim = useRef(new Animated.Value(1)).current;
+
+  // [한글 주석: 설정 메뉴 들어갔다 나올 때 쫀득한 입체 반동과 부드러운 슬라이딩을 주는 트랜지션 모션]
   const springTransition = () => {
     LayoutAnimation.configureNext({
-      duration: 380,
-      create: { type: LayoutAnimation.Types.spring, property: LayoutAnimation.Properties.opacity, springDamping: 0.78 },
-      update: { type: LayoutAnimation.Types.spring, springDamping: 0.78 },
-      delete: { type: LayoutAnimation.Types.spring, property: LayoutAnimation.Properties.opacity, springDamping: 0.78 }
+      duration: 320,
+      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+      update: { type: LayoutAnimation.Types.spring, springDamping: 0.76 },
+      delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
     });
+  };
+
+  const changeSubView = (nextView: typeof subView) => {
+    springTransition();
+    subViewAnim.setValue(0.95);
+    Animated.spring(subViewAnim, {
+      toValue: 1,
+      friction: 6,
+      tension: 180,
+      useNativeDriver: true,
+    }).start();
+
+    setSubView(nextView);
   };
 
   useEffect(() => {
@@ -222,6 +269,15 @@ export default function SettingsScreen() {
   // [한글 주석: 설정 창 내부 서브 라우팅 뷰 관리 상태 ('main'일 때는 메뉴 목록 노출)]
   const [subView, setSubView] = useState<'main' | 'account' | 'notification' | 'appearance' | 'inquiry' | 'legal' | 'settlement'>(initialSection ?? 'main');
 
+  // 알림 설정 화면을 보고 있는 동안에만 출력 장치를 주기적으로 다시 확인한다.
+  // (이어폰을 꽂거나 빼면 몇 초 안에 화면 문구가 따라 바뀌어야 사장님이 신뢰할 수 있다)
+  useEffect(() => {
+    if (subView !== 'notification') return;
+    refreshAudioOut(true);
+    const timer = setInterval(() => refreshAudioOut(true), 5000);
+    return () => clearInterval(timer);
+  }, [subView]);
+
   // [한글 주석: 현재 진입한 subView 상태에 맞춰 상단 헤더 타이틀과 뒤로가기 동작을 동적으로 변경]
   useEffect(() => {
     let title = t('settings');
@@ -249,13 +305,11 @@ export default function SettingsScreen() {
       headerTitleContainerStyle: { marginLeft: 4 },
       headerLeft: () => (
         <PressableScale
-          style={{ marginLeft: 2, marginRight: 10, padding: 4 }} // [한글 주석: 화살표 뒤에 10px 여백을 부여하여 바짝 붙지 않도록 띄움]
-          to={0.88}
+          style={{ marginLeft: 2, marginRight: 10, padding: 6 }}
+          to={0.84}
           onPress={() => {
-            // [한글 주석: 뒤로가기 시 투박하게 딱딱 전환되던 easeInEaseOut 대신 부드럽고 쫀득한 스프링 탄성 애니메이션 적용]
-            springTransition();
             if (subView !== 'main') {
-              setSubView('main');
+              changeSubView('main');
             } else {
               navigation.goBack();
             }
@@ -445,15 +499,14 @@ export default function SettingsScreen() {
     <Screen>
       <SubViewTransition viewKey={subView}>
       {/* ── [한글 주석: 설정 첫 화면 진입 시 카테고리 6개 항목 메뉴 리스트 노출] ── */}
+      {/* ── [한글 주석: 설정 첫 화면 진입 시 카테고리 6개 항목 메뉴 리스트 노출] ── */}
       {subView === 'main' && (
-        <View style={{ gap: 12, marginTop: 8 }}>
+        <Animated.View style={{ gap: 12, marginTop: 8, opacity: subViewAnim, transform: [{ scale: subViewAnim }] }}>
           {/* 가게 & 계정 설정 */}
           <PressableScale
             style={styles.menuItemCard}
-            onPress={() => {
-              springTransition();
-              setSubView('account');
-            }}
+            to={0.975}
+            onPress={() => changeSubView('account')}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               <View style={styles.menuIconWrap}>
@@ -474,10 +527,8 @@ export default function SettingsScreen() {
           {/* 알림 수신 설정 */}
           <PressableScale
             style={styles.menuItemCard}
-            onPress={() => {
-              springTransition();
-              setSubView('notification');
-            }}
+            to={0.975}
+            onPress={() => changeSubView('notification')}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               <View style={styles.menuIconWrap}>
@@ -498,21 +549,26 @@ export default function SettingsScreen() {
           {/* 카드 정산 설정 — 수수료율 구간·카드사별 입금 소요일 */}
           <PressableScale
             style={styles.menuItemCard}
-            onPress={() => {
-              springTransition();
-              setSubView('settlement');
-            }}
+            to={0.975}
+            onPress={() => changeSubView('settlement')}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               <View style={styles.menuIconWrap}>
                 <Ionicons name="card-outline" size={20} color={colors.espressoBrown} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.menuItemTitle}>{prefs.language === 'en' ? 'Card Settlement' : '카드 정산 설정'}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={styles.menuItemTitle}>{prefs.language === 'en' ? 'Card Settlement' : '카드 정산 설정'}</Text>
+                  {/* 한 번도 설정한 적이 없으면 여기서 먼저 눈에 띄어야 한다 —
+                      기본값으로 조용히 계산되고 있다는 걸 사장님은 모른다 */}
+                  {settlementConfigured === false && (
+                    <Badge label={prefs.language === 'en' ? 'Setup needed' : '설정 필요'} tone="orange" />
+                  )}
+                </View>
                 <Text style={styles.menuItemDesc}>
                   {prefs.language === 'en'
-                    ? 'Fee tier & per-issuer deposit lead time'
-                    : '수수료율 구간, 카드사별 입금 소요일'}
+                    ? 'Guided 3-step setup — fees & deposit dates'
+                    : '3단계 안내로 수수료율·입금일 설정 (처음이면 여기부터)'}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
@@ -522,10 +578,8 @@ export default function SettingsScreen() {
           {/* 화면 표시 & 접근성 */}
           <PressableScale
             style={styles.menuItemCard}
-            onPress={() => {
-              springTransition();
-              setSubView('appearance');
-            }}
+            to={0.975}
+            onPress={() => changeSubView('appearance')}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               <View style={styles.menuIconWrap}>
@@ -544,10 +598,8 @@ export default function SettingsScreen() {
           {/* 1대1 문의 & 요청사항 */}
           <PressableScale
             style={styles.menuItemCard}
-            onPress={() => {
-              springTransition();
-              setSubView('inquiry');
-            }}
+            to={0.975}
+            onPress={() => changeSubView('inquiry')}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               <View style={styles.menuIconWrap}>
@@ -566,10 +618,8 @@ export default function SettingsScreen() {
           {/* 약관 및 정책 */}
           <PressableScale
             style={styles.menuItemCard}
-            onPress={() => {
-              springTransition();
-              setSubView('legal');
-            }}
+            to={0.975}
+            onPress={() => changeSubView('legal')}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               <View style={styles.menuIconWrap}>
@@ -584,7 +634,7 @@ export default function SettingsScreen() {
               <Ionicons name="chevron-forward" size={18} color={colors.mochaBrown + '80'} />
             </View>
           </PressableScale>
-        </View>
+        </Animated.View>
       )}
 
       {/* ① 계정 / 가게 정보 */}
@@ -713,6 +763,21 @@ export default function SettingsScreen() {
 
 
 
+        {/* [한글 주석: 매장 센서 연동 ON/OFF 스위치 복원] */}
+        <Divider />
+        <Row
+          label="매장 센서 연동"
+          hint="센서가 없는 매장은 꺼 두세요 — 발주 화면의 라이브·배너·AI 코치 알림이 모두 숨겨져요"
+          right={
+            <Switch
+              value={sensorOn}
+              onValueChange={toggleSensor}
+              trackColor={{ false: '#D6CFC7', true: colors.espressoBrown }}
+              thumbColor={colors.white}
+            />
+          }
+        />
+
         <Divider />
         <Text style={[styles.fieldLabel, { marginTop: 4 }]}>비밀번호 변경</Text>
         <View style={styles.pwRow}>
@@ -740,7 +805,7 @@ export default function SettingsScreen() {
       )}
 
       {/* 카드 정산 설정 — 수수료율 구간과 카드사별 입금 소요일 */}
-      {subView === 'settlement' && <SettlementSettingsPanel />}
+      {subView === 'settlement' && <SettlementSetupPanel />}
 
       {/* ② 알림 설정 */}
       {subView === 'notification' && (
@@ -795,7 +860,7 @@ export default function SettingsScreen() {
         <Divider />
         <Row
           label="알림 음성 읽어주기"
-          hint="이어폰·에어팟(블루투스) 연결 시 완료 알림을 음성으로 읽어드려요"
+          hint="완료 알림·브리핑을 사장님 목소리 설정으로 읽어드려요"
           right={
             <Switch
               value={prefs.voiceAlertEnabled}
@@ -805,6 +870,97 @@ export default function SettingsScreen() {
             />
           }
         />
+
+        {/* [한글 주석] 음성 출력 조건 + 지금 어디로 나가는지 실시간 표시.
+            예전엔 '이어폰 연결 시에만'이 코드에 박혀 있었는데, 안드로이드 이어폰 감지가
+            연결을 놓치는 기기에서는 아무 말도 안 하는 상태가 됐다. 이제 조건을 고를 수 있고,
+            감지 결과와 테스트 재생까지 이 자리에서 확인된다. */}
+        {prefs.voiceAlertEnabled ? (
+          <View style={styles.voiceOutBox}>
+            <Text style={[styles.fieldLabel, { marginTop: 0 }]}>언제 소리로 읽어줄까요?</Text>
+            <View style={{ marginTop: 8 }}>
+              <Segmented
+                options={[
+                  { value: 'always', label: '항상 읽어주기' },
+                  { value: 'earphone', label: '이어폰 연결 시에만' },
+                ]}
+                value={prefs.voiceAlertOutput}
+                onChange={(v) => prefs.setPref('voiceAlertOutput', v as VoiceAlertOutput)}
+              />
+            </View>
+
+            <View style={styles.audioStatusRow}>
+              <Ionicons
+                name={
+                  audioOut?.connected
+                    ? 'headset'
+                    : audioOut?.supported === false
+                      ? 'help-circle-outline'
+                      : 'volume-medium-outline'
+                }
+                size={15}
+                color={audioOut?.connected ? colors.espressoBrown : colors.mochaBrown}
+              />
+              <Text style={styles.audioStatusText}>
+                {audioOut === null
+                  ? '출력 장치를 확인하는 중이에요…'
+                  : audioOut.connected
+                    ? `이어폰 연결됨${
+                        audioOut.via === 'bluetooth'
+                          ? ' (블루투스)'
+                          : audioOut.via === 'wired'
+                            ? ' (유선)'
+                            : audioOut.via === 'recent'
+                              ? ' (최근 연결 유지 중)'
+                              : ''
+                      } — 음성이 이어폰으로 나가요`
+                    : audioOut.supported === false
+                      ? '이 기기에선 이어폰 연결을 확인할 수 없어요 — 조건과 상관없이 읽어드려요'
+                      : '이어폰 없음 — 스피커로 나가요'}
+              </Text>
+              <PressableScale
+                style={styles.audioCheckBtn}
+                onPress={() => refreshAudioOut(true)}
+                to={0.9}
+              >
+                <Ionicons
+                  name="refresh"
+                  size={12}
+                  color={colors.espressoBrown}
+                  style={{ marginRight: 3 }}
+                />
+                <Text style={styles.audioCheckBtnText}>
+                  {audioChecking ? '확인 중' : '다시 확인'}
+                </Text>
+              </PressableScale>
+            </View>
+
+            <PressableScale
+              style={styles.audioTestBtn}
+              to={0.94}
+              onPress={async () => {
+                // 실제 알림과 똑같은 정책으로 판단한 뒤 재생 — "설정에선 되는데 알림은 안 되는" 차이 방지
+                const permission = await speechPlayer.canPlayAudio();
+                await refreshAudioOut(true);
+                if (!permission.allowed) {
+                  toast('음성을 건너뛰었어요', permission.reason ?? '지금은 소리를 낼 수 없어요.');
+                  return;
+                }
+                speechPlayer.speak(
+                  '사장님, 알림이 오면 이 목소리와 이 속도로 읽어드릴게요.',
+                  { voiceType: prefs.voiceType, rate: prefs.speechRate }
+                );
+              }}
+            >
+              <Ionicons name="play" size={13} color="#FFFFFF" style={{ marginRight: 5 }} />
+              <Text style={styles.audioTestBtnText}>지금 알림 음성 테스트</Text>
+            </PressableScale>
+
+            <Text style={styles.audioHint}>
+              목소리와 말하는 속도는 설정 &gt; 화면 표시에서 바꿀 수 있어요.
+            </Text>
+          </View>
+        ) : null}
         <Divider />
         <Row
           label="음성 비서 버튼 표시"
@@ -917,7 +1073,7 @@ export default function SettingsScreen() {
                     : vt === 'cute_child'
                       ? '우와 사장님 안녕! 귀여운 꼬마 목소리야!'
                       : '안녕하세요 사장님! 다정한 아나운서 여성 목소리입니다.';
-              speechPlayer.speak(sampleText, vt);
+              speechPlayer.speak(sampleText, { voiceType: vt, rate: prefs.speechRate });
             }}
             to={0.88}
           >
@@ -944,7 +1100,7 @@ export default function SettingsScreen() {
                         : vt === 'cute_child'
                           ? '우와 사장님 안녕! 귀여운 꼬마 목소리야!'
                           : '안녕하세요 사장님! 다정한 아나운서 여성 목소리입니다.';
-                  speechPlayer.speak(sampleText, vt);
+                  speechPlayer.speak(sampleText, { voiceType: vt, rate: prefs.speechRate });
                 }}
                 to={0.94}
               >
@@ -971,6 +1127,44 @@ export default function SettingsScreen() {
             );
           })}
         </View>
+
+        {/* [한글 주석] 말하는 속도 — 알림을 읽는 빠르기. 5단계로 고르고, 고르는 즉시
+            그 속도로 샘플이 나가 바로 비교된다. 값은 목소리 타입의 기본 속도에 곱해지므로
+            어떤 목소리를 골라도 사장님이 정한 빠르기가 그대로 따라간다. */}
+        <Text style={styles.fieldLabel}>말하는 속도</Text>
+        <View style={styles.rateRow}>
+          {SPEECH_RATE_STEPS.map((step) => {
+            const active = nearestSpeechRate(prefs.speechRate) === step.value;
+            return (
+              <PressableScale
+                key={step.value}
+                style={[styles.rateChip, active && styles.rateChipActive]}
+                onPress={() => {
+                  prefs.setPref('speechRate', step.value);
+                  speechPlayer.speak(
+                    '이 속도로 알림을 읽어드릴게요. 사장님, 오늘도 좋은 하루 되세요.',
+                    { voiceType: prefs.voiceType ?? 'warm_female', rate: step.value }
+                  );
+                }}
+                to={0.92}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={[styles.rateChipText, active && styles.rateChipTextActive]}
+                >
+                  {step.label}
+                </Text>
+              </PressableScale>
+            );
+          })}
+        </View>
+        <Text style={styles.rateHint}>
+          {SPEECH_RATE_STEPS.find((s) => s.value === nearestSpeechRate(prefs.speechRate))?.hint ??
+            '기본 속도'}
+          {' · '}
+          {nearestSpeechRate(prefs.speechRate).toFixed(2).replace(/0$/, '')}배속 — 누르면 바로
+          들려드려요
+        </Text>
 
         {/* 미리보기 — 선택한 글자 크기 및 언어가 즉시 반영 */}
         <View style={styles.previewBox}>
@@ -1307,211 +1501,13 @@ export default function SettingsScreen() {
           label={t('returnToSettingsHome')}
           variant="secondary"
           style={{ marginTop: 14 }}
-          onPress={() => {
-            springTransition();
-            setSubView('main');
-          }}
+          onPress={() => changeSubView('main')}
         />
       )}
       </SubViewTransition>
     </Screen>
   );
 }
-
-// 카드 정산 설정 — 수수료율 구간과 카드사별 입금 소요일.
-//
-// 기본값은 법정 기준(여전법상 지급기일 상한)과 금융위 고시 우대수수료율이지만, 실제 계약과
-// 통장 입금일은 매장마다 다르다. 사장님이 통장을 보고 직접 고칠 수 있어야 예상 입금일이
-// 신뢰할 수 있는 숫자가 된다.
-// 백엔드는 lag_overrides를 통째로 덮어쓴다 — 한 카드사만 보내면 나머지 설정이 날아간다.
-// 그래서 현재 화면에 보이는 전체 값을 함께 실어 보낸다.
-function withLag(data: SettlementSettings, code: string, next: number): Record<string, number> {
-  const clamped = Math.max(0, Math.min(10, next));
-  return Object.fromEntries(
-    data.issuers.map((i) => [i.code, i.code === code ? clamped : i.lag]),
-  );
-}
-
-function SettlementSettingsPanel() {
-  const { token } = useAuth();
-  const [data, setData] = useState<SettlementSettings | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!token) {
-      setData(DEFAULT_SETTLEMENT_SETTINGS);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    getSettlementSettings(token)
-      .then((res) => {
-        if (!cancelled) {
-          setData(res);
-          setLoading(false);
-        }
-      })
-      .catch((e) => {
-        console.error('정산 설정 조회 실패:', e);
-        if (!cancelled) {
-          // [한글 주석: 백엔드가 응답하지 않거나 네트워크 오류 시에도 멈춤 화면을 보이지 않도록 기본 정산 설정 제공]
-          setData(DEFAULT_SETTLEMENT_SETTINGS);
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
-
-  const apply = async (body: Parameters<typeof updateSettlementSettings>[1]) => {
-    if (saving) return;
-    setSaving(true);
-    try {
-      if (token) {
-        setData(await updateSettlementSettings(token, body));
-      }
-      toast('설정 반영 완료', '카드 정산 설정이 적용되었습니다.');
-    } catch (e) {
-      console.error('정산 설정 저장 실패:', e);
-      // 백엔드가 비정상이어도 화면 로컬 상태에는 변경사항을 즉시 반영해 먹통을 방지함
-      if (body.revenue_tier && data) {
-        const selTier = data.tiers.find((t) => t.code === body.revenue_tier);
-        if (selTier) {
-          setData({
-            ...data,
-            revenue_tier: selTier.code,
-            tier_label: selTier.label,
-            credit_fee_pct: selTier.credit,
-            check_fee_pct: selTier.check,
-          });
-        }
-      }
-      toast('설정 저장 완료', '로컬 정산 설정이 반영되었습니다.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (loading && !data) {
-    return (
-      <Card>
-        <View style={{ paddingVertical: 24, alignItems: 'center', gap: 10 }}>
-          <ActivityIndicator color={colors.mochaBrown} />
-          <Text style={styles.rowHint}>정산 설정을 불러오는 중…</Text>
-        </View>
-      </Card>
-    );
-  }
-
-  if (!data) return null;
-
-  return (
-    <>
-      <Card>
-        <SectionTitle>카드 수수료율</SectionTitle>
-        <Text style={styles.rowHint}>
-          연매출 구간에 따라 우대수수료율이 정해져 있어요. 계약서에 적힌 요율이 다르면 ‘직접 입력’을 고르세요.
-        </Text>
-        <View style={{ marginTop: 12, gap: 7 }}>
-          {data.tiers.map((tier) => {
-            const active = data.revenue_tier === tier.code;
-            return (
-              <PressableScale
-                key={tier.code}
-                style={[stlStyles.tierRow, active && stlStyles.tierRowActive]}
-                onPress={() => apply({ revenue_tier: tier.code })}
-                to={0.98}
-              >
-                <Ionicons
-                  name={active ? 'radio-button-on' : 'radio-button-off'}
-                  size={17}
-                  color={active ? colors.espressoBrown : colors.mochaBrown}
-                />
-                <Text style={[stlStyles.tierLabel, active && { fontWeight: '800' }]}>{tier.label}</Text>
-                <Text style={stlStyles.tierRate}>
-                  신용 {tier.credit}% / 체크 {tier.check}%
-                </Text>
-              </PressableScale>
-            );
-          })}
-        </View>
-        <Text style={styles.rowHint}>
-          지금 적용 중: 신용 {data.credit_fee_pct}% · 체크 {data.check_fee_pct}%
-        </Text>
-      </Card>
-
-      <Card>
-        <SectionTitle>카드사별 입금 소요일</SectionTitle>
-        <Text style={styles.rowHint}>
-          매출이 발생한 날부터 통장에 들어오기까지 걸리는 영업일 수예요. 주말·공휴일은 자동으로
-          빼고 계산합니다. 통장 입금일과 다르면 여기서 고쳐 주세요.
-        </Text>
-        <View style={{ marginTop: 12 }}>
-          {data.issuers.map((iss) => (
-            <View key={iss.code} style={stlStyles.lagRow}>
-              <View style={[stlStyles.dot, { backgroundColor: iss.color }]} />
-              <Text style={stlStyles.lagName}>{iss.name}</Text>
-              <View style={stlStyles.stepper}>
-                <PressableScale
-                  style={stlStyles.stepBtn}
-                  onPress={() => apply({ lag_overrides: withLag(data, iss.code, iss.lag - 1) })}
-                  to={0.9}
-                >
-                  <Ionicons name="remove" size={15} color={colors.espressoBrown} />
-                </PressableScale>
-                <Text style={stlStyles.lagValue}>D+{iss.lag}</Text>
-                <PressableScale
-                  style={stlStyles.stepBtn}
-                  onPress={() => apply({ lag_overrides: withLag(data, iss.code, iss.lag + 1) })}
-                  to={0.9}
-                >
-                  <Ionicons name="add" size={15} color={colors.espressoBrown} />
-                </PressableScale>
-              </View>
-            </View>
-          ))}
-        </View>
-        <Text style={[styles.rowHint, { marginTop: 12 }]}>
-          기본값은 여신전문금융업법상 지급기일(영세·중소 가맹점 2영업일, 일반 3영업일)을 기준으로
-          한 추정치예요. 확정 금액과 날짜는 카드사 정산 내역을 확인하세요.
-        </Text>
-      </Card>
-    </>
-  );
-}
-
-const stlStyles = StyleSheet.create({
-  tierRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-    backgroundColor: colors.creamSand,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-  },
-  tierRowActive: { backgroundColor: colors.coffeeCream },
-  tierLabel: { ...typography.L5, color: colors.espressoBrown, flex: 1 },
-  tierRate: { fontSize: 10, fontWeight: '700', color: colors.mochaBrown },
-  lagRow: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 7 },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  lagName: { ...typography.L4, color: colors.espressoBrown, flex: 1 },
-  stepper: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  stepBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colors.coffeeCream,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  lagValue: { ...typography.L4, color: colors.espressoBrown, minWidth: 34, textAlign: 'center' },
-});
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10 },
@@ -1761,5 +1757,101 @@ const styles = StyleSheet.create({
     color: colors.mochaBrown,
     marginTop: 4,
     lineHeight: 13,
+  },
+  // [한글 주석: 말하는 속도 5단계 칩]
+  // [한글 주석] 5단계가 반드시 한 줄에 들어가야 한다 — 줄바꿈되면 '아주 빠르게'만 아래로
+  // 떨어져 단계가 이어져 보이지 않는다. 그래서 wrap 없이 다섯 칸을 균등 분할한다.
+  rateRow: {
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    gap: 4,
+    marginTop: 8,
+  },
+  rateChip: {
+    flex: 1,
+    paddingHorizontal: 2,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: '#FFFDF9',
+    borderWidth: 1,
+    borderColor: '#EFECE6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rateChipActive: {
+    backgroundColor: colors.espressoBrown,
+    borderColor: colors.espressoBrown,
+  },
+  rateChipText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: colors.mochaBrown,
+    textAlign: 'center',
+    letterSpacing: -0.4, // 좁은 칸에 '아주 느리게'가 한 줄로 들어가도록 자간을 살짝 줄인다
+  },
+  rateChipTextActive: {
+    color: colors.white,
+    fontWeight: '900',
+  },
+  rateHint: {
+    ...typography.L5,
+    color: colors.mochaBrown,
+    marginTop: 7,
+    lineHeight: 16,
+  },
+  // [한글 주석: 음성 출력 조건 · 현재 출력 장치 표시 박스]
+  voiceOutBox: {
+    marginTop: 10,
+    backgroundColor: '#FFFDF9',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#EFECE6',
+    padding: 12,
+  },
+  audioStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 10,
+  },
+  audioStatusText: {
+    ...typography.L5,
+    color: colors.mochaBrown,
+    flex: 1,
+    lineHeight: 16,
+  },
+  audioCheckBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.espressoBrown,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  audioCheckBtnText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: colors.espressoBrown,
+  },
+  audioTestBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.espressoBrown,
+    borderRadius: 10,
+    paddingVertical: 9,
+    marginTop: 10,
+  },
+  audioTestBtnText: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: colors.white,
+  },
+  audioHint: {
+    ...typography.L5,
+    color: colors.mochaBrown,
+    marginTop: 8,
+    lineHeight: 15,
   },
 });

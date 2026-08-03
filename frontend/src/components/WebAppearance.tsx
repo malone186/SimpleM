@@ -25,6 +25,23 @@ export default function WebAppearance() {
         zoom: var(--app-zoom, 1);
         width: var(--app-width, 100%) !important;
       }
+      /* [한글 주석: 스크롤바가 레이아웃 너비를 차지해 좌우 대칭이 깨지거나 쏠리는 현상 방지 — 스크롤바 전역 숨김] */
+      ::-webkit-scrollbar {
+        width: 0px !important;
+        height: 0px !important;
+        display: none !important;
+        background: transparent !important;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent !important;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: transparent !important;
+      }
+      * {
+        -ms-overflow-style: none !important;
+        scrollbar-width: none !important;
+      }
     `;
     document.head.appendChild(style);
   }, []);

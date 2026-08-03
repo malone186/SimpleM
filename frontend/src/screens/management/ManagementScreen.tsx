@@ -26,13 +26,8 @@ type Item = {
 // 지정 팔레트 — 에스프레소 → 모카 → 토프 → 스톤 베이지 → 페일 아이보리
 // 설정은 카드가 아니라 헤더 우상단 칩으로 들어간다.
 // 디저트 관리는 별도 카드 없이 '메뉴 관리' 안으로 합쳤다 (메뉴/디저트 탭).
-// '운영·원두 분석' 카드는 화면에서 뺐다 — 백엔드/DB(roastery·bean_reviews)와 BeanOperationScreen은 그대로 둔다.
-const ITEMS: Item[] = [
-  { label: '직원·스케줄', en: 'PAYROLL', desc: '직원 명부 · 인건비 · 근무 달력 · 손익 정산', color: '#5B514C', route: 'Operation' },
-  { label: '서류·세금', en: 'DOCUMENTS', desc: '문서 초안 · 세금 관리', color: '#9A8E82', route: 'Document' },
-  { label: '판매 입력', en: 'SALES', desc: '현금·카드 입력 · 입금 예정일', color: '#D1C6B9', route: 'SalesInput' },
-  { label: '원가 분석', en: 'COST', desc: '메뉴별 원가율 진단', color: '#E1DCD7', route: 'Cost' },
-];
+// [주의] 카드 목록의 원본은 컴포넌트 안의 itemsList다(다국어 라벨 때문) — 여기에
+// 모듈 상수를 두면 고쳐도 화면에 반영되지 않는 함정이 돼 데드카피는 제거했다.
 
 // 좌우로 번갈아 기울이고 밀어 지그재그를 만든다
 const LAYOUT = [
@@ -46,9 +41,7 @@ const LAYOUT = [
 ];
 
 const CARD_H = 132; // 카드 높이 (스크롤이 있으므로 넉넉하게)
-const GAP = -8; // 음수 간격 — 뒤 카드가 앞 카드 위로 살짝 올라타는 스택 느낌 (zIndex로 아래 카드가 위에 쌓인다)
-const DECK_PAD_MIN = 18; // 카드가 시트보다 길어져 스크롤이 생길 때의 최소 위·아래 여백
-const DECK_LIFT = 6; // 정중앙에서 이만큼만 위로 — 위 여백을 덜고 아래에 더한다 (총 높이는 그대로)
+const GAP = -14; // 음수 간격 — 뒤 카드가 앞 카드 위로 살짝 올라타는 스택 느낌 (zIndex로 아래 카드가 위에 쌓인다)
 
 // 상태바(시계·카메라 노치)에 가리지 않을 만큼만 띄운다.
 const TOP_INSET = Platform.select({
@@ -97,9 +90,10 @@ export default function ManagementScreen() {
     // 직원·인건비는 별도 카드를 두지 않고 이 화면 안에서 들어간다 (진입로 하나로 통일)
     { label: language === 'en' ? 'Staff & Schedule' : '직원 · 스케줄', en: 'PAYROLL', desc: language === 'en' ? 'Roster · Labor cost · Calendar · Settlement' : '직원 명부 · 인건비 · 근무 달력 · 손익 정산', color: '#5B514C', route: 'Operation' },
     { label: t('taxDocsTitle'), en: 'DOCUMENTS', desc: t('taxDocsSub'), color: '#9A8E82', route: 'Document' },
-    { label: language === 'en' ? 'Promotion Studio' : '홍보 스튜디오', en: 'MARKETING', desc: language === 'en' ? 'AI copy · AI promo images · Share' : 'AI 홍보 문구 · 홍보 이미지 생성 · 공유', color: '#B79F8A', route: 'Marketing' },
     { label: t('salesInputTitle'), en: 'SALES', desc: language === 'en' ? 'Cash/Card · Payout schedule' : '현금·카드 입력 · 입금 예정일', color: '#D1C6B9', route: 'SalesInput' },
     { label: t('costAnalysisTitle'), en: 'COST', desc: t('costAnalysisSub'), color: '#E1DCD7', route: 'Cost' },
+    { label: language === 'en' ? 'Marketing Studio' : '홍보 스튜디오', en: 'MARKETING', desc: language === 'en' ? 'AI promo copy & SNS banner creator' : 'AI 홍보 문구 · SNS 이미지 원스톱 생성', color: '#8A6F5A', route: 'Marketing' },
+    { label: language === 'en' ? 'Bean Analysis' : '원두 분석', en: 'OPERATION', desc: language === 'en' ? 'Bean market price & Reviews' : '원두 최저가 시세 · 실리뷰 분석', color: '#463C34', route: 'BeanOperation' },
   ];
 
   // 탭에 다시 들어올 때마다 카드 등장 애니메이션을 재생한다 (홈 화면과 같은 방식)
@@ -116,15 +110,6 @@ export default function ManagementScreen() {
   // 아래 경계 계산에 필요한 스크롤 뷰포트 높이 — onLayout 전에는 통상치로 대체
   const [sheetH, setSheetH] = useState(0);
   const H = Math.max(sheetH, 300);
-
-  // [위·아래 여백 맞추기] 카드 묶음을 시트 위쪽에 붙이지 않고 남는 높이를 위아래로 반씩 나눈다.
-  // 카드가 시트보다 길면 (작은 기기·항목 추가) 최소 여백으로 되돌아가 스크롤에 맡긴다.
-  const deckH = itemsList.length * CARD_H + (itemsList.length - 1) * GAP;
-  const deckPad = sheetH > 0 ? Math.max(DECK_PAD_MIN, (sheetH - deckH) / 2) : DECK_PAD_MIN;
-  // 반씩 나눈 값에서 위쪽만 살짝 덜어 카드 묶음을 들어올린다.
-  // 스크롤이 생기는 상황(deckPad가 최소값)에서는 위 여백을 더 깎지 않는다.
-  const deckTop = Math.max(DECK_PAD_MIN, deckPad - DECK_LIFT);
-  const deckBottom = deckPad + (deckPad - deckTop);
 
   return (
     <View style={styles.root}>
@@ -172,7 +157,7 @@ export default function ManagementScreen() {
       <View style={styles.body}>
         <Animated.ScrollView
           style={styles.scroll}
-          contentContainerStyle={[styles.deck, { paddingTop: deckTop, paddingBottom: deckBottom }]}
+          contentContainerStyle={styles.deck}
           showsVerticalScrollIndicator={false}
           onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
             useNativeDriver: true,
@@ -186,7 +171,7 @@ export default function ManagementScreen() {
 
             // 카드 상단의 콘텐츠 좌표 — 높이·간격이 고정이라 정확히 계산된다
             const STEP = CARD_H + GAP;
-            const ct = i * STEP + deckTop; // deck paddingTop 포함
+            const ct = i * STEP + 18; // deck paddingTop 포함
             // 위 경계 구간: 카드가 시트 상단에 닿아 빨려드는 스크롤 범위
             const t0 = ct;
             const t1 = ct + CARD_H;
@@ -279,7 +264,6 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   headerLeft: { flex: 1, justifyContent: 'center' },
-  // 우측 세로열 — 설정 버튼(위) + 마스코트(아래). 설정을 오른쪽 위에 둔다.
   headerRight: { alignItems: 'flex-end', gap: 6 },
   bigTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
   sub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
@@ -307,8 +291,7 @@ const styles = StyleSheet.create({
   },
   scroll: { flex: 1 },
   // 기울인 카드의 모서리가 잘리지 않도록 좌우로 숨통을 준다
-  // paddingTop/Bottom은 시트 높이에 맞춰 런타임에 계산해 덮어쓴다 (deckPad)
-  deck: { paddingHorizontal: 22 },
+  deck: { paddingHorizontal: 22, paddingTop: 18, paddingBottom: 24 },
   card: {
     flexDirection: 'row',
     alignItems: 'center',

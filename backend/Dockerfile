@@ -9,6 +9,12 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /srv/backend
 
+# 홍보 이미지에 한글 슬로건을 합성할 때 쓰는 폰트 (Pillow는 폰트 파일이 있어야 한글을 그린다).
+# 없으면 슬로건 없는 이미지만 나가므로 배포 이미지에는 반드시 포함한다 (~5MB).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fonts-nanum \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 

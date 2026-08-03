@@ -12,14 +12,18 @@ NCP 콘솔에서 Maps > Geocoding / Reverse Geocoding 구독이 켜진 키가 �
       요일별 평균(최근 가중) × 추세 폴백. 둘 다 '단순 예측 + 이벤트 부스팅' 원칙을 따른다.
 
 전제: 최소 MIN_HISTORY_DAYS일치 판매 데이터가 있어야 예측을 제공한다 (미달 시 안내).
-행사 데이터: 서울 열린데이터광장 문화행사 API에서 매장 반경 내 행사를 자동 수집한다
-  (샘플 키로도 동작, .env에 SEOUL_OPENAPI_KEY를 넣으면 수집량이 늘어난다 — 무료 즉시 발급).
-  서울 외 지역이나 API가 놓친 행사는 events 파라미터로 직접 넣으면 부스팅(기본 +20%)한다.
+행사 데이터: 매장 반경 내 행사를 세 소스에서 자동 수집한다 (한 곳이 죽어도 나머지로 계속).
+  · 전국 — 네이버 뉴스·블로그 검색 + Gemini 정리 (기존 NAVER_*·GEMINI_API_KEY로 동작,
+           별도 발급 불필요. 팝업·플리마켓까지 잡히지만 검색 기반이라 부스팅은 절반)
+  · 전국 — 한국관광공사 TourAPI 축제·행사 (선택, .env TOUR_API_KEY = data.go.kr 무료 발급)
+  · 서울 — 열린데이터광장 문화행사 (샘플 키로도 동작, SEOUL_OPENAPI_KEY로 수집량 확대)
+  API가 놓친 행사는 events 파라미터로 직접 넣으면 부스팅(기본 +20%)한다.
 """
 
 import logging
 import math
 import os
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -40,6 +44,7 @@ MIN_HISTORY_DAYS = 14        # 이 일수 미만의 판매 기록이면 예측�
 MENU_MIX_WINDOW_DAYS = 14    # 메뉴별 판매 비중(발주 소요량 계산)에 쓰는 최근 기간
 DEFAULT_EVENT_BOOST = 20     # 수동 입력 행사 부스팅 기본값 (%)
 AUTO_EVENT_BOOST = 10        # 자동 수집 행사 1건당 부스팅 (%) — 소규모 공연이 많아 보수적으로
+SEARCH_EVENT_BOOST = 5       # 검색 기반(네이버+AI 정리) 행사 부스팅 (%) — 날짜 오탐 여지가 있어 절반
 MAX_EVENT_FACTOR = 1.3       # 행사가 겹쳐도 하루 최대 +30%까지만
 EVENT_RADIUS_KM = 3.0        # 매장 반경 몇 km까지를 '주변 행사'로 볼지
 DEFAULT_LAT, DEFAULT_LON = 37.5665, 126.9780  # 위치 미제공 시 서울시청 기준
@@ -84,6 +89,9 @@ def refresh_forecast_background(store_id: str, lat: Optional[float] = None,
                                 lon: Optional[float] = None, days: int = 7) -> None:
     """예측을 백그라운드에서 재계산해 캐시를 갱신한다 (BackgroundTasks용, 실패는 로그만).
 
+    이 매장에 맞는 예측 방식 선정(백테스트)도 여기서 하루 한 번 한다 — 사용자 응답 경로에
+    두면 SARIMAX를 십수 번 다시 적합하는 비용을 사장님이 기다리게 된다.
+
     같은 키의 재계산이 이미 돌고 있으면 겹쳐 돌지 않는다."""
     key = _forecast_key(store_id, lat, lon, days)
     with _forecast_lock:
@@ -91,6 +99,7 @@ def refresh_forecast_background(store_id: str, lat: Optional[float] = None,
             return
         _forecast_inflight.add(key)
     try:
+        select_forecast_method(store_id)   # 오늘 이미 골랐으면 캐시를 그대로 쓴다
         forecast(store_id, lat=lat, lon=lon, days=days)
     except ForecastError:
         pass  # 데이터 부족 등 — 다음 정식 호출이 같은 안내를 준다
@@ -106,7 +115,38 @@ def invalidate_forecast_cache(store_id: str) -> None:
     for k in [k for k in _forecast_cache if k[0] == store_id]:
         _forecast_cache.pop(k, None)
 
-# 2026년 대한민국 공휴일 (하드코딩 — 매년 갱신 필요, 대체공휴일 포함)
+# 대한민국 공휴일 — holidays 라이브러리로 연도 무관 자동 계산 (음력·대체공휴일 포함).
+# 아래 2026 하드코딩은 라이브러리 미설치 환경의 폴백으로만 남긴다.
+_holiday_cache: dict[int, dict[str, str]] = {}
+
+
+def kr_holidays(*years: int) -> dict[str, str]:
+    """요청한 연도들의 공휴일 {'YYYY-MM-DD': 이름}. 설·추석·부처님오신날 같은 음력
+    공휴일과 대체공휴일까지 자동 계산되므로 매년 갱신할 필요가 없다."""
+    out: dict[str, str] = {}
+    for y in years:
+        if y not in _holiday_cache:
+            try:
+                import holidays as _hol
+
+                _holiday_cache[y] = {d.isoformat(): name
+                                     for d, name in _hol.KR(years=y, language="ko").items()}
+            except Exception:
+                logger.warning("holidays 라이브러리 사용 불가 — 2026 하드코딩 폴백", exc_info=True)
+                _holiday_cache[y] = {k: v for k, v in KR_HOLIDAYS_2026.items()
+                                     if k.startswith(str(y))}
+        out.update(_holiday_cache[y])
+    return out
+
+
+def holiday_name(day_iso: str) -> Optional[str]:
+    """해당 날짜(YYYY-MM-DD)가 공휴일이면 이름, 아니면 None."""
+    try:
+        return kr_holidays(int(day_iso[:4])).get(day_iso)
+    except ValueError:
+        return None
+
+
 KR_HOLIDAYS_2026 = {
     "2026-01-01": "신정", "2026-02-16": "설 연휴", "2026-02-17": "설날",
     "2026-02-18": "설 연휴", "2026-03-01": "삼일절", "2026-03-02": "삼일절 대체",
@@ -142,8 +182,13 @@ def _weather_label(code: int) -> str:
 # 1) POS 판매 시계열 로드
 # ---------------------------------------------------------------------------
 
-def _load_daily_series(db, store_id: str):
-    """일별 (판매 잔 수, 매출) 시계열을 만든다. 기록 없는 날은 0으로 채운다 (휴무 가정)."""
+def _load_daily_series(db, store_id: str, mask_abnormal: bool = True):
+    """일별 (판매 잔 수, 매출) 시계열을 만든다.
+
+    기록 없는 날은 0으로 메워 연속성을 확보하되, 그 0은 '매출이 0이었던 영업일'이 아니라
+    대개 휴무다. mask_abnormal=True면 휴무·품절 의심일을 결측(NaN)으로 되돌린다
+    (_mask_abnormal_days 참고). 백테스트에서 마스킹 전/후를 비교하려고 끌 수 있게 남겨 둔다.
+    """
     import pandas as pd
 
     from app.models.inventory import Sale
@@ -157,7 +202,11 @@ def _load_daily_series(db, store_id: str):
     if not rows:
         return None
     df = pd.DataFrame(rows, columns=["sold_at", "quantity", "total_price"])
-    df["day"] = pd.to_datetime(df["sold_at"]).dt.date
+    # sold_at은 Neon(timestamptz)에서 UTC로 온다 — KST로 옮기지 않으면 오전 9시 이전 판매가
+    # 전날로 밀려 일별 집계가 통째로 어긋난다 (시간대별 집계와 같은 기준을 쓴다)
+    df["day"] = pd.to_datetime(
+        df["sold_at"].map(lambda d: _to_kst(d).replace(tzinfo=None) if isinstance(d, datetime) else d)
+    ).dt.date
     daily = df.groupby("day").agg(cups=("quantity", "sum"), revenue=("total_price", "sum"))
     daily.index = pd.to_datetime(daily.index)
     # 오늘은 하루가 끝나지 않아 미완성 집계다 — 학습에 넣으면 '판매가 급감한 날'로 오인해
@@ -167,15 +216,88 @@ def _load_daily_series(db, store_id: str):
         return None
     # 첫 판매일~마지막 판매일 사이 비는 날을 0으로 — 시계열 연속성 확보
     full = pd.date_range(daily.index.min(), daily.index.max(), freq="D")
-    return daily.reindex(full, fill_value=0)
+    daily = daily.reindex(full, fill_value=0)
+    return _mask_abnormal_days(daily)[0] if mask_abnormal else daily
+
+
+# ---------------------------------------------------------------------------
+# 1.5) 비정상 영업일 마스킹 — 휴무·품절로 '못 판' 날은 수요가 0이었던 게 아니다
+# ---------------------------------------------------------------------------
+
+ABNORMAL_RATIO = 0.35   # 그 시기 그 요일에 기대되는 양의 이 비율 미만이면 정상 영업으로 안 본다
+MAX_MASK_RATIO = 0.25   # 이 비율을 넘게 지워야 한다면 판정이 틀린 것으로 보고 마스킹을 접는다
+LOCAL_WINDOW = 7        # 지역 수준(level) 추정에 쓰는 이동 중앙값 창 — 7일이면 요일을 한 바퀴 돈다
+MIN_WEEKDAY_SAMPLES = 3  # 요일 비율 중앙값을 신뢰하려면 같은 요일이 최소 이만큼은 있어야 한다
+
+
+def _mask_abnormal_days(daily) -> tuple[Any, list[str]]:
+    """휴무(판매 0)·품절/장애 의심일을 결측(NaN)으로 바꾼 시계열과 그 날짜 목록을 돌려준다.
+
+    reindex가 빈 날을 0으로 채우기 때문에 휴무일이 '매출 0인 영업일'로 학습된다.
+    주 1회 정기휴무 매장이면 그 요일 평균이 통째로 눌려서, 모델을 아무리 바꿔도
+    해당 요일 예측이 구조적으로 낮게 나온다 — 피처를 더 넣어서 고칠 수 있는 문제가 아니다.
+    SARIMAX(상태공간)는 결측을 결측으로 다루므로 NaN이 0보다 항상 낫다.
+
+    판정 기준을 '전체 기간의 같은 요일 중앙값'으로 잡으면 안 된다. 매출 수준이 한 번
+    크게 바뀐 매장(신규 오픈 후 안정화, 리모델링, 경쟁점 개업, 성수기/비수기)에서는
+    낮은 쪽 구간이 통째로 '이상일'로 찍혀 데이터의 절반이 날아간다 — 실제로 이 저장소의
+    데모 데이터에서 그렇게 오판했다.
+
+    그래서 두 단계로 정규화한다:
+      1) 지역 수준 = 중심 7일 이동 중앙값 (요일 효과가 한 바퀴 안에서 상쇄된다)
+      2) 요일 비율 = 그날 판매 / 지역 수준 → 수준 변화와 무관한 값이 된다
+    이 비율이 같은 요일의 평소 비율 대비 ABNORMAL_RATIO 미만이면 품절·단축영업으로 본다.
+    판매 0인 날은 근거가 확실하므로 비율과 무관하게 항상 지운다.
+
+    마스킹이 전체의 MAX_MASK_RATIO를 넘으면 기준이 매장 현실과 안 맞는다는 뜻이므로
+    0인 날만 지우고 물러선다 (저매출·신규 매장을 통째로 지워버리는 사고 방지).
+    """
+    import numpy as np
+
+    masked = daily.copy().astype(float)
+    cups = masked["cups"].to_numpy(dtype=float)
+    weekdays = masked.index.dayofweek.to_numpy()
+
+    drop = cups <= 0  # 휴무 — 근거가 확실하므로 항상 지운다
+    suspect = np.zeros(len(cups), dtype=bool)
+
+    # 1) 지역 수준 — 판매 0인 날을 뺀 값으로 중심 이동 중앙값 (구간 양끝은 min_periods로 완화)
+    level_src = masked["cups"].where(~drop)
+    level = level_src.rolling(LOCAL_WINDOW, center=True, min_periods=3).median().to_numpy(dtype=float)
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = np.where((level > 0) & ~drop, cups / level, np.nan)
+
+    # 2) 요일별 평소 비율과 비교 — 비율끼리 재므로 매출 수준이 바뀌어도 판정이 흔들리지 않는다
+    for wd in range(7):
+        same_wd = (weekdays == wd) & ~drop & ~np.isnan(ratio)
+        if same_wd.sum() < MIN_WEEKDAY_SAMPLES:
+            continue  # 표본이 적으면 중앙값을 못 믿는다 — 판정하지 않는다
+        typical = float(np.median(ratio[same_wd]))
+        if typical <= 0:
+            continue
+        suspect |= same_wd & (ratio < typical * ABNORMAL_RATIO)
+
+    combined = drop | suspect
+    if combined.sum() > len(cups) * MAX_MASK_RATIO:
+        logger.info("비정상일 판정이 %d/%d일로 과도 — 판매 0인 날만 결측 처리",
+                    int(combined.sum()), len(cups))
+        combined = drop
+
+    masked.loc[combined, ["cups", "revenue"]] = np.nan
+    return masked, [d.date().isoformat() for d in masked.index[combined]]
 
 
 # ---------------------------------------------------------------------------
 # 2) 시계열 예측 — SARIMAX 우선, 요일 계절성 폴백
 # ---------------------------------------------------------------------------
 
-def _forecast_sarimax(series, horizon: int):
-    """SARIMAX(1,0,1)×(1,0,1,7) — 주간 계절성 시계열 예측. 실패하면 None."""
+def _forecast_sarimax(series, horizon: int, ctx=None):
+    """SARIMAX(1,0,1)×(1,0,1,7) — 주간 계절성 시계열 예측. 실패하면 None.
+
+    ctx는 외생변수(날씨·공휴일) 방식만 쓴다 — 모든 방식이 같은 시그니처를 갖도록
+    받기만 하고 무시한다 (백테스트·forecast가 방식을 표에서 골라 동일하게 호출한다).
+    """
     try:
         from statsmodels.tsa.statespace.sarimax import SARIMAX
 
@@ -189,8 +311,12 @@ def _forecast_sarimax(series, horizon: int):
         return None
 
 
-def _forecast_seasonal(series, horizon: int):
-    """폴백: 요일별 평균(최근 2주는 2배 가중) × 최근 추세(직전 2주 / 그 전 2주, 0.7~1.3 클립)."""
+def _forecast_seasonal(series, horizon: int, ctx=None):
+    """폴백: 요일별 평균(최근 2주는 2배 가중) × 최근 추세(직전 2주 / 그 전 2주, 0.7~1.3 클립).
+
+    휴무·품절로 결측(NaN) 처리된 날은 평균·추세 계산에서 통째로 빼야 한다 — 0으로 세면
+    그 요일 평균이 눌리고, NaN을 그냥 넣으면 평균 전체가 NaN이 된다.
+    """
     import numpy as np
 
     values = series.to_numpy(dtype=float)
@@ -198,22 +324,332 @@ def _forecast_seasonal(series, horizon: int):
     n = len(values)
     weights = np.ones(n)
     weights[-14:] = 2.0  # 최근 2주 가중
+    valid = ~np.isnan(values)
+    overall = float(np.mean(values[valid])) if valid.any() else 0.0
 
     wd_mean = {}
     for wd in range(7):
-        mask = weekdays == wd
-        wd_mean[wd] = (np.average(values[mask], weights=weights[mask])
-                       if mask.any() else float(values.mean()))
+        mask = (weekdays == wd) & valid
+        wd_mean[wd] = (float(np.average(values[mask], weights=weights[mask]))
+                       if mask.any() else overall)
+
+    def _window_mean(lo: int, hi: Optional[int]) -> float:
+        """구간 평균 — 결측을 뺀 값들로만 계산한다 (전부 결측이면 0)."""
+        chunk = values[lo:hi] if hi is not None else values[lo:]
+        ok = ~np.isnan(chunk)
+        return float(chunk[ok].mean()) if ok.any() else 0.0
 
     trend = 1.0
     if n >= 28:
-        recent, prev = values[-14:].mean(), values[-28:-14].mean()
+        recent, prev = _window_mean(-14, None), _window_mean(-28, -14)
         if prev > 0:
             trend = float(np.clip(recent / prev, 0.7, 1.3))
 
     last_day = series.index[-1]
     return [max(0.0, wd_mean[(last_day + timedelta(days=i + 1)).dayofweek] * trend)
             for i in range(horizon)]
+
+
+LEVEL_WINDOW = 14  # '지금 매장 수준'을 볼 최근 유효 영업일 수
+
+
+def _weekday_factors(series) -> dict[int, float]:
+    """요일 계수 = (그날 값 ÷ 그 시기의 지역 수준)의 요일별 중앙값.
+
+    요일 평균을 그냥 쓰면 매출 수준이 바뀐 구간이 섞였을 때 계수가 오염된다.
+    지역 수준(중심 7일 이동 중앙값)으로 나눠 두면 수준 변화가 약분되어, 6월에 하루
+    400잔 팔던 매장과 7월에 80잔 팔던 매장이 같은 '토요일은 평일의 0.6배' 계수를 준다.
+    """
+    import numpy as np
+
+    s = series.astype(float)
+    local = s.rolling(LOCAL_WINDOW, center=True, min_periods=3).median()
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = np.where(local.to_numpy() > 0, s.to_numpy() / local.to_numpy(), np.nan)
+    weekdays = s.index.dayofweek.to_numpy()
+
+    factors = {}
+    for wd in range(7):
+        m = (weekdays == wd) & ~np.isnan(ratio)
+        factors[wd] = float(np.median(ratio[m])) if m.any() else 1.0
+    return {wd: (f if f > 0 else 1.0) for wd, f in factors.items()}
+
+
+def _forecast_local_level(series, horizon: int, ctx=None):
+    """최근 수준(로버스트) × 요일 계수 — 매출 수준이 한 번 바뀐 매장에 강한 방식.
+
+    SARIMAX는 학습 구간 전체의 평균으로 끌려가서, 리모델링·상권 변화·시드 교체처럼
+    수준이 계단식으로 바뀐 데이터에서 옛 수준을 한참 끌고 온다(실측 bias +34%).
+    여기서는 '지금 수준'을 최근 LEVEL_WINDOW일의 중앙값으로만 잡으므로 옛 구간이
+    아무리 길어도 예측에 섞이지 않는다. 중앙값이라 하루짜리 이상치에도 흔들리지 않는다.
+    """
+    import numpy as np
+
+    s = series.astype(float)
+    if int(s.notna().sum()) < 7:
+        return None  # 요일 계수를 만들 수 없다 — 호출자가 다른 방식으로 폴백한다
+
+    factors = _weekday_factors(s)
+    values = s.to_numpy(dtype=float)
+    weekdays = s.index.dayofweek.to_numpy()
+
+    # 요일 효과를 걷어낸 '수준' 표본 — 최근 것만 쓴다
+    deseasonalized = [values[i] / factors[weekdays[i]]
+                      for i in range(len(values)) if not np.isnan(values[i])]
+    if not deseasonalized:
+        return None
+    level = float(np.median(deseasonalized[-LEVEL_WINDOW:]))
+
+    last_day = series.index[-1]
+    return [max(0.0, level * factors[(last_day + timedelta(days=i + 1)).dayofweek])
+            for i in range(horizon)]
+
+
+SHIFT_MIN_RATIO = 1.6     # 앞뒤 수준이 이 배수 이상 벌어지면 구조적 단절로 본다
+SHIFT_WINDOW = 7          # 단절 판정에 쓸 앞뒤 비교 창
+SHIFT_MIN_SEGMENT = 14    # 단절 이후 최소 이만큼 남아야 그 구간만으로 학습한다
+
+
+def _detect_level_shift(series) -> Optional[int]:
+    """매출 수준이 계단식으로 바뀐 가장 최근 지점의 인덱스. 없으면 None.
+
+    리모델링·이전·경쟁점 개업·상권 변화처럼 매장의 기준 매출 자체가 바뀌면, 그 이전
+    데이터는 더 이상 같은 매장의 이야기가 아니다. 그런데 시계열 모델은 학습 구간 전체
+    평균으로 끌려가므로 옛 수준을 몇 주씩 끌고 온다 — 실측에서 이것 하나가 WAPE를
+    18%에서 70%대로 밀어 올렸다. 피처를 아무리 더해도 고쳐지지 않는 종류의 오차다.
+
+    앞뒤 SHIFT_WINDOW일의 중앙값을 비교해 SHIFT_MIN_RATIO배 이상 벌어지는 지점을 찾고,
+    그런 지점이 여럿이면 '가장 최근' 것을 쓴다(지금 매장 상태에 가장 가까운 구간만 남긴다).
+    중앙값으로 재기 때문에 하루짜리 이상치나 휴무에는 반응하지 않는다.
+    """
+    import numpy as np
+
+    values = series.to_numpy(dtype=float)
+    n = len(values)
+    if n < SHIFT_WINDOW + SHIFT_MIN_SEGMENT:
+        return None  # 잘라 봐야 학습할 게 안 남는다
+
+    # 뒤에서부터 훑어 가장 최근 단절을 찾는다
+    for t in range(n - SHIFT_MIN_SEGMENT, SHIFT_WINDOW - 1, -1):
+        before = values[max(0, t - SHIFT_WINDOW):t]
+        after = values[t:t + SHIFT_WINDOW]
+        before, after = before[~np.isnan(before)], after[~np.isnan(after)]
+        if len(before) < 3 or len(after) < 3:
+            continue
+        mb, ma = float(np.median(before)), float(np.median(after))
+        if mb <= 0 or ma <= 0:
+            continue
+        if max(mb, ma) / min(mb, ma) >= SHIFT_MIN_RATIO:
+            return t
+    return None
+
+
+def _truncate_at_level_shift(series):
+    """가장 최근 레벨 단절 이후 구간만 남긴 시계열. 단절이 없으면 원본 그대로."""
+    cut = _detect_level_shift(series)
+    if cut is None:
+        return series
+    logger.info("매출 수준 단절 감지 — %s 이후 %d일만 학습에 사용",
+                series.index[cut].date().isoformat(), len(series) - cut)
+    return series.iloc[cut:]
+
+
+def _forecast_blend_shift(series, horizon: int, ctx=None):
+    """레벨 단절을 감지해 그 이후 구간만으로 앙상블 예측한다 (기본 경로)."""
+    return _forecast_blend(_truncate_at_level_shift(series), horizon)
+
+
+def _forecast_blend(series, horizon: int, ctx=None):
+    """SARIMAX와 '최근 수준×요일 계수'의 평균.
+
+    둘은 틀리는 방향이 다르다 — SARIMAX는 옛 수준을 끌고 와 과대예측하고, 지역 수준
+    방식은 추세를 못 따라가 반응이 늦다. 오차가 상쇄되는 조합이라 단순 평균만으로도
+    각각보다 나은 경우가 많다(예측 앙상블의 고전적 결과). 한쪽이 실패하면 나머지를 쓴다.
+    """
+    a = _forecast_sarimax(series, horizon)
+    b = _forecast_local_level(series, horizon)
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return [(x + y) / 2 for x, y in zip(a, b)]
+
+
+def _forecast_weekday_naive(series, horizon: int, ctx=None):
+    """베이스라인: 최근 4주 같은 요일의 평균 (결측 제외).
+
+    모델 평가의 기준선이다. SARIMAX가 이것보다 못하면 시계열 모델을 쓸 이유가 없다 —
+    백테스트가 실제로 그 질문에 답하라고 두는 비교군.
+    """
+    import numpy as np
+
+    values = series.to_numpy(dtype=float)
+    weekdays = series.index.dayofweek.to_numpy()
+    valid = ~np.isnan(values)
+    overall = float(np.mean(values[valid])) if valid.any() else 0.0
+
+    last_day = series.index[-1]
+    out = []
+    for i in range(horizon):
+        wd = (last_day + timedelta(days=i + 1)).dayofweek
+        mask = (weekdays == wd) & valid
+        recent = values[mask][-4:]  # 최근 4주치 같은 요일
+        out.append(float(recent.mean()) if len(recent) else overall)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# 2.5) 외생변수 예측 — 과거 실측 날씨·공휴일을 모델 '입력'으로 학습한다
+# ---------------------------------------------------------------------------
+# 기존 날씨 반영은 예측이 끝난 뒤 고정 배율(비 -10%, 폭염 +5%)을 곱하는 사후 보정이라
+# '이 매장이 비에 얼마나 민감한지'를 데이터에서 배우지 못한다. 여기서는 과거 실측
+# 날씨(Open-Meteo 아카이브·최근 92일, 키 불필요)와 공휴일을 SARIMAX 외생변수로 넣어
+# 매장별 민감도를 회귀로 학습한다. 이 방식(blend_exog)도 _METHODS에 등록만 하고,
+# 채택 여부는 매장별 백테스트(select_forecast_method)가 결정한다 — 피처는 측정으로만
+# 살아남는다 (실측: 날씨 반응이 없는 시드 매장에서는 기본 앙상블을 이기지 못한다).
+
+RAIN_MM = 1.0        # 일 강수량이 이 이상이면 '비 온 날'
+HOT_TEMP_C = 30.0    # 최고기온이 이 이상이면 '폭염일' (사후 보정과 같은 기준)
+_weather_flags_cache: dict[tuple, tuple[float, dict]] = {}
+_WEATHER_FLAGS_TTL = 6 * 3600
+
+
+def _fetch_weather_flags(lat: float, lon: float, start: date, end: date) -> dict[str, tuple[bool, bool]]:
+    """[start, end] 구간의 일별 (비 왔나, 폭염이었나) 플래그. 실패하면 빈 dict.
+
+    과거는 실측을 쓴다 — 예보 API가 past_days=92까지 실측 병합값을 주므로 한 번에
+    미래(예보)까지 같은 단위(precipitation_sum)로 받고, 그보다 오래된 구간만
+    아카이브 API(ERA5, ~5일 지연)로 보충한다. 아카이브 값이 있으면 그쪽을 우선한다.
+    """
+    import requests
+
+    key = (round(lat, 3), round(lon, 3), start.isoformat(), end.isoformat())
+    hit = _weather_flags_cache.get(key)
+    if hit and time.time() - hit[0] < _WEATHER_FLAGS_TTL:
+        return hit[1]
+
+    out: dict[str, tuple[bool, bool]] = {}
+
+    def ingest(js: dict) -> None:
+        d = js.get("daily") or {}
+        times = d.get("time") or []
+        precips = d.get("precipitation_sum") or []
+        temps = d.get("temperature_2m_max") or []
+        for i, iso in enumerate(times):
+            if iso in out:
+                continue  # 먼저 넣은(더 정확한) 소스를 우선한다
+            precip = precips[i] if i < len(precips) else None
+            tmax = temps[i] if i < len(temps) else None
+            out[iso] = ((precip or 0) >= RAIN_MM,
+                        tmax is not None and tmax >= HOT_TEMP_C)
+
+    today = date.today()
+    daily_vars = "temperature_2m_max,precipitation_sum"
+    # 1) 예보 API의 과거 병합 한계(92일)보다 오래된 구간 — 아카이브에서
+    if start < today - timedelta(days=92):
+        try:
+            r = requests.get(
+                "https://archive-api.open-meteo.com/v1/archive",
+                params={"latitude": lat, "longitude": lon, "timezone": "Asia/Seoul",
+                        "start_date": start.isoformat(),
+                        "end_date": min(end, today - timedelta(days=6)).isoformat(),
+                        "daily": daily_vars},
+                timeout=8,
+            )
+            r.raise_for_status()
+            ingest(r.json())
+        except Exception:
+            logger.warning("날씨 아카이브 조회 실패 — 최근 92일 실측만으로 계속", exc_info=True)
+    # 2) 최근 과거(실측 병합) + 미래(예보) — 예보 API 한 번
+    try:
+        r = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={"latitude": lat, "longitude": lon, "timezone": "Asia/Seoul",
+                    "past_days": min(92, max(0, (today - start).days)),
+                    "forecast_days": min(16, max(1, (end - today).days + 1)),
+                    "daily": daily_vars},
+            timeout=8,
+        )
+        r.raise_for_status()
+        ingest(r.json())
+    except Exception:
+        logger.warning("날씨 이력 조회 실패 — 외생변수 없이 계속", exc_info=True)
+
+    if out:
+        _weather_flags_cache[key] = (time.time(), out)
+    return out
+
+
+def _store_coords(db, store_id: str) -> Optional[tuple[float, float]]:
+    """매장 고정 좌표(users.store_lat/lon). 없으면 None — 날씨 외생변수를 포기한다."""
+    try:
+        from app.models.user import User
+
+        row = (db.query(User.store_lat, User.store_lon)
+               .filter(User.email == store_id).first())
+        if row and row[0] is not None and row[1] is not None:
+            return float(row[0]), float(row[1])
+    except Exception:
+        logger.warning("매장 좌표 조회 실패 (%s)", store_id, exc_info=True)
+    return None
+
+
+def _forecast_sarimax_exog(series, horizon: int, ctx=None):
+    """SARIMAX + 외생변수(비·폭염·공휴일 더미). ctx에 날씨가 없거나 실패하면 None.
+
+    백테스트에서는 검증 구간의 '미래' 날씨도 실측이 들어간다 — 완벽한 예보를 가정하는
+    셈이라 약간 낙관적인 채점이지만, 1~7일 강수 예보 적중률이 높아 순위를 뒤집을
+    수준은 아니다. 전 구간이 상수인 더미(예: 여름이라 폭염일이 없음)는 회귀가
+    식별되지 않으므로 빼고 적합한다.
+    """
+    if not ctx or not ctx.get("flags"):
+        return None
+    import numpy as np
+
+    flags = ctx["flags"]
+
+    def row(d: date) -> list[float]:
+        iso = d.isoformat()
+        rain, hot = flags.get(iso, (False, False))
+        return [1.0 if rain else 0.0, 1.0 if hot else 0.0,
+                1.0 if holiday_name(iso) else 0.0]
+
+    train_days = [d.date() for d in series.index]
+    last = series.index[-1]
+    future_days = [(last + timedelta(days=i + 1)).date() for i in range(horizon)]
+    X = np.asarray([row(d) for d in train_days], dtype=float)
+    Xf = np.asarray([row(d) for d in future_days], dtype=float)
+    keep = [j for j in range(X.shape[1]) if float(X[:, j].std()) > 0]
+    if not keep:
+        return None  # 학습 구간에 비도 폭염도 공휴일도 없었다 — 배울 게 없다
+    X, Xf = X[:, keep], Xf[:, keep]
+
+    try:
+        from statsmodels.tsa.statespace.sarimax import SARIMAX
+
+        model = SARIMAX(series.astype(float), exog=X, order=(1, 0, 1),
+                        seasonal_order=(1, 0, 1, 7),
+                        enforce_stationarity=False, enforce_invertibility=False)
+        fitted = model.fit(disp=False, maxiter=200)
+        pred = fitted.forecast(steps=horizon, exog=Xf)
+        return [max(0.0, float(v)) for v in pred]
+    except Exception:
+        logger.warning("SARIMAX(외생변수) 적합 실패", exc_info=True)
+        return None
+
+
+def _forecast_blend_exog(series, horizon: int, ctx=None):
+    """레벨단절 절단 + (외생변수 SARIMAX와 최근수준의 앙상블).
+
+    날씨를 못 구하면 None을 돌려준다 — 조용히 blend_shift와 같은 값을 내면 방식 선정
+    표에 같은 성적의 쌍둥이가 생겨 비교가 흐려진다. 폴백은 호출자가 명시적으로 한다.
+    """
+    s = _truncate_at_level_shift(series)
+    a = _forecast_sarimax_exog(s, horizon, ctx)
+    if a is None:
+        return None
+    b = _forecast_local_level(s, horizon)
+    return a if b is None else [(x + y) / 2 for x, y in zip(a, b)]
 
 
 # ---------------------------------------------------------------------------
@@ -411,7 +847,7 @@ def geocode(query: str) -> Optional[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# 3.5) 주변 행사 자동 수집 — 서울 열린데이터광장 문화행사 API
+# 3.5) 주변 행사 자동 수집 — 네이버 검색(전국) + TourAPI(전국) + 서울 열린데이터광장
 # ---------------------------------------------------------------------------
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -422,36 +858,95 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 6371 * 2 * math.asin(math.sqrt(a))
 
 
-def _fetch_nearby_events(lat: float, lon: float, start: date, days: int) -> list[dict[str, Any]]:
-    """예측 기간 내 매장 반경 EVENT_RADIUS_KM의 문화행사를 날짜별로 수집한다.
+def _fetch_events_tourapi(lat: float, lon: float, start: date, days: int) -> list[dict[str, Any]]:
+    """한국관광공사 TourAPI 축제·행사 — **전국** 커버. TOUR_API_KEY(data.go.kr 무료 발급) 필요.
 
-    키가 없으면 '샘플 키'(호출당 5건)로 동작하고, .env의 SEOUL_OPENAPI_KEY(무료 즉시 발급)를
-    넣으면 호출당 최대 500건까지 훑는다. 서울 지역만 커버 — 그 외는 수동 입력으로 보완.
-    실패해도 예측은 계속한다.
+    행사 기간(eventstartdate~eventenddate)이 예측 기간과 겹치고 매장 반경 안이면
+    날짜별 이벤트로 펼친다. 진행 중인 장기 행사를 놓치지 않도록 120일 전 시작분부터 조회.
+    실패하거나 키가 없으면 빈 목록 — 예측은 계속한다.
     """
     import requests
 
-    cache_key = f"{round(lat, 3)},{round(lon, 3)},{start.isoformat()},{days}"
-    cached = _event_cache.get(cache_key)
-    if cached and time.time() - cached[0] < _EVENT_CACHE_TTL:
-        return cached[1]
+    api_key = os.getenv("TOUR_API_KEY", "")
+    if not api_key:
+        return []
+    try:
+        r = requests.get(
+            "https://apis.data.go.kr/B551011/KorService1/searchFestival1",
+            params={"serviceKey": api_key, "MobileOS": "ETC", "MobileApp": "brewnote",
+                    "_type": "json", "numOfRows": 1000, "pageNo": 1, "arrange": "A",
+                    "eventStartDate": (start - timedelta(days=120)).strftime("%Y%m%d")},
+            timeout=8,
+        )
+        r.raise_for_status()
+        body = r.json().get("response", {}).get("body", {})
+        items = (body.get("items") or {}).get("item", [])
+    except Exception:
+        logger.warning("TourAPI 행사 조회 실패 — 전국 행사 없이 계속", exc_info=True)
+        return []
+
+    events: list[dict[str, Any]] = []
+    for row in items if isinstance(items, list) else [items]:
+        try:
+            elat, elon = float(row.get("mapy") or 0), float(row.get("mapx") or 0)
+            ev_start = datetime.strptime(str(row.get("eventstartdate")), "%Y%m%d").date()
+            ev_end = datetime.strptime(str(row.get("eventenddate")), "%Y%m%d").date()
+        except (TypeError, ValueError):
+            continue
+        if not elat or not elon:
+            continue
+        dist = _haversine_km(lat, lon, elat, elon)
+        if dist > EVENT_RADIUS_KM:
+            continue
+        title = (row.get("title") or "행사").strip()[:40]
+        for i in range(days):
+            d = start + timedelta(days=i)
+            if ev_start <= d <= ev_end:
+                events.append({
+                    "name": title,
+                    "date": d.isoformat(),
+                    "boost_pct": AUTO_EVENT_BOOST,
+                    "distance_km": round(dist, 1),
+                    "place": (row.get("addr1") or "").strip()[:30],
+                    "source": "한국관광공사 TourAPI",
+                    "lat": elat,
+                    "lon": elon,
+                })
+    return events
+
+
+def _fetch_events_seoul(lat: float, lon: float, start: date, days: int) -> list[dict[str, Any]]:
+    """서울 열린데이터광장 문화행사 — 서울 한정 보조 소스 (샘플 키로도 동작).
+
+    키가 없으면 '샘플 키'(호출당 5건)로 동작하고, .env의 SEOUL_OPENAPI_KEY(무료 즉시 발급)를
+    넣으면 호출당 최대 500건까지 훑는다. 실패해도 예측은 계속한다.
+    """
+    import requests
 
     api_key = os.getenv("SEOUL_OPENAPI_KEY", "sample")
     limit = 5 if api_key == "sample" else 500
     events: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
-    for i in range(days):
-        d = (start + timedelta(days=i)).isoformat()
+
+    def fetch_day(d: str) -> list[dict[str, Any]]:
         try:
             # 경로 파라미터: 시작/끝/분류(공백=전체)/제목(공백=전체)/날짜
             r = requests.get(
                 f"http://openapi.seoul.go.kr:8088/{api_key}/json/culturalEventInfo/1/{limit}/%20/%20/{d}",
                 timeout=6,
             )
-            rows = r.json().get("culturalEventInfo", {}).get("row", [])
+            return r.json().get("culturalEventInfo", {}).get("row", [])
         except Exception:
             logger.warning("행사 API 조회 실패 (%s) — 해당 일자 행사 없이 계속", d, exc_info=True)
-            continue
+            return []
+
+    # 이 API는 날짜 하나당 호출 하나다. 지도 화면은 2주치를 물어보므로 순차로 돌면
+    # 14번을 줄 세우게 된다 → 병렬로 던지고 결과는 날짜 순서대로 합친다(중복 판정 순서 유지).
+    day_isos = [(start + timedelta(days=i)).isoformat() for i in range(days)]
+    with ThreadPoolExecutor(max_workers=4, thread_name_prefix="seoul-event") as pool:
+        per_day = list(pool.map(fetch_day, day_isos))
+
+    for d, rows in zip(day_isos, per_day):
         for row in rows:
             try:
                 elat, elon = float(row.get("LAT") or 0), float(row.get("LOT") or 0)
@@ -476,6 +971,162 @@ def _fetch_nearby_events(lat: float, lon: float, start: date, days: int) -> list
                 "lat": elat,
                 "lon": elon,
             })
+    return events
+
+
+_EVENT_EXTRACT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "events": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "start_date": {"type": "string"},   # YYYY-MM-DD
+                    "end_date": {"type": "string"},     # YYYY-MM-DD
+                    "place": {"type": "string"},        # 지오코딩 가능한 구체 장소
+                },
+                "required": ["name", "start_date", "end_date", "place"],
+            },
+        },
+    },
+    "required": ["events"],
+}
+
+
+def _fetch_events_naver(lat: float, lon: float, start: date, days: int) -> list[dict[str, Any]]:
+    """네이버 검색 + Gemini 정리 — **전국** 커버. 이미 있는 키(NAVER_*, GEMINI_*)로 동작한다.
+
+    공공 API(TourAPI)는 data.go.kr 키가 있어야 하고 관 주도 축제 위주라 팝업·야시장·플리마켓
+    같은 실제 손님을 몰고 오는 행사는 빠진다. 여기서는
+      매장 지역명(역지오코딩) → 네이버 뉴스·블로그 검색 → Gemini가 (행사명·기간·장소)로 정리
+      → 장소를 지오코딩해 반경 EVENT_RADIUS_KM 밖은 버림
+    순으로 모은다. 검색 글에서 뽑은 값이라 날짜가 어긋날 수 있어 부스팅은 절반
+    (SEARCH_EVENT_BOOST)만 준다. 키가 없거나 실패하면 빈 목록 — 예측은 계속한다.
+    """
+    from app.services.ai.nearby_cafe_service import _gemini_json, _search_naver, _strip_tags
+    from app.services.ai.untrusted import quote_untrusted
+
+    region = _reverse_geocode(lat, lon)
+    if region.startswith("위도"):   # 역지오코딩 실패 — 검색 키워드를 만들 수 없다
+        return []
+    parts = region.split()
+    sigungu = " ".join(parts[:2]) if len(parts) >= 2 else region
+    dong = " ".join(parts[1:3]) if len(parts) >= 3 else sigungu
+    end = start + timedelta(days=days - 1)
+
+    # 검색 스니펫 수집 — 뉴스(최신 일정 공지)와 블로그(팝업·플리마켓 후기)를 함께 본다
+    snippets: list[str] = []
+    seen_titles: set[str] = set()
+    for query, endpoint, sort in ((f"{sigungu} 축제 행사 일정", "news", "date"),
+                                  (f"{dong} 축제 팝업 플리마켓", "blog", "date")):
+        for it in _search_naver(endpoint, query, 10, sort):
+            title = _strip_tags(it.get("title", ""))
+            if not title or title in seen_titles:
+                continue
+            seen_titles.add(title)
+            desc = _strip_tags(it.get("description", ""))
+            pub = (it.get("pubDate") or it.get("postdate") or "")[:20]
+            snippets.append(f"- [{pub}] {title} :: {desc}"[:400])
+    if not snippets:
+        return []
+
+    prompt = (
+        f"오늘은 {date.today().isoformat()}, 매장 위치는 '{region}'이다.\n"
+        f"아래는 이 지역 행사 관련 뉴스·블로그 검색 결과다. 여기서 "
+        f"{start.isoformat()}~{end.isoformat()} 기간에 열리는 행사만 골라 정리하라.\n\n"
+        "규칙:\n"
+        "1. 글에 시작·종료 날짜가 명시된 행사만 넣는다. 날짜가 없거나 추측해야 하면 제외.\n"
+        "2. 연도가 없으면 오늘 기준 가장 가까운 연도로 본다.\n"
+        f"3. '{sigungu}' 안에서 열리는 행사만. 다른 지역 행사는 제외.\n"
+        "4. 상설 전시장·카페·맛집 소개, 광고성 글, 온라인 전용 행사는 제외.\n"
+        "5. place는 지오코딩할 수 있는 구체 장소명(공원·광장·역·거리·건물)으로. "
+        "장소를 모르면 그 행사는 제외.\n"
+        "6. 해당하는 행사가 없으면 events는 빈 배열로.\n\n"
+        f"{quote_untrusted(chr(10).join(snippets[:30]), max_len=6000)}"
+    )
+    data = _gemini_json(prompt, _EVENT_EXTRACT_SCHEMA, timeout=20.0)
+    if not data:
+        return []
+
+    events: list[dict[str, Any]] = []
+    for row in (data.get("events") or [])[:8]:   # 지오코딩 호출을 아끼려고 상위 8건까지만
+        name = str(row.get("name") or "").strip()[:40]
+        place = str(row.get("place") or "").strip()[:30]
+        if not (name and place):
+            continue
+        try:
+            ev_start = date.fromisoformat(str(row.get("start_date")))
+            ev_end = date.fromisoformat(str(row.get("end_date")))
+        except (TypeError, ValueError):
+            continue
+        if ev_end < start or ev_start > end:
+            continue
+        # 한 달 넘게 이어지는 건 상설 전시·기간 프로모션에 가깝다 — 하루 손님을 몰아주지 않는다
+        if (ev_end - ev_start).days > 30:
+            continue
+        # 장소가 행정구역명뿐이면(예: "서울특별시 서초구") 구청 좌표로 잡혀 반경 판정이 무의미하다
+        if not re.sub(r"[가-힣A-Za-z0-9]+(?:특별시|광역시|특별자치시|특별자치도|[시군구도])(?=\s|$)",
+                      "", place).strip():
+            continue
+
+        hit = geocode(f"{sigungu} {place}") or geocode(place)
+        if not hit:
+            continue
+        dist = _haversine_km(lat, lon, hit["lat"], hit["lon"])
+        if dist > EVENT_RADIUS_KM:
+            continue
+        for i in range(days):
+            d = start + timedelta(days=i)
+            if ev_start <= d <= ev_end:
+                events.append({
+                    "name": name,
+                    "date": d.isoformat(),
+                    "boost_pct": SEARCH_EVENT_BOOST,
+                    "distance_km": round(dist, 1),
+                    "place": place,
+                    "source": "네이버 검색",
+                    "lat": hit["lat"],
+                    "lon": hit["lon"],
+                })
+    return events
+
+
+def _event_key(ev: dict[str, Any]) -> tuple[str, str]:
+    """중복 제거용 키 — 소스마다 띄어쓰기가 달라 공백을 없앤 제목 + 날짜로 본다."""
+    return (re.sub(r"\s+", "", ev.get("name", "")), ev.get("date", ""))
+
+
+def _fetch_nearby_events(lat: float, lon: float, start: date, days: int) -> list[dict[str, Any]]:
+    """예측 기간 내 매장 반경 EVENT_RADIUS_KM의 행사를 날짜별로 수집한다.
+
+    세 소스를 합친다 — 날짜·좌표가 정확한 순서대로 넣고 (제목, 날짜)로 중복을 제거한다.
+      1) TourAPI 전국 축제 (TOUR_API_KEY 있을 때만)
+      2) 서울 열린데이터광장 문화행사 (서울 매장 한정, 키 없이도 샘플 동작)
+      3) 네이버 검색 + Gemini 정리 (전국, 기존 키로 동작 — 공공 API가 놓친 팝업·플리마켓)
+    한 소스가 죽어도 나머지로 계속 간다.
+    """
+    cache_key = f"{round(lat, 3)},{round(lon, 3)},{start.isoformat()},{days}"
+    cached = _event_cache.get(cache_key)
+    if cached and time.time() - cached[0] < _EVENT_CACHE_TTL:
+        return cached[1]
+
+    events: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for fetch in (_fetch_events_tourapi, _fetch_events_seoul, _fetch_events_naver):
+        try:
+            found = fetch(lat, lon, start, days)
+        except Exception:
+            logger.warning("행사 수집 실패 (%s) — 나머지 소스로 계속", fetch.__name__, exc_info=True)
+            continue
+        for ev in found:
+            key = _event_key(ev)
+            if key in seen:
+                continue
+            seen.add(key)
+            events.append(ev)
+
     _event_cache[cache_key] = (time.time(), events)
     return events
 
@@ -484,12 +1135,20 @@ def _fetch_nearby_events(lat: float, lon: float, start: date, days: int) -> list
 # 4) 일자별 보정 — 날씨·공휴일·행사
 # ---------------------------------------------------------------------------
 
-def _day_adjustment(day_iso: str, weather: dict, events: list[dict]) -> tuple[float, list[str]]:
-    """해당 일자의 보정 배율과 근거 목록을 돌려준다."""
+def _day_adjustment(day_iso: str, weather: dict, events: list[dict],
+                    skip_weather: bool = False) -> tuple[float, list[str]]:
+    """해당 일자의 보정 배율과 근거 목록을 돌려준다.
+
+    skip_weather: 날씨를 이미 모델 외생변수로 학습한 방식(blend_exog)이 쓴다 —
+    같은 비를 회귀로 한 번, 고정 배율로 또 한 번 반영하지 않기 위해서다.
+    """
     factor, reasons = 1.0, []
 
     w = weather.get(day_iso)
-    if w:
+    if w and skip_weather:
+        if (w["precip_prob"] or 0) >= 60 or (w["temp_max"] or 0) >= 30:
+            reasons.append("날씨 영향은 예측 모델이 과거 실측으로 학습해 반영")
+    elif w:
         if (w["precip_prob"] or 0) >= 60:
             factor *= 0.90
             reasons.append(f"{w['condition']} 예보(강수확률 {w['precip_prob']}%) → -10%")
@@ -497,7 +1156,7 @@ def _day_adjustment(day_iso: str, weather: dict, events: list[dict]) -> tuple[fl
             factor *= 1.05
             reasons.append(f"최고기온 {w['temp_max']}°C 폭염 → 아이스 음료 수요 +5%")
 
-    holiday = KR_HOLIDAYS_2026.get(day_iso)
+    holiday = holiday_name(day_iso)
     if holiday:
         reasons.append(f"공휴일({holiday}) — 상권 특성에 따라 변동 가능")
 
@@ -711,6 +1370,292 @@ def _today_actuals(db, store_id: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# 6) 백테스트 — "그래서 예측이 얼마나 맞는가"를 숫자로 답한다
+# ---------------------------------------------------------------------------
+
+# 예측 방식별 함수 — 백테스트는 이 표를 그대로 돌려 서로 비교한다
+_METHODS = {
+    "weekday_naive": ("최근 4주 같은 요일 평균 (베이스라인)", _forecast_weekday_naive),
+    "seasonal": ("요일평균×추세 (폴백)", _forecast_seasonal),
+    "sarimax": ("SARIMAX(1,0,1)×(1,0,1,7) 단독", _forecast_sarimax),
+    "local_level": ("최근 수준×요일 계수", _forecast_local_level),
+    "blend": ("SARIMAX+최근수준 앙상블", _forecast_blend),
+    "blend_shift": ("앙상블 + 레벨단절 절단 (현재 기본)", _forecast_blend_shift),
+    "blend_exog": ("앙상블 + 날씨·공휴일 회귀 (레벨단절 절단)", _forecast_blend_exog),
+}
+
+
+AVG_PRICE_WINDOW = 14  # 객단가를 볼 최근 기간(유효 영업일 기준)
+
+
+def _recent_avg_price(df, window: int = AVG_PRICE_WINDOW) -> Optional[float]:
+    """최근 영업일의 객단가(매출÷잔 수). 결측일은 빼고 센다. 계산 불가면 None.
+
+    개별 날의 객단가를 평균내지 않고 '매출 합 ÷ 잔 수 합'을 쓴다 — 한산한 날의
+    튀는 객단가가 평균을 흔드는 것을 막는다.
+    """
+    import numpy as np
+
+    cups = df["cups"].to_numpy(dtype=float)
+    rev = df["revenue"].to_numpy(dtype=float)
+    ok = ~np.isnan(cups) & ~np.isnan(rev) & (cups > 0)
+    if not ok.any():
+        return None
+    c, r = cups[ok][-window:], rev[ok][-window:]
+    total_cups = float(c.sum())
+    return float(r.sum()) / total_cups if total_cups > 0 else None
+
+
+# 채점 지표는 WAPE(가중절대백분율오차) = Σ|실제-예측| / Σ실제 를 주지표로 쓴다.
+# MAPE는 매출이 작은 날에서 분모가 작아져 값이 폭주하므로(한산한 날 하나가 전체 평균을
+# 지배한다) 카페 일매출 평가에 맞지 않는다. bias는 부호를 살린 오차로, 모델이 꾸준히
+# 과대예측(+)인지 과소예측(-)인지를 본다 — WAPE와 절댓값이 같으면 한 방향으로만 틀렸다는 뜻.
+
+
+def backtest(store_id: str, horizon: int = 7, folds: int = 4,
+             target: str = "revenue", min_train: Optional[int] = None,
+             since: Optional[str] = None) -> dict[str, Any]:
+    """롤링 오리진 백테스트 — 과거 시점으로 돌아가 실제로 맞혔는지 채점한다.
+
+    시계열은 미래를 훔쳐보기 쉬워서(전체 데이터로 적합한 뒤 그 안을 예측하면 항상 잘 맞는다)
+    학습 구간을 fold마다 잘라 뒤로 밀며 평가한다. 각 fold는 cut일까지만 학습하고
+    그 다음 horizon일을 예측한 뒤, 실제값과 비교한다.
+
+    비교군을 셋 둔다 — 베이스라인(요일 평균)·현재 폴백·SARIMAX. 그리고 각각을
+    '비정상일 마스킹 전/후'로 돌려서, 휴무일을 0으로 학습하는 게 실제로 얼마나
+    손해인지까지 같은 표에서 보이게 한다.
+
+    채점 대상 날짜는 항상 마스킹된 실제값이다 — 휴무일은 어떤 모델도 맞힐 수 없고,
+    맞혔다고 쳐주면(0을 예측한 모델이 유리해져) 순위가 뒤집힌다.
+
+    since: 'YYYY-MM-DD' 이후만 평가한다. 매장 매출 수준이 한 번 크게 바뀐 경우
+      (리모델링·이전·상권 변화, 또는 시드 데이터 교체) 그 이전 구간을 넣으면 오차가
+      모델 성능이 아니라 그 단절을 재게 된다 — 끊긴 지점부터 다시 재라고 두는 파라미터.
+    min_train: 학습 최소 일수. 기본은 주간 계절성을 4주기 보는 28일이다.
+    """
+    from app.services.ai.document_service import _session
+
+    if target not in ("revenue", "cups"):
+        raise ForecastError("target은 revenue 또는 cups만 됩니다.")
+    horizon = max(1, min(int(horizon), 14))
+
+    with _session() as db:
+        raw = _load_daily_series(db, store_id, mask_abnormal=False)
+        coords = _store_coords(db, store_id) if raw is not None else None
+    if raw is None:
+        raise ForecastError("판매 기록이 없어 백테스트할 수 없습니다.")
+
+    # 외생변수(날씨·공휴일) 컨텍스트 — 좌표가 없거나 조회에 실패하면 None.
+    # 그러면 blend_exog는 채점에서 빠지고(None 반환), 나머지 방식은 영향받지 않는다.
+    ctx = None
+    if coords:
+        flags = _fetch_weather_flags(coords[0], coords[1],
+                                     raw.index.min().date(), raw.index.max().date())
+        if flags:
+            ctx = {"flags": flags}
+
+    if since:
+        raw = raw[raw.index >= since]
+        if raw.empty:
+            raise ForecastError(f"{since} 이후 판매 기록이 없습니다.")
+
+    masked, masked_days = _mask_abnormal_days(raw)
+    n = len(raw)
+    # 주간 계절성을 최소 4주기는 보고 학습해야 의미가 있다 (호출자가 줄일 수는 있게 둔다)
+    min_train = MIN_HISTORY_DAYS * 2 if min_train is None else max(horizon, int(min_train))
+    if n < min_train + horizon:
+        raise ForecastError(
+            f"판매 기록이 {n}일치라 백테스트를 못 합니다. "
+            f"최소 {min_train + horizon}일(학습 {min_train} + 검증 {horizon})이 필요해요.")
+
+    folds = max(1, min(int(folds), (n - min_train) // horizon))
+    cuts = [n - horizon * k for k in range(folds, 0, -1)]
+
+    import numpy as np
+
+    # 평가 대상 조합 — (방식, 마스킹 여부, 객단가 환산 여부)
+    # 매출은 '매출을 직접 예측'과 '잔 수 예측 × 최근 객단가' 두 갈래를 모두 잰다.
+    # 지금 코드는 잔 수와 매출을 각각 따로 적합해서 서로 어긋난다(실측: 14잔인데 16만원 =
+    # 잔당 11,500원, 실제 객단가는 3,900원). 어느 쪽이 나은지는 취향이 아니라 측정 대상이다.
+    variants = [(key, use_mask, False) for key in _METHODS for use_mask in (True, False)]
+    if target == "revenue":
+        variants += [(key, True, True) for key in _METHODS]
+
+    results: list[dict[str, Any]] = []
+    for key, use_mask, derived in variants:
+        label, fn = _METHODS[key]
+        if derived:
+            label += " × 최근 객단가"
+        source = masked if use_mask else raw
+        abs_err = actual_sum = signed_err = 0.0
+        scored_days = 0
+        failed = False
+        for cut in cuts:
+            train_df = source.iloc[:cut]
+            truth = masked[target].iloc[cut:cut + horizon].to_numpy(dtype=float)
+            if derived:
+                cups_pred = fn(train_df["cups"], horizon, ctx)
+                price = _recent_avg_price(train_df)
+                pred = ([c * price for c in cups_pred]
+                        if cups_pred is not None and price else None)
+            else:
+                pred = fn(train_df[target], horizon, ctx)
+            if pred is None:  # SARIMAX 수렴 실패 — 이 조합은 평가에서 제외한다
+                failed = True
+                break
+            p = np.asarray(pred, dtype=float)
+            ok = ~np.isnan(truth) & ~np.isnan(p)
+            if not ok.any():
+                continue
+            abs_err += float(np.abs(truth[ok] - p[ok]).sum())
+            signed_err += float((p[ok] - truth[ok]).sum())
+            actual_sum += float(truth[ok].sum())
+            scored_days += int(ok.sum())
+        if failed or actual_sum <= 0:
+            continue
+        results.append({
+            "method": key,
+            "label": label,
+            "masked": use_mask,
+            "derived": derived,   # 매출을 '잔 수 × 객단가'로 환산했는지
+            "wape_pct": round(abs_err / actual_sum * 100, 1),
+            "bias_pct": round(signed_err / actual_sum * 100, 1),
+            "mae": round(abs_err / scored_days) if scored_days else None,
+            "scored_days": scored_days,
+        })
+
+    if not results:
+        raise ForecastError("채점 가능한 구간이 없어 백테스트 결과를 만들지 못했습니다.")
+
+    results.sort(key=lambda r: r["wape_pct"])
+    best = results[0]
+
+    # 마스킹이 실제로 이득인지 — 같은 방식끼리만 비교해야 의미가 있다
+    by_key = {(r["method"], r["masked"], r["derived"]): r for r in results}
+    mask_gains = []
+    for key in _METHODS:
+        on, off = by_key.get((key, True, False)), by_key.get((key, False, False))
+        if on and off:
+            mask_gains.append({
+                "method": key,
+                "wape_masked": on["wape_pct"],
+                "wape_raw": off["wape_pct"],
+                "gain_pp": round(off["wape_pct"] - on["wape_pct"], 1),  # 양수면 마스킹이 이득
+            })
+
+    # 매출을 직접 예측하는 것과 '잔 수 × 객단가'로 환산하는 것 중 어느 쪽이 나은지
+    derive_gains = []
+    if target == "revenue":
+        for key in _METHODS:
+            direct, via_cups = by_key.get((key, True, False)), by_key.get((key, True, True))
+            if direct and via_cups:
+                derive_gains.append({
+                    "method": key,
+                    "wape_direct": direct["wape_pct"],
+                    "wape_via_cups": via_cups["wape_pct"],
+                    "gain_pp": round(direct["wape_pct"] - via_cups["wape_pct"], 1),
+                })
+
+    return {
+        "store_id": store_id,
+        "target": target,
+        "horizon_days": horizon,
+        "folds": folds,
+        "since": since,
+        "min_train": min_train,
+        "history_days": n,
+        "abnormal_days": len(masked_days),
+        "abnormal_dates": masked_days[-20:],  # 최근 20건만 (전부 실으면 응답이 길어진다)
+        "results": results,
+        "best": best,
+        "mask_gain": mask_gains,
+        "derive_gain": derive_gains,
+        "note": (
+            "WAPE는 낮을수록 정확합니다(Σ|실제-예측|/Σ실제). bias가 양수면 과대예측, "
+            "음수면 과소예측입니다. masked=true는 휴무·품절 의심일을 학습에서 뺀 경우이고, "
+            "gain_pp가 양수면 그만큼 오차가 줄었다는 뜻입니다. "
+            "카페 일매출은 본래 변동이 커서 WAPE 15~25%면 실용 수준, 30% 이상이면 "
+            "학습 기간이 부족하거나 반영 안 된 요인(프로모션·휴무)이 있다는 신호입니다."
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# 6.5) 매장별 예측 방식 자동 선정 — 어느 방식이 나은지는 매장마다 다르다
+# ---------------------------------------------------------------------------
+
+DEFAULT_METHOD = "blend_shift"   # 선정 전·자료 부족 시 쓰는 기본값 (최악의 경우가 가장 안전한 방식)
+MIN_SWITCH_GAIN_PP = 1.0         # 기본값을 갈아치우려면 WAPE가 이만큼(%p)은 나아야 한다
+
+# store_id → (선정한 날짜 ISO, 방식 키). 하루 한 번만 다시 고른다 —
+# 백테스트는 SARIMAX를 fold 수만큼 다시 적합하므로 요청마다 돌릴 수 있는 비용이 아니다.
+_method_cache: dict[str, tuple[str, str]] = {}
+
+
+def peek_forecast_method(store_id: str) -> str:
+    """이 매장에 쓸 예측 방식. 아직 고른 적 없으면 기본값 (절대 블로킹하지 않는다)."""
+    hit = _method_cache.get(store_id)
+    if hit and hit[0] == datetime.now(KST).date().isoformat():
+        return hit[1]
+    return DEFAULT_METHOD
+
+
+def select_forecast_method(store_id: str) -> str:
+    """백테스트를 돌려 이 매장에 가장 잘 맞는 예측 방식을 고르고 캐시한다.
+
+    실측에서 방식 간 우열이 매장마다 뒤집혔다 — 매출 수준이 안정된 매장은 '요일평균×추세'가
+    (잔 수 WAPE 12.5% vs 앙상블 12.6%), 수준이 한 번 바뀐 매장은 앙상블이 크게 앞섰다
+    (18.0% vs 22.3%). 어느 하나를 정답으로 박아 두는 대신 매장 데이터에 물어본다.
+
+    다만 근소한 차이로 갈아타면 그날그날 방식이 바뀌어 예측이 널뛴다. 기본값보다
+    MIN_SWITCH_GAIN_PP 이상 나을 때만 바꾼다 — 노이즈를 쫓지 않기 위한 이력(hysteresis)이다.
+    잔 수 기준으로만 고른다(매출은 잔 수 × 객단가로 파생되므로 같은 선택을 따라간다).
+
+    채점 구간은 실제로 학습에 쓸 구간과 같아야 한다. 레벨 단절이 있는데 그 이전까지
+    포함해 채점하면, '다시는 오지 않을 단절'에 우연히 잘 대응한 방식이 뽑힌다 — 실제로
+    그렇게 뽑힌 SARIMAX 단독이 하루 61잔을 예측했다(같은 시점 실제 74잔, 기본값은 73잔).
+    단절 이후가 채점하기에 너무 짧으면 고르지 않고 기본값을 쓴다.
+    """
+    today = datetime.now(KST).date().isoformat()
+    hit = _method_cache.get(store_id)
+    if hit and hit[0] == today:
+        return hit[1]
+
+    chosen = DEFAULT_METHOD
+    try:
+        from app.services.ai.document_service import _session
+
+        with _session() as db:
+            series = _load_daily_series(db, store_id)
+        since = None
+        if series is not None:
+            shift_at = _detect_level_shift(series["cups"])
+            if shift_at is not None:
+                since = series.index[shift_at].date().isoformat()
+
+        report = backtest(store_id, target="cups", horizon=7, folds=3, since=since)
+        scored = [r for r in report["results"] if r["masked"] and not r.get("derived")]
+        by_method = {r["method"]: r for r in scored}
+        best = min(scored, key=lambda r: r["wape_pct"]) if scored else None
+        base = by_method.get(DEFAULT_METHOD)
+        if best and base and best["method"] != DEFAULT_METHOD:
+            if base["wape_pct"] - best["wape_pct"] >= MIN_SWITCH_GAIN_PP:
+                chosen = best["method"]
+        elif best and not base:
+            chosen = best["method"]
+        logger.info("[%s] 예측 방식 선정: %s (기본 %s 대비 %s)", store_id, chosen, DEFAULT_METHOD,
+                    f"{base['wape_pct'] - by_method[chosen]['wape_pct']:+.1f}%p"
+                    if base and chosen in by_method else "비교 불가")
+    except ForecastError:
+        pass  # 자료가 부족해 채점을 못 한다 — 기본값을 쓴다
+    except Exception:
+        logger.exception("[%s] 예측 방식 선정 실패 — 기본값 사용", store_id)
+
+    _method_cache[store_id] = (today, chosen)
+    return chosen
+
+
+# ---------------------------------------------------------------------------
 # 공개 인터페이스
 # ---------------------------------------------------------------------------
 
@@ -820,36 +1765,94 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
 
     with _session() as db:
         series = _load_daily_series(db, store_id)
-        if series is None or len(series) < MIN_HISTORY_DAYS:
-            have = 0 if series is None else len(series)
+        # 휴무·품절 의심일은 결측이라 '학습에 쓸 수 있는 날'은 전체 길이가 아니라 유효일 수다
+        valid_days = 0 if series is None else int(series["cups"].notna().sum())
+        if series is None or valid_days < MIN_HISTORY_DAYS:
             raise ForecastError(
-                f"판매 데이터가 {have}일치뿐이라 아직 예측을 제공할 수 없어요. "
+                f"판매 데이터가 {valid_days}일치뿐이라 아직 예측을 제공할 수 없어요. "
                 f"최소 {MIN_HISTORY_DAYS}일의 판매 기록이 쌓이면 예측이 열립니다. "
-                "(POS 동기화 또는 판매 입력을 계속해 주세요)")
+                "(POS 동기화 또는 매출 입력을 계속해 주세요)")
 
         # 예측 시작일은 실제 '내일'로 고정한다 — 마지막 판매일 다음 날로 잡으면
-        # 판매 입력이 며칠 끊겼을 때 '내일 예측'이 과거 날짜의 예측이 되어버린다.
+        # 매출 입력이 며칠 끊겼을 때 '내일 예측'이 과거 날짜의 예측이 되어버린다.
         # 공백(gap)만큼 예측 스텝을 더 뽑고, 실제 내일 이후 구간만 잘라 쓴다.
-        last_sale_day = series.index[-1].date()
-        start = max(date.today(), last_sale_day) + timedelta(days=1)
-        gap = (start - last_sale_day).days - 1
-        if gap > 90:
+        # 기준은 '마지막으로 실제 판매가 있던 날' — 꼬리의 결측(휴무)을 마지막 날로 잡으면
+        # 없는 공백을 만들어 낸다.
+        last_sale_day = series.index[series["cups"].notna()][-1].date()
+        # 모델은 시계열의 마지막 인덱스 다음 날부터 예측을 내놓는다. 꼬리가 결측(휴무)이면
+        # 그 날짜는 마지막 '판매일'과 다르므로, 잘라낼 구간은 시계열 끝을 기준으로 세야 한다.
+        series_end = series.index[-1].date()
+        start = max(date.today(), series_end) + timedelta(days=1)
+        gap = (start - series_end).days - 1
+        # '판매 공백'은 오늘 이전의 무판매일만 센다 — 시계열은 오늘(미완성 집계)을 항상
+        # 제외하므로 start 기준으로 세면 어제까지 데이터가 멀쩡해도 매일 '1일 공백'이 찍힌다
+        sales_gap = max(0, (date.today() - last_sale_day).days - 1)
+        if sales_gap > 90:
             raise ForecastError(
-                f"마지막 판매 기록({last_sale_day.isoformat()})이 {gap}일 전이라 예측 정확도를 보장할 수 없어요. "
-                "판매 입력 또는 POS 동기화를 다시 시작하면 예측이 열립니다.")
+                f"마지막 판매 기록({last_sale_day.isoformat()})이 {sales_gap}일 전이라 예측 정확도를 보장할 수 없어요. "
+                "매출 입력 또는 POS 동기화를 다시 시작하면 예측이 열립니다.")
         horizon = days + gap
 
         # 행사 수집은 예측 시작일이 정해진 지금 던진다 — SARIMAX 적합과 병렬로 돈다
         events_future = _external_pool.submit(_fetch_nearby_events, lat, lon, start, days)
 
-        # 시계열 기본 예측 (잔 수·매출 각각)
-        model_name = f"SARIMAX(1,0,1)×(1,0,1,7) 주간 계절성 (학습 {len(series)}일)"
-        cups_pred = _forecast_sarimax(series["cups"], horizon)
-        rev_pred = _forecast_sarimax(series["revenue"], horizon) if cups_pred else None
-        if cups_pred is None or rev_pred is None:
-            model_name = f"요일별 평균×추세 (학습 {len(series)}일, 폴백)"
-            cups_pred = _forecast_seasonal(series["cups"], horizon)
-            rev_pred = _forecast_seasonal(series["revenue"], horizon)
+        # 시계열 기본 예측 — 잔 수를 예측하고, 매출은 최근 객단가로 환산한다.
+        #
+        # 방식은 백테스트로 골랐다(2026-07-31, 안정 구간 기준 WAPE):
+        #   SARIMAX 단독 22.9% / 요일평균 베이스라인 22.6% / SARIMAX+최근수준 앙상블 18.0%
+        # SARIMAX 단독은 베이스라인조차 못 이겼고 -12.5%로 꾸준히 과소예측했다. 앙상블은
+        # 두 방식이 반대 방향으로 틀리는 성질을 이용해 편향을 -1.3%까지 줄인다.
+        #
+        # 매출을 따로 적합하지 않는 이유는 정확도가 아니라 일관성이다(WAPE 차이는 0.2pp로
+        # 사실상 동률). 독립으로 적합하면 두 예측이 서로 어긋나, 실제로 '15잔인데 16만원'
+        # (잔당 11,500원, 실제 객단가 3,900원) 같은 값이 화면에 나갔다.
+        #
+        # 여기에 레벨 단절 절단을 얹는다 — 매출 수준이 계단식으로 바뀐 지점이 있으면 그
+        # 이후만 학습한다. 단절이 없는 매장에서는 아무 일도 하지 않는다(백테스트 실측:
+        # 안정 구간 17.9%/18.0%로 절단 전과 완전히 동일).
+        # 어느 방식을 쓸지는 매장별로 백테스트가 고른다(select_forecast_method). 여기서는
+        # 이미 골라 둔 결과만 읽는다 — 고르는 일은 SARIMAX를 여러 번 적합하므로 대시보드
+        # 응답 경로에서 하면 안 된다. 백그라운드 갱신이 하루 한 번 다시 고른다.
+        method_key = peek_forecast_method(store_id)
+        method_label, method_fn = _METHODS.get(method_key, _METHODS[DEFAULT_METHOD])
+
+        # 외생변수 방식이 선택된 매장만 과거 실측 날씨를 가져온다 (캐시 6시간).
+        # 이 방식은 비·폭염·공휴일을 모델 안에서 배우므로, 아래 사후 날씨 보정은 건너뛴다
+        # — 같은 비를 회귀로 한 번, 배율로 또 한 번 깎는 이중 반영을 막는다.
+        ctx = None
+        if method_key == "blend_exog":
+            flags = _fetch_weather_flags(lat, lon, series.index.min().date(),
+                                         start + timedelta(days=days))
+            if flags:
+                ctx = {"flags": flags}
+
+        # 절단은 방식 안에서도 하지만(blend_shift), 학습 일수를 표시하려면 여기서도 알아야 한다
+        shift_at = _detect_level_shift(series["cups"])
+        train = series.iloc[shift_at:] if shift_at is not None else series
+
+        cups_pred = method_fn(train["cups"], horizon, ctx)
+        weather_in_model = method_key == "blend_exog" and cups_pred is not None
+        model_name = f"{method_label} (학습 {valid_days}일)"
+        if shift_at is not None:
+            shift_day = series.index[shift_at].date().isoformat()
+            model_name = (f"{method_label} (매출 수준 변화 감지 — {shift_day} 이후 "
+                          f"{int(train['cups'].notna().sum())}일만 학습)")
+        if cups_pred is None and method_key == "blend_exog":
+            # 날씨를 못 구했거나 적합 실패 — 외생변수만 뺀 기본 앙상블로 물러선다
+            cups_pred = _forecast_blend(train["cups"], horizon)
+            model_name = f"{_METHODS[DEFAULT_METHOD][0]} (학습 {valid_days}일, 날씨 조회 실패 폴백)"
+        if cups_pred is None:
+            cups_pred = _forecast_seasonal(train["cups"], horizon)
+            model_name = f"요일별 평균×추세 (학습 {valid_days}일, 폴백)"
+
+        # 객단가도 절단 이후 구간에서 본다 — 단가 인상·메뉴 개편이 단절의 원인일 수 있다
+        avg_price = _recent_avg_price(train)
+        if avg_price:
+            rev_pred = [c * avg_price for c in cups_pred]
+        else:
+            # 객단가를 못 구할 만큼 자료가 없으면(잔 수가 전부 0) 매출도 따로 예측한다
+            rev_pred = (method_fn(train["revenue"], horizon, ctx)
+                        or _forecast_seasonal(train["revenue"], horizon))
         # 마지막 판매일~내일 사이 공백 구간은 버리고 실제 내일부터 days개만 사용
         cups_pred = cups_pred[gap:]
         rev_pred = rev_pred[gap:]
@@ -858,7 +1861,7 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
         weather = weather_future.result()
         region = region_future.result()
 
-        # 주변 행사 자동 수집(서울 문화행사 API) + 사장님이 직접 알려준 행사 병합
+        # 주변 행사 자동 수집(전국 검색·TourAPI·서울) + 사장님이 직접 알려준 행사 병합
         nearby_events = events_future.result()
         all_events = events + nearby_events
 
@@ -867,7 +1870,8 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
         for i in range(days):
             d = start + timedelta(days=i)
             iso = d.isoformat()
-            factor, reasons = _day_adjustment(iso, weather, all_events)
+            factor, reasons = _day_adjustment(iso, weather, all_events,
+                                              skip_weather=weather_in_model)
             w = weather.get(iso, {})
             week.append({
                 "date": iso,
@@ -879,7 +1883,7 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
                 "temp_max": w.get("temp_max"),
                 "precip_prob": w.get("precip_prob"),
                 "adjustments": reasons,
-                "holiday": KR_HOLIDAYS_2026.get(iso),
+                "holiday": holiday_name(iso),
             })
 
         week_cups = sum(d["cups"] for d in week)
@@ -940,7 +1944,8 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
         "store_id": store_id,
         "location": {"lat": lat, "lon": lon, "region": region},
         "model": model_name,
-        "history_days": len(series),
+        "history_days": valid_days,       # 휴무·품절 의심일을 뺀 '학습에 쓴' 날 수
+        "excluded_days": len(series) - valid_days,
         "today": today_actual,
         "tomorrow": week[0],
         "tomorrow_hourly": tomorrow_hourly,
@@ -948,13 +1953,16 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
         "week": week,
         "week_total": {"cups": week_cups, "revenue": sum(d["revenue"] for d in week)},
         "order_recommendations": recommendations,
-        "nearby_events": nearby_events,   # 자동 수집 (서울 문화행사, 반경 3km)
+        "nearby_events": nearby_events,   # 자동 수집 (전국 네이버 검색·TourAPI + 서울 문화행사, 반경 3km)
         "events_applied": events,         # 사장님이 직접 입력한 행사
-        "note": (f"마지막 판매 기록({last_sale_day.isoformat()}) 이후 {gap}일의 공백을 건너뛰고 "
-                 "실제 내일부터 예측했습니다. " if gap > 0 else "")
-                + "시계열 예측에 날씨(강수 -10%, 폭염 +5%)·주변 행사(자동 +10%/건, 직접 입력 +20%) "
-                "보정을 적용한 참고치입니다. 행사 자동 수집은 서울 지역(반경 3km) 문화행사 기준이며, "
-                "그 외 지역이나 놓친 행사는 챗봇에 말하면 반영됩니다.",
+        "note": (f"마지막 판매 기록({last_sale_day.isoformat()}) 이후 {sales_gap}일의 공백을 건너뛰고 "
+                 "실제 내일부터 예측했습니다. " if sales_gap > 0 else "")
+                + (f"휴무·품절로 보이는 {len(series) - valid_days}일은 학습에서 제외했습니다. "
+                   if valid_days < len(series) else "")
+                + "시계열 예측에 날씨(강수 -10%, 폭염 +5%)·주변 행사(자동 +5~10%/건, 직접 입력 +20%) "
+                "보정을 적용한 참고치입니다. 행사는 매장 반경 3km 안을 전국 기준으로 자동 수집하며"
+                "(뉴스·블로그 검색, 한국관광공사 축제, 서울 문화행사), "
+                "놓친 행사는 챗봇에 말하면 반영됩니다.",
     }
     if not events:  # 직접 입력 행사가 섞인 결과는 캐시하지 않는다 (대시보드 기본 호출만)
         _forecast_cache[cache_key] = (time.time(), datetime.now(KST).date().isoformat(), result)

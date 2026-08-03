@@ -272,22 +272,32 @@ def _gemini_json(prompt: str, schema: dict[str, Any], timeout: float = 25.0) -> 
     elif GEMINI_MODEL.startswith("gemini-3"):
         generation_config["thinkingConfig"] = {"thinkingLevel": "low"}
 
-    try:
-        import httpx
+    import httpx
 
-        resp = httpx.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
-            json={"contents": [{"parts": [{"text": prompt}]}],
-                  "generationConfig": generation_config},
-            headers={"x-goog-api-key": GEMINI_API_KEY},
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-        return json.loads(text)
-    except Exception as e:
-        logger.warning("주변 카페 AI 분석 실패 (수집 데이터만 반환): %s", e)
-        return None
+    # 503(모델 과부하)·429(쿼터 순간 초과)는 잠깐 뒤에 되면 되는 일시 오류다.
+    # 여기서 포기하면 화면에 AI 카드가 통째로 사라지므로 한 번만 쉬었다 다시 던진다.
+    for attempt in (1, 2):
+        try:
+            resp = httpx.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+                json={"contents": [{"parts": [{"text": prompt}]}],
+                      "generationConfig": generation_config},
+                headers={"x-goog-api-key": GEMINI_API_KEY},
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+            return json.loads(text)
+        except httpx.HTTPStatusError as e:
+            if attempt == 1 and e.response.status_code in (429, 500, 502, 503, 504):
+                time.sleep(2.0)
+                continue
+            logger.warning("AI 분석 실패 (수집 데이터만 반환): %s", e)
+            return None
+        except Exception as e:
+            logger.warning("AI 분석 실패 (수집 데이터만 반환): %s", e)
+            return None
+    return None
 
 
 _CAFE_ANALYSIS_SCHEMA = {

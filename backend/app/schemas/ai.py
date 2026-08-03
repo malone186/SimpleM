@@ -158,6 +158,16 @@ class MarketingImageRequest(BaseModel):
     style: str = Field("", description="스타일 지시 (예: 수채화 일러스트) — 비우면 실사 사진풍")
     aspect_ratio: str = Field("1:1", description="화면비: 1:1 | 4:5 | 9:16 | 16:9 등")
     include_text: bool = Field(True, description="문서의 슬로건을 이미지에 한글로 새길지")
+    overlay: str = Field("auto", description="슬로건 위치: auto | none | bottom | center | top")
+    quality: str = Field("high", description="화질: high(기본, 고해상도) | standard")
+
+
+class MarketingOverlayRequest(BaseModel):
+    """이미 만든 홍보 이미지의 슬로건 위치만 바꾸는 입력 — AI 재호출 없이 즉시 처리된다."""
+
+    doc_id: str = Field(..., description="홍보 콘텐츠 문서 id")
+    image_id: str = Field("", description="대상 이미지 id (비우면 마지막 이미지)")
+    layout: str = Field("bottom", description="none | bottom | center | top | auto")
 
 
 class PayslipRequest(BaseModel):

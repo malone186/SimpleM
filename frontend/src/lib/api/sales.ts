@@ -80,6 +80,15 @@ export type ImportPreviewRow = {
   warnings: string[];
 };
 
+// 미등록 메뉴 하나 — 저장에서 빠지므로 '한 번에 등록' 후보로 쓴다.
+export type UnmatchedMenu = {
+  name: string;
+  rows: number;        // 이 메뉴가 나온 행 수
+  quantity: number;    // 합계 수량
+  amount: number;      // 합계 금액(= 이만큼 매출이 빠진다)
+  suggested_price: number; // 등록 화면에 채워 넣을 판매가 제안(금액÷수량)
+};
+
 export type ImportPreview = {
   mapping: Record<string, any>;
   // 열 매핑에 어떤 엔진이 쓰였는지 — 'ai'(Gemini) | 'heuristic'(키워드). 실패 시 mapping_error에 사유.
@@ -88,7 +97,15 @@ export type ImportPreview = {
   mapping_error?: string | null;
   confidence?: number | null;
   rows: ImportPreviewRow[];
-  summary: { total_rows: number; matched: number; unmatched: number; sum_amount: number };
+  summary: {
+    total_rows: number;
+    matched: number;
+    unmatched: number;
+    sum_amount: number;
+    // 미등록 메뉴 때문에 저장에서 빠질 매출 총액 + 그 메뉴 목록(등록 후보)
+    unmatched_amount: number;
+    unmatched_menus: UnmatchedMenu[];
+  };
 };
 
 /** POS 파일(엑셀/CSV) 업로드 → LLM이 열을 매핑해 미리보기 반환 (DB 저장 안 함) */
@@ -116,6 +133,32 @@ export async function previewSalesImport(
   }
   return res.json();
 }
+
+// 레시피 한 줄 — 재료 1개와 1잔당 소요량. 등록 시 함께 주면 재고 차감이 바로 연결된다.
+export type RecipeLine = { ingredient_id: number; quantity: number };
+
+export type RegisteredMenu = {
+  name: string;
+  menu_id: number;
+  selling_price: number;
+  created: boolean;
+  recipe_added: number;        // 이번에 연결된 레시피 줄 수
+  recipe_skipped: number[];    // 무시된 재료 id(남의 매장 재료·수량 이상)
+  has_recipe: boolean;         // true면 이제 이 메뉴는 저장 시 재고가 차감된다
+};
+
+/** 파일에서 발견된 미등록 메뉴를 메뉴로 등록.
+ *  recipe를 함께 주면 등록과 동시에 레시피가 연결돼 재고 차감까지 바로 동작한다.
+ *  (재료 목록은 백엔드 A의 GET /inventory/ingredients 사용) */
+export const registerImportMenus = (
+  token: string,
+  menus: { name: string; selling_price: number; recipe?: RecipeLine[] }[],
+) =>
+  apiFetch<{ menus: RegisteredMenu[] }>('/api/v1/chatbot/sales/import/register-menus', {
+    method: 'POST',
+    headers: auth(token),
+    body: JSON.stringify({ menus }),
+  });
 
 /** 미리보기에서 확인·수정한 행을 실제 매출로 저장 (Sale 기록 + 재고 차감) */
 export const confirmSalesImport = (

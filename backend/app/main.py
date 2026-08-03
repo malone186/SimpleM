@@ -47,6 +47,10 @@ try:
     from app.models.ai import ensure_store_profile_columns
     ensure_store_profile_columns(engine)
 
+    # [자가치유] 기존 employee_profiles 테이블에 color(직원 대표색) 컬럼이 없으면 보강한다.
+    from app.models.ai import ensure_employee_profile_columns
+    ensure_employee_profile_columns(engine)
+
     # [한글 주석] 로그인 데모를 즉시 하실 수 있게 테스트용 사장님 계정을 자동으로 생성(시딩)해 둡니다.
     db_session = SessionLocal()
     try:
@@ -73,13 +77,31 @@ except Exception:
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    """OCR이 Gemini API 호출로 전환되어 예열할 로컬 모델이 없다 — 자리만 유지."""
-    yield
+    """앱 수명 훅 — 백그라운드 폴링 작업들을 띄운다 (백엔드 B).
+
+    · POS 자동 동기화: 웹훅이 실시간을 담당하고, 이 폴링은 웹훅 미설정/유실 매장의 안전망.
+      POS_AUTO_SYNC_INTERVAL=0 이면 루프가 즉시 종료되어 아무 것도 하지 않는다.
+    · 원두 시세 스냅샷: 가격 이력을 하루 1회 쌓아 추이(트렌드)의 원천 데이터를 만든다.
+      오늘 쌓기 시작해야 다음 주에 그래프가 나오므로 앱이 뜰 때부터 돌린다.
+      BEAN_SNAPSHOT_INTERVAL=0 이면 비활성.
+    """
+    import asyncio
+
+    from app.api.v1.pos import auto_sync_loop
+    from app.services.operation.bean_market_service import price_snapshot_loop
+
+    pos_task = asyncio.create_task(auto_sync_loop())
+    snapshot_task = asyncio.create_task(price_snapshot_loop())
+    try:
+        yield
+    finally:
+        pos_task.cancel()
+        snapshot_task.cancel()
 
 
 app = FastAPI(
-    title="SimpleM 카페 통합 플랫폼 API",
-    description="재고·발주·운영·AI(챗봇/OCR/리포트) 기능을 제공하는 SimpleM 백엔드 API",
+    title="브루노트 카페 통합 플랫폼 API",
+    description="재고·발주·운영·AI(챗봇/OCR/리포트) 기능을 제공하는 브루노트 백엔드 API",
     version="1.0.0",
     lifespan=_lifespan,
 )
@@ -297,6 +319,6 @@ else:
     @app.get("/")
     def read_root():
         return {
-            "message": "SimpleM 카페 통합 플랫폼 백엔드 서버에 오신 것을 환영합니다!",
+            "message": "브루노트 카페 통합 플랫폼 백엔드 서버에 오신 것을 환영합니다!",
             "status": "online",
         }

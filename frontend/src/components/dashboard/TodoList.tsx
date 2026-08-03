@@ -103,6 +103,7 @@ export default function TodoList({
   onAddTodo,
   onEditTodo,
   onDeleteTodo,
+  onRestoreAiTodos,
 }: {
   todos: Todo[];
   selectedDateInfo?: DateInfo;
@@ -111,6 +112,7 @@ export default function TodoList({
   onAddTodo?: (title: string, dateKey?: string) => void;
   onEditTodo?: (id: string, newTitle: string) => void;
   onDeleteTodo?: (id: string) => void;
+  onRestoreAiTodos?: () => void;
   hideCard?: boolean;
 }) {
   const [modalVisible, setModalVisible] = useState(false);
@@ -257,16 +259,42 @@ export default function TodoList({
         )}
       </Animated.View>
 
-      {/* ── [새 업무 등록 모달 오픈 트리거 버튼 - 지난 날짜(isPast)일 때는 숨김] ── */}
+      {/* ── [한 줄 가로 정렬: 메인 새 업무 등록하기 + ✨ 브루 추천 미니 칩] ── */}
       {!isPastDate && (
-        <PressableScale
-          onPress={openCreateModal}
-          style={styles.openModalBtn}
-          to={0.96}
-        >
-          <Ionicons name="add-circle" size={18} color="#FFFFFF" />
-          <Text style={styles.openModalBtnText}>새 업무 등록하기</Text>
-        </PressableScale>
+        <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', marginTop: 4 }}>
+          <PressableScale
+            onPress={openCreateModal}
+            style={[styles.openModalBtn, { flex: 1, height: 42, paddingVertical: 0 }]}
+            to={0.96}
+          >
+            <Ionicons name="add-circle" size={17} color="#FFFFFF" />
+            <Text style={styles.openModalBtnText}>새 업무 등록하기</Text>
+          </PressableScale>
+
+          {onRestoreAiTodos && (
+            <PressableScale
+              onPress={onRestoreAiTodos}
+              style={{
+                height: 42,
+                paddingHorizontal: 12,
+                borderRadius: 14,
+                backgroundColor: 'rgba(245, 239, 232, 0.9)',
+                borderWidth: 1,
+                borderColor: 'rgba(226, 215, 199, 0.9)',
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 4,
+              }}
+              to={0.94}
+            >
+              <Ionicons name="sparkles" size={13} color="#8C6F56" />
+              <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#5B4333' }}>
+                브루 추천
+              </Text>
+            </PressableScale>
+          )}
+        </View>
       )}
 
       {/* ── [iOS 팝업 모달 다이얼로그: 새 업무 등록 / 업무 수정 통합 모달] ── */}
@@ -353,7 +381,7 @@ export default function TodoList({
   );
 }
 
-// ── [개별 할 일 아이템 컴포넌트] ──
+// ── [개별 할 일 아이템 컴포넌트 — 쫀득한 젤리 탄성 Checkbox 적용] ──
 function TodoItem({
   todo,
   isPastDate,
@@ -373,6 +401,48 @@ function TodoItem({
 }) {
   const animX = useRef(new Animated.Value(0)).current;
   const animOpacity = useRef(new Animated.Value(1)).current;
+  const checkScale = useRef(new Animated.Value(1)).current;
+  const cardScale = useRef(new Animated.Value(1)).current;
+
+  const handleToggle = () => {
+    // [한글 주석: 산디과 감성 과하지 않고 쫀득한 명품 절제형 Bouncy Spring 완료 인터랙션]
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(checkScale, { toValue: 0.85, duration: 70, useNativeDriver: true }),
+        Animated.timing(cardScale, { toValue: 0.985, duration: 70, useNativeDriver: true }),
+      ]),
+      Animated.parallel([
+        Animated.spring(checkScale, {
+          toValue: 1.15,
+          friction: 5,
+          tension: 240,
+          useNativeDriver: true,
+        }),
+        Animated.spring(cardScale, {
+          toValue: 1.01,
+          friction: 5,
+          tension: 200,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.parallel([
+        Animated.spring(checkScale, {
+          toValue: 1,
+          friction: 6,
+          tension: 180,
+          useNativeDriver: true,
+        }),
+        Animated.spring(cardScale, {
+          toValue: 1,
+          friction: 6,
+          tension: 180,
+          useNativeDriver: true,
+        }),
+      ]),
+    ]).start();
+
+    onToggleDone?.(todo.id);
+  };
 
   const handleDelete = () => {
     Animated.parallel([
@@ -392,24 +462,26 @@ function TodoItem({
   };
 
   return (
-    <Animated.View style={{ transform: [{ translateX: animX }], opacity: animOpacity }}>
+    <Animated.View style={{ transform: [{ translateX: animX }, { scale: cardScale }], opacity: animOpacity }}>
       <PressableScale
         disabled={disabled || !todo.actionable}
         onPress={() => onPressAction(todo)}
         style={[styles.taskCardItem, disabled && styles.itemDone]}
       >
-        {/* [1. 체크박스 아이콘] */}
-        <PressableScale
-          onPress={() => onToggleDone && onToggleDone(todo.id)}
-          style={styles.checkTouch}
-          to={0.85}
-        >
-          <Ionicons
-            name={disabled ? 'checkmark-circle' : 'ellipse-outline'}
-            size={22}
-            color={disabled ? colors.espressoBrown : '#C4B5A5'}
-          />
-        </PressableScale>
+        {/* [1. 쫀득하게 튕겨 올라가는 체크박스 아이콘] */}
+        <Animated.View style={{ transform: [{ scale: checkScale }] }}>
+          <Pressable
+            onPress={handleToggle}
+            style={styles.checkTouch}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons
+              name={disabled ? 'checkmark-circle' : 'ellipse-outline'}
+              size={23}
+              color={disabled ? colors.espressoBrown : '#C4B5A5'}
+            />
+          </Pressable>
+        </Animated.View>
 
         {/* [2. 한 줄로 깔끔하게 정돈된 타이틀 텍스트] */}
         <View style={{ flex: 1, marginLeft: 8 }}>

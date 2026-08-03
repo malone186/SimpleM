@@ -73,6 +73,9 @@ export type NearbyEvent = {
   distance_km: number;
   place: string;
   source: string;
+  // 지도 마커용 좌표 (수집 소스가 좌표를 준 행사만) — 매장 지도 화면이 오렌지 핀으로 찍는다
+  lat?: number | null;
+  lon?: number | null;
 };
 
 export type HourlyForecast = {
@@ -108,7 +111,7 @@ export type SalesForecast = {
   week: ForecastDay[];
   week_total: { cups: number; revenue: number };
   order_recommendations: OrderRecommendation[];
-  nearby_events: NearbyEvent[]; // 서울 문화행사 API 자동 수집 (매장 반경 3km)
+  nearby_events: NearbyEvent[]; // 전국 자동 수집 (네이버 검색·한국관광공사·서울 문화행사, 매장 반경 3km)
   note: string;
 };
 

@@ -10,12 +10,14 @@ from app.schemas.inventory import (
     IngredientCreate, IngredientResponse, IngredientPriceUpdate, IngredientPriceHistoryResponse,
     StockAdjust, StockResponse, StockDetailResponse,
     MenuCreate, MenuResponse, MenuDetailResponse,
+    OrderResponse, OrderStatusUpdate, RoasteryBeanResponse
 )
 from app.services.inventory_service import (
     create_ingredient, get_ingredients, delete_ingredient,
     update_ingredient_price, get_ingredient_price_history,
     add_or_adjust_stock, get_stocks,
     create_menu_with_recipes, get_menus_with_recipes, delete_menu,
+    get_roastery_beans
 )
 
 # APIRouter를 통해 "/inventory"로 시작하는 신호를 전담 접수하는 창구를 개설합니다.
@@ -158,6 +160,51 @@ def remove_menu(
     """[메뉴 삭제] 본인 매장의 메뉴를 삭제합니다. (레시피 함께 정리)"""
     delete_menu(db=db, store_id=current_user.email, menu_id=menu_id)
 
+
+# --- [5. 발주 추천 및 승인/반려 관련 API 창구] ---
+
+@router.get("/orders/drafts", response_model=list[OrderResponse])
+def get_order_drafts(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    [발주 추천 초안 목록 조회]
+    매장의 실시간 재고 대장을 탐색하여 안전재고 미달 품목이 있으면 자동으로 발주 제안서 초안들을 돌려줍니다.
+    """
+    from app.services.inventory_service import get_or_create_order_drafts
+    return get_or_create_order_drafts(db=db, store_id=current_user.email)
+
+
+# --- [6. 로스터리 원두 탐색 마켓 API 창구] ---
+
+@router.get("/roastery-beans", response_model=list[RoasteryBeanResponse])
+def list_roastery_beans(
+    limit: int = 10,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    [한글 주석: 로스터리 원두 탐색 마켓 목록 조회]
+    DB에 등록된 외부 전문 로스터리의 원두 상품 목록을 가져옵니다.
+    로스터리 업체 정보, 가격, 이미지, 원산지, 가공방식 등을 포함합니다.
+    """
+    return get_roastery_beans(db=db, limit=limit)
+
+
+@router.patch("/orders/{order_id}")
+def update_order_status_api(
+    order_id: int,
+    payload: OrderStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    [발주서 상태 업데이트 (승인 및 반려)]
+    사장님이 검토 후 발주를 승인(CONFIRMED)하면 실제 재고에 반영하고 입고 기록을 생성하며, 반려(REJECTED)하면 반려 상태로 처리합니다.
+    """
+    from app.services.inventory_service import update_order_status
+    return update_order_status(db=db, store_id=current_user.email, order_id=order_id, status_update=payload.status)
 
 
 @router.get("/menus/{menu_id}/cost-reduction-recommendations")

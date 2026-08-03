@@ -46,7 +46,7 @@ export function preloadRewarded(): void {
         }),
       );
       offs.push(
-        ad.addAdEventListener(AdEventType.ERROR, (error) => {
+        ad.addAdEventListener(AdEventType.ERROR, (error: any) => {
           if (__DEV__) console.warn('[ads] 보상형 광고 로드 실패:', error?.message);
           loading = false;
           cleanup();

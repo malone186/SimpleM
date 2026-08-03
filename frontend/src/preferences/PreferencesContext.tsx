@@ -15,6 +15,8 @@ export type FontSize = 'small' | 'normal' | 'large' | 'xlarge';
 export type ReportFrequency = 'daily' | 'weekly';
 export type Language = 'ko' | 'en'; // 다국어 언어 지원 타입 (한국어 / 영어)
 export type VoiceType = 'warm_female' | 'friendly_male' | 'calm_male' | 'cute_child'; // [한글 주석: 음성 비서 목소리 4가지 타입]
+// 알림 음성을 어떤 상황에서 읽어줄지 — 'always'는 스피커 포함 항상, 'earphone'은 이어폰 연결 시에만
+export type VoiceAlertOutput = 'always' | 'earphone';
 
 export type Preferences = {
   // 알림
@@ -25,12 +27,14 @@ export type Preferences = {
   dndEnabled: boolean;      // 방해 금지 시간대 사용
   dndStart: string;         // 'HH:MM'
   dndEnd: string;           // 'HH:MM'
-  voiceAlertEnabled: boolean; // 알림 음성 읽어주기(TTS) — 이어폰 연결 시 완료 알림을 읽어줌
+  voiceAlertEnabled: boolean; // 알림 음성 읽어주기(TTS) — 완료 알림을 음성으로 읽어줌
+  voiceAlertOutput: VoiceAlertOutput; // 음성 출력 조건 — 항상 / 이어폰 연결 시에만
   voiceAssistantEnabled: boolean; // 음성 비서 버튼 표시 — 우하단 브리핑(📋)·음성 명령(🎤) 버튼
   // 화면 표시 / 접근성
   fontSize: FontSize;       // 글자 크기
   language: Language;       // 앱 표현 언어 (한국어: 'ko', 영어: 'en')
   voiceType: VoiceType;     // [한글 주석: 음성 비서 목소리 타입 (다정한 여성, 친근한 삼촌, 차분한 젠틀맨, 귀여운 꼬마)]
+  speechRate: number;       // 말하는 속도 배율 (0.75 느리게 ~ 1.35 빠르게, 1 = 보통)
   // 계정 부가정보 (백엔드 User에 필드가 없어 로컬 보관)
   businessType: string;     // 업종
   openHour: string;         // 가게 오픈 시간 ('HH:MM')
@@ -46,10 +50,16 @@ const DEFAULTS: Preferences = {
   dndStart: '22:00',
   dndEnd: '08:00',
   voiceAlertEnabled: true,
+  // [한글 주석] 기본을 '항상'으로 둔 이유: 예전 기본값('이어폰 연결 시에만')은 안드로이드
+  // 이어폰 감지가 false negative를 자주 내는 탓에 "이어폰을 꼈는데도 아무 말을 안 하는"
+  // 상태로 이어졌다. 조용한 실패보다 들리는 쪽을 기본으로 두고, 매장 스피커로 나가는 게
+  // 싫은 사장님은 '이어폰 연결 시에만'을 고르면 된다.
+  voiceAlertOutput: 'always',
   voiceAssistantEnabled: true,
   fontSize: 'normal',
   language: 'ko', // 기본 언어: 한국어
   voiceType: 'warm_female', // 기본 목소리: 다정한 여성
+  speechRate: 1, // 기본 속도: 보통
   businessType: '카페',
   openHour: '09:00',
   closeHour: '21:00',
@@ -61,6 +71,26 @@ export const VOICE_TYPE_LABEL: Record<VoiceType, { title: string; desc: string }
   calm_male: { title: '차분한 남성', desc: '낮고 안정감 있는 젠틀맨 톤' },
   cute_child: { title: '귀여운 아이', desc: '톡톡 튀고 발랄한 꼬마 톤' },
 };
+
+// [한글 주석] 말하는 속도 단계 — 슬라이더 대신 5단계로 고정한 이유:
+// 사장님이 값을 미세 조정하는 것보다 "느리게/보통/빠르게"를 한 번에 고르는 쪽이 빠르고,
+// 단계마다 샘플을 들려주면 바로 비교가 된다. 값은 TTS 엔진이 자연스러운 구간(0.75~1.35)만 쓴다.
+export const SPEECH_RATE_STEPS: { value: number; label: string; hint: string }[] = [
+  { value: 0.75, label: '아주 느리게', hint: '또박또박 천천히' },
+  { value: 0.9, label: '느리게', hint: '조금 여유 있게' },
+  { value: 1, label: '보통', hint: '기본 속도' },
+  { value: 1.15, label: '빠르게', hint: '조금 서둘러' },
+  { value: 1.35, label: '아주 빠르게', hint: '핵심만 빠르게' },
+];
+
+/** 저장된 속도값과 가장 가까운 단계를 찾아준다 (예전 버전에서 저장된 값 대비) */
+export function nearestSpeechRate(value: number): number {
+  return SPEECH_RATE_STEPS.reduce(
+    (best, step) =>
+      Math.abs(step.value - value) < Math.abs(best - value) ? step.value : best,
+    SPEECH_RATE_STEPS[2].value
+  );
+}
 
 // 글자 크기 → 배율 (전역 적용 시 곱해 쓸 값)
 export const FONT_SCALE: Record<FontSize, number> = {

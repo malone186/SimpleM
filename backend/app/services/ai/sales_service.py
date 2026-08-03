@@ -1,6 +1,6 @@
 """판매 수동 입력 (백엔드 B)
 
-POS 자동 동기화(operation의 /pos/sync)와 별개로, 사장님이 '판매 입력' 화면에서
+POS 자동 동기화(operation의 /pos/sync)와 별개로, 사장님이 '매출 입력' 화면에서
 직접 등록하는 판매를 Sale 테이블에 기록하고 레시피 기준으로 재고를 자동 차감한다.
 대시보드·경영 리포트·판매 예측이 모두 같은 Sale 테이블을 읽으므로,
 여기로 입력한 판매는 즉시 모든 화면 집계에 반영된다.
@@ -138,7 +138,7 @@ def menu_contribution(store_id: str, days: int = 30) -> dict[str, Any]:
 
 
 def recent_sales(store_id: str, limit: int = 10) -> list[dict[str, Any]]:
-    """최근 판매 내역 (판매 입력 화면 '최근 판매' 표시용)."""
+    """최근 판매 내역 (매출 입력 화면 '최근 판매' 표시용)."""
     from app.models.inventory import Menu, Sale
     from app.services.ai.document_service import _session
 

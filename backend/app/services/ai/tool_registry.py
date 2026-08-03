@@ -17,7 +17,9 @@ _TOOL_MODULES = [
     "app.services.ai.insight_tools",             # 백엔드 B (선제 인사이트 — 놓친 일·곧 할 일 스캔)
     "app.services.ai.marketing_tools",           # 백엔드 B (홍보/마케팅 — AI 홍보 문구·홍보 이미지 생성)
     "app.services.ai.nearby_cafe_tools",         # 백엔드 B (주변 카페 상권 분석 — 네이버 지역·리뷰 수집)
+    "app.services.ai.nearby_event_tools",        # 백엔드 B (주변 행사 — 축제·팝업 일정과 대비 조언)
     "app.services.ai.ocr_tools",                 # 백엔드 B
+    "app.services.ai.pos_tools",                 # 백엔드 B (POS 실시간 연동 — 상태 조회·즉시 동기화)
     "app.services.ai.price_tools",               # 백엔드 B (인터넷 가격 비교)
     "app.services.ai.report_tools",              # 백엔드 B (경영 리포트 — 일간·주간·월간)
     "app.services.ai.sensor_tools",              # 백엔드 B (매장 IoT 센서 실시간 상태·발주 코치)

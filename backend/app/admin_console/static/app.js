@@ -1,4 +1,4 @@
-// [한글 주석: SimpleM 관리자 데스크톱 콘솔 로직 - 상단 필터 탭 통합 버전]
+// [한글 주석: 브루노트 관리자 데스크톱 콘솔 로직 - 상단 필터 탭 통합 버전]
 document.addEventListener('DOMContentLoaded', () => {
   // Lucide 아이콘 로드
   if (window.lucide) {
@@ -67,7 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ov.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#2b2320;display:flex;align-items:center;justify-content:center;';
     ov.innerHTML = `
       <form id="admin-login-form" style="background:#fff;border-radius:16px;padding:32px;width:340px;max-width:90%;box-shadow:0 10px 40px rgba(0,0,0,.3);font-family:Pretendard,sans-serif;">
-        <div style="font-size:18px;font-weight:800;color:#3a2e28;margin-bottom:4px;">SimpleM 관리자 콘솔</div>
+        <div style="font-size:18px;font-weight:800;color:#3a2e28;margin-bottom:4px;">브루노트 관리자 콘솔</div>
         <div style="font-size:12px;color:#8a7a71;margin-bottom:18px;">관리자 계정으로 로그인하세요.</div>
         <input id="admin-login-email" type="email" placeholder="관리자 이메일" value="admin@simplem.com" autocomplete="username" style="width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid #e0d8d2;border-radius:10px;margin-bottom:10px;font-size:13px;" />
         <input id="admin-login-pw" type="password" placeholder="비밀번호" autocomplete="current-password" style="width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid #e0d8d2;border-radius:10px;margin-bottom:6px;font-size:13px;" />

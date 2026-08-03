@@ -321,7 +321,7 @@ def _scan_sales_anomaly(db, store_id: str, today: date) -> list[dict[str, Any]]:
             severity="medium",
             title=f"판매 기록이 {gap_days}일째 없어요",
             body=(
-                f"마지막 판매 입력이 {last_sale.date().isoformat()}입니다. "
+                f"마지막 매출 입력이 {last_sale.date().isoformat()}입니다. "
                 "휴무였다면 넘기셔도 되고, 입력이 밀린 거라면 채워두셔야 원가·예측이 정확해져요."
             ),
             action="최근 판매 내역 보여줘",

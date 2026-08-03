@@ -22,10 +22,20 @@ from app.services.ai.document_service import _session
 KST = timezone(timedelta(hours=9))
 STORES = ["owner@cafe.com", "s@gmail.com"]
 OPEN_HOUR, CLOSE_HOUR = 9, 20  # 히스토리상 판매 발생 시간대 (9시~20시대)
+# 요일별 물량을 뽑을 때 볼 최근 기간. 전체 이력으로 평균내면 매출 수준이 한 번 바뀐 매장에서
+# 옛 수준과 지금 수준의 중간값으로 생성되어 '세 번째 레벨'이 생긴다 — 실제로 그렇게 망가진 적
+# 있다(s@gmail.com 6월 350잔 / 7월 75잔). 4주면 요일마다 4표본이라 평균도 안정적이다.
+PROFILE_WINDOW_DAYS = 28
 
 
 def _analyze(db, store_id: str):
-    """기존 판매에서 요일별 평균 잔 수·시간대 가중치·메뉴 비중·잔수 분포를 뽑는다."""
+    """기존 판매에서 요일별 평균 잔 수·시간대 가중치·메뉴 비중·잔수 분포를 뽑는다.
+
+    물량(weekday_avg)만 최근 PROFILE_WINDOW_DAYS일로 제한한다 — 지금 매장 수준을
+    이어 붙이는 게 목적이라 옛 수준이 섞이면 안 된다. 반면 시간대·메뉴 비중은 물량과
+    달리 수준이 바뀌어도 잘 안 변하는 '모양'이라 전체 이력을 써서 표본을 늘린다.
+    last_day·days_with_sales는 멱등 판정용이므로 반드시 전체 이력 기준이어야 한다.
+    """
     rows = db.query(Sale.sold_at, Sale.quantity, Sale.menu_id).filter(Sale.store_id == store_id).all()
     if not rows:
         return None
@@ -45,10 +55,19 @@ def _analyze(db, store_id: str):
         total_rows += 1
         if qty >= 2:
             two_cup_rows += 1
+
+    last_day = max(daily)
+    recent_from = last_day - timedelta(days=PROFILE_WINDOW_DAYS)
     for d, cups in daily.items():
-        weekday_cups[d.weekday()].append(cups)
+        if d > recent_from:
+            weekday_cups[d.weekday()].append(cups)
+    # 최근 창에 해당 요일이 하나도 없으면(자료가 아주 짧을 때) 전체 이력으로 물러선다
+    if not weekday_cups:
+        for d, cups in daily.items():
+            weekday_cups[d.weekday()].append(cups)
+
     return {
-        "last_day": max(daily),
+        "last_day": last_day,
         "days_with_sales": set(daily),
         "weekday_avg": {wd: sum(v) / len(v) for wd, v in weekday_cups.items()},
         "hour_weights": dict(hour_w),
@@ -96,7 +115,11 @@ def seed_sales(db, store_id: str, now: datetime) -> int:
         done_hours = _hours_with_sales_today(db, store_id, today) if is_today else set()
 
         rng = random.Random(f"{store_id}:{day.isoformat()}")  # 날짜별 고정 시드 → 재실행해도 같은 결과
-        target = round(profile["weekday_avg"].get(day.weekday(), 65) * rng.uniform(0.85, 1.15))
+        # 해당 요일 표본이 없으면 다른 요일 평균으로 메운다. 예전에는 상수 65로 폴백했는데,
+        # 그 값이 실제 매장 수준(하루 350잔)과 5배 어긋나 레벨 단절을 만들었다.
+        wd_avg = profile["weekday_avg"]
+        fallback = sum(wd_avg.values()) / len(wd_avg) if wd_avg else 65
+        target = round(wd_avg.get(day.weekday(), fallback) * rng.uniform(0.85, 1.15))
 
         hours = list(range(OPEN_HOUR, CLOSE_HOUR + 1))
         weights = [profile["hour_weights"].get(h, 1) for h in hours]

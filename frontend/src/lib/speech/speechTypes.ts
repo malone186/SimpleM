@@ -17,6 +17,12 @@ export type EarphoneStatus = {
   connected: boolean;
   /** 감지 실패 등의 사유 (없으면 null) */
   reason: string | null;
+  /** 이 환경에서 출력 장치를 확인할 수 있는지.
+   *  false면 connected 값은 "모름"이라는 뜻이다 — 이걸 "안 꽂힘"으로 오해해
+   *  음성을 통째로 건너뛰던 버그가 있었다. 정책(audioPolicy)은 이때 재생을 택한다. */
+  supported?: boolean;
+  /** 어떤 경로로 감지했는지 — 'recent'는 최근 '꽂힘' 신호로 유지 중이라는 뜻 */
+  via?: 'wired' | 'bluetooth' | 'recent' | null;
 };
 
 /** 지금 소리를 내도 되는지에 대한 판단 결과
@@ -34,6 +40,18 @@ export type AudioPlaybackPermission = {
   reason: string | null;
 };
 
+/** speak() 한 번에만 적용할 임시 설정 — 설정 화면 미리듣기용
+ *
+ * [한글 주석] 저장하기 전의 값으로 바로 들려주기 위한 통로다. 예를 들어 '말하는 속도'를
+ * 고르는 순간 그 속도로 샘플이 나가야 사장님이 비교할 수 있다. 넘기지 않으면
+ * 저장된 설정(voicePrefs)을 그대로 따른다. */
+export type SpeakOptions = {
+  /** 목소리 타입 (warm_female | friendly_male | calm_male | cute_child) */
+  voiceType?: string;
+  /** 말하는 속도 배율 (1.0 = 보통) */
+  rate?: number;
+};
+
 /** speechPlayer가 외부에 노출하는 인터페이스 */
 export type SpeechPlayer = {
   /** 이어폰 착용 여부를 확인합니다 (사실 확인 — 화면 표시용) */
@@ -41,9 +59,9 @@ export type SpeechPlayer = {
   /** 지금 음성을 재생해도 되는지 판단합니다 (정책 — 호출부는 이것만 보면 됩니다) */
   canPlayAudio: () => Promise<AudioPlaybackPermission>;
   /** 텍스트를 즉시 음성으로 읽습니다 — 명시적 사용자 조작 전용(설정 '샘플 듣기' 등).
-   *  이어폰 게이트 없이 바로 재생하며, overrideVoiceType으로 저장 전 목소리 미리듣기를 지원.
-   *  자동 알림은 이걸 쓰지 말고 enqueue(이어폰 정책 적용)를 쓸 것. */
-  speak: (text: string, overrideVoiceType?: string) => Promise<void>;
+   *  이어폰 게이트 없이 바로 재생하며, options로 저장 전 목소리·속도 미리듣기를 지원.
+   *  자동 알림은 이걸 쓰지 말고 enqueue(출력 정책 적용)를 쓸 것. */
+  speak: (text: string, options?: SpeakOptions) => Promise<void>;
   /** 큐에 추가하고 순서대로 재생합니다 (겹침 방지) */
   enqueue: (text: string, id?: string) => void;
   /** 큐 전체를 비우고 현재 재생도 중단합니다 */

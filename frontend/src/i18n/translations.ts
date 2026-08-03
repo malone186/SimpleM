@@ -93,6 +93,7 @@ export const translations = {
     milk: '우유',
     water: '정수',
     fridge: '냉장',
+    recommendRoasteryBeans: '취향 맞춤 로스터리 원두 추천받기',
     aiOrderCoach: 'AI 발주 코치',
     note: '참고',
     estimationNotice: '지금 잔량은 판매 기록 기반 추정값이에요',
@@ -113,7 +114,7 @@ export const translations = {
     menuMgmtSub: '메뉴 · 디저트 · 레시피 · 원가율',
     costAnalysisTitle: '원가 분석',
     costAnalysisSub: '메뉴별 원가율 · 단가 변동 자동 반영',
-    salesInputTitle: '판매 입력',
+    salesInputTitle: '매출 입력',
     salesInputSub: '입력하면 레시피 기준 재고 자동 차감',
     taxDocsTitle: '서류·세금 자동화',
     taxDocsSub: '서류 초안 생성과 세금 관리',
@@ -121,7 +122,7 @@ export const translations = {
     storeMapSub: '전국 카페 가맹점 및 매장 위치',
     dessertTitle: '디저트 관리',
     dessertSub: '소비기한 · 폐기 손실 · 마진 순위',
-    beanOpsTitle: '운영·원두 분석',
+    beanOpsTitle: '원두 분석',
     beanOpsSub: '원두 최저가 시세 · 실리뷰 분석',
 
     // 8. 서브 스크린 공통 요소
@@ -244,6 +245,7 @@ export const translations = {
     milk: 'Milk',
     water: 'Water',
     fridge: 'Fridge',
+    recommendRoasteryBeans: 'Get Customized Roastery Bean Recommendations',
     aiOrderCoach: 'AI Order Coach',
     note: 'Note',
     estimationNotice: 'Current levels are estimates based on sales logs',
@@ -272,7 +274,7 @@ export const translations = {
     storeMapSub: 'Nationwide cafe stores & map info',
     dessertTitle: 'Dessert Mgmt',
     dessertSub: 'Expiration date · Waste loss · Margin rank',
-    beanOpsTitle: 'Bean Ops',
+    beanOpsTitle: 'Bean Analysis',
     beanOpsSub: 'Bean market prices & User reviews',
 
     // 8. Sub Screen Common Items

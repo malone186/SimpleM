@@ -84,22 +84,19 @@ def parse_naver_reviews(content: str, bean_id: int, source_url: str) -> List[Dic
                     "helpful_count": 0
                 })
         
-        # 파싱된 결과가 부족할 경우 방어적 시뮬레이션 리뷰 반환 (테스트 및 데모 지원)
+        # [한글 주석] 예전에는 파싱 실패 시 하드코딩 문장 3개를 'Naver Shopping'으로
+        # 반환하는 폴백이 있었다. 그 결과 599개 원두 × 3문장 ≈ 1,800건의 가짜 리뷰가
+        # 진짜와 구분 불가능한 상태로 쌓였고, 그 위에 산미/바디 점수·키워드·추천이
+        # 전부 얹혔다. 없는 데이터를 지어내는 대신 "없음"을 정직하게 반환한다.
+        #
+        # 네이버 리뷰는 초기 HTML이 아니라 JS로 나중에 불러오는 구조라
+        # 아래 정규식은 사실상 항상 0건이다 — 그래서 실패가 조용히 묻히면 안 된다.
         if not parsed_reviews:
-            sample_texts = [
-                "원두 향이 정말 진하고 라떼로 만들어 마시기 딱 좋습니다! 가성비 최고예요.",
-                "산미가 적고 고소해서 매장 대표 원두로 계속 재구매하고 있습니다.",
-                "배송이 매우 빠르고 포장 상태가 깔끔하네요. 신선도가 유지되어 유용합니다."
-            ]
-            for idx, text in enumerate(sample_texts):
-                parsed_reviews.append({
-                    "bean_id": bean_id,
-                    "source_site": "Naver Shopping",
-                    "source_url": f"{source_url}#review_sample_{idx+1}",
-                    "rating": 5.0 if idx < 2 else 4.0,
-                    "content": text,
-                    "helpful_count": idx + 1
-                })
+            log_parsing_failure(
+                source_url,
+                "리뷰 파싱 결과 0건 (네이버 리뷰는 JS 지연 로딩이라 정적 HTML에 없을 수 있음)",
+                context=f"bean_id={bean_id}",
+            )
 
         return parsed_reviews
     except Exception as e:

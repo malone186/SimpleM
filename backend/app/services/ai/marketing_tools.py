@@ -34,18 +34,20 @@ def create_promotion_content(store_id: str, topic: str = "", channel: str = "ins
 
 @tool
 def create_promotion_image(store_id: str, doc_id: str = "", request: str = "",
-                           style: str = "", aspect_ratio: str = "") -> str:
+                           style: str = "", aspect_ratio: str = "", overlay: str = "auto") -> str:
     """AI로 카페 홍보 이미지를 생성한다. 생성에 수십 초가 걸릴 수 있다.
     doc_id: create_promotion_content로 만든 홍보 콘텐츠 문서 id — 넣으면 그 문구에
-    어울리는 이미지가 만들어지고 문서에 함께 기록된다 (권장 흐름: 문구 먼저, 이미지 다음).
+    어울리는 이미지가 만들어지고, 그 문서의 한글 슬로건이 이미지 위에 예쁘게 얹힌다
+    (권장 흐름: 문구 먼저, 이미지 다음).
     request: 문서 없이 바로 만들거나 원하는 장면을 직접 지정할 때의 이미지 설명 (한국어 가능).
     style: 스타일 지시 (예: "수채화 일러스트", "필름 카메라 감성"). 비우면 실사 사진풍.
     aspect_ratio: 1:1(기본, 피드) / 9:16(스토리) / 4:5(세로 피드) / 16:9(가로 배너).
+    overlay: 슬로건 위치 auto(기본) / none(글자 없는 이미지) / bottom / center / top.
     결과의 url은 사장님이 바로 볼 수 있는 이미지 주소다 — 답변에 꼭 포함할 것."""
     try:
         result = marketing_service.generate_promotion_image(
             store_id, doc_id=doc_id, request=request, style=style,
-            aspect_ratio=aspect_ratio or "1:1")
+            aspect_ratio=aspect_ratio or "1:1", overlay=overlay or "auto")
     except marketing_service.MarketingError as e:
         return str(e)
     doc = result.pop("doc", None)
@@ -53,6 +55,22 @@ def create_promotion_image(store_id: str, doc_id: str = "", request: str = "",
         # 문서 전문을 돌려주면 갱신된 카드(이미지 포함)가 채팅 화면에 자동 표시된다
         return _dump(doc)
     return _dump(result)
+
+
+@tool
+def restyle_promotion_image(store_id: str, doc_id: str, layout: str = "bottom",
+                            image_id: str = "") -> str:
+    """이미 만든 홍보 이미지의 한글 슬로건 위치만 바꾼다 — 이미지를 다시 만들지 않아 즉시 끝난다.
+    "글자 아래로 내려줘", "글자 빼줘", "슬로건 가운데로" 같은 요청에 쓴다.
+    layout: bottom(아래) / center(가운데) / top(위) / none(글자 없는 원본).
+    image_id: 비우면 그 홍보물의 마지막 이미지를 바꾼다."""
+    try:
+        result = marketing_service.recompose_promotion_image(
+            store_id, doc_id=doc_id, image_id=image_id, layout=layout or "bottom")
+    except marketing_service.MarketingError as e:
+        return str(e)
+    doc = result.pop("doc", None)
+    return _dump(doc or result)
 
 
 @tool
@@ -86,4 +104,4 @@ def get_promotion_content(store_id: str, doc_id: str) -> str:
 
 
 TOOLS = [create_promotion_content, create_promotion_image,
-         get_promotion_content, list_promotion_contents]
+         get_promotion_content, list_promotion_contents, restyle_promotion_image]

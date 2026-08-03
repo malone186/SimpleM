@@ -211,8 +211,61 @@ class EmployeeProfile(Base):
     weekly_holiday_pay: Mapped[bool] = mapped_column(Boolean, default=True)
     hired_on: Mapped[str | None] = mapped_column(String(10), nullable=True)  # 입사일 YYYY-MM-DD
     memo: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # 직원 대표 색(#RRGGBB) — 근무 달력의 점·선과 아바타가 같은 색이어야 한 사람으로 읽힌다
+    color: Mapped[str | None] = mapped_column(String(9), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+def ensure_employee_profile_columns(engine) -> None:
+    """[자가치유 스키마] employee_profiles에 color 컬럼이 없으면 보강한다.
+
+    create_all은 기존 테이블을 ALTER하지 않는다 — 공유 DB에는 이미 이 테이블이 있어서
+    컬럼만 추가하려면 여기서 직접 붙여야 한다(안 붙이면 저장 시 500).
+    """
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("employee_profiles"):
+            return
+        existing = {c["name"] for c in insp.get_columns("employee_profiles")}
+    except Exception as e:
+        logger.warning(f"[직원 프로필 스키마] 점검 실패 — 건너뜁니다: {e}")
+        return
+    if "color" in existing:
+        return
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE employee_profiles ADD COLUMN color VARCHAR(9)"))
+        logger.info("[직원 프로필 스키마] employee_profiles.color 컬럼 추가 완료")
+    except Exception as e:
+        logger.warning(f"[직원 프로필 스키마] color 보강 실패: {e}")
+
+
+class EmployeeAvailability(Base):
+    """직원이 "이 요일 이 시간대엔 일할 수 있어요"라고 알려 준 근무 가능 시간 (주간 반복).
+
+    이미 있는 employee_unavailabilities(백엔드 C)는 반대 방향 — '기피/불가' 시간이다.
+    사장님이 알바를 받을 때 실제로 물어보는 건 "언제 돼요?"이고, 그 답을 그대로 담아야
+    달력에서 "이 날 넣을 수 있는 사람"을 바로 뽑을 수 있다. 불가 시간으로 뒤집어
+    저장하면(24시간에서 빼기) 원래 답이 무엇이었는지 복원이 안 된다.
+
+    한 직원이 여러 줄을 가진다 (예: 월·수 09~14, 토 13~22).
+    요일 번호는 employee_unavailabilities와 같은 규칙(0=월 … 6=일)을 쓴다.
+    """
+
+    __tablename__ = "employee_availabilities"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("employees.id", ondelete="CASCADE"), index=True
+    )
+    store_id: Mapped[str] = mapped_column(String(100), index=True)
+    day_of_week: Mapped[int] = mapped_column(Integer)  # 0=월 … 6=일
+    start_hour: Mapped[int] = mapped_column(Integer, default=9)   # 0~23
+    end_hour: Mapped[int] = mapped_column(Integer, default=18)    # 1~24
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
     )
 
 
@@ -502,3 +555,49 @@ class TodoItem(Base):
     due_date: Mapped[str | None] = mapped_column(String(10), nullable=True)  # YYYY-MM-DD
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# POS 실시간 연동 — 매장별 POS 계정 연결과 동기화된 주문 대장
+# ---------------------------------------------------------------------------
+
+
+class PosConnection(Base):
+    """매장별 POS(현재 Square) 연결 정보.
+
+    토큰을 전역 env가 아니라 매장 단위로 DB에 두는 이유: 매장마다 자기 POS 계정을
+    연결해야 하는 멀티테넌트 구조라서다. 토큰·웹훅 서명키는 SECRET_KEY 유도 키로
+    암호화(Fernet)해 저장하고, API 응답에는 마스킹된 형태만 내보낸다.
+    """
+
+    __tablename__ = "pos_connections"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    store_id: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    provider: Mapped[str] = mapped_column(String(20), default="square")
+    environment: Mapped[str] = mapped_column(String(20), default="production")  # production | sandbox
+    access_token_enc: Mapped[str] = mapped_column(Text)
+    # 웹훅 서명 검증용 — Square 대시보드의 Webhook Signature Key (없으면 웹훅 비활성)
+    webhook_signature_key_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 웹훅 수신 주소 — Square 서명은 '구독에 등록한 URL + 본문'을 서명하므로 그대로 보관해 검증에 쓴다
+    webhook_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    # 웹훅 이벤트(merchant_id)를 어느 매장으로 보낼지 찾는 열쇠 — 연결 저장 시 Square에서 조회해 채운다
+    merchant_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    auto_sync: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_status: Mapped[str | None] = mapped_column(String(20), nullable=True)  # ok | error
+    last_error: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PosSyncedOrder(Base):
+    """이미 매출로 반영한 POS 주문 대장 — 웹훅과 폴링이 같은 주문을 두 번 넣지 않게 한다."""
+
+    __tablename__ = "pos_synced_orders"
+    __table_args__ = (UniqueConstraint("store_id", "provider", "order_id", name="uq_pos_order"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    store_id: Mapped[str] = mapped_column(String(100), index=True)
+    provider: Mapped[str] = mapped_column(String(20), default="square")
+    order_id: Mapped[str] = mapped_column(String(100))
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

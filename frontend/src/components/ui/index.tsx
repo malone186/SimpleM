@@ -54,6 +54,9 @@ export function Screen({ children }: { children: ReactNode }) {
       <ScrollView
         contentContainerStyle={styles.screenContent}
         showsVerticalScrollIndicator={false}
+        // 기본값('never')이면 키보드가 떠 있을 때의 첫 탭이 키보드를 내리는 데 쓰이고 버려진다.
+        // 금액을 입력한 뒤 바로 옆 선택지를 누르면 "눌러도 선택이 안 된다"고 느끼던 원인.
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
