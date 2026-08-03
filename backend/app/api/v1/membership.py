@@ -9,7 +9,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.core.auth import get_current_user
+from app.core.auth import get_current_user, require_owner
 from app.core.database import get_db
 from app.models.membership import ChargePlan, Customer
 from app.models.user import User
@@ -107,7 +107,7 @@ def list_transactions_api(customer_id: int, limit: int = Query(30, ge=1, le=200)
 
 
 @router.get("/store-qr", summary="계산대 QR (손님이 자기 폰으로 찍는다)")
-def store_qr_api(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def store_qr_api(db: Session = Depends(get_db), user: User = Depends(require_owner)):
     """[한글 주석] 계산대에 붙여둘 QR입니다.
 
     손님 QR을 사장님 앱이 읽으려면 앱에 카메라가 필요하고 네이티브 재빌드를 해야 합니다.
@@ -169,7 +169,7 @@ def list_plans_api(db: Session = Depends(get_db), user: User = Depends(get_curre
 
 @router.post("/plans", response_model=ChargePlanOut, summary="충전 상품 추가")
 def create_plan_api(payload: ChargePlanCreate, db: Session = Depends(get_db),
-                    user: User = Depends(get_current_user)):
+                    user: User = Depends(require_owner)):
     """[한글 주석] 사장님이 자유롭게 설계한다. 5만원→6만원처럼 미리 정해두면
     할인율이 명확해지고 나중에 구간별 원가율도 볼 수 있다."""
     plan = ChargePlan(store_id=user.email, pay_amount=payload.pay_amount,
@@ -185,7 +185,7 @@ def create_plan_api(payload: ChargePlanCreate, db: Session = Depends(get_db),
 
 @router.delete("/plans/{plan_id}", summary="충전 상품 삭제")
 def delete_plan_api(plan_id: int, db: Session = Depends(get_db),
-                    user: User = Depends(get_current_user)):
+                    user: User = Depends(require_owner)):
     """[한글 주석] 실제로 지우지 않고 비활성화한다.
     이미 이 상품으로 충전한 거래가 남아 있어, 지우면 이력에서 근거가 사라진다."""
     plan = db.query(ChargePlan).filter(ChargePlan.id == plan_id).first()
@@ -233,7 +233,7 @@ def use_api(customer_id: int, payload: UseRequest,
 @router.get("/customers/{customer_id}/refund-estimate", response_model=RefundEstimate,
             summary="환불 기준액 (보너스 제외)")
 def refund_estimate_api(customer_id: int, db: Session = Depends(get_db),
-                        user: User = Depends(get_current_user)):
+                        user: User = Depends(require_owner)):
     """[한글 주석] 6만원을 적립받았어도 실제 낸 돈은 5만원입니다.
     잔액을 전액 현금으로 돌려주면 매장이 손해를 보므로 결제액 비율을 곱해
     기준액을 제시합니다. 강제하지는 않습니다 — 환불 기준은 약관과 매장 정책,
@@ -245,7 +245,7 @@ def refund_estimate_api(customer_id: int, db: Session = Depends(get_db),
 @router.post("/customers/{customer_id}/refund", response_model=BalanceResult,
              summary="잔액 환불 (현금으로 돌려줌)")
 def refund_api(customer_id: int, payload: RefundRequest,
-               db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+               db: Session = Depends(get_db), user: User = Depends(require_owner)):
     """[한글 주석] 환불은 매출이 아니라 받아둔 선수금을 돌려주는 것입니다.
     보정(ADJUST)으로 때우면 장부에서 환불인지 실수 정정인지 구분되지 않아
     "환불을 얼마나 해줬나"에 답할 수 없게 됩니다."""
@@ -259,7 +259,7 @@ def refund_api(customer_id: int, payload: RefundRequest,
 @router.post("/customers/{customer_id}/adjust", response_model=BalanceResult,
              summary="잔액 수동 보정 (사유 필수)")
 def adjust_api(customer_id: int, payload: AdjustRequest,
-               db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+               db: Session = Depends(get_db), user: User = Depends(require_owner)):
     c = _get_customer(db, customer_id, user.email)
     tx, msg = svc.adjust(db, c, payload.amount, payload.memo)
     if not tx:
@@ -272,7 +272,7 @@ def adjust_api(customer_id: int, payload: AdjustRequest,
 @router.get("/summary", response_model=PrepaidSummary,
             summary="선수금 현황 (매출과 분리된 부채 집계)")
 def summary_api(days: int = Query(30, ge=1, le=365), db: Session = Depends(get_db),
-                user: User = Depends(get_current_user)):
+                user: User = Depends(require_owner)):
     """[한글 주석] 충전액은 매출이 아니라 부채다.
     아직 커피를 안 줬으니 언제든 돌려줘야 할 빚이고, 커피가 나갈 때 매출이 된다.
     섞어 보면 충전 많은 날 매출이 뛴 것처럼 착각하게 된다."""
@@ -282,7 +282,7 @@ def summary_api(days: int = Query(30, ge=1, le=365), db: Session = Depends(get_d
 @router.get("/churn-risk", response_model=List[ChurnRiskCustomer],
             summary="뜸해진 단골 (평소 주기 대비)")
 def churn_risk_api(limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db),
-                   user: User = Depends(get_current_user)):
+                   user: User = Depends(require_owner)):
     """[한글 주석] '2주 이상'처럼 고정 기준을 쓰지 않는다.
     매일 오던 손님의 2주 공백은 이미 늦었고, 격주 손님의 2주는 정상이다.
     각자의 평소 주기(중앙값) 대비로 판단한다."""
@@ -293,7 +293,7 @@ def churn_risk_api(limit: int = Query(20, ge=1, le=100), db: Session = Depends(g
 @router.get("/cost-analysis", summary="선불 고객 실질 원가율")
 def cost_analysis_api(days: int = Query(90, ge=7, le=365),
                       db: Session = Depends(get_db),
-                      user: User = Depends(get_current_user)):
+                      user: User = Depends(require_owner)):
     """[한글 주석] 선불 회원제가 남는 장사인지 판단하는 숫자입니다.
 
     메뉴판 원가율만 보면 충전 보너스로 깎인 몫이 안 보입니다.
@@ -307,7 +307,7 @@ def cost_analysis_api(days: int = Query(90, ge=7, le=365),
 
 
 @router.get("/reconcile", summary="잔액 검증 (캐시 vs 거래이력)")
-def reconcile_api(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def reconcile_api(db: Session = Depends(get_db), user: User = Depends(require_owner)):
     """[한글 주석] 손님 돈이므로 캐시된 잔액과 이력 합계가 어긋나면 즉시 드러나야 한다."""
     return svc.reconcile_balance(db, user.email)
 

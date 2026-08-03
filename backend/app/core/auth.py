@@ -126,6 +126,10 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 
     email = None
     name = None
+    # [한글 주석] 직원 계정으로 로그인한 경우 그 직원의 id가 담긴다.
+    # 매장 식별자(email)는 사장님 것 그대로 두고 '누가 조작했는지'만 따로 싣는다.
+    # 직원 이메일을 email에 담으면 이걸 매장 ID로 쓰는 기존 코드가 전부 어긋난다.
+    acting_staff_id = None
 
     # [1단계] Firebase ID Token 검증 시도 (비대칭키 RS256)
     try:
@@ -166,6 +170,8 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
             email = payload.get("sub")
             name = payload.get("name", email.split("@")[0] if email else "사장님")
+            # 직원 토큰이면 sub에 매장(사장님) 이메일이 들어 있고 staff_id가 함께 온다
+            acting_staff_id = payload.get("staff_id")
         except jwt.PyJWTError:
             # 로컬 토큰 검사마저 실패하면 최종 401 에러를 던집니다.
             raise credentials_exception
@@ -187,7 +193,45 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         db.commit()
         db.refresh(user)
 
+    # [한글 주석] 직원으로 로그인했으면 그 사실을 사용자 객체에 붙여 보낸다.
+    #
+    #   user.email(= 매장 식별자)은 건드리지 않는다. 그래야 이걸 store_id로 쓰는
+    #   기존 API 150여 군데가 지금과 똑같이 동작한다.
+    #   여기에 붙는 acting_staff는 두 가지에 쓴다.
+    #     1) 권한 — 급여·정산처럼 직원이 보면 안 되는 곳에서 require_owner가 막는다
+    #     2) 기록 — 잔액을 누가 차감했는지 남긴다. 돈을 다루는데 '누가'가 없으면
+    #        금액이 어긋났을 때 물어볼 대상이 없다.
+    #
+    #   ORM 컬럼이 아니라 요청 동안만 붙는 임시 속성이라 DB에 저장되지 않는다.
+    user.acting_staff = None
+    if acting_staff_id:
+        from app.models.membership import StaffAccount
+        staff = (
+            db.query(StaffAccount)
+            .filter(StaffAccount.id == acting_staff_id,
+                    StaffAccount.is_active.is_(True))
+            .first()
+        )
+        # 소속 매장이 토큰의 매장과 다르면 위조로 본다
+        if not staff or staff.store_id != user.email:
+            raise credentials_exception
+        user.acting_staff = staff
+
     return user
+
+
+def require_owner(current_user: User = Depends(get_current_user)) -> User:
+    """사장님만 통과시킨다 — 직원 계정은 막는다.
+
+    [한글 주석] 급여·정산·환불처럼 직원이 보거나 실행하면 안 되는 곳에 건다.
+    get_current_user는 '로그인했는가'만 보므로 그것만으로는 직원도 통과한다.
+    """
+    if getattr(current_user, "acting_staff", None) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="사장님 계정만 사용할 수 있는 기능입니다.",
+        )
+    return current_user
 
 
 def get_current_user_optional(

@@ -9,7 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core.auth import get_current_user
+from app.core.auth import get_current_user, require_owner
 from app.models.user import User
 from app.services.ai import settlement_service
 
@@ -40,14 +40,14 @@ class SettingsUpdate(BaseModel):
 
 
 @router.get("/settings", summary="수수료 구간·카드사별 입금 소요일")
-def get_settings_api(current_user: User = Depends(get_current_user)):
+def get_settings_api(current_user: User = Depends(require_owner)):
     return settlement_service.get_settings(current_user.email)
 
 
 @router.put("/settings", summary="정산 설정 저장")
 def update_settings_api(
     body: SettingsUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_owner),
 ):
     try:
         return settlement_service.update_settings(
@@ -64,7 +64,7 @@ def update_settings_api(
 @router.get("/tier-suggestion", summary="최근 매출로 추정한 우대수수료율 구간 추천")
 def suggest_tier_api(
     lookback_days: int = 90,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_owner),
 ):
     return settlement_service.suggest_tier(current_user.email, lookback_days=lookback_days)
 
@@ -75,7 +75,7 @@ def preview_api(
     card_type: str = "credit",
     issuer: str = "",
     sale_date: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_owner),
 ):
     try:
         return settlement_service.preview(
@@ -90,7 +90,7 @@ def preview_api(
 
 
 @router.get("/day", summary="하루치 매출 입력 내용 + 그날 수수료·입금 예정")
-def get_day_api(date: str, current_user: User = Depends(get_current_user)):
+def get_day_api(date: str, current_user: User = Depends(require_owner)):
     try:
         return settlement_service.get_day(current_user.email, date)
     except settlement_service.SettlementError as e:
@@ -100,7 +100,7 @@ def get_day_api(date: str, current_user: User = Depends(get_current_user)):
 @router.post("/day", status_code=201, summary="하루치 매출 저장(덮어쓰기)")
 def save_day_api(
     body: DaySaveRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_owner),
 ):
     try:
         result = settlement_service.save_day(
@@ -127,12 +127,12 @@ def save_day_api(
 def deposits_api(
     ahead_days: int = 21,
     lookback_days: int = 21,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_owner),
 ):
     return settlement_service.upcoming_deposits(
         current_user.email, lookback_days=lookback_days, ahead_days=ahead_days)
 
 
 @router.get("/summary", summary="최근 기간 매출 요약 (현금·카드 비중, 전주 동요일 대비)")
-def summary_api(days: int = 28, current_user: User = Depends(get_current_user)):
+def summary_api(days: int = 28, current_user: User = Depends(require_owner)):
     return settlement_service.period_summary(current_user.email, days=days)

@@ -10,7 +10,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core.auth import get_current_user
+from app.core.auth import get_current_user, require_owner
 from app.models.user import User
 from app.services.ai import staff_service
 
@@ -59,7 +59,7 @@ class StaffCreate(ProfileUpdate):
 @router.get("", summary="직원 목록 + 고용 상세 + 월 인건비 추정")
 def list_staff_api(
     month: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_owner),
 ):
     """인건비는 근무 달력에 등록된 해당 월 근무시간 기준으로 계산된다.
 
@@ -71,7 +71,7 @@ def list_staff_api(
 @router.post("", summary="직원 등록 + 고용 상세 한 번에")
 def create_staff_api(
     body: StaffCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_owner),
 ):
     """등록과 상세 저장을 한 트랜잭션으로 묶는다 — 반쪽만 저장되는 직원이 안 생기게.
 
@@ -89,7 +89,7 @@ def create_staff_api(
 def save_profile_api(
     employee_id: int,
     body: ProfileUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_owner),
 ):
     """저장된 결과를 목록 한 줄 모양(인건비 재계산 포함)으로 돌려준다."""
     try:
@@ -127,7 +127,7 @@ class ShiftUpdate(BaseModel):
 def save_availability_api(
     employee_id: int,
     body: AvailabilityUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_owner),
 ):
     try:
         windows = staff_service.save_availability(
@@ -143,7 +143,7 @@ def save_availability_api(
 @router.get("/calendar", summary="월 근무 달력 — 날짜별 배정 근무 + 그날 가능한 직원")
 def calendar_api(
     month: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_owner),
 ):
     """month는 YYYY-MM, 생략하면 이번 달."""
     try:
@@ -155,7 +155,7 @@ def calendar_api(
 @router.post("/shifts", summary="근무 배정 추가")
 def add_shift_api(
     body: ShiftCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_owner),
 ):
     try:
         return staff_service.add_shift(
@@ -175,7 +175,7 @@ class ApplyAvailability(BaseModel):
 @router.post("/shifts/apply-availability", summary="근무 가능 시간대로 달력 채우기")
 def apply_availability_api(
     body: ApplyAvailability,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_owner),
 ):
     """등록해 둔 가능 시간을 그 달의 실제 근무로 만든다 — 기존 근무 달력에 그대로 뜬다."""
     try:
@@ -190,7 +190,7 @@ def apply_availability_api(
 def update_shift_api(
     schedule_id: int,
     body: ShiftUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_owner),
 ):
     """employee_id를 보내면 그 근무를 다른 직원이 대신하는 것으로 바뀐다 (출퇴근 기록 유지)."""
     try:
@@ -205,7 +205,7 @@ def update_shift_api(
 @router.delete("/shifts/{schedule_id}", summary="근무 배정 삭제")
 def delete_shift_api(
     schedule_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_owner),
 ):
     try:
         staff_service.remove_shift(current_user.email, schedule_id)
@@ -217,7 +217,7 @@ def delete_shift_api(
 @router.get("/weekly-payroll", summary="이번 주 주급 정산 (스케줄 기준)")
 def weekly_payroll_api(
     week_start: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_owner),
 ):
     try:
         return staff_service.weekly_payroll(current_user.email, week_start=week_start)

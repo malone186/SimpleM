@@ -43,6 +43,9 @@ api_router.include_router(sensor_router)
 from app.api.v1.settlement import router as settlement_router
 api_router.include_router(settlement_router)
 
+from app.api.v1.staff_account import router as staff_account_router
+api_router.include_router(staff_account_router)
+
 from app.api.v1.staff import router as staff_router
 api_router.include_router(staff_router)
 

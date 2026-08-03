@@ -136,6 +136,36 @@ class BalanceTransaction(Base):
     customer = relationship("Customer", back_populates="transactions")
 
 
+class StaffAccount(Base):
+    """직원 로그인 계정.
+
+    [한글 주석] 왜 Employee에 비밀번호를 붙이지 않고 별도 표로 두는가:
+
+      Employee는 인사 정보(시급·고용형태·보험)를 담는 표다.
+      거기에 인증 정보를 섞으면 급여 화면을 만들다 비밀번호 해시를 실수로
+      내보내기 쉽다. 인증은 인증대로 분리해 두는 편이 안전하다.
+
+      또 모든 직원이 로그인해야 하는 것도 아니다. 계산대에 서는 사람만
+      계정을 만들면 되고, 계정 없는 직원은 그냥 인사 기록으로만 존재한다.
+
+    [중요] 이 계정으로 발급하는 토큰은 sub에 '매장 이메일'을 담는다.
+    직원 이메일을 담으면 기존 152군데의 store_id 계산이 전부 어긋난다
+    (그 코드들은 current_user.email을 매장 식별자로 쓴다).
+    매장은 사장님 이메일 그대로 두고, '누가 조작했는지'만 따로 실어 보낸다.
+    """
+    __tablename__ = "staff_accounts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    store_id = Column(String(100), nullable=False, index=True)   # 소속 매장(사장님 이메일)
+    employee_id = Column(Integer, nullable=True)                 # employees.id (선택)
+    login_id = Column(String(50), unique=True, index=True, nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    name = Column(String(50), nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
+
+
 class StoreQr(Base):
     """매장별 계산대 QR 토큰.
 
