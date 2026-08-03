@@ -76,6 +76,9 @@ def _page(body: str, title: str = "잔액 조회") -> str:
   .empty {{ padding: 26px 16px; text-align: center; color: #9A8F86; font-size: 13px; }}
   .note {{ font-size: 11px; color: #B0A79E; line-height: 1.6;
            margin-top: 18px; text-align: center; }}
+  .terms {{ background: #F4F1EE; border-radius: 12px; padding: 14px; margin-top: 16px; }}
+  .terms-title {{ font-size: 12px; font-weight: 700; color: #6E5544; margin-bottom: 7px; }}
+  .terms-item {{ font-size: 11.5px; color: #7A6E65; line-height: 1.7; }}
   .err {{ background: #FFF; border-radius: 14px; padding: 30px 20px;
           text-align: center; box-shadow: 0 6px 18px rgba(78,54,41,0.06); }}
   .err h1 {{ font-size: 16px; margin: 0 0 8px; }}
@@ -170,8 +173,20 @@ def public_balance_page(token: str, db: Session = Depends(get_db)):
         f'<div class="balance-label">사용하실 수 있는 잔액</div>'
         f'<div class="balance">{customer.balance or 0:,}원</div></div>'
         f'<div class="section">이용 내역</div>{history}'
-        f'<div class="note">이 화면은 조회 전용입니다.<br>'
-        f'매장에서 말씀해 주시면 잔액으로 결제해 드립니다.</div>'
+        # [한글 주석] 손님이 알아야 할 사실만 적는다.
+        #   약관 조항("제5조 환불은…")은 효력 여부가 법적 판단이라 여기 쓰지 않는다.
+        #   대신 "이 매장에서만 쓴다", "환불은 실제 결제액 기준", "문의는 매장에"
+        #   세 가지를 알리면 손님이 나중에 처음 알게 되는 상황이 없어진다.
+        #   분쟁의 대부분은 조항이 없어서가 아니라 몰랐기 때문에 생긴다.
+        f'<div class="terms">'
+        f'<div class="terms-title">알아두실 점</div>'
+        f'<div class="terms-item">· 잔액은 <b>{html_mod.escape(shop)}</b>에서만 사용하실 수 있습니다.</div>'
+        f'<div class="terms-item">· 충전 시 지급된 보너스가 있는 경우, 환불은 '
+        f'실제 결제하신 금액을 기준으로 계산됩니다.</div>'
+        f'<div class="terms-item">· 환불·정정 문의는 매장으로 말씀해 주세요. '
+        f'이 화면에서는 조회만 가능합니다.</div>'
+        f'</div>'
+        f'<div class="note">매장에서 말씀해 주시면 잔액으로 결제해 드립니다.</div>'
     )
     return HTMLResponse(_page(body, f"{shop} 잔액 조회"))
 

@@ -79,6 +79,10 @@ export default function MembershipScreen() {
   const [registerOpen, setRegisterOpen] = useState(false);
   const [newPhone, setNewPhone] = useState('');
   const [newName, setNewName] = useState('');
+  // [한글 주석] 사장님이 손님 번호를 '대신' 입력하는 경로다.
+  // 손님이 직접 넣는 QR 경로에는 동의 체크가 있는데 여기는 없었다.
+  // 동의를 받았다는 근거가 앱 어디에도 남지 않으면 구조적으로 비어 있는 것이다.
+  const [newAgree, setNewAgree] = useState(false);
   const [target, setTarget] = useState<Customer | null>(null);
   const [useAmount, setUseAmount] = useState('');
   const [busy, setBusy] = useState(false);
@@ -137,13 +141,14 @@ export default function MembershipScreen() {
   };
 
   const onRegister = async () => {
-    if (!newPhone.trim()) return;
+    if (!newPhone.trim() || !newAgree) return;
     setBusy(true);
     try {
       await createCustomer(token!, { phone: newPhone, name: newName.trim() || undefined });
       setRegisterOpen(false);
       setNewPhone('');
       setNewName('');
+      setNewAgree(false);
       await load();
     } catch (e) {
       Alert.alert('등록 실패', e instanceof Error ? e.message : String(e));
@@ -188,6 +193,37 @@ export default function MembershipScreen() {
             }
           },
         },
+      ]
+    );
+  };
+
+  // [한글 주석] 충전 전에 조건을 손님에게 알린다.
+  //
+  //   손님은 "6만원이 적립됐으니 내 돈 6만원"이라고 생각한다.
+  //   나중에 환불받을 때 2.5만원만 나오면 그때 처음 알게 되고, 그게 분쟁이 된다.
+  //   약관 조항을 쓰는 건 법적 판단이 필요하지만, '얼마가 보너스인지'를
+  //   충전 전에 알리는 건 사실 전달이라 지금 할 수 있다.
+  //   손님이 모르고 넣었다가 나중에 아는 상황만 막아도 분쟁 대부분이 사라진다.
+  const confirmAndCharge = (customer: Customer, plan: ChargePlan) => {
+    if (plan.bonus_amount <= 0) {
+      onCharge(customer, plan);
+      return;
+    }
+    Alert.alert(
+      '충전 전 손님께 안내',
+      `결제 ${won(plan.pay_amount)} → 적립 ${won(plan.credit_amount)}
+` +
+      `이 중 ${won(plan.bonus_amount)}은 보너스입니다.
+
+` +
+      `· 이 매장에서만 사용하실 수 있습니다
+` +
+      `· 환불 시에는 실제 결제하신 금액을 기준으로 계산됩니다
+` +
+      `· 잔액은 문자로 보내드리는 링크에서 확인하실 수 있습니다`,
+      [
+        { text: '취소', style: 'cancel' },
+        { text: '안내함 · 충전', onPress: () => onCharge(customer, plan) },
       ]
     );
   };
@@ -735,15 +771,36 @@ export default function MembershipScreen() {
               value={newName}
               onChangeText={setNewName}
             />
-            <Text style={styles.consentNote}>
-              번호는 잔액 조회·안내에만 사용합니다. 손님께 동의를 받고 입력해 주세요.
-            </Text>
+            {/* [한글 주석] 사실만 고지한다 — 무엇에 쓰는지, 손님이 뭘 할 수 있는지.
+                약관 조항은 법적 판단이 필요하므로 여기서는 쓰지 않는다. */}
+            <View style={styles.consentBox}>
+              <Text style={styles.consentTitle}>손님께 이렇게 안내해 주세요</Text>
+              <Text style={styles.consentItem}>· 번호는 잔액 조회와 안내 문자에만 씁니다</Text>
+              <Text style={styles.consentItem}>· 손님은 문자로 받은 링크로 잔액을 확인할 수 있습니다</Text>
+              <Text style={styles.consentItem}>· 원하시면 언제든 삭제해 드립니다</Text>
+            </View>
+            <Pressable
+              style={styles.agreeRow}
+              onPress={() => setNewAgree((v) => !v)}
+            >
+              <Ionicons
+                name={newAgree ? 'checkbox' : 'square-outline'}
+                size={18}
+                color={newAgree ? colors.pointOrange : '#B0A79E'}
+              />
+              <Text style={styles.agreeText}>
+                손님께 안내하고 동의를 받았습니다
+              </Text>
+            </Pressable>
             <View style={styles.sheetBtns}>
               <Pressable style={styles.cancelBtn} onPress={() => setRegisterOpen(false)}>
                 <Text style={styles.cancelText}>취소</Text>
               </Pressable>
-              <Pressable style={[styles.primaryBtn, busy && { opacity: 0.5 }]}
-                         onPress={onRegister} disabled={busy}>
+              <Pressable
+                style={[styles.primaryBtn, (busy || !newAgree) && { opacity: 0.4 }]}
+                onPress={onRegister}
+                disabled={busy || !newAgree}
+              >
                 <Text style={styles.primaryText}>등록</Text>
               </Pressable>
             </View>
@@ -776,7 +833,7 @@ export default function MembershipScreen() {
                   <View style={{ gap: 6 }}>
                     {plans.map((p) => (
                       <Pressable key={p.id} style={styles.planRow}
-                                 onPress={() => onCharge(target, p)} disabled={busy}>
+                                 onPress={() => confirmAndCharge(target, p)} disabled={busy}>
                         <Text style={styles.planPay}>{won(p.pay_amount)} 결제</Text>
                         <Ionicons name="arrow-forward" size={12} color="#9A8F86" />
                         <Text style={styles.planCredit}>{won(p.credit_amount)} 적립</Text>
@@ -925,7 +982,11 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderColor: colors.mutedSand, borderRadius: 8,
            paddingHorizontal: 11, paddingVertical: 9, fontSize: 13,
            color: colors.espressoBrown, marginBottom: 6 },
-  consentNote: { fontSize: 10.5, color: '#B0A79E', lineHeight: 15 },
+  consentBox: { backgroundColor: '#FAF8F6', borderRadius: 9, padding: 11, gap: 3 },
+  consentTitle: { fontSize: 11.5, fontWeight: '700', color: '#7A6E65', marginBottom: 2 },
+  consentItem: { fontSize: 11, color: '#7A6E65', lineHeight: 16 },
+  agreeRow: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingVertical: 6 },
+  agreeText: { flex: 1, fontSize: 12, color: colors.espressoBrown, fontWeight: '600' },
 
   planRow: { flexDirection: 'row', alignItems: 'center', gap: 6,
              backgroundColor: '#FAF8F6', borderRadius: 9, padding: 11 },
