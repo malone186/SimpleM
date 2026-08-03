@@ -9,6 +9,7 @@ import Svg, { Circle, Defs, FeGaussianBlur, Filter, LinearGradient, Path, Stop }
 import { FadeInUp, PressableScale } from '../../components/motion';
 import { colors } from '../../theme';
 import { useTranslation } from '../../i18n/translations';
+import { useAuth } from '../../auth/AuthContext';
 import Brew from '../../components/brew/Brew';
 
 const IVORY = '#F4F1EF';
@@ -85,8 +86,15 @@ export default function ManagementScreen() {
   // [한글 주석: 전역 다국어 훅 호출]
   const { t, language } = useTranslation();
   const navigation = useNavigation<any>();
+  const { user } = useAuth();
 
-  const itemsList: Item[] = [
+  // [한글 주석] 직원 계정에는 단골 화면만 보여준다.
+  // 실제 차단은 서버가 하지만(require_owner), 눌러서 403을 만나는 것보다
+  // 아예 안 보이는 편이 낫다. 알바생이 "권한이 없습니다"를 계속 만나면
+  // 앱이 고장난 걸로 오해한다.
+  const STAFF_ALLOWED = ['Membership'];
+
+  const allItems: Item[] = [
     // 직원·인건비는 별도 카드를 두지 않고 이 화면 안에서 들어간다 (진입로 하나로 통일)
     { label: language === 'en' ? 'Staff & Schedule' : '직원 · 스케줄', en: 'PAYROLL', desc: language === 'en' ? 'Roster · Labor cost · Calendar · Settlement' : '직원 명부 · 인건비 · 근무 달력 · 손익 정산', color: '#5B514C', route: 'Operation' },
     { label: t('taxDocsTitle'), en: 'DOCUMENTS', desc: t('taxDocsSub'), color: '#9A8E82', route: 'Document' },
@@ -95,7 +103,12 @@ export default function ManagementScreen() {
     { label: language === 'en' ? 'Marketing Studio' : '홍보 스튜디오', en: 'MARKETING', desc: language === 'en' ? 'AI promo copy & SNS banner creator' : 'AI 홍보 문구 · SNS 이미지 원스톱 생성', color: '#8A6F5A', route: 'Marketing' },
     { label: language === 'en' ? 'Bean Analysis' : '원두 분석', en: 'OPERATION', desc: language === 'en' ? 'Bean market price & Reviews' : '원두 최저가 시세 · 실리뷰 분석', color: '#463C34', route: 'BeanOperation' },
     { label: language === 'en' ? 'Regulars & Prepaid' : '단골 · 선불 충전', en: 'MEMBERSHIP', desc: language === 'en' ? 'Prepaid balance · Win-back alerts' : '선불 잔액 관리 · 뜸해진 단골 알림', color: '#6B5B4E', route: 'Membership' },
+    { label: language === 'en' ? 'Staff Accounts' : '직원 계정', en: 'STAFF LOGIN', desc: language === 'en' ? 'Counter-only login for part-timers' : '알바생용 계산대 전용 로그인 발급', color: '#7A6A5C', route: 'StaffAccount' },
   ];
+
+  const itemsList: Item[] = user?.isStaff
+    ? allItems.filter((x) => STAFF_ALLOWED.includes(x.route))
+    : allItems;
 
   // 탭에 다시 들어올 때마다 카드 등장 애니메이션을 재생한다 (홈 화면과 같은 방식)
   const isFocused = useIsFocused();

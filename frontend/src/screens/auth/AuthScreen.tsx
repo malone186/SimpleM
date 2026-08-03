@@ -163,7 +163,11 @@ function ShiftTimePicker({
 }
 
 export default function AuthScreen() {
-  const { login, signup, loginWithGoogle, firebaseAuthEnabled, sendResetEmail } = useAuth();
+  const {
+    login, signup, loginWithGoogle,
+    firebaseAuthEnabled, sendResetEmail,   // 팀원: 비밀번호 재설정 메일
+    loginAsStaff,                          // 직원 계정 로그인
+  } = useAuth();
   const [mode, setMode] = useState<Mode>('login');
   const prefs = usePreferences(); // 가입 때 받은 운영 시간을 기기 설정에 남기기 위해
   const [step, setStep] = useState<1 | 2>(1); // [한글 주석] 회원가입 1단계/2단계 구분 상태
@@ -172,6 +176,12 @@ export default function AuthScreen() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  // [한글 주석] 직원 로그인 — 계산대에 서는 알바생용.
+  // 사장님 계정에는 매출·정산·급여가 다 보여서 넘길 수 없으므로 별도 계정으로 들어온다.
+  const [staffMode, setStaffMode] = useState(false);
+  const [staffId, setStaffId] = useState('');
+  const [staffPw, setStaffPw] = useState('');
+
   const [phone, setPhone] = useState(''); // 아이디/비밀번호 찾기 본인 확인용 (선택 입력)
   const [autoLogin, setAutoLogin] = useState(true);
 
@@ -213,6 +223,22 @@ export default function AuthScreen() {
   const [findEmailInput, setFindEmailInput] = useState('');
   const [findNewPwInput, setFindNewPwInput] = useState(''); // 재설정할 새 비밀번호
   const [findBusy, setFindBusy] = useState(false);
+  const submitStaff = async () => {
+    if (!staffId.trim() || !staffPw.trim()) {
+      setError('아이디와 비밀번호를 입력해 주세요.');
+      return;
+    }
+    setError('');
+    setBusy(true);
+    try {
+      await loginAsStaff(staffId.trim(), staffPw, true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const [findResult, setFindResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // [에러 문구 정제] 서버 detail이 문장(string)일 때만 그대로 쓰고, 그 외(422 배열·HTML 등)는
@@ -767,6 +793,10 @@ export default function AuthScreen() {
                   >
                     <Text style={styles.findAccountLink}>아이디·비밀번호 찾기</Text>
                   </PressableScale>
+                  <Text style={styles.findAccountLink}>  ·  </Text>
+                  <PressableScale onPress={() => { setError(''); setStaffMode(true); }} to={0.96}>
+                    <Text style={styles.findAccountLink}>직원 로그인</Text>
+                  </PressableScale>
                 </View>
 
                 {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -1150,6 +1180,58 @@ export default function AuthScreen() {
             >
               <Text style={styles.submitText}>확인</Text>
             </PressableScale>
+          </View>
+        </View>
+      </Modal>
+
+      {/* [한글 주석] 직원 로그인 모달.
+          계산대에 서는 알바생은 사장님 계정을 쓸 수 없다(매출·정산·급여가 다 보인다).
+          사장님이 발급한 아이디로 들어오면 단골 결제만 할 수 있다. */}
+      <Modal visible={staffMode} transparent animationType="fade"
+             onRequestClose={() => setStaffMode(false)}>
+        <View style={styles.modalBg}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>직원 로그인</Text>
+            <Text style={styles.staffModalDesc}>
+              사장님께 받은 아이디와 비밀번호를 입력해 주세요.
+              단골 결제만 사용할 수 있습니다.
+            </Text>
+            <TextInput
+              style={styles.staffModalInput}
+              placeholder="아이디"
+              placeholderTextColor="#B0A79E"
+              value={staffId}
+              onChangeText={setStaffId}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <TextInput
+              style={styles.staffModalInput}
+              placeholder="비밀번호"
+              placeholderTextColor="#B0A79E"
+              value={staffPw}
+              onChangeText={setStaffPw}
+              keyboardType="number-pad"
+              secureTextEntry
+            />
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
+              <PressableScale
+                style={[styles.staffModalBtn, { backgroundColor: '#F2EFEC' }]}
+                onPress={() => { setStaffMode(false); setError(''); }}
+                to={0.97}
+              >
+                <Text style={[styles.staffModalBtnText, { color: '#7A6E65' }]}>취소</Text>
+              </PressableScale>
+              <PressableScale
+                style={[styles.staffModalBtn, busy && { opacity: 0.5 }]}
+                onPress={submitStaff}
+                disabled={busy}
+                to={0.97}
+              >
+                <Text style={styles.staffModalBtnText}>로그인</Text>
+              </PressableScale>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1560,6 +1642,28 @@ const styles = StyleSheet.create({
   },
   modalHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   modalTitle: { fontSize: 15, fontWeight: '900', color: colors.espressoBrown },
+
+  // 직원 로그인 모달
+  staffModalDesc: { fontSize: 12, color: '#7A6E65', lineHeight: 18, marginBottom: 12 },
+  staffModalInput: {
+    borderWidth: 1,
+    borderColor: 'rgba(140,111,86,0.25)',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    fontSize: 14,
+    color: colors.espressoBrown,
+    marginBottom: 8,
+  },
+  staffModalBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.pointOrange,
+  },
+  staffModalBtnText: { fontSize: 13, fontWeight: 'bold', color: '#FFF' },
   mapContainerBox: {
     height: 140,
     backgroundColor: colors.creamSand,

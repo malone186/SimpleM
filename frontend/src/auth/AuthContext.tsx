@@ -32,7 +32,10 @@ import { unregisterFromPush } from '../notifications/pushRegistration';
 // [한글 주석] 모바일 환경에서 로그인 후 브라우저 창을 닫기 위해 초기화합니다.
 WebBrowser.maybeCompleteAuthSession();
 
-export type User = { email: string; name: string; photo?: string };
+// [한글 주석] isStaff — 직원 계정으로 로그인했는지.
+// 화면에서 사장님 전용 항목(매출·정산·급여·환불)을 감추는 데 쓴다.
+// 실제 차단은 서버가 하고(require_owner), 여기서는 안 보이게만 한다.
+export type User = { email: string; name: string; photo?: string; isStaff?: boolean };
 type StoredUser = User & { password?: string };
 
 type AuthContextValue = {
@@ -40,6 +43,8 @@ type AuthContextValue = {
   token: string | null; // [한글 주석] 백엔드 API 호출용 Firebase ID Token (Authorization: Bearer ...)
   booting: boolean;
   login: (email: string, password: string, autoLogin: boolean) => Promise<void>;
+  // 직원 계정 로그인 — 아이디/비밀번호는 사장님이 발급한다
+  loginAsStaff: (loginId: string, password: string, autoLogin: boolean) => Promise<void>;
   // store: 가입 2단계 지도 핀으로 확정한 매장 고정 위치 — 계정에 저장되어 기기가 바뀌어도 따라간다
   signup: (
     name: string,
@@ -467,6 +472,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   // [한글 주석] 구글 계정을 이용한 소셜 로그인을 처리합니다. (Mock 모드 지원)
+  // [한글 주석] 직원 계정 로그인.
+  // 서버가 주는 토큰의 sub에는 '매장(사장님) 이메일'이 담겨 있어
+  // 기존 API가 매장을 그대로 인식한다. 여기서는 화면 표시용으로 이름만 받는다.
+  const loginAsStaff = useCallback(
+    async (loginId: string, password: string, autoLogin: boolean) => {
+      const res = await fetch(`${API_BASE_URL}/api/v1/staff-accounts/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ login_id: loginId, password }),
+      });
+      if (!res.ok) {
+        let detail = '아이디 또는 비밀번호가 올바르지 않습니다.';
+        try {
+          const body = await res.json();
+          if (typeof body?.detail === 'string') detail = body.detail;
+        } catch {
+          // 본문 파싱 실패는 기본 메시지로 둔다
+        }
+        throw new Error(detail);
+      }
+      const data = await res.json();
+      const idToken: string = data.access_token;
+
+      // 이메일은 매장 식별자라 직원에게 보여줄 값이 아니다 — 이름만 쓴다
+      const u: User = { email: '', name: data.name ?? '직원', isStaff: true };
+      setUser(u);
+      setToken(idToken);
+      await persistSession({ ...u, token: idToken }, autoLogin);
+    },
+    [persistSession],
+  );
+
   const loginWithGoogle = useCallback(
     async (autoLogin: boolean) => {
       const FIREBASE_API_KEY = process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '';
@@ -677,7 +714,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         booting,
         login,
         signup,
-        loginWithGoogle,
+        loginAsStaff,
+      loginWithGoogle,
         logout,
         updateProfile,
         firebaseAuthEnabled,

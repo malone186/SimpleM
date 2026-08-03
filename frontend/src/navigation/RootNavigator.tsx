@@ -48,6 +48,7 @@ const Tab = createBottomTabNavigator<RootTabParamList>();
 
 import BeanOperationScreen from '../screens/operation/BeanOperationScreen';
 import MembershipScreen from '../screens/membership/MembershipScreen';
+import StaffAccountScreen from '../screens/membership/StaffAccountScreen';
 import StoreMapScreen from '../screens/dashboard/StoreMapScreen';
 
 export type RootStackParamList = {
@@ -67,6 +68,7 @@ export type RootStackParamList = {
   Staff: undefined;
   BeanOperation: undefined;
   Membership: undefined;
+  StaffAccount: undefined;
   // section: 특정 설정 하위 화면으로 바로 진입 (예: 카드 정산 설정)
   Settings: { section?: 'account' | 'notification' | 'appearance' | 'inquiry' | 'legal' | 'settlement' } | undefined;
   StoreMap: undefined;
@@ -155,7 +157,9 @@ export default function RootNavigator() {
     // ref/onReady: 푸시 알림을 탭해 앱이 켜진 경우 네비게이터가 준비된 뒤 그 화면으로 보낸다
     // (AlertsWatcher가 컨테이너 바깥에 있어 useNavigation을 못 쓴다 — notifications/navigationTarget.ts)
     <NavigationContainer
-      key={user.email}
+      // 직원 계정은 email이 비어 있다(매장 이메일을 노출하지 않으려고).
+      // 그대로 두면 직원끼리 전환할 때 이전 화면 상태가 남으므로 이름으로 보완한다.
+      key={user.email || `staff:${user.name}`}
       ref={navigationRef}
       onReady={() => {
         const target = takePendingTarget();
@@ -182,6 +186,7 @@ export default function RootNavigator() {
         <Stack.Screen name="Staff" component={StaffScreen} options={({ navigation }) => erpHeader('직원 · 인건비', navigation)} />
         <Stack.Screen name="BeanOperation" component={BeanOperationScreen} options={({ navigation }) => erpHeader('운영 · 원두 실리뷰 분석', navigation)} />
         <Stack.Screen name="Membership" component={MembershipScreen} options={({ navigation }) => erpHeader('단골 · 선불 충전', navigation)} />
+        <Stack.Screen name="StaffAccount" component={StaffAccountScreen} options={({ navigation }) => erpHeader('직원 계정', navigation)} />
 
         <Stack.Screen name="Settings" component={SettingsScreen} options={({ navigation }) => erpHeader('설정', navigation)} />
         <Stack.Screen name="StoreMap" component={StoreMapScreen} options={({ navigation }) => erpHeader('매장 위치', navigation)} />
