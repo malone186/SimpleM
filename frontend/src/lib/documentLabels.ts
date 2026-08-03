@@ -125,6 +125,35 @@ export const FIELD_LABELS: Record<string, string> = {
   days_left: '남은 일수',
 };
 
+// 화면에 절대 보여주지 않는 내부 관리용 키 — 조언 캐시 무효화용 해시·타임스탬프 등.
+// 여기 안 걸러지면 챗봇 카드·서류 화면에 ai_advice_hash 같은 영문 키가 그대로 노출된다.
+export const HIDDEN_FIELDS = new Set(['ai_advice_hash', 'ai_advice_at']);
+
+// kind별 표시 순서 — 사장님이 먼저 봐야 하는 것(핵심 요약·조언)을 위로.
+// 목록에 없는 키는 원래 순서대로 뒤에 붙는다.
+export const KIND_FIELD_ORDER: Record<string, string[]> = {
+  management_report: [
+    'period_type', 'period', 'highlights', 'ai_advice', 'sales', 'profit',
+    'purchases', 'expenses', 'labor', 'inventory', 'orders', 'compliance_alerts',
+  ],
+};
+
+/** content를 화면 표시용 [키, 값] 목록으로 — 내부 키 제거 + kind별 순서 적용 */
+export function visibleEntries(
+  content: Record<string, unknown>,
+  kind?: string,
+): [string, unknown][] {
+  const entries = Object.entries(content).filter(([k]) => !HIDDEN_FIELDS.has(k));
+  const order = kind ? KIND_FIELD_ORDER[kind] : undefined;
+  if (!order) return entries;
+  const rank = (k: string) => {
+    const i = order.indexOf(k);
+    return i === -1 ? order.length : i;
+  };
+  // sort는 안정 정렬이라 순서 목록에 없는 키끼리는 원래 순서를 유지한다
+  return entries.sort(([a], [b]) => rank(a) - rank(b));
+}
+
 // 영문 상태값 → 한글 (weekly → 주간 등)
 export const VALUE_LABELS: Record<string, Record<string, string>> = {
   period_type: { daily: '일간', weekly: '주간', monthly: '월간' },
@@ -148,9 +177,42 @@ export const MONEY_KEYS = new Set([
 // 퍼센트 키는 '%'를 붙인다
 export const PERCENT_KEYS = new Set(['change_pct', 'margin_pct', 'withholding_rate', 'saving_pct']);
 
+// 숫자 키에 단위를 붙여 읽기 쉽게 (판매 잔 수 128 → 128잔)
+export const UNIT_KEYS: Record<string, string> = {
+  cups: '잔',
+  days_left: '일',
+  remind_before_days: '일',
+  scheduled_hours: '시간',
+  work_hours: '시간',
+  weekly_avg_hours: '시간',
+  work_days_per_week: '일',
+  work_hours_per_day: '시간',
+  weekly_hours: '시간',
+  employee_count: '명',
+  shift_count: '건',
+  document_count: '건',
+  purchase_document_count: '건',
+  ingredient_count: '종',
+  open_count: '건',
+};
+
 export const labelFor = (key: string): string => FIELD_LABELS[key] ?? key;
 
-/** 값을 사장님이 읽기 좋은 문자열로 — 금액 콤마+원, 퍼센트, 영문 상태값 한글화 */
+const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+
+// "2026-08-03" → "8월 3일(월)" (올해가 아니면 연도 포함) — 사장님용 한글 날짜 표기
+const koreanDate = (iso: string): string => {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  const year = y === new Date().getFullYear() ? '' : `${y}년 `;
+  return `${year}${m}월 ${d}일(${WEEKDAYS[dt.getDay()]})`;
+};
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MONTH_RE = /^(\d{4})-(\d{2})$/;
+const RANGE_RE = /^(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})$/;
+
+/** 값을 사장님이 읽기 좋은 문자열로 — 금액 콤마+원, 퍼센트, 단위, 날짜·영문 상태값 한글화 */
 export function formatValue(key: string, v: unknown): string {
   if (v === null || v === undefined || v === '') return '—';
   if (typeof v === 'boolean') return v ? '예' : '아니오';
@@ -158,9 +220,19 @@ export function formatValue(key: string, v: unknown): string {
     const n = v.toLocaleString('ko-KR');
     if (MONEY_KEYS.has(key)) return `${n}원`;
     if (PERCENT_KEYS.has(key)) return `${n}%`;
+    if (UNIT_KEYS[key]) return `${n}${UNIT_KEYS[key]}`;
     return n;
   }
-  if (typeof v === 'string') return VALUE_LABELS[key]?.[v] ?? v;
+  if (typeof v === 'string') {
+    const mapped = VALUE_LABELS[key]?.[v];
+    if (mapped) return mapped;
+    if (DATE_RE.test(v)) return koreanDate(v);
+    const month = v.match(MONTH_RE);
+    if (month) return `${Number(month[1])}년 ${Number(month[2])}월`;
+    const range = v.match(RANGE_RE);
+    if (range) return `${koreanDate(range[1])} ~ ${koreanDate(range[2])}`;
+    return v;
+  }
   // 배열·객체는 원래 DocumentCard가 섹션으로 펼쳐 렌더링한다. 여기까지 오면(인쇄 HTML 등
   // 재귀하지 않는 경로) "[object Object]" 대신 최소한 읽을 수 있는 요약으로 대체한다.
   if (Array.isArray(v)) return v.length ? `${v.length}건` : '—';
