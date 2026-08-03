@@ -119,9 +119,14 @@ class TransactionOut(BaseModel):
     id: int
     tx_type: str
     tx_label: str              # 충전 / 사용 / 환불 / 보정
-    amount: int
+    amount: int                # 잔액 변동분 (충전 +, 사용·환불 -)
     balance_after: int
+    # [한글 주석] 충전이면 '실제 결제한 돈', 환불이면 '실제로 돌려받은 현금'.
+    # 환불에서 amount(잔액 차감분)와 다르다 —
+    # 잔액 20,000을 지우고 현금 16,667을 드리는 식이라, 손님에게 보여줄 숫자는 이쪽이다.
     paid_amount: Optional[int]
+    # 화면이 헷갈리지 않도록 '손님 기준 금액'을 서버가 정해서 준다
+    display_amount: int = 0
     memo: Optional[str]
     created_at: datetime
 

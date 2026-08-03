@@ -25,7 +25,14 @@ router = APIRouter(prefix="/membership", tags=["단골 회원 · 선불 충전 (
 
 
 def _tx_out(tx) -> TransactionOut:
+    # [한글 주석] 환불은 잔액 차감분이 아니라 실제로 건넨 현금을 보여줘야 한다.
+    # 화면마다 이 판단을 반복하면 한 곳이 틀려도 모른다. 서버가 정해서 내려준다.
+    if tx.tx_type == "REFUND" and tx.paid_amount is not None:
+        display = tx.paid_amount
+    else:
+        display = abs(tx.amount)
     return TransactionOut(
+        display_amount=display,
         id=tx.id,
         tx_type=tx.tx_type,
         tx_label=svc.TX_LABELS.get(tx.tx_type, tx.tx_type),

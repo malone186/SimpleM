@@ -147,6 +147,22 @@ def public_balance_page(token: str, db: Session = Depends(get_db)):
         sign = _TX_SIGN.get(t.tx_type, "")
         cls = "plus" if t.amount > 0 else "minus"
         when = t.created_at.strftime("%m/%d") if t.created_at else ""
+
+        # [한글 주석] 환불은 '잔액에서 뺀 금액'과 '실제로 받은 현금'이 다르다.
+        #
+        #   잔액 20,000원을 지우고 현금 16,667원을 드린 경우,
+        #   amount(-20,000)를 그대로 보여주면 손님은 20,000원을 받았다고 읽는다.
+        #   실제로 받은 건 16,667원이라 나중에 "덜 받았다"는 분쟁이 된다.
+        #
+        #   손님이 알아야 하는 건 '내 손에 들어온 돈'이므로 그걸 크게 쓰고,
+        #   잔액이 얼마나 줄었는지는 보조로 적는다.
+        if t.tx_type == "REFUND" and t.paid_amount is not None:
+            main_amount = t.paid_amount
+            extra = f'<div class="memo">잔액 {abs(t.amount):,}원 차감</div>'
+        else:
+            main_amount = abs(t.amount)
+            extra = ""
+
         memo = (
             f'<div class="memo">{html_mod.escape(t.memo)}</div>'
             if t.memo else ""
@@ -154,9 +170,9 @@ def public_balance_page(token: str, db: Session = Depends(get_db)):
         rows.append(
             f'<div class="row"><div class="main">'
             f'<div class="label">{html_mod.escape(svc.TX_LABELS.get(t.tx_type, t.tx_type))}</div>'
-            f"{memo}"
+            f"{memo}{extra}"
             f'<div class="date">{when}</div></div>'
-            f'<div><div class="amt {cls}">{sign}{abs(t.amount):,}원</div>'
+            f'<div><div class="amt {cls}">{sign}{main_amount:,}원</div>'
             f'<div class="after">잔액 {t.balance_after:,}원</div></div></div>'
         )
 
