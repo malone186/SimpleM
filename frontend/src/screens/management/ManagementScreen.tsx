@@ -38,7 +38,8 @@ const LAYOUT = [
   { deg: 2.5, tx: 10 },
   { deg: -2.5, tx: -8 },
   { deg: 2, tx: 12 },
-  { deg: -2.5, tx: -10 },
+  { deg: -2.5, tx: -10 }, // 6: 단골·선불 — 왼쪽으로
+  { deg: 2.5, tx: 10 },   // 7: 직원 계정 — 6번과 반대(오른쪽)로 기울인다
 ];
 
 const CARD_H = 132; // 카드 높이 (스크롤이 있으므로 넉넉하게)
@@ -96,14 +97,14 @@ export default function ManagementScreen() {
 
   const allItems: Item[] = [
     // 직원·인건비는 별도 카드를 두지 않고 이 화면 안에서 들어간다 (진입로 하나로 통일)
-    { label: language === 'en' ? 'Staff & Schedule' : '직원 · 스케줄', en: 'PAYROLL', desc: language === 'en' ? 'Roster · Labor cost · Calendar · Settlement' : '직원 명부 · 인건비 · 근무 달력 · 손익 정산', color: '#5B514C', route: 'Operation' },
-    { label: t('taxDocsTitle'), en: 'DOCUMENTS', desc: t('taxDocsSub'), color: '#9A8E82', route: 'Document' },
-    { label: t('salesInputTitle'), en: 'SALES', desc: language === 'en' ? 'Cash/Card · Payout schedule' : '현금·카드 입력 · 입금 예정일', color: '#D1C6B9', route: 'SalesInput' },
-    { label: t('costAnalysisTitle'), en: 'COST', desc: t('costAnalysisSub'), color: '#E1DCD7', route: 'Cost' },
-    { label: language === 'en' ? 'Marketing Studio' : '홍보 스튜디오', en: 'MARKETING', desc: language === 'en' ? 'AI promo copy & SNS banner creator' : 'AI 홍보 문구 · SNS 이미지 원스톱 생성', color: '#8A6F5A', route: 'Marketing' },
-    { label: language === 'en' ? 'Bean Analysis' : '원두 분석', en: 'OPERATION', desc: language === 'en' ? 'Bean market price & Reviews' : '원두 최저가 시세 · 실리뷰 분석', color: '#463C34', route: 'BeanOperation' },
-    { label: language === 'en' ? 'Regulars & Prepaid' : '단골 · 선불 충전', en: 'MEMBERSHIP', desc: language === 'en' ? 'Prepaid balance · Win-back alerts' : '선불 잔액 관리 · 뜸해진 단골 알림', color: '#6B5B4E', route: 'Membership' },
-    { label: language === 'en' ? 'Staff Accounts' : '직원 계정', en: 'STAFF LOGIN', desc: language === 'en' ? 'Counter-only login for part-timers' : '알바생용 계산대 전용 로그인 발급', color: '#7A6A5C', route: 'StaffAccount' },
+    { label: language === 'en' ? 'Staff & Schedule' : '직원 · 스케줄', en: 'PAYROLL', desc: language === 'en' ? 'Roster · Labor cost · Calendar · Settlement' : '직원 명부 · 인건비 · 근무 달력 · 손익 정산', color: '#E7DED2', route: 'Operation' },
+    { label: t('taxDocsTitle'), en: 'DOCUMENTS', desc: t('taxDocsSub'), color: '#D6C8B8', route: 'Document' },
+    { label: t('salesInputTitle'), en: 'SALES', desc: language === 'en' ? 'Cash/Card · Payout schedule' : '현금·카드 입력 · 입금 예정일', color: '#C2B09C', route: 'SalesInput' },
+    { label: t('costAnalysisTitle'), en: 'COST', desc: t('costAnalysisSub'), color: '#A8927C', route: 'Cost' },
+    { label: language === 'en' ? 'Marketing Studio' : '홍보 스튜디오', en: 'MARKETING', desc: language === 'en' ? 'AI promo copy & SNS banner creator' : 'AI 홍보 문구 · SNS 이미지 원스톱 생성', color: '#8E7660', route: 'Marketing' },
+    { label: language === 'en' ? 'Bean Analysis' : '원두 분석', en: 'OPERATION', desc: language === 'en' ? 'Bean market price & Reviews' : '원두 최저가 시세 · 실리뷰 분석', color: '#6F5A47', route: 'BeanOperation' },
+    { label: language === 'en' ? 'Regulars & Prepaid' : '단골 · 선불 충전', en: 'MEMBERSHIP', desc: language === 'en' ? 'Prepaid balance · Win-back alerts' : '선불 잔액 관리 · 뜸해진 단골 알림', color: '#524334', route: 'Membership' },
+    { label: language === 'en' ? 'Staff Accounts' : '직원 계정', en: 'STAFF LOGIN', desc: language === 'en' ? 'Counter-only login for part-timers' : '알바생용 계산대 전용 로그인 발급', color: '#3A2E24', route: 'StaffAccount' },
   ];
 
   const itemsList: Item[] = user?.isStaff
