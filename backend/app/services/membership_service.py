@@ -250,7 +250,12 @@ def _lock_customer(db: Session, customer: Customer) -> Customer:
 
     SQLite에는 행 잠금이 없어 폴백한다 — 개발용 폴백에서는 동시 요청이 없다.
     """
-    q = db.query(Customer).filter(Customer.id == customer.id)
+    # [한글 주석] populate_existing()이 반드시 필요하다.
+    #   이 세션이 이미 같은 회원을 들고 있으면 SQLAlchemy는 identity map에 있는
+    #   객체를 그대로 돌려주고 DB 값으로 덮어쓰지 않는다.
+    #   그러면 잠그기만 하고 '옛 잔액'을 그대로 보게 되어 잠근 의미가 사라진다.
+    #   populate_existing()은 DB에서 읽은 값으로 속성을 강제로 갱신한다.
+    q = db.query(Customer).filter(Customer.id == customer.id).populate_existing()
     try:
         locked = q.with_for_update().first()
     except Exception as e:
@@ -956,7 +961,10 @@ def list_transactions(db: Session, customer_id: int, limit: int = 30) -> List[Ba
     return (
         db.query(BalanceTransaction)
         .filter(BalanceTransaction.customer_id == customer_id)
-        .order_by(BalanceTransaction.created_at.desc())
+        # [한글 주석] created_at만으로 정렬하면 같은 초에 들어온 거래들의 순서가
+        # 실행할 때마다 달라진다(계산대에서는 몇 초 안에 여러 건이 찍힌다).
+        # 손님 이용 내역이 뒤죽박죽 보이므로 id를 보조 기준으로 고정한다.
+        .order_by(BalanceTransaction.created_at.desc(), BalanceTransaction.id.desc())
         .limit(limit)
         .all()
     )

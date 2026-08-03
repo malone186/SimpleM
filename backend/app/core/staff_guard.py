@@ -55,6 +55,20 @@ STAFF_DENIED_PREFIXES = (
 _PUBLIC_PREFIXES = ("/b/", "/s/", "/health", "/docs", "/openapi", "/redoc", "/console")
 
 
+def is_blocked_for_staff(path: str) -> bool:
+    """이 경로를 직원이 부를 수 없는가.
+
+    [한글 주석] 판단을 미들웨어에서 떼어내 테스트할 수 있게 했다.
+    권한은 조용히 뚫리는 종류의 버그라(에러가 아니라 '보이면 안 되는 게 보임')
+    회귀를 자동으로 잡을 수 있어야 한다.
+    """
+    if path.startswith(_PUBLIC_PREFIXES):
+        return False
+    if path.startswith(STAFF_DENIED_PREFIXES):
+        return True
+    return not path.startswith(STAFF_ALLOWED_PREFIXES)
+
+
 def _staff_id_from_request(request: Request):
     """요청에 실린 토큰이 직원 것이면 staff_id를 돌려준다."""
     auth = request.headers.get("authorization") or ""
@@ -78,10 +92,7 @@ async def staff_scope_middleware(request: Request, call_next):
         return await call_next(request)
 
     staff_id = _staff_id_from_request(request)
-    if staff_id and (
-        path.startswith(STAFF_DENIED_PREFIXES)
-        or not path.startswith(STAFF_ALLOWED_PREFIXES)
-    ):
+    if staff_id and is_blocked_for_staff(path):
         logger.info("[직원 권한] 차단 %s %s (staff_id=%s)", request.method, path, staff_id)
         return JSONResponse(
             status_code=403,
