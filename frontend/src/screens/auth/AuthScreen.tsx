@@ -716,6 +716,23 @@ export default function AuthScreen() {
                   secureToggle
                 />
 
+                {/* 비밀번호를 잊었을 때 — 눌러서 바로 재설정 탭을 연다 (로그인 칸에 적은 이메일은 미리 채워 준다) */}
+                <PressableScale
+                  style={styles.forgotPwRow}
+                  onPress={() => {
+                    setFindResult(null);
+                    setFindNameInput('');
+                    setFindPhoneInput('');
+                    setFindEmailInput(email.trim());
+                    setFindNewPwInput('');
+                    setFindTab('pw');
+                    setShowFindModal(true);
+                  }}
+                  to={0.96}
+                >
+                  <Text style={styles.forgotPwLink}>비밀번호를 잊으셨나요?</Text>
+                </PressableScale>
+
                 {/* [한글 주석] 자동 로그인 체크박스 및 아이디/비밀번호 찾기 링크 */}
                 <View style={styles.loginOptionRow}>
                   <PressableScale style={styles.checkRow} onPress={() => setAutoLogin((v) => !v)} to={0.98}>
@@ -1628,6 +1645,14 @@ const styles = StyleSheet.create({
     color: colors.mochaBrown,
     textDecorationLine: 'underline',
     fontWeight: '600',
+  },
+  // 비밀번호 입력칸 바로 아래 — 잊었을 때 눈에 띄게 (오른쪽 정렬, 포인트 컬러)
+  forgotPwRow: { alignSelf: 'flex-end', paddingVertical: 4 },
+  forgotPwLink: {
+    ...typography.L5,
+    color: colors.pointOrange,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
   findTabRow: {
     flexDirection: 'row',
