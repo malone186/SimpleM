@@ -502,11 +502,11 @@ def get_cafe_analysis_api(
     region: str = "",
     _current_user: User = Depends(get_current_user),
 ):
-    """경쟁 카페 한 곳의 후기 수집(네이버 블로그·구글 지도·기타 웹) + AI 분석 (지도에서 마커를 눌렀을 때)."""
+    """경쟁 카페 한 곳의 네이버 블로그 후기 수집 + AI 분석 (지도에서 마커를 눌렀을 때)."""
     result = nearby_cafe_service.analyze_cafe(
         name, address=address, category=category, distance_m=distance_m, region=region)
     if not result["review_count"]:
-        raise HTTPException(404, f"'{name}'에 대한 후기를 네이버·구글 등에서 찾지 못했습니다.")
+        raise HTTPException(404, f"'{name}'에 대한 네이버 후기를 찾지 못했습니다.")
     return result
 
 

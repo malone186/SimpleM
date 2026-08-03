@@ -3,10 +3,7 @@
 매장 "고정 위치"(회원가입 지도 핀 → users.store_lat/lon)를 기준으로
 
   1) 네이버 지역검색 API로 반경 안의 카페를 모으고            → find_nearby_cafes()
-  2) 각 카페의 리뷰를 여러 소스에서 모아 Gemini로 분석하고        → analyze_cafe()
-     · 네이버 블로그 검색 (기본)
-     · 구글 지도 리뷰 — Places API (GOOGLE_PLACES_API_KEY 있을 때, 평점·리뷰 원문)
-     · Tavily 웹 검색 — 다이닝코드·인스타그램·티스토리 등 그 밖의 사이트 (TAVILY_API_KEY 있을 때)
+  2) 각 카페의 네이버 블로그 리뷰·후기 글을 수집해 Gemini로 분석하고  → analyze_cafe()
   3) 상권 전체를 놓고 "우리 매장은 무엇을 해야 하나"를 정리한다     → analyze_neighborhood()
 
 앱의 매장 지도 화면이 이 결과를 마커+카드로 보여주고, 챗봇(브루)도 같은 함수를
@@ -16,8 +13,6 @@ nearby_cafe_tools.py의 @tool로 호출한다.
   NAVER_CLIENT_ID / NAVER_CLIENT_SECRET  — developers.naver.com '검색 API' (지역·블로그 검색)
   NCP_MAPS_CLIENT_ID / SECRET            — 좌표→행정동 역지오코딩 (없으면 좌표만으로 검색어를 못 만들어 빈 목록)
   GEMINI_API_KEY                         — 리뷰 분석 (없으면 수집 데이터만, 분석은 생략)
-  GOOGLE_PLACES_API_KEY                  — [선택] 구글 지도 평점·리뷰 (없으면 구글 소스만 생략)
-  TAVILY_API_KEY                         — [선택] 네이버·구글 밖 사이트의 후기 (없으면 해당 소스만 생략)
 
 주의: 네이버 지역검색은 '반경 검색'을 지원하지 않는다(키워드 검색만, 한 번에 최대 5건).
       그래서 역지오코딩으로 얻은 행정동/구 이름으로 여러 키워드를 병렬 조회한 뒤,
@@ -32,9 +27,6 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
-from urllib.parse import urlparse
-
-from app.services.ai.untrusted import quote_untrusted
 
 logger = logging.getLogger(__name__)
 
@@ -139,168 +131,6 @@ def _search_local(query: str, display: int = 5, sort: str = "comment") -> list[d
 def _search_blog(query: str, display: int = 10, sort: str = "sim") -> list[dict[str, Any]]:
     """네이버 블로그 검색 — 카페 후기 글의 제목·요약을 준다 (공식 오픈API)."""
     return _search_naver("blog", query, display, sort)
-
-
-# ---------------------------------------------------------------------------
-# 리뷰 다중 소스 — 구글 지도(Places API) · Tavily 웹 검색
-# 키가 없거나 실패하면 그 소스만 조용히 빠진다. 네이버 블로그만으로도 화면은 그대로 뜬다.
-# ---------------------------------------------------------------------------
-
-# Tavily 결과 도메인 → 화면에 보여줄 출처 이름 (모르는 도메인은 도메인 그대로)
-_SOURCE_LABELS = {
-    "google": "구글",
-    "instagram": "인스타그램",
-    "tistory": "티스토리",
-    "diningcode": "다이닝코드",
-    "mangoplate": "망고플레이트",
-    "tripadvisor": "트립어드바이저",
-    "brunch": "브런치",
-    "youtube": "유튜브",
-    "daum": "다음",
-    "kakao": "카카오",
-}
-
-
-def _domain_label(url: str) -> str:
-    """URL → 출처 이름. 예: https://www.diningcode.com/... → '다이닝코드'"""
-    try:
-        host = (urlparse(url).netloc or "").lower()
-    except ValueError:
-        return "웹"
-    host = re.sub(r"^(www|m|blog)\.", "", host)
-    for key, label in _SOURCE_LABELS.items():
-        if key in host:
-            return label
-    return host or "웹"
-
-
-def _google_place_reviews(name: str, area: str) -> Optional[dict[str, Any]]:
-    """구글 지도(Places API)에서 평점·리뷰 원문을 가져온다.
-
-    반환: {"rating", "rating_count", "link", "reviews": [리뷰 dict…]} 또는 None(키 없음·실패·불일치).
-    검색 결과 상호가 요청 상호와 다르면 None — 엉뚱한 가게 리뷰를 붙이는 것보다 없는 편이 낫다.
-    """
-    key = os.getenv("GOOGLE_PLACES_API_KEY", "").strip()
-    if not key:
-        return None
-    import requests
-
-    try:
-        r = requests.post(
-            "https://places.googleapis.com/v1/places:searchText",
-            json={"textQuery": f"{name} {area} 카페".strip(), "languageCode": "ko",
-                  "maxResultCount": 1},
-            headers={
-                "X-Goog-Api-Key": key,
-                # FieldMask에 적은 필드만 과금·반환된다 — 리뷰 분석에 쓰는 것만 요청
-                "X-Goog-FieldMask": ("places.displayName,places.rating,places.userRatingCount,"
-                                     "places.reviews,places.googleMapsUri"),
-            },
-            timeout=_TIMEOUT,
-        )
-        r.raise_for_status()
-        places = r.json().get("places") or []
-    except Exception as e:
-        logger.warning("구글 지도 리뷰 조회 실패 — 이 소스만 생략 (name=%s): %s", name, e)
-        return None
-    if not places:
-        return None
-
-    place = places[0]
-    got = re.sub(r"\s+", "", (place.get("displayName") or {}).get("text") or "").lower()
-    want = re.sub(r"\s+", "", name).lower()
-    if not (want and (want in got or got in want)):
-        return None
-
-    reviews = []
-    for rv in (place.get("reviews") or [])[:5]:
-        text = ((rv.get("text") or {}).get("text") or "").strip()
-        if not text:
-            continue
-        reviews.append({
-            "title": f"구글 리뷰 ★{rv.get('rating', '?')}",
-            "snippet": text[:300],
-            "link": place.get("googleMapsUri", ""),
-            # 네이버 postdate(YYYYMMDD)와 형식을 맞춘다 — 화면이 한 가지 포맷만 다루게
-            "date": (rv.get("publishTime") or "")[:10].replace("-", ""),
-            "blogger": ((rv.get("authorAttribution") or {}).get("displayName") or ""),
-            "source": "구글 지도",
-        })
-    return {
-        "rating": place.get("rating"),
-        "rating_count": place.get("userRatingCount"),
-        "link": place.get("googleMapsUri", ""),
-        "reviews": reviews,
-    }
-
-
-def _tavily_search(query: str, max_results: int = 6) -> list[dict[str, Any]]:
-    """Tavily 웹 검색 공통 호출 — 키 없거나 실패하면 빈 목록."""
-    key = os.getenv("TAVILY_API_KEY", "").strip()
-    if not key or key.startswith("tvly-Your"):
-        return []
-    import requests
-
-    try:
-        r = requests.post(
-            "https://api.tavily.com/search",
-            json={"query": query, "search_depth": "basic", "max_results": max_results,
-                  "country": "south korea"},
-            headers={"Authorization": f"Bearer {key}"},
-            timeout=8.0,
-        )
-        r.raise_for_status()
-        return r.json().get("results", [])
-    except Exception as e:
-        logger.warning("Tavily 검색 실패 — 이 소스만 생략 (query=%s): %s", query, e)
-        return []
-
-
-def _tavily_reviews(name: str, area: str) -> list[dict[str, Any]]:
-    """네이버·구글 밖의 후기 — 다이닝코드·인스타그램·티스토리 등 (Tavily 웹 검색).
-
-    네이버 도메인은 전용 검색(_search_blog)이 이미 다루므로 여기서는 걸러 낸다.
-    """
-    items = _tavily_search(f"{name} {area} 카페 리뷰 후기".strip())
-    out = []
-    for it in items:
-        url = it.get("url", "")
-        if "naver.com" in (urlparse(url).netloc or "").lower():
-            continue
-        content = (it.get("content") or "").strip()
-        if not content:
-            continue
-        out.append({
-            "title": _strip_tags(it.get("title", "")),
-            "snippet": content[:300],
-            "link": url,
-            "date": (it.get("published_date") or "")[:10].replace("-", ""),
-            "blogger": "",
-            "source": _domain_label(url),
-        })
-    return out
-
-
-def _interleave_reviews(*source_lists: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """소스별 목록을 번갈아 섞는다 — 상위 몇 건만 보여줘도 여러 사이트가 고루 보이게.
-
-    같은 글이 두 소스로 들어오면 먼저 나온 쪽만 남긴다. 링크만으로 판정하면
-    구글 리뷰(전부 같은 장소 링크)가 한 건으로 뭉개지므로 본문 앞부분까지 본다.
-    """
-    merged: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for i in range(max((len(sl) for sl in source_lists), default=0)):
-        for sl in source_lists:
-            if i >= len(sl):
-                continue
-            item = sl[i]
-            key = re.sub(r"\s+", "", f"{item.get('link', '')}|{item.get('snippet', '')[:60]}").lower()
-            if key in seen:
-                continue
-            if key:
-                seen.add(key)
-            merged.append(item)
-    return merged
 
 
 def _region_names(lat: float, lon: float) -> dict[str, str]:
@@ -489,9 +319,8 @@ _CAFE_ANALYSIS_SCHEMA = {
 }
 
 _CAFE_ANALYSIS_PROMPT = """너는 카페 사장님을 돕는 상권 분석가다.
-아래는 경쟁 카페 한 곳에 대해 여러 사이트(네이버 블로그·구글 지도·다이닝코드 등)에서
-모은 후기다. 각 줄 앞의 [출처]를 참고하되, 같은 내용이 여러 사이트에서 반복되면 더 믿을 만하다.
-후기에서 실제로 드러난 사실만 근거로 분석하고, 근거가 없으면 "정보 부족"이라고 적어라.
+아래는 경쟁 카페 한 곳에 대한 네이버 지역정보와 블로그 후기 글의 제목·요약이다.
+후기 글에서 실제로 드러난 사실만 근거로 분석하고, 근거가 없으면 "정보 부족"이라고 적어라.
 광고성 문구는 걸러 내고, 사장님이 바로 참고할 수 있게 한국어로 간결하게 쓴다.
 
 [카페 정보]
@@ -499,9 +328,8 @@ _CAFE_ANALYSIS_PROMPT = """너는 카페 사장님을 돕는 상권 분석가다
 분류: {category}
 주소: {address}
 내 매장에서 거리: {distance_m}m
-구글 평점: {google_rating}
 
-[여러 사이트 후기 {count}건]
+[블로그 후기 {count}건]
 {reviews}
 
 [작성 규칙] 사장님은 바쁘다. 짧게, 명사형으로 쓴다. 미사여구·중복 금지.
@@ -519,11 +347,9 @@ _CAFE_ANALYSIS_PROMPT = """너는 카페 사장님을 돕는 상권 분석가다
 
 def analyze_cafe(name: str, address: str = "", category: str = "",
                  distance_m: int = 0, region: str = "") -> dict[str, Any]:
-    """경쟁 카페 한 곳의 후기를 여러 사이트에서 모아 Gemini로 분석한다.
+    """경쟁 카페 한 곳의 네이버 후기를 모아 Gemini로 분석한다.
 
-    소스: 네이버 블로그(기본) + 구글 지도 리뷰(키 있을 때) + Tavily 웹 검색(키 있을 때).
-    반환: {name, review_count, sources:{출처:건수}, google_rating, google_rating_count,
-          reviews:[{title, snippet, link, date, blogger, source}], analysis:{...}|None}
+    반환: {name, review_count, reviews:[{title, snippet, link, date, blogger}], analysis:{...}|None}
     """
     cache_key = f"{name}|{address}"
     hit = _analysis_cache.get(cache_key)
@@ -536,44 +362,23 @@ def analyze_cafe(name: str, address: str = "", category: str = "",
         if token.endswith(("동", "읍", "면", "가", "구", "시")):
             area = token
     query = f"{name} {area} 카페".strip() if area else f"{name} 카페"
+    items = _search_blog(query, display=10)
 
-    # 세 소스를 병렬로 — 순차로 돌면 지도 마커 탭이 수 초 멈춘다
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        f_naver = pool.submit(_search_blog, query, 10)
-        f_google = pool.submit(_google_place_reviews, name, area)
-        f_tavily = pool.submit(_tavily_reviews, name, area)
-        naver_items = f_naver.result()
-        google = f_google.result()
-        tavily_reviews = f_tavily.result()
-
-    naver_reviews = [{
+    reviews = [{
         "title": _strip_tags(it.get("title", "")),
         "snippet": _strip_tags(it.get("description", "")),
         "link": it.get("link", ""),
         "date": it.get("postdate", ""),
         "blogger": it.get("bloggername", ""),
-        "source": "네이버 블로그",
-    } for it in naver_items]
-    google_reviews = (google or {}).get("reviews") or []
-
-    reviews = _interleave_reviews(naver_reviews, google_reviews, tavily_reviews)
-    sources: dict[str, int] = {}
-    for r in reviews:
-        sources[r["source"]] = sources.get(r["source"], 0) + 1
+    } for it in items]
 
     analysis = None
     if reviews:
-        joined = "\n".join(f"- [{r['source']}] {r['title']} :: {r['snippet']}"
-                           for r in reviews[:15])
-        g_rating = "정보 없음"
-        if google and google.get("rating") is not None:
-            g_rating = f"{google['rating']}점 (리뷰 {google.get('rating_count') or '?'}개)"
+        joined = "\n".join(f"- {r['title']} :: {r['snippet']}" for r in reviews[:10])
         analysis = _gemini_json(
             _CAFE_ANALYSIS_PROMPT.format(
                 name=name, category=category or "카페", address=address or "정보 없음",
-                distance_m=distance_m, google_rating=g_rating, count=len(reviews),
-                # 후기는 남이 쓴 글 — 지시문이 섞여 있어도 자료로만 읽히게 경계로 감싼다
-                reviews=quote_untrusted(joined, max_len=5000),
+                distance_m=distance_m, count=len(reviews), reviews=joined,
             ),
             _CAFE_ANALYSIS_SCHEMA,
         )
@@ -584,10 +389,7 @@ def analyze_cafe(name: str, address: str = "", category: str = "",
         "category": category,
         "distance_m": distance_m,
         "review_count": len(reviews),
-        "sources": sources,
-        "google_rating": (google or {}).get("rating"),
-        "google_rating_count": (google or {}).get("rating_count"),
-        "reviews": reviews[:6],   # 화면에는 상위 6건만 — 섞어 놓았으니 여러 사이트가 고루 보인다
+        "reviews": reviews[:5],   # 화면에는 상위 5건만 (근거 확인용 원문 링크)
         "analysis": analysis,
         "cached": False,
     }
@@ -623,7 +425,7 @@ _NEIGHBORHOOD_PROMPT = """너는 카페 사장님 전용 상권 분석가다.
 [주변 카페 {count}곳 (가까운 순)]
 {cafes}
 
-[동네 카페 관련 글 {buzz_count}건 — 줄 앞 [출처] 표기]
+[동네 카페 관련 블로그 글 {buzz_count}건]
 {buzz}
 
 [작성 규칙] 사장님은 바쁘다. 화면에 한눈에 들어와야 하므로 **짧게** 쓴다.
@@ -659,25 +461,13 @@ def analyze_neighborhood(lat: float, lon: float, store_name: str = "내 매장",
     if hit and time.time() - hit[0] < _ANALYSIS_TTL:
         return {**found, "insight": hit[1], "cached": True}
 
-    # 동네 분위기용 글 — 개별 카페가 아니라 상권 전체를 훑는다 (네이버 블로그 + 그 밖의 웹)
+    # 동네 분위기용 블로그 글 — 개별 카페가 아니라 상권 전체를 훑는다
     dong = region.split()[-1] if region else ""
-    buzz_lines: list[str] = []
-    if dong:
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            f_blog = pool.submit(_search_blog, f"{dong} 카페 추천", 10)
-            f_web = pool.submit(_tavily_search, f"{dong} 카페 추천 핫플", 5)
-            blog_items, web_items = f_blog.result(), f_web.result()
-        buzz_lines = [
-            f"- [네이버 블로그] {_strip_tags(it.get('title', ''))} :: {_strip_tags(it.get('description', ''))}"
-            for it in blog_items
-        ] + [
-            f"- [{_domain_label(it.get('url', ''))}] {_strip_tags(it.get('title', ''))}"
-            f" :: {(it.get('content') or '').strip()[:200]}"
-            for it in web_items
-            if "naver.com" not in (urlparse(it.get("url", "")).netloc or "").lower()
-        ]
-    buzz_count = len(buzz_lines)
-    buzz = quote_untrusted("\n".join(buzz_lines), max_len=4000) if buzz_lines else "(수집된 글 없음)"
+    buzz_items = _search_blog(f"{dong} 카페 추천", display=10) if dong else []
+    buzz = "\n".join(
+        f"- {_strip_tags(it.get('title', ''))} :: {_strip_tags(it.get('description', ''))}"
+        for it in buzz_items
+    ) or "(수집된 글 없음)"
 
     cafe_lines = "\n".join(
         f"- {c['name']} | {c['category']} | {c['distance_m']}m | {c['address']}"
@@ -687,7 +477,7 @@ def analyze_neighborhood(lat: float, lon: float, store_name: str = "내 매장",
         _NEIGHBORHOOD_PROMPT.format(
             radius_m=radius_m, store_name=store_name, region=region or "정보 없음",
             biz_type=biz_type or "미지정", count=len(cafes), cafes=cafe_lines,
-            buzz_count=buzz_count, buzz=buzz,
+            buzz_count=len(buzz_items), buzz=buzz,
         ),
         _NEIGHBORHOOD_SCHEMA,
     )
