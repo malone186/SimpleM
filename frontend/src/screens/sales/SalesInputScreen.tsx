@@ -319,10 +319,17 @@ export default function SalesInputScreen() {
       });
       const created = menus.filter((m) => m.created).length;
       const withRecipe = menus.filter((m) => m.has_recipe).length;
+      // 레시피가 아직 없는(= 재고 차감이 안 되는) 메뉴들 — 레시피 작성으로 유도
+      const needRecipe = menus.filter((m) => !m.has_recipe).map((m) => m.menu_id);
       toast(
         '메뉴를 등록했어요',
         `${created}개 등록${withRecipe ? ` · ${withRecipe}개는 재고 차감까지 연결됨` : ''} · 저장하면 매출에 반영됩니다.`,
       );
+      // 레시피 없는 메뉴가 있으면 '메뉴 관리'로 넘겨 그 자리에서 레시피를 쓰게 한다.
+      // (이 화면은 스택에 그대로 남아, 뒤로 오면 매칭된 상태로 이어서 저장할 수 있다)
+      if (needRecipe.length > 0) {
+        navigation.navigate('Menu', { focusMenuIds: needRecipe });
+      }
     } catch (e) {
       toast('메뉴 등록 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
     } finally {

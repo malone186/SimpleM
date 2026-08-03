@@ -4,6 +4,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRoute, type RouteProp } from '@react-navigation/native';
+
+import type { RootStackParamList } from '../../navigation/RootNavigator';
 
 import { useAuth } from '../../auth/AuthContext';
 import { useTranslation } from '../../i18n/translations';
@@ -160,6 +163,15 @@ export default function MenuScreen() {
   const [price, setPrice] = useState('');
   const [rows, setRows] = useState<NewRow[]>([{ ingredient_id: '', quantity: '' }]);
 
+  // 매출 입력에서 방금 등록한 메뉴들 — 강조 표시 + 레시피 작성 유도
+  const route = useRoute<RouteProp<RootStackParamList, 'Menu'>>();
+  const focusMenuIds = useMemo(() => route.params?.focusMenuIds ?? [], [route.params]);
+  const focusSet = useMemo(() => new Set(focusMenuIds), [focusMenuIds]);
+
+  // 기존 메뉴의 레시피 편집(설정)용 — 새 메뉴 추가 폼과 상태를 분리한다
+  const [editingMenu, setEditingMenu] = useState<Menu | null>(null);
+  const [editRows, setEditRows] = useState<NewRow[]>([]);
+
   // 디저트 추가 폼 (메뉴 추가와 같은 바텀시트, 입력칸만 디저트용)
   const [dName, setDName] = useState('');
   const [dSell, setDSell] = useState('');
@@ -255,6 +267,69 @@ export default function MenuScreen() {
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const addRow = () => setRows((prev) => [...prev, { ingredient_id: '', quantity: '' }]);
   const removeRow = (i: number) => setRows((prev) => prev.filter((_, idx) => idx !== i));
+
+  // ── 기존 메뉴 레시피 편집(설정) ──
+  const openRecipeEditor = (m: Menu) => {
+    setEditingMenu(m);
+    setEditRows(
+      (m.recipes ?? []).length
+        ? m.recipes.map((r) => ({ ingredient_id: String(r.ingredient_id), quantity: String(r.quantity) }))
+        : [{ ingredient_id: '', quantity: '' }],
+    );
+  };
+  const setEditRow = (i: number, patch: Partial<NewRow>) =>
+    setEditRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const addEditRow = () => setEditRows((prev) => [...prev, { ingredient_id: '', quantity: '' }]);
+  const removeEditRow = (i: number) => setEditRows((prev) => prev.filter((_, idx) => idx !== i));
+
+  // 기존 메뉴에 레시피 설정/교체 → 저장부터 재고 차감이 켜진다
+  const submitRecipe = async () => {
+    if (!editingMenu) return;
+    const recipeData = editRows
+      .filter((r) => r.ingredient_id !== '' && r.quantity.trim() !== '')
+      .map((r) => ({ ingredient_id: parseInt(r.ingredient_id, 10), quantity: parseFloat(r.quantity) }));
+
+    const headers = await getAuthHeaders();
+    if (!('Authorization' in headers)) {
+      toast('로그인이 필요해요', '로그아웃 후 다시 로그인해 주세요.');
+      return;
+    }
+    const label = editingMenu.name;
+    try {
+      await apiFetch(`/api/v1/inventory/menus/${editingMenu.id}/recipes`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ recipes: recipeData }),
+      });
+      setEditingMenu(null);
+      setEditRows([]);
+      await fetchData();
+      toast(
+        '레시피 저장 완료',
+        recipeData.length
+          ? `${label} 레시피를 저장했어요. 이제 판매하면 재고가 자동 차감돼요.`
+          : `${label} 레시피를 비웠어요. (재고 차감 안 함)`,
+      );
+    } catch (e) {
+      console.error('레시피 설정 실패:', e);
+      toast('레시피 저장 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+    }
+  };
+
+  // 매출 입력에서 넘어온 경우: 메뉴 탭으로 전환하고, 방금 등록한(레시피 없는) 첫 메뉴의
+  // 레시피 편집기를 자동으로 열어 '레시피 작성'으로 바로 유도한다.
+  const autoFocusedOnce = useRef(false);
+  useEffect(() => {
+    if (autoFocusedOnce.current || loading || focusMenuIds.length === 0 || menus.length === 0) return;
+    autoFocusedOnce.current = true;
+    setTab('menu');
+    const first = menus.find((m) => focusSet.has(m.id));
+    if (first) {
+      setOpen(first.id);
+      if ((first.recipes ?? []).length === 0) openRecipeEditor(first);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, menus, focusMenuIds]);
 
   const canSubmit = name.trim() !== '' && price.trim() !== '';
   const canSubmitDessert = dName.trim() !== '' && dSell.trim() !== '' && dBuy.trim() !== '';
@@ -409,8 +484,11 @@ export default function MenuScreen() {
   // 메뉴가 수십 개인 매장에서 스크롤로 찾는 건 고역이다 — 이름 검색으로 바로 좁힌다
   const plainMenus = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q ? allPlainMenus.filter((m) => m.name.toLowerCase().includes(q)) : allPlainMenus;
-  }, [allPlainMenus, query]);
+    const list = q ? allPlainMenus.filter((m) => m.name.toLowerCase().includes(q)) : allPlainMenus;
+    if (focusSet.size === 0) return list;
+    // 방금 등록한 메뉴를 맨 위로 — 스크롤 없이 바로 눈에 띄게 (원래 순서는 유지)
+    return [...list].sort((a, b) => Number(focusSet.has(b.id)) - Number(focusSet.has(a.id)));
+  }, [allPlainMenus, query, focusSet]);
   const dessertMenus = useMemo(() => menus.filter((m) => buyPriceOf(m.id) != null), [menus, buyPriceOf]);
 
   const ym = todayISO().slice(0, 7);
@@ -707,8 +785,10 @@ export default function MenuScreen() {
             const cost = m.cost_price != null ? m.cost_price : recipes.reduce((s, r) => s + getIngredientCost(r.ingredient_id, r.quantity), 0);
             const rate = m.cost_ratio != null ? m.cost_ratio : (sellingPrice ? Math.round((cost / sellingPrice) * 100) : 0);
             const expanded = open === m.id;
+            const isFocused = focusSet.has(m.id);   // 매출 입력에서 방금 등록한 메뉴
+            const noRecipe = recipes.length === 0;
             return (
-              <Card key={m.id}>
+              <Card key={m.id} style={isFocused ? styles.focusCard : undefined}>
                 <View style={styles.row}>
                   <TouchableOpacity
                     activeOpacity={0.8}
@@ -716,10 +796,18 @@ export default function MenuScreen() {
                     style={styles.headerHit}
                   >
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.name}>{m.name}</Text>
+                      <View style={styles.nameRow}>
+                        <Text style={styles.name} numberOfLines={1}>{m.name}</Text>
+                        {isFocused && <Badge label="방금 추가됨" tone="orange" />}
+                      </View>
                       <Text style={styles.sub}>
                         판매가 ₩{sellingPrice.toLocaleString()} · 원가 ₩{cost.toLocaleString()}
                       </Text>
+                      {noRecipe && (
+                        <Text style={styles.noRecipeHint}>
+                          레시피 없음 — 판매해도 재고가 안 빠져요. 아래 ‘레시피 추가’로 연결하세요.
+                        </Text>
+                      )}
                     </View>
                     {/* 원가율 색은 원가 분석 화면과 같은 기준(음료 22% / 디저트 35%)을 쓴다 */}
                     <Badge label={`원가율 ${rate}%`} tone={GRADE_TONE[gradeOf(rate, categoryOfMenu(m.name))]} />
@@ -738,21 +826,33 @@ export default function MenuScreen() {
                 {expanded && (
                   <View style={styles.recipe}>
                     <Text style={styles.recipeTitle}>레시피 구성 재료</Text>
-                    {recipes.map((r, i) => {
-                      const itemCost = getIngredientCost(r.ingredient_id, r.quantity);
-                      return (
-                        <View key={i} style={styles.recipeRow}>
-                          <Text style={styles.recipeName}>{r.ingredient_name}</Text>
-                          <Text style={styles.recipeAmount}>{r.quantity}{r.unit}</Text>
-                          <Text style={styles.recipeCost}>₩{itemCost.toLocaleString()}</Text>
+                    {noRecipe ? (
+                      <Text style={styles.empty}>아직 레시피가 없어요. 아래 ‘레시피 추가’로 재료를 연결하면 판매 시 재고가 자동 차감돼요.</Text>
+                    ) : (
+                      recipes.map((r, i) => {
+                        const itemCost = getIngredientCost(r.ingredient_id, r.quantity);
+                        return (
+                          <View key={i} style={styles.recipeRow}>
+                            <Text style={styles.recipeName}>{r.ingredient_name}</Text>
+                            <Text style={styles.recipeAmount}>{r.quantity}{r.unit}</Text>
+                            <Text style={styles.recipeCost}>₩{itemCost.toLocaleString()}</Text>
+                          </View>
+                        );
+                      })
+                    )}
+                    {!noRecipe && (
+                      <>
+                        <Divider />
+                        <View style={styles.recipeRow}>
+                          <Text style={[styles.recipeName, { fontWeight: '700' }]}>원가 합계</Text>
+                          <Text style={styles.recipeCost}>₩{cost.toLocaleString()}</Text>
                         </View>
-                      );
-                    })}
-                    <Divider />
-                    <View style={styles.recipeRow}>
-                      <Text style={[styles.recipeName, { fontWeight: '700' }]}>원가 합계</Text>
-                      <Text style={styles.recipeCost}>₩{cost.toLocaleString()}</Text>
-                    </View>
+                      </>
+                    )}
+                    <TouchableOpacity style={styles.addRow} onPress={() => openRecipeEditor(m)}>
+                      <Ionicons name="create-outline" size={16} color={colors.pointOrange} />
+                      <Text style={styles.addRowText}>{noRecipe ? '레시피 추가' : '레시피 편집'}</Text>
+                    </TouchableOpacity>
                   </View>
                 )}
               </Card>
@@ -804,6 +904,43 @@ export default function MenuScreen() {
           </View>
         ))}
         <TouchableOpacity style={styles.addRow} onPress={addRow}>
+          <Ionicons name="add" size={16} color={colors.pointOrange} />
+          <Text style={styles.addRowText}>재료 추가</Text>
+        </TouchableOpacity>
+      </FormSheet>
+
+      {/* 기존 메뉴 레시피 설정/편집 — 매출 파일에서 이름만 등록된 메뉴에 레시피를 붙여 재고 차감을 켠다 */}
+      <FormSheet
+        visible={editingMenu != null}
+        title={editingMenu ? `${editingMenu.name} 레시피` : '레시피'}
+        onClose={() => setEditingMenu(null)}
+        onSubmit={submitRecipe}
+        submitLabel="레시피 저장"
+      >
+        <Text style={styles.formLabel}>이 메뉴 1잔에 들어가는 재료와 소요량</Text>
+        {editRows.map((r, i) => (
+          <View key={i} style={styles.formRow}>
+            <IngredientSelect
+              items={allIngredients}
+              value={r.ingredient_id}
+              onChange={(id) => setEditRow(i, { ingredient_id: id })}
+            />
+            <TextInput
+              style={[styles.formInput, { flex: 1 }]}
+              value={r.quantity}
+              onChangeText={(t) => setEditRow(i, { quantity: t })}
+              placeholder="소요량"
+              placeholderTextColor={colors.mochaBrown}
+              keyboardType="numeric"
+            />
+            {editRows.length > 1 && (
+              <TouchableOpacity onPress={() => removeEditRow(i)} hitSlop={6}>
+                <Ionicons name="close-circle" size={20} color={colors.mochaBrown} />
+              </TouchableOpacity>
+            )}
+          </View>
+        ))}
+        <TouchableOpacity style={styles.addRow} onPress={addEditRow}>
           <Ionicons name="add" size={16} color={colors.pointOrange} />
           <Text style={styles.addRowText}>재료 추가</Text>
         </TouchableOpacity>
@@ -907,6 +1044,11 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerHit: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   delBtn: { padding: 8, borderRadius: 10, backgroundColor: 'rgba(178,59,46,0.08)' },
+
+  // 매출 입력에서 방금 등록한 메뉴 강조
+  focusCard: { borderWidth: 1.5, borderColor: colors.pointOrange, backgroundColor: '#FFF7EE' },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  noRecipeHint: { ...typography.L5, color: colors.pointOrange, fontWeight: '600', marginTop: 4 },
 
   name: { ...typography.L3, color: colors.espressoBrown },
   sub: { ...typography.L5, color: colors.mochaBrown, marginTop: 3 },

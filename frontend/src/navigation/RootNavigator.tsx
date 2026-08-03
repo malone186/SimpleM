@@ -53,7 +53,8 @@ export type RootStackParamList = {
   Tabs: undefined;
   Profile: undefined;
   Ingredient: undefined;
-  Menu: undefined;
+  // focusMenuIds: 매출 입력에서 방금 등록한 메뉴들 — 강조 표시하고 레시피 작성으로 유도
+  Menu: { focusMenuIds?: number[] } | undefined;
   SalesInput: undefined;
   ManualSales: undefined;
   Marketing: undefined;

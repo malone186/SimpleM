@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
 from app.models.inventory import Ingredient, IngredientPriceHistory, Menu, Recipe, Stock, StockTransaction, Order, OrderItem
-from app.schemas.inventory import IngredientCreate, StockAdjust, MenuCreate
+from app.schemas.inventory import IngredientCreate, StockAdjust, MenuCreate, RecipeCreate
 
 
 # --- [1. 재료 관리 서비스 로직] ---
@@ -224,6 +224,38 @@ def create_menu_with_recipes(db: Session, store_id: str, menu_in: MenuCreate) ->
     db.commit()
     db.refresh(db_menu)
     return db_menu
+
+
+def set_menu_recipes(db: Session, store_id: str, menu_id: int, recipes: list[RecipeCreate]) -> Menu:
+    """이미 등록된 메뉴의 레시피를 통째로 설정/교체한다.
+
+    매출 파일에서 이름·판매가만 등록된 메뉴는 레시피가 없어 재고 차감이 안 된다.
+    나중에 레시피를 붙여 차감을 켤 때 이 함수를 쓴다(기존 레시피는 교체).
+    """
+    menu = db.query(Menu).filter(Menu.id == menu_id, Menu.store_id == store_id).first()
+    if not menu:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="메뉴를 찾을 수 없습니다.")
+
+    # 넣으려는 재료가 모두 내 매장 재료인지 먼저 검증한다 (하나라도 아니면 아무것도 안 바꾼다)
+    for item in recipes:
+        ing = db.query(Ingredient).filter(
+            Ingredient.id == item.ingredient_id,
+            Ingredient.store_id == store_id,
+        ).first()
+        if not ing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"아이디 {item.ingredient_id}번 재료는 매장에 등록되지 않은 재료입니다.",
+            )
+
+    # 기존 레시피를 지우고 새로 구성 (부분 수정이 아니라 '이 메뉴의 레시피는 이거다'로 교체)
+    db.query(Recipe).filter(Recipe.menu_id == menu.id).delete(synchronize_session=False)
+    for item in recipes:
+        db.add(Recipe(menu_id=menu.id, ingredient_id=item.ingredient_id, quantity=item.quantity))
+
+    db.commit()
+    db.refresh(menu)
+    return menu
 
 
 def get_menus_with_recipes(db: Session, store_id: str) -> list[dict]:

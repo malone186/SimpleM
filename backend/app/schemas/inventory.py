@@ -85,6 +85,10 @@ class MenuCreate(BaseModel):
     selling_price: int = Field(..., ge=0, description="판매가 (KRW)")
     recipes: list[RecipeCreate] = Field(..., description="이 메뉴를 만들 때 들어가는 레시피 재료 목록")
 
+# 6-2. 기존 메뉴에 레시피만 설정/교체 (매출 파일에서 이름만 등록된 메뉴에 나중에 레시피를 붙일 때)
+class MenuRecipeUpdate(BaseModel):
+    recipes: list[RecipeCreate] = Field(..., description="이 메뉴에 설정할 레시피 재료 목록 (기존 레시피는 교체됨)")
+
 # 7. 메뉴 기본 응답 양식
 class MenuResponse(BaseModel):
     id: int

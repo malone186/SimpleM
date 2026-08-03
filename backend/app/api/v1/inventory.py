@@ -9,14 +9,14 @@ from app.models.user import User
 from app.schemas.inventory import (
     IngredientCreate, IngredientResponse, IngredientPriceUpdate, IngredientPriceHistoryResponse,
     StockAdjust, StockResponse, StockDetailResponse,
-    MenuCreate, MenuResponse, MenuDetailResponse,
+    MenuCreate, MenuRecipeUpdate, MenuResponse, MenuDetailResponse,
     OrderResponse, OrderStatusUpdate, RoasteryBeanResponse
 )
 from app.services.inventory_service import (
     create_ingredient, get_ingredients, delete_ingredient,
     update_ingredient_price, get_ingredient_price_history,
     add_or_adjust_stock, get_stocks,
-    create_menu_with_recipes, get_menus_with_recipes, delete_menu,
+    create_menu_with_recipes, set_menu_recipes, get_menus_with_recipes, delete_menu,
     get_roastery_beans
 )
 
@@ -137,6 +137,20 @@ def list_menus_with_recipes(
     [메뉴 및 레시피 조회] 내 매장의 메뉴판 목록과 각 메뉴별 세부 레시피 구성을 정돈하여 불러옵니다.
     """
     return get_menus_with_recipes(db=db, store_id=current_user.email)
+
+
+@router.put("/menus/{menu_id}/recipes", response_model=MenuResponse)
+def set_recipes_for_menu(
+    menu_id: int,
+    body: MenuRecipeUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    [레시피 설정] 이미 등록된 메뉴에 레시피(재료 구성)를 설정/교체합니다.
+    매출 파일에서 이름만 등록된 메뉴에 나중에 레시피를 붙여 재고 차감을 켤 때 씁니다.
+    """
+    return set_menu_recipes(db=db, store_id=current_user.email, menu_id=menu_id, recipes=body.recipes)
 
 
 # --- [4. 삭제 API 창구] ---
