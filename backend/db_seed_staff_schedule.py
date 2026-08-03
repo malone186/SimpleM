@@ -10,7 +10,9 @@
     python db_seed_staff_schedule.py s@gmail.com     # 특정 매장만
     python db_seed_staff_schedule.py --reset s@gmail.com   # 기존 근무를 지우고 다시
 
-주의: --reset은 그 매장의 이번 달·다음 달 근무를 지운다 (가능 시간과 직원은 그대로).
+주의: --reset은 그 매장의 이번 달·다음 달 근무를 지우고, 가능 시간도 캔 패턴으로 교체한다
+(직원은 그대로). --reset 없이는 가능 시간이 이미 입력된 직원을 건드리지 않는다 —
+공유 DB에는 팀원·데모 사용자가 실제로 입력한 가능 시간이 있을 수 있다.
 """
 
 import sys
@@ -63,9 +65,13 @@ def seed_store(store_id: str, reset: bool = False) -> None:
             pattern = PATTERNS[i % len(PATTERNS)]
             color = COLORS[i % len(COLORS)]
 
-            db.query(EmployeeAvailability).filter(
+            q = db.query(EmployeeAvailability).filter(
                 EmployeeAvailability.employee_id == emp.id
-            ).delete(synchronize_session=False)
+            )
+            if q.count() and not reset:
+                print(f"  · {emp.name}: 가능 시간이 이미 있어 그대로 둡니다 (교체하려면 --reset)")
+                continue
+            q.delete(synchronize_session=False)
             for dow in pattern["days"]:
                 db.add(EmployeeAvailability(
                     employee_id=emp.id, store_id=store_id, day_of_week=dow,

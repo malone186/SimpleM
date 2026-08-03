@@ -756,8 +756,9 @@ def apply_availability(store_id: str, month: Optional[str] = None,
     last = date(year, mon, _calendar.monthrange(year, mon)[1])
     today = date.today()
     # 기본은 오늘부터 — 지난 날짜에 근무를 새로 만들면 이미 지급한 급여가 바뀐다.
+    # 통째로 지난 달이면 start_day가 last를 넘어가 아무것도 만들지 않는다.
     # (데모 시드 스크립트만 from_today=False로 그 달 전체를 채운다)
-    start_day = max(first, today) if (from_today and first <= today <= last) else first
+    start_day = max(first, today) if from_today else first
 
     db = _session()
     try:

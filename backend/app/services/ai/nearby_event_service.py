@@ -38,6 +38,14 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", "", text or "")
 
 
+def _dist_for_sort(v: Optional[float]) -> float:
+    """비교·정렬용 거리 — 미상(None)만 맨 뒤로 보낸다.
+
+    0.0km(반올림 전 50m 이내)는 실제로 '가장 가까움'이므로 falsy 취급하면 안 된다.
+    """
+    return 99.0 if v is None else v
+
+
 # ---------------------------------------------------------------------------
 # 1) 수집 결과를 '행사 단위'로 묶기
 # ---------------------------------------------------------------------------
@@ -87,7 +95,7 @@ def find_nearby_events(lat: float, lon: float, days: int = DEFAULT_DAYS) -> dict
         if day_iso and day_iso not in ev["dates"]:
             ev["dates"].append(day_iso)
         # 같은 행사가 여러 소스로 들어오면 더 가까운 좌표·장소·더 큰 부스팅을 남긴다
-        if (row.get("distance_km") or 99) < (ev["distance_km"] or 99):
+        if _dist_for_sort(row.get("distance_km")) < _dist_for_sort(ev["distance_km"]):
             ev["distance_km"] = row.get("distance_km")
             ev["lat"], ev["lon"] = row.get("lat"), row.get("lon")
             if (row.get("place") or "").strip():
@@ -110,7 +118,7 @@ def find_nearby_events(lat: float, lon: float, days: int = DEFAULT_DAYS) -> dict
         events.append(ev)
 
     # 가까운 날짜부터, 같은 날이면 가까운 행사부터 (사장님이 대비할 순서 그대로)
-    events.sort(key=lambda e: (e["start_date"], e["distance_km"] or 99))
+    events.sort(key=lambda e: (e["start_date"], _dist_for_sort(e["distance_km"])))
 
     return {
         "today": today.isoformat(),
