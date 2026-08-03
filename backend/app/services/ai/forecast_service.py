@@ -292,8 +292,12 @@ def _mask_abnormal_days(daily) -> tuple[Any, list[str]]:
 # 2) 시계열 예측 — SARIMAX 우선, 요일 계절성 폴백
 # ---------------------------------------------------------------------------
 
-def _forecast_sarimax(series, horizon: int):
-    """SARIMAX(1,0,1)×(1,0,1,7) — 주간 계절성 시계열 예측. 실패하면 None."""
+def _forecast_sarimax(series, horizon: int, ctx=None):
+    """SARIMAX(1,0,1)×(1,0,1,7) — 주간 계절성 시계열 예측. 실패하면 None.
+
+    ctx는 외생변수(날씨·공휴일) 방식만 쓴다 — 모든 방식이 같은 시그니처를 갖도록
+    받기만 하고 무시한다 (백테스트·forecast가 방식을 표에서 골라 동일하게 호출한다).
+    """
     try:
         from statsmodels.tsa.statespace.sarimax import SARIMAX
 
@@ -307,7 +311,7 @@ def _forecast_sarimax(series, horizon: int):
         return None
 
 
-def _forecast_seasonal(series, horizon: int):
+def _forecast_seasonal(series, horizon: int, ctx=None):
     """폴백: 요일별 평균(최근 2주는 2배 가중) × 최근 추세(직전 2주 / 그 전 2주, 0.7~1.3 클립).
 
     휴무·품절로 결측(NaN) 처리된 날은 평균·추세 계산에서 통째로 빼야 한다 — 0으로 세면
@@ -371,7 +375,7 @@ def _weekday_factors(series) -> dict[int, float]:
     return {wd: (f if f > 0 else 1.0) for wd, f in factors.items()}
 
 
-def _forecast_local_level(series, horizon: int):
+def _forecast_local_level(series, horizon: int, ctx=None):
     """최근 수준(로버스트) × 요일 계수 — 매출 수준이 한 번 바뀐 매장에 강한 방식.
 
     SARIMAX는 학습 구간 전체의 평균으로 끌려가서, 리모델링·상권 변화·시드 교체처럼
@@ -450,12 +454,12 @@ def _truncate_at_level_shift(series):
     return series.iloc[cut:]
 
 
-def _forecast_blend_shift(series, horizon: int):
+def _forecast_blend_shift(series, horizon: int, ctx=None):
     """레벨 단절을 감지해 그 이후 구간만으로 앙상블 예측한다 (기본 경로)."""
     return _forecast_blend(_truncate_at_level_shift(series), horizon)
 
 
-def _forecast_blend(series, horizon: int):
+def _forecast_blend(series, horizon: int, ctx=None):
     """SARIMAX와 '최근 수준×요일 계수'의 평균.
 
     둘은 틀리는 방향이 다르다 — SARIMAX는 옛 수준을 끌고 와 과대예측하고, 지역 수준
@@ -471,7 +475,7 @@ def _forecast_blend(series, horizon: int):
     return [(x + y) / 2 for x, y in zip(a, b)]
 
 
-def _forecast_weekday_naive(series, horizon: int):
+def _forecast_weekday_naive(series, horizon: int, ctx=None):
     """베이스라인: 최근 4주 같은 요일의 평균 (결측 제외).
 
     모델 평가의 기준선이다. SARIMAX가 이것보다 못하면 시계열 모델을 쓸 이유가 없다 —
@@ -492,6 +496,160 @@ def _forecast_weekday_naive(series, horizon: int):
         recent = values[mask][-4:]  # 최근 4주치 같은 요일
         out.append(float(recent.mean()) if len(recent) else overall)
     return out
+
+
+# ---------------------------------------------------------------------------
+# 2.5) 외생변수 예측 — 과거 실측 날씨·공휴일을 모델 '입력'으로 학습한다
+# ---------------------------------------------------------------------------
+# 기존 날씨 반영은 예측이 끝난 뒤 고정 배율(비 -10%, 폭염 +5%)을 곱하는 사후 보정이라
+# '이 매장이 비에 얼마나 민감한지'를 데이터에서 배우지 못한다. 여기서는 과거 실측
+# 날씨(Open-Meteo 아카이브·최근 92일, 키 불필요)와 공휴일을 SARIMAX 외생변수로 넣어
+# 매장별 민감도를 회귀로 학습한다. 이 방식(blend_exog)도 _METHODS에 등록만 하고,
+# 채택 여부는 매장별 백테스트(select_forecast_method)가 결정한다 — 피처는 측정으로만
+# 살아남는다 (실측: 날씨 반응이 없는 시드 매장에서는 기본 앙상블을 이기지 못한다).
+
+RAIN_MM = 1.0        # 일 강수량이 이 이상이면 '비 온 날'
+HOT_TEMP_C = 30.0    # 최고기온이 이 이상이면 '폭염일' (사후 보정과 같은 기준)
+_weather_flags_cache: dict[tuple, tuple[float, dict]] = {}
+_WEATHER_FLAGS_TTL = 6 * 3600
+
+
+def _fetch_weather_flags(lat: float, lon: float, start: date, end: date) -> dict[str, tuple[bool, bool]]:
+    """[start, end] 구간의 일별 (비 왔나, 폭염이었나) 플래그. 실패하면 빈 dict.
+
+    과거는 실측을 쓴다 — 예보 API가 past_days=92까지 실측 병합값을 주므로 한 번에
+    미래(예보)까지 같은 단위(precipitation_sum)로 받고, 그보다 오래된 구간만
+    아카이브 API(ERA5, ~5일 지연)로 보충한다. 아카이브 값이 있으면 그쪽을 우선한다.
+    """
+    import requests
+
+    key = (round(lat, 3), round(lon, 3), start.isoformat(), end.isoformat())
+    hit = _weather_flags_cache.get(key)
+    if hit and time.time() - hit[0] < _WEATHER_FLAGS_TTL:
+        return hit[1]
+
+    out: dict[str, tuple[bool, bool]] = {}
+
+    def ingest(js: dict) -> None:
+        d = js.get("daily") or {}
+        times = d.get("time") or []
+        precips = d.get("precipitation_sum") or []
+        temps = d.get("temperature_2m_max") or []
+        for i, iso in enumerate(times):
+            if iso in out:
+                continue  # 먼저 넣은(더 정확한) 소스를 우선한다
+            precip = precips[i] if i < len(precips) else None
+            tmax = temps[i] if i < len(temps) else None
+            out[iso] = ((precip or 0) >= RAIN_MM,
+                        tmax is not None and tmax >= HOT_TEMP_C)
+
+    today = date.today()
+    daily_vars = "temperature_2m_max,precipitation_sum"
+    # 1) 예보 API의 과거 병합 한계(92일)보다 오래된 구간 — 아카이브에서
+    if start < today - timedelta(days=92):
+        try:
+            r = requests.get(
+                "https://archive-api.open-meteo.com/v1/archive",
+                params={"latitude": lat, "longitude": lon, "timezone": "Asia/Seoul",
+                        "start_date": start.isoformat(),
+                        "end_date": min(end, today - timedelta(days=6)).isoformat(),
+                        "daily": daily_vars},
+                timeout=8,
+            )
+            r.raise_for_status()
+            ingest(r.json())
+        except Exception:
+            logger.warning("날씨 아카이브 조회 실패 — 최근 92일 실측만으로 계속", exc_info=True)
+    # 2) 최근 과거(실측 병합) + 미래(예보) — 예보 API 한 번
+    try:
+        r = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={"latitude": lat, "longitude": lon, "timezone": "Asia/Seoul",
+                    "past_days": min(92, max(0, (today - start).days)),
+                    "forecast_days": min(16, max(1, (end - today).days + 1)),
+                    "daily": daily_vars},
+            timeout=8,
+        )
+        r.raise_for_status()
+        ingest(r.json())
+    except Exception:
+        logger.warning("날씨 이력 조회 실패 — 외생변수 없이 계속", exc_info=True)
+
+    if out:
+        _weather_flags_cache[key] = (time.time(), out)
+    return out
+
+
+def _store_coords(db, store_id: str) -> Optional[tuple[float, float]]:
+    """매장 고정 좌표(users.store_lat/lon). 없으면 None — 날씨 외생변수를 포기한다."""
+    try:
+        from app.models.user import User
+
+        row = (db.query(User.store_lat, User.store_lon)
+               .filter(User.email == store_id).first())
+        if row and row[0] is not None and row[1] is not None:
+            return float(row[0]), float(row[1])
+    except Exception:
+        logger.warning("매장 좌표 조회 실패 (%s)", store_id, exc_info=True)
+    return None
+
+
+def _forecast_sarimax_exog(series, horizon: int, ctx=None):
+    """SARIMAX + 외생변수(비·폭염·공휴일 더미). ctx에 날씨가 없거나 실패하면 None.
+
+    백테스트에서는 검증 구간의 '미래' 날씨도 실측이 들어간다 — 완벽한 예보를 가정하는
+    셈이라 약간 낙관적인 채점이지만, 1~7일 강수 예보 적중률이 높아 순위를 뒤집을
+    수준은 아니다. 전 구간이 상수인 더미(예: 여름이라 폭염일이 없음)는 회귀가
+    식별되지 않으므로 빼고 적합한다.
+    """
+    if not ctx or not ctx.get("flags"):
+        return None
+    import numpy as np
+
+    flags = ctx["flags"]
+
+    def row(d: date) -> list[float]:
+        iso = d.isoformat()
+        rain, hot = flags.get(iso, (False, False))
+        return [1.0 if rain else 0.0, 1.0 if hot else 0.0,
+                1.0 if holiday_name(iso) else 0.0]
+
+    train_days = [d.date() for d in series.index]
+    last = series.index[-1]
+    future_days = [(last + timedelta(days=i + 1)).date() for i in range(horizon)]
+    X = np.asarray([row(d) for d in train_days], dtype=float)
+    Xf = np.asarray([row(d) for d in future_days], dtype=float)
+    keep = [j for j in range(X.shape[1]) if float(X[:, j].std()) > 0]
+    if not keep:
+        return None  # 학습 구간에 비도 폭염도 공휴일도 없었다 — 배울 게 없다
+    X, Xf = X[:, keep], Xf[:, keep]
+
+    try:
+        from statsmodels.tsa.statespace.sarimax import SARIMAX
+
+        model = SARIMAX(series.astype(float), exog=X, order=(1, 0, 1),
+                        seasonal_order=(1, 0, 1, 7),
+                        enforce_stationarity=False, enforce_invertibility=False)
+        fitted = model.fit(disp=False, maxiter=200)
+        pred = fitted.forecast(steps=horizon, exog=Xf)
+        return [max(0.0, float(v)) for v in pred]
+    except Exception:
+        logger.warning("SARIMAX(외생변수) 적합 실패", exc_info=True)
+        return None
+
+
+def _forecast_blend_exog(series, horizon: int, ctx=None):
+    """레벨단절 절단 + (외생변수 SARIMAX와 최근수준의 앙상블).
+
+    날씨를 못 구하면 None을 돌려준다 — 조용히 blend_shift와 같은 값을 내면 방식 선정
+    표에 같은 성적의 쌍둥이가 생겨 비교가 흐려진다. 폴백은 호출자가 명시적으로 한다.
+    """
+    s = _truncate_at_level_shift(series)
+    a = _forecast_sarimax_exog(s, horizon, ctx)
+    if a is None:
+        return None
+    b = _forecast_local_level(s, horizon)
+    return a if b is None else [(x + y) / 2 for x, y in zip(a, b)]
 
 
 # ---------------------------------------------------------------------------
@@ -977,12 +1135,20 @@ def _fetch_nearby_events(lat: float, lon: float, start: date, days: int) -> list
 # 4) 일자별 보정 — 날씨·공휴일·행사
 # ---------------------------------------------------------------------------
 
-def _day_adjustment(day_iso: str, weather: dict, events: list[dict]) -> tuple[float, list[str]]:
-    """해당 일자의 보정 배율과 근거 목록을 돌려준다."""
+def _day_adjustment(day_iso: str, weather: dict, events: list[dict],
+                    skip_weather: bool = False) -> tuple[float, list[str]]:
+    """해당 일자의 보정 배율과 근거 목록을 돌려준다.
+
+    skip_weather: 날씨를 이미 모델 외생변수로 학습한 방식(blend_exog)이 쓴다 —
+    같은 비를 회귀로 한 번, 고정 배율로 또 한 번 반영하지 않기 위해서다.
+    """
     factor, reasons = 1.0, []
 
     w = weather.get(day_iso)
-    if w:
+    if w and skip_weather:
+        if (w["precip_prob"] or 0) >= 60 or (w["temp_max"] or 0) >= 30:
+            reasons.append("날씨 영향은 예측 모델이 과거 실측으로 학습해 반영")
+    elif w:
         if (w["precip_prob"] or 0) >= 60:
             factor *= 0.90
             reasons.append(f"{w['condition']} 예보(강수확률 {w['precip_prob']}%) → -10%")
@@ -1215,6 +1381,7 @@ _METHODS = {
     "local_level": ("최근 수준×요일 계수", _forecast_local_level),
     "blend": ("SARIMAX+최근수준 앙상블", _forecast_blend),
     "blend_shift": ("앙상블 + 레벨단절 절단 (현재 기본)", _forecast_blend_shift),
+    "blend_exog": ("앙상블 + 날씨·공휴일 회귀 (레벨단절 절단)", _forecast_blend_exog),
 }
 
 
@@ -1274,8 +1441,18 @@ def backtest(store_id: str, horizon: int = 7, folds: int = 4,
 
     with _session() as db:
         raw = _load_daily_series(db, store_id, mask_abnormal=False)
+        coords = _store_coords(db, store_id) if raw is not None else None
     if raw is None:
         raise ForecastError("판매 기록이 없어 백테스트할 수 없습니다.")
+
+    # 외생변수(날씨·공휴일) 컨텍스트 — 좌표가 없거나 조회에 실패하면 None.
+    # 그러면 blend_exog는 채점에서 빠지고(None 반환), 나머지 방식은 영향받지 않는다.
+    ctx = None
+    if coords:
+        flags = _fetch_weather_flags(coords[0], coords[1],
+                                     raw.index.min().date(), raw.index.max().date())
+        if flags:
+            ctx = {"flags": flags}
 
     if since:
         raw = raw[raw.index >= since]
@@ -1317,12 +1494,12 @@ def backtest(store_id: str, horizon: int = 7, folds: int = 4,
             train_df = source.iloc[:cut]
             truth = masked[target].iloc[cut:cut + horizon].to_numpy(dtype=float)
             if derived:
-                cups_pred = fn(train_df["cups"], horizon)
+                cups_pred = fn(train_df["cups"], horizon, ctx)
                 price = _recent_avg_price(train_df)
                 pred = ([c * price for c in cups_pred]
                         if cups_pred is not None and price else None)
             else:
-                pred = fn(train_df[target], horizon)
+                pred = fn(train_df[target], horizon, ctx)
             if pred is None:  # SARIMAX 수렴 실패 — 이 조합은 평가에서 제외한다
                 failed = True
                 break
@@ -1637,16 +1814,31 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
         method_key = peek_forecast_method(store_id)
         method_label, method_fn = _METHODS.get(method_key, _METHODS[DEFAULT_METHOD])
 
+        # 외생변수 방식이 선택된 매장만 과거 실측 날씨를 가져온다 (캐시 6시간).
+        # 이 방식은 비·폭염·공휴일을 모델 안에서 배우므로, 아래 사후 날씨 보정은 건너뛴다
+        # — 같은 비를 회귀로 한 번, 배율로 또 한 번 깎는 이중 반영을 막는다.
+        ctx = None
+        if method_key == "blend_exog":
+            flags = _fetch_weather_flags(lat, lon, series.index.min().date(),
+                                         start + timedelta(days=days))
+            if flags:
+                ctx = {"flags": flags}
+
         # 절단은 방식 안에서도 하지만(blend_shift), 학습 일수를 표시하려면 여기서도 알아야 한다
         shift_at = _detect_level_shift(series["cups"])
         train = series.iloc[shift_at:] if shift_at is not None else series
 
-        cups_pred = method_fn(train["cups"], horizon)
+        cups_pred = method_fn(train["cups"], horizon, ctx)
+        weather_in_model = method_key == "blend_exog" and cups_pred is not None
         model_name = f"{method_label} (학습 {valid_days}일)"
         if shift_at is not None:
             shift_day = series.index[shift_at].date().isoformat()
             model_name = (f"{method_label} (매출 수준 변화 감지 — {shift_day} 이후 "
                           f"{int(train['cups'].notna().sum())}일만 학습)")
+        if cups_pred is None and method_key == "blend_exog":
+            # 날씨를 못 구했거나 적합 실패 — 외생변수만 뺀 기본 앙상블로 물러선다
+            cups_pred = _forecast_blend(train["cups"], horizon)
+            model_name = f"{_METHODS[DEFAULT_METHOD][0]} (학습 {valid_days}일, 날씨 조회 실패 폴백)"
         if cups_pred is None:
             cups_pred = _forecast_seasonal(train["cups"], horizon)
             model_name = f"요일별 평균×추세 (학습 {valid_days}일, 폴백)"
@@ -1657,7 +1849,7 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
             rev_pred = [c * avg_price for c in cups_pred]
         else:
             # 객단가를 못 구할 만큼 자료가 없으면(잔 수가 전부 0) 매출도 따로 예측한다
-            rev_pred = (method_fn(train["revenue"], horizon)
+            rev_pred = (method_fn(train["revenue"], horizon, ctx)
                         or _forecast_seasonal(train["revenue"], horizon))
         # 마지막 판매일~내일 사이 공백 구간은 버리고 실제 내일부터 days개만 사용
         cups_pred = cups_pred[gap:]
@@ -1676,7 +1868,8 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
         for i in range(days):
             d = start + timedelta(days=i)
             iso = d.isoformat()
-            factor, reasons = _day_adjustment(iso, weather, all_events)
+            factor, reasons = _day_adjustment(iso, weather, all_events,
+                                              skip_weather=weather_in_model)
             w = weather.get(iso, {})
             week.append({
                 "date": iso,
