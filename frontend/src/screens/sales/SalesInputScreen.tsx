@@ -453,16 +453,6 @@ export default function SalesInputScreen() {
                   const open = recipeOpen.has(m.name);
                   return (
                     <View key={m.name} style={styles.regItem}>
-<<<<<<< HEAD
-                      <View style={styles.regRow}>
-                        <Text
-                          style={[styles.regName, isDiscarded && styles.regNameDiscarded]}
-                          numberOfLines={1}
-                        >
-                          {m.name}
-                        </Text>
-                        {!isDiscarded && (
-=======
                       {/* 메뉴 이름은 독립된 윗줄 — 길어도 잘려서 항상 보이고, 아래 컨트롤과 겹치지 않는다 */}
                       <Text
                         style={[styles.regName, isDiscarded && styles.regNameDiscarded]}
@@ -473,7 +463,6 @@ export default function SalesInputScreen() {
                       {/* 아랫줄: [가격 입력(넓게)] [버리기/되돌리기] — 폭을 나눠 가져 섹션 밖으로 안 넘친다 */}
                       <View style={styles.regControls}>
                         {!isDiscarded ? (
->>>>>>> 78dc9984aedec5102fdd8de1ca7dd59096bc7c3e
                           <View style={styles.regPriceBox}>
                             <TextInput
                               style={styles.regPriceInput}
@@ -486,11 +475,8 @@ export default function SalesInputScreen() {
                             />
                             <Text style={styles.regWon}>원</Text>
                           </View>
-<<<<<<< HEAD
-=======
                         ) : (
                           <Text style={styles.discardedLabel}>버림 · 저장에서 제외돼요</Text>
->>>>>>> 78dc9984aedec5102fdd8de1ca7dd59096bc7c3e
                         )}
                         <PressableScale
                           style={[styles.discardBtn, isDiscarded && styles.discardBtnActive]}
@@ -819,14 +805,6 @@ const styles = StyleSheet.create({
   regHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   regTitle: { fontSize: 13.5, fontWeight: '800', color: colors.espressoBrown },
   regSub: { ...typography.L5, color: colors.mochaBrown, lineHeight: 16 },
-<<<<<<< HEAD
-  regRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  regName: { flex: 1, ...typography.L5, color: colors.espressoBrown, fontWeight: '700' },
-  regPriceBox: {
-    flexDirection: 'row', alignItems: 'center', gap: 3,
-    backgroundColor: colors.white, borderWidth: 1, borderColor: colors.mutedSand,
-    borderRadius: 9, paddingHorizontal: 10, height: 38, minWidth: 96,
-=======
   regName: { ...typography.L5, color: colors.espressoBrown, fontWeight: '800' },
   // 이름 아래 컨트롤 줄 — 가격 입력이 남는 폭을 채우고, 버리기 버튼은 고정폭
   regControls: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -836,7 +814,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 3,
     backgroundColor: colors.white, borderWidth: 1, borderColor: colors.mutedSand,
     borderRadius: 9, paddingHorizontal: 10, height: 38,
->>>>>>> 78dc9984aedec5102fdd8de1ca7dd59096bc7c3e
   },
   regPriceInput: {
     flex: 1, fontSize: 15, fontWeight: '800', color: colors.espressoBrown, textAlign: 'right', padding: 0,

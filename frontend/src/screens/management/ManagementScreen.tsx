@@ -201,7 +201,15 @@ export default function ManagementScreen() {
 
             return (
               // 아래에서 순차로 떠오르는 진입 모션 — 카드마다 60ms씩 늦춰 물결처럼 들어온다
-              <FadeInUp key={`${it.route}-${runId}`} delay={i * 60} distance={20}>
+              <FadeInUp
+                key={`${it.route}-${runId}`}
+                delay={i * 60}
+                distance={20}
+                style={{
+                  marginTop: i === 0 ? 0 : GAP,
+                  zIndex: i + 1,
+                }}
+              >
                 {/* 스크롤 연동 변형은 별도 래퍼에 — FadeInUp/PressableScale의 자체 애니메이션과 분리 */}
                 <Animated.View
                   style={{
@@ -214,11 +222,9 @@ export default function ManagementScreen() {
                       styles.card,
                       {
                         height: CARD_H,
-                        marginTop: i === 0 ? 0 : GAP,
                         backgroundColor: it.color,
                         borderColor: s.border,
                         borderWidth: s.border === 'transparent' ? 0 : 1.5,
-                        zIndex: i + 1,
                       },
                     ]}
                     onPress={() => navigation.navigate(it.route, it.params)}
