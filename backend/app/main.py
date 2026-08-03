@@ -187,6 +187,11 @@ async def track_activity(request, call_next):
 
 app.include_router(api_router, prefix="/api/v1")
 
+# [손님용 잔액 조회] 문자로 받은 링크(/b/{token})를 인증 없이 연다.
+# 주소가 짧아야 하는 이유 — 단문(SMS) 한도가 90바이트라 링크가 길면 본문을 못 쓴다.
+from app.api.public_balance import router as public_balance_router
+app.include_router(public_balance_router)
+
 
 # [공개 정책 페이지] 개인정보처리방침·이용약관을 인증 없이 접근 가능한 공개 URL로 게시합니다.
 # Play Console 등록 및 앱 내 링크에 사용합니다. (예: https://<도메인>/legal/privacy.html)

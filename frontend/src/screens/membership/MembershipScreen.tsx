@@ -27,27 +27,34 @@ import { Ionicons } from '@expo/vector-icons';
 
 import {
   chargeBalance,
+  createChargePlan,
   createCustomer,
+  deleteChargePlan,
   fetchChargePlans,
   fetchChurnRisk,
   fetchPrepaidSummary,
+  fetchQuickMenus,
   searchCustomers,
   useBalance,
   type ChargePlan,
   type ChurnRiskCustomer,
   type Customer,
   type PrepaidSummary,
+  type QuickMenu,
 } from '../../lib/api/membership';
 import { sendNotification } from '../../lib/membership/notify';
+import { useAuth } from '../../auth/AuthContext';
 import { colors } from '../../theme';
 
 const won = (n: number) => `${n.toLocaleString()}원`;
 
 export default function MembershipScreen() {
+  const { token } = useAuth();
   const [summary, setSummary] = useState<PrepaidSummary | null>(null);
   const [churn, setChurn] = useState<ChurnRiskCustomer[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [plans, setPlans] = useState<ChargePlan[]>([]);
+  const [menus, setMenus] = useState<QuickMenu[]>([]);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -61,26 +68,44 @@ export default function MembershipScreen() {
   const [useAmount, setUseAmount] = useState('');
   const [busy, setBusy] = useState(false);
 
+  // 충전 상품 만들기
+  const [planOpen, setPlanOpen] = useState(false);
+  const [payInput, setPayInput] = useState('');
+  const [creditInput, setCreditInput] = useState('');
+
+  const payNum = parseInt(payInput.replace(/\D/g, ''), 10) || 0;
+  const creditNum = parseInt(creditInput.replace(/\D/g, ''), 10) || 0;
+  // [한글 주석] 할인율은 적립액 기준이다.
+  // 5만원 내고 6만원어치를 받으면 손님이 체감하는 할인은 20%가 아니라 16.7%다.
+  // 결제액 기준으로 표시하면 실제보다 크게 보여 마진 판단을 그르친다.
+  const planDiscount = creditNum > 0 ? ((creditNum - payNum) / creditNum) * 100 : 0;
+  const planValid = payNum > 0 && creditNum >= payNum;
+
   const load = useCallback(async () => {
+    // [한글 주석] 토큰이 아직 복원되지 않은 첫 렌더에서 호출하면 401이 뜬다.
+    // 로딩 상태를 유지하고 토큰이 들어온 뒤 다시 시도한다.
+    if (!token) return;
     setError(null);
     try {
-      const [s, c, p, list] = await Promise.all([
-        fetchPrepaidSummary(30),
-        fetchChurnRisk(20),
-        fetchChargePlans(),
-        searchCustomers(query),
+      const [s, c, p, list, m] = await Promise.all([
+        fetchPrepaidSummary(token, 30),
+        fetchChurnRisk(token, 20),
+        fetchChargePlans(token),
+        searchCustomers(token, query),
+        fetchQuickMenus(token).catch(() => [] as QuickMenu[]),
       ]);
       setSummary(s);
       setChurn(c);
       setPlans(p.filter((x) => x.is_active));
       setCustomers(list);
+      setMenus(m);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [query]);
+  }, [token, query]);
 
   useEffect(() => {
     load();
@@ -96,7 +121,7 @@ export default function MembershipScreen() {
     if (!newPhone.trim()) return;
     setBusy(true);
     try {
-      await createCustomer({ phone: newPhone, name: newName.trim() || undefined });
+      await createCustomer(token!, { phone: newPhone, name: newName.trim() || undefined });
       setRegisterOpen(false);
       setNewPhone('');
       setNewName('');
@@ -108,10 +133,50 @@ export default function MembershipScreen() {
     }
   };
 
+  const onCreatePlan = async () => {
+    if (!planValid) return;
+    setBusy(true);
+    try {
+      await createChargePlan(token!, { pay_amount: payNum, credit_amount: creditNum });
+      setPlanOpen(false);
+      setPayInput('');
+      setCreditInput('');
+      await load();
+    } catch (e) {
+      Alert.alert('상품 추가 실패', e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onDeletePlan = (plan: ChargePlan) => {
+    // [한글 주석] 실제로 지우지 않고 비활성화한다.
+    // 이 상품으로 이미 충전한 거래가 남아 있어, 지우면 이력에서 근거가 사라진다.
+    Alert.alert(
+      '충전 상품 삭제',
+      `${won(plan.pay_amount)} → ${won(plan.credit_amount)} 상품을 더 이상 쓰지 않으시겠어요?\n지난 충전 기록은 그대로 남습니다.`,
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '삭제',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteChargePlan(token!, plan.id);
+              await load();
+            } catch (e) {
+              Alert.alert('삭제 실패', e instanceof Error ? e.message : String(e));
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const onCharge = async (customer: Customer, plan: ChargePlan) => {
     setBusy(true);
     try {
-      const res = await chargeBalance(customer.id, { charge_plan_id: plan.id });
+      const res = await chargeBalance(token!, customer.id, { charge_plan_id: plan.id });
       setTarget(null);
       await load();
       // [한글 주석] 충전 직후 바로 알림을 보낼 수 있게 묻는다.
@@ -131,12 +196,12 @@ export default function MembershipScreen() {
     }
   };
 
-  const onUse = async (customer: Customer) => {
-    const amount = parseInt(useAmount.replace(/\D/g, ''), 10);
+  const onUse = async (customer: Customer, presetAmount?: number, memo?: string) => {
+    const amount = presetAmount ?? parseInt(useAmount.replace(/\D/g, ''), 10);
     if (!amount) return;
     setBusy(true);
     try {
-      const res = await useBalance(customer.id, { amount });
+      const res = await useBalance(token!, customer.id, { amount, memo });
       setUseAmount('');
       setTarget(null);
       await load();
@@ -245,7 +310,41 @@ export default function MembershipScreen() {
         </View>
       )}
 
-      {/* ③ 회원 */}
+      {/* ③ 충전 상품 — 사장님이 직접 설계한다 */}
+      <View style={styles.card}>
+        <View style={styles.cardHead}>
+          <Ionicons name="pricetags-outline" size={16} color={colors.mochaBrown} />
+          <Text style={styles.cardTitle}>충전 상품</Text>
+          <Pressable style={styles.addBtn} onPress={() => setPlanOpen(true)}>
+            <Ionicons name="add" size={13} color="#FFF" />
+            <Text style={styles.addBtnText}>상품 추가</Text>
+          </Pressable>
+        </View>
+
+        {plans.length === 0 ? (
+          <Text style={styles.dim}>
+            아직 없습니다. 예를 들어 "5만원 결제 → 6만원 적립"처럼 만들어 두면
+            충전할 때 눌러서 쓰실 수 있습니다.
+          </Text>
+        ) : (
+          <View style={{ gap: 6 }}>
+            {plans.map((p) => (
+              <View key={p.id} style={styles.planManageRow}>
+                <Text style={styles.planPay}>{won(p.pay_amount)}</Text>
+                <Ionicons name="arrow-forward" size={12} color="#9A8F86" />
+                <Text style={styles.planCredit}>{won(p.credit_amount)}</Text>
+                <Text style={styles.planBonus}>+{won(p.bonus_amount)}</Text>
+                <Text style={styles.planRate}>-{p.discount_rate}%</Text>
+                <Pressable onPress={() => onDeletePlan(p)} hitSlop={8}>
+                  <Ionicons name="trash-outline" size={14} color="#B0A79E" />
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+
+      {/* ④ 회원 */}
       <View style={styles.card}>
         <View style={styles.cardHead}>
           <Ionicons name="people-outline" size={16} color={colors.mochaBrown} />
@@ -288,6 +387,74 @@ export default function MembershipScreen() {
           </View>
         )}
       </View>
+
+      {/* 충전 상품 만들기 모달 */}
+      <Modal visible={planOpen} transparent animationType="fade"
+             onRequestClose={() => setPlanOpen(false)}>
+        <View style={styles.backdrop}>
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>충전 상품 만들기</Text>
+
+            <Text style={styles.fieldLabel}>손님이 내는 금액</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="50000"
+              placeholderTextColor="#B0A79E"
+              value={payInput}
+              onChangeText={setPayInput}
+              keyboardType="number-pad"
+            />
+
+            <Text style={styles.fieldLabel}>잔액으로 적립될 금액</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="60000"
+              placeholderTextColor="#B0A79E"
+              value={creditInput}
+              onChangeText={setCreditInput}
+              keyboardType="number-pad"
+            />
+
+            {/* [한글 주석] 입력하는 동안 할인율을 바로 보여준다.
+                이 숫자가 곧 마진에서 깎이는 몫이라, 저장 전에 판단할 수 있어야 한다. */}
+            {payNum > 0 && creditNum > 0 && (
+              <View style={[styles.previewBox, !planValid && styles.previewBad]}>
+                {planValid ? (
+                  <>
+                    <Text style={styles.previewMain}>
+                      {won(payNum)} → {won(creditNum)}
+                    </Text>
+                    <Text style={styles.previewSub}>
+                      보너스 {won(creditNum - payNum)} · 실질 할인 {planDiscount.toFixed(1)}%
+                    </Text>
+                    <Text style={styles.previewNote}>
+                      적립액 기준입니다. 4,500원 커피가 손님에겐{' '}
+                      {Math.round(4500 * (1 - planDiscount / 100)).toLocaleString()}원꼴이 됩니다.
+                    </Text>
+                  </>
+                ) : (
+                  <Text style={styles.previewBadText}>
+                    적립액이 결제액보다 적습니다. 손님이 손해 보는 상품입니다.
+                  </Text>
+                )}
+              </View>
+            )}
+
+            <View style={styles.sheetBtns}>
+              <Pressable style={styles.cancelBtn} onPress={() => setPlanOpen(false)}>
+                <Text style={styles.cancelText}>취소</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.primaryBtn, (!planValid || busy) && { opacity: 0.4 }]}
+                onPress={onCreatePlan}
+                disabled={!planValid || busy}
+              >
+                <Text style={styles.primaryText}>추가</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* 회원 등록 모달 */}
       <Modal visible={registerOpen} transparent animationType="fade"
@@ -338,9 +505,15 @@ export default function MembershipScreen() {
 
                 <Text style={styles.sectionLabel}>충전</Text>
                 {plans.length === 0 ? (
-                  <Text style={styles.dim}>
-                    충전 상품이 없습니다. 설정에서 먼저 추가해 주세요.
-                  </Text>
+                  <Pressable
+                    onPress={() => { setTarget(null); setPlanOpen(true); }}
+                    style={styles.emptyPlanBtn}
+                  >
+                    <Ionicons name="add-circle-outline" size={14} color={colors.pointOrange} />
+                    <Text style={styles.emptyPlanText}>
+                      충전 상품이 없습니다. 눌러서 만드세요.
+                    </Text>
+                  </Pressable>
                 ) : (
                   <View style={{ gap: 6 }}>
                     {plans.map((p) => (
@@ -356,10 +529,39 @@ export default function MembershipScreen() {
                 )}
 
                 <Text style={styles.sectionLabel}>사용</Text>
+
+                {/* [한글 주석] 차감은 방문할 때마다 일어난다. 금액을 손으로 치면
+                    매번 몇 초가 들고 오타로 엉뚱한 금액이 빠질 수도 있다.
+                    메뉴를 누르면 금액과 메모가 한 번에 채워져,
+                    손님 이용 내역도 '4,500원 사용'이 아니라 '아메리카노'로 읽힌다. */}
+                {menus.length > 0 && (
+                  <View style={styles.menuGrid}>
+                    {menus.map((m) => {
+                      const over = m.price > target.balance;
+                      return (
+                        <Pressable
+                          key={m.id}
+                          style={[styles.menuBtn, over && styles.menuBtnOver]}
+                          onPress={() => onUse(target, m.price, m.name)}
+                          disabled={busy || over}
+                        >
+                          <Text style={[styles.menuName, over && styles.menuTextOver]}
+                                numberOfLines={1}>
+                            {m.name}
+                          </Text>
+                          <Text style={[styles.menuPrice, over && styles.menuTextOver]}>
+                            {m.price.toLocaleString()}원
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
+
                 <View style={{ flexDirection: 'row', gap: 6 }}>
                   <TextInput
                     style={[styles.input, { flex: 1, marginBottom: 0 }]}
-                    placeholder="금액"
+                    placeholder={menus.length > 0 ? '직접 입력' : '금액'}
                     placeholderTextColor="#B0A79E"
                     value={useAmount}
                     onChangeText={setUseAmount}
@@ -461,6 +663,33 @@ const styles = StyleSheet.create({
 
   planRow: { flexDirection: 'row', alignItems: 'center', gap: 6,
              backgroundColor: '#FAF8F6', borderRadius: 9, padding: 11 },
+  planManageRow: { flexDirection: 'row', alignItems: 'center', gap: 6,
+                   backgroundColor: '#FAF8F6', borderRadius: 9,
+                   paddingHorizontal: 11, paddingVertical: 9 },
+  planBonus: { fontSize: 11, color: colors.trendGreenText, fontWeight: '700' },
+
+  emptyPlanBtn: { flexDirection: 'row', alignItems: 'center', gap: 5,
+                  backgroundColor: '#FAF8F6', borderRadius: 9, padding: 12,
+                  borderWidth: 1, borderColor: colors.mutedSand, borderStyle: 'dashed' },
+  emptyPlanText: { fontSize: 12, color: colors.pointOrange, fontWeight: '600' },
+
+  menuGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  menuBtn: { flexGrow: 1, minWidth: '30%', backgroundColor: '#FAF8F6',
+             borderRadius: 9, paddingVertical: 9, paddingHorizontal: 8,
+             borderWidth: 1, borderColor: colors.mutedSand, alignItems: 'center' },
+  // 잔액을 넘는 메뉴는 눌러도 실패하므로 미리 흐리게 해 헛손질을 막는다
+  menuBtnOver: { opacity: 0.35 },
+  menuName: { fontSize: 11.5, fontWeight: '600', color: colors.espressoBrown },
+  menuPrice: { fontSize: 12.5, fontWeight: '800', color: colors.pointOrange, marginTop: 2 },
+  menuTextOver: { color: '#9A8F86' },
+
+  fieldLabel: { fontSize: 11.5, color: '#7A6E65', marginBottom: 3 },
+  previewBox: { backgroundColor: '#F4F8F4', borderRadius: 9, padding: 11, gap: 3 },
+  previewBad: { backgroundColor: '#FDECEA' },
+  previewMain: { fontSize: 14, fontWeight: '800', color: colors.espressoBrown },
+  previewSub: { fontSize: 12, fontWeight: '700', color: colors.trendGreenText },
+  previewNote: { fontSize: 10.5, color: '#7A6E65', lineHeight: 15, marginTop: 2 },
+  previewBadText: { fontSize: 12, color: '#B23B2E', fontWeight: '600', lineHeight: 17 },
   planPay: { fontSize: 12.5, fontWeight: '700', color: colors.espressoBrown },
   planCredit: { fontSize: 12.5, fontWeight: '800', color: colors.trendGreenText },
   planRate: { fontSize: 11, fontWeight: '800', color: colors.pointOrange,

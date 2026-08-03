@@ -105,6 +105,14 @@ def list_transactions_api(customer_id: int, limit: int = Query(30, ge=1, le=200)
     return [_tx_out(t) for t in svc.list_transactions(db, customer_id, limit)]
 
 
+@router.get("/quick-menus", summary="차감용 메뉴 버튼 목록")
+def quick_menus_api(limit: int = Query(8, ge=1, le=20), db: Session = Depends(get_db),
+                    user: User = Depends(get_current_user)):
+    """[한글 주석] 금액을 손으로 치는 대신 메뉴를 눌러 차감하기 위한 목록입니다.
+    타이핑이 사라져 빠르고, 오타로 엉뚱한 금액이 빠지는 사고도 막습니다."""
+    return svc.quick_menus(db, user.email, limit)
+
+
 # --- 충전 상품 ---
 
 @router.get("/plans", response_model=List[ChargePlanOut], summary="충전 상품 목록")
@@ -149,7 +157,7 @@ def delete_plan_api(plan_id: int, db: Session = Depends(get_db),
 
 # --- 잔액 변동 ---
 
-def _balance_result(db: Session, c: Customer, tx, user: User) -> BalanceResult:
+def _balance_result(c: Customer, tx, user: User) -> BalanceResult:
     return BalanceResult(
         customer_id=c.id, customer_name=c.name, phone=c.phone,
         balance=c.balance or 0, transaction=_tx_out(tx),
@@ -167,7 +175,7 @@ def charge_api(customer_id: int, payload: ChargeRequest,
                          payload.credit_amount, payload.memo)
     if not tx:
         raise HTTPException(status_code=400, detail=msg)
-    return _balance_result(db, c, tx, user)
+    return _balance_result(c, tx, user)
 
 
 @router.post("/customers/{customer_id}/use", response_model=BalanceResult,
@@ -178,7 +186,7 @@ def use_api(customer_id: int, payload: UseRequest,
     tx, msg = svc.use(db, c, payload.amount, payload.memo)
     if not tx:
         raise HTTPException(status_code=400, detail=msg)
-    return _balance_result(db, c, tx, user)
+    return _balance_result(c, tx, user)
 
 
 @router.post("/customers/{customer_id}/adjust", response_model=BalanceResult,
@@ -189,7 +197,7 @@ def adjust_api(customer_id: int, payload: AdjustRequest,
     tx, msg = svc.adjust(db, c, payload.amount, payload.memo)
     if not tx:
         raise HTTPException(status_code=400, detail=msg)
-    return _balance_result(db, c, tx, user)
+    return _balance_result(c, tx, user)
 
 
 # --- 집계 ---

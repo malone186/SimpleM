@@ -34,8 +34,14 @@ from app.models.membership import (
 
 logger = logging.getLogger(__name__)
 
-# 손님 잔액 조회 링크의 앞부분. 배포 도메인이 생기면 환경변수로 바꾼다.
-PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:8081")
+# 손님 잔액 조회 링크의 앞부분. 배포 도메인이 생기면 PUBLIC_BASE_URL로 바꾼다.
+#
+# [한글 주석] 프런트가 아니라 백엔드를 가리킨다.
+# 조회 페이지를 백엔드가 HTML로 직접 주기 때문이다 — 손님은 앱을 깔지 않으므로
+# 문자 링크를 누르면 로그인 없이, 번들 다운로드 없이 바로 열려야 한다.
+#
+# 주소가 짧을수록 좋다. 단문(SMS) 한도가 90바이트라 링크가 길면 본문이 줄어든다.
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000")
 
 TX_LABELS = {
     TX_CHARGE: "충전",
@@ -118,8 +124,15 @@ def create_customer(db: Session, store_id: str, phone: str,
 
 def find_customers(db: Session, store_id: str, query: Optional[str] = None,
                    limit: int = 50) -> List[Customer]:
-    """회원 검색 — 계산대에서는 번호 뒷자리로 찾는 게 가장 빠르다."""
+    """회원 검색 — 계산대에서는 번호 뒷자리로 찾는 게 가장 빠르다.
+
+    [한글 주석] 검색어가 없을 때는 '최근 이용 순'으로 준다.
+    차감은 방문할 때마다 일어나는데, 오는 손님은 대개 단골이라
+    최근 목록 맨 위에 있다. 이러면 검색 없이 한 번 탭으로 끝난다.
+    (등록은 충전할 때 한 번뿐이지만 차감은 매 방문이라 여기가 훨씬 자주 쓰인다.)
+    """
     q = db.query(Customer).filter(Customer.store_id == store_id)
+
     if query and query.strip():
         kw = query.strip()
         digits = re.sub(r"\D", "", kw)
@@ -127,7 +140,64 @@ def find_customers(db: Session, store_id: str, query: Optional[str] = None,
             q = q.filter(Customer.phone.like(f"%{digits[-4:]}%"))
         else:
             q = q.filter(Customer.name.ilike(f"%{kw}%"))
-    return q.order_by(Customer.is_active.desc(), Customer.balance.desc()).limit(limit).all()
+        return q.order_by(Customer.is_active.desc(),
+                          Customer.balance.desc()).limit(limit).all()
+
+    # 마지막 거래 시각 기준 정렬 (거래가 없는 회원은 뒤로)
+    last_tx = (
+        db.query(
+            BalanceTransaction.customer_id.label("cid"),
+            func.max(BalanceTransaction.created_at).label("last_at"),
+        )
+        .filter(BalanceTransaction.store_id == store_id)
+        .group_by(BalanceTransaction.customer_id)
+        .subquery()
+    )
+    return (
+        q.outerjoin(last_tx, last_tx.c.cid == Customer.id)
+        .order_by(
+            Customer.is_active.desc(),
+            last_tx.c.last_at.desc().nullslast(),
+            Customer.created_at.desc(),
+        )
+        .limit(limit)
+        .all()
+    )
+
+
+def quick_menus(db: Session, store_id: str, limit: int = 8) -> List[Dict[str, Any]]:
+    """차감용 메뉴 버튼 목록 — 실제로 많이 팔린 순.
+
+    [한글 주석] 금액을 손으로 치는 대신 메뉴를 누르게 한다.
+    타이핑이 사라져 빠르고, 오타로 엉뚱한 금액이 빠지는 사고도 막는다.
+    덤으로 메모가 자동으로 채워져 손님 이용 내역이 '4,500원 사용'이 아니라
+    '아메리카노'로 읽힌다.
+
+    정렬을 판매량 기준으로 두는 이유: 처음엔 가격 오름차순으로 했더니
+    '시럽추가·샷추가·사이즈업' 같은 500원짜리 옵션이 버튼을 다 차지했다.
+    옵션은 단독으로 결제되는 물건이 아니라 버튼으로서 쓸모가 없다.
+    실제로 많이 팔린 메뉴가 계산대에서 누를 확률이 가장 높다.
+    """
+    from app.models.inventory import Menu, Sale  # 지역 import — 모델 로딩 순서 의존을 피한다
+
+    sold = (
+        db.query(Sale.menu_id.label("mid"),
+                 func.coalesce(func.sum(Sale.quantity), 0).label("qty"))
+        .filter(Sale.store_id == store_id)
+        .group_by(Sale.menu_id)
+        .subquery()
+    )
+    rows = (
+        db.query(Menu)
+        .outerjoin(sold, sold.c.mid == Menu.id)
+        .filter(Menu.store_id == store_id, Menu.is_active.is_(True),
+                Menu.selling_price > 0)
+        # 판매 이력이 아직 없으면 비싼 것(=옵션이 아닌 본메뉴)이 먼저 오게 한다
+        .order_by(sold.c.qty.desc().nullslast(), Menu.selling_price.desc())
+        .limit(limit)
+        .all()
+    )
+    return [{"id": m.id, "name": m.name, "price": m.selling_price} for m in rows]
 
 
 # --- 잔액 변동 (원장) ---
