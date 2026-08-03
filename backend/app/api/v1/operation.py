@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.auth import get_current_user, get_current_user_optional
 from app.models.user import User
-from app.models.operation import Employee, Schedule, EstimatedPayroll, EstimatedSettlement
+from app.models.operation import Employee, EmployeeUnavailability, Schedule, EstimatedPayroll, EstimatedSettlement
 from app.schemas.operation import (
     CommonResponse, ScheduleCreate, ScheduleUpdate, ScheduleResponse,
     PayrollResponse, PayrollListItem, SettlementResponse, SettlementListItem,
@@ -90,9 +90,15 @@ def create_employee_api(
         raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
 
 @router.patch("/employees/{employee_id}", response_model=CommonResponse)
-def update_employee_api(employee_id: int, payload: EmployeeUpdate, db: Session = Depends(get_db)):
-    """알바생 정보(이름, 시급, 직책)를 수정합니다."""
+def update_employee_api(
+    employee_id: int,
+    payload: EmployeeUpdate,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """알바생 정보(이름, 시급, 직책)를 수정합니다. (로그인 매장 직원만)"""
     try:
+        _assert_employee_owned(db, employee_id, current_user)
         emp = OperationService.update_employee(
             db=db,
             employee_id=employee_id,
@@ -107,29 +113,43 @@ def update_employee_api(employee_id: int, payload: EmployeeUpdate, db: Session =
             data=EmployeeResponse.model_validate(emp),
             message="알바생 정보 수정이 완료되었습니다."
         )
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
 
 @router.delete("/employees/{employee_id}", response_model=CommonResponse)
-def delete_employee_api(employee_id: int, db: Session = Depends(get_db)):
-    """알바생 퇴사/삭제 처리를 진행합니다."""
+def delete_employee_api(
+    employee_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """알바생 퇴사/삭제 처리를 진행합니다. (로그인 매장 직원만)"""
     try:
+        _assert_employee_owned(db, employee_id, current_user)
         success = OperationService.delete_employee(db, employee_id)
         if not success:
             raise HTTPException(status_code=404, detail="삭제할 알바생 정보를 찾을 수 없습니다.")
         return CommonResponse(success=True, data=None, message="알바생이 성공적으로 퇴사/삭제 처리되었습니다.")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/schedules", response_model=CommonResponse)
-def create_schedule_api(payload: ScheduleCreate, db: Session = Depends(get_db)):
-    """새로운 근무 계획 스케줄을 등록합니다."""
+def create_schedule_api(
+    payload: ScheduleCreate,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """새로운 근무 계획 스케줄을 등록합니다. (로그인 매장 직원에게만)"""
     if payload.start_time >= payload.end_time:
         raise HTTPException(status_code=400, detail="근무 시작 시간은 종료 시간보다 빨라야 합니다.")
     try:
+        _assert_employee_owned(db, payload.employee_id, current_user)
         schedule = OperationService.create_schedule(
             db=db,
             employee_id=payload.employee_id,
@@ -141,6 +161,8 @@ def create_schedule_api(payload: ScheduleCreate, db: Session = Depends(get_db)):
             data=ScheduleResponse.model_validate(schedule),
             message="스케줄 등록이 완료되었습니다."
         )
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -196,9 +218,15 @@ def get_schedule_api(schedule_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.patch("/schedules/{schedule_id}", response_model=CommonResponse)
-def update_schedule_api(schedule_id: int, payload: ScheduleUpdate, db: Session = Depends(get_db)):
-    """스케줄 근무 시각 및 실제 출퇴근 시각을 수정(PATCH)합니다."""
+def update_schedule_api(
+    schedule_id: int,
+    payload: ScheduleUpdate,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """스케줄 근무 시각 및 실제 출퇴근 시각을 수정(PATCH)합니다. (로그인 매장 근무만)"""
     try:
+        _assert_schedule_owned(db, schedule_id, current_user)
         schedule = OperationService.update_schedule(db, schedule_id, payload)
         if not schedule:
             raise HTTPException(status_code=404, detail="수정할 스케줄 정보를 찾을 수 없습니다.")
@@ -207,6 +235,8 @@ def update_schedule_api(schedule_id: int, payload: ScheduleUpdate, db: Session =
             data=ScheduleResponse.model_validate(schedule),
             message="스케줄 정보 수정이 완료되었습니다."
         )
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -228,6 +258,19 @@ def _assert_schedule_owned(db: Session, schedule_id: int, current_user: Optional
     )
     if row is not None and row[0] != current_user.email:
         raise HTTPException(status_code=404, detail="해당 스케줄을 찾을 수 없습니다.")
+
+
+def _assert_employee_owned(db: Session, employee_id: int, current_user: Optional[User]) -> None:
+    """이 직원이 로그인 매장 소속인지 확인한다 (스케줄과 같은 정책 — 비로그인은 무검사).
+
+    확인 없이 두면 employee_id 연번만 알면 옆 매장 직원을 수정·삭제하거나, 남의 직원에게
+    근무·기피시간을 붙일 수 있다.
+    """
+    if current_user is None:
+        return
+    row = db.query(Employee.store_id).filter(Employee.id == employee_id).first()
+    if row is not None and row[0] != current_user.email:
+        raise HTTPException(status_code=404, detail="해당 직원을 찾을 수 없습니다.")
 
 
 @router.delete("/schedules/{schedule_id}", response_model=CommonResponse)
@@ -293,15 +336,22 @@ def recommend_schedule_api(
 # ----------------------------------------------------
 
 @router.post("/unavailability", response_model=CommonResponse)
-def create_unavailability_api(payload: EmployeeUnavailabilityCreate, db: Session = Depends(get_db)):
-    """직원의 기피/불가 시간(Hard/Soft)을 신규 등록합니다."""
+def create_unavailability_api(
+    payload: EmployeeUnavailabilityCreate,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """직원의 기피/불가 시간(Hard/Soft)을 신규 등록합니다. (로그인 매장 직원에게만)"""
     try:
+        _assert_employee_owned(db, payload.employee_id, current_user)
         unav = EmployeeUnavailabilityService.create_unavailability(db, payload)
         return CommonResponse(
             success=True,
             data=EmployeeUnavailabilityResponse.model_validate(unav),
             message="직원 기피/불가 시간 등록이 완료되었습니다."
         )
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -311,12 +361,30 @@ def create_unavailability_api(payload: EmployeeUnavailabilityCreate, db: Session
 @router.get("/unavailability", response_model=CommonResponse)
 def list_unavailabilities_api(
     employee_id: Optional[int] = Query(None, description="특정 직원만 조회할 직원 ID (생략 시 전체)"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
-    """등록된 직원 기피/불가 시간 목록을 조회합니다."""
+    """등록된 직원 기피/불가 시간 목록을 조회합니다. (로그인 매장 직원 것만)
+
+    [매장 스코핑] 예전엔 전 매장 직원의 기피시간과 이름을 통째로 돌려줬다 — 공유 DB라
+    남의 매장 직원 이름이 노출됐다. 로그인 매장 직원으로 한정한다(비로그인은 기존 동작).
+    """
     try:
-        rows = EmployeeUnavailabilityService.get_unavailabilities(db, employee_id)
-        name_map = {e.id: e.name for e in db.query(Employee).all()}
+        store_id = current_user.email if current_user else None
+        if store_id:
+            store_emp_ids = {e.id for e in db.query(Employee).filter(Employee.store_id == store_id).all()}
+            # 남의 매장 직원 id를 콕 집어 조회하려 해도 빈 목록으로 막는다
+            rows = [
+                u for u in EmployeeUnavailabilityService.get_unavailabilities(db, employee_id)
+                if u.employee_id in store_emp_ids
+            ]
+            name_map = {
+                e.id: e.name
+                for e in db.query(Employee).filter(Employee.store_id == store_id).all()
+            }
+        else:
+            rows = EmployeeUnavailabilityService.get_unavailabilities(db, employee_id)
+            name_map = {e.id: e.name for e in db.query(Employee).all()}
         data = []
         for unav in rows:
             item = EmployeeUnavailabilityResponse.model_validate(unav)
@@ -332,9 +400,18 @@ def list_unavailabilities_api(
 
 
 @router.delete("/unavailability/{unavailability_id}", response_model=CommonResponse)
-def delete_unavailability_api(unavailability_id: int, db: Session = Depends(get_db)):
-    """등록된 직원 기피/불가 시간 설정을 삭제합니다."""
+def delete_unavailability_api(
+    unavailability_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """등록된 직원 기피/불가 시간 설정을 삭제합니다. (로그인 매장 직원 것만)"""
     try:
+        # 이 기피시간이 로그인 매장 직원의 것인지 먼저 확인한다 (연번 id로 남의 것 삭제 방지)
+        owner = db.query(EmployeeUnavailability.employee_id).filter(
+            EmployeeUnavailability.id == unavailability_id).first()
+        if owner is not None:
+            _assert_employee_owned(db, owner[0], current_user)
         deleted = EmployeeUnavailabilityService.delete_unavailability(db, unavailability_id)
         if not deleted:
             raise HTTPException(status_code=404, detail=f"존재하지 않는 기피 시간 ID입니다: {unavailability_id}")
@@ -708,6 +785,8 @@ def calculate_settlement_api(
             data=data,
             message="예상 정산 결과 계산이 완료되었습니다."
         )
+    except HTTPException:
+        raise  # 날짜 포맷 400 등 의도된 4xx가 아래 except Exception에 삼켜져 500이 되던 문제
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

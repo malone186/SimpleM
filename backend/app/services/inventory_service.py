@@ -1,9 +1,14 @@
 # c:\STUDY\SimpleM\backend\app\services\inventory_service.py
+import logging
+
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
 from app.models.inventory import Ingredient, IngredientPriceHistory, Menu, Recipe, Stock, StockTransaction, Order, OrderItem
 from app.schemas.inventory import IngredientCreate, StockAdjust, MenuCreate, RecipeCreate
+
+# 원가 절감 추천에서 다나와 가격비교가 실패하면 except가 logger를 부른다 — 정의 안 하면 NameError로 재폭발
+logger = logging.getLogger(__name__)
 
 
 # --- [1. 재료 관리 서비스 로직] ---

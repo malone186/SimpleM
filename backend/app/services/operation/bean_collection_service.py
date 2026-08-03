@@ -7,7 +7,7 @@ ON CONFLICT DO UPDATE 구문을 통해 안전하고 짧은 트랜잭션으로 �
 
 import logging
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert

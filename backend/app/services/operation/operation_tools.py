@@ -119,8 +119,12 @@ def propose_settlement_tool(
 
 @tool
 def get_operation_summary_tool(period: str = "daily") -> dict:
-    """일간, 주간, 월간 매장 운영 상태에 대한 자연어 요약 정보를 조회합니다.
-    - period: 조회 대상 기간 ('daily', 'weekly', 'monthly' 중 선택, 기본 'daily')
+    """[데모/예시 전용] 운영 요약 예시 문구를 돌려준다 — 실제 매장 수치가 아니다.
+
+    반환 문구의 매출·순이익 숫자는 고정된 예시값이며 이 매장의 실제 데이터가 아니다.
+    따라서 사장님께 실제 매출·순이익·인건비로 전하면 안 된다. 실제 수치가 필요하면
+    이 도구를 쓰지 말고 판매 예측(forecast)·경영 리포트(report)·매장 데이터 조회 도구를 써라.
+    - period: 'daily' | 'weekly' | 'monthly' (기본 'daily')
     """
     try:
         period_lower = period.lower()

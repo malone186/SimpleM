@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.auth import get_current_user, get_current_user_optional
+from app.core.auth import get_current_admin, get_current_user, get_current_user_optional
 from app.core.database import get_db
 from app.models.inquiry import Inquiry
 from app.models.user import User
@@ -238,8 +238,17 @@ def create_inquiry(
 
 
 @router.post("/{inquiry_id}/reply")
-def reply_inquiry(inquiry_id: int, req: InquiryReply, db: Session = Depends(get_db)):
-    """[한글 주석] 관리자 웹사이트에서 사장님 1대1 문의에 답변 작성"""
+def reply_inquiry(
+    inquiry_id: int,
+    req: InquiryReply,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+):
+    """[한글 주석] 관리자 웹사이트에서 사장님 1대1 문의에 답변 작성 (관리자 전용).
+
+    예전엔 인증이 없어 누구나 답변을 달 수 있었고, 그 답변이 앱에 그대로 노출됐다 —
+    관리자 계정만 호출하도록 get_current_admin을 건다(다른 admin 엔드포인트와 동일).
+    """
     try:
         inq = db.query(Inquiry).filter(Inquiry.id == inquiry_id).first()
     except Exception:

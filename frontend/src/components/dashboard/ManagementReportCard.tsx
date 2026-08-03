@@ -65,15 +65,16 @@ export default function ManagementReportCard() {
     monthly: t('thisMonthRevenue'),
   };
 
-  // [한글 주석: 카드 진입 시 기본 탭이 항상 '일간'(daily)으로 선택되어 있도록 고정]
-  const [period, setPeriod] = useState<ReportPeriodType>('daily');
+  // 카드 기본 탭 = 설정의 'AI 경영 리포트 수신 주기'(reportFrequency).
+  // 예전엔 'daily'로 하드코딩돼, 수신 주기를 바꿔도 카드에 반영되지 않았다(설정 사문화).
+  const [period, setPeriod] = useState<ReportPeriodType>(reportFrequency);
 
-  // [한글 주석:다른 탭을 다녀왔을 때(포커스 재활성화) 탭을 무조건 '일간'으로 자동 리셋]
+  // 다른 탭을 다녀와 포커스가 돌아오면 설정한 수신 주기로 리셋한다
   useEffect(() => {
     if (isFocused) {
-      setPeriod('daily');
+      setPeriod(reportFrequency);
     }
-  }, [isFocused]);
+  }, [isFocused, reportFrequency]);
 
   // [한글 주석: 탭 전환 시 콘텐츠가 스무스하고 자연스럽게 슬라이드/페이드되도록 고성능 애니메이션 추가]
   const contentFadeAnim = useRef(new Animated.Value(1)).current;
@@ -287,22 +288,9 @@ export default function ManagementReportCard() {
                             </View>
                           ))
                         ) : (
-                          <>
-                            <View style={styles.rankRow}>
-                              <Text style={styles.rankBadge}>1위</Text>
-                              <Text style={styles.rankMenuName}>
-                                {c.sales?.top_menus?.[0]?.menu || '아메리카노'}
-                              </Text>
-                            </View>
-                            <View style={styles.rankRow}>
-                              <Text style={styles.rankBadgeNeutral}>2위</Text>
-                              <Text style={styles.rankMenuName}>카페라떼</Text>
-                            </View>
-                            <View style={styles.rankRow}>
-                              <Text style={styles.rankBadgeNeutral}>3위</Text>
-                              <Text style={styles.rankMenuName}>바닐라라떼</Text>
-                            </View>
-                          </>
+                          // 데이터가 없을 때 아메리카노/카페라떼/바닐라라떼를 지어내지 않는다 —
+                          // 사장님이 팔지도 않은 메뉴가 '판매 1위'로 뜨던 가짜 데이터였다.
+                          <Text style={styles.totalCupsText}>아직 집계된 메뉴 판매 데이터가 없어요.</Text>
                         )}
                         <View style={styles.popupDivider} />
                         <Text style={styles.totalCupsText}>
@@ -331,9 +319,16 @@ export default function ManagementReportCard() {
                           </Text>
                         </View>
                         <View style={styles.popupDivider} />
-                        <Text style={styles.totalCupsText}>
-                          매출 대비 수익 구조가 매우 안정적입니다 ☕
-                        </Text>
+                        {/* 수치와 무관하게 항상 '안정적'이라 찍던 문구를 실제 마진율 기준으로 바꾼다 */}
+                        {c.profit?.margin_pct != null && (
+                          <Text style={styles.totalCupsText}>
+                            {c.profit.margin_pct >= 20
+                              ? '매출 대비 수익 구조가 안정적인 편이에요 ☕'
+                              : c.profit.margin_pct >= 0
+                              ? '수익은 나고 있지만 마진이 얇은 편이에요.'
+                              : '지금은 비용이 매출을 넘어 적자 상태예요.'}
+                          </Text>
+                        )}
                       </View>
                     </>
                   )}
