@@ -1784,7 +1784,9 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
         series_end = series.index[-1].date()
         start = max(date.today(), series_end) + timedelta(days=1)
         gap = (start - series_end).days - 1
-        sales_gap = (start - last_sale_day).days - 1
+        # '판매 공백'은 오늘 이전의 무판매일만 센다 — 시계열은 오늘(미완성 집계)을 항상
+        # 제외하므로 start 기준으로 세면 어제까지 데이터가 멀쩡해도 매일 '1일 공백'이 찍힌다
+        sales_gap = max(0, (date.today() - last_sale_day).days - 1)
         if sales_gap > 90:
             raise ForecastError(
                 f"마지막 판매 기록({last_sale_day.isoformat()})이 {sales_gap}일 전이라 예측 정확도를 보장할 수 없어요. "
