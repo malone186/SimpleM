@@ -13,8 +13,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
-  Modal,
+    Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -54,6 +53,7 @@ import {
   type StoreQr,
 } from '../../lib/api/membership';
 import { sendNotification } from '../../lib/membership/notify';
+import { showAlert } from '../../lib/ui/alert';
 import { useAuth } from '../../auth/AuthContext';
 import { colors } from '../../theme';
 
@@ -136,8 +136,8 @@ export default function MembershipScreen() {
 
   const notify = async (phone: string, text: string) => {
     const r = await sendNotification(phone, text);
-    if (!r.ok) Alert.alert('알림 전송', r.reason ?? '전송할 수 없습니다.');
-    else if (r.reason) Alert.alert('알림', r.reason);
+    if (!r.ok) showAlert('알림 전송', r.reason ?? '전송할 수 없습니다.');
+    else if (r.reason) showAlert('알림', r.reason);
   };
 
   const onRegister = async () => {
@@ -151,7 +151,7 @@ export default function MembershipScreen() {
       setNewAgree(false);
       await load();
     } catch (e) {
-      Alert.alert('등록 실패', e instanceof Error ? e.message : String(e));
+      showAlert('등록 실패', e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -167,7 +167,7 @@ export default function MembershipScreen() {
       setCreditInput('');
       await load();
     } catch (e) {
-      Alert.alert('상품 추가 실패', e instanceof Error ? e.message : String(e));
+      showAlert('상품 추가 실패', e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -176,7 +176,7 @@ export default function MembershipScreen() {
   const onDeletePlan = (plan: ChargePlan) => {
     // [한글 주석] 실제로 지우지 않고 비활성화한다.
     // 이 상품으로 이미 충전한 거래가 남아 있어, 지우면 이력에서 근거가 사라진다.
-    Alert.alert(
+    showAlert(
       '충전 상품 삭제',
       `${won(plan.pay_amount)} → ${won(plan.credit_amount)} 상품을 더 이상 쓰지 않으시겠어요?\n지난 충전 기록은 그대로 남습니다.`,
       [
@@ -189,7 +189,7 @@ export default function MembershipScreen() {
               await deleteChargePlan(token!, plan.id);
               await load();
             } catch (e) {
-              Alert.alert('삭제 실패', e instanceof Error ? e.message : String(e));
+              showAlert('삭제 실패', e instanceof Error ? e.message : String(e));
             }
           },
         },
@@ -209,7 +209,7 @@ export default function MembershipScreen() {
       onCharge(customer, plan);
       return;
     }
-    Alert.alert(
+    showAlert(
       '충전 전 손님께 안내',
       `결제 ${won(plan.pay_amount)} → 적립 ${won(plan.credit_amount)}
 ` +
@@ -236,7 +236,7 @@ export default function MembershipScreen() {
       await load();
       // [한글 주석] 충전 직후 바로 알림을 보낼 수 있게 묻는다.
       // 나중에 따로 보내려면 결국 안 보내게 된다.
-      Alert.alert(
+      showAlert(
         '충전 완료',
         `${won(res.balance)} 잔액이 되었습니다.\n손님께 알림을 보낼까요?`,
         [
@@ -245,7 +245,7 @@ export default function MembershipScreen() {
         ]
       );
     } catch (e) {
-      Alert.alert('충전 실패', e instanceof Error ? e.message : String(e));
+      showAlert('충전 실패', e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -265,7 +265,7 @@ export default function MembershipScreen() {
         // [한글 주석] 잔액에서 빼는 금액과 건네는 현금이 다르다.
         // 잔액 60,000(실제 낸 돈 50,000)이면 잔액은 60,000이 사라지고 현금은 50,000이 나간다.
         // 둘을 같은 값으로 보내면 보너스가 남아 다음 환불에서 또 계산돼 돈이 샌다.
-        Alert.alert(
+        showAlert(
           '잔액 환불',
           `잔액 ${won(est.balance)}을 모두 차감하고
 현금 ${won(est.suggested)}을 돌려드립니다.` +
@@ -284,16 +284,16 @@ export default function MembershipScreen() {
                     { amount: est.balance, memo: '고객 요청 환불' });
                   setTarget(null);
                   await load();
-                  Alert.alert('환불 완료', `현금 ${won(est.suggested)}을 환불 처리했습니다.`);
+                  showAlert('환불 완료', `현금 ${won(est.suggested)}을 환불 처리했습니다.`);
                 } catch (e) {
-                  Alert.alert('환불 실패', e instanceof Error ? e.message : String(e));
+                  showAlert('환불 실패', e instanceof Error ? e.message : String(e));
                 }
               },
             },
           ]
         );
       } catch (e) {
-        Alert.alert('오류', e instanceof Error ? e.message : String(e));
+        showAlert('오류', e instanceof Error ? e.message : String(e));
       }
     })();
   };
@@ -308,7 +308,7 @@ export default function MembershipScreen() {
       setUseAmount('');
       setTarget(null);
       await load();
-      Alert.alert(
+      showAlert(
         '사용 완료',
         `${won(amount)} 차감 · 잔액 ${won(res.balance)}\n손님께 알림을 보낼까요?`,
         [
@@ -317,7 +317,7 @@ export default function MembershipScreen() {
         ]
       );
     } catch (e) {
-      Alert.alert('사용 실패', e instanceof Error ? e.message : String(e));
+      showAlert('사용 실패', e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -539,7 +539,7 @@ export default function MembershipScreen() {
             if (!storeQr) setStoreQr(await fetchStoreQr(token!));
             setQrOpen(true);
           } catch (e) {
-            Alert.alert('QR 오류', e instanceof Error ? e.message : String(e));
+            showAlert('QR 오류', e instanceof Error ? e.message : String(e));
           }
         }}
       >
@@ -675,7 +675,7 @@ export default function MembershipScreen() {
                       </body></html>`,
                     });
                   } catch (e) {
-                    Alert.alert('인쇄 실패', e instanceof Error ? e.message : String(e));
+                    showAlert('인쇄 실패', e instanceof Error ? e.message : String(e));
                   }
                 }}
               >

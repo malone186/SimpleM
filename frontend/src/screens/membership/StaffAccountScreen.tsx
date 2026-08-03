@@ -9,8 +9,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
-  Modal,
+    Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -28,6 +27,7 @@ import {
   resetStaffPassword,
   type StaffAccount,
 } from '../../lib/api/staffAccounts';
+import { showAlert } from '../../lib/ui/alert';
 import { useAuth } from '../../auth/AuthContext';
 import { colors } from '../../theme';
 
@@ -72,14 +72,14 @@ export default function StaffAccountScreen() {
       setIssued({ name: r.name, loginId: r.login_id, password: r.initial_password });
       await load();
     } catch (e) {
-      Alert.alert('계정 생성 실패', e instanceof Error ? e.message : String(e));
+      showAlert('계정 생성 실패', e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
   };
 
   const onReset = (acc: StaffAccount) => {
-    Alert.alert(
+    showAlert(
       '비밀번호 재발급',
       `${acc.name}님의 비밀번호를 새로 만듭니다.\n지금 쓰던 비밀번호는 즉시 사용할 수 없게 됩니다.`,
       [
@@ -91,7 +91,7 @@ export default function StaffAccountScreen() {
               const r = await resetStaffPassword(token!, acc.id);
               setIssued({ name: acc.name, loginId: acc.login_id, password: r.password });
             } catch (e) {
-              Alert.alert('실패', e instanceof Error ? e.message : String(e));
+              showAlert('실패', e instanceof Error ? e.message : String(e));
             }
           },
         },
@@ -101,7 +101,7 @@ export default function StaffAccountScreen() {
 
   const onToggle = (acc: StaffAccount) => {
     const off = acc.is_active;
-    Alert.alert(
+    showAlert(
       off ? '계정 사용 중지' : '계정 다시 사용',
       off
         ? `${acc.name}님이 더 이상 로그인할 수 없게 됩니다.\n지난 처리 기록은 그대로 남습니다.`
@@ -117,7 +117,7 @@ export default function StaffAccountScreen() {
               else await activateStaffAccount(token!, acc.id);
               await load();
             } catch (e) {
-              Alert.alert('실패', e instanceof Error ? e.message : String(e));
+              showAlert('실패', e instanceof Error ? e.message : String(e));
             }
           },
         },
