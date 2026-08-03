@@ -200,6 +200,13 @@ app.include_router(api_router, prefix="/api/v1")
 from app.api.public_balance import router as public_balance_router
 app.include_router(public_balance_router)
 
+# [문자 발송 점검] 폰 브라우저로 /sms-check 를 열어 문자앱이 본문까지 채우는지 확인한다.
+#  - sms: 링크는 기기·기본 문자앱에 따라 본문이 안 채워지는 경우가 있는데,
+#    개발 PC에서는 확인할 방법이 없다(앱을 새로 빌드해 폰에 깔아야 알 수 있다).
+#  - 모바일 브라우저도 같은 스킴을 쓰므로 여기서 되면 앱에서도 된다.
+from app.api.sms_check import router as sms_check_router
+app.include_router(sms_check_router)
+
 
 # [공개 정책 페이지] 개인정보처리방침·이용약관을 인증 없이 접근 가능한 공개 URL로 게시합니다.
 # Play Console 등록 및 앱 내 링크에 사용합니다. (예: https://<도메인>/legal/privacy.html)
