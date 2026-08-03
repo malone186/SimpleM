@@ -190,36 +190,26 @@ def _checkin_page(shop: str, token: str, customer=None,
                   message: str = "", requested: bool = False) -> str:
     """계산대 QR을 찍은 손님에게 보여줄 화면."""
     if requested and customer:
+        # [한글 주석] 여기서 잔액과 이름을 보여주면 안 된다.
+        #
+        #   이 화면은 '번호만 입력하면' 나온다. 잔액을 띄우면 남의 번호를 아는
+        #   사람이 그 사람의 잔액과 이름을 볼 수 있다.
+        #   문자로 받는 링크는 추측 불가능한 토큰으로 잘 막아놨는데,
+        #   QR 쪽에 뒷문을 열어두는 셈이 된다.
+        #
+        #   잔액 확인이 필요하면 문자로 받은 본인 링크로 가면 된다.
+        #   여기서는 "요청이 전달됐다"만 알리면 목적을 다한다.
         body = (
             f'<div class="shop">{html_mod.escape(shop)}</div>'
-            f'<div class="who">{html_mod.escape(customer.name or "")}님</div>'
+            f'<div class="who">결제 요청</div>'
             f'<div class="ok-box">직원에게 전달되었습니다</div>'
-            f'<div class="balance-card">'
-            f'<div class="balance-label">사용하실 수 있는 잔액</div>'
-            f'<div class="balance">{customer.balance or 0:,}원</div></div>'
             f'<div class="note">직원이 확인하고 결제해 드립니다.<br>'
-            f'화면을 닫으셔도 됩니다.</div>'
+            f'화면을 닫으셔도 됩니다.<br><br>'
+            f'잔액은 충전 시 문자로 받으신 링크에서 확인하실 수 있습니다.</div>'
         )
         return _page(body, f"{shop} 결제 요청")
 
-    if customer:
-        # 이미 등록된 손님 — 버튼 하나만 보여준다
-        who = customer.name or svc.mask_phone(customer.phone)
-        body = (
-            f'<div class="shop">{html_mod.escape(shop)}</div>'
-            f'<div class="who">{html_mod.escape(who)}님</div>'
-            f'<div class="balance-card">'
-            f'<div class="balance-label">사용하실 수 있는 잔액</div>'
-            f'<div class="balance">{customer.balance or 0:,}원</div></div>'
-            f'<form method="post" action="/s/{html_mod.escape(token)}/request">'
-            f'<input type="hidden" name="phone" value="{html_mod.escape(customer.phone)}">'
-            f'<button class="big-btn" type="submit">잔액으로 결제 요청</button></form>'
-            f'<div class="note">누르시면 직원 화면에 표시됩니다.<br>'
-            f'주문하실 메뉴는 직원에게 말씀해 주세요.</div>'
-        )
-        return _page(body, f"{shop} 결제 요청")
-
-    # 첫 방문 — 번호 입력 + 동의
+    # 번호 입력 + 동의
     err = f'<div class="err" style="margin-bottom:14px"><p>{html_mod.escape(message)}</p></div>' if message else ""
     body = (
         f'<div class="shop">{html_mod.escape(shop)}</div>'

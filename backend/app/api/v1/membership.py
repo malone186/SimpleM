@@ -16,7 +16,8 @@ from app.models.user import User
 from app.schemas.membership import (
     AdjustRequest, BalanceResult, ChargePlanCreate, ChargePlanOut, ChargeRequest,
     ChurnRiskCustomer, CustomerCreate, CustomerOut, CustomerUpdate,
-    PrepaidSummary, PublicBalanceOut, TransactionOut, UseRequest,
+    PrepaidSummary, PublicBalanceOut, RefundEstimate, RefundRequest,
+    TransactionOut, UseRequest,
 )
 from app.services import membership_service as svc
 
@@ -224,6 +225,32 @@ def use_api(customer_id: int, payload: UseRequest,
             db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     c = _get_customer(db, customer_id, user.email)
     tx, msg = svc.use(db, c, payload.amount, payload.memo, payload.menu_id)
+    if not tx:
+        raise HTTPException(status_code=400, detail=msg)
+    return _balance_result(c, tx, user)
+
+
+@router.get("/customers/{customer_id}/refund-estimate", response_model=RefundEstimate,
+            summary="환불 기준액 (보너스 제외)")
+def refund_estimate_api(customer_id: int, db: Session = Depends(get_db),
+                        user: User = Depends(get_current_user)):
+    """[한글 주석] 6만원을 적립받았어도 실제 낸 돈은 5만원입니다.
+    잔액을 전액 현금으로 돌려주면 매장이 손해를 보므로 결제액 비율을 곱해
+    기준액을 제시합니다. 강제하지는 않습니다 — 환불 기준은 약관과 매장 정책,
+    나아가 법적 판단의 영역이라 근거가 되는 숫자만 드립니다."""
+    c = _get_customer(db, customer_id, user.email)
+    return RefundEstimate(**svc.refundable_estimate(db, c))
+
+
+@router.post("/customers/{customer_id}/refund", response_model=BalanceResult,
+             summary="잔액 환불 (현금으로 돌려줌)")
+def refund_api(customer_id: int, payload: RefundRequest,
+               db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """[한글 주석] 환불은 매출이 아니라 받아둔 선수금을 돌려주는 것입니다.
+    보정(ADJUST)으로 때우면 장부에서 환불인지 실수 정정인지 구분되지 않아
+    "환불을 얼마나 해줬나"에 답할 수 없게 됩니다."""
+    c = _get_customer(db, customer_id, user.email)
+    tx, msg = svc.refund(db, c, payload.amount, payload.memo)
     if not tx:
         raise HTTPException(status_code=400, detail=msg)
     return _balance_result(c, tx, user)

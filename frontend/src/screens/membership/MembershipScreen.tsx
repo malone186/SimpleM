@@ -40,6 +40,8 @@ import {
   fetchPrepaidSummary,
   fetchStoreQr,
   fetchQuickMenus,
+  fetchRefundEstimate,
+  refundBalance,
   searchCustomers,
   useBalance,
   type ChargePlan,
@@ -213,6 +215,49 @@ export default function MembershipScreen() {
     }
   };
 
+  const onRefund = (customer: Customer) => {
+    // [한글 주석] 환불은 되돌릴 수 없는 현금 지출이라 두 단계로 확인한다.
+    // 보너스를 뺀 기준액을 먼저 보여줘 사장님이 근거를 알고 결정하게 한다.
+    (async () => {
+      try {
+        const est = await fetchRefundEstimate(token!, customer.id);
+        const bonusNote = est.bonus_excluded > 0
+          ? `
+
+적립 보너스 ${won(est.bonus_excluded)}은 실제로 받은 돈이 아니라 제외한 금액입니다.`
+          : '';
+        Alert.alert(
+          '잔액 환불',
+          `잔액 ${won(est.balance)} 중 ${won(est.suggested)}을 돌려드립니다.` +
+          bonusNote +
+          `
+
+환불 기준은 매장 약관에 따라 다를 수 있습니다.`,
+          [
+            { text: '취소', style: 'cancel' },
+            {
+              text: `${won(est.suggested)} 환불`,
+              style: 'destructive',
+              onPress: async () => {
+                try {
+                  await refundBalance(token!, customer.id,
+                    { amount: est.suggested, memo: '고객 요청 환불' });
+                  setTarget(null);
+                  await load();
+                  Alert.alert('환불 완료', `${won(est.suggested)}을 환불 처리했습니다.`);
+                } catch (e) {
+                  Alert.alert('환불 실패', e instanceof Error ? e.message : String(e));
+                }
+              },
+            },
+          ]
+        );
+      } catch (e) {
+        Alert.alert('오류', e instanceof Error ? e.message : String(e));
+      }
+    })();
+  };
+
   const onUse = async (customer: Customer, presetAmount?: number, memo?: string,
                        menuId?: number) => {
     const amount = presetAmount ?? parseInt(useAmount.replace(/\D/g, ''), 10);
@@ -376,10 +421,13 @@ export default function MembershipScreen() {
           </View>
 
           <View style={styles.statGrid}>
-            <Stat label="실제 입금" value={won(summary.charged_total)} />
+            <Stat label="실제 입금" value={won(summary.net_cash_in)} />
             <Stat label="적립 총액" value={won(summary.credited_total)} />
             <Stat label="매출 인식" value={won(summary.used_total)} highlight />
             <Stat label="나간 보너스" value={won(summary.bonus_given)} />
+            {summary.refunded_total > 0 && (
+              <Stat label="환불" value={won(summary.refunded_total)} />
+            )}
           </View>
         </View>
       )}
@@ -783,9 +831,17 @@ export default function MembershipScreen() {
                   </Pressable>
                 </View>
 
-                <Pressable style={styles.cancelBtn} onPress={() => setTarget(null)}>
-                  <Text style={styles.cancelText}>닫기</Text>
-                </Pressable>
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+                  <Pressable style={[styles.cancelBtn, { flex: 1 }]}
+                             onPress={() => setTarget(null)}>
+                    <Text style={styles.cancelText}>닫기</Text>
+                  </Pressable>
+                  {target.balance > 0 && (
+                    <Pressable style={styles.refundBtn} onPress={() => onRefund(target)}>
+                      <Text style={styles.refundText}>환불</Text>
+                    </Pressable>
+                  )}
+                </View>
               </>
             )}
           </View>
@@ -913,6 +969,12 @@ const styles = StyleSheet.create({
   qrBox: { alignItems: 'center', backgroundColor: '#FFF', borderRadius: 12,
            padding: 12, marginVertical: 4 },
   qrUrl: { fontSize: 10.5, color: '#B0A79E', textAlign: 'center' },
+
+  // 환불은 되돌릴 수 없는 지출이라 눈에 띄되 주 동선에서는 비켜 있게 둔다
+  refundBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8,
+               borderWidth: 1, borderColor: '#D9B3AE', alignItems: 'center',
+               justifyContent: 'center' },
+  refundText: { fontSize: 12.5, fontWeight: '700', color: '#B23B2E' },
 
   rateRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   rateBox: { flex: 1, backgroundColor: '#FAF8F6', borderRadius: 10, padding: 11 },

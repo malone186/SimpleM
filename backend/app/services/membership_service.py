@@ -232,6 +232,33 @@ def _append_transaction(db: Session, customer: Customer, tx_type: str, amount: i
     return tx
 
 
+def _lock_customer(db: Session, customer: Customer) -> Customer:
+    """잔액을 바꾸기 직전에 그 회원 행을 잠근다.
+
+    [한글 주석] 잠그지 않으면 잔액이 마이너스가 될 수 있다.
+
+      잔액 5,000원인 손님에게 계산대 두 곳에서 동시에 4,000원씩 차감하면
+        A: 잔액 확인(5,000 >= 4,000) → 통과
+        B: 잔액 확인(5,000 >= 4,000) → 통과   ← A가 아직 커밋 전이라 옛 값을 본다
+        A: 커밋 → 1,000원
+        B: 커밋 → -3,000원
+      둘 다 통과해서 마이너스가 된다.
+
+    행을 잠그면 B가 A의 커밋을 기다린 뒤 갱신된 잔액(1,000원)을 보고 거부한다.
+    계산대에 기기가 둘이거나, 사장님이 뒤에서 정리하는 동안 알바가 결제하면
+    실제로 겹친다.
+
+    SQLite에는 행 잠금이 없어 폴백한다 — 개발용 폴백에서는 동시 요청이 없다.
+    """
+    q = db.query(Customer).filter(Customer.id == customer.id)
+    try:
+        locked = q.with_for_update().first()
+    except Exception as e:
+        logger.debug("행 잠금 미지원 — 잠금 없이 진행합니다: %s", e)
+        locked = q.first()
+    return locked or customer
+
+
 def charge(db: Session, customer: Customer,
            charge_plan_id: Optional[int] = None,
            pay_amount: Optional[int] = None,
@@ -256,6 +283,9 @@ def charge(db: Session, customer: Customer,
     if pay_amount is not None and pay_amount < 0:
         return None, "결제 금액이 올바르지 않습니다."
 
+    # 충전도 잠근다 — 차감과 동시에 들어오면 balance 캐시가 어긋난다
+    customer = _lock_customer(db, customer)
+
     tx = _append_transaction(
         db, customer, TX_CHARGE, amount=credit_amount,
         paid_amount=pay_amount, charge_plan_id=plan.id if plan else None,
@@ -276,7 +306,12 @@ def use(db: Session, customer: Customer, amount: int,
     """
     if amount <= 0:
         return None, "차감 금액이 올바르지 않습니다."
+
+    # 잔액 확인 '전에' 잠근다 — 확인과 차감 사이에 다른 결제가 끼면 마이너스가 된다
+    customer = _lock_customer(db, customer)
+
     if (customer.balance or 0) < amount:
+        db.rollback()
         return None, (
             f"잔액이 부족합니다. (잔액 {customer.balance:,}원 / 필요 {amount:,}원)"
         )
@@ -289,6 +324,74 @@ def use(db: Session, customer: Customer, amount: int,
     return tx, f"{amount:,}원이 사용되었습니다."
 
 
+def refund(db: Session, customer: Customer, amount: int,
+           memo: Optional[str] = None) -> Tuple[Optional[BalanceTransaction], str]:
+    """잔액을 현금으로 돌려준다.
+
+    [한글 주석] 왜 보정(ADJUST)으로 때우면 안 되는가:
+
+      선불충전은 상품권에 준해 규제받고 일정 조건에서 환불 의무가 있다.
+      "환불 안 됩니다"로 버틸 수 있는 영역이 아니다.
+      그런데 보정으로 처리하면 장부에서 환불인지 실수 정정인지 구분이 안 되고,
+      나중에 "환불을 얼마나 해줬나"에 답할 수 없다.
+
+      환불은 매출이 아니라 받아둔 선수금을 돌려주는 것이므로
+      사용(USE)과도 반드시 구분해야 한다. 집계에서 매출로 잡히면 안 된다.
+    """
+    if amount <= 0:
+        return None, "환불 금액이 올바르지 않습니다."
+
+    customer = _lock_customer(db, customer)
+
+    if (customer.balance or 0) < amount:
+        db.rollback()
+        return None, (
+            f"잔액보다 많이 환불할 수 없습니다. (잔액 {customer.balance:,}원)"
+        )
+
+    tx = _append_transaction(db, customer, TX_REFUND, amount=-amount, memo=memo)
+    db.commit()
+    db.refresh(tx)
+    return tx, f"{amount:,}원을 환불 처리했습니다."
+
+
+def refundable_estimate(db: Session, customer: Customer) -> Dict[str, Any]:
+    """환불 기준액을 추정한다 — 보너스는 뺀 '실제 낸 돈' 기준.
+
+    [한글 주석] 6만원을 적립받았지만 실제로 낸 돈은 5만원이다.
+    잔액 3만원을 전액 현금으로 돌려주면 매장이 손해를 본다.
+    실제 결제액 비율(50/60)을 곱해 25,000원을 기준액으로 제시한다.
+
+    다만 이건 '제안'이고 강제하지 않는다 — 환불 기준은 약관과 매장 정책에
+    달린 문제이고, 법적 판단은 사장님 몫이다. 우리는 근거가 되는 숫자만 준다.
+    """
+    rows = (
+        db.query(
+            func.coalesce(func.sum(BalanceTransaction.paid_amount), 0),
+            func.coalesce(func.sum(BalanceTransaction.amount), 0),
+        )
+        .filter(BalanceTransaction.customer_id == customer.id,
+                BalanceTransaction.tx_type == TX_CHARGE)
+        .first()
+    )
+    paid, credited = int(rows[0] or 0), int(rows[1] or 0)
+    balance = customer.balance or 0
+
+    if not credited or paid >= credited:
+        # 보너스 없이 충전했거나 이력이 없으면 잔액 그대로
+        return {"balance": balance, "suggested": balance, "paid_ratio": 1.0,
+                "bonus_excluded": 0}
+
+    ratio = paid / credited
+    suggested = int(balance * ratio)
+    return {
+        "balance": balance,
+        "suggested": suggested,
+        "paid_ratio": round(ratio, 4),
+        "bonus_excluded": balance - suggested,
+    }
+
+
 def adjust(db: Session, customer: Customer, amount: int,
            memo: str) -> Tuple[Optional[BalanceTransaction], str]:
     """사장님 수동 보정 — 실수 정정용.
@@ -298,7 +401,11 @@ def adjust(db: Session, customer: Customer, amount: int,
     """
     if amount == 0:
         return None, "보정 금액이 0원입니다."
+
+    customer = _lock_customer(db, customer)
+
     if (customer.balance or 0) + amount < 0:
+        db.rollback()
         return None, "보정 후 잔액이 음수가 됩니다."
     tx = _append_transaction(db, customer, TX_ADJUST, amount=amount, memo=memo)
     db.commit()
@@ -694,6 +801,9 @@ def get_prepaid_summary(db: Session, store_id: str, days: int = 30) -> Dict[str,
     )
     credited = _sum(base.filter(BalanceTransaction.tx_type == TX_CHARGE))
     used = abs(_sum(base.filter(BalanceTransaction.tx_type == TX_USE)))
+    # [한글 주석] 환불은 매출이 아니라 받아둔 돈을 돌려주는 현금 유출이다.
+    # 사용액과 섞으면 매출이 부풀고, 현금 유입에서 빼지 않으면 실제 남은 돈이 과대계상된다.
+    refunded = abs(_sum(base.filter(BalanceTransaction.tx_type == TX_REFUND)))
 
     # 미사용 잔액 = 지금 우리가 진 빚 (기간과 무관한 현재 시점 값)
     outstanding = int(
@@ -708,6 +818,8 @@ def get_prepaid_summary(db: Session, store_id: str, days: int = 30) -> Dict[str,
         "charged_total": charged_paid,
         "credited_total": credited,
         "used_total": used,
+        "refunded_total": refunded,
+        "net_cash_in": charged_paid - refunded,
         "bonus_given": max(0, credited - charged_paid),
         "period_days": days,
     }

@@ -95,6 +95,20 @@ class UseRequest(BaseModel):
     menu_id: Optional[int] = Field(None, description="메뉴 버튼으로 차감한 경우")
 
 
+class RefundRequest(BaseModel):
+    """환불 — 잔액을 현금으로 돌려준다."""
+    amount: int = Field(..., gt=0, description="환불할 금액")
+    memo: Optional[str] = Field(None, description="사유 (예: 이사, 요청)")
+
+
+class RefundEstimate(BaseModel):
+    """환불 기준액 추정 — 보너스를 뺀 '실제 낸 돈' 기준"""
+    balance: int
+    suggested: int          # 권장 환불액
+    paid_ratio: float       # 결제액 / 적립액
+    bonus_excluded: int     # 보너스에 해당해 제외되는 몫
+
+
 class AdjustRequest(BaseModel):
     """사장님 수동 보정 — 실수 정정용. 사유를 반드시 남긴다."""
     amount: int = Field(..., description="증감액 (음수 가능)")
@@ -144,6 +158,8 @@ class PrepaidSummary(BaseModel):
     charged_total: int             # 누적 충전 결제액 (현금 유입)
     credited_total: int            # 누적 적립액
     used_total: int                # 누적 사용액 (매출로 인식된 부분)
+    refunded_total: int = 0        # 환불액 — 매출이 아니라 현금 유출
+    net_cash_in: int = 0           # 실제 남은 현금 (충전 - 환불)
     bonus_given: int               # 나간 보너스 (실질 할인 총액)
     period_days: int
 

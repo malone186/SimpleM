@@ -57,6 +57,8 @@ export type PrepaidSummary = {
   charged_total: number;         // 실제 현금 유입
   credited_total: number;        // 적립된 총액
   used_total: number;            // 매출로 인식된 부분
+  refunded_total: number;        // 환불액 — 매출이 아니라 현금 유출
+  net_cash_in: number;           // 실제 남은 현금 (충전 - 환불)
   bonus_given: number;           // 나간 보너스 = 실질 할인 총액
   period_days: number;
 };
@@ -110,6 +112,35 @@ export async function createCustomer(token: string, payload: {
 
 export async function fetchTransactions(token: string, customerId: number): Promise<Transaction[]> {
   return apiFetch<Transaction[]>(`/api/v1/membership/customers/${customerId}/transactions`, { headers: auth(token) });
+}
+
+/** 환불 기준액 — 보너스를 뺀 '실제 낸 돈' 기준 */
+export type RefundEstimate = {
+  balance: number;
+  suggested: number;       // 권장 환불액
+  paid_ratio: number;
+  bonus_excluded: number;  // 보너스라 제외되는 몫
+};
+
+export async function fetchRefundEstimate(token: string, customerId: number): Promise<RefundEstimate> {
+  return apiFetch<RefundEstimate>(
+    `/api/v1/membership/customers/${customerId}/refund-estimate`, { headers: auth(token) });
+}
+
+/**
+ * 잔액을 현금으로 환불합니다.
+ *
+ * [한글 주석] 선불충전은 상품권에 준해 규제받고 일정 조건에서 환불 의무가 있습니다.
+ * 보정(ADJUST)으로 때우면 장부에서 환불인지 실수 정정인지 구분되지 않습니다.
+ */
+export async function refundBalance(
+  token: string, customerId: number, payload: { amount: number; memo?: string }
+): Promise<BalanceResult> {
+  return apiFetch<BalanceResult>(`/api/v1/membership/customers/${customerId}/refund`, {
+    method: 'POST',
+    headers: auth(token),
+    body: JSON.stringify(payload),
+  });
 }
 
 /** 선불 고객 실질 원가율 */
