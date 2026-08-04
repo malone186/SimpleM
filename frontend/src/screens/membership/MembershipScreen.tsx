@@ -359,7 +359,7 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
         <View style={[styles.card, styles.waitCard]}>
           <View style={styles.cardHead}>
             <Ionicons name="hand-left-outline" size={16} color={colors.pointOrange} />
-            <Text style={styles.cardTitle}>결제 요청</Text>
+            <Text style={styles.cardTitle}>손님 요청</Text>
             <Text style={styles.waitBadge}>{checkins.length}명 대기</Text>
           </View>
           <View style={{ gap: 8 }}>
@@ -384,14 +384,21 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
               return (
                 <View key={ci.checkin_id} style={styles.waitRow}>
                   <Pressable style={{ flex: 1 }} onPress={() => setTarget(c)}>
-                    <Text style={styles.waitName}>{ci.name || ci.phone_masked}</Text>
+                    <Text style={styles.waitName}>
+                      {ci.name || ci.phone_masked}
+                      {ci.is_signup && <Text style={styles.newTag}>  신규</Text>}
+                    </Text>
+                    {/* [한글 주석] 신규 등록은 충전부터 해야 하고,
+                        기존 회원은 메뉴를 눌러 차감하면 된다. 할 일이 다르므로 문구를 나눈다. */}
                     <Text style={styles.sub}>
-                      잔액 {won(ci.balance)}
-                      {ci.waited_minutes > 0 ? ` · ${ci.waited_minutes}분 전 요청` : ' · 방금'}
+                      {ci.is_signup
+                        ? `${ci.phone_masked} · 충전이 필요합니다`
+                        : `잔액 ${won(ci.balance)}`}
+                      {ci.waited_minutes > 0 ? ` · ${ci.waited_minutes}분 전` : ' · 방금'}
                     </Text>
                   </Pressable>
                   <Pressable style={styles.waitBtn} onPress={() => setTarget(c)}>
-                    <Text style={styles.waitBtnText}>결제</Text>
+                    <Text style={styles.waitBtnText}>{ci.is_signup ? '충전' : '결제'}</Text>
                   </Pressable>
                   <Pressable
                     hitSlop={8}
@@ -1029,6 +1036,7 @@ const styles = StyleSheet.create({
   waitRow: { flexDirection: 'row', alignItems: 'center', gap: 8,
              backgroundColor: '#FFF8F2', borderRadius: 10, padding: 11 },
   waitName: { fontSize: 14, fontWeight: '800', color: colors.espressoBrown },
+  newTag: { fontSize: 11, fontWeight: '800', color: colors.trendGreenText },
   waitBtn: { backgroundColor: colors.pointOrange, paddingHorizontal: 14,
              paddingVertical: 8, borderRadius: 8 },
   waitBtnText: { color: '#FFF', fontSize: 12.5, fontWeight: 'bold' },

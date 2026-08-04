@@ -198,6 +198,9 @@ export type CheckIn = {
   phone_masked: string;
   balance: number;
   waited_minutes: number;
+  /** PAYMENT: 잔액으로 결제 요청 · SIGNUP: QR로 직접 등록한 신규 손님 */
+  kind: 'PAYMENT' | 'SIGNUP';
+  is_signup: boolean;
 };
 
 export async function fetchStoreQr(token: string): Promise<StoreQr> {

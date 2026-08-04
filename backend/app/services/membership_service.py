@@ -28,7 +28,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.membership import (
-    CHECKIN_CANCELED, CHECKIN_DONE, CHECKIN_WAITING,
+    CHECKIN_CANCELED, CHECKIN_DONE, CHECKIN_PAYMENT, CHECKIN_SIGNUP, CHECKIN_WAITING,
     TX_ADJUST, TX_CHARGE, TX_REFUND, TX_USE,
     BalanceTransaction, ChargePlan, CheckIn, Customer, StoreQr,
 )
@@ -88,11 +88,29 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _aware(dt: Optional[datetime]) -> Optional[datetime]:
+    """시간대 없는 datetime에 UTC를 붙인다.
+
+    [한글 주석] DB마다 돌려주는 형태가 다르다.
+      Postgres(TIMESTAMP WITH TIME ZONE) → 시간대 있는 datetime
+      SQLite                              → 시간대 없는 datetime
+
+    섞어서 빼면 "can't subtract offset-naive and offset-aware datetimes"로 죽는다.
+    운영은 Postgres라 안 터지지만, 그래서 더 위험하다 —
+    테스트(SQLite)에서만 죽으면 이 경로를 아무도 검증하지 못한다.
+    실제로 이탈 감지와 대기 목록에서 같은 문제가 두 번 났다.
+    """
+    if dt is None:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
 # --- 회원 ---
 
 def create_customer(db: Session, store_id: str, phone: str,
                     name: Optional[str] = None,
-                    memo: Optional[str] = None) -> Tuple[Optional[Customer], str]:
+                    memo: Optional[str] = None,
+                    consent_source: str = "OWNER") -> Tuple[Optional[Customer], str]:
     """회원을 등록한다. 이미 있으면 그 회원을 그대로 돌려준다.
 
     [한글 주석] 중복 등록을 막는 게 핵심이다. 번호가 같으면 같은 손님이므로
@@ -116,7 +134,8 @@ def create_customer(db: Session, store_id: str, phone: str,
         return existing, "이미 등록된 회원입니다."
 
     customer = Customer(store_id=store_id, phone=normalized,
-                        name=(name or "").strip() or None, memo=memo)
+                        name=(name or "").strip() or None, memo=memo,
+                        consent_source=consent_source, consent_at=_now())
     db.add(customer)
     db.commit()
     db.refresh(customer)
@@ -310,6 +329,8 @@ def charge(db: Session, customer: Customer,
     )
     db.commit()
     db.refresh(tx)
+    # 신규 등록 요청으로 대기 중이었다면 충전이 곧 처리 완료다
+    close_waiting_for_customer(db, customer.id)
     return tx, f"{credit_amount:,}원이 충전되었습니다."
 
 
@@ -602,8 +623,8 @@ def store_by_qr_token(db: Session, token: str) -> Optional[str]:
     return qr.store_id if qr else None
 
 
-def create_checkin(db: Session, store_id: str,
-                   customer: Customer) -> Tuple[Optional[CheckIn], str]:
+def create_checkin(db: Session, store_id: str, customer: Customer,
+                   kind: str = CHECKIN_PAYMENT) -> Tuple[Optional[CheckIn], str]:
     """손님이 '결제 요청'을 눌렀을 때 대기 줄에 세운다.
 
     [한글 주석] 같은 손님이 연달아 누르면 줄에 여러 번 서게 되어
@@ -619,7 +640,8 @@ def create_checkin(db: Session, store_id: str,
     if existing:
         return existing, "이미 요청하셨습니다. 직원이 확인 중입니다."
 
-    ci = CheckIn(store_id=store_id, customer_id=customer.id, status=CHECKIN_WAITING)
+    ci = CheckIn(store_id=store_id, customer_id=customer.id,
+                 status=CHECKIN_WAITING, kind=kind)
     db.add(ci)
     db.commit()
     db.refresh(ci)
@@ -655,7 +677,7 @@ def list_waiting_checkins(db: Session, store_id: str) -> List[Dict[str, Any]]:
         c = ci.customer
         if not c:
             continue
-        waited = int((_now() - ci.created_at).total_seconds() // 60)
+        waited = int((_now() - _aware(ci.created_at)).total_seconds() // 60)
         out.append({
             "checkin_id": ci.id,
             "customer_id": c.id,
@@ -664,6 +686,9 @@ def list_waiting_checkins(db: Session, store_id: str) -> List[Dict[str, Any]]:
             "phone_masked": mask_phone(c.phone),
             "balance": c.balance or 0,
             "waited_minutes": max(0, waited),
+            # [한글 주석] 신규 등록은 충전부터 해야 하므로 결제 요청과 구분한다.
+            "kind": ci.kind or CHECKIN_PAYMENT,
+            "is_signup": (ci.kind or CHECKIN_PAYMENT) == CHECKIN_SIGNUP,
         })
     return out
 

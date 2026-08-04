@@ -189,6 +189,87 @@ def test_손님_페이지는_인증_없이_열리고_전화번호를_노출하�
     assert "알아두실 점" in page.text, "사용처·환불 기준 고지"
 
 
+# --- QR 셀프 등록 ---
+
+def _store_qr(client, owner):
+    return client.get("/api/v1/membership/store-qr", headers=owner).json()["token"]
+
+
+def test_처음_온_손님은_QR로_직접_등록한다(client, owner):
+    """[핵심] 예전엔 미등록 번호를 거부해서 사장님이 번호를 대신 물어 적어야 했다.
+    잘못 들으면 그대로 틀리고, 동의도 사장님이 대신 체크하게 된다."""
+    qr = _store_qr(client, owner)
+
+    # 처음 온 손님이 번호를 넣으면 거부가 아니라 등록 화면이 뜬다
+    r = client.post(f"/s/{qr}/request",
+                    data={"phone": "01098765432", "agree": "1"})
+    assert r.status_code == 200
+    assert "선불 회원 등록" in r.text
+    assert "010-9876-5432" in r.text
+
+    # 이름과 동의를 넣어 등록
+    r = client.post(f"/s/{qr}/signup",
+                    data={"phone": "010-9876-5432", "name": "박손님", "agree": "1"})
+    assert r.status_code == 200
+    assert "등록 완료" in r.text
+
+    # 사장님 화면에 '신규'로 뜬다
+    waiting = client.get("/api/v1/membership/checkins", headers=owner).json()
+    hit = [w for w in waiting if w["name"] == "박손님"]
+    assert len(hit) == 1
+    assert hit[0]["is_signup"] is True, "신규 등록은 결제 요청과 구분돼야 한다"
+    assert hit[0]["balance"] == 0
+
+
+def test_동의_없이는_등록되지_않는다(client, owner):
+    qr = _store_qr(client, owner)
+    r = client.post(f"/s/{qr}/signup",
+                    data={"phone": "01098765432", "name": "박손님"})
+    assert r.status_code == 400
+    assert client.get("/api/v1/membership/customers", headers=owner).json() == []
+
+
+def test_손님이_직접_등록하면_동의_출처가_남는다(client, owner):
+    """사장님이 대신 체크한 것과 손님이 직접 한 것은 무게가 다르다.
+    나중에 '동의를 받았느냐'는 질문에 SELF만이 실제 근거가 된다."""
+    from app.models.membership import Customer
+
+    qr = _store_qr(client, owner)
+    client.post(f"/s/{qr}/signup",
+                data={"phone": "01098765432", "name": "박손님", "agree": "1"})
+
+    cust = client.get("/api/v1/membership/customers", headers=owner).json()[0]
+    # ORM으로 직접 확인 (API는 동의 출처를 노출하지 않는다)
+    from app.core.database import get_db  # noqa: F401
+    row = client.app.dependency_overrides[get_db]().query(Customer).filter(
+        Customer.id == cust["id"]).first()
+    assert row.consent_source == "SELF"
+    assert row.consent_at is not None
+
+
+def test_충전하면_신규_등록_대기가_닫힌다(client, owner):
+    qr = _store_qr(client, owner)
+    client.post(f"/s/{qr}/signup",
+                data={"phone": "01098765432", "name": "박손님", "agree": "1"})
+    cid = client.get("/api/v1/membership/customers", headers=owner).json()[0]["id"]
+
+    client.post(f"/api/v1/membership/customers/{cid}/charge",
+                json={"pay_amount": 50000, "credit_amount": 60000}, headers=owner)
+
+    assert client.get("/api/v1/membership/checkins", headers=owner).json() == [],         "충전이 곧 처리 완료다 — 줄에 남아 있으면 두 번 처리하게 된다"
+
+
+def test_사장님이_등록하면_동의_출처가_OWNER다(client, owner):
+    from app.models.membership import Customer
+    from app.core.database import get_db
+
+    r = client.post("/api/v1/membership/customers",
+                    json={"phone": "01011112222", "name": "김손님"}, headers=owner)
+    row = client.app.dependency_overrides[get_db]().query(Customer).filter(
+        Customer.id == r.json()["id"]).first()
+    assert row.consent_source == "OWNER"
+
+
 def test_틀린_토큰은_404(client):
     assert client.get("/b/wrongtoken").status_code == 404
 
