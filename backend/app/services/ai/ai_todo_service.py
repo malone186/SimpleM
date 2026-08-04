@@ -70,6 +70,16 @@ _PROMO_TODO = {
 }
 
 
+def _dash_to_newline(title: str) -> str:
+    """" — " 같은 (양옆 공백이 있는) 대시를 줄바꿈으로 바꾼다.
+
+    홈 투두 제목이 2줄 표시라 "원두가 2kg 남았어요 ↵ 오늘 발주하세요"처럼
+    상황/행동이 줄로 나뉘어 읽기 쉽다. 메뉴명 속 하이픈(공백 없는 -)은 건드리지 않는다.
+    """
+    import re
+    return re.sub(r"\s+[—–-]\s+", "\n", title).strip()
+
+
 def _gather(store_id: str) -> tuple[list[dict], list[dict]]:
     """부족 재고 + 메뉴별 최근 14일 판매를 모은다 (전부 best-effort)."""
     stocks: list[dict] = []
@@ -123,8 +133,8 @@ def _fallback(stocks: list[dict], menus: list[dict]) -> list[dict[str, Any]]:
         soldout = s["current"] <= 0
         todos.append({
             "id_hint": f"stock-{s['id']}",
-            "title": (f"{s['name']}이(가) 다 떨어졌어요 — 바로 채워주세요" if soldout
-                      else f"{s['name']}이(가) {qty} 남았어요 — 오늘 채워주세요"),
+            "title": (f"{s['name']}이(가) 다 떨어졌어요\n바로 채워주세요" if soldout
+                      else f"{s['name']}이(가) {qty} 남았어요\n오늘 채워주세요"),
             "subtitle": f"안전재고 {s['safety']:g}{s['unit']} 기준",
             "kind": "stock", "menu": None,
         })
@@ -162,7 +172,7 @@ def suggest_todos(store_id: str) -> dict[str, Any]:
         valid_stock_ids = {f"stock-{s['id']}" for s in stocks}
         for t in raw["todos"]:
             if t.get("kind") == "stock" and t.get("id_hint") in valid_stock_ids:
-                todos.append({"id_hint": t["id_hint"], "title": str(t.get("title", ""))[:60],
+                todos.append({"id_hint": t["id_hint"], "title": _dash_to_newline(str(t.get("title", ""))[:60]),
                               "subtitle": str(t.get("subtitle", ""))[:80],
                               "kind": "stock", "menu": None})
     if not todos and stocks:
