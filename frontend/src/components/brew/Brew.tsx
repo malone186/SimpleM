@@ -5,6 +5,7 @@ import { Animated, Easing, Image, StyleSheet, Text, View, type StyleProp, type V
 
 import { ACCESSORY_ART } from './accessories';
 import { APRON_VARIANTS, type ApronColor } from './apronVariants';
+import { BLINK_OVERLAY } from './blinkOverlays';
 
 // 캐릭터 시트에서 잘라낸 포즈들 (표정 매칭 표)
 const POSES = {
@@ -89,9 +90,13 @@ export default function Brew({
   apronColor?: string; // 상점에서 산 앞치마 색 (navy·forest 등). 없으면 기본 갈색.
 }) {
   const a = useRef(new Animated.Value(0)).current;
+  const blink = useRef(new Animated.Value(0)).current;
   // 앞치마 색을 착용했으면 그 색으로 리컬러한 변형 이미지를 쓴다(원본 포즈를 대체).
   // 변형이 없으면(색 미착용·해당 포즈 변형 부재) 원본 갈색 포즈로 안전하게 폴백.
   const poseSource = (apronColor && APRON_VARIANTS[mood]?.[apronColor as ApronColor]) || POSES[mood];
+  // 눈 뜬 포즈만 눈 깜빡임 오버레이가 있다. 있으면 눈 부위만 잠깐 감았다 뜬다.
+  // (앞치마 색 변형 위에도 그대로 얹힌다 — 눈은 상단, 앞치마는 하단이라 안 겹친다)
+  const blinkSource = disableMotion ? undefined : BLINK_OVERLAY[mood];
   // [한글 주석: disableMotion이 켜지면 강아지 고유의 흔들림 모션을 'none'(정지) 상태로 바꿉니다]
   const motion = disableMotion ? 'none' : MOTION_BY_MOOD[mood];
 
@@ -112,6 +117,21 @@ export default function Brew({
     loop.start();
     return () => loop.stop();
   }, [a, motion]);
+
+  // 눈 깜빡임 — 몇 초에 한 번 눈 부위 오버레이 opacity를 잠깐 1로 올렸다 내린다.
+  useEffect(() => {
+    if (!blinkSource) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(3400),
+        Animated.timing(blink, { toValue: 1, duration: 85, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.delay(60),
+        Animated.timing(blink, { toValue: 0, duration: 120, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [blink, blinkSource]);
 
   const transform =
     motion === 'wave'
@@ -149,12 +169,22 @@ export default function Brew({
   // 효과가 있어도 캐릭터 크기는 그대로 — 파티클은 캐릭터 뒤로 흐르므로 줄일 필요가 없다
   const charSize = size;
 
+  // 눈 깜빡임 오버레이 — 같은 박스에 contain으로 얹혀 눈 위치가 정확히 맞는다.
+  const blinkLayer = (dim: number) =>
+    blinkSource ? (
+      <Animated.Image
+        source={blinkSource}
+        resizeMode="contain"
+        style={{ position: 'absolute', top: 0, left: 0, width: dim, height: dim, opacity: blink }}
+        pointerEvents="none"
+      />
+    ) : null;
+
   const img = (
-    <Animated.Image
-      source={poseSource}
-      resizeMode="contain"
-      style={{ width: charSize, height: charSize, transform }}
-    />
+    <Animated.View style={{ width: charSize, height: charSize, transform }}>
+      <Image source={poseSource} resizeMode="contain" style={{ width: charSize, height: charSize }} />
+      {blinkLayer(charSize)}
+    </Animated.View>
   );
 
   // 액세서리가 없으면 래퍼를 만들지 않는다 — 기존 화면들의 레이아웃이 그대로 유지된다.
@@ -180,6 +210,7 @@ export default function Brew({
               resizeMode="contain"
               style={{ width: charSize * 0.9, height: charSize * 0.9 }}
             />
+            {blinkLayer(charSize * 0.9)}
           </View>
         </View>
       </View>
