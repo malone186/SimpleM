@@ -55,6 +55,7 @@ from app.schemas.ai import (
     TodoUpdate,
 )
 from app.services.ai import (
+    cafe_similarity_service,
     chat_quota_service,
     document_service,
     forecast_service,
@@ -465,6 +466,31 @@ def get_nearby_cafes_api(
         )
     except nearby_cafe_service.NearbyCafeError as e:
         raise HTTPException(503, str(e))
+
+
+class SimilarityCafeIn(BaseModel):
+    name: str
+    category: str = ""
+    distance_m: int = 0
+
+
+class SimilarityRequest(BaseModel):
+    region: str = ""
+    cafes: list[SimilarityCafeIn]
+
+
+@router.post("/nearby-cafes/similarity")
+def cafe_similarity_api(
+    body: SimilarityRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """주변 카페들을 내 카페와 5축(메뉴30·가격25·컨셉20·분위기15·고객층10) 비교해
+    유사도 0~100%를 매긴다. 내 카페 프로필 = DB(메뉴·가격·업태) + 내 매장 리뷰 분석."""
+    return cafe_similarity_service.score_nearby(
+        current_user.email,
+        [c.model_dump() for c in body.cafes],
+        region=body.region,
+    )
 
 
 @router.get("/nearby-cafes/insight")
