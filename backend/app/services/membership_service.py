@@ -30,7 +30,7 @@ from sqlalchemy.orm import Session
 from app.models.membership import (
     CHECKIN_CANCELED, CHECKIN_DONE, CHECKIN_PAYMENT, CHECKIN_SIGNUP, CHECKIN_WAITING,
     TX_ADJUST, TX_CHARGE, TX_REFUND, TX_USE,
-    BalanceTransaction, ChargePlan, CheckIn, Coupon, Customer, StoreQr,
+    BalanceTransaction, ChargePlan, CheckIn, Coupon, Customer, StoreQr,  # noqa: F401
 )
 
 logger = logging.getLogger(__name__)
@@ -151,7 +151,15 @@ def find_customers(db: Session, store_id: str, query: Optional[str] = None,
     최근 목록 맨 위에 있다. 이러면 검색 없이 한 번 탭으로 끝난다.
     (등록은 충전할 때 한 번뿐이지만 차감은 매 방문이라 여기가 훨씬 자주 쓰인다.)
     """
-    q = db.query(Customer).filter(Customer.store_id == store_id)
+    # [한글 주석] 숨긴 회원은 목록에서 뺀다.
+    #   삭제 요청을 받으면 이용 기록이 있는 회원은 지우지 않고 is_active만 내리는데,
+    #   여기서 걸러주지 않으면 "숨겼습니다"라고 해놓고 그대로 보인다.
+    #   (예전엔 정렬 기준으로만 써서 뒤로 밀릴 뿐 사라지지 않았다.)
+    #   다시 오시면 같은 번호로 등록할 때 create_customer가 되살린다.
+    q = db.query(Customer).filter(
+        Customer.store_id == store_id,
+        Customer.is_active.is_(True),
+    )
 
     if query and query.strip():
         kw = query.strip()
@@ -160,8 +168,7 @@ def find_customers(db: Session, store_id: str, query: Optional[str] = None,
             q = q.filter(Customer.phone.like(f"%{digits[-4:]}%"))
         else:
             q = q.filter(Customer.name.ilike(f"%{kw}%"))
-        return q.order_by(Customer.is_active.desc(),
-                          Customer.balance.desc()).limit(limit).all()
+        return q.order_by(Customer.balance.desc()).limit(limit).all()
 
     # 마지막 거래 시각 기준 정렬 (거래가 없는 회원은 뒤로)
     last_tx = (
@@ -176,13 +183,55 @@ def find_customers(db: Session, store_id: str, query: Optional[str] = None,
     return (
         q.outerjoin(last_tx, last_tx.c.cid == Customer.id)
         .order_by(
-            Customer.is_active.desc(),
+            # 활성 회원만 조회하므로 is_active로 정렬할 이유가 없다
             last_tx.c.last_at.desc().nullslast(),
             Customer.created_at.desc(),
         )
         .limit(limit)
         .all()
     )
+
+
+def delete_customer(db: Session, store_id: str,
+                    customer_id: int) -> Tuple[bool, str]:
+    """회원을 정리한다.
+
+    [한글 주석] 세 갈래로 나뉜다. 손님 돈이 걸려 있어서다.
+
+      잔액이 남아 있으면      → 거부.
+        지우면 그 돈이 장부에서 사라진다. 환불하거나 다른 계정으로 합친 뒤에 지운다.
+
+      거래 이력이 있으면      → 비활성화만.
+        "누가 언제 얼마를 썼나"는 지우면 안 되는 기록이다.
+        목록과 이탈 감지에서만 빠지고 이력은 남는다.
+
+      거래가 하나도 없으면    → 완전 삭제.
+        번호를 잘못 눌러 만든 빈 회원이다. 남겨둘 이유가 없다.
+    """
+    c = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not c or c.store_id != store_id:
+        return False, "회원을 찾을 수 없습니다."
+
+    if (c.balance or 0) > 0:
+        return False, (
+            f"잔액이 {c.balance:,}원 남아 있어 삭제할 수 없습니다. "
+            "환불 처리하거나 잔액을 보정한 뒤에 삭제해 주세요."
+        )
+
+    tx_count = (db.query(BalanceTransaction)
+                .filter(BalanceTransaction.customer_id == customer_id).count())
+    if tx_count > 0:
+        c.is_active = False
+        db.commit()
+        return True, f"이용 기록 {tx_count}건이 있어 목록에서만 숨겼습니다."
+
+    db.query(Coupon).filter(Coupon.customer_id == customer_id).delete(
+        synchronize_session=False)
+    db.query(CheckIn).filter(CheckIn.customer_id == customer_id).delete(
+        synchronize_session=False)
+    db.delete(c)
+    db.commit()
+    return True, "회원을 삭제했습니다."
 
 
 def quick_menus(db: Session, store_id: str, limit: int = 8) -> List[Dict[str, Any]]:

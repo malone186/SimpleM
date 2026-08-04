@@ -31,6 +31,7 @@ import {
   createChargePlan,
   createCustomer,
   deleteChargePlan,
+  deleteCustomer,
   dismissCheckIn,
   fetchChargePlans,
   fetchCheckIns,
@@ -295,6 +296,35 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
     } finally {
       setBusy(false);
     }
+  };
+
+  const onDeleteCustomer = (customer: Customer) => {
+    // [한글 주석] 잔액이 남아 있으면 서버가 거부한다.
+    // 화면에서도 미리 알려 헛손질과 불안을 줄인다.
+    const who = customer.name || customer.phone_masked;
+    const warn = customer.balance > 0
+      ? `잔액 ${won(customer.balance)}이 남아 있어 삭제할 수 없습니다.
+먼저 환불 처리해 주세요.`
+      : `${who}님을 목록에서 지웁니다.
+이용 기록이 있으면 기록은 남고 목록에서만 숨겨집니다.`;
+
+    showAlert('회원 삭제', warn, customer.balance > 0 ? [{ text: '확인' }] : [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            const r = await deleteCustomer(token!, customer.id);
+            setTarget(null);
+            await load();
+            showAlert('완료', r.message);
+          } catch (e) {
+            showAlert('삭제 실패', e instanceof Error ? e.message : String(e));
+          }
+        },
+      },
+    ]);
   };
 
   const onRefund = (customer: Customer) => {
@@ -937,6 +967,9 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
                       <Text style={styles.refundText}>환불</Text>
                     </Pressable>
                   )}
+                  <Pressable style={styles.refundBtn} onPress={() => onDeleteCustomer(target)}>
+                    <Text style={styles.refundText}>삭제</Text>
+                  </Pressable>
                 </View>
               </>
             )}

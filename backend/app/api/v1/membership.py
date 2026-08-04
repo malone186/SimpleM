@@ -105,6 +105,18 @@ def update_customer_api(customer_id: int, payload: CustomerUpdate,
     return _customer_out(db, c)
 
 
+@router.delete("/customers/{customer_id}", summary="회원 삭제 (이력 있으면 숨김)")
+def delete_customer_api(customer_id: int, db: Session = Depends(get_db),
+                        user: User = Depends(require_owner)):
+    """[한글 주석] 잔액이 남아 있으면 거부합니다 — 지우면 손님 돈이 장부에서 사라집니다.
+    이용 기록이 있으면 목록에서 숨기기만 합니다("누가 언제 얼마" 기록은 지우면 안 됩니다).
+    거래가 하나도 없는 빈 회원만 완전히 삭제됩니다."""
+    ok, msg = svc.delete_customer(db, user.email, customer_id)
+    if not ok:
+        raise HTTPException(status_code=400, detail=msg)
+    return {"success": True, "message": msg}
+
+
 @router.get("/customers/{customer_id}/transactions",
             response_model=List[TransactionOut], summary="거래 내역")
 def list_transactions_api(customer_id: int, limit: int = Query(30, ge=1, le=200),

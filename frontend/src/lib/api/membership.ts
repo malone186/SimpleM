@@ -131,6 +131,23 @@ export async function createCustomer(token: string, payload: {
   });
 }
 
+/**
+ * 회원을 정리합니다.
+ *
+ * [한글 주석] 서버가 세 갈래로 처리합니다.
+ *   잔액 있음   → 거부 (지우면 손님 돈이 장부에서 사라집니다)
+ *   이력 있음   → 목록에서 숨김 ("누가 언제 얼마"는 지우면 안 되는 기록)
+ *   거래 없음   → 완전 삭제 (잘못 만든 빈 회원)
+ */
+export async function deleteCustomer(
+  token: string, customerId: number
+): Promise<{ success: boolean; message: string }> {
+  return apiFetch(`/api/v1/membership/customers/${customerId}`, {
+    method: 'DELETE',
+    headers: auth(token),
+  });
+}
+
 export async function fetchTransactions(token: string, customerId: number): Promise<Transaction[]> {
   return apiFetch<Transaction[]>(`/api/v1/membership/customers/${customerId}/transactions`, { headers: auth(token) });
 }
