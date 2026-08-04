@@ -977,7 +977,8 @@ def create_marketing_promotion(
             current_user.email, topic=body.topic, channel=body.channel,
             tone=body.tone, menu=body.menu)
     except marketing_service.MarketingError as e:
-        raise HTTPException(502, str(e))
+        # 쿼터 소진은 서버 고장이 아니다 — 429로 구분해 앱이 이유를 그대로 보여주게 한다
+        raise HTTPException(429 if "사용량" in str(e) else 502, str(e))
 
 
 @router.post("/marketing/image")
@@ -996,7 +997,8 @@ def create_marketing_image(
             style=body.style, aspect_ratio=body.aspect_ratio,
             include_text=body.include_text, overlay=body.overlay, quality=body.quality)
     except marketing_service.MarketingError as e:
-        raise HTTPException(502, str(e))
+        # 쿼터 소진은 서버 고장이 아니다 — 429로 구분해 앱이 이유를 그대로 보여주게 한다
+        raise HTTPException(429 if "사용량" in str(e) else 502, str(e))
 
 
 @router.post("/marketing/photo-image")
@@ -1040,7 +1042,8 @@ def restyle_marketing_image(
             current_user.email, doc_id=body.doc_id, image_id=body.image_id,
             layout=body.layout)
     except marketing_service.MarketingError as e:
-        raise HTTPException(502, str(e))
+        # 쿼터 소진은 서버 고장이 아니다 — 429로 구분해 앱이 이유를 그대로 보여주게 한다
+        raise HTTPException(429 if "사용량" in str(e) else 502, str(e))
 
 
 @router.get("/marketing/images/{filename}")

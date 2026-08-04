@@ -65,6 +65,22 @@ SHOP_ITEMS: list[dict[str, Any]] = [
      "desc": "가만히 있어도 빛나는 중"},
     {"id": "bg_heart", "slot": "background", "name": "하트 뿅뿅", "emoji": "💗", "price": 300,
      "desc": "단골 손님이 늘어날 것 같은 기분"},
+    {"id": "bg_beans", "slot": "background", "name": "커피콩 흩날림", "emoji": "🫘", "price": 300,
+     "desc": "볶은 원두가 사르르 떨어져요"},
+    {"id": "bg_snow", "slot": "background", "name": "겨울 눈꽃", "emoji": "❄️", "price": 300,
+     "desc": "포근한 첫눈 내리는 날"},
+    {"id": "bg_confetti", "slot": "background", "name": "축하 컨페티", "emoji": "🎉", "price": 350,
+     "desc": "오픈·이벤트 날의 들뜬 기분"},
+    {"id": "bg_bubble", "slot": "background", "name": "뽀글 거품", "emoji": "🫧", "price": 300,
+     "desc": "라떼 거품처럼 몽글몽글"},
+    # 프레임 — 박스 테두리에 둘러지는 새 슬롯. 캐릭터를 안 건드려 어떤 포즈·배경과도
+    # 같이 착용된다(배경과 다른 슬롯이라 둘 다 낄 수 있어 조합의 수가 늘어난다).
+    {"id": "frame_wood", "slot": "frame", "name": "우드 프레임", "emoji": "🖼️", "price": 250,
+     "desc": "원목 액자에 담긴 브루"},
+    {"id": "frame_dots", "slot": "frame", "name": "도트 프레임", "emoji": "⚪", "price": 250,
+     "desc": "동글동글 점선 테두리"},
+    {"id": "frame_neon", "slot": "frame", "name": "네온 링", "emoji": "💚", "price": 400,
+     "desc": "은은하게 빛나는 고리"},
 ]
 
 _ITEM_BY_ID = {item["id"]: item for item in SHOP_ITEMS}
@@ -72,6 +88,7 @@ _ITEM_BY_ID = {item["id"]: item for item in SHOP_ITEMS}
 SLOT_LABEL = {
     "pose": "브루 모습",
     "background": "배경 효과",
+    "frame": "브루 프레임",
 }
 
 REASON_LABEL = {
