@@ -54,6 +54,7 @@ const INSIGHT_ICON: Record<string, string> = {
   sales: '📉',
   staff: '👥',
   data: '✏️',
+  market: '🏪', // 주변 상권 변화 (카페 개업·폐업)
 };
 
 type AlertState = {
@@ -130,6 +131,8 @@ export default function AlertsWatcher() {
         if (!alive) return;
         prefs.setPref('lowStockAlert', s.stock_alert);
         prefs.setPref('proactiveInsights', s.compliance_alert);
+        // 구버전 서버는 nearby_alert를 안 준다 — 그때는 기기 값을 그대로 둔다
+        if (typeof s.nearby_alert === 'boolean') prefs.setPref('nearbyAlert', s.nearby_alert);
         prefs.setPref('reportFrequency', s.report_frequency);
         prefs.setPref('dndEnabled', s.dnd_enabled);
         prefs.setPref('dndStart', s.dnd_start);
@@ -164,6 +167,8 @@ export default function AlertsWatcher() {
         // 센서 알림은 여기서 정하지 않는다 — '매장 센서 연동' 스위치가 서버 쪽 별도 플래그
         // (GET/PUT /sensor/feature)로 직접 켜고 끄므로, 그 값을 여기서 덮어쓰면 안 된다.
         sensor_alert: true,
+        // 주변 소식(행사·경쟁 카페 변화) — 설정 화면의 '주변 소식 알림' 스위치
+        nearby_alert: prefs.nearbyAlert,
         report_frequency: prefs.reportFrequency,
         dnd_enabled: prefs.dndEnabled,
         dnd_start: prefs.dndStart,
@@ -179,6 +184,7 @@ export default function AlertsWatcher() {
     settingsHydrated,
     prefs.lowStockAlert,
     prefs.proactiveInsights, // 이제 서버로 실제 전달되므로 바뀌면 다시 보내야 한다
+    prefs.nearbyAlert,
     prefs.reportFrequency,
     prefs.dndEnabled,
     prefs.dndStart,
@@ -417,7 +423,11 @@ export default function AlertsWatcher() {
         if (prefs.dndEnabled && isInDndWindow(new Date(), prefs.dndStart, prefs.dndEnd)) return;
 
         const scan = await fetchInsights(token);
-        const urgent = scan.insights.filter((i) => i.severity !== 'low');
+        const urgent = scan.insights.filter(
+          // 주변 상권 변화(market)는 '주변 소식 알림' 스위치를 따로 따른다 —
+          // 재고·서류와 성격이 달라 한쪽만 끄고 싶은 사장님이 있다
+          (i) => i.severity !== 'low' && (prefs.nearbyAlert || i.category !== 'market'),
+        );
         if (urgent.length === 0) return;
 
         // 같은 인사이트를 하루에 한 번만 알린다 (날짜가 바뀌면 이력은 자동 폐기)
@@ -452,6 +462,7 @@ export default function AlertsWatcher() {
     token,
     prefs.ready,
     prefs.proactiveInsights,
+    prefs.nearbyAlert,
     prefs.dndEnabled,
     prefs.dndStart,
     prefs.dndEnd,

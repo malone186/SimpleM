@@ -62,6 +62,7 @@ from app.services.ai import (
     marketing_service,
     nearby_cafe_service,
     nearby_event_service,
+    nearby_watch_service,
     notification_service,
     ocr_service,
     price_service,
@@ -510,6 +511,43 @@ def get_cafe_analysis_api(
     return result
 
 
+@router.get("/nearby-cafes/changes")
+def get_nearby_cafe_changes_api(
+    background: BackgroundTasks,
+    days: int = 30,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """최근 상권 변화 — 반경 1km에서 새로 생긴 카페와 문 닫은 것으로 보이는 카페.
+
+    응답은 관측 대장(nearby_cafe_watch)만 읽어 즉시 돌려주고, 오늘 아직 훑지 않았으면
+    백그라운드로 한 번 스캔한다(다음 조회부터 반영). 화면이 네이버 검색을 기다리지 않는다.
+
+    첫 조회는 비어 있는 게 정상이다 — 첫 스캔은 '지금 있는 가게'를 기준선으로 삼을 뿐,
+    그것을 신규 개업이라고 말하지 않는다. 변화는 하루 뒤부터 잡힌다.
+    """
+    result = nearby_watch_service.recent_changes(db, current_user.email, days=max(1, min(days, 180)))
+
+    if current_user.store_lat is not None and current_user.store_lon is not None:
+        background.add_task(
+            _scan_nearby_cafes_bg, current_user.email,
+            float(current_user.store_lat), float(current_user.store_lon),
+            current_user.store_name or "",
+        )
+    return result
+
+
+def _scan_nearby_cafes_bg(store_id: str, lat: float, lon: float, store_name: str) -> None:
+    """백그라운드 스캔 — 요청 세션과 분리된 자기 세션을 쓴다(응답이 끝난 뒤 도는 작업)."""
+    from app.services.ai.document_service import _session
+
+    try:
+        with _session() as db:
+            nearby_watch_service.scan_if_stale(db, store_id, lat, lon, exclude_name=store_name)
+    except Exception:
+        logger.exception("주변 카페 변화 스캔(백그라운드) 실패: %s", store_id)
+
+
 class CafeLinkRequest(BaseModel):
     place_name: str = Field(..., description="'내 카페'로 지정할 네이버 장소 상호")
     place_address: str = Field("", description="그 장소의 주소 (동명 카페 구분용)")
@@ -643,6 +681,37 @@ def get_nearby_events_api(
         biz_type=current_user.store_biz_type or "",
         days=days,
     )
+
+
+@router.get("/nearby-events/plan")
+def get_nearby_event_plan_api(
+    name: str,
+    start_date: str = "",
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """행사 하나에 맞춘 AI 이벤트·준비 플랜 (지도 화면 행사 카드의 'AI 준비 플랜' 버튼).
+
+    이벤트 아이디어·한정 메뉴·미리 할 일·재료 준비·인력 배치·홍보 문구를 한 번에 만든다.
+    행사 정보는 클라이언트가 준 이름을 그대로 믿지 않고, 서버가 수집한 목록에서 다시 찾는다 —
+    그래야 없는 행사에 대한 플랜을 지어내지 않는다.
+    """
+    p_lat, p_lon = _store_point(current_user, None, None)
+    events = nearby_event_service.find_nearby_events(p_lat, p_lon).get("events", [])
+
+    from app.services.ai.nearby_event_service import _norm
+
+    target = _norm(name)
+    event = next((e for e in events if _norm(e["name"]) == target), None)
+    if event is None and start_date:
+        event = next((e for e in events if e.get("start_date") == start_date), None)
+    if event is None:
+        raise HTTPException(404, f"'{name}' 행사를 주변 행사 목록에서 찾지 못했습니다.")
+
+    plan = nearby_watch_service.plan_for_store(db, current_user.email, event)
+    if plan is None:
+        raise HTTPException(503, "지금은 AI 플랜을 만들지 못했어요. 잠시 후 다시 시도해 주세요.")
+    return {"event": event, "plan": plan}
 
 
 class SaleItemIn(BaseModel):
@@ -993,6 +1062,9 @@ def get_notification_settings(current_user: User = Depends(get_current_user),
         report_alert=row.report_alert,
         stock_alert=row.stock_alert,
         sensor_alert=row.sensor_alert,
+        # 컬럼 보강(ensure_notification_setting_columns) 이전에 만들어진 행이 섞일 수 있어
+        # 없으면 켜진 것으로 읽는다 — 새 기능은 기본 on이다
+        nearby_alert=getattr(row, "nearby_alert", True),
         report_frequency=row.report_frequency,
         dnd_enabled=row.dnd_enabled,
         dnd_start=row.dnd_start,

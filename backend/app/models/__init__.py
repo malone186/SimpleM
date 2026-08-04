@@ -3,8 +3,9 @@
 # A (ai.py)
 from app.models.ai import (
     AdminAccount, AdminNotification, CafeReviewLink, ChatSession, ComplianceItem, DailySalesEntry,
-    DeviceToken, EmployeeProfile, GeneratedDocument, InsightAck, NotificationSetting, OcrDocument,
-    OcrItem, PosConnection, PosSyncedOrder, SentNotification, SettlementSetting, TodoItem,
+    DeviceToken, EmployeeProfile, GeneratedDocument, InsightAck, NearbyCafeWatch,
+    NotificationSetting, OcrDocument, OcrItem, PosConnection, PosSyncedOrder, SentNotification,
+    SettlementSetting, TodoItem,
 )
 
 # I (inquiry.py & inventory.py)

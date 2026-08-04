@@ -4,8 +4,8 @@ import logging
 from datetime import datetime
 
 from sqlalchemy import (
-    BigInteger, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint,
-    func, inspect, text,
+    BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, Numeric, String, Text,
+    UniqueConstraint, func, inspect, text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -518,6 +518,8 @@ class NotificationSetting(Base):
     report_alert: Mapped[bool] = mapped_column(Boolean, default=True)       # 경영 리포트 도착
     stock_alert: Mapped[bool] = mapped_column(Boolean, default=True)        # 재고 소진 임박
     sensor_alert: Mapped[bool] = mapped_column(Boolean, default=True)       # 설비 이상(긴급)
+    # 주변 소식(행사 D-day·경쟁 카페 개업/폐업) — 상권 변화라 재고·서류와 성격이 달라 따로 끈다
+    nearby_alert: Mapped[bool] = mapped_column(Boolean, default=True)
     report_frequency: Mapped[str] = mapped_column(String(10), default="weekly")  # daily | weekly
     dnd_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     dnd_start: Mapped[str] = mapped_column(String(5), default="22:00")  # HH:MM
@@ -541,10 +543,79 @@ class SentNotification(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     store_id: Mapped[str] = mapped_column(String(100), index=True)
     dedupe_key: Mapped[str] = mapped_column(String(120))
-    category: Mapped[str] = mapped_column(String(32), index=True)  # compliance | report | stock | sensor
+    category: Mapped[str] = mapped_column(String(32), index=True)  # compliance | report | stock | sensor | nearby
     title: Mapped[str] = mapped_column(String(200))
     body: Mapped[str] = mapped_column(Text, default="")
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+def ensure_notification_setting_columns(engine) -> None:
+    """[자가치유 스키마] notification_settings에 nearby_alert 컬럼이 없으면 멱등하게 추가한다.
+
+    이 테이블은 nearby_alert 없이 먼저 만들어졌고 create_all은 기존 테이블을 ALTER하지
+    않는다 — 컬럼이 빠진 채로 두면 설정 조회가 통째로 500이 난다([[create-all-no-alter-trap]]).
+    기존 행은 TRUE로 채운다: 새 기능은 켜진 채로 시작하고 사장님이 끄면 그때 꺼진다.
+    """
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("notification_settings"):
+            return  # 테이블 자체가 없으면 create_all이 스키마째로 만든다
+        existing = {c["name"] for c in insp.get_columns("notification_settings")}
+    except Exception as e:
+        logger.warning(f"[알림 스키마] notification_settings 점검 실패 — 건너뜁니다: {e}")
+        return
+    if "nearby_alert" in existing:
+        return
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE notification_settings ADD COLUMN nearby_alert BOOLEAN NOT NULL DEFAULT TRUE"
+            ))
+        logger.info("[알림 스키마] notification_settings.nearby_alert 컬럼 추가 완료")
+    except Exception as e:
+        logger.warning(f"[알림 스키마] nearby_alert 보강 실패 — 알림 설정 조회가 막힐 수 있습니다: {e}")
+
+
+class NearbyCafeWatch(Base):
+    """주변 경쟁 카페 관측 대장 — '어제 있던 카페'를 기억해 개업·폐업을 알아낸다.
+
+    네이버 지역검색은 '지금 존재하는 카페'만 알려줄 뿐, 새로 생겼는지 없어졌는지는
+    말해 주지 않는다. 그래서 매일 한 번 스캔한 결과를 여기 쌓아 두고 어제와 비교한다.
+      · 처음 본 가게        → seen_count 1 → 다음 스캔에도 보이면(2) '신규 개업'으로 알린다
+      · 안 보이기 시작한 집 → miss_count 누적 → 연속 3회 사라지면 '폐업 추정'으로 알린다
+
+    한 번 만에 판정하지 않는 이유: 지역검색은 키워드당 상위 5건만 주고 429(초당 제한)도
+    섞여서, 멀쩡한 가게가 하루 결과에서 빠지거나 처음 보이는 일이 흔하다. 두 번 연속
+    확인해야 '진짜 변화'로 본다.
+    """
+
+    __tablename__ = "nearby_cafe_watch"
+    __table_args__ = (UniqueConstraint("store_id", "place_key", name="uq_nearby_cafe_watch"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    store_id: Mapped[str] = mapped_column(String(100), index=True)
+    # 상호+주소를 공백 제거·소문자로 정규화한 값 — 같은 가게가 표기 차이로 두 줄이 되지 않게
+    place_key: Mapped[str] = mapped_column(String(200))
+    name: Mapped[str] = mapped_column(String(150))
+    address: Mapped[str] = mapped_column(String(200), default="")
+    category: Mapped[str] = mapped_column(String(100), default="")
+    lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lon: Mapped[float | None] = mapped_column(Float, nullable=True)
+    distance_m: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(8), default="open", index=True)  # open | closed
+    seen_count: Mapped[int] = mapped_column(Integer, default=1)   # 며칠 관측됐는지 (신규 확정 근거)
+    miss_count: Mapped[int] = mapped_column(Integer, default=0)   # 연속으로 안 보인 스캔 횟수
+    first_seen: Mapped[str] = mapped_column(String(10), default="")   # YYYY-MM-DD
+    last_seen: Mapped[str] = mapped_column(String(10), default="", index=True)
+    closed_on: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # 첫 스캔에 잡힌 '원래 있던 가게'. 이 표시가 없으면 관측을 시작한 날 반경 안의 카페
+    # 전부가 '신규 개업'으로 화면에 뜬다 (알림은 open_notified가 막지만 화면은 못 막는다).
+    is_baseline: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 알림 발송 여부는 여기에 둔다 — sent_notifications는 90일 뒤 정리되므로
+    # 그쪽에만 의존하면 오래된 가게가 언젠가 '신규 개업'으로 다시 나갈 수 있다.
+    open_notified: Mapped[bool] = mapped_column(Boolean, default=False)
+    close_notified: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 # ---------------------------------------------------------------------------

@@ -32,4 +32,41 @@ def list_nearby_events(store_id: str, days: int = 14) -> str:
     return json.dumps(result, ensure_ascii=False)
 
 
-TOOLS = [list_nearby_events]
+@tool
+def plan_nearby_event(store_id: str, event_name: str) -> str:
+    """다가오는 주변 행사 하나에 맞춰 **무슨 이벤트를 하고 무엇을 준비할지** 계획을 짜 준다 —
+    이벤트 아이디어(할인·세트), 한정 메뉴, 미리 할 일, 넉넉히 확보할 재료, 인력 배치, 홍보 문구.
+    "이번 축제 때 뭐 하면 좋을까?", "그 행사 대비 뭐 준비해?" 같은 질문에 쓴다.
+    event_name은 list_nearby_events가 알려준 행사 이름 그대로 넣는다."""
+    from app.core.database import SessionLocal
+    from app.services.ai import nearby_watch_service
+    from app.services.ai.nearby_event_service import _norm
+
+    loc = _store_location(store_id)
+    if isinstance(loc, str):
+        return loc
+    lat, lon, _store_name, _biz = loc
+
+    events = nearby_event_service.find_nearby_events(lat, lon).get("events", [])
+    if not events:
+        return "지금 매장 주변에서 확인되는 행사가 없습니다."
+
+    target = _norm(event_name)
+    # 이름이 정확히 안 맞아도 부분 일치까지는 받아 준다 (사장님은 줄여서 말한다)
+    event = next((e for e in events if _norm(e["name"]) == target), None) \
+        or next((e for e in events if target and target in _norm(e["name"])), None)
+    if event is None:
+        names = ", ".join(e["name"] for e in events[:5])
+        return f"'{event_name}' 행사를 찾지 못했습니다. 확인된 행사: {names}"
+
+    db = SessionLocal()
+    try:
+        plan = nearby_watch_service.plan_for_store(db, store_id, event)
+    finally:
+        db.close()
+    if not plan:
+        return f"'{event['name']}' 행사 계획을 지금은 만들지 못했습니다. 잠시 후 다시 시도해 주세요."
+    return json.dumps({"event": event, "plan": plan}, ensure_ascii=False)
+
+
+TOOLS = [list_nearby_events, plan_nearby_event]

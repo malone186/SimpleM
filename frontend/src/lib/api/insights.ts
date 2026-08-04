@@ -13,7 +13,8 @@ export type InsightCategory =
   | 'tax'        // 신고 기한
   | 'sales'      // 매출 급락
   | 'staff'      // 주휴수당, 근로계약서
-  | 'data';      // 판매 입력 누락, 레시피 없는 메뉴
+  | 'data'       // 판매 입력 누락, 레시피 없는 메뉴
+  | 'market';    // 주변 상권 변화 — 경쟁 카페 개업·폐업
 
 /** high=지금 조치, medium=이번 주, low=알아두면 좋음 */
 export type InsightSeverity = 'high' | 'medium' | 'low';

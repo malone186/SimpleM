@@ -13,6 +13,8 @@ export type NotificationSettings = {
   report_alert: boolean;
   stock_alert: boolean;
   sensor_alert: boolean;
+  /** 주변 소식 — 곧 열리는 행사(AI 준비 제안 포함)·경쟁 카페 개업/폐업 */
+  nearby_alert: boolean;
   report_frequency: 'daily' | 'weekly';
   dnd_enabled: boolean;
   dnd_start: string; // 'HH:MM'
