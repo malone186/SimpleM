@@ -477,6 +477,9 @@ function TodoItem({
   const animOpacity = useRef(new Animated.Value(1)).current;
   const checkScale = useRef(new Animated.Value(1)).current;
   const cardScale = useRef(new Animated.Value(1)).current;
+  // [이중 안전망] 어떤 출처(구버전 서버 응답·DB 저장분·챗봇 추가분)의 제목이든
+  // 양옆 공백 있는 대시는 줄바꿈으로 표시한다 — 백엔드 변환과 같은 규칙.
+  const displayTitle = todo.title.replace(/\s+[—–-]\s+/g, '\n');
 
   const handleToggle = () => {
     // [한글 주석: 산디과 감성 과하지 않고 쫀득한 명품 절제형 Bouncy Spring 완료 인터랙션]
@@ -561,7 +564,7 @@ function TodoItem({
         <View style={{ flex: 1, marginLeft: 8 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
             <Text style={[styles.taskItemTitle, disabled && styles.strike]} numberOfLines={2}>
-              {todo.title}
+              {displayTitle}
             </Text>
             {/* AI 출처 배지 */}
             {todo.source === 'ai' && (
