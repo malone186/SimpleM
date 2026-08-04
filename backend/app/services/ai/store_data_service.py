@@ -51,6 +51,19 @@ def _local(value: datetime) -> datetime:
     return value.astimezone(KST) if value.tzinfo else value
 
 
+def _since_kst(days: int) -> datetime:
+    """'오늘 포함 최근 N일'의 시작 시각 — KST 달력 하루의 0시(tz 붙은 값).
+
+    `datetime.now() - timedelta(days=N)`을 쓰면 두 가지가 어긋난다.
+    · 달력 하루가 아니라 '지금부터 N×24시간 전'이라, 조회 시각에 따라 어제 낮이
+      들어왔다 빠졌다 한다.
+    · naive 값이라 timestamptz 컬럼과 비교하면 DB 세션 시간대로 해석돼 창이 통째로
+      9시간 밀린다.
+    """
+    start = datetime.now(KST).date() - timedelta(days=max(1, days) - 1)
+    return datetime.combine(start, time.min, tzinfo=KST)
+
+
 def _d(value: Any) -> Optional[str]:
     """datetime/date/문자열을 YYYY-MM-DD(KST 기준) 문자열로 통일한다."""
     if value is None:
@@ -189,10 +202,10 @@ def get_sales_history(store_id: str, days: int = 14,
 def get_stock_movements(
     store_id: str, days: int = 7, ingredient_name: str = ""
 ) -> dict[str, Any]:
-    """재고 입출고 이력 — 언제 무엇이 얼마나 들어오고 나갔는지."""
+    """재고 입출고 이력 — 언제 무엇이 얼마나 들어오고 나갔는지 (KST 달력 기준 최근 N일)."""
     from app.models.inventory import Ingredient, StockTransaction
 
-    since = datetime.now() - timedelta(days=max(1, days))
+    since = _since_kst(days)
     with _db() as db:
         q = (
             db.query(StockTransaction, Ingredient.name, Ingredient.unit)
@@ -227,10 +240,10 @@ def get_stock_movements(
 
 
 def get_price_trend(store_id: str, ingredient_name: str = "", days: int = 90) -> dict[str, Any]:
-    """재료 매입 단가 변동 이력 — 어떤 재료가 언제 얼마나 올랐는지."""
+    """재료 매입 단가 변동 이력 — 어떤 재료가 언제 얼마나 올랐는지 (KST 달력 기준 최근 N일)."""
     from app.models.inventory import Ingredient, IngredientPriceHistory
 
-    since = datetime.now() - timedelta(days=max(1, days))
+    since = _since_kst(days)
     with _db() as db:
         q = (
             db.query(IngredientPriceHistory, Ingredient.name, Ingredient.unit, Ingredient.current_price)
