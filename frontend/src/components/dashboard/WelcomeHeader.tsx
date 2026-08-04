@@ -374,7 +374,7 @@ export default function WelcomeHeader({
 
         {/* [한글 주석: 우측 마스코트 강아지 캐릭터] */}
         {/* 강아지 탭 이스터에그: 한 번 = 쓰다듬기+한마디/간식 랜덤, 빠른 두 번 = 시크릿 */}
-        <MascotEasterEgg mood={mood} size={150} style={styles.mascot} />
+        <MascotEasterEgg mood={mood} size={190} style={styles.mascot} />
       </Animated.View>
 
       {/* 알림함 모달 — 목록(스택 카드) ↔ 한 건 상세 두 단계로 동작한다 */}

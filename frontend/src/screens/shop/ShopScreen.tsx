@@ -27,7 +27,7 @@ import { colors, typography } from '../../theme';
 import { s as sc, useBottomInset, useResponsive, useTopInset } from '../../theme/responsive';
 
 // 화면에 보여줄 부위 순서 — 위에서부터 눈에 띄는 것 순
-const SLOT_ORDER: ItemSlot[] = ['pose', 'background', 'frame'];
+const SLOT_ORDER: ItemSlot[] = ['pose', 'apron', 'background'];
 
 export default function ShopScreen() {
   const { token } = useAuth();
@@ -114,10 +114,12 @@ export default function ShopScreen() {
   // 착용 중인 포즈가 있으면 그 모습으로 미리 보여준다 (없으면 기본 인사 포즈)
   const equippedPose = (shop?.items ?? []).find((i) => i.equipped && i.slot === 'pose');
   const previewMood = (equippedPose?.mood as BrewMood | undefined) ?? 'top';
-  // 포즈 외 착용 아이템(배경·프레임)은 모두 미리보기 브루에 겹쳐 보여준다
+  // 착용한 앞치마 색 — 미리보기 브루에 그대로 반영
+  const previewApron = (shop?.items ?? []).find((i) => i.equipped && i.slot === 'apron')?.color ?? undefined;
+  // 겹쳐 그리는 배경 효과만 accessories로 (포즈·앞치마는 그림 자체가 바뀌므로 제외)
   const equipped = (shop?.items ?? [])
-    .filter((i) => i.equipped && i.slot !== 'pose')
-    .map((i) => ({ id: i.id, slot: i.slot as Exclude<ItemSlot, 'pose'>, emoji: i.emoji }));
+    .filter((i) => i.equipped && i.slot === 'background')
+    .map((i) => ({ id: i.id, slot: 'background' as const, emoji: i.emoji }));
 
   return (
     <ScrollView
@@ -137,7 +139,7 @@ export default function ShopScreen() {
       {/* ── 브루 미리보기 + 잔액 ── */}
       <FadeInUp>
         <Card style={styles.heroCard}>
-          <Brew mood={previewMood} size={130} accessories={equipped} />
+          <Brew mood={previewMood} size={130} accessories={equipped} apronColor={previewApron} />
           <View style={styles.coinRow}>
             <Text style={styles.coinIcon}>🪙</Text>
             <Text style={styles.coinValue}>{coins.toLocaleString()}</Text>
@@ -249,6 +251,10 @@ function ShopRow({
 function ItemArt({ item }: { item: ShopItem }) {
   if (item.slot === 'pose' && item.mood) {
     return <Brew mood={item.mood as BrewMood} size={42} disableMotion />;
+  }
+  // 앞치마 색: 기본 포즈에 그 색을 입힌 미니 브루로 미리보기 (실제 착용 모습 그대로)
+  if (item.slot === 'apron' && item.color) {
+    return <Brew mood="top" apronColor={item.color} size={42} disableMotion />;
   }
   const Art = ACCESSORY_ART[item.id];
   return Art ? <Art size={30} /> : <Text style={{ fontSize: 24 }}>{item.emoji}</Text>;

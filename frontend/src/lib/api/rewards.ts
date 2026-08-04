@@ -2,7 +2,7 @@
 import { apiFetch } from './client';
 
 /** 꾸미기 부위 — 같은 부위에는 하나만 착용된다 (부위가 다르면 함께 착용된다) */
-export type ItemSlot = 'pose' | 'background' | 'frame';
+export type ItemSlot = 'pose' | 'background' | 'apron';
 
 export type ShopItem = {
   id: string;
@@ -17,6 +17,8 @@ export type ShopItem = {
   affordable: boolean;
   /** 포즈 상품일 때만 — Brew의 mood 값 */
   mood?: string | null;
+  /** 앞치마 색 상품일 때만 — apronVariants의 색 키 (navy·forest 등) */
+  color?: string | null;
 };
 
 export type ShopState = {
@@ -39,8 +41,9 @@ export type Wallet = {
   history: PointHistoryItem[];
 };
 
-/** 착용 중인 아이템. pose면 mood로 브루 그림 자체가 바뀌고, background면 뒤에 깔린다. */
-export type EquippedItem = { id: string; slot: ItemSlot; emoji: string; mood?: string };
+/** 착용 중인 아이템. pose면 mood로 브루 그림이 바뀌고, apron이면 color로 앞치마 색이,
+ *  background면 뒤에 효과가 깔린다. */
+export type EquippedItem = { id: string; slot: ItemSlot; emoji: string; mood?: string; color?: string };
 
 const authHeader = (token?: string | null): Record<string, string> =>
   token ? { Authorization: `Bearer ${token}` } : {};
