@@ -56,12 +56,18 @@ _PROMPT = """너는 카페 사장님의 하루를 챙기는 매니저 '브루'�
    - title: '상태 나열'이 아니라 '해야 할 일'로. 예: "원두가 2kg 남았어요 — 오늘 발주하세요"
      (18~28자, 사장님에게 말 걸듯 자연스럽게. 재료명·남은 양 포함)
    - subtitle: 근거 한 줄 (예: "안전재고 5kg 기준 · 이틀 안에 소진 예상")
-2) 홍보 투두 정확히 1개 (kind="promo", id_hint="promo-<메뉴명>", menu=<메뉴명>).
-   - 판매 데이터에서 홍보 가치가 큰 메뉴 하나를 골라라 — 판매가가 있는데 최근 판매가
-     적은 메뉴(숨은 메뉴), 계절·시기에 어울리는 메뉴 우선. 판매 0인 신메뉴도 좋다.
-   - title: "딸기라떼를 홍보해 보세요" 형태 (메뉴명 포함, ~해 보세요 어미)
-   - subtitle: 왜 이 메뉴인지 한 줄 (데이터 근거. 예: "판매가 6,500원인데 최근 2주 4잔 — 알리면 팔릴 메뉴")
-3) 과장·없는 데이터 금지. 재고가 없으면 stock 투두는 만들지 않는다. JSON만 반환."""
+2) 과장·없는 데이터 금지. 재고가 없으면 stock 투두는 만들지 않는다. JSON만 반환."""
+
+# 홍보 투두는 LLM이 메뉴를 고르지 않는다 — 고정 문구로 항상 노출하고,
+# 어떤 메뉴를 홍보할지는 앱의 '홍보할 메뉴 고르기'에서 사장님이 직접 고른다.
+# id를 날마다 같게(promo-main) 유지해야 X로 숨긴 기록이 계속 존중된다.
+_PROMO_TODO = {
+    "id_hint": "promo-main",
+    "title": "우리 카페의 주 메뉴를 홍보하세요",
+    "subtitle": "홍보할 메뉴를 고르면 문구·이미지를 만들어 드려요",
+    "kind": "promo",
+    "menu": None,
+}
 
 
 def _gather(store_id: str) -> tuple[list[dict], list[dict]]:
@@ -122,17 +128,6 @@ def _fallback(stocks: list[dict], menus: list[dict]) -> list[dict[str, Any]]:
             "subtitle": f"안전재고 {s['safety']:g}{s['unit']} 기준",
             "kind": "stock", "menu": None,
         })
-    # 홍보 후보: 판매가 높은데 최근 판매가 적은 메뉴 (숨은 마진 메뉴)
-    candidates = [m for m in menus if m["price"] > 0]
-    if candidates:
-        candidates.sort(key=lambda m: (m["sold_14d"], -m["price"]))
-        pick = candidates[0]
-        todos.append({
-            "id_hint": f"promo-{pick['name']}",
-            "title": f"{pick['name']}를 홍보해 보세요",
-            "subtitle": f"판매가 {pick['price']:,}원인데 최근 2주 {pick['sold_14d']}잔 — 알리면 팔릴 메뉴예요",
-            "kind": "promo", "menu": pick["name"],
-        })
     return todos
 
 
@@ -157,28 +152,26 @@ def suggest_todos(store_id: str) -> dict[str, Any]:
 
     from app.services.ai.nearby_cafe_service import _gemini_json
 
-    raw = _gemini_json(_PROMPT.format(stocks=stocks_txt, menus=menus_txt), _SCHEMA, timeout=25.0)
+    # 부족 재고가 없으면 LLM을 부를 필요가 없다 — 홍보 고정 항목만 나간다
+    raw = _gemini_json(_PROMPT.format(stocks=stocks_txt, menus=menus_txt),
+                       _SCHEMA, timeout=25.0) if stocks else None
 
     engine = "ai"
     todos: list[dict[str, Any]] = []
     if raw and isinstance(raw.get("todos"), list):
         valid_stock_ids = {f"stock-{s['id']}" for s in stocks}
-        promo_seen = False
         for t in raw["todos"]:
-            kind = t.get("kind")
-            if kind == "stock" and t.get("id_hint") in valid_stock_ids:
+            if t.get("kind") == "stock" and t.get("id_hint") in valid_stock_ids:
                 todos.append({"id_hint": t["id_hint"], "title": str(t.get("title", ""))[:60],
                               "subtitle": str(t.get("subtitle", ""))[:80],
                               "kind": "stock", "menu": None})
-            elif kind == "promo" and not promo_seen and t.get("menu"):
-                promo_seen = True
-                todos.append({"id_hint": f"promo-{t['menu']}",
-                              "title": str(t.get("title", ""))[:60],
-                              "subtitle": str(t.get("subtitle", ""))[:80],
-                              "kind": "promo", "menu": str(t["menu"])[:50]})
-    if not todos:
+    if not todos and stocks:
         engine = "heuristic"
         todos = _fallback(stocks, menus)
+
+    # 홍보 투두 — 등록된 메뉴가 있으면 항상 붙는 고정 항목 (메뉴 선택은 앱에서)
+    if menus:
+        todos.append(dict(_PROMO_TODO))
 
     result = {"engine": engine, "todos": todos}
     _cache[store_id] = (time.time(), today, result)

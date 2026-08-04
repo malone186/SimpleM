@@ -1,9 +1,11 @@
 // 할 일 목록 (Design Spec §4-③ 연동 — iOS 팝업 모달 기반 새 업무 등록 및 1줄 세련 레이아웃 최종)
 import { useEffect, useRef, useState, useMemo } from 'react';
-import { Animated, Modal, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 
+import { useAuth } from '../../auth/AuthContext';
+import { listMenus, type MenuItem } from '../../lib/api/sales';
 import { colors, spacing, typography, shadows } from '../../theme';
 import { PopIn, PressableScale, SlideUp } from '../motion';
 import { type DateInfo } from './SalesCard';
@@ -124,6 +126,27 @@ export default function TodoList({
   // [한글 주석] 수정 중인 Todo 대상 상태 (null이면 신규 등록 모드, 존재하면 팝업 모달 수정 모드)
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
   const [newTitle, setNewTitle] = useState('');
+
+  // [홍보할 메뉴 고르기] '주 메뉴를 홍보하세요' 투두에서 열리는 메뉴 선택 모달 —
+  // 메뉴 관리에 등록된 전체 메뉴 중 하나를 고르면 홍보 스튜디오로 이동하며 자동 입력된다.
+  const { token } = useAuth();
+  const navigation = useNavigation<any>();
+  const [promoPickerOpen, setPromoPickerOpen] = useState(false);
+  const [promoMenus, setPromoMenus] = useState<MenuItem[] | null>(null);
+  const openPromoPicker = async () => {
+    setPromoPickerOpen(true);
+    if (promoMenus !== null || !token) return;
+    try {
+      setPromoMenus(await listMenus(token));
+    } catch (e) {
+      console.error('홍보 메뉴 목록 조회 실패:', e);
+      setPromoMenus([]);
+    }
+  };
+  const pickPromoMenu = (name: string) => {
+    setPromoPickerOpen(false);
+    navigation.navigate('Marketing', { prefillMenu: name, ts: Date.now() });
+  };
   // [한글 주석] 초기 카테고리는 선택되지 않은 null 상태 (아무 카테고리 칩도 누르지 않고 등록 시 태그 없이 생성)
   const [selectedCategory, setSelectedCategory] = useState<TodoCategory | null>(null);
 
@@ -257,6 +280,7 @@ export default function TodoList({
                   onDeleteTodo={onDeleteTodo}
                   disabled={disabled}
                   startEdit={startEdit}
+                  onPromoPress={openPromoPicker}
                 />
               </SlideUp>
             );
@@ -301,6 +325,49 @@ export default function TodoList({
           )}
         </View>
       )}
+
+      {/* ── [홍보할 메뉴 고르기 모달] 등록된 전체 메뉴에서 선택 → 홍보 스튜디오로 이동 ── */}
+      <Modal
+        visible={promoPickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPromoPickerOpen(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackdropPress} onPress={() => setPromoPickerOpen(false)} />
+          <SlideUp style={styles.promoPickerCard}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+              <Ionicons name="megaphone" size={15} color="#8C6F56" />
+              <Text style={styles.promoPickerTitle}>홍보할 메뉴 고르기</Text>
+            </View>
+            <Text style={styles.promoPickerSub}>
+              고르면 홍보 스튜디오에 메뉴가 자동 입력돼요
+            </Text>
+            {promoMenus === null ? (
+              <Text style={styles.promoPickerEmpty}>메뉴를 불러오는 중…</Text>
+            ) : promoMenus.length === 0 ? (
+              <Text style={styles.promoPickerEmpty}>
+                등록된 메뉴가 없어요. 메뉴 관리에서 먼저 메뉴를 등록해 주세요.
+              </Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator={false}>
+                {promoMenus.map((m) => (
+                  <TouchableOpacity
+                    key={m.id}
+                    style={styles.promoMenuRow}
+                    onPress={() => pickPromoMenu(m.name)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.promoMenuName} numberOfLines={1}>{m.name}</Text>
+                    <Text style={styles.promoMenuPrice}>₩{m.selling_price.toLocaleString()}</Text>
+                    <Ionicons name="chevron-forward" size={14} color="#8C6F56" />
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </SlideUp>
+        </View>
+      </Modal>
 
       {/* ── [iOS 팝업 모달 다이얼로그: 새 업무 등록 / 업무 수정 통합 모달] ── */}
       <Modal
@@ -395,6 +462,7 @@ function TodoItem({
   onDeleteTodo,
   disabled,
   startEdit,
+  onPromoPress,
 }: {
   todo: Todo;
   isPastDate?: boolean;
@@ -403,12 +471,12 @@ function TodoItem({
   onDeleteTodo?: (id: string) => void;
   disabled: boolean;
   startEdit: (todo: Todo) => void;
+  onPromoPress?: () => void;
 }) {
   const animX = useRef(new Animated.Value(0)).current;
   const animOpacity = useRef(new Animated.Value(1)).current;
   const checkScale = useRef(new Animated.Value(1)).current;
   const cardScale = useRef(new Animated.Value(1)).current;
-  const navigation = useNavigation<any>();
 
   const handleToggle = () => {
     // [한글 주석: 산디과 감성 과하지 않고 쫀득한 명품 절제형 Bouncy Spring 완료 인터랙션]
@@ -503,17 +571,15 @@ function TodoItem({
               </View>
             )}
           </View>
-          {/* 홍보 추천 항목 — 누르면 홍보 스튜디오로, 메뉴가 프롬프트에 자동 입력된다 */}
+          {/* 홍보 추천 항목 — 누르면 등록된 전체 메뉴에서 홍보할 메뉴를 고르는 모달이 열린다 */}
           {todo.action === 'marketing' && !disabled && (
             <TouchableOpacity
-              onPress={() =>
-                navigation.navigate('Marketing', { prefillMenu: todo.menu ?? '', ts: Date.now() })
-              }
+              onPress={() => onPromoPress?.()}
               style={styles.promoLink}
               hitSlop={{ top: 6, bottom: 6 }}
             >
               <Ionicons name="megaphone-outline" size={11} color="#8C6F56" />
-              <Text style={styles.promoLinkText}>홍보하러 가기 ›</Text>
+              <Text style={styles.promoLinkText}>홍보할 메뉴 고르기 ›</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -826,6 +892,28 @@ const styles = StyleSheet.create({
     color: '#8C6F56',
     textDecorationLine: 'underline',
   },
+  // 홍보할 메뉴 고르기 모달
+  promoPickerCard: {
+    width: '86%',
+    maxWidth: 360,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 18,
+    ...shadows.medium,
+  },
+  promoPickerTitle: { fontSize: 15.5, fontWeight: '900', color: colors.espressoBrown },
+  promoPickerSub: { fontSize: 11.5, fontWeight: '600', color: colors.mochaBrown, marginBottom: 10 },
+  promoPickerEmpty: { fontSize: 12, color: colors.mochaBrown, paddingVertical: 16, textAlign: 'center' },
+  promoMenuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(60, 60, 67, 0.08)',
+  },
+  promoMenuName: { flex: 1, fontSize: 13.5, fontWeight: '700', color: colors.espressoBrown },
+  promoMenuPrice: { fontSize: 12, fontWeight: '600', color: colors.mochaBrown },
   actionsRight: {
     flexDirection: 'row',
     alignItems: 'center',
