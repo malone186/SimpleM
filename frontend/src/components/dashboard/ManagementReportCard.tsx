@@ -610,7 +610,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 7,
-    backgroundColor: colors.pointOrange,
+    backgroundColor: colors.espressoBrown, // [시안 반영] 어두운 딥브라운 알약 버튼
     borderRadius: 999,
     paddingVertical: 11,
   },

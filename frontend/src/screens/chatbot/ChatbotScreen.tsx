@@ -278,8 +278,8 @@ export default function ChatbotScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      // [한글 주석] 고정 90은 홈 인디케이터 없는 기기에서 입력창을 과하게 띄웠다 → 실측 inset 기반으로
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      // [한글 주석] iOS 및 웹에서 탭바와 헤더 오프셋 보정
       keyboardVerticalOffset={Platform.OS === 'ios' ? 56 + bottomInset : 0}
     >
       {/* [딥브라운 오로라 배경] 재고/관리 탭과 동일 — 상단 딥브라운에서 하단 크림으로 */}
@@ -399,22 +399,24 @@ export default function ChatbotScreen() {
         )}
       </ScrollView>
 
-      {/* [한글 주석] 하단 제스처 바/홈 인디케이터 실측 여백을 더해 입력창이 시스템 바에 물리지 않게 한다 */}
-      <View style={[styles.inputBar, { paddingBottom: s(10) + bottomInset }]}>
-        <TextInput
-          ref={inputRef}
-          style={styles.input}
-          placeholder={sending ? (language === 'en' ? 'Waiting for response...' : '답변을 기다리는 중…') : (language === 'en' ? 'Ask Brew anything about your cafe...' : '브루에게 물어보세요')}
-          placeholderTextColor={colors.mochaBrown}
-          value={input}
-          onChangeText={setInput}
-          onFocus={scrollDown}
-          onSubmitEditing={() => send(input)}
-          returnKeyType="send"
-          editable={!sending}
-        />
+      {/* [한글 주석] 하단 탭 바 위에 바로 밀착되도록 중복 bottomInset 여백 제거 및 시안 맞춤 입력바 */}
+      <View style={styles.inputBar}>
+        <View style={styles.inputWrapper}>
+          <TextInput
+            ref={inputRef}
+            style={styles.input}
+            placeholder={sending ? (language === 'en' ? 'Waiting for response...' : '답변을 기다리는 중…') : (language === 'en' ? 'Ask Brew anything about your cafe...' : '브루에게 물어보세요')}
+            placeholderTextColor={colors.mochaBrown}
+            value={input}
+            onChangeText={setInput}
+            onFocus={scrollDown}
+            onSubmitEditing={() => send(input)}
+            returnKeyType="send"
+            editable={!sending}
+          />
+        </View>
         <PressableScale style={styles.sendBtn} onPress={() => send(input)} disabled={sending} to={0.88}>
-          <Ionicons name="arrow-up" size={20} color={colors.white} />
+          <Ionicons name="arrow-up" size={18} color={colors.white} />
         </PressableScale>
       </View>
       </View>
@@ -577,29 +579,36 @@ const styles = StyleSheet.create({
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    // [한글 주석] paddingBottom 은 기기 하단 inset 을 더해 인라인으로 덮어쓴다 (고정값은 기기마다 어긋났다)
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    // [한글 주석] 탭 바 바로 위에 밀착되도록 상/하단 얇은 구분선 추가
     borderTopWidth: 1,
     borderTopColor: colors.mutedSand,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.mutedSand,
     backgroundColor: colors.white,
   },
-  input: {
+  inputWrapper: {
     flex: 1,
-    backgroundColor: colors.creamSand,
+    borderWidth: 1.5,
+    borderColor: colors.espressoBrown,
     borderRadius: 999,
+    backgroundColor: colors.white,
+    justifyContent: 'center',
+  },
+  input: {
     paddingHorizontal: 16,
-    paddingVertical: 11,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 7,
     ...typography.L4,
     fontWeight: '500',
     color: colors.espressoBrown,
   },
   sendBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.pointOrange,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.espressoBrown, // [시안 반영] 어두운 딥브라운 원형 전송 버튼
     alignItems: 'center',
     justifyContent: 'center',
   },
