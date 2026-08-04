@@ -1100,6 +1100,53 @@ def _scan_rewards(db, store_id: str, today: date) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
+# 설정 구멍 — 안 채우면 기능이 '조용히' 안 도는 것들
+# ---------------------------------------------------------------------------
+
+def _scan_setup_gaps(db, store_id: str, today: date) -> list[dict[str, Any]]:
+    """켜 두면 알아서 돌아갈 기능이 설정 하나 때문에 멈춰 있는 경우.
+
+    화면에 오류가 뜨지 않아서 사장님은 '원래 그런가 보다' 하고 지나간다 —
+    그래서 시스템이 먼저 말해야 하는 자리다.
+    """
+    from app.models.ai import CafeReviewLink
+    from app.models.user import User
+
+    out: list[dict[str, Any]] = []
+
+    user = db.query(User).filter(User.email == store_id).first()
+    if user is not None and (user.store_lat is None or user.store_lon is None):
+        out.append(_insight(
+            key="setup_location",
+            category="system",
+            severity="medium",
+            title="매장 위치를 아직 등록하지 않으셨어요",
+            body=(
+                "위치를 등록해야 주변 카페 개업·폐업 감시, 반경 3km 행사 알림, "
+                "날씨 보정 수요 예측이 돌아갑니다. 지도에서 한 번 찍어두면 끝이에요."
+            ),
+            action="매장 위치 등록하는 법 알려줘",
+            todo="매장 위치 등록",
+        ))
+        return out  # 위치가 없으면 아래 리뷰 연결은 어차피 다음 순서다
+
+    if db.query(CafeReviewLink).filter(CafeReviewLink.store_id == store_id).first() is None:
+        out.append(_insight(
+            key="setup_review_link",
+            category="system",
+            severity="low",
+            title="'내 카페'를 연결하면 손님 후기를 모아 드려요",
+            body=(
+                "지도에서 우리 가게를 한 번 지정해 두면 블로그·방문자 후기를 모아 "
+                "무엇이 칭찬받고 무엇이 아쉬웠는지 정리해 드립니다."
+            ),
+            action="내 카페 리뷰 보여줘",
+            todo="",
+        ))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # 무거운 스캐너 — 매장당 DEEP_TTL_SECONDS에 한 번만 돈다
 # ---------------------------------------------------------------------------
 
@@ -1176,6 +1223,7 @@ _SCANNERS: list[tuple[str, Callable]] = [
     ("demand_outlook", _scan_demand_outlook),
     ("menu_margin", _scan_menu_margin),
     ("rewards", _scan_rewards),
+    ("setup_gaps", _scan_setup_gaps),
 ]
 
 # 손님별 방문 통계·외부 사이트 수집처럼 초 단위가 걸리는 것들 (매장당 6시간에 한 번)
@@ -1241,6 +1289,43 @@ def _deep_insights(store_id: str, today: date, block: bool = False) -> list[dict
 
 
 # ---------------------------------------------------------------------------
+# 빠른 스캐너 실행 — 짧은 캐시로 같은 순간의 중복 계산만 걷어낸다
+# ---------------------------------------------------------------------------
+
+# 앱은 인사이트를 10분마다 폴링하고, 홈 화면은 같은 스캔으로 '오늘 할 일'을 만든다.
+# 둘이 앱을 켜는 순간 나란히 들어오므로, 아주 짧은 캐시만 둬도 DB를 절반으로 줄인다.
+# (하루 단위로 바뀌는 정보라 이 정도 지연은 화면에서 보이지 않는다)
+SCAN_TTL_SECONDS = 120
+
+_scan_cache: dict[str, tuple[float, str, list[dict[str, Any]], list[str]]] = {}
+
+
+def _fast_insights(store_id: str, today: date,
+                   deep: bool = False) -> tuple[list[dict[str, Any]], list[str]]:
+    """빠른 스캐너 전체 + 캐시된 무거운 스캐너 결과. 반환: (인사이트, 실패한 스캐너)"""
+    hit = _scan_cache.get(store_id)
+    if not deep and hit and hit[1] == today.isoformat() and time.time() - hit[0] < SCAN_TTL_SECONDS:
+        return list(hit[2]), list(hit[3])
+
+    found: list[dict[str, Any]] = _deep_insights(store_id, today, block=deep)
+    failed: list[str] = []
+    with _db() as db:
+        for name, scanner in _SCANNERS:
+            try:
+                found.extend(scanner(db, store_id, today))
+            except Exception:
+                # 매장마다 안 쓰는 기능이 있다 — 한 스캐너가 죽어도 나머지는 살린다.
+                # PostgreSQL은 실패한 쿼리가 트랜잭션 전체를 막으므로 반드시 롤백해야
+                # 다음 스캐너가 정상 동작한다 (이게 없으면 격리가 무의미해진다).
+                logger.exception("인사이트 스캐너 실패: %s (store=%s)", name, store_id)
+                db.rollback()
+                failed.append(name)
+
+    _scan_cache[store_id] = (time.time(), today.isoformat(), list(found), list(failed))
+    return found, failed
+
+
+# ---------------------------------------------------------------------------
 # 공개 인터페이스
 # ---------------------------------------------------------------------------
 
@@ -1255,26 +1340,16 @@ def scan(store_id: str, include_dismissed: bool = False,
     from app.models.ai import InsightAck
 
     today = date.today()
-    found: list[dict[str, Any]] = _deep_insights(store_id, today, block=deep)
-    failed: list[str] = []
+    found, failed = _fast_insights(store_id, today, deep=deep)
 
     with _db() as db:
-        for name, scanner in _SCANNERS:
-            try:
-                found.extend(scanner(db, store_id, today))
-            except Exception:
-                # 매장마다 안 쓰는 기능이 있다 — 한 스캐너가 죽어도 나머지는 살린다.
-                # PostgreSQL은 실패한 쿼리가 트랜잭션 전체를 막으므로 반드시 롤백해야
-                # 다음 스캐너가 정상 동작한다 (이게 없으면 격리가 무의미해진다).
-                logger.exception("인사이트 스캐너 실패: %s (store=%s)", name, store_id)
-                db.rollback()
-                failed.append(name)
-
         # 중복 제거 (같은 key가 여러 스캐너에서 나올 수 있다)
         unique: dict[str, dict[str, Any]] = {}
         for item in found:
             unique.setdefault(item["key"], item)
 
+        # 확인/미루기 판정은 캐시 밖에서 매번 새로 한다 — 사장님이 방금 확인 처리한 건이
+        # 캐시 때문에 잠깐 다시 살아나 보이면 안 된다
         if not include_dismissed and unique:
             now = _now()
             acks = (

@@ -1,12 +1,21 @@
 """푸시 알림 규칙 엔진 (백엔드 B) — 무엇을 언제 보낼지 결정한다
 
-Tier 1 다섯 종류를 다룬다. 판단 기준은 "앱을 닫아둔 사이에 놓치면 손해가 나는가"다.
+판단 기준은 "앱을 닫아둔 사이에 놓치면 손해가 나는가"다.
   1. compliance — 갱신 임박 서류 (D-30/D-7/D-1/만료). 놓치면 과태료.
   2. report     — 경영 리포트 도착. 본문에 숫자를 담아 열기 전에 이미 정보가 되게 한다.
   3. stock      — 재고 '이미 부족'이 아니라 '며칠 뒤 소진 예상'. 발주 리드타임 확보용.
   4. sensor     — 냉장고 온도 이탈 등 설비 이상. 유일하게 방해금지를 뚫는다.
-  5. nearby     — 주변 상권 변화. 곧 열리는 행사(무엇을 준비할지 AI 플랜 포함)와
+  5. report     — 마감 리포트. 하루를 닫는 습관을 만든다.
+  6. stock      — 원두 시세 하락. 지금이 사 둘 때인지 알려준다.
+  7~8. nearby   — 주변 상권 변화. 곧 열리는 행사(무엇을 준비할지 AI 플랜 포함)와
                   경쟁 카페 개업·폐업. 화면을 안 열면 영영 모르고 지나가는 정보다.
+  9. briefing   — 아침 브리핑. 오픈 시각에 어제 실적과 오늘 급한 일을 한 장으로.
+  10. insight   — 위 규칙이 담당하지 않는 나머지 영역(정산 미입력·뜸해진 단골·POS 연동
+                  끊김·팔수록 손해인 메뉴 등)의 '지금 조치' 건. 발동 조건은 전부
+                  insight_service에 있고 여기서는 무엇을 언제 내보낼지만 정한다.
+
+새 알림을 붙일 때는 규칙 함수를 늘리기 전에 insight_service에 스캐너를 먼저 넣는다 —
+그래야 같은 근거가 알림·홈 할 일·챗봇·아침 브리핑에 동시에 반영된다.
 
 발송은 push_service가 하고, 여기서는 규칙 판정 · 묶음 · 중복 방지만 한다.
 중복 방지는 SentNotification의 (store_id, dedupe_key) 유니크 제약에 맡긴다 —
@@ -168,6 +177,45 @@ def _dispatch(db, store_id: str, category: str, dedupe_key: str, title: str, bod
         logger.warning("발송 0건 — 이력 취소하고 다음 실행에 재시도 (%s / %s)", store_id, dedupe_key)
         return False
 
+    return True
+
+
+def _dispatch_bundle(db, store_id: str, category: str, dedupe_keys: list[str],
+                     title: str, body: str, data: dict[str, Any], urgent: bool = False) -> bool:
+    """여러 사건을 알림 '한 건'으로 묶어 보낸다. 실제로 보냈으면 True.
+
+    사건마다 따로 쏘면 몇 초 사이에 알림이 여러 개 몰려 폰에서 서로 묻힌다 —
+    실측으로 주변 소식 3건을 연달아 보냈더니 사장님 폰에는 하나만 떴다(FCM은 3건 다
+    수락했는데도). 재고 알림이 진작부터 품목을 묶어 보내던 것과 같은 이유다.
+
+    중복 방지는 사건별로 그대로 유지한다: 아직 안 보낸 키만 골라 이력을 남기고,
+    발송은 그 묶음에 대해 한 번만 한다.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    from app.models.ai import SentNotification
+
+    fresh = [k for k in dedupe_keys if not _already_sent(db, store_id, k)]
+    if not fresh:
+        return False
+
+    rows = [SentNotification(store_id=store_id, dedupe_key=k, category=category,
+                             title=title, body=body) for k in fresh]
+    db.add_all(rows)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return False  # 다른 실행이 선점 — 그쪽이 보낸다
+
+    payload = {"category": category, **{k: str(v) for k, v in data.items()}}
+    if push_service.send_to_store(db, store_id, title, body, payload, urgent=urgent) == 0:
+        # 한 대도 못 보냈다 — 예약을 취소해 다음 실행에서 다시 시도한다 (_dispatch와 같은 이유)
+        for row in rows:
+            db.delete(row)
+        db.commit()
+        logger.warning("발송 0건 — 이력 취소하고 다음 실행에 재시도 (%s / %s)", store_id, fresh)
+        return False
     return True
 
 
@@ -575,30 +623,25 @@ def check_bean_price(db, store_id: str, settings, now: datetime) -> list[str]:
 # 규칙 7 — 주변 행사 D-day (무엇을 준비할지 AI 플랜을 함께 보낸다)
 # ---------------------------------------------------------------------------
 
-def check_nearby_event(db, store_id: str, settings, now: datetime) -> list[str]:
-    """매장 반경에서 곧 열리는 행사를 알리고, 그 행사에 걸 이벤트·준비를 AI가 제안한다.
+def _pending_event(db, store_id: str, now: datetime) -> Optional[dict[str, Any]]:
+    """지금 알릴 만한 행사 하나와 그 준비 플랜. 없으면 None.
 
-    한 번 실행에 행사 하나만 보낸다(가장 영향이 큰 것). 축제 시즌에 다섯 건이 한꺼번에
-    울리면 알림을 끄기 때문이다 — 나머지는 본문에 "외 N건"으로만 알리고 화면에서 본다.
+    한 번에 행사 하나만 고른다(가장 영향이 큰 것). 축제 시즌에 다섯 건이 한꺼번에
+    울리면 알림을 끄기 때문이다 — 나머지는 "외 N건"으로만 알리고 화면에서 본다.
     """
-    if not getattr(settings, "nearby_alert", True):
-        return []
-    if now.hour < NEARBY_HOUR:
-        return []
-
     from app.services.ai import nearby_watch_service
 
     point = nearby_watch_service.store_point(db, store_id)
     if not point:
-        return []  # 매장 위치 미등록 — 알릴 반경 자체가 없다
+        return None  # 매장 위치 미등록 — 알릴 반경 자체가 없다
 
     try:
         events = nearby_watch_service.pick_alert_events(*point)
     except Exception:
         logger.exception("주변 행사 조회 실패 (%s)", store_id)
-        return []
+        return None
     if not events:
-        return []
+        return None
 
     from app.services.ai.nearby_event_service import _norm
 
@@ -635,39 +678,32 @@ def check_nearby_event(db, store_id: str, settings, now: datetime) -> list[str]:
         if others > 0:
             body += f" · 주변 행사 {others}건 더"
 
-        if _dispatch(db, store_id, "nearby", key, title[:200], body,
-                     {"screen": "StoreMap", "event_name": event.get("name") or "",
-                      "start_date": event.get("start_date") or "",
-                      # 같은 nearby라도 행사·개업·폐업은 서로 다른 알림이다 (tag가 같으면 덮인다)
-                      "tag": "nearby_event"}):
-            return [key]
-        return []
-    return []
+        return {"key": key, "title": title[:200], "line": body, "event": event}
+    return None
 
 
 # ---------------------------------------------------------------------------
 # 규칙 8 — 주변 카페 개업 · 폐업
 # ---------------------------------------------------------------------------
 
-def check_nearby_cafe(db, store_id: str, settings, now: datetime) -> list[str]:
-    """반경 안 카페를 매일 훑어 새로 생기거나 사라진 곳을 알린다.
+def _pending_cafe(db, store_id: str, now: datetime) -> dict[str, Any]:
+    """반경 안 카페를 훑어 아직 안 알린 개업·폐업을 돌려준다.
 
-    스캔 자체가 이 규칙 안에 있다 — 관측 대장(nearby_cafe_watch)이 매일 갱신돼야
-    '어제와 비교'가 성립하기 때문이다. 하루 한 번만 돌도록 날짜 키로 잠근다.
+    스캔 자체가 여기 있다 — 관측 대장(nearby_cafe_watch)이 매일 갱신돼야 '어제와 비교'가
+    성립하기 때문이다. 하루 한 번만 돌도록 날짜 키로 잠근다.
 
     보낼 목록은 스캔 결과가 아니라 대장의 '아직 안 알린 변화'에서 가져온다 —
     지도 화면의 백그라운드 스캔이 먼저 돌아 변화를 확정해 버린 날에도 알림이 나가야 한다.
+
+    반환: {"keys": [...], "lines": [...], "opened": [...], "closed": [...]}
     """
-    if not getattr(settings, "nearby_alert", True):
-        return []
-    if now.hour < NEARBY_HOUR:
-        return []
+    empty: dict[str, Any] = {"keys": [], "lines": [], "opened": [], "closed": []}
 
     from app.services.ai import nearby_watch_service
 
     point = nearby_watch_service.store_point(db, store_id)
     if not point:
-        return []
+        return empty
 
     today = now.date().isoformat()
     scan_key = f"cafescan:{today}"
@@ -682,7 +718,7 @@ def check_nearby_cafe(db, store_id: str, settings, now: datetime) -> list[str]:
         except Exception:
             logger.exception("주변 카페 감시 실패 (%s)", store_id)
             db.rollback()
-            return []
+            return empty
 
         # 스캔이 성공했으면 '오늘은 돌았다'고 기록한다. 발송 이력 테이블을 그대로 쓰지만
         # 이 키는 알림이 아니라 잠금이므로 푸시로 나가지 않는다.
@@ -702,40 +738,78 @@ def check_nearby_cafe(db, store_id: str, settings, now: datetime) -> list[str]:
     # ② 보낼 것은 대장에서 고른다 — 스캔을 누가 돌렸든(지도 화면 백그라운드 포함) 유실되지 않게
     pending = nearby_watch_service.pending_changes(db, store_id)
 
-    sent: list[str] = []
+    keys: list[str] = []
+    lines: list[str] = []
     opened, closed = pending["opened"], pending["closed"]
 
     if opened:
         head = opened[0]
-        title = "☕ 근처에 카페가 새로 생겼어요"
-        body = f"{head['name']} · {head['distance_m']}m"
-        if head.get("category"):
-            body += f" · {head['category'].split('>')[-1]}"
-        if len(opened) > 1:
-            body += f" 외 {len(opened) - 1}곳"
-        body += " — 지도에서 후기·강점을 확인해 보세요."
-        key = f"cafeopen:{today}:{len(opened)}"
-        if _dispatch(db, store_id, "nearby", key, title, body,
-                     {"screen": "StoreMap", "focus": "changes", "tag": "nearby_open"}):
-            nearby_watch_service.mark_notified(db, store_id, [c["place_key"] for c in opened], "opened")
-            sent.append(key)
+        line = f"☕ 새로 생김: {head['name']} ({head['distance_m']}m"
+        line += f", {len(opened) - 1}곳 더)" if len(opened) > 1 else ")"
+        lines.append(line)
+        keys.append(f"cafeopen:{today}:{len(opened)}")
 
     if closed:
         head = closed[0]
-        title = "🏚 근처 카페가 문을 닫은 것 같아요"
-        body = f"{head['name']} · {head['distance_m']}m"
-        if len(closed) > 1:
-            body += f" 외 {len(closed) - 1}곳"
-        # 검색에서 사라진 것을 근거로 한 '추정'이라는 점을 본문에 남긴다 —
-        # 단정해서 알렸다가 멀쩡히 영업 중이면 알림 전체의 신뢰가 깎인다.
-        body += " — 검색에서 사라졌어요(추정). 손님이 넘어올 기회예요."
-        key = f"cafeclose:{today}:{len(closed)}"
-        if _dispatch(db, store_id, "nearby", key, title, body,
-                     {"screen": "StoreMap", "focus": "changes", "tag": "nearby_close"}):
-            nearby_watch_service.mark_notified(db, store_id, [c["place_key"] for c in closed], "closed")
-            sent.append(key)
+        line = f"🏚 없어진 듯: {head['name']} ({head['distance_m']}m"
+        line += f", {len(closed) - 1}곳 더)" if len(closed) > 1 else ")"
+        lines.append(line)
+        keys.append(f"cafeclose:{today}:{len(closed)}")
 
-    return sent
+    return {"keys": keys, "lines": lines, "opened": opened, "closed": closed}
+
+
+def check_nearby(db, store_id: str, settings, now: datetime) -> list[str]:
+    """규칙 7·8 — 주변 소식(곧 열리는 행사 + 경쟁 카페 개업·폐업)을 **한 건**으로 보낸다.
+
+    행사와 카페 변화를 따로 쏘던 시절엔 몇 초 사이에 알림 두세 개가 몰려 폰에서 서로
+    묻혔다(실측: 3건을 보냈는데 하나만 떴다). 사장님 입장에서도 "오늘 주변 소식"은
+    한 덩어리로 읽는 편이 낫다. 제목은 가장 시급한 것(행사)이 가져가고, 나머지는 본문에 줄로 붙는다.
+    """
+    if not getattr(settings, "nearby_alert", True):
+        return []
+    if now.hour < NEARBY_HOUR:
+        return []
+
+    from app.services.ai import nearby_watch_service
+
+    event = _pending_event(db, store_id, now)
+    cafe = _pending_cafe(db, store_id, now)
+
+    keys = ([event["key"]] if event else []) + cafe["keys"]
+    if not keys:
+        return []
+
+    if event:
+        title = event["title"]
+        lines = [event["line"], *cafe["lines"]]
+    else:
+        # 행사가 없으면 카페 변화가 제목을 가져간다
+        title = ("☕ 근처에 카페가 새로 생겼어요" if cafe["opened"]
+                 else "🏚 근처 카페가 문을 닫은 것 같아요")
+        lines = cafe["lines"]
+        # 폐업은 검색에서 사라진 것에 근거한 '추정'이다 — 단정하면 신뢰가 깎인다
+        if cafe["closed"] and not cafe["opened"]:
+            lines.append("검색에서 사라졌어요(추정). 손님이 넘어올 기회예요.")
+
+    data = {"screen": "StoreMap", "tag": "nearby"}
+    if event:
+        data["event_name"] = event["event"].get("name") or ""
+        data["start_date"] = event["event"].get("start_date") or ""
+    if cafe["keys"]:
+        data["focus"] = "changes"
+
+    if not _dispatch_bundle(db, store_id, "nearby", keys, title, "\n".join(lines), data):
+        return []
+
+    # 알림이 실제로 나간 뒤에만 '알림 완료'로 표시한다 (발송 실패면 다음 실행에서 재시도)
+    if cafe["opened"]:
+        nearby_watch_service.mark_notified(
+            db, store_id, [c["place_key"] for c in cafe["opened"]], "opened")
+    if cafe["closed"]:
+        nearby_watch_service.mark_notified(
+            db, store_id, [c["place_key"] for c in cafe["closed"]], "closed")
+    return keys
 
 
 # ---------------------------------------------------------------------------
@@ -852,25 +926,33 @@ def check_insights(db, store_id: str, settings, now: datetime) -> list[str]:
         logger.exception("인사이트 알림 스캔 실패 (%s)", store_id)
         return []
 
-    sent: list[str] = []
+    picked: list[dict[str, Any]] = []
     for item in scan.get("insights", []):
-        if len(sent) >= INSIGHT_PUSH_MAX:
+        if len(picked) >= INSIGHT_PUSH_MAX:
             break
         if item.get("severity") != "high":
             continue  # medium 이하는 앱을 열었을 때 보면 되는 일이다
-        category = item.get("category") or ""
-        if category in INSIGHT_PUSH_SKIP_CATEGORIES:
+        if (item.get("category") or "") in INSIGHT_PUSH_SKIP_CATEGORIES:
             continue
+        picked.append(item)
 
-        key = f"insight:{item['key']}"[:120]
-        icon = INSIGHT_ICON.get(category, "🔔")
-        body = (item.get("body") or "")[:300]
-        if _dispatch(db, store_id, "insight", key,
-                     f"{icon} {item['title']}"[:200], body,
-                     {"screen": INSIGHT_SCREEN.get(category, "Dashboard"),
-                      "tag": f"insight_{category}"}):
-            sent.append(key)
-    return sent
+    if not picked:
+        return []
+
+    # 여러 건이어도 알림은 한 장으로 묶는다 — 몇 초 사이에 두 개를 쏘면 폰에서 하나가 묻힌다
+    head = picked[0]
+    category = head.get("category") or ""
+    title = f"{INSIGHT_ICON.get(category, '🔔')} {head['title']}"[:200]
+    body = (head.get("body") or "")[:250]
+    if len(picked) > 1:
+        body += f"\n· {picked[1]['title']}"
+
+    keys = [f"insight:{i['key']}"[:120] for i in picked]
+    if _dispatch_bundle(db, store_id, "insight", keys, title, body,
+                        {"screen": INSIGHT_SCREEN.get(category, "Dashboard"),
+                         "tag": f"insight_{category}"}):
+        return keys
+    return []
 
 
 def run_for_store(db, store_id: str, now: Optional[datetime] = None) -> dict[str, Any]:
@@ -895,10 +977,13 @@ def run_for_store(db, store_id: str, now: Optional[datetime] = None) -> dict[str
     sent += check_stock(db, store_id, settings, now)
     sent += check_closing(db, store_id, settings, now)      # 규칙 5 — 마감 리포트
     sent += check_bean_price(db, store_id, settings, now)   # 규칙 6 — 원두 시세 하락
-    sent += check_nearby_event(db, store_id, settings, now) # 규칙 7 — 주변 행사 D-day + AI 플랜
-    sent += check_nearby_cafe(db, store_id, settings, now)  # 규칙 8 — 주변 카페 개업·폐업
-    sent += check_briefing(db, store_id, settings, now)     # 규칙 9 — 아침 브리핑
-    sent += check_insights(db, store_id, settings, now)     # 규칙 10 — 나머지 영역의 '지금 조치'
+    sent += check_nearby(db, store_id, settings, now)       # 규칙 7·8 — 주변 소식 (한 건으로 묶어서)
+    briefed = check_briefing(db, store_id, settings, now)   # 규칙 9 — 아침 브리핑
+    sent += briefed
+    # 브리핑이 방금 나갔으면 인사이트 푸시는 다음 실행으로 미룬다 — 브리핑 본문에 이미
+    # 같은 우선순위가 담겨 있고, 몇 초 사이 두 건을 쏘면 폰에서 하나가 묻힌다.
+    if not briefed:
+        sent += check_insights(db, store_id, settings, now)  # 규칙 10 — 나머지 영역의 '지금 조치'
     return {"store_id": store_id, "sent": sent}
 
 

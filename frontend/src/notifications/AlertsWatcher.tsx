@@ -9,7 +9,10 @@
 //      바로 아래 '언제 소리로 읽어줄까요?'(항상 / 이어폰 연결 시에만)로 출력 조건을 고른다.
 //      기본은 '항상' — 예전엔 이어폰 감지가 실패하면 알림이 통째로 조용해졌다.
 // ⑦ 선제 인사이트: 서버가 매장 DB를 훑어 찾아낸 "곧 할 일·놓친 일"을 10분 주기로 받아 알림
-//    — 재고 소진 예상일, 신고 기한, 갱신 서류, 주휴수당, 방치된 초안 등 (먼저 말을 걸지는 않는다)
+//    — 재고 소진 예상일, 신고 기한, 갱신 서류, 주휴수당, 방치된 초안, 어제 매출 미입력,
+//      대기 중인 단골, POS 연동 끊김, 원가율이 무너진 메뉴, 내일 수요 급증 등
+//      (먼저 말을 걸지는 않는다 — 알림으로만 전하고 대화는 사장님이 시작한다)
+// ⑩ 오늘의 브리핑: 하루의 첫 실행에서 한 번, 어제 실적과 오늘 급한 일 3가지를 한 번에
 // (관리자 공지는 홈 화면 강아지 말풍선(WelcomeHeader)이 단독으로 전하므로 여기선 토스트를 띄우지 않는다)
 // 같은 품목·같은 날 중복 알림은 AsyncStorage에 발송 이력을 남겨 1회로 제한한다.
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -20,6 +23,7 @@ import { usePreferences } from '../preferences/PreferencesContext';
 import { listMyInquiries } from '../lib/api/inquiry';
 import { listStocks, type StockItem } from '../lib/api/inventory';
 import { fetchNotifications } from '../lib/api/assistant';
+import { fetchBriefing } from '../lib/api/briefing';
 import { fetchInsights } from '../lib/api/insights';
 import { enqueue as speechEnqueue, canPlayAudio, cancelAll as speechCancelAll, setAuthToken as speechSetAuthToken } from '../lib/speech/speechPlayer';
 import { toast } from '../components/toast';
@@ -40,6 +44,10 @@ const STORE_KEY = 'simplem:alerts:state';
 const INQUIRY_KEY = 'simplem:alerts:inquiry-answered-ids';
 // 오늘 이미 알린 인사이트 key 목록 — {date, keys} 형태로 보관해 날짜가 바뀌면 초기화된다
 const INSIGHT_KEY = 'simplem:alerts:insight-sent';
+// ⑩ 오늘의 브리핑을 이미 보여준 날짜 (YYYY-MM-DD) — 하루 한 번만 뜨게
+const BRIEFING_KEY = 'simplem:alerts:briefing-shown';
+// 하루가 바뀌는 것만 보면 되므로 느긋하게 (앱을 켜 둔 채 날짜가 넘어가는 경우 대비)
+const BRIEFING_POLL_MS = 1_800_000; // 30분
 // ⑨ 설비 이상(냉장고 온도·수위) 인앱 감시 — 푸시가 없는 빌드에서만 돈다
 const FAULT_KEY = 'simplem:alerts:sensor-fault-sent';
 const FAULT_POLL_MS = 300_000;        // 5분 — 온도 이탈은 분 단위로 급변하지 않는다
@@ -54,7 +62,14 @@ const INSIGHT_ICON: Record<string, string> = {
   sales: '📉',
   staff: '👥',
   data: '✏️',
-  market: '🏪', // 주변 상권 변화 (카페 개업·폐업)
+  market: '🏪',      // 주변 상권 변화 (카페 개업·폐업)
+  settlement: '💳',  // 카드 정산 — 어제 매출 미입력·오늘 입금
+  customer: '🙋',    // 단골 — 대기 중인 체크인·뜸해진 손님
+  marketing: '📣',   // 홍보 공백·주말 타이밍
+  system: '🔌',      // POS 연동·설비 이상
+  forecast: '🔮',    // 내일 수요 급증·비 예보
+  menu: '🧮',        // 메뉴 원가율
+  reward: '🎁',      // 안 쓴 포인트
 };
 
 type AlertState = {
@@ -130,7 +145,12 @@ export default function AlertsWatcher() {
       .then((s) => {
         if (!alive) return;
         prefs.setPref('lowStockAlert', s.stock_alert);
-        prefs.setPref('proactiveInsights', s.compliance_alert);
+        // '놓친 일 먼저 알려주기'는 이제 인사이트·브리핑 스위치가 주인이다.
+        // 구버전 서버(insight_alert 없음)에서는 예전처럼 서류 알림 값을 따른다.
+        prefs.setPref(
+          'proactiveInsights',
+          typeof s.insight_alert === 'boolean' ? s.insight_alert : s.compliance_alert,
+        );
         // 구버전 서버는 nearby_alert를 안 준다 — 그때는 기기 값을 그대로 둔다
         if (typeof s.nearby_alert === 'boolean') prefs.setPref('nearbyAlert', s.nearby_alert);
         prefs.setPref('reportFrequency', s.report_frequency);
@@ -169,6 +189,9 @@ export default function AlertsWatcher() {
         sensor_alert: true,
         // 주변 소식(행사·경쟁 카페 변화) — 설정 화면의 '주변 소식 알림' 스위치
         nearby_alert: prefs.nearbyAlert,
+        // 아침 브리핑·선제 인사이트 푸시도 '놓친 일 먼저 알려주기'를 따른다 —
+        // 앱 안에서만 조용하고 서버는 계속 보내는 상태가 되지 않게 서버에도 알린다
+        insight_alert: prefs.proactiveInsights,
         report_frequency: prefs.reportFrequency,
         dnd_enabled: prefs.dndEnabled,
         dnd_start: prefs.dndStart,
@@ -467,6 +490,44 @@ export default function AlertsWatcher() {
     prefs.dndStart,
     prefs.dndEnd,
   ]);
+
+  // ⑩ 오늘의 브리핑 — 하루의 첫 실행에서 한 번, 브루가 먼저 하루를 정리해 준다.
+  //
+  // 서버는 이걸 아침(매장 오픈 시각)에 푸시로 보내지만, 그 시각에 앱이 꺼져 있거나
+  // 푸시 모듈이 없는 빌드(OTA로만 갱신된 앱)에서는 도착하지 않는다. 사장님이 앱을 여는
+  // 순간이 사실상 '하루의 시작'이므로, 그날 아직 안 봤다면 여기서 한 번 전한다.
+  // 같은 날 두 번 뜨지 않도록 날짜를 기기에 남긴다 (푸시로 이미 받았어도 앱에서 한 번은
+  // 보여준다 — 알림 목록을 지나쳤을 때 유일하게 남는 경로다).
+  useEffect(() => {
+    if (!signedIn || !prefs.ready || !prefs.proactiveInsights) return;
+
+    let alive = true;
+    const run = async () => {
+      try {
+        if (prefs.dndEnabled && isInDndWindow(new Date(), prefs.dndStart, prefs.dndEnd)) return;
+        const today = dateKey(new Date());
+        if ((await AsyncStorage.getItem(BRIEFING_KEY)) === today) return;
+
+        const briefing = await fetchBriefing(token);
+        if (!alive) return;
+        // 서버가 어제 것을 캐시해 둔 상태라면(하루가 막 바뀐 순간) 내일 다시 본다
+        if (briefing.date !== today) return;
+
+        toast(`☕ 오늘의 브리핑 · ${briefing.headline}`, briefing.message);
+        await AsyncStorage.setItem(BRIEFING_KEY, today);
+      } catch {
+        // 서버 오프라인·구버전 서버(404) — 다음 주기에 다시 시도한다
+      }
+    };
+
+    run();
+    const timer = setInterval(run, BRIEFING_POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [signedIn, token, prefs.ready, prefs.proactiveInsights,
+      prefs.dndEnabled, prefs.dndStart, prefs.dndEnd]);
 
   // ⑨ 설비 이상(냉장고 온도 이탈·수위) — Tier 1 중 유일하게 인앱 감시가 없던 항목.
   //

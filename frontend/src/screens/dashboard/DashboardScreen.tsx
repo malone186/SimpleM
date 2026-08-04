@@ -179,6 +179,13 @@ export default function DashboardScreen() {
       const aiStockIds = new Set(
         aiSuggested.filter((s) => s.kind === 'stock').map((s) => s.id_hint),
       );
+      // 서류 갱신은 인사이트도 만들고 아래 compliance 블록도 만든다 → 한 서류가 두 줄로 뜬다.
+      // 인사이트 키가 `insight-renewal:<서류id>:<만료일>`이라 여기서 서류 id만 뽑아 막는다.
+      const aiRenewalDocIds = new Set(
+        aiSuggested
+          .filter((s) => s.kind === 'insight' && s.id_hint.startsWith('insight-renewal:'))
+          .map((s) => s.id_hint.split(':')[1]),
+      );
 
       aiSuggested.forEach((s) => {
         if (dismissedSet.has(s.id_hint)) return;
@@ -186,9 +193,9 @@ export default function DashboardScreen() {
           id: s.id_hint,
           title: s.title,
           subtitle: s.subtitle,
-          // 재고 항목만 근거 줄을 붙인다 — 홍보 항목은 아래에 '메뉴 고르기' 링크가 있어 중복
-          meta: s.kind === 'stock' ? s.subtitle : undefined,
-          urgentLabel: s.urgent ? '없음' : undefined,
+          // 홍보 항목만 근거 줄을 뺀다 — 아래에 '메뉴 고르기' 링크가 있어 중복이라서
+          meta: s.kind === 'promo' ? undefined : s.subtitle,
+          urgentLabel: s.urgent ? '급함' : undefined,
           actionable: s.kind === 'stock',
           done: completedSet.has(s.id_hint),
           source: 'ai',
@@ -248,7 +255,7 @@ export default function DashboardScreen() {
                 title: `${s.name} 발주`,
                 subtitle: meta,
                 meta,
-                urgentLabel: soldOut ? '없음' : undefined,
+                urgentLabel: soldOut ? '급함' : undefined,
                 actionable: true,
                 done: completedSet.has(stockId), // [한글 주석] 기존 완료 기록이 있으면 체크 상태 유지
                 source: 'ai',
@@ -282,7 +289,8 @@ export default function DashboardScreen() {
             }
 
             const compId = `comp-${c.id}`;
-            if (!dismissedSet.has(compId)) {
+            // 브루 인사이트가 이미 같은 서류의 갱신 할 일을 만들었으면 두 줄로 만들지 않는다
+            if (!dismissedSet.has(compId) && !aiRenewalDocIds.has(String(c.id))) {
               const expired = c.status === 'expired';
               const compMeta = expired
                 ? `기한 지남 · ${c.expiry_date}까지였어요`
@@ -292,7 +300,7 @@ export default function DashboardScreen() {
                 title: expired ? `${c.name} 갱신` : `${c.name} 갱신 준비`,
                 subtitle: compMeta,
                 meta: compMeta,
-                urgentLabel: expired ? '지남' : undefined,
+                urgentLabel: expired ? '급함' : undefined,
                 actionable: false,
                 done: completedSet.has(compId), // [한글 주석] 기존 완료 기록이 있으면 체크 상태 유지
                 source: 'ai',
@@ -320,6 +328,9 @@ export default function DashboardScreen() {
                     : t.source === 'ai'
                       ? '대화 중 추가됨'
                       : '사장님 직접 추가',
+                // 메모가 있을 때만 회색 줄로 — '사장님 직접 추가' 같은 안내는 줄만 늘린다.
+                // (브루 추천을 고쳐서 내 업무로 가져온 경우 "다 떨어짐 · 최소 5kg 필요"가 여기 남는다)
+                meta: t.note && t.note !== '브루가 추가함' ? t.note : undefined,
                 actionable: false,
                 done: completedSet.has(serverIdStr) || t.done,
                 source: t.source,
@@ -587,13 +598,58 @@ export default function DashboardScreen() {
     }
   };
 
+  /** 자동 도출 항목이 새로고침 때 되살아나지 않게 숨김 목록에 넣는다 (기기에만 남는 기록) */
+  const rememberDismissed = async (id: string) => {
+    try {
+      const raw = await AsyncStorage.getItem(DISMISSED_TODOS_KEY);
+      const set = new Set<string>(raw ? JSON.parse(raw) : []);
+      set.add(id);
+      await AsyncStorage.setItem(DISMISSED_TODOS_KEY, JSON.stringify(Array.from(set)));
+    } catch (e) {
+      console.error('숨김 항목 보관 실패:', e);
+    }
+  };
+
   const handleEditTodo = async (id: string, newTitle: string) => {
+    const target = todos.find((t) => t.id === id);
     setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, title: newTitle } : t)));
+    if (!token) return;
 
     const serverId = serverIdOf(id);
-    if (serverId === null || !token) return; // 자동 도출 항목 — 서버에 보낼 것이 없다
+    if (serverId !== null) {
+      try {
+        await updateTodo(token, serverId, { title: newTitle });
+      } catch (e) {
+        console.error('할 일 수정 실패:', e);
+        resync();
+      }
+      return;
+    }
+
+    // 아직 등록 응답을 기다리는 항목 — 화면만 바꿔 두고 서버는 건드리지 않는다
+    if (id.startsWith('local-')) return;
+
+    // 재고·서류·브루 추천처럼 자동으로 만들어진 항목은 서버에 행이 없다.
+    // 사장님이 고쳤다는 건 '내 업무로 가져가겠다'는 뜻이라, 고친 내용으로 새로 저장하고
+    // 원본 자동 항목은 숨긴다 — 이렇게 해야 수정한 제목이 새로고침 후에도 남는다.
     try {
-      await updateTodo(token, serverId, { title: newTitle });
+      const created = await createTodo(token, newTitle, target?.meta || undefined);
+      await rememberDismissed(id);
+      setTodos((prev) =>
+        prev.map((t) =>
+          t.id === id
+            ? {
+                ...t,
+                id: `server-${created.id}`,
+                title: newTitle,
+                source: 'owner',
+                actionable: false,
+                urgentLabel: undefined,
+                action: undefined,
+              }
+            : t,
+        ),
+      );
     } catch (e) {
       console.error('할 일 수정 실패:', e);
       resync();
@@ -605,14 +661,7 @@ export default function DashboardScreen() {
     setTodos((prev) => prev.filter((t) => t.id !== id));
 
     // 2. [한글 주석] 삭제된 항목의 ID를 AsyncStorage에 추가하여 탭 이동 후 재생성되는 현상을 방지
-    try {
-      const raw = await AsyncStorage.getItem(DISMISSED_TODOS_KEY);
-      const set = new Set<string>(raw ? JSON.parse(raw) : []);
-      set.add(id);
-      await AsyncStorage.setItem(DISMISSED_TODOS_KEY, JSON.stringify(Array.from(set)));
-    } catch (e) {
-      console.error('삭제 항목 영구 보관 실패:', e);
-    }
+    await rememberDismissed(id);
 
     // 3. [한글 주석] 서버 DB 항목인 경우 서버에서도 삭제 API 호출
     const serverId = serverIdOf(id);

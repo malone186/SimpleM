@@ -7,6 +7,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../auth/AuthContext';
 import { listMenus, type MenuItem } from '../../lib/api/sales';
 import { colors, spacing, typography, shadows } from '../../theme';
+import { useResponsive } from '../../theme/responsive';
 import { PopIn, PressableScale, SlideUp } from '../motion';
 import { type DateInfo } from './SalesCard';
 
@@ -129,6 +130,8 @@ export default function TodoList({
   onRestoreAiTodos?: () => void;
   hideCard?: boolean;
 }) {
+  // [한글 주석] 뷰포트 비례 계산 — 모달 목록이 작은 화면에서 넘치지 않게
+  const { vh } = useResponsive();
   const [modalVisible, setModalVisible] = useState(false);
   // [한글 주석] 수정 중인 Todo 대상 상태 (null이면 신규 등록 모드, 존재하면 팝업 모달 수정 모드)
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
@@ -172,6 +175,37 @@ export default function TodoList({
       return selectedDateInfo.isToday;
     });
   }, [todos, selectedDateInfo]);
+
+  // ── [한 화면에 몇 줄까지 보일지] ──
+  // 브루가 자동으로 만드는 항목(재고 발주·인사이트·서류·홍보)은 많은 날 10줄이 넘는다.
+  // 다 펼쳐 두면 정작 급한 게 안 읽혀서, 급한 순으로 3줄만 두고 나머지는 접는다.
+  const AI_VISIBLE = 3;
+  const [showAllAi, setShowAllAi] = useState(false);
+
+  // 급한 것 → 브루 추천 → 홍보 → 내가 적은 것 → 끝낸 것 순. (JS sort는 안정 정렬이라
+  // 같은 등급 안에서는 서버가 준 순서, 즉 심각한 순이 그대로 유지된다)
+  const orderedTodos = useMemo(() => {
+    const rank = (t: Todo) => {
+      if (t.done) return 4;              // 끝낸 건 항상 맨 아래
+      if (t.source !== 'ai') return 3;   // 사장님이 직접 적은 업무
+      if (t.urgentLabel) return 0;       // 다 떨어짐 · 기한 지남
+      if (t.action === 'marketing') return 2;
+      return 1;
+    };
+    return [...dateFilteredTodos].sort((a, b) => rank(a) - rank(b));
+  }, [dateFilteredTodos]);
+
+  // 접기 대상은 브루 항목 중 앞 3개를 뺀 나머지 (내가 적은 업무는 절대 숨기지 않는다)
+  const collapsibleAi = useMemo(
+    () => orderedTodos.filter((t) => t.source === 'ai' && !t.done).slice(AI_VISIBLE),
+    [orderedTodos],
+  );
+  const hiddenAiIds = useMemo(
+    () => new Set(showAllAi ? [] : collapsibleAi.map((t) => t.id)),
+    [collapsibleAi, showAllAi],
+  );
+
+  const visibleTodos = orderedTodos.filter((t) => !hiddenAiIds.has(t.id));
 
   const dateLabel = selectedDateInfo
     ? `${selectedDateInfo.monthNum}월 ${selectedDateInfo.dateNum}일`
@@ -276,7 +310,7 @@ export default function TodoList({
             </Text>
           </View>
         ) : (
-          dateFilteredTodos.map((todo) => {
+          visibleTodos.map((todo) => {
             const disabled = !!todo.done;
 
             return (
@@ -294,6 +328,25 @@ export default function TodoList({
               </SlideUp>
             );
           })
+        )}
+
+        {/* 접어 둔 브루 항목 — 줄 수를 늘리지 않게 링크 한 줄로만 */}
+        {collapsibleAi.length > 0 && (
+          <TouchableOpacity
+            onPress={() => setShowAllAi((v) => !v)}
+            style={styles.moreRow}
+            hitSlop={{ top: 6, bottom: 6 }}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.moreText}>
+              {showAllAi ? '간단히 보기' : `${collapsibleAi.length}개 더 보기`}
+            </Text>
+            <Ionicons
+              name={showAllAi ? 'chevron-up' : 'chevron-down'}
+              size={12}
+              color="#8C6F56"
+            />
+          </TouchableOpacity>
         )}
       </Animated.View>
 
@@ -359,7 +412,8 @@ export default function TodoList({
                 등록된 메뉴가 없어요. 메뉴 관리에서 먼저 메뉴를 등록해 주세요.
               </Text>
             ) : (
-              <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator={false}>
+              // [한글 주석] 고정 320 은 세로가 짧은 기기(가로모드·플립)에서 하단 버튼을 밀어냈다 → 뷰포트 비례
+              <ScrollView style={{ maxHeight: Math.min(vh(42), 320) }} showsVerticalScrollIndicator={false}>
                 {promoMenus.map((m) => (
                   <TouchableOpacity
                     key={m.id}
@@ -486,9 +540,16 @@ function TodoItem({
   const animOpacity = useRef(new Animated.Value(1)).current;
   const checkScale = useRef(new Animated.Value(1)).current;
   const cardScale = useRef(new Animated.Value(1)).current;
-  // [이중 안전망] 어떤 출처(구버전 서버 응답·DB 저장분·챗봇 추가분)의 제목이든
-  // 양옆 공백 있는 대시는 줄바꿈으로 표시한다 — 백엔드 변환과 같은 규칙.
-  const displayTitle = todo.title.replace(/\s+[—–-]\s+/g, '\n');
+  // 제목은 '무엇을 할지'만 남긴다.
+  // - "[일일업무] 머신 청소"의 앞 태그는 떼어서 아래 회색 줄로 내린다 (제목이 길어지는 주범)
+  // - 구버전 서버 응답·DB에 남은 "… — 오늘 발주하세요" 형태의 대시는 잘라내 한 줄로
+  const tagMatch = todo.title.match(/^\[([^\]]{1,8})\]\s*/);
+  const displayTitle = todo.title
+    .replace(/^\[[^\]]{1,8}\]\s*/, '')
+    .split(/\s+[—–-]\s+/)[0]
+    .trim();
+  // 회색 보조줄: 서버가 준 근거(meta)가 우선, 없으면 사장님이 고른 카테고리 태그
+  const metaText = todo.meta || tagMatch?.[1];
 
   const handleToggle = () => {
     // [한글 주석: 산디과 감성 과하지 않고 쫀득한 명품 절제형 Bouncy Spring 완료 인터랙션]
@@ -552,7 +613,12 @@ function TodoItem({
       <PressableScale
         disabled={disabled || !todo.actionable}
         onPress={() => onPressAction(todo)}
-        style={[styles.taskCardItem, disabled && styles.itemDone]}
+        style={[
+          styles.taskCardItem,
+          // 급한 항목만 왼쪽 띠를 빨갛게 — 배지 대신 색으로 알려서 글자를 늘리지 않는다
+          !!todo.urgentLabel && !disabled && styles.itemUrgent,
+          disabled && styles.itemDone,
+        ]}
       >
         {/* [1. 쫀득하게 튕겨 올라가는 체크박스 아이콘] */}
         <Animated.View style={{ transform: [{ scale: checkScale }] }}>
@@ -569,29 +635,26 @@ function TodoItem({
           </Pressable>
         </Animated.View>
 
-        {/* [2. 한 줄로 깔끔하게 정돈된 타이틀 텍스트] */}
+        {/* [2. 제목 한 줄 + 회색 근거 한 줄 — 두 층으로만 읽히게] */}
         <View style={{ flex: 1, marginLeft: 8 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1 }}>
-            <Text style={[styles.taskItemTitle, disabled && styles.strike]} numberOfLines={2}>
-              {displayTitle}
-            </Text>
-            {/* 다 떨어졌거나 기한이 지난 급한 항목 강조 */}
-            {!!todo.urgentLabel && !disabled && (
-              <View style={styles.urgentBadge}>
-                <Text style={styles.urgentBadgeText}>{todo.urgentLabel}</Text>
-              </View>
-            )}
-            {/* AI 출처 배지 */}
-            {todo.source === 'ai' && (
-              <View style={[styles.aiBadge, disabled && styles.aiBadgeDone]}>
-                <Text style={[styles.aiBadgeText, disabled && styles.aiBadgeTextDone]}>브루</Text>
-              </View>
-            )}
-          </View>
-          {/* 숫자 근거 한 줄 — 제목이 짧아진 만큼 여기서 상황을 보여준다 */}
-          {!!todo.meta && (
-            <Text style={[styles.taskItemMeta, disabled && styles.taskItemMetaDone]} numberOfLines={1}>
-              {todo.meta}
+          {/* 브루 항목은 이미 짧은 라벨이라 한 줄 고정, 직접 적은 업무는 잘리지 않게 두 줄까지 */}
+          <Text
+            style={[styles.taskItemTitle, disabled && styles.strike]}
+            numberOfLines={todo.source === 'ai' ? 1 : 2}
+          >
+            {displayTitle}
+          </Text>
+          {/* 근거 한 줄 — 급한 항목은 빨간 글씨로 (배지를 없앤 자리) */}
+          {!!metaText && (
+            <Text
+              style={[
+                styles.taskItemMeta,
+                !!todo.urgentLabel && !disabled && styles.taskItemMetaUrgent,
+                disabled && styles.taskItemMetaDone,
+              ]}
+              numberOfLines={1}
+            >
+              {metaText}
             </Text>
           )}
           {/* 홍보 추천 항목 — 누르면 등록된 전체 메뉴에서 홍보할 메뉴를 고르는 모달이 열린다 */}
@@ -607,25 +670,17 @@ function TodoItem({
           )}
         </View>
 
-        {/* [3. 우측 액션 버튼 - [한글 주석] 지난 날짜(isPastDate)일 때는 수정/삭제 버튼 숨김] */}
+        {/* [3. 우측 액션: 수정·삭제 — 지난 날짜(isPastDate)일 때만 숨김] */}
         {!isPastDate && (
           <View style={styles.actionsRight}>
-            {/* 수정 연필 버튼 (클릭 시 팝업 모달이 수정 모드로 열림) */}
-            <PressableScale
-              onPress={() => startEdit(todo)}
-              style={styles.iconBtn}
-              to={0.85}
-            >
-              <Ionicons name="pencil-outline" size={13} color="#71717A" style={{ opacity: 0.5 }} />
+            {/* 수정 — 브루가 만든 항목도 고칠 수 있다. 고치는 순간 내 업무로 바뀌어 서버에 저장된다 */}
+            <PressableScale onPress={() => startEdit(todo)} style={styles.iconBtn} to={0.85}>
+              <Ionicons name="pencil-outline" size={14} color="#A79C92" />
             </PressableScale>
 
-            {/* 삭제 휴지통 버튼 */}
-            <PressableScale
-              onPress={handleDelete}
-              style={styles.iconBtn}
-              to={0.85}
-            >
-              <Ionicons name="trash-outline" size={13} color="#EF4444" style={{ opacity: 0.6 }} />
+            {/* 삭제 */}
+            <PressableScale onPress={handleDelete} style={styles.iconBtn} to={0.85}>
+              <Ionicons name="trash-outline" size={14} color="#E07A7A" />
             </PressableScale>
           </View>
         )}
@@ -827,19 +882,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFDF9', // 클래식 아날로그 크림 메모지 톤
-    borderRadius: 16,
-    paddingVertical: 13,
-    paddingHorizontal: 14,
-    marginBottom: 9,
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 6,   // 줄 사이를 좁혀 목록이 한눈에 들어오게
     borderWidth: 1,
     borderColor: '#EFECE6', // 따뜻하고 은은한 메모지 테두리
-    borderLeftWidth: 4,
+    borderLeftWidth: 3,
     borderLeftColor: colors.espressoBrown, // 메모지 좌측 감성 마진 라인
     shadowColor: '#4E3629',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  itemUrgent: {
+    borderLeftColor: '#DC2626',   // 다 떨어짐 · 기한 지남
   },
   itemDone: {
     backgroundColor: '#F5F2EB', // 완료 시 차분한 에이징 노트 배경
@@ -873,27 +931,33 @@ const styles = StyleSheet.create({
     color: '#8C827A',
     flexShrink: 1,
   },
-  // 제목 아래 숫자 근거 줄 (0kg 남음 · 안전재고 5kg)
+  // 제목 아래 근거 줄 (다 떨어짐 · 최소 5kg 필요)
   taskItemMeta: {
     fontSize: 11,
     fontWeight: '600',
     color: '#9A8E84',
     letterSpacing: -0.2,
-    marginTop: 2,
+    marginTop: 1.5,
+  },
+  taskItemMetaUrgent: {
+    color: '#DC2626',
   },
   taskItemMetaDone: {
     color: '#B5ABA2',
   },
-  urgentBadge: {
-    backgroundColor: '#FEE2E2',
-    borderRadius: 999,
-    paddingHorizontal: 5,
-    paddingVertical: 1.5,
+  // 접어 둔 브루 항목 펼치기 링크
+  moreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+    paddingVertical: 6,
+    marginBottom: 2,
   },
-  urgentBadgeText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#DC2626',
+  moreText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#8C6F56',
   },
   strike: {
     textDecorationLine: 'line-through',
@@ -905,25 +969,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  aiBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(168, 85, 247, 0.1)',
-    borderRadius: 999,
-    paddingHorizontal: 4,
-    paddingVertical: 1.5,
-  },
-  aiBadgeDone: {
-    backgroundColor: '#EFECE6',
-  },
-  aiBadgeText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#A855F7',
-  },
-  aiBadgeTextDone: {
-    color: '#8C827A',
-  },
+  // ('브루' 보라색 배지는 뺐다 — 자동 항목 거의 전부에 붙어서 글자만 늘렸다.
+  //  브루가 만든 항목인지는 목록 순서와 '더 보기' 줄로 충분히 구분된다)
   // 브루 홍보 추천 항목의 '홍보하러 가기' 링크
   promoLink: {
     flexDirection: 'row',
@@ -963,8 +1010,8 @@ const styles = StyleSheet.create({
   actionsRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
-    marginLeft: 2,
+    gap: 4,
+    marginLeft: 4,
   },
 
   // 발주 칩 & 완료 배지 (에스프레소 갈색 톤 통합)
@@ -1009,6 +1056,6 @@ const styles = StyleSheet.create({
     color: '#2C221E',
   },
   iconBtn: {
-    padding: 3,
+    padding: 5,   // 손가락으로 눌러도 빗나가지 않게 (아이콘은 작게, 터치 영역은 넉넉히)
   },
 });

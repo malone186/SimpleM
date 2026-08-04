@@ -35,6 +35,11 @@ export type Insight = {
   action: string;               // 챗봇에게 그대로 말하면 처리되는 문구
   due_date: string | null;      // YYYY-MM-DD
   days_left: number | null;
+  /**
+   * 홈 '오늘 할 일'에 얹을 짧은 라벨 ("어제 매출 입력").
+   * 빈 문자열이면 알림으로만 쓰는 항목이라 할 일로 만들지 않는다. 구버전 서버는 안 준다.
+   */
+  todo?: string | null;
 };
 
 export type InsightScan = {

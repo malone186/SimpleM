@@ -4,6 +4,7 @@ import Svg, { Defs, LinearGradient, Stop, Path, Circle, Line, Text as SvgText, R
 import { Ionicons } from '@expo/vector-icons';
 
 import { colors, spacing, typography, shadows } from '../../theme';
+import { useResponsive } from '../../theme/responsive';
 import { useCountUp } from '../motion';
 import { PressableScale } from '../motion';
 import { useAuth } from '../../auth/AuthContext';
@@ -275,6 +276,8 @@ export default function SalesCard({
   onClearAllAlerts?: () => void;
   onRestoreAlerts?: () => void;
 }) {
+  // [한글 주석] 뷰포트 비례 계산 — 분석 모달이 작은 화면에서 넘치지 않게
+  const { vh } = useResponsive();
   const { token } = useAuth();
   const [forecast, setForecast] = useState<SalesForecast | null>(null);
   const [calendar, setCalendar] = useState<SalesCalendar | null>(null); // 이번 달 일별 실판매 집계
@@ -727,7 +730,8 @@ export default function SalesCard({
             </View>
 
             {/* 모달 본문 — 일간 차트 또는 월간 달력 */}
-            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 440 }}>
+            {/* [한글 주석] 고정 440 은 작은 기기에서 모달이 화면을 넘겼다 → 뷰포트 비례 + 상한 */}
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: Math.min(vh(56), 440) }}>
               {analyticsTab === 'month' ? (
                 <View style={styles.calendarContainer}>
                   {/* ━━━ [한글 주석: 연/월 이동 넘김 컨트롤러 UI 헤더] ━━━ */}

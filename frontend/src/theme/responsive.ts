@@ -132,10 +132,28 @@ export type ResponsiveInfo = {
 
 const CONTENT_MAX_WIDTH = 560; // 폴드 펼침에서도 한 손에 읽히는 글줄 길이 상한
 
-export function useResponsive(): ResponsiveInfo {
-  const { width, height } = useWindowDimensions();
+// [한글 주석] 뷰포트 override
+// 웹 미리보기는 앱을 420×850 목업 폰 안에 그린다. 이때 브라우저 창은 1280이라도
+// 앱이 실제로 쓰는 폭은 404다. override 가 없으면 "폴드 펼침"으로 잘못 판정해
+// 데모 화면이 실기기와 다르게 보인다. DeviceFrame 이 프레임 내부 크기를 여기에 넣어 준다.
+const ViewportContext = createContext<{ width: number; height: number } | null>(null);
 
-  return useMemo(() => {
+export function ViewportProvider({
+  value,
+  children,
+}: {
+  value: { width: number; height: number } | null;
+  children: ReactNode;
+}) {
+  return createElement(ViewportContext.Provider, { value }, children);
+}
+
+/**
+ * 순수 계산부 — 훅 바깥에 두어 렌더러 없이 테스트할 수 있게 한다.
+ * (기종별 판정은 실기기를 매번 못 돌려보므로 responsive.test.ts 로 회귀를 막는다)
+ */
+export function computeResponsive(width: number, height: number): ResponsiveInfo {
+  {
     const shortSide = Math.min(width, height);
     const bp = breakpointOf(width);
     const isLandscape = width > height;
@@ -173,7 +191,16 @@ export function useResponsive(): ResponsiveInfo {
       vw: (percent: number) => Math.round((width * percent) / 100),
       vh: (percent: number) => Math.round((height * percent) / 100),
     };
-  }, [width, height]);
+  }
+}
+
+export function useResponsive(): ResponsiveInfo {
+  const win = useWindowDimensions();
+  const override = useContext(ViewportContext);
+  const width = override?.width ?? win.width;
+  const height = override?.height ?? win.height;
+
+  return useMemo(() => computeResponsive(width, height), [width, height]);
 }
 
 /**

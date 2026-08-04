@@ -35,8 +35,13 @@ export default class ErrorBoundary extends Component<Props, State> {
           <Text style={styles.desc}>
             앱을 끄지 않아도 괜찮아요. 아래 버튼을 누르면 홈 화면으로 돌아갑니다.
           </Text>
+          {/* [한글 주석] 사장님 화면에 'vh is not defined' 같은 영어 개발자 문구가 그대로 뜨면
+              무슨 일인지 알 수도 없고 앱이 망가진 것처럼 보인다.
+              원문은 componentDidCatch 에서 콘솔(Metro·logcat)에 남기고, 화면에는 쉬운 말만 둔다. */}
           <View style={styles.errBox}>
-            <Text style={styles.errText}>{error?.message || String(error)}</Text>
+            <Text style={styles.errText}>
+              이 화면의 정보를 불러오지 못했어요. 저장된 내용은 그대로 있습니다.
+            </Text>
           </View>
           <PressableScale style={styles.btn} onPress={this.reset}>
             <Text style={styles.btnText}>홈으로 돌아가기</Text>

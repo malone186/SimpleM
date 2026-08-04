@@ -8,11 +8,13 @@ import type { ReactNode } from 'react';
 import { Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { colors } from '../theme';
+import { ViewportProvider } from '../theme/responsive';
 
 // 목업 기준 크기 — 이 비율을 유지한 채 창에 맞춰 축소한다
 const FRAME_WIDTH = 420;
 const FRAME_HEIGHT = 850;
 const STAGE_PADDING = 24;
+const BORDER = 8; // 목업 테두리 두께 — 앱이 실제로 쓰는 폭은 FRAME_WIDTH - BORDER*2 다
 
 export default function DeviceFrame({ children }: { children: ReactNode }) {
   const { width: winW, height: winH } = useWindowDimensions();
@@ -51,7 +53,15 @@ export default function DeviceFrame({ children }: { children: ReactNode }) {
         {/* 상단 노치 — 실물 크기 모드에서는 감춘다 */}
         <View style={[styles.notch, fillsScreen && styles.hidden]} />
         {/* nativeID → 웹 DOM id. 설정의 글자크기(zoom)·다크모드(색반전) 적용 대상 */}
-        <View nativeID="app-screen" style={styles.screen}>{children}</View>
+        <View nativeID="app-screen" style={styles.screen}>
+          {/* [한글 주석] 목업 안에서는 브라우저 창(1280)이 아니라 프레임 내부 크기가 앱의 뷰포트다.
+              이걸 알려 주지 않으면 반응형 판정이 '폴드 펼침'으로 새어 데모가 실기기와 달라진다. */}
+          <ViewportProvider
+            value={fillsScreen ? null : { width: FRAME_WIDTH - BORDER * 2, height: FRAME_HEIGHT - BORDER * 2 }}
+          >
+            {children}
+          </ViewportProvider>
+        </View>
       </View>
     </View>
   );
@@ -78,7 +88,7 @@ const styles = StyleSheet.create({
   hidden: { display: 'none' },
   device: {
     borderRadius: 50,
-    borderWidth: 8,
+    borderWidth: BORDER,
     borderColor: colors.stone300,
     backgroundColor: colors.creamSand,
     overflow: 'hidden',

@@ -204,6 +204,15 @@ def _settings(db):
     return row
 
 
+@pytest.fixture(autouse=True)
+def no_events(monkeypatch):
+    """행사 수집은 기본으로 '없음' — 카페 쪽만 보는 테스트가 네트워크를 타지 않게.
+
+    행사가 필요한 테스트는 pick_alert_events를 다시 스텁해 덮어쓴다.
+    """
+    monkeypatch.setattr(nws, "pick_alert_events", lambda *a, **kw: [])
+
+
 def test_cafe_change_push_is_sent_once_per_day(db, naver, sent):
     settings = _settings(db)
     naver["cafes"] = BASE
@@ -212,7 +221,7 @@ def test_cafe_change_push_is_sent_once_per_day(db, naver, sent):
     nws.scan_cafe_changes(db, STORE, LAT, LON, today=DAY2)
 
     now = datetime(2026, 8, 3, 11, 0, tzinfo=KST)
-    ns.check_nearby_cafe(db, STORE, settings, now)
+    ns.check_nearby(db, STORE, settings, now)
 
     assert len(sent) == 1
     assert "새로 생겼어요" in sent[0]["title"]
@@ -220,7 +229,7 @@ def test_cafe_change_push_is_sent_once_per_day(db, naver, sent):
     assert sent[0]["data"]["screen"] == "StoreMap"
 
     # 같은 날 다시 돌아도 스캔·발송이 반복되지 않는다
-    ns.check_nearby_cafe(db, STORE, settings, now.replace(hour=15))
+    ns.check_nearby(db, STORE, settings, now.replace(hour=15))
     assert len(sent) == 1
 
 
@@ -240,47 +249,51 @@ def test_push_goes_out_even_if_map_screen_scanned_first(db, naver, sent):
     early = nws.scan_cafe_changes(db, STORE, LAT, LON, today=DAY4)
     assert early["opened"] and early["closed"]
 
-    ns.check_nearby_cafe(db, STORE, settings, datetime(2026, 8, 4, 11, 0, tzinfo=KST))
+    ns.check_nearby(db, STORE, settings, datetime(2026, 8, 4, 11, 0, tzinfo=KST))
 
-    titles = " ".join(m["title"] for m in sent)
-    assert "새로 생겼어요" in titles and "문을 닫은 것 같아요" in titles
+    assert len(sent) == 1
+    body = sent[0]["body"]
+    assert "새로생긴카페" in body and "라카페" in body
 
 
-def test_multiple_nearby_pushes_have_distinct_tags(db, naver, monkeypatch, sent):
-    """한 번에 나가는 주변 소식 3건은 서로 다른 tag여야 한다.
+def test_nearby_news_is_bundled_into_one_push(db, naver, monkeypatch, sent):
+    """행사·개업·폐업이 다 있어도 알림은 한 건이어야 한다.
 
-    안드로이드는 같은 tag의 알림을 최신 것으로 덮어쓴다. 셋 다 category='nearby'라
-    tag를 category로 두면 폰에는 마지막 하나만 남는다 — 실제로 그렇게 겪었다.
+    따로 쏘던 시절엔 몇 초 사이에 세 건이 몰려 폰에서 서로 묻혔다 —
+    FCM은 3건 다 수락했는데 사장님 폰에는 마지막 하나만 떴다(실측).
     """
     settings = _settings(db)
     naver["cafes"] = BASE
     nws.scan_cafe_changes(db, STORE, LAT, LON, today=DAY1)
     naver["cafes"] = BASE[:-1] + [_cafe("새로생긴카페", 150)]
-    nws.scan_cafe_changes(db, STORE, LAT, LON, today=DAY2)
-    nws.scan_cafe_changes(db, STORE, LAT, LON, today=DAY3)
-    nws.scan_cafe_changes(db, STORE, LAT, LON, today=DAY4)
+    for day in (DAY2, DAY3, DAY4):
+        nws.scan_cafe_changes(db, STORE, LAT, LON, today=day)
 
     event = {"name": "한강 여름축제", "place": "한강공원", "source": "네이버 검색",
              "start_date": "2026-08-05", "end_date": "2026-08-07", "dates": [],
              "day_count": 3, "distance_km": 1.2, "lat": LAT, "lon": LON,
              "boost_pct": 12, "d_day": 1, "ongoing": False}
-    monkeypatch.setattr(nws, "pick_alert_events", lambda lat, lon, horizon_days=7: [event])
+    monkeypatch.setattr(nws, "pick_alert_events", lambda *a, **kw: [event])
     monkeypatch.setattr(nws, "plan_for_store", lambda db_, sid, ev: None)
 
-    now = datetime(2026, 8, 4, 11, 0, tzinfo=KST)
-    ns.check_nearby_event(db, STORE, settings, now)
-    ns.check_nearby_cafe(db, STORE, settings, now)
+    ns.check_nearby(db, STORE, settings, datetime(2026, 8, 4, 11, 0, tzinfo=KST))
 
-    assert len(sent) == 3
-    tags = [m["data"].get("tag") for m in sent]
-    assert len(set(tags)) == 3, f"같은 tag가 섞여 폰에서 덮인다: {tags}"
+    assert len(sent) == 1, f"주변 소식은 한 건으로 묶여야 한다 (실제 {len(sent)}건)"
+    # 한 건 안에 세 소식이 다 들어 있다 — 제목은 가장 시급한 행사가 가져간다
+    assert "한강 여름축제" in sent[0]["title"]
+    body = sent[0]["body"]
+    assert "새로생긴카페" in body and "라카페" in body
+
+    # 세 사건 모두 '보냈다'고 기록돼야 다음 실행에서 중복으로 나가지 않는다
+    ns.check_nearby(db, STORE, settings, datetime(2026, 8, 4, 15, 0, tzinfo=KST))
+    assert len(sent) == 1
 
 
 def test_nearby_alert_off_sends_nothing(db, naver, sent):
     settings = _settings(db)
     settings.nearby_alert = False
     naver["cafes"] = BASE
-    ns.check_nearby_cafe(db, STORE, settings, datetime(2026, 8, 3, 11, 0, tzinfo=KST))
+    ns.check_nearby(db, STORE, settings, datetime(2026, 8, 3, 11, 0, tzinfo=KST))
     assert sent == []
     assert db.query(NearbyCafeWatch).count() == 0
 
@@ -289,7 +302,7 @@ def test_nearby_alert_waits_for_morning(db, naver, sent):
     """새벽에 '근처에 카페가 생겼어요'는 아무 쓸모가 없다."""
     settings = _settings(db)
     naver["cafes"] = BASE
-    ns.check_nearby_cafe(db, STORE, settings, datetime(2026, 8, 3, 6, 0, tzinfo=KST))
+    ns.check_nearby(db, STORE, settings, datetime(2026, 8, 3, 6, 0, tzinfo=KST))
     assert sent == []
 
 
@@ -307,14 +320,14 @@ def test_event_push_includes_ai_plan(db, monkeypatch, sent):
     })
 
     now = datetime(2026, 8, 3, 11, 0, tzinfo=KST)
-    ns.check_nearby_event(db, STORE, settings, now)
+    ns.check_nearby(db, STORE, settings, now)
 
     assert len(sent) == 1
     assert "한강 여름축제" in sent[0]["title"]
     assert "축제 팔찌 할인" in sent[0]["body"]
 
     # 같은 행사·같은 구간은 두 번 나가지 않는다
-    ns.check_nearby_event(db, STORE, settings, now.replace(hour=16))
+    ns.check_nearby(db, STORE, settings, now.replace(hour=16))
     assert len(sent) == 1
 
 
@@ -328,6 +341,6 @@ def test_event_push_without_plan_still_goes_out(db, monkeypatch, sent):
     monkeypatch.setattr(nws, "pick_alert_events", lambda lat, lon, horizon_days=7: [event])
     monkeypatch.setattr(nws, "plan_for_store", lambda db, sid, ev: None)
 
-    ns.check_nearby_event(db, STORE, settings, datetime(2026, 8, 3, 11, 0, tzinfo=KST))
+    ns.check_nearby(db, STORE, settings, datetime(2026, 8, 3, 11, 0, tzinfo=KST))
     assert len(sent) == 1
     assert "역삼공원" in sent[0]["body"]

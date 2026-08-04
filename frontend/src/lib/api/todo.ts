@@ -57,15 +57,21 @@ export async function deleteTodo(token: string, id: number): Promise<void> {
   });
 }
 
-// ── 브루의 오늘 할 일 제안 (재고 발주 + 홍보 추천) ──
+// ── 브루의 오늘 할 일 제안 (재고 발주 + 선제 인사이트 + 홍보 추천) ──
 // 제목은 훑어보기 좋게 짧은 라벨, 숫자 근거는 subtitle(회색 보조줄)로 나뉘어 온다.
+//
+// kind='insight'는 서버의 선제 인사이트 엔진이 만든 항목이다 — 정산 미입력, 갱신 서류,
+// 보내지 않은 발주서, 뜸해진 단골, POS 연동 끊김, 원가율이 무너진 메뉴, 내일 수요 급증까지
+// 영역마다 하나씩. 상황이 해소되면 다음 날 목록에서 저절로 사라진다.
 export type AiSuggestedTodo = {
-  id_hint: string;            // stock-<재료id> | promo-main — 숨김/완료 기록의 키
+  id_hint: string;            // stock-<재료id> | insight-<인사이트키> | promo-main — 숨김/완료 기록의 키
   title: string;              // "에티오피아 원두 발주"
   subtitle: string;           // "다 떨어짐 · 최소 5kg 필요"
-  kind: 'stock' | 'promo';
-  urgent?: boolean;           // 재료가 0 — 앱에서 빨간 '없음' 배지
+  kind: 'stock' | 'insight' | 'promo';
+  urgent?: boolean;           // 재료가 0이거나 인사이트가 '지금 조치' — 앱에서 빨간 배지
   menu?: string | null;       // promo일 때 홍보할 메뉴명
+  /** insight일 때 어느 영역인지 (inventory·settlement·customer·system·menu 등) */
+  category?: string | null;
 };
 
 export async function getAiTodoSuggestions(
