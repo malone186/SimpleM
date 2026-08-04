@@ -8,6 +8,7 @@
 models/ai.py의 PointLedger 주석 참고.
 """
 
+import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -172,6 +173,38 @@ def award_todo_done(store_id: str, todo_id: int, title: str) -> bool:
     """할 일 완료 보상. 완료를 껐다 켜도 처음 한 번만 지급된다(ref = 할 일 id)."""
     memo = title if len(title) <= 40 else title[:39] + "…"
     return award(store_id, POINTS_PER_TODO, "todo_done", str(todo_id), memo)
+
+
+def award_derived_todo(store_id: str, key: str, title: str) -> bool:
+    """자동 도출 할 일(재고 발주·서류 갱신·브루 추천) 완료 보상.
+
+    이 항목들은 조건에서 매번 새로 조립되므로 todo_items 테이블에 행이 없다.
+    그래도 사장님이 실제로 끝낸 일이라 보상은 같아야 한다 — 대시보드가 쓰는 안정적인
+    id(stock-<재료id>, comp-<서류id>, insight-<키>, promo-main)를 그대로 ref로 삼는다.
+
+    ref에 'k:' 접두어를 붙이는 이유: 저장된 할 일은 ref가 숫자 id라 같은 reason 안에서
+    두 종류가 섞인다. 접두어가 없으면 언젠가 겹칠 수 있다.
+    """
+    k = (key or "").strip()
+    if not k:
+        raise RewardError("할 일 식별자가 비어 있습니다.")
+
+    memo = title if len(title) <= 40 else title[:39] + "…"
+    return award(store_id, POINTS_PER_TODO, "todo_done", _derived_ref(k), memo)
+
+
+def _derived_ref(key: str) -> str:
+    """자동 도출 항목 key를 ref 컬럼(64자)에 담을 형태로.
+
+    인사이트 키는 'insight-renewal:12:2026-08-10'처럼 길어져 120자까지 온다. 그냥 자르면
+    앞부분이 같은 두 항목이 한 항목으로 뭉쳐 한쪽이 코인을 못 받는다 — 넘칠 때만 뒤를
+    해시로 갈음해 길이는 맞추고 구분은 남긴다.
+    """
+    ref = f"k:{key}"
+    if len(ref) <= 64:
+        return ref
+    digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+    return f"k:{key[:45]}#{digest}"
 
 
 # ---------------------------------------------------------------------------

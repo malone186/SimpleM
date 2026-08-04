@@ -19,6 +19,7 @@ import { listCompliance } from '../../lib/api/documents';
 import { listStocks } from '../../lib/api/inventory';
 import { createTodo, deleteTodo, getAiTodoSuggestions, listTodos, updateTodo, type AiSuggestedTodo } from '../../lib/api/todo';
 import { fetchInsights } from '../../lib/api/insights';
+import { awardDerivedTodo } from '../../lib/api/rewards';
 import AlertCenterCard, { type AlertItem } from '../../components/dashboard/AlertCenterCard';
 import { navigateToTarget } from '../../notifications/navigationTarget';
 import { colors, spacing, typography, shadows } from '../../theme';
@@ -40,6 +41,14 @@ function getFormattedTimeText(): string {
   const displayHours = hours % 12 || 12;
   const displayMinutes = String(minutes).padStart(2, '0');
   return `${ampm} ${displayHours}:${displayMinutes}`;
+}
+
+// 날짜는 '2026-08-09'가 아니라 '8월 9일'로 — 알림은 훑어보는 글이라 숫자를 세게 하지 않는다
+function formatKoreanDate(iso?: string): string {
+  if (!iso) return '';
+  const [, m, d] = iso.split('-');
+  if (!m || !d) return iso;
+  return `${Number(m)}월 ${Number(d)}일`;
 }
 
 // [한글 주석: 웹/앱 푸시 알림 권한 요청 및 재고 부족 푸시 알림 발송 함수]
@@ -219,15 +228,19 @@ export default function DashboardScreen() {
           const alertId = `alert-stock-${s.ingredient_id}`;
           if (!dismissedAlertSet.has(alertId)) {
             const soldOut = s.current_quantity <= 0;
+            // 투두·푸시와 같은 쉬운 말로 ('안전재고'·'재고 소진' 같은 용어는 쓰지 않는다)
+            const need = s.safety_quantity > 0 ? s.safety_quantity : 3;
             nextAlerts.push({
               id: alertId,
               type: 'stock',
               severity: soldOut ? 'urgent' : 'high',
-              title: soldOut ? `${s.name} 재고 소진!` : `${s.name} 안전재고 미달`,
-              body: `현재 잔여 ${s.current_quantity}${s.unit} (안전재고: ${s.safety_quantity}${s.unit}). 즉시 발주가 필요합니다.`,
+              title: soldOut ? `${s.name} 다 떨어졌어요` : `${s.name} 얼마 안 남았어요`,
+              body: soldOut
+                ? `지금 0${s.unit} · 최소 ${need}${s.unit} 필요`
+                : `${s.current_quantity}${s.unit} 남음 · 최소 ${need}${s.unit} 필요`,
               timeText: getFormattedTimeText(),
-              actionText: '발주 화면으로 이동',
-              target: { screen: 'Order' },
+              actionText: '재고 보기',
+              target: { screen: 'Inventory' },
             });
           }
         });
@@ -278,12 +291,11 @@ export default function DashboardScreen() {
                 id: alertId,
                 type: 'document',
                 severity: expired ? 'high' : 'medium',
-                title: expired ? `${c.name} 만료됨` : `${c.name} 갱신 임박`,
+                title: expired ? `${c.name} 기한 지남` : `${c.name} 갱신 준비`,
                 body: expired
-                  ? `만료일(${c.expiry_date})이 지났습니다. 빠른 서류 갱신이 필요합니다.`
-                  : `D-${c.days_left}일 남았습니다. 만료일: ${c.expiry_date}`,
-                timeText: '서류 알림',
-                actionText: '서류함으로 이동',
+                  ? `${formatKoreanDate(c.expiry_date)}까지였어요`
+                  : `${c.days_left}일 남음 · ${formatKoreanDate(c.expiry_date)}까지`,
+                actionText: '서류 보기',
                 target: { screen: 'Document' },
               });
             }
@@ -352,8 +364,8 @@ export default function DashboardScreen() {
                 severity: ins.severity === 'high' ? 'high' : ins.severity === 'medium' ? 'medium' : 'low',
                 title: ins.title,
                 body: ins.body,
-                timeText: ins.due_date ? `기한: ${ins.due_date}` : 'AI 스마트 진단',
-                actionText: '챗봇에서 조치하기',
+                timeText: ins.due_date ? `${formatKoreanDate(ins.due_date)}까지` : undefined,
+                actionText: '브루에게 물어보기',
                 target: { screen: 'Chatbot' },
               });
             }
@@ -363,70 +375,17 @@ export default function DashboardScreen() {
         console.error('AI 인사이트 조회 실패:', e);
       }
 
-      // [한글 주석: 사장님이 아침에 앱을 켰을 때 수신되는 5대 핵심 푸시 알림 풀 세트 탑재]
-      const morningPushAlerts: AlertItem[] = [
-        {
-          id: 'alert-push-report-1',
-          type: 'notice',
-          severity: 'high',
-          title: '📊 오늘 아침 매장 경영 분석 리포트 도착',
-          body: '어제 대비 매출 +12% 증가! 목표 달성률 85%를 기록 중입니다. 경영 리포트를 확인해보세요.',
-          timeText: '오전 09:00',
-          actionText: '경영 리포트 확인',
-          target: { screen: 'Dashboard' },
-        },
-        {
-          id: 'alert-push-stock-1',
-          type: 'stock',
-          severity: 'urgent',
-          title: '🚨 서울우유 1L 안전재고 미달 및 소진 주의',
-          body: '잔여 수량이 2팩 남았습니다. 주말 판매량을 대비해 발주서를 바로 생성하세요.',
-          timeText: '오전 08:30',
-          actionText: '발주서 바로 생성',
-          target: { screen: 'Order' },
-        },
-        {
-          id: 'alert-push-doc-1',
-          type: 'document',
-          severity: 'high',
-          title: '📄 사장님 매장 보건증 갱신 만료 D-5',
-          body: '보건증 갱신 기한이 5일 남았습니다. 챗봇에서 서류 제출 안내를 확인하세요.',
-          timeText: '오전 08:00',
-          actionText: '서류함으로 이동',
-          target: { screen: 'Document' },
-        },
-        {
-          id: 'alert-push-price-1',
-          type: 'insight',
-          severity: 'medium',
-          title: '📈 에스프레소 원두 매입 단가 +15% 인상 변동',
-          body: '주요 원재료 공급 단가가 인상되었습니다. 원가 분석 메뉴에서 손익을 체크해보세요.',
-          timeText: '어제',
-          actionText: '원가 분석 보기',
-          target: { screen: 'Cost' },
-        },
-        {
-          id: 'alert-push-ai-1',
-          type: 'insight',
-          severity: 'low',
-          title: '💡 주말 폭염 대비 아이스 음료 수요 증가 예측',
-          body: '기온 상승으로 아이스 메뉴 판매량이 +30% 증가할 것으로 예상됩니다.',
-          timeText: '실시간 AI',
-          actionText: 'AI 챗봇과 상담',
-          target: { screen: 'Chatbot' },
-        },
-      ];
-
-      morningPushAlerts.forEach((alert) => {
-        if (!dismissedAlertSet.has(alert.id)) {
-          nextAlerts.push(alert);
-        }
-      });
-
-      // [한글 주석: 사장님이 지웠더라도 언제든 예쁜 알림 카드를 바로 볼 수 있도록 최소 3건 이상 상시 노출]
-      if (nextAlerts.length === 0) {
-        nextAlerts.push(...morningPushAlerts.slice(0, 3));
-      }
+      // 알림은 실제 재고·서류·인사이트에서만 만든다.
+      // (예전에는 '서울우유 2팩 남음' 같은 고정 문구 5장을 항상 끼워 넣어서,
+      //  매장에 없는 재료·없는 서류가 알림 센터에 그대로 떴다.)
+      // 접힌 알림 센터는 맨 위 한 장만 보이므로 급한 것부터 정렬한다.
+      const SEVERITY_ORDER: Record<AlertItem['severity'], number> = {
+        urgent: 0,
+        high: 1,
+        medium: 2,
+        low: 3,
+      };
+      nextAlerts.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
 
       if (!cancelled) {
         setTodos((prev) => {
@@ -478,70 +437,15 @@ export default function DashboardScreen() {
     }
   };
 
-  // [한글 주석: 0.01초 딜레이 없는 초스피드 스마트 알림 복원 핸들러 — 누르는 즉시 아침 푸시 알림 5종 주입]
-  const handleRestoreAlerts = () => {
-    toast('✨ 스마트 알림 복원 완료!', '지웠던 아침 푸시 알림 5종을 모두 불러왔어요.');
-    
-    // 1. [한글 주석] 지움 저장소(AsyncStorage) 영구 초기화
-    AsyncStorage.removeItem(DISMISSED_ALERTS_KEY).catch((e) =>
-      console.error('알림 기록 초기화 실패:', e)
-    );
-
-    // 2. [한글 주석] 누르는 즉시 0.01초 만에 아침 푸시 알림 5종을 alerts 상태에 주입
-    const morningPushAlerts: AlertItem[] = [
-      {
-        id: 'alert-push-report-1',
-        type: 'notice',
-        severity: 'high',
-        title: '📊 오늘 아침 매장 경영 분석 리포트 도착',
-        body: '어제 대비 매출 +12% 증가! 목표 달성률 85%를 기록 중입니다. 경영 리포트를 확인해보세요.',
-        timeText: '오전 09:00',
-        actionText: '경영 리포트 확인',
-        target: { screen: 'Dashboard' },
-      },
-      {
-        id: 'alert-push-stock-1',
-        type: 'stock',
-        severity: 'urgent',
-        title: '🚨 서울우유 1L 안전재고 미달 및 소진 주의',
-        body: '잔여 수량이 2팩 남았습니다. 주말 판매량을 대비해 발주서를 바로 생성하세요.',
-        timeText: '오전 08:30',
-        actionText: '발주서 바로 생성',
-        target: { screen: 'Order' },
-      },
-      {
-        id: 'alert-push-doc-1',
-        type: 'document',
-        severity: 'high',
-        title: '📄 사장님 매장 보건증 갱신 만료 D-5',
-        body: '보건증 갱신 기한이 5일 남았습니다. 챗봇에서 서류 제출 안내를 확인하세요.',
-        timeText: '오전 08:00',
-        actionText: '서류함으로 이동',
-        target: { screen: 'Document' },
-      },
-      {
-        id: 'alert-push-price-1',
-        type: 'insight',
-        severity: 'medium',
-        title: '📈 에스프레소 원두 매입 단가 +15% 인상 변동',
-        body: '주요 원재료 공급 단가가 인상되었습니다. 원가 분석 메뉴에서 손익을 체크해보세요.',
-        timeText: '어제',
-        actionText: '원가 분석 보기',
-        target: { screen: 'Cost' },
-      },
-      {
-        id: 'alert-push-ai-1',
-        type: 'insight',
-        severity: 'low',
-        title: '💡 주말 폭염 대비 아이스 음료 수요 증가 예측',
-        body: '기온 상승으로 아이스 메뉴 판매량이 +30% 증가할 것으로 예상됩니다.',
-        timeText: '실시간 AI',
-        actionText: 'AI 챗봇과 상담',
-        target: { screen: 'Chatbot' },
-      },
-    ];
-
-    setAlerts(morningPushAlerts);
+  // 지운 알림 되돌리기 — 지움 기록만 비우고 재고·서류·인사이트를 다시 읽는다.
+  // (지금 매장에 해당하는 알림이 없으면 되돌려도 비어 있는 게 맞다)
+  const handleRestoreAlerts = async () => {
+    try {
+      await AsyncStorage.removeItem(DISMISSED_ALERTS_KEY);
+    } catch (e) {
+      console.error('알림 기록 초기화 실패:', e);
+    }
+    toast('지운 알림을 다시 불러왔어요', '지금 확인이 필요한 알림만 보여드려요.');
     setRunId((x) => x + 1);
   };
 
@@ -684,10 +588,17 @@ export default function DashboardScreen() {
     );
   };
 
+  /** 코인이 실제로 쌓였을 때만 알린다 — 이미 받은 항목을 다시 체크하면 아무 말도 하지 않는다 */
+  const celebrateCoins = (awarded?: number | null) => {
+    if (!awarded) return;
+    toast(`🪙 +${awarded}코인`, '상점에서 브루를 꾸며보세요.');
+  };
+
   const toggleDone = async (id: string) => {
     // 다음 상태를 지금 값에서 직접 계산한다 — setTodos 콜백 안에서 읽으면
     // 서버로 보낼 값과 화면 값이 어긋날 수 있다
-    const nextDone = !todos.find((t) => t.id === id)?.done;
+    const target = todos.find((t) => t.id === id);
+    const nextDone = !target?.done;
     setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, done: nextDone } : t)));
 
     // [한글 주석] 완료(done) 상태 변경 시 기기 보관소(AsyncStorage)에 영구 저장하여 자동 갱신 시에도 체크가 풀리지 않게 보정
@@ -704,13 +615,24 @@ export default function DashboardScreen() {
       console.error('완료 상태 보관소 저장 실패:', e);
     }
 
+    if (!token) return;
+
+    // 코인 적립은 완료할 때만. 저장된 할 일은 완료 API가 알아서 적립하고,
+    // 재고·서류·브루 추천처럼 서버에 행이 없는 항목은 id를 키로 따로 알린다.
+    // 어느 쪽이든 같은 항목은 한 번만 쌓인다(서버의 유니크 제약).
     const serverId = serverIdOf(id);
-    if (serverId === null || !token) return;
     try {
-      await updateTodo(token, serverId, { done: nextDone });
+      if (serverId !== null) {
+        const saved = await updateTodo(token, serverId, { done: nextDone });
+        if (nextDone) celebrateCoins(saved.points_awarded);
+      } else if (nextDone) {
+        const { awarded } = await awardDerivedTodo(id, target?.title ?? '할 일', token);
+        celebrateCoins(awarded);
+      }
     } catch (e) {
       console.error('할 일 완료 처리 실패:', e);
-      resync();
+      // 적립만 실패한 경우까지 되돌리면 체크가 풀려 더 혼란스럽다 — 저장된 할 일일 때만 재동기화
+      if (serverId !== null) resync();
     }
   };
 
@@ -786,7 +708,7 @@ export default function DashboardScreen() {
             onOpenMap={() => navigation.navigate('StoreMap')}
             onOpenPushModal={handleOpenPushModal}
             onOpenShop={() => navigation.navigate('Shop')}
-            hasUnreadPush={!pushBadgeSeen}
+            hasUnreadPush={alerts.length > 0 && !pushBadgeSeen}
             refreshTrigger={runId}
           />
         </Animated.View>

@@ -17,6 +17,8 @@ export type ServerTodo = {
   done: boolean;
   due_date?: string | null;
   created_at?: string | null;
+  /** 이번 완료로 쌓인 코인. 이미 받은 할 일을 다시 완료하면 없다 (완료 응답에만 온다) */
+  points_awarded?: number | null;
 };
 
 /** 미완료가 먼저, 기한 임박 순. 완료 항목은 12시간까지만 함께 온다 */

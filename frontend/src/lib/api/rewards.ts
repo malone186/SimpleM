@@ -72,6 +72,28 @@ export function equipItem(itemId: string, equipped: boolean, token?: string | nu
   });
 }
 
+/** 적립 결과 — awarded가 0이면 이미 받은 항목이라 잔액이 그대로다 */
+export type AwardResult = { awarded: number; balance: number };
+
+/**
+ * 자동 도출 할 일(재고 발주·서류 갱신·브루 추천)을 끝냈다고 알린다.
+ *
+ * 이 항목들은 조건에서 매번 새로 조립되므로 서버에 저장된 행이 없다 — 그래서 완료
+ * API가 없고, 대신 대시보드가 쓰는 안정적인 id(stock-<재료id> 등)를 key로 보낸다.
+ * 같은 key로 두 번 보내도 코인은 한 번만 쌓인다(서버가 막는다).
+ */
+export function awardDerivedTodo(
+  key: string,
+  title: string,
+  token?: string | null,
+): Promise<AwardResult> {
+  return apiFetch<AwardResult>('/api/v1/rewards/todo-done', {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify({ key, title }),
+  });
+}
+
 /** 착용 중인 아이템만 가볍게 — 브루를 그리는 화면들이 쓴다 */
 export function getEquipped(token?: string | null): Promise<EquippedItem[]> {
   return apiFetch<EquippedItem[]>('/api/v1/rewards/equipped', { headers: authHeader(token) });
