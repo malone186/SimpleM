@@ -18,6 +18,10 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
+# 실물 사진 누끼(rembg) 모델을 이미지에 미리 굽는다 — 요청 시점 다운로드(콜드 스타트
+# 수십 초)를 없앤다. u2netp는 ~5MB라 이미지 크기 부담이 없다.
+RUN python -c "from rembg import new_session; new_session('u2netp')" 
+
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini .

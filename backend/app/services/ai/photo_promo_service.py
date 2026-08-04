@@ -6,6 +6,7 @@ AI 생성 이미지는 우리 매장 실물과 다를 수 있다. 그래서 사�
 
   ① 누끼: rembg(u2netp) — 첫 호출 때 모델(~5MB)을 내려받아 세션을 재사용
   ② 배경: Pollinations(무료)로 '빈' 카페 배경 생성 → 실패 시 크림 그라데이션 폴백
+          (유료 Gemini 이미지 모델은 비용 때문에 쓰지 않는다)
   ③ 합성: Pillow — 피사체를 중앙 하단에 배치하고 부드러운 그림자를 깔아
           '스티커 붙인 느낌'을 줄인다
   ④ 저장·문서 연결은 기존 marketing_service 경로를 그대로 재사용
@@ -54,6 +55,12 @@ _NO_TEXT = (" IMPORTANT: absolutely no text, no letters, no logos, no food, no d
 
 _session = None  # rembg 세션 — 프로세스당 1회 로드해 재사용
 
+# 배경 캐시 — (스타일, 비율)별로 6시간 재사용. 배경 생성(Pollinations)이 수십 초로
+# 가장 느린 구간이라, 실측 프로덕션 첫 합성이 78초까지 갔고 모바일 연결이 그 사이
+# 끊겨 '인터넷 연결 확인' 오류로 보였다. 같은 배경을 재사용하면 합성은 2~3초로 준다.
+_BG_TTL = 6 * 3600
+_bg_cache: dict[tuple[str, str], tuple[float, bytes]] = {}
+
 
 class PhotoPromoError(RuntimeError):
     """사진 합성 실패 (누끼 불가·이미지 손상 등)."""
@@ -75,8 +82,10 @@ def _cutout(photo_bytes: bytes):
         src = Image.open(io.BytesIO(photo_bytes)).convert("RGBA")
     except Exception:
         raise PhotoPromoError("사진 파일을 읽지 못했습니다. JPG/PNG 사진인지 확인해 주세요.")
-    # 아주 큰 원본은 누끼 전에 줄인다 — 품질 손해 없이 속도·메모리 확보
-    src.thumbnail((1600, 1600))
+    # 아주 큰 원본은 누끼 전에 줄인다 — 속도·메모리 확보.
+    # (1600에서 1280으로 축소: 1Gi 인스턴스에서 onnx 추론 중 OOM으로 503이 나던
+    #  실측 사례 대응. 홍보 컷 기준 화질 차이는 체감되지 않는다)
+    src.thumbnail((1280, 1280))
     cut = remove(src, session=_session)
 
     bbox = cut.getbbox()
@@ -90,15 +99,28 @@ def _cutout(photo_bytes: bytes):
 
 
 def _background(style: str, aspect_ratio: str):
-    """배경 이미지(RGB). Pollinations 실패 시 크림 그라데이션 폴백 — 항상 성공한다."""
+    """배경 이미지(RGB). Pollinations(무료) → 크림 그라데이션 폴백 — 항상 성공한다.
+
+    유료 Gemini 이미지 모델은 쓰지 않는다(비용). 무료 Pollinations(FLUX)로 '빈' 카페
+    배경을 만들고, 실패하면 외부 호출 없는 그라데이션으로 항상 성공시킨다. 배경엔
+    글자를 넣지 않으므로(_NO_TEXT) 모델의 한글 렌더링 문제와 무관하다.
+    """
     from PIL import Image
 
     from app.services.ai import marketing_service as M
 
     w, h = M._AR_SIZES.get(aspect_ratio, (1472, 1472))
     meta = BACKGROUND_STYLES.get(style) or BACKGROUND_STYLES["wood"]
+
+    import time as _time
+    key = (style, aspect_ratio)
+    hit = _bg_cache.get(key)
+    if hit and _time.time() - hit[0] < _BG_TTL:
+        bg = Image.open(io.BytesIO(hit[1])).convert("RGB").resize((w, h))
+        return bg, "pollinations(cached)"
     try:
         bg_bytes, _mime = M._pollinations_generate(meta["prompt"] + _NO_TEXT, aspect_ratio)
+        _bg_cache[key] = (_time.time(), bg_bytes)
         bg = Image.open(io.BytesIO(bg_bytes)).convert("RGB").resize((w, h))
         return bg, "pollinations"
     except Exception as e:
