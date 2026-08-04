@@ -99,37 +99,36 @@ def _cutout(photo_bytes: bytes):
 
 
 def _background(style: str, aspect_ratio: str):
-    """배경 이미지(RGB). Pollinations(무료) → 크림 그라데이션 폴백 — 항상 성공한다.
+    """배경 이미지(RGB) — 서버에 내장된 자산(static/promo_bg)을 목표 비율로 커버-크롭.
 
-    유료 Gemini 이미지 모델은 쓰지 않는다(비용). 무료 Pollinations(FLUX)로 '빈' 카페
-    배경을 만들고, 실패하면 외부 호출 없는 그라데이션으로 항상 성공시킨다. 배경엔
-    글자를 넣지 않으므로(_NO_TEXT) 모델의 한글 렌더링 문제와 무관하다.
+    [왜 내장인가] 요청 시점에 외부 무료 생성(Pollinations)을 부르던 시절, 소요가
+    5초~99초로 널뛰고 아예 실패하는 시간대도 있었다(실측). 사용자에겐 전부
+    '서버에 오류'로 보였다. 배경을 빌드에 포함하면 외부 의존이 0이라 항상 즉시 성공.
+    배경 교체는 static/promo_bg/<style>.jpg 파일만 갈아끼우면 된다.
     """
+    import os
+
     from PIL import Image
 
     from app.services.ai import marketing_service as M
 
     w, h = M._AR_SIZES.get(aspect_ratio, (1472, 1472))
-    meta = BACKGROUND_STYLES.get(style) or BACKGROUND_STYLES["wood"]
-
-    import time as _time
-    key = (style, aspect_ratio)
-    hit = _bg_cache.get(key)
-    if hit and _time.time() - hit[0] < _BG_TTL:
-        bg = Image.open(io.BytesIO(hit[1])).convert("RGB").resize((w, h))
-        return bg, "pollinations(cached)"
+    asset = os.path.join(os.path.dirname(__file__), "..", "..", "static", "promo_bg",
+                         f"{style if style in BACKGROUND_STYLES else 'wood'}.jpg")
     try:
-        bg_bytes, _mime = M._pollinations_generate(meta["prompt"] + _NO_TEXT, aspect_ratio, quality="standard")
-        _bg_cache[key] = (_time.time(), bg_bytes)
-        bg = Image.open(io.BytesIO(bg_bytes)).convert("RGB").resize((w, h))
-        return bg, "pollinations"
+        bg = Image.open(asset).convert("RGB")
+        # 커버-크롭: 비율을 채우도록 확대 후 중앙 크롭 — 왜곡 없이 어떤 비율도 대응
+        scale = max(w / bg.width, h / bg.height)
+        bg = bg.resize((round(bg.width * scale), round(bg.height * scale)), Image.LANCZOS)
+        left, top = (bg.width - w) // 2, (bg.height - h) // 2
+        return bg.crop((left, top, left + w, top + h)), "bundled"
     except Exception as e:
-        logger.info("배경 생성 실패 → 그라데이션 폴백: %s", e)
+        logger.warning("내장 배경 로드 실패 → 그라데이션 폴백: %s", e)
         bg = Image.new("RGB", (w, h))
-        top, bottom = (250, 246, 240), (233, 223, 208)  # 크림 → 라떼 베이지
+        top_c, bottom_c = (250, 246, 240), (233, 223, 208)  # 크림 → 라떼 베이지
         for y in range(h):
             t = y / max(1, h - 1)
-            bg.paste(tuple(round(top[i] + (bottom[i] - top[i]) * t) for i in range(3)),
+            bg.paste(tuple(round(top_c[i] + (bottom_c[i] - top_c[i]) * t) for i in range(3)),
                      (0, y, w, y + 1))
         return bg, "gradient"
 
@@ -307,23 +306,5 @@ def compose_from_photo(store_id: str, photo_bytes: bytes, style: str = "wood",
 
 
 def warm_backgrounds_async() -> None:
-    """5개 스타일 배경을 백그라운드로 미리 생성해 캐시를 채운다 (서버 기동 시 1회).
-
-    배포 때마다 인메모리 캐시가 비어 첫 합성이 수십 초 걸리던 것을, 기동 직후
-    1~2분 안에 전부 데워 사용자는 항상 수 초 합성을 보게 한다.
-    PHOTO_BG_WARM=0 으로 끌 수 있다(테스트·오프라인 환경).
-    """
-    import os
-    import threading
-
-    if os.getenv("PHOTO_BG_WARM", "1") == "0":
-        return
-
-    def _run() -> None:
-        for style in BACKGROUND_STYLES:
-            try:
-                _background(style, "1:1")
-            except Exception:
-                pass
-
-    threading.Thread(target=_run, daemon=True, name="photo-bg-warm").start()
+    """(호환용 no-op) 배경이 서버 내장 자산으로 바뀌어 예열이 필요 없다."""
+    return
