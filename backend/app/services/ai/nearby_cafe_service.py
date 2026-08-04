@@ -266,9 +266,22 @@ def search_cafe_candidates(query: str, lat: Optional[float] = None, lon: Optiona
     if not q:
         return []
 
+    # [지역화] 네이버 지역검색은 전국 단위라, 상호만 치면 동명의 유명 카페들이 상위를
+    # 차지해 정작 근처의 내 가게가 후보 5개에 못 든다("후보가 다 너무 멀다" 문제).
+    # 매장 좌표가 있으면 역지오코딩한 동/구 이름을 붙인 검색을 '먼저' 돌려
+    # 내 동네 결과가 후보에 확실히 포함되게 한다 (analyze_cafe와 같은 요령).
+    keywords: list[str] = []
+    if lat is not None and lon is not None:
+        region = _region_names(lat, lon)
+        if region["dong"]:
+            keywords.append(f"{region['dong']} {q}")
+        if region["sigungu"]:
+            keywords.append(f"{region['sigungu']} {q}")
+    keywords += [q, f"{q} 카페"]
+
     seen: set[str] = set()
     out: list[dict[str, Any]] = []
-    for kw in (q, f"{q} 카페"):
+    for kw in keywords:
         for item in _search_local(kw, display=5, sort="random"):
             category = _strip_tags(item.get("category", ""))
             if not any(hint in category for hint in _CAFE_CATEGORY_HINTS):
