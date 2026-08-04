@@ -566,7 +566,6 @@ function TodoItem({
             {/* AI 출처 배지 */}
             {todo.source === 'ai' && (
               <View style={[styles.aiBadge, disabled && styles.aiBadgeDone]}>
-                <Ionicons name="sparkles" size={9} color={disabled ? '#71717A' : '#A855F7'} />
                 <Text style={[styles.aiBadgeText, disabled && styles.aiBadgeTextDone]}>브루</Text>
               </View>
             )}
@@ -593,7 +592,7 @@ function TodoItem({
               style={styles.iconBtn}
               to={0.85}
             >
-              <Ionicons name="pencil-outline" size={15} color="#71717A" style={{ opacity: 0.5 }} />
+              <Ionicons name="pencil-outline" size={13} color="#71717A" style={{ opacity: 0.5 }} />
             </PressableScale>
 
             {/* 삭제 휴지통 버튼 */}
@@ -602,7 +601,7 @@ function TodoItem({
               style={styles.iconBtn}
               to={0.85}
             >
-              <Ionicons name="trash-outline" size={15} color="#EF4444" style={{ opacity: 0.6 }} />
+              <Ionicons name="trash-outline" size={13} color="#EF4444" style={{ opacity: 0.6 }} />
             </PressableScale>
           </View>
         )}
@@ -863,11 +862,10 @@ const styles = StyleSheet.create({
   aiBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
     backgroundColor: 'rgba(168, 85, 247, 0.1)',
     borderRadius: 999,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: 4,
+    paddingVertical: 1.5,
   },
   aiBadgeDone: {
     backgroundColor: '#EFECE6',
@@ -919,8 +917,8 @@ const styles = StyleSheet.create({
   actionsRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginLeft: 4,
+    gap: 2,
+    marginLeft: 2,
   },
 
   // 발주 칩 & 완료 배지 (에스프레소 갈색 톤 통합)
@@ -965,6 +963,6 @@ const styles = StyleSheet.create({
     color: '#2C221E',
   },
   iconBtn: {
-    padding: 4,
+    padding: 3,
   },
 });
