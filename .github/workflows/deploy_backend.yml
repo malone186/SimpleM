@@ -15,6 +15,12 @@ on:
     paths:
       - "backend/**"
       - ".github/workflows/deploy_backend.yml"
+    # 테스트·로컬 도구만 바뀐 커밋은 배포하지 않는다 — 배포 전환 순간마다 잠깐의
+    # 502 창이 생기는데, 오늘처럼 커밋이 잦은 날 사용자가 계속 그 창에 걸렸다.
+    paths-ignore:
+      - "backend/tests/**"
+      - "backend/pytest.ini"
+      - "backend/scripts/**"
   workflow_dispatch: {} # Actions 탭에서 수동 실행도 가능
 
 # 같은 브랜치의 배포가 겹치면 이전 실행을 취소해 리비전 경쟁을 막는다
