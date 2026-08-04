@@ -1000,7 +1000,7 @@ def create_marketing_image(
 
 
 @router.post("/marketing/photo-image")
-async def create_marketing_photo_image(
+def create_marketing_photo_image(
     file: UploadFile = File(...),
     style: str = Form("wood"),
     aspect_ratio: str = Form("1:1"),
@@ -1011,8 +1011,13 @@ async def create_marketing_photo_image(
 
     AI 생성 이미지와 달리 '우리 매장 실물'이 그대로 담긴다. doc_id를 주면
     해당 홍보 문서의 images에 붙는다. 배경 스타일: wood/marble/cozy/studio/season.
+
+    [중요] async가 아니라 일반 def다 — 합성(누끼+배경)이 수 초~수십 초짜리 동기
+    작업이라, async로 두면 그 시간 동안 이벤트 루프가 얼어 서버 전체(/health 포함)가
+    무응답이 된다(실측: 합성 도중 전 엔드포인트 타임아웃 → Cloud Run 502/재시작).
+    일반 def는 FastAPI가 스레드풀에서 돌려 서버가 계속 응답한다.
     """
-    content = await file.read()
+    content = file.file.read()
     if len(content) > MAX_IMAGE_BYTES:
         raise HTTPException(413, "사진이 15MB를 초과합니다")
     try:

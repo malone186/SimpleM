@@ -1,0 +1,28 @@
+# 프로덕션 크래시 진단용 — Cloud Run 로그를 Actions에서 읽어온다 (수동 실행 전용).
+# 로컬에 GCP 자격증명이 없어도 배포에 쓰는 서비스 계정으로 로그를 확인할 수 있다.
+name: Debug Cloud Run Logs
+on:
+  workflow_dispatch: {}
+
+jobs:
+  logs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+      - name: Read recent error/system logs
+        run: |
+          echo "===== 최근 40분 WARNING 이상 ====="
+          gcloud logging read \
+            'resource.type="cloud_run_revision" AND resource.labels.service_name="brewnote-api" AND severity>=WARNING AND timestamp>="'"$(date -u -d '40 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"'"' \
+            --project "simplem-app" --limit 80 \
+            --format 'value(timestamp, severity, textPayload, jsonPayload.message)' || true
+          echo "===== 시스템 이벤트 (OOM·재시작) ====="
+          gcloud logging read \
+            'resource.type="cloud_run_revision" AND resource.labels.service_name="brewnote-api" AND logName:"run.googleapis.com" AND timestamp>="'"$(date -u -d '40 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"'"' \
+            --project "simplem-app" --limit 40 \
+            --format 'value(timestamp, textPayload)' || true
