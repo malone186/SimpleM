@@ -606,6 +606,11 @@ export default function AuthScreen() {
     }
   };
 
+  // 가입 비밀번호 최소 길이 — 계정이 어디에 만들어지느냐에 따라 다르다.
+  // Firebase가 켜져 있으면 Firebase가 6자 미만을 거절하고(auth/weak-password),
+  // 꺼져 있으면 백엔드 스키마 기준(min_length=4)이다.
+  const minPasswordLength = firebaseAuthEnabled ? 6 : 4;
+
   // 1단계 ➡️ 2단계 이동 검증
   const goToNextStep = () => {
     setError('');
@@ -615,6 +620,13 @@ export default function AuthScreen() {
     }
     if (!email.trim() || !password) {
       setError('이메일과 비밀번호를 입력해 주세요.');
+      return;
+    }
+    // [한글 주석] 자릿수는 여기서 막는다.
+    // 예전엔 통과시켜서, 지도 핀·운영시간·약관까지 다 채우고 마지막 '가입' 버튼에서야
+    // "비밀번호가 너무 취약합니다"가 떴다. 처음 화면에서 걸러야 다시 입력할 게 없다.
+    if (password.length < minPasswordLength) {
+      setError(`비밀번호는 ${minPasswordLength}자 이상으로 입력해 주세요.`);
       return;
     }
     setStep(2);
@@ -849,7 +861,7 @@ export default function AuthScreen() {
                 />
                 <Field
                   icon="lock-closed-outline"
-                  placeholder="비밀번호"
+                  placeholder={`비밀번호 (${minPasswordLength}자 이상)`}
                   value={password}
                   onChangeText={setPassword}
                   secureToggle
