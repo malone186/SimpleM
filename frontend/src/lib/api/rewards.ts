@@ -1,8 +1,8 @@
 // 포인트·상점 API (백엔드 B) — 할 일을 끝내면 코인이 쌓이고, 코인으로 브루를 꾸민다.
 import { apiFetch } from './client';
 
-/** 꾸미기 부위 — 같은 부위에는 하나만 착용된다 */
-export type ItemSlot = 'pose' | 'background';
+/** 꾸미기 부위 — 같은 부위에는 하나만 착용된다 (부위가 다르면 함께 착용된다) */
+export type ItemSlot = 'pose' | 'background' | 'apron';
 
 export type ShopItem = {
   id: string;
@@ -17,6 +17,8 @@ export type ShopItem = {
   affordable: boolean;
   /** 포즈 상품일 때만 — Brew의 mood 값 */
   mood?: string | null;
+  /** 앞치마 색 상품일 때만 — apronVariants의 색 키 (navy·forest 등) */
+  color?: string | null;
 };
 
 export type ShopState = {
@@ -39,8 +41,9 @@ export type Wallet = {
   history: PointHistoryItem[];
 };
 
-/** 착용 중인 아이템. pose면 mood로 브루 그림 자체가 바뀌고, background면 뒤에 깔린다. */
-export type EquippedItem = { id: string; slot: ItemSlot; emoji: string; mood?: string };
+/** 착용 중인 아이템. pose면 mood로 브루 그림이 바뀌고, apron이면 color로 앞치마 색이,
+ *  background면 뒤에 효과가 깔린다. */
+export type EquippedItem = { id: string; slot: ItemSlot; emoji: string; mood?: string; color?: string };
 
 const authHeader = (token?: string | null): Record<string, string> =>
   token ? { Authorization: `Bearer ${token}` } : {};
@@ -72,7 +75,56 @@ export function equipItem(itemId: string, equipped: boolean, token?: string | nu
   });
 }
 
+/** 적립 결과 — awarded가 0이면 이미 받은 항목이라 잔액이 그대로다 */
+export type AwardResult = { awarded: number; balance: number };
+
+/**
+ * 자동 도출 할 일(재고 발주·서류 갱신·브루 추천)을 끝냈다고 알린다.
+ *
+ * 이 항목들은 조건에서 매번 새로 조립되므로 서버에 저장된 행이 없다 — 그래서 완료
+ * API가 없고, 대신 대시보드가 쓰는 안정적인 id(stock-<재료id> 등)를 key로 보낸다.
+ * 같은 key로 두 번 보내도 코인은 한 번만 쌓인다(서버가 막는다).
+ */
+export function awardDerivedTodo(
+  key: string,
+  title: string,
+  token?: string | null,
+): Promise<AwardResult> {
+  return apiFetch<AwardResult>('/api/v1/rewards/todo-done', {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify({ key, title }),
+  });
+}
+
 /** 착용 중인 아이템만 가볍게 — 브루를 그리는 화면들이 쓴다 */
 export function getEquipped(token?: string | null): Promise<EquippedItem[]> {
   return apiFetch<EquippedItem[]>('/api/v1/rewards/equipped', { headers: authHeader(token) });
+}
+
+/** 오늘 할 일 N개 완료 시 보너스 — 진행 상황 */
+export type DailyChallenge = {
+  goal: number;
+  progress: number;
+  done: boolean;
+  reward: number;
+  claimed: boolean;
+  just_awarded: boolean;
+};
+
+/** 브루 키우기 상태 — 레벨·EXP·스트릭·일일 도전 */
+export type Progress = {
+  exp: number;
+  level: number;
+  level_title: string;
+  exp_in_level: number;
+  exp_to_next: number;
+  streak: number;
+  streak_active_today: boolean;
+  daily: DailyChallenge;
+};
+
+/** 성장 상태 조회 (일일 도전을 달성했으면 이 호출 중에 보너스가 지급될 수 있다) */
+export function getProgress(token?: string | null): Promise<Progress> {
+  return apiFetch<Progress>('/api/v1/rewards/progress', { headers: authHeader(token) });
 }

@@ -258,9 +258,14 @@ export default function AlertCenterCard({
             <Ionicons name="checkmark-circle-outline" size={24} color="#38A169" />
           </View>
           <View style={styles.emptyTextCol}>
-            <Text style={styles.emptyTitle}>확인이 필요한 알림이 없습니다</Text>
-            <Text style={styles.emptySubtitle}>상단 '복원' 버튼을 누르면 알림을 불러옵니다 ✨</Text>
+            <Text style={styles.emptyTitle}>지금 확인할 알림이 없어요</Text>
+            <Text style={styles.emptySubtitle}>재고·서류에 문제가 생기면 여기에 바로 알려드려요</Text>
           </View>
+          {onRestoreAlerts && (
+            <Pressable style={styles.restoreBtn} onPress={onRestoreAlerts} hitSlop={6}>
+              <Text style={styles.restoreText}>지운 알림 보기</Text>
+            </Pressable>
+          )}
         </View>
       ) : !isExpanded ? (
         /* ━━━ [한글 주석: 접혀있을 때 — 입체적인 겹겹이 스택 카드] ━━━ */

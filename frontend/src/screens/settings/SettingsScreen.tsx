@@ -842,7 +842,7 @@ export default function SettingsScreen() {
         )}
         <Row
           label="재고 부족 알림"
-          hint="설정한 안전재고 밑으로 떨어지면 먼저 알려드려요"
+          hint="정해 둔 최소 수량 밑으로 떨어지면 먼저 알려드려요"
           right={
             <Switch
               value={prefs.lowStockAlert}
@@ -868,7 +868,7 @@ export default function SettingsScreen() {
         <Divider />
         <Row
           label="놓친 일 먼저 알려주기"
-          hint="재고 소진 예상일, 신고 기한, 갱신 서류, 방치된 초안 등을 매장 데이터에서 찾아 미리 알려드려요"
+          hint="재료가 언제 바닥날지, 신고 기한·갱신 서류·미뤄 둔 초안을 매장 데이터에서 찾아 미리 알려드려요"
           right={
             <Switch
               value={prefs.proactiveInsights}

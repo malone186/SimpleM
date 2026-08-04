@@ -422,7 +422,8 @@ def check_stock(db, store_id: str, settings, now: datetime) -> list[str]:
     def _label(r: dict) -> str:
         d = r.get("days_until_stockout")
         if d is not None:
-            return f"{r['ingredient']} {d:.0f}일"
+            # '예가체프 3일'만으로는 뭐가 3일인지 안 읽힌다
+            return f"{r['ingredient']} {d:.0f}일 뒤 바닥"
         return f"{r['ingredient']} {r.get('current_quantity', 0):g}{r.get('unit', '')} 남음"
 
     parts = [_label(r) for r in urgent_items[:3]]
@@ -431,8 +432,9 @@ def check_stock(db, store_id: str, settings, now: datetime) -> list[str]:
     title = f"📦 {head['ingredient']} 곧 떨어져요"
     body = " · ".join(parts) + (f" 외 {more}종" if more > 0 else "") + " — 오늘 발주하면 안 끊겨요."
 
+    # 발주 화면은 앱에서 빠졌다 — 같은 내용을 다루는 재고 화면으로 보낸다
     if _dispatch(db, store_id, "stock", dedupe_key,
-                 title, body, {"screen": "Order"}):
+                 title, body, {"screen": "Inventory"}):
         return [f"stock:{len(urgent_items)}종"]
     return []
 
@@ -880,7 +882,7 @@ def check_briefing(db, store_id: str, settings, now: datetime) -> list[str]:
 
 # 인사이트 영역 → 탭했을 때 열릴 화면 (프론트 RootNavigator의 실제 라우트 이름)
 INSIGHT_SCREEN = {
-    "inventory": "Order",
+    "inventory": "Inventory",
     "document": "Document",
     "market": "StoreMap",
     "settlement": "Dashboard",
@@ -889,7 +891,7 @@ INSIGHT_SCREEN = {
     "system": "Settings",
     "forecast": "Dashboard",
     "menu": "Cost",
-    "order": "Order",
+    "order": "Inventory",
     "staff": "Staff",
     "tax": "Document",
     "sales": "Dashboard",

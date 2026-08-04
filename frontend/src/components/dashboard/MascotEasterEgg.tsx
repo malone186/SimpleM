@@ -101,7 +101,7 @@ export default function MascotEasterEgg({
 
   // 상점에서 산 것 (전역 공유 — 구매·착용하면 여기도 같이 바뀐다).
   // 포즈를 샀으면 그 모습으로, 안 샀으면 화면이 정한 기본 포즈로 그린다.
-  const { accessories, poseMood } = useEquipped();
+  const { accessories, poseMood, apronColor } = useEquipped();
   const shownMood = poseMood ?? mood;
 
   // 강아지 반동(탭 공통) + 풍선 부풀기(롱프레스) — 최종 스케일은 둘의 곱
@@ -269,7 +269,7 @@ export default function MascotEasterEgg({
       <Pressable onPress={onPress} onPressIn={onPressIn} onPressOut={onPressOut} hitSlop={6}>
         <Animated.View style={{ transform: [{ scale: combinedScale }, { rotate }] }}>
           {/* 상점에서 산 포즈·배경을 홈 마스코트에 그대로 반영한다 */}
-          <Brew mood={shownMood} size={size} disableMotion accessories={accessories} />
+          <Brew mood={shownMood} size={size} disableMotion accessories={accessories} apronColor={apronColor} />
         </Animated.View>
       </Pressable>
 

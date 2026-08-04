@@ -10,7 +10,13 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import get_current_user
 from app.models.user import User
-from app.schemas.ai import EquipRequest, ShopResponse, WalletResponse
+from app.schemas.ai import (
+    AwardResponse,
+    DerivedTodoDoneRequest,
+    EquipRequest,
+    ShopResponse,
+    WalletResponse,
+)
 from app.services.ai import reward_service
 
 logger = logging.getLogger(__name__)
@@ -48,7 +54,34 @@ def equip_item(body: EquipRequest, current_user: User = Depends(get_current_user
         raise HTTPException(400, str(e))
 
 
+@router.post("/todo-done", response_model=AwardResponse)
+def award_derived_todo(body: DerivedTodoDoneRequest, current_user: User = Depends(get_current_user)):
+    """자동 도출 할 일 완료 적립.
+
+    저장된 할 일(todo_items)은 완료 API가 알아서 적립하지만, 재고 부족·서류 갱신·브루
+    추천처럼 조건에서 매번 조립되는 항목은 서버에 행이 없다. 앱이 완료를 눌렀을 때
+    이 엔드포인트로 알려준다. 같은 key로 두 번 오면 두 번째는 awarded=0이다.
+    """
+    try:
+        awarded = reward_service.award_derived_todo(current_user.email, body.key, body.title)
+    except reward_service.RewardError as e:
+        raise HTTPException(400, str(e))
+    return {
+        "awarded": reward_service.POINTS_PER_TODO if awarded else 0,
+        "balance": reward_service.get_balance(current_user.email),
+    }
+
+
 @router.get("/equipped")
 def get_equipped(current_user: User = Depends(get_current_user)) -> list[dict]:
     """현재 착용 중인 아이템 — 브루를 그리는 화면들이 가볍게 조회한다."""
     return reward_service.get_equipped(current_user.email)
+
+
+@router.get("/progress")
+def get_progress(current_user: User = Depends(get_current_user)) -> dict:
+    """브루 키우기 상태 — 레벨·EXP·스트릭·일일 도전 (상점 상단 성장 카드).
+
+    일일 도전을 오늘 달성했으면 이 조회 중에 보너스 코인이 지급될 수 있다(하루 한 번).
+    """
+    return reward_service.get_progress(current_user.email)

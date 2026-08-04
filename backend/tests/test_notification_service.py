@@ -374,7 +374,7 @@ def test_stock_bundles_urgent_items(db, sent, monkeypatch):
     assert keys == ["stock:2종"]                 # 품목별로 쪼개 보내지 않는다
     assert "원두" in sent[0]["title"]             # 가장 급한 품목이 제목
     assert "시럽" not in sent[0]["body"]
-    assert sent[0]["data"]["screen"] == "Order"
+    assert sent[0]["data"]["screen"] == "Inventory"   # 발주 화면은 앱에서 빠졌다
 
 
 def test_stock_skips_forecast_when_already_sent(db, sent, monkeypatch):

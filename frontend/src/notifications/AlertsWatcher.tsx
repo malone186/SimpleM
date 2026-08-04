@@ -293,16 +293,18 @@ export default function AlertsWatcher() {
           const low = stocks.filter(
             (s) => s.current_quantity <= s.safety_quantity && !alreadyIds.includes(s.ingredient_id)
           );
+          // 문구는 홈 할 일·알림 센터와 같은 쉬운 말로 ('안전재고' 같은 용어는 쓰지 않는다)
           if (low.length === 1) {
             const s = low[0];
+            const need = s.safety_quantity > 0 ? s.safety_quantity : 3;
             toast(
-              `📦 ${s.name} 재고 부족`,
-              `잔여 ${s.current_quantity}${s.unit} · 안전재고 ${s.safety_quantity}${s.unit} — 발주를 검토해 주세요.`
+              s.current_quantity <= 0 ? `📦 ${s.name} 다 떨어졌어요` : `📦 ${s.name} 얼마 안 남았어요`,
+              `${s.current_quantity}${s.unit} 남음 · 최소 ${need}${s.unit} 필요`
             );
           } else if (low.length > 1) {
             const names = low.slice(0, 3).map((s) => s.name).join(', ');
             const rest = low.length > 3 ? ` 외 ${low.length - 3}종` : '';
-            toast('📦 재고 부족 알림', `${names}${rest}이(가) 안전재고 아래로 떨어졌어요.`);
+            toast('📦 채워야 할 재료가 있어요', `${names}${rest} — 얼마 안 남았어요.`);
           }
           if (low.length > 0) {
             state.lowStockDate = today;

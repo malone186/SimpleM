@@ -8,6 +8,7 @@
 models/ai.py의 PointLedger 주석 참고.
 """
 
+import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -64,6 +65,29 @@ SHOP_ITEMS: list[dict[str, Any]] = [
      "desc": "가만히 있어도 빛나는 중"},
     {"id": "bg_heart", "slot": "background", "name": "하트 뿅뿅", "emoji": "💗", "price": 300,
      "desc": "단골 손님이 늘어날 것 같은 기분"},
+    {"id": "bg_beans", "slot": "background", "name": "커피콩 흩날림", "emoji": "🫘", "price": 300,
+     "desc": "볶은 원두가 사르르 떨어져요"},
+    {"id": "bg_snow", "slot": "background", "name": "겨울 눈꽃", "emoji": "❄️", "price": 300,
+     "desc": "포근한 첫눈 내리는 날"},
+    {"id": "bg_confetti", "slot": "background", "name": "축하 컨페티", "emoji": "🎉", "price": 350,
+     "desc": "오픈·이벤트 날의 들뜬 기분"},
+    {"id": "bg_bubble", "slot": "background", "name": "뽀글 거품", "emoji": "🫧", "price": 300,
+     "desc": "라떼 거품처럼 몽글몽글"},
+    # 앞치마 색 — 브루가 입은 앞치마만 색을 바꾼다(털·모자·컵·글자는 그대로). 포즈별로
+    # '앞치마 영역 마스크'로 리컬러한 변형 PNG를 미리 구워 두고, color 값으로 그 이미지를
+    # 골라 원본 포즈를 대체한다(프론트 apronVariants.ts). pose와 다른 슬롯이라 함께 착용된다.
+    {"id": "apron_navy", "slot": "apron", "color": "navy", "name": "네이비 앞치마", "emoji": "🔵", "price": 300,
+     "desc": "차분한 감색 앞치마"},
+    {"id": "apron_forest", "slot": "apron", "color": "forest", "name": "포레스트 앞치마", "emoji": "🟢", "price": 300,
+     "desc": "숲빛 그린 앞치마"},
+    {"id": "apron_wine", "slot": "apron", "color": "wine", "name": "와인 앞치마", "emoji": "🍷", "price": 350,
+     "desc": "깊은 버건디 앞치마"},
+    {"id": "apron_mustard", "slot": "apron", "color": "mustard", "name": "머스터드 앞치마", "emoji": "🟡", "price": 300,
+     "desc": "따뜻한 겨자색 앞치마"},
+    {"id": "apron_charcoal", "slot": "apron", "color": "charcoal", "name": "차콜 앞치마", "emoji": "⚫", "price": 300,
+     "desc": "시크한 차콜 블랙 앞치마"},
+    {"id": "apron_terracotta", "slot": "apron", "color": "terracotta", "name": "테라코타 앞치마", "emoji": "🟠", "price": 300,
+     "desc": "구움과자 같은 테라코타 앞치마"},
 ]
 
 _ITEM_BY_ID = {item["id"]: item for item in SHOP_ITEMS}
@@ -71,13 +95,19 @@ _ITEM_BY_ID = {item["id"]: item for item in SHOP_ITEMS}
 SLOT_LABEL = {
     "pose": "브루 모습",
     "background": "배경 효과",
+    "apron": "앞치마 색",
 }
 
 REASON_LABEL = {
     "todo_done": "할 일 완료",
     "purchase": "상점 구매",
+    "daily_bonus": "일일 도전 보너스",
     "test_grant": "테스트 지급",  # 개발 중 상점을 확인하려고 수동으로 넣은 코인
 }
+
+# 일일 도전 — 오늘 할 일 N개를 끝내면 보너스 코인 (빈 출석이 아니라 실제 완료 기준)
+DAILY_GOAL = 3
+DAILY_REWARD = 30
 
 
 class RewardError(ValueError):
@@ -174,6 +204,154 @@ def award_todo_done(store_id: str, todo_id: int, title: str) -> bool:
     return award(store_id, POINTS_PER_TODO, "todo_done", str(todo_id), memo)
 
 
+def award_derived_todo(store_id: str, key: str, title: str) -> bool:
+    """자동 도출 할 일(재고 발주·서류 갱신·브루 추천) 완료 보상.
+
+    이 항목들은 조건에서 매번 새로 조립되므로 todo_items 테이블에 행이 없다.
+    그래도 사장님이 실제로 끝낸 일이라 보상은 같아야 한다 — 대시보드가 쓰는 안정적인
+    id(stock-<재료id>, comp-<서류id>, insight-<키>, promo-main)를 그대로 ref로 삼는다.
+
+    ref에 'k:' 접두어를 붙이는 이유: 저장된 할 일은 ref가 숫자 id라 같은 reason 안에서
+    두 종류가 섞인다. 접두어가 없으면 언젠가 겹칠 수 있다.
+    """
+    k = (key or "").strip()
+    if not k:
+        raise RewardError("할 일 식별자가 비어 있습니다.")
+
+    memo = title if len(title) <= 40 else title[:39] + "…"
+    return award(store_id, POINTS_PER_TODO, "todo_done", _derived_ref(k), memo)
+
+
+def _derived_ref(key: str) -> str:
+    """자동 도출 항목 key를 ref 컬럼(64자)에 담을 형태로.
+
+    인사이트 키는 'insight-renewal:12:2026-08-10'처럼 길어져 120자까지 온다. 그냥 자르면
+    앞부분이 같은 두 항목이 한 항목으로 뭉쳐 한쪽이 코인을 못 받는다 — 넘칠 때만 뒤를
+    해시로 갈음해 길이는 맞추고 구분은 남긴다.
+    """
+    ref = f"k:{key}"
+    if len(ref) <= 64:
+        return ref
+    digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+    return f"k:{key[:45]}#{digest}"
+
+
+# ---------------------------------------------------------------------------
+# 성장(EXP·레벨) · 스트릭 · 일일 도전 — '브루 키우기'
+#
+# EXP = 누적으로 번 코인(양수 delta 합). 쓰는 코인(잔액)과 분리돼, 아이템을 사도 성장은
+# 되돌아가지 않는다. 레벨·칭호는 EXP에서 계산한다. 스트릭은 '할 일을 한 날'의 연속 일수 —
+# 단순 접속이 아니라 실제 완료 기준이라 "빈 출석엔 보상 없음" 원칙과 맞는다.
+# ---------------------------------------------------------------------------
+
+def _level_title(level: int) -> str:
+    if level <= 2:
+        return "새싹 바리스타"
+    if level <= 4:
+        return "견습 바리스타"
+    if level <= 7:
+        return "정식 바리스타"
+    if level <= 10:
+        return "베테랑 바리스타"
+    return "마스터 바리스타"
+
+
+def _level_calc(exp: int) -> tuple[int, int, int, str]:
+    """누적 EXP → (레벨, 현재 레벨 내 EXP, 다음 레벨까지 필요 EXP, 칭호).
+
+    레벨 L→L+1 비용 = 100 + (L-1)*50 (오를수록 완만하게 늘어난다).
+    """
+    level, acc = 1, 0
+    while True:
+        cost = 100 + (level - 1) * 50
+        if exp < acc + cost:
+            return level, exp - acc, cost, _level_title(level)
+        acc += cost
+        level += 1
+
+
+def _to_kst_date(dt):
+    """PointLedger.created_at(naive UTC일 수 있음) → KST 날짜."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(KST).date()
+
+
+def _streak(active_dates: set, today) -> tuple[int, bool]:
+    """할 일을 한 날의 연속 일수. 오늘 아직 안 했어도 어제까지 이어졌으면 유지된다."""
+    if today in active_dates:
+        cur = today
+    elif (today - timedelta(days=1)) in active_dates:
+        cur = today - timedelta(days=1)
+    else:
+        return 0, False
+    n = 0
+    while cur in active_dates:
+        n += 1
+        cur -= timedelta(days=1)
+    return n, today in active_dates
+
+
+def get_progress(store_id: str) -> dict[str, Any]:
+    """브루 키우기 상태 — 레벨·EXP·스트릭·일일 도전.
+
+    일일 도전을 달성했는데 아직 보너스를 안 받았으면 여기서 지급한다(하루 한 번, ref로 멱등).
+    """
+    from app.models.ai import PointLedger
+
+    with _session() as db:
+        rows = db.query(PointLedger.created_at, PointLedger.reason, PointLedger.delta).filter(
+            PointLedger.store_id == store_id, PointLedger.delta > 0
+        ).all()
+
+    today = datetime.now(KST).date()
+    exp = 0
+    active: set = set()
+    todo_today = 0
+    daily_claimed = False
+    for created, reason, delta in rows:
+        exp += int(delta)
+        d = _to_kst_date(created)
+        if not d:
+            continue
+        active.add(d)
+        if d == today and reason == "todo_done":
+            todo_today += 1
+        if d == today and reason == "daily_bonus":
+            daily_claimed = True
+
+    # 일일 도전 달성 & 미수령 → 보너스 지급 (멱등: ref=daily:날짜)
+    reward_given = False
+    if todo_today >= DAILY_GOAL and not daily_claimed:
+        if award(store_id, DAILY_REWARD, "daily_bonus", f"daily:{today.isoformat()}",
+                 f"일일 도전 달성(+{DAILY_REWARD})"):
+            exp += DAILY_REWARD
+            daily_claimed = True
+            reward_given = True
+
+    streak, active_today = _streak(active, today)
+    level, in_level, to_next, title = _level_calc(exp)
+    return {
+        "exp": exp,
+        "level": level,
+        "level_title": title,
+        "exp_in_level": in_level,
+        "exp_to_next": to_next,
+        "streak": streak,
+        "streak_active_today": active_today,
+        "daily": {
+            "goal": DAILY_GOAL,
+            "progress": min(todo_today, DAILY_GOAL),
+            "done": todo_today >= DAILY_GOAL,
+            "reward": DAILY_REWARD,
+            "claimed": daily_claimed,
+            "just_awarded": reward_given,
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # 상점
 # ---------------------------------------------------------------------------
@@ -221,6 +399,8 @@ def get_equipped(store_id: str) -> list[dict[str, Any]]:
         entry = {"id": i, "slot": item["slot"], "emoji": item["emoji"]}
         if item.get("mood"):
             entry["mood"] = item["mood"]
+        if item.get("color"):
+            entry["color"] = item["color"]  # 앞치마 색 — 프론트가 변형 이미지를 고른다
         out.append(entry)
     return out
 

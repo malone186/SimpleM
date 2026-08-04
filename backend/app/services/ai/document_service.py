@@ -124,6 +124,78 @@ def update_document(store_id: str, doc_id: str, content: dict[str, Any],
 # 매일·매주 — 구매·재고
 # ---------------------------------------------------------------------------
 
+# 안전재고가 0인 재료(등록만 하고 기준을 안 잡은 경우)에 쓸 기본 최소 보유량.
+# 홈 화면 '재고 부족' 판정과 같은 값이어야 한다 — 다르면 홈에는 뜨는데 발주서에는
+# 안 잡히는(또는 그 반대) 일이 생겨 사장님이 둘 중 뭘 믿어야 할지 알 수 없다.
+DEFAULT_SAFETY_QUANTITY = 3
+
+
+def generate_purchase_order(store_id: str) -> dict[str, Any]:
+    """발주서 초안 — 최소 보유량 이하로 떨어진 재료를 모아 발주 수량까지 채운 문서.
+
+    돈이 걸린 액션이라 초안(draft)까지만 만든다 — 실제 발주 전송은 시스템이 하지 않는다
+    (팀 체크리스트: 발주·지급·신고는 draft_/propose_ 접두어로 초안만).
+
+    발주 수량은 '최소 보유량까지 채우는 부족분'이다. 여기에 여유분을 얹는 규칙은
+    일부러 넣지 않았다 — 매장마다 발주 주기가 달라 서버가 임의로 정하면 근거를 댈 수
+    없고, 사장님이 문서에서 수량을 고치는 편이 정확하다.
+    """
+    from app.models.inventory import Ingredient, Stock
+
+    with _session() as db:
+        rows = (
+            db.query(Ingredient, Stock)
+            .outerjoin(Stock, Stock.ingredient_id == Ingredient.id)
+            .filter(Ingredient.store_id == store_id)
+            .order_by(Ingredient.id)
+            .all()
+        )
+
+    items: list[dict[str, Any]] = []
+    for ing, stock in rows:
+        current = float(stock.current_quantity) if stock else 0.0
+        safety = float(stock.safety_quantity) if stock and stock.safety_quantity else 0.0
+        target = safety if safety > 0 else DEFAULT_SAFETY_QUANTITY
+        if current > target:
+            continue  # 아직 넉넉한 재료는 발주서에 넣지 않는다
+
+        shortage = round(target - current, 2)
+        # 딱 기준선에 걸쳐 있으면(부족분 0) 그래도 한 단위는 채워야 다음 날 안 끊긴다
+        suggested = shortage if shortage > 0 else 1
+        unit_price = int(ing.current_price or 0)
+        items.append({
+            "name": ing.name,
+            "unit": ing.unit,
+            "current_quantity": current,
+            "safety_quantity": target,
+            "suggested_quantity": suggested,
+            "unit_price": unit_price,
+            "estimated_amount": int(round(suggested * unit_price)),
+        })
+
+    if not items:
+        raise DocumentError(
+            "지금은 최소 보유량 아래로 떨어진 재료가 없어 발주서에 담을 품목이 없습니다. "
+            "재고가 줄어들면 다시 만들어 주세요."
+        )
+
+    today = date.today().isoformat()
+    total = sum(i["estimated_amount"] for i in items)
+    content = {
+        "date": today,
+        "items": items,
+        "total_estimated": total,
+        # 단가가 0인 재료가 섞이면 총액이 실제보다 적게 보인다 — 그 사실을 문서에 남긴다
+        "note": (
+            "최소 보유량 아래로 떨어진 재료를 모았습니다. 제안 수량은 최소 보유량까지 "
+            "채우는 양이니 발주 주기에 맞게 고쳐 쓰세요."
+            + (" 단가가 등록되지 않은 재료가 있어 예상 금액이 실제보다 적을 수 있습니다."
+               if any(i["unit_price"] <= 0 for i in items) else "")
+        ),
+    }
+    return _save_document(store_id, "purchase_order", f"발주서 초안 ({today})", content, period=today)
+
+
 def generate_stocktake_sheet(store_id: str) -> dict[str, Any]:
     """재고실사표 — 장부상 수량을 채워 넣은 실사용 시트 (실사 수량은 현장에서 기입)."""
     from app.models.inventory import Ingredient, Stock

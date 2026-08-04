@@ -352,3 +352,18 @@ class ShopResponse(BaseModel):
 class EquipRequest(BaseModel):
     item_id: str
     equipped: bool = True
+
+
+class DerivedTodoDoneRequest(BaseModel):
+    """자동 도출 할 일(재고·서류·브루 추천) 완료 신고 — 저장된 행이 없어 앱이 직접 알린다."""
+
+    # 인사이트 id_hint가 120자까지 온다 (ai_todo_service가 그 길이로 자른다)
+    key: str = Field(min_length=1, max_length=120, description="대시보드가 쓰는 안정적인 항목 id")
+    title: str = Field(min_length=1, max_length=200, description="내역에 남길 문구")
+
+
+class AwardResponse(BaseModel):
+    """적립 결과. awarded가 0이면 이미 받은 항목이라 잔액이 그대로다."""
+
+    awarded: int = Field(description="이번에 적립된 코인 수 (이미 적립됐으면 0)")
+    balance: int = Field(description="적립 후 잔액")

@@ -4,6 +4,8 @@ import { useEffect, useRef } from 'react';
 import { Animated, Easing, Image, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { ACCESSORY_ART } from './accessories';
+import { APRON_VARIANTS, type ApronColor } from './apronVariants';
+import { BLINK_OVERLAY } from './blinkOverlays';
 
 // 캐릭터 시트에서 잘라낸 포즈들 (표정 매칭 표)
 const POSES = {
@@ -17,10 +19,43 @@ const POSES = {
   hero: require('../../../assets/mascot/brew_hero.png'), // 스탠딩 바리스타 — 브랜드/온보딩
   top: require('../../../assets/mascot/brew_top.png'), // 모자 쓰고 커피 든 바리스타 — 홈 헤더용
   greet: require('../../../assets/mascot/brew_greet.png'), // 발 흔들며 인사하는 브루 — 인사·안내 (현재 미사용)
+  // 새 일러스트(윙크+하트) — 발이 분리돼 있어 '진짜 손 흔들기'가 된다 (아래 PAW_FRAMES)
+  hello: require('../../../assets/mascot/wave2/base.png'),
   coffee: require('../../../assets/mascot/brew_coffee.png'), // 커피잔 든 브루 (현재 미사용)
 } as const;
 
 export type BrewMood = keyof typeof POSES;
+
+// ── 발 흔들기 플립북 ────────────────────────────────────────────────────────
+// hello 포즈는 본체(base, 발 없음) + 발 프레임 3장(내림/중간/올림)으로 쪼개져 있다.
+// 발 프레임만 번갈아 보여주면 팔이 실제로 흔들리는 애니메이션이 된다 — 눈 깜빡임
+// 오버레이와 같은 원리의 '부위 애니메이션'. (원본 AI 일러스트에서 발을 분리·회전 제작)
+const PAW_FRAMES: Partial<Record<BrewMood, [any, any, any]>> = {
+  hello: [
+    require('../../../assets/mascot/wave2/paw_down.png'),
+    require('../../../assets/mascot/wave2/paw_mid.png'),
+    require('../../../assets/mascot/wave2/paw_up.png'),
+  ],
+};
+
+// ── 부위 애니메이션 (레이어 분리) ──────────────────────────────────────────
+// 기존 포즈 그림에서 '들고 있는 물건+발'만 레이어로 분리하고, 가려졌던 몸통은
+// 인페인팅으로 메꿔 뒀다(base). 레이어에만 transform을 걸면 몸은 가만히 있고
+// 물건만 움직인다 — hello의 발 플립북과 같은 원리인데, 이쪽은 프레임을 굽지 않고
+// 런타임 transform(들썩임·갸웃)으로 움직여서 그림 한 장 반이면 충분하다.
+type PartKind = 'bob' | 'tilt';
+const PART_ANIM: Partial<Record<BrewMood, { base: any; layer: any; kind: PartKind }>> = {
+  clipboard: {
+    base: require('../../../assets/mascot/parts/clipboard_base.png'),
+    layer: require('../../../assets/mascot/parts/clipboard_layer.png'),
+    kind: 'tilt', // 클립보드를 살짝 갸웃 — 체크리스트 확인하는 느낌
+  },
+  serving: {
+    base: require('../../../assets/mascot/parts/serving_base.png'),
+    layer: require('../../../assets/mascot/parts/serving_layer.png'),
+    kind: 'bob', // 케이크 접시를 살짝 들썩 — '이거 드세요' 권하는 느낌
+  },
+};
 
 // ── 배경 효과 ──────────────────────────────────────────────────────────────
 // 상점에서 산 배경 장식을 브루 뒤에 깔아준다.
@@ -31,15 +66,10 @@ export type BrewMood = keyof typeof POSES;
 // 그래서 상점은 '포즈 교체'(mood)로 가고, 겹쳐 그리는 건 배경만 남겼다.
 export type BrewAccessory = { id: string; slot: 'background'; emoji: string };
 
-// 배경 장식과 캐릭터의 크기 관계.
-//
-// 둘을 같은 크기로 그리면 장식이 전부 캐릭터 뒤에 숨어서 산 사람 입장에선 아무것도
-// 안 보인다(실제로 하트 하나만 옆으로 삐져나왔다).
-//
-// 장식을 박스 밖으로 키우는 방법도 있지만, 상점 카드나 원형 프레임처럼 overflow를
-// 자르는 부모 안에서는 그대로 잘려나간다. 그래서 반대로 캐릭터를 조금 줄여 박스 안에
-// 테두리 공간을 만든다 — 전체 차지 면적이 그대로라 레이아웃도 안 흔들린다.
-const CHAR_SHRINK_WITH_BG = 0.76;
+// [예전 메모] 정적(테두리 고정) 장식 때는 캐릭터를 줄여(0.76) 박스 안에 테두리 공간을
+// 만들어야 장식이 보였다. 지금 배경 효과는 파티클(반짝임·커피콩 등)이 박스 전체에서
+// 캐릭터 '뒤'로 흐르므로 위·옆·빈틈으로 잘 보인다 — 캐릭터를 줄일 필요가 없다.
+// 오히려 줄이면 '효과를 켜면 마스코트가 갑자기 작아지는' 문제만 생겨 없앴다.
 
 const SLOT_LAYOUT: Record<BrewAccessory['slot'], (size: number) => StyleProp<ViewStyle>> = {
   background: () => ({
@@ -54,22 +84,23 @@ const SLOT_LAYOUT: Record<BrewAccessory['slot'], (size: number) => StyleProp<Vie
 };
 
 const SLOT_SCALE: Record<BrewAccessory['slot'], number> = {
-  background: 1, // 박스를 가득 채운다 (캐릭터가 그보다 작아져서 고리가 드러난다)
+  background: 1, // 박스를 가득 채운다 (캐릭터가 그보다 작아져서 효과가 드러난다)
 };
 
 // idle 움직임 종류
-type Motion = 'bounce' | 'wave' | 'pour' | 'none';
+type Motion = 'bounce' | 'wave' | 'pour' | 'paw' | 'part' | 'none';
 
 const MOTION_BY_MOOD: Record<BrewMood, Motion> = {
   welcome: 'wave',
   happy: 'bounce',
   resting: 'none',
   pouring: 'pour',
-  clipboard: 'bounce',
-  serving: 'bounce',
+  clipboard: 'part', // 몸 고정, 클립보드만 갸웃 (PART_ANIM)
+  serving: 'part', // 몸 고정, 케이크 접시만 들썩 (PART_ANIM)
   hero: 'bounce',
   top: 'bounce',
   greet: 'wave',
+  hello: 'paw', // 몸은 고정, 분리된 발 프레임이 흔들린다
   coffee: 'bounce',
 };
 
@@ -81,6 +112,7 @@ export default function Brew({
   style,
   disableMotion = false, // [한글 주석: 말풍선 등과 애니메이션을 통합하기 위해 자체 모션을 끌 수 있는 제어 장치 추가]
   accessories = [],
+  apronColor,
 }: {
   mood?: BrewMood;
   size?: number;
@@ -89,13 +121,35 @@ export default function Brew({
   style?: StyleProp<ViewStyle>;
   disableMotion?: boolean;
   accessories?: BrewAccessory[]; // 상점에서 산 꾸미기 아이템 (착용 중인 것만)
+  apronColor?: string; // 상점에서 산 앞치마 색 (navy·forest 등). 없으면 기본 갈색.
 }) {
   const a = useRef(new Animated.Value(0)).current;
+  const blink = useRef(new Animated.Value(0)).current;
+  const paw = useRef(new Animated.Value(1)).current; // 0=내림 1=중간 2=올림
+  const part = useRef(new Animated.Value(0)).current; // 부위 레이어 진행도 (0=제자리)
+  // 앞치마 색을 착용했으면 그 색으로 리컬러한 변형 이미지를 쓴다(원본 포즈를 대체).
+  // 변형이 없으면(색 미착용·해당 포즈 변형 부재) 원본 갈색 포즈로 안전하게 폴백.
+  const poseSource = (apronColor && APRON_VARIANTS[mood]?.[apronColor as ApronColor]) || POSES[mood];
+  // 부위 애니메이션은 '원본 그림'에서 분리한 레이어라서, 앞치마 색 변형을 입었으면
+  // base와 색이 어긋난다 → 그때는 부위 애니메이션을 접고 통짜 그림 + bounce로 폴백.
+  // disableMotion일 때도 원본 통짜 그림이 곧 정지 화면이므로 분리본이 필요 없다.
+  const partCfg = PART_ANIM[mood];
+  const usePart = !!partCfg && poseSource === POSES[mood] && !disableMotion;
+  // 눈 뜬 포즈만 눈 깜빡임 오버레이가 있다. 있으면 눈 부위만 잠깐 감았다 뜬다.
+  // (앞치마 색 변형 위에도 그대로 얹힌다 — 눈은 상단, 앞치마는 하단이라 안 겹친다)
+  // 깜빡임은 흔들림(sway)과 별개다 — disableMotion(홈 마스코트·썸네일)이어도 눈은 깜빡인다.
+  const blinkSource = BLINK_OVERLAY[mood];
   // [한글 주석: disableMotion이 켜지면 강아지 고유의 흔들림 모션을 'none'(정지) 상태로 바꿉니다]
-  const motion = disableMotion ? 'none' : MOTION_BY_MOOD[mood];
+  const moodMotion = MOTION_BY_MOOD[mood];
+  const motion: Motion = disableMotion
+    ? 'none'
+    : moodMotion === 'part' && !usePart
+      ? 'bounce' // 분리 레이어를 못 쓰는 상황(앞치마 변형)이면 예전처럼 통짜 들썩임
+      : moodMotion;
 
   useEffect(() => {
-    if (motion === 'none') return;
+    // 'part'는 몸통이 아니라 분리 레이어가 움직인다 — 몸통 루프는 돌리지 않는다
+    if (motion === 'none' || motion === 'part' || motion === 'paw') return;
     const cfg =
       motion === 'wave'
         ? { dur: 620 }
@@ -111,6 +165,52 @@ export default function Brew({
     loop.start();
     return () => loop.stop();
   }, [a, motion]);
+
+  // 눈 깜빡임 — 몇 초에 한 번 눈 부위 오버레이 opacity를 잠깐 1로 올렸다 내린다.
+  useEffect(() => {
+    if (!blinkSource) return;
+    // 약 1.5초에 한 번 깜빡임 — 대기(1235) + 감기(85) + 멈춤(60) + 뜨기(120) ≈ 1500ms
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(1235),
+        Animated.timing(blink, { toValue: 1, duration: 85, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.delay(60),
+        Animated.timing(blink, { toValue: 0, duration: 120, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [blink, blinkSource]);
+
+  // 발 흔들기 — 중간→올림→중간→내림을 두 번 파닥이고 잠시 쉼 (실제 인사 느낌)
+  const pawFrames = PAW_FRAMES[mood];
+  useEffect(() => {
+    if (!pawFrames || motion !== 'paw') return;
+    const step = (to: number) =>
+      Animated.timing(paw, { toValue: to, duration: 120, easing: Easing.linear, useNativeDriver: true });
+    const loop = Animated.loop(
+      Animated.sequence([
+        step(2), step(1), step(0), step(1), step(2), step(1),
+        Animated.delay(1500),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [paw, pawFrames, motion]);
+
+  // 부위 레이어 움직임 — bob: 두 번 들썩이고 쉼 / tilt: 천천히 갸웃했다가 되돌아옴
+  useEffect(() => {
+    if (motion !== 'part' || !partCfg) return;
+    const step = (to: number, dur: number) =>
+      Animated.timing(part, { toValue: to, duration: dur, easing: Easing.inOut(Easing.sin), useNativeDriver: true });
+    const seq =
+      partCfg.kind === 'bob'
+        ? Animated.sequence([step(1, 340), step(0, 340), step(1, 340), step(0, 340), Animated.delay(1700)])
+        : Animated.sequence([step(1, 900), Animated.delay(350), step(0, 900), Animated.delay(1300)]);
+    const loop = Animated.loop(seq);
+    loop.start();
+    return () => loop.stop();
+  }, [part, partCfg, motion]);
 
   const transform =
     motion === 'wave'
@@ -129,11 +229,15 @@ export default function Brew({
   // 캐릭터 쪽도 position:relative로 만들어 zIndex가 실제로 먹히게 한다.
   const decor = (boxSize: number) =>
     accessories.map((acc) => {
+      // 프론트가 아직 모르는 슬롯이면 조용히 건너뛴다 — 백엔드가 새 슬롯을 먼저
+      // 추가해도(구버전 앱) 화면이 깨지지 않게 한다.
+      const layout = SLOT_LAYOUT[acc.slot];
+      if (!layout) return null;
       const Art = ACCESSORY_ART[acc.id];
-      const px = boxSize * SLOT_SCALE[acc.slot];
+      const px = boxSize * (SLOT_SCALE[acc.slot] ?? 1);
       // 캐릭터 바깥 고리에 그려지므로 가릴 일이 없다 — 흐리면 산 티가 안 나서 진하게 둔다
       return (
-        <View key={acc.id} style={[SLOT_LAYOUT[acc.slot](boxSize), { zIndex: 0, opacity: 0.85 }]} pointerEvents="none">
+        <View key={acc.id} style={[layout(boxSize), { zIndex: 0, opacity: 0.85 }]} pointerEvents="none">
           {/* 아직 그림이 없는 아이템만 이모지로 대체 — 새 아이템을 추가해도 화면이 비지 않는다 */}
           {Art ? <Art size={px} /> : <Text style={{ fontSize: px }}>{acc.emoji}</Text>}
         </View>
@@ -141,15 +245,81 @@ export default function Brew({
     });
 
   const hasDecor = accessories.length > 0;
-  // 배경을 산 경우에만 캐릭터를 줄여 테두리 공간을 낸다
-  const charSize = hasDecor ? size * CHAR_SHRINK_WITH_BG : size;
+  // 효과가 있어도 캐릭터 크기는 그대로 — 파티클은 캐릭터 뒤로 흐르므로 줄일 필요가 없다
+  const charSize = size;
+
+  // 눈 깜빡임 오버레이 — 같은 박스에 contain으로 얹혀 눈 위치가 정확히 맞는다.
+  // pointerEvents는 Animated.Image가 prop으로 받지 않는다(타입 오류) — 터치를 막는 건
+  // 감싼 View의 역할로 두고, 애니메이션 대상은 이미지만 남긴다.
+  const blinkLayer = (dim: number) =>
+    blinkSource ? (
+      <View style={{ position: 'absolute', top: 0, left: 0 }} pointerEvents="none">
+        <Animated.Image
+          source={blinkSource}
+          resizeMode="contain"
+          style={{ width: dim, height: dim, opacity: blink }}
+        />
+      </View>
+    ) : null;
+
+  // 발 프레임 오버레이 — 세 장을 겹쳐 두고 opacity로 한 장만 보이게 (플립북).
+  // 모션이 꺼져 있으면 중간 프레임 한 장만 정지 상태로 그린다 (base엔 발이 없으므로 필수).
+  const pawLayer = (dim: number) => {
+    if (!pawFrames) return null;
+    if (disableMotion || motion !== 'paw') {
+      return (
+        <Image
+          source={pawFrames[1]}
+          resizeMode="contain"
+          style={{ position: 'absolute', top: 0, left: 0, width: dim, height: dim }}
+        />
+      );
+    }
+    return pawFrames.map((src, i) => (
+      <Animated.Image
+        key={i}
+        source={src}
+        resizeMode="contain"
+        style={{
+          position: 'absolute', top: 0, left: 0, width: dim, height: dim,
+          opacity: paw.interpolate({
+            inputRange: [i - 0.5, i - 0.49, i + 0.49, i + 0.5],
+            outputRange: [0, 1, 1, 0],
+            extrapolate: 'clamp',
+          }),
+        }}
+      />
+    ));
+  };
+
+  // 부위 레이어 — base(물건 없는 몸통) 위에 물건 레이어만 transform으로 움직인다.
+  const partLayer = (dim: number) => {
+    if (!usePart || !partCfg) return null;
+    const tf =
+      partCfg.kind === 'bob'
+        ? [{ translateY: part.interpolate({ inputRange: [0, 1], outputRange: [0, -dim * 0.025] }) }]
+        : [{ rotate: part.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-3deg'] }) }];
+    return (
+      <View style={{ position: 'absolute', top: 0, left: 0 }} pointerEvents="none">
+        <Animated.Image
+          source={partCfg.layer}
+          resizeMode="contain"
+          style={{ width: dim, height: dim, transform: tf }}
+        />
+      </View>
+    );
+  };
+
+  // 부위 애니메이션 중엔 몸통을 '물건 빠진 base'로 바꿔야 레이어가 이중으로 안 겹친다
+  const bodySource = usePart && partCfg ? partCfg.base : poseSource;
 
   const img = (
-    <Animated.Image
-      source={POSES[mood]}
-      resizeMode="contain"
-      style={{ width: charSize, height: charSize, transform }}
-    />
+    <Animated.View style={{ width: charSize, height: charSize, transform }}>
+      <Image source={bodySource} resizeMode="contain" style={{ width: charSize, height: charSize }} />
+      {partLayer(charSize)}
+      {pawLayer(charSize)}
+      {blinkLayer(charSize)}
+    </Animated.View>
   );
 
   // 액세서리가 없으면 래퍼를 만들지 않는다 — 기존 화면들의 레이아웃이 그대로 유지된다.
@@ -171,10 +341,11 @@ export default function Brew({
           {decor(size * 0.9)}
           <View style={{ position: 'relative', zIndex: 1 }}>
             <Image
-              source={POSES[mood]}
+              source={poseSource}
               resizeMode="contain"
               style={{ width: charSize * 0.9, height: charSize * 0.9 }}
             />
+            {blinkLayer(charSize * 0.9)}
           </View>
         </View>
       </View>
