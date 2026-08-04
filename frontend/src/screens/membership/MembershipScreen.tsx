@@ -31,6 +31,7 @@ import {
   createChargePlan,
   createCustomer,
   deleteChargePlan,
+  deleteCustomer,
   dismissCheckIn,
   fetchChargePlans,
   fetchCheckIns,
@@ -39,6 +40,7 @@ import {
   fetchPrepaidSummary,
   fetchStoreQr,
   fetchQuickMenus,
+  issueCoupon,
   fetchRefundEstimate,
   refundBalance,
   searchCustomers,
@@ -61,6 +63,11 @@ const won = (n: number) => `${n.toLocaleString()}원`;
 
 export default function MembershipScreen() {
   const { token } = useAuth();
+  // [한글 주석] 선불 현황 카드는 팀 요청으로 화면에서 뺐다.
+  // summary는 '회원 N명' 숫자 하나 때문에 남겨 둔다 —
+  // 회원 목록은 50개까지만 받으므로 그걸로 세면 51명부터 틀린다.
+  // 백엔드의 선수금/매출 분리 계산은 그대로 둔다. 화면에 안 보이는 것과
+  // 숫자를 안 나누는 것은 다른 문제이고, 섞여서 쌓이면 되돌릴 수 없다.
   const [summary, setSummary] = useState<PrepaidSummary | null>(null);
   const [churn, setChurn] = useState<ChurnRiskCustomer[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -145,6 +152,39 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
     } else if (r.reason) {
       showAlert('알림', r.reason);
     }
+  };
+
+  // [한글 주석] 잔액 0원 손님에게만 쿠폰을 준다.
+  // 잔액이 있으면 서버가 거부하지만, 화면에서도 버튼을 안 띄워 헛손질을 막는다.
+  const onIssueCoupon = (r: ChurnRiskCustomer) => {
+    const menu = menus[0];
+    const title = menu ? `${menu.name} 1잔 무료` : '음료 1잔 무료';
+    showAlert(
+      '쿠폰 발급',
+      `${r.name || r.phone_masked}님께 "${title}" 쿠폰을 드립니다.
+` +
+      `30일간 유효하며, 잔액과는 별개로 관리됩니다.`,
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '발급하고 알림',
+          onPress: async () => {
+            try {
+              const res = await issueCoupon(token!, r.customer_id, {
+                title,
+                amount: menu?.price ?? 0,
+                menu_id: menu?.id,
+                reason: `${r.days_since_visit}일째 미방문`,
+              });
+              await load();
+              await notify(res.phone, res.sms_text);
+            } catch (e) {
+              showAlert('발급 실패', e instanceof Error ? e.message : String(e));
+            }
+          },
+        },
+      ]
+    );
   };
 
   const onRegister = async () => {
@@ -258,6 +298,35 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
     }
   };
 
+  const onDeleteCustomer = (customer: Customer) => {
+    // [한글 주석] 잔액이 남아 있으면 서버가 거부한다.
+    // 화면에서도 미리 알려 헛손질과 불안을 줄인다.
+    const who = customer.name || customer.phone_masked;
+    const warn = customer.balance > 0
+      ? `잔액 ${won(customer.balance)}이 남아 있어 삭제할 수 없습니다.
+먼저 환불 처리해 주세요.`
+      : `${who}님을 목록에서 지웁니다.
+이용 기록이 있으면 기록은 남고 목록에서만 숨겨집니다.`;
+
+    showAlert('회원 삭제', warn, customer.balance > 0 ? [{ text: '확인' }] : [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            const r = await deleteCustomer(token!, customer.id);
+            setTarget(null);
+            await load();
+            showAlert('완료', r.message);
+          } catch (e) {
+            showAlert('삭제 실패', e instanceof Error ? e.message : String(e));
+          }
+        },
+      },
+    ]);
+  };
+
   const onRefund = (customer: Customer) => {
     // [한글 주석] 환불은 되돌릴 수 없는 현금 지출이라 두 단계로 확인한다.
     // 보너스를 뺀 기준액을 먼저 보여줘 사장님이 근거를 알고 결정하게 한다.
@@ -359,7 +428,7 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
         <View style={[styles.card, styles.waitCard]}>
           <View style={styles.cardHead}>
             <Ionicons name="hand-left-outline" size={16} color={colors.pointOrange} />
-            <Text style={styles.cardTitle}>결제 요청</Text>
+            <Text style={styles.cardTitle}>손님 요청</Text>
             <Text style={styles.waitBadge}>{checkins.length}명 대기</Text>
           </View>
           <View style={{ gap: 8 }}>
@@ -384,14 +453,21 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
               return (
                 <View key={ci.checkin_id} style={styles.waitRow}>
                   <Pressable style={{ flex: 1 }} onPress={() => setTarget(c)}>
-                    <Text style={styles.waitName}>{ci.name || ci.phone_masked}</Text>
+                    <Text style={styles.waitName}>
+                      {ci.name || ci.phone_masked}
+                      {ci.is_signup && <Text style={styles.newTag}>  신규</Text>}
+                    </Text>
+                    {/* [한글 주석] 신규 등록은 충전부터 해야 하고,
+                        기존 회원은 메뉴를 눌러 차감하면 된다. 할 일이 다르므로 문구를 나눈다. */}
                     <Text style={styles.sub}>
-                      잔액 {won(ci.balance)}
-                      {ci.waited_minutes > 0 ? ` · ${ci.waited_minutes}분 전 요청` : ' · 방금'}
+                      {ci.is_signup
+                        ? `${ci.phone_masked} · 충전이 필요합니다`
+                        : `잔액 ${won(ci.balance)}`}
+                      {ci.waited_minutes > 0 ? ` · ${ci.waited_minutes}분 전` : ' · 방금'}
                     </Text>
                   </Pressable>
                   <Pressable style={styles.waitBtn} onPress={() => setTarget(c)}>
-                    <Text style={styles.waitBtnText}>결제</Text>
+                    <Text style={styles.waitBtnText}>{ci.is_signup ? '충전' : '결제'}</Text>
                   </Pressable>
                   <Pressable
                     hitSlop={8}
@@ -433,10 +509,21 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
                       {r.days_since_visit}일째 안 옴 (평소의 {r.overdue_ratio}배)
                     </Text>
                   </Text>
-                  {r.balance > 0 && (
+                  {r.balance > 0 ? (
                     <Text style={styles.balanceHint}>잔액 {won(r.balance)} 남음</Text>
+                  ) : r.coupon_title ? (
+                    <Text style={styles.couponHint}>🎟 {r.coupon_title}</Text>
+                  ) : (
+                    <Text style={styles.noReasonHint}>잔액 없음 · 올 이유가 없습니다</Text>
                   )}
                 </View>
+                {/* [한글 주석] 잔액 0원이고 쿠폰도 없는 손님에게만 쿠폰 버튼을 띄운다.
+                    잔액이 있으면 이미 올 이유가 있어 쿠폰은 이중 혜택이다. */}
+                {r.needs_coupon && (
+                  <Pressable style={styles.couponBtn} onPress={() => onIssueCoupon(r)}>
+                    <Text style={styles.couponBtnText}>쿠폰</Text>
+                  </Pressable>
+                )}
                 <Pressable
                   style={styles.smsBtn}
                   onPress={() => notify(r.phone, r.sms_text)}
@@ -449,35 +536,6 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
           </View>
         )}
       </View>
-
-      {/* ② 선수금 — 매출이 아니라 부채임을 명시한다 */}
-      {summary && (
-        <View style={styles.card}>
-          <View style={styles.cardHead}>
-            <Ionicons name="wallet-outline" size={16} color={colors.mochaBrown} />
-            <Text style={styles.cardTitle}>선불 충전 현황</Text>
-            <Text style={styles.periodText}>최근 {summary.period_days}일</Text>
-          </View>
-
-          <View style={styles.liabilityBox}>
-            <Text style={styles.liabilityLabel}>아직 안 쓴 잔액 (갚아야 할 금액)</Text>
-            <Text style={styles.liabilityValue}>{won(summary.active_balance_total)}</Text>
-            <Text style={styles.liabilityNote}>
-              충전액은 매출이 아닙니다. 커피를 드릴 때 매출로 잡힙니다.
-            </Text>
-          </View>
-
-          <View style={styles.statGrid}>
-            <Stat label="실제 입금" value={won(summary.net_cash_in)} />
-            <Stat label="적립 총액" value={won(summary.credited_total)} />
-            <Stat label="매출 인식" value={won(summary.used_total)} highlight />
-            <Stat label="나간 보너스" value={won(summary.bonus_given)} />
-            {summary.refunded_total > 0 && (
-              <Stat label="환불" value={won(summary.refunded_total)} />
-            )}
-          </View>
-        </View>
-      )}
 
       {/* 실질 원가율 — 선불 회원제가 남는 장사인지 판단하는 숫자 */}
       {cost?.has_data && (
@@ -909,6 +967,9 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
                       <Text style={styles.refundText}>환불</Text>
                     </Pressable>
                   )}
+                  <Pressable style={styles.refundBtn} onPress={() => onDeleteCustomer(target)}>
+                    <Text style={styles.refundText}>삭제</Text>
+                  </Pressable>
                 </View>
               </>
             )}
@@ -919,14 +980,6 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
   );
 }
 
-function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
-  return (
-    <View style={styles.statBox}>
-      <Text style={styles.statLabel}>{label}</Text>
-      <Text style={[styles.statValue, highlight && { color: colors.trendGreenText }]}>{value}</Text>
-    </View>
-  );
-}
 
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.creamSand },
@@ -941,10 +994,10 @@ const styles = StyleSheet.create({
           borderWidth: 1, borderColor: colors.mutedSand },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   cardTitle: { fontSize: 14, fontWeight: 'bold', color: colors.espressoBrown },
+  periodText: { fontSize: 11, color: '#9A8F86', marginLeft: 'auto' },
   badge: { fontSize: 11, fontWeight: '800', color: '#B23B2E',
            backgroundColor: '#FDECEA', paddingHorizontal: 7, paddingVertical: 2,
            borderRadius: 9, overflow: 'hidden' },
-  periodText: { fontSize: 11, color: '#9A8F86', marginLeft: 'auto' },
 
   churnRow: { flexDirection: 'row', alignItems: 'center', gap: 8,
               backgroundColor: '#FDF7F6', borderRadius: 10, padding: 10 },
@@ -952,21 +1005,17 @@ const styles = StyleSheet.create({
   sub: { fontSize: 11, color: '#7A6E65', marginTop: 2, lineHeight: 16 },
   overdue: { color: '#B23B2E', fontWeight: '700' },
   balanceHint: { fontSize: 11, color: colors.trendGreenText, fontWeight: '700', marginTop: 2 },
+  couponHint: { fontSize: 11, color: colors.pointOrange, fontWeight: '700', marginTop: 2 },
+  noReasonHint: { fontSize: 11, color: '#B0A79E', marginTop: 2 },
+  couponBtn: { borderWidth: 1, borderColor: colors.pointOrange, borderRadius: 8,
+               paddingHorizontal: 10, paddingVertical: 7 },
+  couponBtnText: { fontSize: 11, fontWeight: 'bold', color: colors.pointOrange },
   smsBtn: { flexDirection: 'row', alignItems: 'center', gap: 3,
             backgroundColor: colors.pointOrange, paddingHorizontal: 10,
             paddingVertical: 7, borderRadius: 8 },
   smsBtnText: { color: '#FFF', fontSize: 11, fontWeight: 'bold' },
 
-  liabilityBox: { backgroundColor: '#FAF8F6', borderRadius: 10, padding: 12, gap: 3 },
-  liabilityLabel: { fontSize: 11, color: '#7A6E65' },
-  liabilityValue: { fontSize: 22, fontWeight: '900', color: colors.espressoBrown },
-  liabilityNote: { fontSize: 10.5, color: '#B0A79E', lineHeight: 15, marginTop: 2 },
 
-  statGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  statBox: { flexGrow: 1, minWidth: '45%', backgroundColor: '#FAF8F6',
-             borderRadius: 8, padding: 9 },
-  statLabel: { fontSize: 10.5, color: '#9A8F86' },
-  statValue: { fontSize: 13, fontWeight: '800', color: colors.espressoBrown, marginTop: 2 },
 
   addBtn: { flexDirection: 'row', alignItems: 'center', gap: 2, marginLeft: 'auto',
             backgroundColor: colors.pointOrange, paddingHorizontal: 9,
@@ -1029,6 +1078,7 @@ const styles = StyleSheet.create({
   waitRow: { flexDirection: 'row', alignItems: 'center', gap: 8,
              backgroundColor: '#FFF8F2', borderRadius: 10, padding: 11 },
   waitName: { fontSize: 14, fontWeight: '800', color: colors.espressoBrown },
+  newTag: { fontSize: 11, fontWeight: '800', color: colors.trendGreenText },
   waitBtn: { backgroundColor: colors.pointOrange, paddingHorizontal: 14,
              paddingVertical: 8, borderRadius: 8 },
   waitBtnText: { color: '#FFF', fontSize: 12.5, fontWeight: 'bold' },

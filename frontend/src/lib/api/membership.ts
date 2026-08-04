@@ -73,9 +73,30 @@ export type ChurnRiskCustomer = {
   median_interval_days: number;
   days_since_visit: number;
   overdue_ratio: number;         // 평소 주기의 몇 배나 지났는지
+  /** 이미 발급된 미사용 쿠폰 (있으면 문구에 반영됨) */
+  coupon_title: string | null;
+  /** 잔액 0원이고 쿠폰도 없는 손님 — 여기가 쿠폰이 필요한 자리 */
+  needs_coupon: boolean;
   sms_text: string;
   balance_url: string;
 };
+
+/**
+ * 이탈 방지 쿠폰을 발급합니다.
+ *
+ * [한글 주석] 잔액이 남은 손님에게는 서버가 거부합니다.
+ * 그 손님은 이미 충전할 때 할인을 받았고 잔액이 묶여 있어 어차피 옵니다.
+ */
+export async function issueCoupon(
+  token: string, customerId: number,
+  payload: { title: string; amount?: number; menu_id?: number; reason?: string }
+): Promise<{ id: number; title: string; message: string; sms_text: string; phone: string }> {
+  return apiFetch(`/api/v1/membership/customers/${customerId}/coupons`, {
+    method: 'POST',
+    headers: auth(token),
+    body: JSON.stringify(payload),
+  });
+}
 
 export type ReconcileResult = {
   checked: number;
@@ -107,6 +128,23 @@ export async function createCustomer(token: string, payload: {
     method: 'POST',
     headers: auth(token),
     body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * 회원을 정리합니다.
+ *
+ * [한글 주석] 서버가 세 갈래로 처리합니다.
+ *   잔액 있음   → 거부 (지우면 손님 돈이 장부에서 사라집니다)
+ *   이력 있음   → 목록에서 숨김 ("누가 언제 얼마"는 지우면 안 되는 기록)
+ *   거래 없음   → 완전 삭제 (잘못 만든 빈 회원)
+ */
+export async function deleteCustomer(
+  token: string, customerId: number
+): Promise<{ success: boolean; message: string }> {
+  return apiFetch(`/api/v1/membership/customers/${customerId}`, {
+    method: 'DELETE',
+    headers: auth(token),
   });
 }
 
@@ -198,6 +236,9 @@ export type CheckIn = {
   phone_masked: string;
   balance: number;
   waited_minutes: number;
+  /** PAYMENT: 잔액으로 결제 요청 · SIGNUP: QR로 직접 등록한 신규 손님 */
+  kind: 'PAYMENT' | 'SIGNUP';
+  is_signup: boolean;
 };
 
 export async function fetchStoreQr(token: string): Promise<StoreQr> {

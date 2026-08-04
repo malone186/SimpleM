@@ -1,8 +1,11 @@
 // 할 일 목록 (Design Spec §4-③ 연동 — iOS 팝업 모달 기반 새 업무 등록 및 1줄 세련 레이아웃 최종)
 import { useEffect, useRef, useState, useMemo } from 'react';
-import { Animated, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 
+import { useAuth } from '../../auth/AuthContext';
+import { listMenus, type MenuItem } from '../../lib/api/sales';
 import { colors, spacing, typography, shadows } from '../../theme';
 import { PopIn, PressableScale, SlideUp } from '../motion';
 import { type DateInfo } from './SalesCard';
@@ -21,6 +24,10 @@ export type Todo = {
   timeGroup?: string;
   dateKey?: string;
   category?: TodoCategory;
+  // [한글 주석] 브루 추천 액션 — 'marketing'이면 항목 아래 '홍보하러 가기' 링크가 붙고,
+  // 누르면 홍보 스튜디오로 이동하며 menu(홍보할 메뉴명)가 프롬프트에 자동 입력된다.
+  action?: 'marketing';
+  menu?: string;
 };
 
 const CATEGORIES: { id: TodoCategory; label: string; icon: string; tag: string }[] = [
@@ -119,6 +126,27 @@ export default function TodoList({
   // [한글 주석] 수정 중인 Todo 대상 상태 (null이면 신규 등록 모드, 존재하면 팝업 모달 수정 모드)
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
   const [newTitle, setNewTitle] = useState('');
+
+  // [홍보할 메뉴 고르기] '주 메뉴를 홍보하세요' 투두에서 열리는 메뉴 선택 모달 —
+  // 메뉴 관리에 등록된 전체 메뉴 중 하나를 고르면 홍보 스튜디오로 이동하며 자동 입력된다.
+  const { token } = useAuth();
+  const navigation = useNavigation<any>();
+  const [promoPickerOpen, setPromoPickerOpen] = useState(false);
+  const [promoMenus, setPromoMenus] = useState<MenuItem[] | null>(null);
+  const openPromoPicker = async () => {
+    setPromoPickerOpen(true);
+    if (promoMenus !== null || !token) return;
+    try {
+      setPromoMenus(await listMenus(token));
+    } catch (e) {
+      console.error('홍보 메뉴 목록 조회 실패:', e);
+      setPromoMenus([]);
+    }
+  };
+  const pickPromoMenu = (name: string) => {
+    setPromoPickerOpen(false);
+    navigation.navigate('Marketing', { prefillMenu: name, ts: Date.now() });
+  };
   // [한글 주석] 초기 카테고리는 선택되지 않은 null 상태 (아무 카테고리 칩도 누르지 않고 등록 시 태그 없이 생성)
   const [selectedCategory, setSelectedCategory] = useState<TodoCategory | null>(null);
 
@@ -252,6 +280,7 @@ export default function TodoList({
                   onDeleteTodo={onDeleteTodo}
                   disabled={disabled}
                   startEdit={startEdit}
+                  onPromoPress={openPromoPicker}
                 />
               </SlideUp>
             );
@@ -296,6 +325,49 @@ export default function TodoList({
           )}
         </View>
       )}
+
+      {/* ── [홍보할 메뉴 고르기 모달] 등록된 전체 메뉴에서 선택 → 홍보 스튜디오로 이동 ── */}
+      <Modal
+        visible={promoPickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPromoPickerOpen(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackdropPress} onPress={() => setPromoPickerOpen(false)} />
+          <SlideUp style={styles.promoPickerCard}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+              <Ionicons name="megaphone" size={15} color="#8C6F56" />
+              <Text style={styles.promoPickerTitle}>홍보할 메뉴 고르기</Text>
+            </View>
+            <Text style={styles.promoPickerSub}>
+              고르면 홍보 스튜디오에 메뉴가 자동 입력돼요
+            </Text>
+            {promoMenus === null ? (
+              <Text style={styles.promoPickerEmpty}>메뉴를 불러오는 중…</Text>
+            ) : promoMenus.length === 0 ? (
+              <Text style={styles.promoPickerEmpty}>
+                등록된 메뉴가 없어요. 메뉴 관리에서 먼저 메뉴를 등록해 주세요.
+              </Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator={false}>
+                {promoMenus.map((m) => (
+                  <TouchableOpacity
+                    key={m.id}
+                    style={styles.promoMenuRow}
+                    onPress={() => pickPromoMenu(m.name)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.promoMenuName} numberOfLines={1}>{m.name}</Text>
+                    <Text style={styles.promoMenuPrice}>₩{m.selling_price.toLocaleString()}</Text>
+                    <Ionicons name="chevron-forward" size={14} color="#8C6F56" />
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </SlideUp>
+        </View>
+      </Modal>
 
       {/* ── [iOS 팝업 모달 다이얼로그: 새 업무 등록 / 업무 수정 통합 모달] ── */}
       <Modal
@@ -390,6 +462,7 @@ function TodoItem({
   onDeleteTodo,
   disabled,
   startEdit,
+  onPromoPress,
 }: {
   todo: Todo;
   isPastDate?: boolean;
@@ -398,6 +471,7 @@ function TodoItem({
   onDeleteTodo?: (id: string) => void;
   disabled: boolean;
   startEdit: (todo: Todo) => void;
+  onPromoPress?: () => void;
 }) {
   const animX = useRef(new Animated.Value(0)).current;
   const animOpacity = useRef(new Animated.Value(1)).current;
@@ -486,17 +560,27 @@ function TodoItem({
         {/* [2. 한 줄로 깔끔하게 정돈된 타이틀 텍스트] */}
         <View style={{ flex: 1, marginLeft: 8 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-            <Text style={[styles.taskItemTitle, disabled && styles.strike]} numberOfLines={1}>
+            <Text style={[styles.taskItemTitle, disabled && styles.strike]} numberOfLines={2}>
               {todo.title}
             </Text>
             {/* AI 출처 배지 */}
             {todo.source === 'ai' && (
               <View style={[styles.aiBadge, disabled && styles.aiBadgeDone]}>
-                <Ionicons name="sparkles" size={9} color={disabled ? '#71717A' : '#A855F7'} />
                 <Text style={[styles.aiBadgeText, disabled && styles.aiBadgeTextDone]}>브루</Text>
               </View>
             )}
           </View>
+          {/* 홍보 추천 항목 — 누르면 등록된 전체 메뉴에서 홍보할 메뉴를 고르는 모달이 열린다 */}
+          {todo.action === 'marketing' && !disabled && (
+            <TouchableOpacity
+              onPress={() => onPromoPress?.()}
+              style={styles.promoLink}
+              hitSlop={{ top: 6, bottom: 6 }}
+            >
+              <Ionicons name="megaphone-outline" size={11} color="#8C6F56" />
+              <Text style={styles.promoLinkText}>홍보할 메뉴 고르기 ›</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* [3. 우측 액션 버튼 - [한글 주석] 지난 날짜(isPastDate)일 때는 수정/삭제 버튼 숨김] */}
@@ -508,7 +592,7 @@ function TodoItem({
               style={styles.iconBtn}
               to={0.85}
             >
-              <Ionicons name="pencil-outline" size={15} color="#71717A" style={{ opacity: 0.5 }} />
+              <Ionicons name="pencil-outline" size={13} color="#71717A" style={{ opacity: 0.5 }} />
             </PressableScale>
 
             {/* 삭제 휴지통 버튼 */}
@@ -517,7 +601,7 @@ function TodoItem({
               style={styles.iconBtn}
               to={0.85}
             >
-              <Ionicons name="trash-outline" size={15} color="#EF4444" style={{ opacity: 0.6 }} />
+              <Ionicons name="trash-outline" size={13} color="#EF4444" style={{ opacity: 0.6 }} />
             </PressableScale>
           </View>
         )}
@@ -756,6 +840,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#2C221E', // 에스프레소 잉크 톤
     letterSpacing: -0.3,
+    flexShrink: 1,   // 옆의 '브루' 배지에 밀려 잘리지 않고 줄바꿈되도록
+    lineHeight: 18,  // 두 줄일 때 답답하지 않게
   },
   taskItemSub: {
     fontSize: 11.5,
@@ -776,11 +862,10 @@ const styles = StyleSheet.create({
   aiBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
     backgroundColor: 'rgba(168, 85, 247, 0.1)',
     borderRadius: 999,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: 4,
+    paddingVertical: 1.5,
   },
   aiBadgeDone: {
     backgroundColor: '#EFECE6',
@@ -793,11 +878,47 @@ const styles = StyleSheet.create({
   aiBadgeTextDone: {
     color: '#8C827A',
   },
+  // 브루 홍보 추천 항목의 '홍보하러 가기' 링크
+  promoLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginTop: 3,
+    alignSelf: 'flex-start',
+  },
+  promoLinkText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#8C6F56',
+    textDecorationLine: 'underline',
+  },
+  // 홍보할 메뉴 고르기 모달
+  promoPickerCard: {
+    width: '86%',
+    maxWidth: 360,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 18,
+    ...shadows.medium,
+  },
+  promoPickerTitle: { fontSize: 15.5, fontWeight: '900', color: colors.espressoBrown },
+  promoPickerSub: { fontSize: 11.5, fontWeight: '600', color: colors.mochaBrown, marginBottom: 10 },
+  promoPickerEmpty: { fontSize: 12, color: colors.mochaBrown, paddingVertical: 16, textAlign: 'center' },
+  promoMenuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(60, 60, 67, 0.08)',
+  },
+  promoMenuName: { flex: 1, fontSize: 13.5, fontWeight: '700', color: colors.espressoBrown },
+  promoMenuPrice: { fontSize: 12, fontWeight: '600', color: colors.mochaBrown },
   actionsRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginLeft: 4,
+    gap: 2,
+    marginLeft: 2,
   },
 
   // 발주 칩 & 완료 배지 (에스프레소 갈색 톤 통합)
@@ -842,6 +963,6 @@ const styles = StyleSheet.create({
     color: '#2C221E',
   },
   iconBtn: {
-    padding: 4,
+    padding: 3,
   },
 });

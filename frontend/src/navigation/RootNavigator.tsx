@@ -61,7 +61,8 @@ export type RootStackParamList = {
   Menu: { focusMenuIds?: number[] } | undefined;
   SalesInput: undefined;
   ManualSales: undefined;
-  Marketing: undefined;
+  // prefillMenu: 투두의 '홍보하러 가기'로 진입 시 홍보할 메뉴명 자동 입력 (ts: 재진입 갱신용)
+  Marketing: { prefillMenu?: string; ts?: number } | undefined;
   Cost: undefined;
   Legal: { doc?: 'privacy' | 'terms' } | undefined;
   Document: undefined;

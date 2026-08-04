@@ -305,10 +305,83 @@ def store_checkin_request(token: str, phone: str = Form(...),
         .first()
     )
     if not customer:
-        return HTMLResponse(
-            _checkin_page(shop, token,
-                          message="등록된 선불 회원이 아닙니다. 직원에게 충전을 요청해 주세요."),
-            status_code=404)
+        # [한글 주석] 처음 온 손님이다. 예전엔 여기서 거부했는데,
+        # 그러면 사장님이 번호를 대신 물어 적어야 한다 —
+        # 잘못 들으면 그대로 틀리고, 동의도 사장님이 대신 체크하게 된다.
+        # 손님이 직접 넣으면 오타가 없고 동의도 본인이 한다.
+        return HTMLResponse(_signup_page(shop, token, normalized))
 
     svc.create_checkin(db, store_id, customer)
     return HTMLResponse(_checkin_page(shop, token, customer, requested=True))
+
+
+def _signup_page(shop: str, token: str, phone: str, message: str = "") -> str:
+    """처음 온 손님에게 이름을 받고 등록을 확정하는 화면."""
+    err = (f'<div class="err" style="margin-bottom:14px"><p>{html_mod.escape(message)}</p></div>'
+           if message else "")
+    return _page(
+        f'<div class="shop">{html_mod.escape(shop)}</div>'
+        f'<div class="who">선불 회원 등록</div>'
+        f'{err}'
+        f'<div class="card">'
+        f'<p style="font-size:13px;color:#8C6F56;line-height:1.7;margin:0 0 14px">'
+        f'{html_mod.escape(phone)} 으로 등록합니다.<br>'
+        f'이름을 넣어 주시면 직원이 알아보기 쉽습니다.</p>'
+        f'<form method="post" action="/s/{html_mod.escape(token)}/signup">'
+        f'<input type="hidden" name="phone" value="{html_mod.escape(phone)}">'
+        f'<input type="tel" name="name" placeholder="이름 (선택)" '
+        f'inputmode="text" style="font-size:16px">'
+        f'<label class="agree"><input type="checkbox" name="agree" value="1" required>'
+        f'<span>선불 잔액 조회·안내를 위해 휴대폰 번호와 이름 수집에 동의합니다. '
+        f'이 목적 외에는 사용하지 않으며, 원하시면 매장에 삭제를 요청하실 수 있습니다.</span></label>'
+        f'<button class="big-btn" type="submit">등록하고 충전 요청</button></form></div>'
+        f'<div class="note">등록 후 직원에게 충전 금액을 말씀해 주세요.<br>'
+        f'충전이 완료되면 잔액 확인 링크를 문자로 보내드립니다.</div>',
+        f"{shop} 회원 등록",
+    )
+
+
+@router.post("/s/{token}/signup", response_class=HTMLResponse, include_in_schema=False)
+def store_signup(token: str, phone: str = Form(...), name: str = Form(""),
+                 agree: str = Form(""), db: Session = Depends(get_db)):
+    """손님이 직접 등록한다.
+
+    [한글 주석] 동의를 손님 본인이 하는 게 핵심이다.
+    사장님이 대신 체크하는 건 사장님의 진술이지 손님의 동의가 아니다.
+    consent_source='SELF'로 남겨 나중에 근거로 쓸 수 있게 한다.
+    """
+    store_id = svc.store_by_qr_token(db, token)
+    if not store_id:
+        return HTMLResponse(
+            _page('<div class="err"><h1>유효하지 않은 QR입니다</h1>'
+                  '<p>매장에 문의해 주세요.</p></div>'), status_code=404)
+
+    shop = _shop_name(db, store_id)
+    normalized = svc.normalize_phone(phone)
+    if not normalized:
+        return HTMLResponse(
+            _checkin_page(shop, token, message="휴대폰 번호를 다시 확인해 주세요."),
+            status_code=400)
+    if not agree:
+        return HTMLResponse(
+            _signup_page(shop, token, normalized, "동의가 필요합니다."),
+            status_code=400)
+
+    customer, _ = svc.create_customer(db, store_id, normalized, name,
+                                      consent_source="SELF")
+    if not customer:
+        return HTMLResponse(
+            _signup_page(shop, token, normalized, "등록에 실패했습니다. 직원에게 문의해 주세요."),
+            status_code=400)
+
+    # 신규 등록은 충전부터 해야 하므로 결제 요청과 구분해서 줄에 세운다
+    svc.create_checkin(db, store_id, customer, kind="SIGNUP")
+
+    body = (
+        f'<div class="shop">{html_mod.escape(shop)}</div>'
+        f'<div class="who">등록 완료</div>'
+        f'<div class="ok-box">직원에게 전달되었습니다</div>'
+        f'<div class="note">충전하실 금액을 직원에게 말씀해 주세요.<br>'
+        f'충전이 완료되면 잔액 확인 링크를 문자로 보내드립니다.</div>'
+    )
+    return HTMLResponse(_page(body, f"{shop} 등록 완료"))
