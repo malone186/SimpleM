@@ -73,9 +73,30 @@ export type ChurnRiskCustomer = {
   median_interval_days: number;
   days_since_visit: number;
   overdue_ratio: number;         // 평소 주기의 몇 배나 지났는지
+  /** 이미 발급된 미사용 쿠폰 (있으면 문구에 반영됨) */
+  coupon_title: string | null;
+  /** 잔액 0원이고 쿠폰도 없는 손님 — 여기가 쿠폰이 필요한 자리 */
+  needs_coupon: boolean;
   sms_text: string;
   balance_url: string;
 };
+
+/**
+ * 이탈 방지 쿠폰을 발급합니다.
+ *
+ * [한글 주석] 잔액이 남은 손님에게는 서버가 거부합니다.
+ * 그 손님은 이미 충전할 때 할인을 받았고 잔액이 묶여 있어 어차피 옵니다.
+ */
+export async function issueCoupon(
+  token: string, customerId: number,
+  payload: { title: string; amount?: number; menu_id?: number; reason?: string }
+): Promise<{ id: number; title: string; message: string; sms_text: string; phone: string }> {
+  return apiFetch(`/api/v1/membership/customers/${customerId}/coupons`, {
+    method: 'POST',
+    headers: auth(token),
+    body: JSON.stringify(payload),
+  });
+}
 
 export type ReconcileResult = {
   checked: number;

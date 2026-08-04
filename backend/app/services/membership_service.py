@@ -30,7 +30,7 @@ from sqlalchemy.orm import Session
 from app.models.membership import (
     CHECKIN_CANCELED, CHECKIN_DONE, CHECKIN_PAYMENT, CHECKIN_SIGNUP, CHECKIN_WAITING,
     TX_ADJUST, TX_CHARGE, TX_REFUND, TX_USE,
-    BalanceTransaction, ChargePlan, CheckIn, Customer, StoreQr,
+    BalanceTransaction, ChargePlan, CheckIn, Coupon, Customer, StoreQr,
 )
 
 logger = logging.getLogger(__name__)
@@ -537,35 +537,48 @@ SMS_MAX_BYTES = 90
 
 
 def build_sms_text(customer: Customer, tx: Optional[BalanceTransaction] = None,
-                   store_name: Optional[str] = None) -> str:
+                   store_name: Optional[str] = None,
+                   coupon_title: Optional[str] = None) -> str:
     """사장님 폰 문자앱에 채워 넣을 문구.
 
-    [한글 주석] 한도(90바이트)를 넘으면 매장명을 먼저 줄이고,
-    그래도 넘으면 잔액 안내만 남긴다.
-    링크는 손님이 잔액을 확인하는 유일한 경로라 절대 자르지 않는다.
+    [한글 주석] 상황마다 문구와 링크 포함 여부가 다르다.
+
+      충전·사용 직후 → 링크를 넣는다.
+        앞으로 계속 확인할 주소를 알려주는 자리이기 때문이다.
+
+      뜸해진 단골 안내 → 링크를 뺀다.
+        문자에 이미 금액을 적어 보내는데 "확인하러 들어오세요"는 군더더기다.
+        게다가 링크가 단문 90바이트의 절반을 먹어 정작 할 말을 못 쓴다.
+
+      잔액 0원인 손님 → 잔액 대신 쿠폰을 말한다.
+        "잔액 0원 남아있습니다"는 말이 안 되고 올 이유도 되지 않는다.
     """
     shop = (store_name or "브루노트").strip()
-    url = balance_url(customer)
 
-    if tx and tx.tx_type == TX_CHARGE:
-        body = f"{tx.amount:,}원 충전. 잔액 {customer.balance:,}원"
-    elif tx and tx.tx_type == TX_USE:
-        body = f"{abs(tx.amount):,}원 사용. 잔액 {customer.balance:,}원"
+    # --- 거래 직후: 링크 포함 ---
+    if tx and tx.tx_type in (TX_CHARGE, TX_USE):
+        word = "충전" if tx.tx_type == TX_CHARGE else "사용"
+        url = balance_url(customer)
+        body = f"{abs(tx.amount):,}원 {word}. 잔액 {customer.balance:,}원"
+
+        for name in (shop, shop[:6]):
+            text = f"[{name}] {body}\n{url}"
+            if sms_byte_length(text) <= SMS_MAX_BYTES:
+                return text
+        return f"[{shop[:6]}] 잔액 {customer.balance:,}원\n{url}"
+
+    # --- 뜸해진 단골 안내: 링크 없음 ---
+    if coupon_title:
+        body = f"오랜만이에요! {coupon_title} 드립니다"
+    elif (customer.balance or 0) > 0:
+        body = f"잔액 {customer.balance:,}원 남아있어요. 기다리고 있겠습니다"
     else:
-        body = f"잔액 {customer.balance:,}원 남아있습니다"
+        # 쿠폰도 잔액도 없으면 보낼 말이 마땅치 않다 — 담백하게 안부만
+        body = "오랜만이에요! 기다리고 있겠습니다"
 
-    text = f"[{shop}] {body}\n{url}"
-    if sms_byte_length(text) <= SMS_MAX_BYTES:
-        return text
+    text = f"[{shop}] {body}"
+    return text if sms_byte_length(text) <= SMS_MAX_BYTES else f"[{shop[:6]}] {body}"
 
-    # 1차 축약 — 긴 매장명이 원인인 경우가 대부분이다
-    short_shop = shop[:6]
-    text = f"[{short_shop}] {body}\n{url}"
-    if sms_byte_length(text) <= SMS_MAX_BYTES:
-        return text
-
-    # 2차 축약 — 거래 내용을 빼고 잔액만 남긴다
-    return f"[{short_shop}] 잔액 {customer.balance:,}원\n{url}"
 
 
 # --- 계산대 QR · 체크인 ---
@@ -723,6 +736,100 @@ def close_waiting_for_customer(db: Session, customer_id: int) -> None:
         db.commit()
 
 
+# --- 쿠폰 ---
+
+# [한글 주석] 이탈 방지 쿠폰의 유효기간.
+#   "지금 오시라"는 뜻의 쿠폰이라 기한이 없으면 의미가 흐려진다.
+#   반대로 일주일은 짧아서 못 오고 버려진다. 한 달이면 한 번은 지나간다.
+COUPON_VALID_DAYS = 30
+
+
+def issue_coupon(db: Session, customer: Customer, title: str,
+                 amount: int = 0, menu_id: Optional[int] = None,
+                 reason: Optional[str] = None) -> Tuple[Optional[Coupon], str]:
+    """이탈 방지 쿠폰을 발급한다.
+
+    [한글 주석] 잔액이 남은 손님에게는 주지 않는다.
+
+      그 손님은 이미 충전할 때 할인을 받았고, 잔액이 묶여 있어 어차피 온다.
+      쿠폰까지 주면 이중 혜택이고 매장만 손해다.
+      쿠폰이 필요한 건 '올 이유가 아무것도 없는' 잔액 0원 손님이다.
+
+    미사용 쿠폰이 남아 있으면 또 주지 않는다 — 안 쓰는 사람에게 계속 보내는 건
+    효과가 없고, 여러 장을 들고 와 한 번에 쓰겠다는 분쟁도 생긴다.
+    """
+    if (customer.balance or 0) > 0:
+        return None, (
+            f"잔액이 {customer.balance:,}원 남아 있어 쿠폰 대상이 아닙니다. "
+            "잔액 안내를 보내 주세요."
+        )
+
+    existing = (
+        db.query(Coupon)
+        .filter(Coupon.customer_id == customer.id, Coupon.used_at.is_(None))
+        .first()
+    )
+    if existing and (existing.expires_at is None or _aware(existing.expires_at) > _now()):
+        return None, "아직 쓰지 않은 쿠폰이 있습니다."
+
+    coupon = Coupon(
+        store_id=customer.store_id,
+        customer_id=customer.id,
+        title=title.strip(),
+        amount=max(0, amount),
+        menu_id=menu_id,
+        expires_at=_now() + timedelta(days=COUPON_VALID_DAYS),
+        issue_reason=reason,
+    )
+    db.add(coupon)
+    db.commit()
+    db.refresh(coupon)
+    return coupon, f"{title} 쿠폰을 발급했습니다. ({COUPON_VALID_DAYS}일간 유효)"
+
+
+def list_coupons(db: Session, customer_id: int,
+                 only_usable: bool = False) -> List[Dict[str, Any]]:
+    q = db.query(Coupon).filter(Coupon.customer_id == customer_id)
+    rows = q.order_by(Coupon.issued_at.desc()).limit(20).all()
+    now = _now()
+    out = []
+    for c in rows:
+        expired = c.expires_at is not None and _aware(c.expires_at) < now
+        usable = c.used_at is None and not expired
+        if only_usable and not usable:
+            continue
+        out.append({
+            "id": c.id,
+            "title": c.title,
+            "amount": c.amount,
+            "issued_at": c.issued_at,
+            "expires_at": c.expires_at,
+            "used_at": c.used_at,
+            "is_used": c.used_at is not None,
+            "is_expired": expired,
+            "usable": usable,
+        })
+    return out
+
+
+def use_coupon(db: Session, store_id: str, coupon_id: int) -> Tuple[bool, str]:
+    """쿠폰을 사용 처리한다.
+
+    [한글 주석] 잔액을 건드리지 않는다. 쿠폰은 잔액과 다른 물건이다.
+    잔액에 얹으면 손님이 공짜로 받은 쿠폰을 현금으로 환불해 갈 수 있다.
+    """
+    c = db.query(Coupon).filter(Coupon.id == coupon_id).first()
+    if not c or c.store_id != store_id:
+        return False, "쿠폰을 찾을 수 없습니다."
+    if c.used_at is not None:
+        return False, "이미 사용한 쿠폰입니다."
+    if c.expires_at is not None and _aware(c.expires_at) < _now():
+        return False, "유효기간이 지난 쿠폰입니다."
+    c.used_at = _now()
+    db.commit()
+    return True, f"{c.title} 쿠폰을 사용 처리했습니다."
+
+
 # --- 방문 지표 ---
 
 def _visit_dates(db: Session, customer_id: int) -> List[datetime]:
@@ -834,6 +941,14 @@ def find_churn_risk(db: Session, store_id: str, limit: int = 20,
         if st["days_since_visit"] < threshold:
             continue
 
+        # [한글 주석] 손님을 두 종류로 나눈다.
+        #   잔액 있음 → 이미 올 이유가 있다. 잔액을 알려주면 된다.
+        #   잔액 0원  → 올 이유가 없다. 쿠폰이 필요한 자리다.
+        # 잔액 있는 손님에게 쿠폰까지 주면 이중 혜택이라 매장만 손해다.
+        usable = list_coupons(db, c.id, only_usable=True)
+        coupon_title = usable[0]["title"] if usable else None
+        needs_coupon = (c.balance or 0) <= 0 and not usable
+
         out.append({
             "customer_id": c.id,
             "name": c.name,
@@ -844,7 +959,9 @@ def find_churn_risk(db: Session, store_id: str, limit: int = 20,
             "median_interval_days": st["median_interval_days"],
             "days_since_visit": st["days_since_visit"],
             "overdue_ratio": round(st["days_since_visit"] / st["median_interval_days"], 1),
-            "sms_text": build_sms_text(c, None, store_name),
+            "coupon_title": coupon_title,
+            "needs_coupon": needs_coupon,
+            "sms_text": build_sms_text(c, None, store_name, coupon_title),
             "balance_url": balance_url(c),
         })
 

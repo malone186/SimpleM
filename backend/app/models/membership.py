@@ -145,6 +145,46 @@ class BalanceTransaction(Base):
     customer = relationship("Customer", back_populates="transactions")
 
 
+class Coupon(Base):
+    """이탈 방지 쿠폰 — 잔액을 다 쓰고 발길이 끊긴 손님에게만 준다.
+
+    [한글 주석] 왜 잔액에 얹지 않고 별도 표로 두는가:
+
+      잔액에 3,000원을 더하는 방식이 간단해 보이지만 환불이 꼬인다.
+      환불액은 '실제 낸 돈 / 적립액' 비율로 계산하는데, 쿠폰으로 늘어난 잔액에는
+      손님이 낸 돈이 없다. 그대로 두면 공짜로 받은 쿠폰을 현금으로 환불해 가게 된다.
+
+      또 원가 분석에서도 구분이 필요하다. 충전 보너스는 '판매를 위해 깎아준 몫'이고
+      쿠폰은 '안 오는 손님을 부르려고 쓴 판촉비'다. 성격이 달라 섞으면
+      선불 회원제가 남는 장사인지 판단이 흐려진다.
+
+    [원칙] 잔액이 남은 손님에게는 주지 않는다.
+      그 손님은 이미 16.7% 할인받고 충전했고, 잔액이 묶여 있어 어차피 온다.
+      쿠폰까지 주면 이중 혜택이고 매장만 손해다.
+      쿠폰이 필요한 건 '올 이유가 아무것도 없는' 잔액 0원 손님이다.
+    """
+    __tablename__ = "coupons"
+
+    id = Column(Integer, primary_key=True, index=True)
+    store_id = Column(String(100), nullable=False, index=True)
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"),
+                         nullable=False, index=True)
+
+    title = Column(String(60), nullable=False)      # "아메리카노 1잔 무료"
+    # 원가·판촉비 집계에 쓰는 금액 상당액. 무료 음료면 그 메뉴 판매가.
+    amount = Column(Integer, default=0, nullable=False)
+    menu_id = Column(Integer, ForeignKey("menus.id", ondelete="SET NULL"), nullable=True)
+
+    issued_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # [한글 주석] 만료가 없으면 1년 뒤에 들고 와도 받아줘야 한다.
+    # 이탈 방지 쿠폰은 '지금 오시라'는 뜻이라 기한이 있어야 의미가 산다.
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    used_at = Column(DateTime(timezone=True), nullable=True)
+    issue_reason = Column(String(100), nullable=True)   # "12일째 미방문"
+
+    customer = relationship("Customer")
+
+
 class StaffAccount(Base):
     """직원 로그인 계정.
 

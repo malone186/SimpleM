@@ -39,6 +39,7 @@ import {
   fetchPrepaidSummary,
   fetchStoreQr,
   fetchQuickMenus,
+  issueCoupon,
   fetchRefundEstimate,
   refundBalance,
   searchCustomers,
@@ -150,6 +151,39 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
     } else if (r.reason) {
       showAlert('알림', r.reason);
     }
+  };
+
+  // [한글 주석] 잔액 0원 손님에게만 쿠폰을 준다.
+  // 잔액이 있으면 서버가 거부하지만, 화면에서도 버튼을 안 띄워 헛손질을 막는다.
+  const onIssueCoupon = (r: ChurnRiskCustomer) => {
+    const menu = menus[0];
+    const title = menu ? `${menu.name} 1잔 무료` : '음료 1잔 무료';
+    showAlert(
+      '쿠폰 발급',
+      `${r.name || r.phone_masked}님께 "${title}" 쿠폰을 드립니다.
+` +
+      `30일간 유효하며, 잔액과는 별개로 관리됩니다.`,
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '발급하고 알림',
+          onPress: async () => {
+            try {
+              const res = await issueCoupon(token!, r.customer_id, {
+                title,
+                amount: menu?.price ?? 0,
+                menu_id: menu?.id,
+                reason: `${r.days_since_visit}일째 미방문`,
+              });
+              await load();
+              await notify(res.phone, res.sms_text);
+            } catch (e) {
+              showAlert('발급 실패', e instanceof Error ? e.message : String(e));
+            }
+          },
+        },
+      ]
+    );
   };
 
   const onRegister = async () => {
@@ -445,10 +479,21 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
                       {r.days_since_visit}일째 안 옴 (평소의 {r.overdue_ratio}배)
                     </Text>
                   </Text>
-                  {r.balance > 0 && (
+                  {r.balance > 0 ? (
                     <Text style={styles.balanceHint}>잔액 {won(r.balance)} 남음</Text>
+                  ) : r.coupon_title ? (
+                    <Text style={styles.couponHint}>🎟 {r.coupon_title}</Text>
+                  ) : (
+                    <Text style={styles.noReasonHint}>잔액 없음 · 올 이유가 없습니다</Text>
                   )}
                 </View>
+                {/* [한글 주석] 잔액 0원이고 쿠폰도 없는 손님에게만 쿠폰 버튼을 띄운다.
+                    잔액이 있으면 이미 올 이유가 있어 쿠폰은 이중 혜택이다. */}
+                {r.needs_coupon && (
+                  <Pressable style={styles.couponBtn} onPress={() => onIssueCoupon(r)}>
+                    <Text style={styles.couponBtnText}>쿠폰</Text>
+                  </Pressable>
+                )}
                 <Pressable
                   style={styles.smsBtn}
                   onPress={() => notify(r.phone, r.sms_text)}
@@ -927,6 +972,11 @@ const styles = StyleSheet.create({
   sub: { fontSize: 11, color: '#7A6E65', marginTop: 2, lineHeight: 16 },
   overdue: { color: '#B23B2E', fontWeight: '700' },
   balanceHint: { fontSize: 11, color: colors.trendGreenText, fontWeight: '700', marginTop: 2 },
+  couponHint: { fontSize: 11, color: colors.pointOrange, fontWeight: '700', marginTop: 2 },
+  noReasonHint: { fontSize: 11, color: '#B0A79E', marginTop: 2 },
+  couponBtn: { borderWidth: 1, borderColor: colors.pointOrange, borderRadius: 8,
+               paddingHorizontal: 10, paddingVertical: 7 },
+  couponBtnText: { fontSize: 11, fontWeight: 'bold', color: colors.pointOrange },
   smsBtn: { flexDirection: 'row', alignItems: 'center', gap: 3,
             backgroundColor: colors.pointOrange, paddingHorizontal: 10,
             paddingVertical: 7, borderRadius: 8 },
