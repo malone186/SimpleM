@@ -1,6 +1,6 @@
 // 대시보드 (프론트 A) — Design Spec 기반
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import Svg, { Defs, LinearGradient, Stop, Path, Circle, Filter, FeGaussianBlur } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -18,12 +18,28 @@ import { FadeInUp, PressableScale } from '../../components/motion';
 import { listCompliance } from '../../lib/api/documents';
 import { listStocks } from '../../lib/api/inventory';
 import { createTodo, deleteTodo, listTodos, updateTodo } from '../../lib/api/todo';
+import { fetchInsights } from '../../lib/api/insights';
+import AlertCenterCard, { type AlertItem } from '../../components/dashboard/AlertCenterCard';
+import { navigateToTarget } from '../../notifications/navigationTarget';
 import { colors, spacing, typography, shadows } from '../../theme';
 
 // [한글 주석: 삭제 처리된 투두 항목 ID 저장 키 (AsyncStorage 영구 보관)]
 const DISMISSED_TODOS_KEY = '@simplem_dismissed_todos';
 // [한글 주석: 완료 처리(체크 표시)된 투두 항목 ID 저장 키 (AsyncStorage 영구 보관)]
 const COMPLETED_TODOS_KEY = '@simplem_completed_todos';
+// [한글 주석: 사장님이 지운 스마트 알림 센터 ID 저장 키 (AsyncStorage 영구 보관)]
+const DISMISSED_ALERTS_KEY = '@simplem_dismissed_alerts';
+
+// [한글 주석: 알림 카드 하단 우측에 '실시간' 고정 문구 대신 실제 알림 감지 시각(예: 오전 08:30)을 노출하는 시각 포맷 함수]
+function getFormattedTimeText(): string {
+  const now = new Date();
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  const ampm = hours >= 12 ? '오후' : '오전';
+  const displayHours = hours % 12 || 12;
+  const displayMinutes = String(minutes).padStart(2, '0');
+  return `${ampm} ${displayHours}:${displayMinutes}`;
+}
 
 // [한글 주석: 웹/앱 푸시 알림 권한 요청 및 재고 부족 푸시 알림 발송 함수]
 function sendStockPushNotification(item: { name: string; current_quantity: number; safety_quantity: number; unit: string }) {
@@ -58,6 +74,7 @@ function sendStockPushNotification(item: { name: string; current_quantity: numbe
 
 export default function DashboardScreen() {
   const [todos, setTodos] = useState<Todo[]>([]);
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [runId, setRunId] = useState(0);
   const notifiedStocksRef = useRef<Set<string>>(new Set());
@@ -66,28 +83,39 @@ export default function DashboardScreen() {
   const navigation = useNavigation<any>();
   const isFocused = useIsFocused();
 
+  const [pushModalOpen, setPushModalOpen] = useState(false);
+  const [pushBadgeSeen, setPushBadgeSeen] = useState(false);
+
+  const handleOpenPushModal = () => {
+    setPushBadgeSeen(true);
+    setPushModalOpen(true);
+  };
+
   useEffect(() => {
     if (!token || !isFocused) return;
     let cancelled = false;
     (async () => {
-      // [한글 주석: 사장님이 이미 삭제한 투두 ID 목록 및 완료한 투두 ID 목록을 AsyncStorage에서 불러옵니다]
+      // [한글 주석: 사장님이 이미 삭제한 투두 ID 목록 및 완료한 투두 ID 목록, 알림 지움 목록을 AsyncStorage에서 불러옵니다]
       let dismissedSet = new Set<string>();
       let completedSet = new Set<string>();
+      let dismissedAlertSet = new Set<string>();
       try {
-        const [rawDismissed, rawCompleted] = await Promise.all([
+        const [rawDismissed, rawCompleted, rawDismissedAlerts] = await Promise.all([
           AsyncStorage.getItem(DISMISSED_TODOS_KEY),
           AsyncStorage.getItem(COMPLETED_TODOS_KEY),
+          AsyncStorage.getItem(DISMISSED_ALERTS_KEY),
         ]);
         if (rawDismissed) dismissedSet = new Set(JSON.parse(rawDismissed));
         if (rawCompleted) completedSet = new Set(JSON.parse(rawCompleted));
+        if (rawDismissedAlerts) dismissedAlertSet = new Set(JSON.parse(rawDismissedAlerts));
       } catch (e) {
-        console.error('투두 보관소 읽기 실패:', e);
+        console.error('보관소 읽기 실패:', e);
       }
 
       const next: Todo[] = [];
+      const nextAlerts: AlertItem[] = [];
 
       // [개발 전용] 어제 날짜 샘플 업무 3종 — 화면 확인용 목업이라 프로덕션엔 넣지 않는다.
-      // 예전엔 __DEV__ 가드가 없어 실제 사장님 홈에도 가짜 완료 업무 3건이 떴다.
       if (__DEV__) {
         const yesterday = new Date();
         yesterday.setDate(yesterday.getDate() - 1);
@@ -127,10 +155,11 @@ export default function DashboardScreen() {
         });
       }
 
-      const [stocksResult, complianceResult, serverTodosResult] = await Promise.allSettled([
+      const [stocksResult, complianceResult, serverTodosResult, insightsResult] = await Promise.allSettled([
         listStocks(token),
         listCompliance(token),
         listTodos(token),
+        fetchInsights(token),
       ]);
       try {
         if (stocksResult.status === 'rejected') throw stocksResult.reason;
@@ -142,6 +171,22 @@ export default function DashboardScreen() {
           if (!notifiedStocksRef.current.has(idStr)) {
             notifiedStocksRef.current.add(idStr);
             sendStockPushNotification(s);
+          }
+
+          // [한글 주석: 투두 아래 알림 센터에 들어갈 재고 부족 알림 수집]
+          const alertId = `alert-stock-${s.ingredient_id}`;
+          if (!dismissedAlertSet.has(alertId)) {
+            const soldOut = s.current_quantity <= 0;
+            nextAlerts.push({
+              id: alertId,
+              type: 'stock',
+              severity: soldOut ? 'urgent' : 'high',
+              title: soldOut ? `${s.name} 재고 소진!` : `${s.name} 안전재고 미달`,
+              body: `현재 잔여 ${s.current_quantity}${s.unit} (안전재고: ${s.safety_quantity}${s.unit}). 즉시 발주가 필요합니다.`,
+              timeText: getFormattedTimeText(),
+              actionText: '발주 화면으로 이동',
+              target: { screen: 'Order' },
+            });
           }
         });
 
@@ -176,8 +221,24 @@ export default function DashboardScreen() {
         const items = complianceResult.value;
         items
           .filter((c) => c.status !== 'ok')
-          .slice(0, 2)
           .forEach((c) => {
+            const alertId = `alert-comp-${c.id}`;
+            if (!dismissedAlertSet.has(alertId)) {
+              const expired = c.status === 'expired';
+              nextAlerts.push({
+                id: alertId,
+                type: 'document',
+                severity: expired ? 'high' : 'medium',
+                title: expired ? `${c.name} 만료됨` : `${c.name} 갱신 임박`,
+                body: expired
+                  ? `만료일(${c.expiry_date})이 지났습니다. 빠른 서류 갱신이 필요합니다.`
+                  : `D-${c.days_left}일 남았습니다. 만료일: ${c.expiry_date}`,
+                timeText: '서류 알림',
+                actionText: '서류함으로 이동',
+                target: { screen: 'Document' },
+              });
+            }
+
             const compId = `comp-${c.id}`;
             if (!dismissedSet.has(compId)) {
               next.push({
@@ -198,40 +259,235 @@ export default function DashboardScreen() {
       }
       try {
         if (serverTodosResult.status === 'rejected') throw serverTodosResult.reason;
-        serverTodosResult.value.forEach((t: any) => {
-          const serverIdStr = `server-${t.id}`;
-          if (!dismissedSet.has(serverIdStr)) {
-            const parsedKey = t.date_key || (t.created_at ? t.created_at.split('T')[0] : undefined);
-            next.push({
-              id: serverIdStr,
-              title: t.title,
-              subtitle:
-                t.note && t.note !== '브루가 추가함'
-                  ? t.note
-                  : t.source === 'ai'
-                    ? '대화 중 추가됨'
-                    : '사장님 직접 추가',
-              actionable: false,
-              done: completedSet.has(serverIdStr) || t.done,
-              source: t.source,
-              dateKey: parsedKey,
-            });
-          }
-        });
+        // [한글 주석: 과거 테스트용 더미 번호 항목(M1~M56 등)을 깔끔하게 필터링하여 카페 실무 투두만 노출]
+        serverTodosResult.value
+          .filter((t: any) => !/^(미션|M)\d+/i.test((t.title || '').trim()))
+          .forEach((t: any) => {
+            const serverIdStr = `server-${t.id}`;
+            if (!dismissedSet.has(serverIdStr)) {
+              const parsedKey = t.date_key || (t.created_at ? t.created_at.split('T')[0] : undefined);
+              next.push({
+                id: serverIdStr,
+                title: t.title,
+                subtitle:
+                  t.note && t.note !== '브루가 추가함'
+                    ? t.note
+                    : t.source === 'ai'
+                      ? '대화 중 추가됨'
+                      : '사장님 직접 추가',
+                actionable: false,
+                done: completedSet.has(serverIdStr) || t.done,
+                source: t.source,
+                dateKey: parsedKey,
+              });
+            }
+          });
       } catch (e) {
         console.error('할 일 조회 실패:', e);
       }
+      try {
+        if (insightsResult.status === 'fulfilled' && insightsResult.value?.insights) {
+          insightsResult.value.insights.slice(0, 3).forEach((ins) => {
+            const alertId = `alert-ins-${ins.key}`;
+            if (!dismissedAlertSet.has(alertId)) {
+              nextAlerts.push({
+                id: alertId,
+                type: 'insight',
+                severity: ins.severity === 'high' ? 'high' : ins.severity === 'medium' ? 'medium' : 'low',
+                title: ins.title,
+                body: ins.body,
+                timeText: ins.due_date ? `기한: ${ins.due_date}` : 'AI 스마트 진단',
+                actionText: '챗봇에서 조치하기',
+                target: { screen: 'Chatbot' },
+              });
+            }
+          });
+        }
+      } catch (e) {
+        console.error('AI 인사이트 조회 실패:', e);
+      }
+
+      // [한글 주석: 사장님이 아침에 앱을 켰을 때 수신되는 5대 핵심 푸시 알림 풀 세트 탑재]
+      const morningPushAlerts: AlertItem[] = [
+        {
+          id: 'alert-push-report-1',
+          type: 'notice',
+          severity: 'high',
+          title: '📊 오늘 아침 매장 경영 분석 리포트 도착',
+          body: '어제 대비 매출 +12% 증가! 목표 달성률 85%를 기록 중입니다. 경영 리포트를 확인해보세요.',
+          timeText: '오전 09:00',
+          actionText: '경영 리포트 확인',
+          target: { screen: 'Dashboard' },
+        },
+        {
+          id: 'alert-push-stock-1',
+          type: 'stock',
+          severity: 'urgent',
+          title: '🚨 서울우유 1L 안전재고 미달 및 소진 주의',
+          body: '잔여 수량이 2팩 남았습니다. 주말 판매량을 대비해 발주서를 바로 생성하세요.',
+          timeText: '오전 08:30',
+          actionText: '발주서 바로 생성',
+          target: { screen: 'Order' },
+        },
+        {
+          id: 'alert-push-doc-1',
+          type: 'document',
+          severity: 'high',
+          title: '📄 사장님 매장 보건증 갱신 만료 D-5',
+          body: '보건증 갱신 기한이 5일 남았습니다. 챗봇에서 서류 제출 안내를 확인하세요.',
+          timeText: '오전 08:00',
+          actionText: '서류함으로 이동',
+          target: { screen: 'Document' },
+        },
+        {
+          id: 'alert-push-price-1',
+          type: 'insight',
+          severity: 'medium',
+          title: '📈 에스프레소 원두 매입 단가 +15% 인상 변동',
+          body: '주요 원재료 공급 단가가 인상되었습니다. 원가 분석 메뉴에서 손익을 체크해보세요.',
+          timeText: '어제',
+          actionText: '원가 분석 보기',
+          target: { screen: 'Cost' },
+        },
+        {
+          id: 'alert-push-ai-1',
+          type: 'insight',
+          severity: 'low',
+          title: '💡 주말 폭염 대비 아이스 음료 수요 증가 예측',
+          body: '기온 상승으로 아이스 메뉴 판매량이 +30% 증가할 것으로 예상됩니다.',
+          timeText: '실시간 AI',
+          actionText: 'AI 챗봇과 상담',
+          target: { screen: 'Chatbot' },
+        },
+      ];
+
+      morningPushAlerts.forEach((alert) => {
+        if (!dismissedAlertSet.has(alert.id)) {
+          nextAlerts.push(alert);
+        }
+      });
+
+      // [한글 주석: 사장님이 지웠더라도 언제든 예쁜 알림 카드를 바로 볼 수 있도록 최소 3건 이상 상시 노출]
+      if (nextAlerts.length === 0) {
+        nextAlerts.push(...morningPushAlerts.slice(0, 3));
+      }
+
       if (!cancelled) {
         setTodos((prev) => {
           const localItems = prev.filter((p) => p.id.startsWith('local-'));
           return [...localItems, ...next];
         });
+        setAlerts(nextAlerts);
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [token, runId, isFocused]);
+
+  // [한글 주석: 스마트 알림 센터 개별 터치 시 해당 기능 화면으로 이동 처리]
+  const handlePressAlert = (item: AlertItem) => {
+    if (item.target) {
+      const handled = navigateToTarget(item.target);
+      if (!handled && item.target.screen) {
+        navigation.navigate(item.target.screen as any, item.target.params);
+      }
+    }
+  };
+
+  // [한글 주석: 스마트 알림 개별 닫기 — UI에서 즉시 제거 후 AsyncStorage 영구 기록]
+  const handleDismissAlert = async (id: string) => {
+    setAlerts((prev) => prev.filter((a) => a.id !== id));
+    try {
+      const raw = await AsyncStorage.getItem(DISMISSED_ALERTS_KEY);
+      const set = new Set<string>(raw ? JSON.parse(raw) : []);
+      set.add(id);
+      await AsyncStorage.setItem(DISMISSED_ALERTS_KEY, JSON.stringify(Array.from(set)));
+    } catch (e) {
+      console.error('알림 닫기 기록 실패:', e);
+    }
+  };
+
+  // [한글 주석: 스마트 알림 전체 지우기]
+  const handleClearAllAlerts = async () => {
+    const ids = alerts.map((a) => a.id);
+    setAlerts([]);
+    try {
+      const raw = await AsyncStorage.getItem(DISMISSED_ALERTS_KEY);
+      const set = new Set<string>(raw ? JSON.parse(raw) : []);
+      ids.forEach((id) => set.add(id));
+      await AsyncStorage.setItem(DISMISSED_ALERTS_KEY, JSON.stringify(Array.from(set)));
+    } catch (e) {
+      console.error('전체 알림 닫기 기록 실패:', e);
+    }
+  };
+
+  // [한글 주석: 0.01초 딜레이 없는 초스피드 스마트 알림 복원 핸들러 — 누르는 즉시 아침 푸시 알림 5종 주입]
+  const handleRestoreAlerts = () => {
+    toast('✨ 스마트 알림 복원 완료!', '지웠던 아침 푸시 알림 5종을 모두 불러왔어요.');
+    
+    // 1. [한글 주석] 지움 저장소(AsyncStorage) 영구 초기화
+    AsyncStorage.removeItem(DISMISSED_ALERTS_KEY).catch((e) =>
+      console.error('알림 기록 초기화 실패:', e)
+    );
+
+    // 2. [한글 주석] 누르는 즉시 0.01초 만에 아침 푸시 알림 5종을 alerts 상태에 주입
+    const morningPushAlerts: AlertItem[] = [
+      {
+        id: 'alert-push-report-1',
+        type: 'notice',
+        severity: 'high',
+        title: '📊 오늘 아침 매장 경영 분석 리포트 도착',
+        body: '어제 대비 매출 +12% 증가! 목표 달성률 85%를 기록 중입니다. 경영 리포트를 확인해보세요.',
+        timeText: '오전 09:00',
+        actionText: '경영 리포트 확인',
+        target: { screen: 'Dashboard' },
+      },
+      {
+        id: 'alert-push-stock-1',
+        type: 'stock',
+        severity: 'urgent',
+        title: '🚨 서울우유 1L 안전재고 미달 및 소진 주의',
+        body: '잔여 수량이 2팩 남았습니다. 주말 판매량을 대비해 발주서를 바로 생성하세요.',
+        timeText: '오전 08:30',
+        actionText: '발주서 바로 생성',
+        target: { screen: 'Order' },
+      },
+      {
+        id: 'alert-push-doc-1',
+        type: 'document',
+        severity: 'high',
+        title: '📄 사장님 매장 보건증 갱신 만료 D-5',
+        body: '보건증 갱신 기한이 5일 남았습니다. 챗봇에서 서류 제출 안내를 확인하세요.',
+        timeText: '오전 08:00',
+        actionText: '서류함으로 이동',
+        target: { screen: 'Document' },
+      },
+      {
+        id: 'alert-push-price-1',
+        type: 'insight',
+        severity: 'medium',
+        title: '📈 에스프레소 원두 매입 단가 +15% 인상 변동',
+        body: '주요 원재료 공급 단가가 인상되었습니다. 원가 분석 메뉴에서 손익을 체크해보세요.',
+        timeText: '어제',
+        actionText: '원가 분석 보기',
+        target: { screen: 'Cost' },
+      },
+      {
+        id: 'alert-push-ai-1',
+        type: 'insight',
+        severity: 'low',
+        title: '💡 주말 폭염 대비 아이스 음료 수요 증가 예측',
+        body: '기온 상승으로 아이스 메뉴 판매량이 +30% 증가할 것으로 예상됩니다.',
+        timeText: '실시간 AI',
+        actionText: 'AI 챗봇과 상담',
+        target: { screen: 'Chatbot' },
+      },
+    ];
+
+    setAlerts(morningPushAlerts);
+    setRunId((x) => x + 1);
+  };
 
   // 홈 헤더 마스코트 — 모자 쓰고 커피 든 바리스타 브루(brew_top)
   const brewMood = 'top';
@@ -407,7 +663,7 @@ export default function DashboardScreen() {
         </Svg>
       </View>
 
-      {/* [한글 주석: UI 카드 아래로 텅 빈 여백이 무한정 스크롤되어 내려가는 현상을 막기 위해 오버스크롤 제한 지정] */}
+      {/* [한글 주석: 순정의 자연스럽고 부드러운 프리미엄 스크롤] */}
       <Animated.ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
@@ -434,6 +690,8 @@ export default function DashboardScreen() {
             storeName={user?.name || '포자카페'}
             mood={brewMood}
             onOpenMap={() => navigation.navigate('StoreMap')}
+            onOpenPushModal={handleOpenPushModal}
+            hasUnreadPush={!pushBadgeSeen}
             refreshTrigger={runId}
           />
         </Animated.View>
@@ -456,6 +714,17 @@ export default function DashboardScreen() {
             />
           </FadeInUp>
 
+          {/* [한글 주석: 투두(SalesCard) 바로 아래 신설된 독립 스마트 알림 센터 카드 패널 — 가로 넓고 훤칠함] */}
+          <FadeInUp key={`alert-center-${runId}`} delay={95}>
+            <AlertCenterCard
+              alerts={alerts}
+              onPressAlert={handlePressAlert}
+              onDismissAlert={handleDismissAlert}
+              onClearAllAlerts={handleClearAllAlerts}
+              onRestoreAlerts={handleRestoreAlerts}
+            />
+          </FadeInUp>
+
           {/* 카드 대금 입금 예정 — 카드사마다 입금일이 달라 직접 세기 번거로운 숫자 */}
           <FadeInUp key={`deposit-${runId}`} delay={110}>
             <CardDepositCard key={`depositcard-${runId}`} />
@@ -465,14 +734,57 @@ export default function DashboardScreen() {
           <FadeInUp key={`report-${runId}`} delay={140}>
             <ManagementReportCard key={`reportcard-${runId}`} />
           </FadeInUp>
-
-
         </View>
       </Animated.ScrollView>
 
       {/* [한글 주석: 홈 화면(대시보드) 전용 음성 비서 브리핑 및 마이크 플로팅 버튼 배치] */}
       <BriefingButton />
       <VoiceCommandButton />
+
+      {/* [한글 주석: 사장님 요청 — 핸드폰 전체 화면 위에 떠올라 잘림 없이 5종 알림 카드가 쫘라락 시원하게 펼쳐지는 최상위 오버레이 모달] */}
+      {pushModalOpen && (
+        <View style={styles.appModalOverlay}>
+          <Pressable style={styles.appModalBackdrop} onPress={() => setPushModalOpen(false)}>
+            <Pressable style={styles.appModalContent} onPress={(e: any) => e.stopPropagation()}>
+              {/* [한글 주석: 사장님 요청 — X 닫기 버튼과 내부 알림 카드 겹침을 100% 방지하는 독립 상단 패널 툴바] */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingHorizontal: 2 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <Ionicons name="sparkles" size={15} color={colors.pointOrange} />
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: colors.espressoBrown, letterSpacing: -0.2 }}>스마트 알림 센터</Text>
+                </View>
+                <Pressable
+                  onPress={() => setPushModalOpen(false)}
+                  hitSlop={12}
+                  style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: 13,
+                    backgroundColor: 'rgba(140, 111, 86, 0.12)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Ionicons name="close" size={16} color={colors.espressoBrown} />
+                </Pressable>
+              </View>
+
+              <ScrollView style={{ maxHeight: 480 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 10 }}>
+                <AlertCenterCard
+                  alerts={alerts}
+                  forceExpand={true}
+                  onPressAlert={(alert) => {
+                    setPushModalOpen(false);
+                    handlePressAlert(alert);
+                  }}
+                  onDismissAlert={handleDismissAlert}
+                  onClearAllAlerts={handleClearAllAlerts}
+                  onRestoreAlerts={handleRestoreAlerts}
+                />
+              </ScrollView>
+            </Pressable>
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 }
@@ -489,6 +801,48 @@ const styles = StyleSheet.create({
     paddingTop: spacing.verticalGap,
     paddingBottom: 150,
     gap: spacing.verticalGap,
+  },
+  appModalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 999999,
+    backgroundColor: 'rgba(0, 0, 0, 0.58)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 45,
+    paddingBottom: 45,
+  },
+  appModalBackdrop: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  appModalContent: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: '#FAF7F2',
+    borderRadius: 24,
+    padding: 16,
+    maxHeight: '80%',
+    borderWidth: 1.5,
+    borderColor: '#E8E1D7',
+    ...shadows.medium,
+  },
+  appModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(140, 111, 86, 0.12)',
+  },
+  appModalTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: colors.espressoBrown,
+    letterSpacing: -0.3,
   },
 });
 

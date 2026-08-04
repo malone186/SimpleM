@@ -124,9 +124,11 @@ export default function TodoList({
 
   // 선택된 날짜에 맞게 투두 목록 필터링 (각 요일별 개별 독립 투두 리스트)
   const dateFilteredTodos = useMemo(() => {
-    if (!selectedDateInfo) return todos;
+    // [한글 주석: 테스트용 더미 번호 항목(미션1~미션30, M1~M56 등)을 100% 깔끔 소독]
+    const cleanTodos = todos.filter((t) => !/^(미션|M)\d+/i.test((t.title || '').trim()));
+    if (!selectedDateInfo) return cleanTodos;
     const currentKey = selectedDateInfo.dateKey;
-    return todos.filter((t) => {
+    return cleanTodos.filter((t) => {
       // 1) dateKey가 지정되어 있는 경우 해당 날짜와 정확히 일치할 때만 보임
       if (t.dateKey) {
         return t.dateKey === currentKey;

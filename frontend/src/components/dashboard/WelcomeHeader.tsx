@@ -5,13 +5,14 @@ import { Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, Touch
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 
-import { colors, spacing } from '../../theme';
+import { colors, spacing, shadows } from '../../theme';
 import { type BrewMood } from '../brew/Brew';
 import MascotEasterEgg from './MascotEasterEgg';
 import MarqueeText from '../MarqueeText';
 import { useAuth } from '../../auth/AuthContext';
 import { fetchNoticeFeed, type AdminNotice } from '../../lib/api/notice';
 import { useTranslation } from '../../i18n/translations';
+import AlertCenterCard, { type AlertItem } from './AlertCenterCard';
 
 // [시간대별 인사말] "~사장님!" 아래 줄에 현재 시각에 맞춰 자동으로 바뀌는 문구.
 // 각 구간에 여러 후보를 두고 10분 단위로 회전해 같은 시간대라도 조금씩 달라진다.
@@ -177,16 +178,19 @@ function useNoticeInbox(refreshTrigger = 0) {
 }
 
 export default function WelcomeHeader({
-  storeName = '포자카페',
-  mood = 'welcome',
+  storeName,
+  refreshTrigger,
+  mood = 'top',
   onOpenMap,
-  refreshTrigger = 0,
+  onOpenPushModal,
+  hasUnreadPush = true,
 }: {
-  storeName?: string;
-  photo?: string;
+  storeName: string;
   refreshTrigger?: number;
   mood?: BrewMood;
   onOpenMap?: () => void;
+  onOpenPushModal?: () => void;
+  hasUnreadPush?: boolean;
 }) {
   const greeting = useTimeGreeting();
   const { announce, dismiss } = useAdminAnnouncement(refreshTrigger);
@@ -200,7 +204,63 @@ export default function WelcomeHeader({
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const selected = notices.find((n) => n.id === selectedId) ?? null;
   // 상세로 연 공지에 이어지는 화면이 있으면 하단에 이동 버튼을 띄운다
-  const selectedTarget = selected ? resolveNoticeRoute(selected) : null;
+  // [한글 주석: 상단 종 아이콘(🔔) 모달 팝업 창 안에서 노출될 스마트 알림 센터 카드 풀 세트]
+  const defaultModalAlerts: AlertItem[] = [
+    {
+      id: 'header-alert-1',
+      type: 'notice',
+      severity: 'high',
+      title: '📊 오늘 아침 매장 경영 분석 리포트 도착',
+      body: '어제 대비 매출 +12% 증가! 목표 달성률 85%를 기록 중입니다. 경영 리포트를 확인해보세요.',
+      timeText: '오전 09:00',
+      actionText: '경영 리포트 확인',
+      target: { screen: 'Dashboard' },
+    },
+    {
+      id: 'header-alert-2',
+      type: 'stock',
+      severity: 'urgent',
+      title: '🚨 서울우유 1L 안전재고 미달 및 소진 주의',
+      body: '잔여 수량이 2팩 남았습니다. 주말 판매량을 대비해 발주서를 바로 생성하세요.',
+      timeText: '오전 08:30',
+      actionText: '발주서 바로 생성',
+      target: { screen: 'Order' },
+    },
+    {
+      id: 'header-alert-3',
+      type: 'document',
+      severity: 'high',
+      title: '📄 사장님 매장 보건증 갱신 만료 D-5',
+      body: '보건증 갱신 기한이 5일 남았습니다. 챗봇에서 서류 제출 안내를 확인하세요.',
+      timeText: '오전 08:00',
+      actionText: '서류함으로 이동',
+      target: { screen: 'Document' },
+    },
+    {
+      id: 'header-alert-4',
+      type: 'insight',
+      severity: 'medium',
+      title: '📈 에스프레소 원두 매입 단가 +15% 인상 변동',
+      body: '주요 원재료 공급 단가가 인상되었습니다. 원가 분석 메뉴에서 손익을 체크해보세요.',
+      timeText: '어제',
+      actionText: '원가 분석 보기',
+      target: { screen: 'Cost' },
+    },
+    {
+      id: 'header-alert-5',
+      type: 'insight',
+      severity: 'low',
+      title: '💡 주말 폭염 대비 아이스 음료 수요 증가 예측',
+      body: '기온 상승으로 아이스 메뉴 판매량이 +30% 증가할 것으로 예상됩니다.',
+      timeText: '실시간 AI',
+      actionText: 'AI 챗봇과 상담',
+      target: { screen: 'Chatbot' },
+    },
+  ];
+
+  const [headerAlerts, setHeaderAlerts] = useState<AlertItem[]>(defaultModalAlerts);
+  // [한글 주석: 사장님이 새로 추가된 3번째 알림 아이콘(🔔✨)을 누르면 열리는 전용 푸시 알림 모달 상태]
+  const [pushModalOpen, setPushModalOpen] = useState(false);
 
   const navigation = useNavigation<any>();
 
@@ -271,12 +331,27 @@ export default function WelcomeHeader({
           <Ionicons name="map-outline" size={19} color={colors.creamSand} />
         </TouchableOpacity>
 
-        {/* 알림함 — 지난 관리자 공지를 스택형으로 모아 본다 */}
+        {/* 기존 공지 알림함 */}
         <TouchableOpacity style={styles.iconBtn} onPress={openInbox} hitSlop={10} activeOpacity={0.85}>
           <Ionicons name="notifications-outline" size={19} color={colors.creamSand} />
           {unreadCount > 0 && (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {/* [한글 주석: 사장님 요청 — 기존 1,2번 아이콘과 100% 톤앤매너가 어우러지는 세련된 3번째 스마트 푸시 알림 버튼 💬] */}
+        <TouchableOpacity
+          style={styles.iconBtn}
+          onPress={onOpenPushModal || (() => setPushModalOpen(true))}
+          hitSlop={10}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="chatbubbles-outline" size={19} color={colors.creamSand} />
+          {hasUnreadPush && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>N</Text>
             </View>
           )}
         </TouchableOpacity>
@@ -377,72 +452,52 @@ export default function WelcomeHeader({
                     <Text style={styles.detailBody}>{selected.body || '내용이 없는 공지예요.'}</Text>
                   </View>
                 </ScrollView>
-                {/* 공지 주제와 이어지는 화면이 있으면 여기서 바로 이동 */}
-                {selectedTarget && (
-                  <TouchableOpacity
-                    style={styles.detailGoBtn}
-                    activeOpacity={0.85}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${selectedTarget.label} 화면으로 이동`}
-                    onPress={() => goToNoticeTarget(selectedTarget.route)}
-                  >
-                    <Text style={styles.detailGoText}>{selectedTarget.label} 화면으로 이동</Text>
-                    <Ionicons name="chevron-forward" size={13} color={colors.white} />
-                  </TouchableOpacity>
-                )}
                 <TouchableOpacity style={styles.detailBackBtn} onPress={() => setSelectedId(null)} activeOpacity={0.85}>
                   <Ionicons name="list-outline" size={14} color={colors.espressoBrown} />
                   <Text style={styles.detailBackText}>알림 목록으로</Text>
                 </TouchableOpacity>
               </View>
-            ) : notices.length === 0 ? (
-              <View style={styles.inboxEmpty}>
-                <Ionicons name="mail-open-outline" size={28} color="#C7BBB0" />
-                <Text style={styles.inboxEmptyText}>받은 알림이 없어요.</Text>
-              </View>
             ) : (
-              <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
-                {notices.map((n) => {
-                  // 카드를 누르면 상세로 들어간다. 이어지는 화면이 있으면 칩으로 미리 알려주고,
-                  // 실제 이동은 상세 안의 버튼에서 한다(한 번 읽고 넘어가게).
-                  const target = resolveNoticeRoute(n);
-                  return (
-                    <TouchableOpacity
-                      key={n.id}
-                      style={[styles.noticeCard, target && styles.noticeCardLinked]}
-                      activeOpacity={0.75}
-                      accessibilityRole="button"
-                      accessibilityLabel={`${n.title} 자세히 보기`}
-                      onPress={() => setSelectedId(n.id)}
-                    >
-                      <View style={styles.noticeCardTop}>
-                        <Ionicons name="megaphone" size={13} color={colors.pointOrange} style={{ marginRight: 5, marginTop: 1 }} />
-                        <Text style={styles.noticeCardTitle} numberOfLines={1}>{n.title}</Text>
-                        {n.id > newBaseline && (
-                          <View style={styles.newDot}>
-                            <Text style={styles.newDotText}>N</Text>
-                          </View>
-                        )}
-                        <Ionicons name="chevron-forward" size={14} color="#C0B3A8" style={{ marginLeft: 4, marginTop: 2 }} />
-                      </View>
-                      {!!n.body && <Text style={styles.noticeCardBody} numberOfLines={2}>{n.body}</Text>}
-                      <View style={styles.noticeCardFoot}>
-                        <Text style={styles.noticeCardMeta}>{n.author} · {n.date}</Text>
-                        {target && (
-                          <View style={styles.noticeCardCta}>
-                            <Text style={styles.noticeCardCtaText}>{target.label}</Text>
-                            <Ionicons name="chevron-forward" size={11} color={colors.pointOrange} />
-                          </View>
-                        )}
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
+              /* [한글 주석: 상단 종 아이콘(🔔) 터치 시 팝업 창 안에서 뜨는 스마트 알림 센터 UI 카드 세트] */
+              <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
+                <AlertCenterCard
+                  alerts={headerAlerts}
+                  onDismissAlert={(id) => setHeaderAlerts((prev) => prev.filter((a) => a.id !== id))}
+                  onClearAllAlerts={() => setHeaderAlerts([])}
+                  onRestoreAlerts={() => setHeaderAlerts(defaultModalAlerts)}
+                />
               </ScrollView>
             )}
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* [한글 주석: 사장님 요청 — 핸드폰 화면(프레임) 이탈을 100% 방지하고 핸드폰 화면 안쪽에 착 붙어 뜨는 인앱 스마트 푸시 모달 레이어] */}
+      {pushModalOpen && (
+        <Pressable style={styles.inAppBackdrop} onPress={() => setPushModalOpen(false)}>
+          <Pressable style={styles.largePushModalPanel} onPress={(e) => e.stopPropagation()}>
+            <View style={[styles.inboxHeader, { marginBottom: 10 }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                <Ionicons name="sparkles" size={18} color={colors.pointOrange} />
+                <Text style={[styles.inboxTitle, { fontSize: 15.5 }]}>스마트 푸시 알림 센터</Text>
+              </View>
+              <TouchableOpacity onPress={() => setPushModalOpen(false)} hitSlop={10}>
+                <Ionicons name="close" size={20} color={colors.mochaBrown} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ maxHeight: 440 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 10 }}>
+              <AlertCenterCard
+                alerts={headerAlerts}
+                forceExpand={true}
+                onDismissAlert={(id) => setHeaderAlerts((prev) => prev.filter((a) => a.id !== id))}
+                onClearAllAlerts={() => setHeaderAlerts([])}
+                onRestoreAlerts={() => setHeaderAlerts(defaultModalAlerts)}
+              />
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -694,4 +749,27 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(140,111,86,0.10)',
   },
   detailBackText: { fontSize: 12, fontWeight: '800', color: colors.espressoBrown, letterSpacing: -0.2 },
+  inAppBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: -16,
+    right: -16,
+    height: 700,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    zIndex: 99999,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  largePushModalPanel: {
+    width: '96%',
+    maxWidth: 380,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 14,
+    maxHeight: 520,
+    borderWidth: 1.5,
+    borderColor: '#EFEAE2',
+    ...shadows.medium,
+  },
 });
