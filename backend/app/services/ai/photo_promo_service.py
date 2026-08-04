@@ -119,7 +119,7 @@ def _background(style: str, aspect_ratio: str):
         bg = Image.open(io.BytesIO(hit[1])).convert("RGB").resize((w, h))
         return bg, "pollinations(cached)"
     try:
-        bg_bytes, _mime = M._pollinations_generate(meta["prompt"] + _NO_TEXT, aspect_ratio)
+        bg_bytes, _mime = M._pollinations_generate(meta["prompt"] + _NO_TEXT, aspect_ratio, quality="standard")
         _bg_cache[key] = (_time.time(), bg_bytes)
         bg = Image.open(io.BytesIO(bg_bytes)).convert("RGB").resize((w, h))
         return bg, "pollinations"
@@ -304,3 +304,26 @@ def compose_from_photo(store_id: str, photo_bytes: bytes, style: str = "wood",
         doc = document_service.update_document(store_id, doc_id, doc["content"])
 
     return {**entry, "doc": doc}
+
+
+def warm_backgrounds_async() -> None:
+    """5개 스타일 배경을 백그라운드로 미리 생성해 캐시를 채운다 (서버 기동 시 1회).
+
+    배포 때마다 인메모리 캐시가 비어 첫 합성이 수십 초 걸리던 것을, 기동 직후
+    1~2분 안에 전부 데워 사용자는 항상 수 초 합성을 보게 한다.
+    PHOTO_BG_WARM=0 으로 끌 수 있다(테스트·오프라인 환경).
+    """
+    import os
+    import threading
+
+    if os.getenv("PHOTO_BG_WARM", "1") == "0":
+        return
+
+    def _run() -> None:
+        for style in BACKGROUND_STYLES:
+            try:
+                _background(style, "1:1")
+            except Exception:
+                pass
+
+    threading.Thread(target=_run, daemon=True, name="photo-bg-warm").start()
