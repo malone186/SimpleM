@@ -145,21 +145,23 @@ def _build_message(to_email: str, link: str) -> EmailMessage:
         "- 브루노트 드림"
     )
     msg.set_content(text)
+    # 카드 배경(#FCF8F4)은 로고 PNG의 배경색과 동일하게 — 로고가 네모 티 없이 녹아든다.
+    # 버튼·링크(#473017)는 로고의 BREWNOTE 글자색과 같은 딥 에스프레소 브라운.
     msg.add_alternative(
-        f"""<!doctype html><html><body style="margin:0;background:#F4ECE0;padding:24px;font-family:'Apple SD Gothic Neo',sans-serif;color:#3E2F23">
-  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:16px;padding:28px">
+        f"""<!doctype html><html><body style="margin:0;background:#EFE5D6;padding:24px;font-family:'Apple SD Gothic Neo',sans-serif;color:#3E2F23">
+  <div style="max-width:480px;margin:0 auto;background:#FCF8F4;border-radius:16px;padding:28px">
     {logo_img}
     <h1 style="font-size:20px;margin:0 0 6px;text-align:center">비밀번호 재설정</h1>
-    <p style="color:#7A6A5A;font-size:14px;line-height:1.6;margin:0 0 20px;text-align:center">
+    <p style="color:#7A6A5A;font-size:14px;line-height:1.6;margin:0 0 20px;text-align:center;word-break:keep-all">
       안녕하세요, 브루노트입니다.<br/>비밀번호 재설정 요청이 접수되었습니다.<br/>
-      아래 버튼을 눌러 새 비밀번호를 설정해 주세요.
+      아래 버튼을 눌러<br/>새 비밀번호를 설정해 주세요.
     </p>
     <div style="text-align:center">
-      <a href="{link}" style="display:inline-block;background:#E8833A;color:#fff;text-decoration:none;font-weight:800;padding:13px 24px;border-radius:12px;font-size:15px">비밀번호 재설정하기</a>
+      <a href="{link}" style="display:inline-block;background:#473017;color:#fff;text-decoration:none;font-weight:800;padding:13px 24px;border-radius:12px;font-size:15px">비밀번호 재설정하기</a>
     </div>
     <p style="color:#A99C90;font-size:12px;line-height:1.6;margin:22px 0 0">
       버튼이 눌리지 않으면 이 주소를 브라우저에 붙여 넣으세요:<br/>
-      <a href="{link}" style="color:#E8833A;word-break:break-all">{link}</a>
+      <a href="{link}" style="color:#473017;word-break:break-all">{link}</a>
     </p>
     <p style="color:#A99C90;font-size:12px;line-height:1.6;margin:16px 0 0">
       본인이 요청하지 않으셨다면 이 메일을 무시하셔도 됩니다. 비밀번호는 변경되지 않습니다.
