@@ -3,6 +3,8 @@
 //
 // 이미지 생성은 서버가 Gemini(유료 키 있으면) → Pollinations(무료) 순으로 알아서
 // 처리하므로 프론트는 항상 같은 API만 부르면 된다. 결과 provider 필드로 구분 가능.
+import { Platform } from 'react-native';
+
 import { API_BASE_URL, apiFetch } from './client';
 
 const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
@@ -177,3 +179,42 @@ export const aspectToNumber = (ar: string): number => {
   if (!m) return 1;
   return Number(m[1]) / Number(m[2]);
 };
+
+// ── 실물 사진 홍보 이미지 — 누끼(rembg) + 감성 배경 합성 ──
+export const PHOTO_BG_STYLES: { key: string; label: string }[] = [
+  { key: 'wood', label: '우드 테이블' },
+  { key: 'marble', label: '대리석' },
+  { key: 'cozy', label: '코지 감성' },
+  { key: 'studio', label: '스튜디오' },
+  { key: 'season', label: '시즌 감성' },
+];
+
+/** 사장님이 올린 실물 메뉴 사진으로 홍보 이미지 합성 (AI 생성 대신 '진짜 우리 메뉴') */
+export async function createPhotoPromoImage(
+  token: string,
+  file: { uri: string; mimeType?: string | null; fileName?: string | null },
+  req: { doc_id?: string; style?: string; aspect_ratio?: string },
+): Promise<PromotionImage & { doc: PromotionDoc | null }> {
+  const form = new FormData();
+  const name = file.fileName ?? 'menu_photo.jpg';
+  const type = file.mimeType ?? 'image/jpeg';
+  if (Platform.OS === 'web') {
+    const blob = await (await fetch(file.uri)).blob();
+    form.append('file', new File([blob], name, { type: blob.type || type }));
+  } else {
+    form.append('file', { uri: file.uri, name, type } as unknown as Blob);
+  }
+  form.append('style', req.style ?? 'wood');
+  form.append('aspect_ratio', req.aspect_ratio ?? '1:1');
+  form.append('doc_id', req.doc_id ?? '');
+  const res = await fetch(`${API_BASE_URL}/api/v1/chatbot/marketing/photo-image`, {
+    method: 'POST',
+    headers: auth(token),
+    body: form,
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `사진 합성 실패 (${res.status})`);
+  }
+  return res.json();
+}

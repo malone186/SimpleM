@@ -14,7 +14,7 @@ from datetime import date
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Header, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel, Field
@@ -995,6 +995,32 @@ def create_marketing_image(
             include_text=body.include_text, overlay=body.overlay, quality=body.quality)
     except marketing_service.MarketingError as e:
         raise HTTPException(502, str(e))
+
+
+@router.post("/marketing/photo-image")
+async def create_marketing_photo_image(
+    file: UploadFile = File(...),
+    style: str = Form("wood"),
+    aspect_ratio: str = Form("1:1"),
+    doc_id: str = Form(""),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """실물 메뉴 사진으로 홍보 이미지 — 누끼(rembg) + 감성 배경 합성.
+
+    AI 생성 이미지와 달리 '우리 매장 실물'이 그대로 담긴다. doc_id를 주면
+    해당 홍보 문서의 images에 붙는다. 배경 스타일: wood/marble/cozy/studio/season.
+    """
+    from app.services.ai import photo_promo_service
+
+    content = await file.read()
+    if len(content) > MAX_IMAGE_BYTES:
+        raise HTTPException(413, "사진이 15MB를 초과합니다")
+    try:
+        return photo_promo_service.compose_from_photo(
+            current_user.email, content, style=style,
+            aspect_ratio=aspect_ratio, doc_id=doc_id)
+    except photo_promo_service.PhotoPromoError as e:
+        raise HTTPException(422, str(e))
 
 
 @router.post("/marketing/image/overlay")

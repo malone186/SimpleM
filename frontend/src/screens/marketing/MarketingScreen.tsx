@@ -31,7 +31,9 @@ import { describeApiFailure } from '../../lib/api/errors';
 import {
   CHANNEL_META,
   OVERLAY_META,
+  PHOTO_BG_STYLES,
   aspectToNumber,
+  createPhotoPromoImage,
   createPromotionCopy,
   createPromotionImage,
   deletePromotion,
@@ -88,6 +90,7 @@ export default function MarketingScreen() {
   const [tone, setTone] = useState('');
   const [menu, setMenu] = useState('');
   const [imageStyle, setImageStyle] = useState(''); // IMAGE_STYLES의 key (빈 값 = 자동)
+  const [photoBgStyle, setPhotoBgStyle] = useState('wood'); // 실물 사진 합성 배경
 
   // [브루 추천 연결] 투두의 '홍보하러 가기'로 들어오면 홍보할 메뉴·주제가 자동 입력된다.
   // ts를 의존성에 둬서 같은 메뉴를 다시 눌러도(파라미터 갱신) 다시 채워진다.
@@ -180,6 +183,52 @@ export default function MarketingScreen() {
       refreshHistory();
     } catch (e) {
       toast('홍보물 생성 실패', describeApiFailure(e, '홍보물').message);
+    } finally {
+      setPhase('idle');
+    }
+  };
+
+  /** 실물 메뉴 사진으로 만들기 — 사진 선택 → (문구 없으면 먼저 생성) → 누끼+배경 합성.
+   * AI 생성 이미지와 달리 '진짜 우리 메뉴'가 그대로 담긴다. */
+  const makeFromPhoto = async () => {
+    if (!token) {
+      toast('로그인이 필요해요', '로그인 후 홍보물을 만들 수 있습니다.');
+      return;
+    }
+    if (busy) return;
+    let ImagePicker: any;
+    try {
+      ImagePicker = require('expo-image-picker');
+    } catch {
+      toast('사진 선택을 쓸 수 없어요', '이 버전 앱에는 사진 선택 모듈이 없어요.');
+      return;
+    }
+    const picked = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.92,
+    });
+    if (picked.canceled || !picked.assets?.length) return;
+    const a = picked.assets[0];
+
+    try {
+      let doc = result;
+      if (!doc) {
+        // 문구가 아직 없으면 먼저 만들어 사진 이미지가 문서에 함께 묶이게 한다
+        setPhase('copy');
+        doc = await createPromotionCopy(token, { topic, channel, tone, menu });
+        setResult(doc);
+      }
+      setPhase('image');
+      const img = await createPhotoPromoImage(
+        token,
+        { uri: a.uri, mimeType: a.mimeType, fileName: a.fileName },
+        { doc_id: doc.id, style: photoBgStyle, aspect_ratio: CHANNEL_META[channel].aspect },
+      );
+      if (img.doc) applyDoc(img.doc, img.image_id);
+      refreshHistory();
+      toast('내 사진으로 만들었어요', '실물 메뉴에 감성 배경을 입혔어요. 문구와 함께 쓰세요!');
+    } catch (e) {
+      toast('사진 합성 실패', describeApiFailure(e, '사진 합성').message);
     } finally {
       setPhase('idle');
     }
@@ -389,6 +438,38 @@ export default function MarketingScreen() {
             );
           })}
         </View>
+
+        {/* 실물 사진으로 만들기 — AI 그림 대신 '진짜 우리 메뉴' 사진에 감성 배경 합성 */}
+        <Text style={[styles.fieldLabel, { marginTop: 10 }]}>📷 내 사진으로 만들기 (배경 선택)</Text>
+        <View style={styles.styleRow}>
+          {PHOTO_BG_STYLES.map((s2) => {
+            const active = photoBgStyle === s2.key;
+            return (
+              <PressableScale
+                key={s2.key}
+                style={[styles.styleChip, active && styles.styleChipActive]}
+                onPress={() => setPhotoBgStyle(s2.key)}
+                to={0.93}
+              >
+                <Text style={[styles.styleText, active && styles.styleTextActive]}>
+                  {s2.label}
+                </Text>
+              </PressableScale>
+            );
+          })}
+          <PressableScale
+            style={[styles.styleChip, { backgroundColor: colors.espressoBrown }]}
+            onPress={makeFromPhoto}
+            to={0.93}
+          >
+            <Text style={[styles.styleText, { color: colors.white, fontWeight: '800' }]}>
+              {phase === 'image' ? '합성 중…' : '사진 올려서 만들기'}
+            </Text>
+          </PressableScale>
+        </View>
+        <Text style={styles.photoHint}>
+          메뉴 실물 사진을 올리면 배경만 감성 컷으로 바꿔 드려요 (사진 속 메뉴는 그대로)
+        </Text>
 
         <View style={styles.inputRow}>
           <View style={{ flex: 1 }}>
@@ -813,6 +894,7 @@ const styles = StyleSheet.create({
   },
   styleText: { fontSize: 11.5, fontWeight: '700', color: colors.mochaBrown },
   styleTextActive: { color: colors.white },
+  photoHint: { fontSize: 11, color: colors.mochaBrown, marginTop: 6, lineHeight: 15 },
 
   progressRow: {
     flexDirection: 'row',
