@@ -12,12 +12,18 @@
 수집만 흉내 내고(어느 날 무엇이 검색됐는지) 판정은 손대지 않는다 —
 2회 연속·3회 실종·부실 스캔 생략 같은 규칙이 실제로 도는지 이 시드로 확인할 수 있다.
 
-이어서 알림 규칙(7·8)을 그대로 돌려 사장님 폰에 뜰 문구를 찍어 준다. 발송만 가로채므로
-중복 방지 이력은 진짜로 남는다 — 덕분에 오늘 도는 스케줄러가 다시 훑어 데모를 지우지 않는다.
+시드가 끝나면 알림은 '아직 안 보낸' 상태로 남는다 — 스케줄러가 다음에 돌 때 실제로 발송된다.
+미리 문구만 확인하고 싶으면 --notify를 준다(발송은 가로채지만 중복 방지 이력은 진짜로 남으므로,
+그 뒤에는 스케줄러가 다시 보내지 않는다는 점에 주의).
 
-    python db_seed_nearby_demo.py                 # 시나리오 주입 + 알림 문구 확인
+    python db_seed_nearby_demo.py                 # 시나리오만 주입 (알림은 살려 둔다)
+    python db_seed_nearby_demo.py --notify        # 주입 + 폰에 뜰 문구 미리보기 (알림을 소진한다)
     python db_seed_nearby_demo.py --reset         # 실제 상태로 되돌리기 (오늘 기준선만 다시 잡는다)
     python db_seed_nearby_demo.py --store a@b.com # 다른 매장
+
+오늘 하루는 데모 상태가 유지된다 — 시드가 오늘까지 관측을 채워 두어 지도 화면의 백그라운드
+재스캔이 돌지 않고, 스케줄러의 스캔도 하루 한 번 잠금에 걸린다. 내일부터는 실제 스캔이
+돌면서 진짜 상권 상태로 수렴한다.
 
 주의: 여기서 '폐업'으로 표시되는 가게는 실제로는 영업 중인 실제 카페다(데모용 표시일 뿐).
       확인이 끝나면 --reset으로 되돌리는 것을 권한다. 되돌리지 않아도 내일 이후 실제
@@ -133,6 +139,27 @@ def seed(db, store_id: str) -> list[dict]:
     return timeline[-1][1]
 
 
+def _lock_today_scan(db, store_id: str) -> None:
+    """오늘 몫의 스캔을 '이미 돌았다'고 표시한다.
+
+    이게 없으면 오늘 도는 스케줄러가 실제 검색으로 한 번 더 훑으면서, 방금 폐업으로
+    표시한 가게가 검색에 다시 잡혀 시나리오가 그 자리에서 풀린다. 알림 자체는 이 잠금과
+    무관하게 나간다 — 규칙 8은 보낼 목록을 대장의 '아직 안 알린 변화'에서 가져오기 때문이다.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    key = f"cafescan:{date.today().isoformat()}"
+    if db.query(SentNotification).filter(SentNotification.store_id == store_id,
+                                         SentNotification.dedupe_key == key).first():
+        return
+    db.add(SentNotification(store_id=store_id, dedupe_key=key, category="nearby",
+                            title="[내부] 주변 카페 스캔", body=""))
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+
+
 def notify_preview(db, store_id: str, today_snapshot: list[dict]) -> None:
     """알림 규칙 7·8을 실제로 돌려 '폰에 뜰 문구'를 찍는다 (FCM 발송만 가로챈다).
 
@@ -194,7 +221,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="주변 상권 변화 데모 시드")
     parser.add_argument("--store", default=STORE, help="매장 식별자(로그인 이메일)")
     parser.add_argument("--reset", action="store_true", help="데모를 지우고 실제 상태로 되돌린다")
-    parser.add_argument("--no-notify", action="store_true", help="알림 문구 미리보기를 건너뛴다")
+    parser.add_argument("--notify", action="store_true",
+                        help="폰에 뜰 알림 문구를 미리 본다 (그 사건은 소진되어 다시 발송되지 않는다)")
     args = parser.parse_args()
 
     db = SessionLocal()
@@ -203,8 +231,13 @@ def main() -> None:
             reset(db, args.store)
             return
         snapshot = seed(db, args.store)
-        if not args.no_notify:
+        if args.notify:
             notify_preview(db, args.store, snapshot)
+        else:
+            _lock_today_scan(db, args.store)
+            _out("")
+            _out("알림은 아직 보내지 않은 상태로 남겨 뒀습니다 — 스케줄러가 다음에 돌 때 실제로 발송됩니다.")
+            _out("(문구만 먼저 보시려면 --notify)")
     finally:
         db.close()
 
