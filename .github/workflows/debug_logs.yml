@@ -19,10 +19,10 @@ jobs:
           echo "===== 최근 40분 WARNING 이상 ====="
           gcloud logging read \
             'resource.type="cloud_run_revision" AND resource.labels.service_name="brewnote-api" AND severity>=WARNING AND timestamp>="'"$(date -u -d '40 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"'"' \
-            --project "${{ secrets.GCP_PROJECT_ID }}" --limit 80 \
+            --project "simplem-app" --limit 80 \
             --format 'value(timestamp, severity, textPayload, jsonPayload.message)' || true
           echo "===== 시스템 이벤트 (OOM·재시작) ====="
           gcloud logging read \
             'resource.type="cloud_run_revision" AND resource.labels.service_name="brewnote-api" AND logName:"run.googleapis.com" AND timestamp>="'"$(date -u -d '40 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"'"' \
-            --project "${{ secrets.GCP_PROJECT_ID }}" --limit 40 \
+            --project "simplem-app" --limit 40 \
             --format 'value(timestamp, textPayload)' || true
