@@ -14,6 +14,7 @@ import { useTranslation } from '../../i18n/translations';
 import { Card, Divider, ProgressBar, Screen, ScreenTitle, SectionTitle, Badge } from '../../components/ui';
 import { PressableScale } from '../../components/motion'; // [한글 주석: 터치 이벤트가 씹히지 않는 최적화 모션 프레스 컴포넌트 추가]
 import { apiFetch } from '../../lib/api/client';
+import { describeApiFailure, type ApiFailure } from '../../lib/api/errors';
 import { getMenuContribution, type ContributionResult } from '../../lib/api/sales';
 import { toast } from '../../components/toast';
 import { colors, typography } from '../../theme';
@@ -103,7 +104,9 @@ export default function CostScreen() {
   const { t, language } = useTranslation();
   const { token } = useAuth();
   const [menus, setMenus] = useState<MenuRow[] | null>(null);
-  const [failed, setFailed] = useState(false);
+  // 실패 사유를 분류해 들고 있는다 — "로그인과 서버를 확인해 주세요"는 확인할 게
+  // 없는 상황(네트워크 끊김·미배포)에도 떠서 엉뚱한 데를 붙잡게 만든다
+  const [failure, setFailure] = useState<ApiFailure | null>(null);
   // [한글 주석: 사용자가 선택한 조회용 카테고리 필터 상태]
   const [selectedCategory, setSelectedCategory] = useState<string>('전체');
   // [한글 주석: 카테고리 드롭다운 리스트의 노출 여부 상태]
@@ -148,8 +151,17 @@ export default function CostScreen() {
   };
 
   useEffect(() => {
-    if (!token) return;
+    // 토큰이 없으면 조회 자체가 불가능하다 — 그냥 return하면 로딩 스피너가 영원히 돈다
+    if (!token) {
+      setFailure({
+        kind: 'auth',
+        message: '로그인이 만료됐어요. 로그아웃 후 다시 로그인해 주세요.',
+        retryable: true,
+      });
+      return;
+    }
     let cancelled = false;
+    setFailure(null);
     apiFetch<MenuRow[]>('/api/v1/inventory/menus', {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -158,7 +170,7 @@ export default function CostScreen() {
       })
       .catch((e) => {
         console.error('메뉴 원가 조회 실패:', e);
-        if (!cancelled) setFailed(true);
+        if (!cancelled) setFailure(describeApiFailure(e, '원가 정보'));
       });
     // 기여이익은 원가 목록과 독립 — 실패해도 원가율 화면은 그대로 보여야 한다
     getMenuContribution(token, 30)
@@ -389,7 +401,7 @@ export default function CostScreen() {
           </View>
         )}
 
-        {menus === null && !failed && (
+        {menus === null && !failure && (
           <Card>
             <View style={styles.stateWrap}>
               <ActivityIndicator color={colors.mochaBrown} />
@@ -398,13 +410,13 @@ export default function CostScreen() {
           </Card>
         )}
 
-        {failed && (
+        {failure && (
           <Card>
-            <Text style={styles.stateText}>원가 정보를 가져오지 못했어요. 로그인과 서버를 확인해 주세요.</Text>
+            <Text style={styles.stateText}>{failure.message}</Text>
           </Card>
         )}
 
-        {menus !== null && rows.length === 0 && !failed && (
+        {menus !== null && rows.length === 0 && !failure && (
           <Card>
             <Text style={styles.stateText}>등록된 메뉴가 없어요. 메뉴 관리에서 메뉴와 레시피를 등록하면 원가율이 자동 계산됩니다.</Text>
           </Card>
