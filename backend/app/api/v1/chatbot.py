@@ -58,6 +58,7 @@ from app.services.ai import (
     briefing_service,
     cafe_similarity_service,
     chat_quota_service,
+    photo_promo_service,
     document_service,
     forecast_service,
     insight_service,
@@ -1011,8 +1012,6 @@ async def create_marketing_photo_image(
     AI 생성 이미지와 달리 '우리 매장 실물'이 그대로 담긴다. doc_id를 주면
     해당 홍보 문서의 images에 붙는다. 배경 스타일: wood/marble/cozy/studio/season.
     """
-    from app.services.ai import photo_promo_service
-
     content = await file.read()
     if len(content) > MAX_IMAGE_BYTES:
         raise HTTPException(413, "사진이 15MB를 초과합니다")
@@ -1100,6 +1099,10 @@ def synthesize_speech_api(
 # 비어 있으면 그 엔드포인트는 404를 내 외부에 열리지 않는다 — 설정을 깜빡한 채
 # 배포됐을 때 누구나 전체 매장에 푸시를 쏠 수 있는 상태가 되면 안 된다.
 CRON_SECRET = os.getenv("NOTIFICATION_CRON_SECRET", "")
+
+# 사진 합성 배경 예열 — 배포 직후 첫 사용자가 배경 생성(수십 초)을 기다리지 않게
+# 기동 시 백그라운드로 캐시를 채운다 (데몬 스레드, 실패 무해).
+photo_promo_service.warm_backgrounds_async()
 
 
 @router.post("/push/tokens", status_code=204)
