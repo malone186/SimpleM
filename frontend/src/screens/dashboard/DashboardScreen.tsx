@@ -657,13 +657,11 @@ export default function DashboardScreen() {
       <View style={StyleSheet.absoluteFill}>
         <Svg width="100%" height="100%" preserveAspectRatio="none">
           <Defs>
-            {/* [한글 주석: 수직 오로라 그라데이션] 상단은 딥 브라운이나 아래로 갈수록 바디 시트 색상(creamSand)으로 자연스럽게 녹아듭니다 */}
+            {/* [한글 주석: 오로라 딥브라운 그라데이션 범위를 상단 25% 이내로만 제한하여 하단에 갈색 띠가 비치지 않도록 방지] */}
             <LinearGradient id="auroraGrad" x1="0%" y1="0%" x2="0%" y2="100%">
               <Stop offset="0%" stopColor="#1E1612" />
-              <Stop offset="35%" stopColor="#251C17" />
-              <Stop offset="60%" stopColor="#6E5544" stopOpacity="0.35" />
-              {/* 하단 25%는 완전 불투명 크림 — 바운스로 배경이 드러나도 갈색이 비치지 않게 */}
-              <Stop offset="75%" stopColor={colors.creamSand} />
+              <Stop offset="18%" stopColor="#251C17" />
+              <Stop offset="30%" stopColor={colors.creamSand} />
               <Stop offset="100%" stopColor={colors.creamSand} />
             </LinearGradient>
             
@@ -722,7 +720,7 @@ export default function DashboardScreen() {
         <View
           style={[
             styles.body,
-            { paddingBottom: s(72) + bottomInset + s(24) },
+            { paddingBottom: s(20) + bottomInset }, // [한글 주석: 하단 과도한 뻥 뚫린 여백 축소 — 탭 바 및 플로팅 버튼과 밀착되도록 보정]
             // [한글 주석] 폴드를 펼치면 673dp라 카드가 가로로 늘어져 읽기 나쁘다 → 폭을 묶고 가운데 정렬
             isWide && { maxWidth: contentMaxWidth, width: '100%', alignSelf: 'center' },
           ]}

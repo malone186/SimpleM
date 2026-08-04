@@ -278,9 +278,13 @@ export default function ChatbotScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      // [한글 주석] iOS 및 웹에서 탭바와 헤더 오프셋 보정
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 56 + bottomInset : 0}
+      behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}
+      // [한글 주석: 안드로이드/iOS 키보드 호출 시 입력창 아래 들뜸 여백 제거 — 키보드 위 착 밀착]
+      keyboardVerticalOffset={Platform.select({
+        ios: 56 + bottomInset,
+        android: 0,
+        default: 0,
+      })}
     >
       {/* [딥브라운 오로라 배경] 재고/관리 탭과 동일 — 상단 딥브라운에서 하단 크림으로 */}
       <View style={StyleSheet.absoluteFill}>

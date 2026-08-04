@@ -601,10 +601,17 @@ const styles = StyleSheet.create({
     borderColor: colors.mutedSand,
     padding: 12,
     gap: 7,
+    marginBottom: 6, // [한글 주석: 요약 박스 하단 여백 추가로 시각적 답답함 해소]
   },
   highlight: { ...typography.L5, fontSize: 11, fontWeight: '500', color: colors.espressoBrown, lineHeight: 16 },
   highlightDot: { color: colors.pointOrange, fontWeight: '700' },
-  opsLine: { ...typography.L5, color: colors.mochaBrown, textAlign: 'center' },
+  opsLine: {
+    ...typography.L5,
+    color: colors.mochaBrown,
+    textAlign: 'center',
+    marginTop: 6, // [한글 주석: 상단 요소와의 수평 간격 확보]
+    marginBottom: 4, // [한글 주석: 하단 버튼과의 여백 정돈]
+  },
   detailBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -613,6 +620,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.espressoBrown, // [시안 반영] 어두운 딥브라운 알약 버튼
     borderRadius: 999,
     paddingVertical: 11,
+    marginTop: 4, // [한글 주석: 버튼 상단 여백 확보]
   },
   detailBtnText: { ...typography.L5, fontWeight: '800', color: colors.white },
 });
