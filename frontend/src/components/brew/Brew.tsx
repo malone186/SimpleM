@@ -170,14 +170,17 @@ export default function Brew({
   const charSize = size;
 
   // 눈 깜빡임 오버레이 — 같은 박스에 contain으로 얹혀 눈 위치가 정확히 맞는다.
+  // pointerEvents는 Animated.Image가 prop으로 받지 않는다(타입 오류) — 터치를 막는 건
+  // 감싼 View의 역할로 두고, 애니메이션 대상은 이미지만 남긴다.
   const blinkLayer = (dim: number) =>
     blinkSource ? (
-      <Animated.Image
-        source={blinkSource}
-        resizeMode="contain"
-        style={{ position: 'absolute', top: 0, left: 0, width: dim, height: dim, opacity: blink }}
-        pointerEvents="none"
-      />
+      <View style={{ position: 'absolute', top: 0, left: 0 }} pointerEvents="none">
+        <Animated.Image
+          source={blinkSource}
+          resizeMode="contain"
+          style={{ width: dim, height: dim, opacity: blink }}
+        />
+      </View>
     ) : null;
 
   const img = (
