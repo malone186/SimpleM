@@ -71,27 +71,55 @@ function isSpeaking(): boolean {
 // [한글 주석] 1순위 — 서버 TTS (Gemini, 진짜 다른 목소리)
 // ═══════════════════════════════════════════════════
 
-// [한글 주석] AI 목소리 분당 한도(무료 티어 3회) — 서버가 429 + Retry-After로 알려준다.
-// 한도를 넘으면 이 시각까지는 기기 기본 목소리로 읽는다는 뜻이고, 설정 화면이 그
-// 남은 시간을 사장님께 보여준다.
+// ── AI 목소리 분당 한도(무료 티어 3회) ────────────────────────────────────────
+// [한글 주석] 웹이 스스로도 센다. 서버에도 같은 카운터가 있지만, 배포가 늦거나 인스턴스가
+// 여러 개면 서버만 믿었을 때 "3회 넘으면 기본 목소리"라는 약속이 지켜지지 않는다.
+// 여기서 세면 어떤 백엔드에 붙어도 화면 안내대로 동작한다.
 //
-// 한도 중에도 서버는 계속 부른다: 반복되는 알림 문구와 설정 샘플은 서버 디스크 캐시에
-// 있어서 구글을 부르지 않고 200으로 나오고, 그건 한도와 무관하게 AI 목소리로 들려드릴
-// 수 있다. 미리 끊어버리면 공짜로 쓸 수 있는 캐시까지 기기 목소리로 떨어진다.
-let _serverBlockedUntil = 0; // epoch ms
+// 무엇을 세는가: 실제로 구글을 부른 합성만 센다(응답의 X-Tts-Cache가 hit이 아닌 것).
+// 서버 캐시에 있는 문장은 쿼터를 안 쓰므로, 한 번이라도 hit으로 확인된 문장은 한도가
+// 차 있어도 계속 AI 목소리로 들려드린다 (설정 샘플·반복되는 알림 문구가 여기 해당).
+const AI_VOICE_RPM = 3;
+const AI_VOICE_WINDOW_MS = 60_000;
+
+let _serverBlockedUntil = 0;        // 서버가 429 + Retry-After로 알려준 대기 종료 시각
+const _aiCalls: number[] = [];      // 최근 60초 안에 실제로 합성한 시각들
+const _cachedKeys = new Set<string>(); // 서버 캐시에 있다고 확인된 (목소리|문장)
+
+function _cacheKey(voiceType: string, text: string): string {
+  return `${voiceType}|${text}`;
+}
+
+/** 최근 60초 안에 실제로 합성한 횟수 */
+function _recentAiCalls(): number {
+  const cutoff = Date.now() - AI_VOICE_WINDOW_MS;
+  while (_aiCalls.length && _aiCalls[0] < cutoff) _aiCalls.shift();
+  return _aiCalls.length;
+}
 
 /** 웹은 서버 TTS(Gemini)가 1순위 — 즉 AI 목소리를 실제로 쓴다 */
 function usesAiVoice(): boolean {
   return true;
 }
 
-/** AI 목소리를 지금 쓸 수 있는지 / 아니면 몇 초 뒤에 풀리는지 (설정 화면 안내용) */
+/** AI 목소리가 쉬고 있는 남은 초 (0이면 지금 AI 목소리로 나간다) — 설정 화면 안내용 */
 function aiVoiceCooldownSec(): number {
-  return Math.max(0, Math.ceil((_serverBlockedUntil - Date.now()) / 1000));
+  const byServer = Math.max(0, Math.ceil((_serverBlockedUntil - Date.now()) / 1000));
+  const byCount =
+    _recentAiCalls() >= AI_VOICE_RPM
+      ? Math.max(0, Math.ceil((_aiCalls[0] + AI_VOICE_WINDOW_MS - Date.now()) / 1000))
+      : 0;
+  return Math.max(byServer, byCount);
 }
 
 async function _speakViaServer(text: string, voiceType: string, speed: number): Promise<void> {
   if (!_authToken) throw new Error('로그인 토큰 없음 — 로컬 TTS로 폴백');
+
+  // 한도가 찼으면 기기 기본 목소리로. 단 서버 캐시에 있는 문장은 쿼터를 안 쓰니 예외.
+  const key = _cacheKey(voiceType, text);
+  if (aiVoiceCooldownSec() > 0 && !_cachedKeys.has(key)) {
+    throw new Error('AI 음성 분당 한도 — 기기 기본 목소리로 읽습니다');
+  }
 
   const res = await fetch(`${API_BASE_URL}/api/v1/chatbot/tts`, {
     method: 'POST',
@@ -102,15 +130,21 @@ async function _speakViaServer(text: string, voiceType: string, speed: number): 
     body: JSON.stringify({ text, voice_type: voiceType }),
   });
   if (res.status === 429) {
-    // 분당 한도 초과 — 실패가 아니라 '이번엔 기기 목소리로 읽어라'는 신호다
+    // 서버가 먼저 막은 경우 — 실패가 아니라 '이번엔 기기 목소리로 읽어라'는 신호다
     const wait = Math.min(Number(res.headers.get('Retry-After')) || 60, 60);
     _serverBlockedUntil = Date.now() + wait * 1000;
+    _cachedKeys.delete(key); // 캐시인 줄 알았는데 아니었다는 뜻
     throw new Error(`AI 음성 분당 한도 — ${wait}초 뒤 복귀`);
   }
   if (!res.ok) throw new Error(`서버 TTS ${res.status}`);
-  // 캐시 응답(hit)은 구글을 부르지 않은 것이라 한도가 풀렸다는 증거가 못 된다.
-  // 새로 합성된 응답(miss)이 왔을 때만 대기 표시를 푼다.
-  if (res.headers.get('X-Tts-Cache') !== 'hit') _serverBlockedUntil = 0;
+  // 캐시 응답(hit)은 구글을 안 부른 것 — 한도에 세지 않고, 다음에도 그냥 쓴다.
+  // 새로 합성된 응답(miss)만 한도에 넣는다. (헤더를 못 읽는 구버전 서버는 miss로 간주)
+  if (res.headers.get('X-Tts-Cache') === 'hit') {
+    _cachedKeys.add(key);
+  } else {
+    _aiCalls.push(Date.now());
+    _serverBlockedUntil = 0; // 합성이 됐다는 건 서버 쪽 대기도 풀렸다는 뜻
+  }
   const blob = await res.blob();
 
   const url = URL.createObjectURL(blob);
