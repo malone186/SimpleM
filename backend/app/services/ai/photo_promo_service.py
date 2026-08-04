@@ -306,5 +306,31 @@ def compose_from_photo(store_id: str, photo_bytes: bytes, style: str = "wood",
 
 
 def warm_backgrounds_async() -> None:
-    """(호환용 no-op) 배경이 서버 내장 자산으로 바뀌어 예열이 필요 없다."""
-    return
+    """기동 시 누끼 모델(onnx 세션)을 백그라운드로 미리 초기화한다.
+
+    배경은 내장 자산이라 예열이 필요 없지만, rembg 세션 생성+첫 추론이 새 인스턴스
+    에서 수십 초(실측: 배포 직후 첫 합성 98초)를 잡아먹는다. 부팅 때 작은 더미
+    이미지로 한 번 돌려두면 첫 사용자부터 수 초 합성을 본다.
+    PHOTO_BG_WARM=0 으로 끌 수 있다(테스트·오프라인 환경).
+    """
+    import os
+    import threading
+
+    if os.getenv("PHOTO_BG_WARM", "1") == "0":
+        return
+
+    def _run() -> None:
+        try:
+            from PIL import Image, ImageDraw
+
+            img = Image.new("RGB", (96, 96), (240, 240, 238))
+            d = ImageDraw.Draw(img)
+            d.ellipse([24, 24, 72, 72], fill=(110, 66, 36))
+            buf = io.BytesIO()
+            img.save(buf, "JPEG")
+            _cutout(buf.getvalue())  # 세션 생성 + 첫 추론까지 완료
+            logger.info("[사진 합성] 누끼 모델 예열 완료")
+        except Exception:
+            logger.debug("[사진 합성] 모델 예열 실패(무해)", exc_info=True)
+
+    threading.Thread(target=_run, daemon=True, name="rembg-warm").start()
