@@ -12,15 +12,18 @@ name: Deploy Backend to Cloud Run
 on:
   push:
     branches: [main]
+    # 테스트·로컬 도구만 바뀐 커밋은 배포하지 않는다 — 배포 전환 순간마다 잠깐의
+    # 502 창이 생기는데, 커밋이 잦은 날 사용자가 계속 그 창에 걸렸다.
+    #
+    # 제외는 paths-ignore 가 아니라 여기 '!' 로 적어야 한다. 한 이벤트에 paths 와
+    # paths-ignore 를 같이 두면 GitHub 이 파일을 아예 못 읽어 배포가 통째로 멈춘다.
+    # 뒤에 오는 규칙이 앞을 덮으므로 제외는 반드시 backend/** 아래에 온다.
     paths:
       - "backend/**"
       - ".github/workflows/deploy_backend.yml"
-    # 테스트·로컬 도구만 바뀐 커밋은 배포하지 않는다 — 배포 전환 순간마다 잠깐의
-    # 502 창이 생기는데, 오늘처럼 커밋이 잦은 날 사용자가 계속 그 창에 걸렸다.
-    paths-ignore:
-      - "backend/tests/**"
-      - "backend/pytest.ini"
-      - "backend/scripts/**"
+      - "!backend/tests/**"
+      - "!backend/pytest.ini"
+      - "!backend/scripts/**"
   workflow_dispatch: {} # Actions 탭에서 수동 실행도 가능
 
 # 같은 브랜치의 배포가 겹치면 이전 실행을 취소해 리비전 경쟁을 막는다
