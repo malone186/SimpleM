@@ -112,7 +112,11 @@ const erpHeader = (title: string, navigation: any) =>
         default: undefined,
       }),
     },
-    headerStatusBarHeight: 35, // 아이폰 노치 안전 높이
+    // [한글 주석] 예전에는 35를 박아 뒀는데 기기마다 상태바 높이가 제각각이다
+    // (아이폰 다이나믹 아일랜드 59pt, 갤럭시 펀치홀 24~40dp, 플립 커버 화면은 거의 0).
+    // 값을 주지 않으면 React Navigation 이 실제 SafeArea inset 을 그대로 쓴다 → 네이티브는 자동에 맡긴다.
+    // 웹 미리보기는 진짜 inset 이 0이라 목업 노치에 제목이 가리므로 그때만 고정값을 유지한다.
+    headerStatusBarHeight: Platform.OS === 'web' ? 35 : undefined,
     headerBackVisible: false, // 네이티브 백버튼 비활성화
     headerLeftContainerStyle: { paddingLeft: 10 },
     headerTitleContainerStyle: { marginLeft: 4 }, // [한글 주석: 화살표와 제목이 어색하게 붙지 않게 4px 여백 확보]

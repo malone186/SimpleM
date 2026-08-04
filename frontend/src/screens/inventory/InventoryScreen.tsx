@@ -24,6 +24,7 @@ import { API_BASE_URL } from '../../lib/api/client';
 import { adjustStock, createIngredient, listStocks, StockItem } from '../../lib/api/inventory';
 import { confirmOcrDocument, listOcrDocuments, rejectOcrDocument, uploadOcrImage, OcrDocument, updateOcrDocument, OcrItem, type UploadAsset } from '../../lib/api/ocr';
 import { colors, typography } from '../../theme';
+import { s, useBottomInset, useResponsive, useTopInset } from '../../theme/responsive';
 
 const TARGET_LABEL: Record<string, string> = {
   inventory_inbound: '재고 입고',
@@ -33,12 +34,8 @@ const TARGET_LABEL: Record<string, string> = {
 
 const notify = (title: string, message: string) => toast(title, message);
 
-// 상단 브라운 헤더의 상태바 여백 (관리 탭과 동일 계산 — 세 탭 헤더 높이·글씨 가림 통일)
-const TOP_INSET = Platform.select({
-  android: (StatusBar.currentHeight ?? 24) + 4,
-  ios: 56,
-  default: 44, // 웹(디바이스 프레임)
-}) as number;
+// [한글 주석] 상단 상태바 여백은 useTopInset() 훅이 기기 실측값으로 계산한다.
+// 예전 고정값(ios: 56)은 노치 없는 SE에서 과했고 다이나믹 아일랜드(59pt)에서는 모자랐다.
 
 // [한글 주석] 재고 카테고리 정의
 const CATEGORIES = [
@@ -67,6 +64,10 @@ export default function InventoryScreen() {
   const { t, language } = useTranslation();
   const { token } = useAuth();
   const navigation = useNavigation<any>();
+  // [한글 주석] 기기 상태바 높이 실측 + 화면 급수 판정 (플립 커버 화면에서는 마스코트를 줄인다)
+  const topInset = useTopInset();
+  const bottomInset = useBottomInset();
+  const { isCompact, isXS, isWide, contentMaxWidth } = useResponsive();
   const [stocks, setStocks] = useState<StockItem[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all'); // [한글 주석] 카테고리 필터 상태
   const [drafts, setDrafts] = useState<OcrDocument[]>([]);
@@ -491,7 +492,8 @@ export default function InventoryScreen() {
       >
         {/* 브라운 헤더 — 스크롤 시 패럴럭스(천천히 위로) + 페이드 */}
         <Animated.View style={{ transform: [{ translateY: headerTranslate }], opacity: headerOpacity }}>
-          <View style={styles.brownHeader}>
+          {/* [한글 주석] 상태바 여백은 기기 실측 inset — 노치·펀치홀·플립 커버 화면 모두 대응 */}
+          <View style={[styles.brownHeader, { paddingTop: topInset }]}>
             <View style={styles.brownHeaderLeft}>
               <View>
                 <Text style={styles.brownHeaderTitle}>{t('inventoryTitle')}</Text>
@@ -501,13 +503,22 @@ export default function InventoryScreen() {
             <View style={styles.brownHeaderRight}>
               {/* welcome 일러스트는 clipboard(317)보다 프레임 여백이 커(380) 작아 보인다 —
                   캐릭터 크기를 관리 탭과 맞추려고 프레임 비율(380/317)만큼 키운다 */}
-              <Brew mood="serving" size={144} />
+              {/* [한글 주석] 좁은 화면에서는 마스코트가 제목을 밀어내므로 단계적으로 줄인다 */}
+              <Brew mood="serving" size={isXS ? 84 : isCompact ? 112 : s(144)} />
             </View>
           </View>
         </Animated.View>
 
         {/* 둥근 크림 시트 — 콘텐츠가 위로 올라오며 헤더를 덮는다 */}
-        <View style={styles.brownSheet}>
+        {/* [한글 주석] 하단 탭 바 + 제스처 바 실측 여백 — 마지막 카드가 잘리지 않게 */}
+        <View
+          style={[
+            styles.brownSheet,
+            { paddingBottom: s(72) + bottomInset + s(24) },
+            // [한글 주석] 폴드 펼침에서 카드가 가로로 늘어지지 않게 폭 제한 + 가운데 정렬
+            isWide && { maxWidth: contentMaxWidth, width: '100%', alignSelf: 'center' },
+          ]}
+        >
           {/* [한글 주석: 상단 관리 & 입고 연관 카드 그룹 — 8px 밀착 간격으로 유기적 배치] */}
           <View style={{ gap: 8 }}>
             {/* 메뉴·레시피 관리 진입 */}
@@ -1000,7 +1011,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'stretch',
     justifyContent: 'space-between',
-    paddingTop: TOP_INSET,
     paddingBottom: 12,
     paddingHorizontal: 18,
     gap: 10,

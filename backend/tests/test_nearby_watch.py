@@ -246,6 +246,36 @@ def test_push_goes_out_even_if_map_screen_scanned_first(db, naver, sent):
     assert "새로 생겼어요" in titles and "문을 닫은 것 같아요" in titles
 
 
+def test_multiple_nearby_pushes_have_distinct_tags(db, naver, monkeypatch, sent):
+    """한 번에 나가는 주변 소식 3건은 서로 다른 tag여야 한다.
+
+    안드로이드는 같은 tag의 알림을 최신 것으로 덮어쓴다. 셋 다 category='nearby'라
+    tag를 category로 두면 폰에는 마지막 하나만 남는다 — 실제로 그렇게 겪었다.
+    """
+    settings = _settings(db)
+    naver["cafes"] = BASE
+    nws.scan_cafe_changes(db, STORE, LAT, LON, today=DAY1)
+    naver["cafes"] = BASE[:-1] + [_cafe("새로생긴카페", 150)]
+    nws.scan_cafe_changes(db, STORE, LAT, LON, today=DAY2)
+    nws.scan_cafe_changes(db, STORE, LAT, LON, today=DAY3)
+    nws.scan_cafe_changes(db, STORE, LAT, LON, today=DAY4)
+
+    event = {"name": "한강 여름축제", "place": "한강공원", "source": "네이버 검색",
+             "start_date": "2026-08-05", "end_date": "2026-08-07", "dates": [],
+             "day_count": 3, "distance_km": 1.2, "lat": LAT, "lon": LON,
+             "boost_pct": 12, "d_day": 1, "ongoing": False}
+    monkeypatch.setattr(nws, "pick_alert_events", lambda lat, lon, horizon_days=7: [event])
+    monkeypatch.setattr(nws, "plan_for_store", lambda db_, sid, ev: None)
+
+    now = datetime(2026, 8, 4, 11, 0, tzinfo=KST)
+    ns.check_nearby_event(db, STORE, settings, now)
+    ns.check_nearby_cafe(db, STORE, settings, now)
+
+    assert len(sent) == 3
+    tags = [m["data"].get("tag") for m in sent]
+    assert len(set(tags)) == 3, f"같은 tag가 섞여 폰에서 덮인다: {tags}"
+
+
 def test_nearby_alert_off_sends_nothing(db, naver, sent):
     settings = _settings(db)
     settings.nearby_alert = False

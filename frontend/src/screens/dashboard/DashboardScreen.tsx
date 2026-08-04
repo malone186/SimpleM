@@ -19,6 +19,7 @@ import { listCompliance } from '../../lib/api/documents';
 import { listStocks } from '../../lib/api/inventory';
 import { createTodo, deleteTodo, getAiTodoSuggestions, listTodos, updateTodo, type AiSuggestedTodo } from '../../lib/api/todo';
 import { colors, spacing, typography, shadows } from '../../theme';
+import { s, useBottomInset, useResponsive } from '../../theme/responsive';
 
 // [한글 주석: 삭제 처리된 투두 항목 ID 저장 키 (AsyncStorage 영구 보관)]
 const DISMISSED_TODOS_KEY = '@simplem_dismissed_todos';
@@ -31,8 +32,10 @@ function sendStockPushNotification(item: { name: string; current_quantity: numbe
 
   const triggerNotif = () => {
     const soldOut = item.current_quantity <= 0;
-    const title = soldOut ? `🚨 [브루노트] ${item.name} 재고 소진!` : `⚠️ [브루노트] ${item.name} 재고 부족 알림`;
-    const body = `잔여: ${item.current_quantity}${item.unit} (안전재고: ${item.safety_quantity}${item.unit})\n자동 생성된 투두에서 바로 발주할 수 있습니다 ☕`;
+    // 투두와 같은 쉬운 말로 — '재고 소진'·'안전재고' 같은 용어는 쓰지 않는다
+    const title = soldOut ? `🚨 ${item.name} 다 떨어졌어요` : `⚠️ ${item.name} 얼마 안 남았어요`;
+    const need = item.safety_quantity > 0 ? item.safety_quantity : 3;
+    const body = `${item.current_quantity}${item.unit} 남음 · 최소 ${need}${item.unit} 필요\n홈 할 일에서 바로 발주할 수 있어요 ☕`;
 
     try {
       new window.Notification(title, {
@@ -57,6 +60,10 @@ function sendStockPushNotification(item: { name: string; current_quantity: numbe
 }
 
 export default function DashboardScreen() {
+  // [한글 주석] 하단 제스처 바 실측 높이 — 마지막 카드가 시스템 바에 물리지 않게
+  const bottomInset = useBottomInset();
+  // [한글 주석] 폴드 펼침·태블릿 판정 — 본문 폭 제한에 쓴다
+  const { isWide, contentMaxWidth } = useResponsive();
   const [todos, setTodos] = useState<Todo[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [runId, setRunId] = useState(0);
@@ -134,10 +141,10 @@ export default function DashboardScreen() {
         getAiTodoSuggestions(token),
       ]);
 
-      // [브루 제안] LLM이 재고·판매 데이터로 만든 '실행형 문장' 투두 —
-      // "재고 부족" 대신 "원두가 2kg 남았어요 — 오늘 발주하세요"로, 그리고
-      // 홍보 가치 있는 메뉴 1개를 골라 '홍보하러 가기' 링크가 붙는 promo 항목을 준다.
-      // id는 stock-<재료id>/promo-<메뉴> 로 안정적이라 숨김(X)·완료 기록이 유지된다.
+      // [브루 제안] 재고·판매 데이터로 만든 투두 — 제목은 "에티오피아 원두 발주"처럼
+      // 짧은 라벨로, 숫자 근거("다 떨어짐 · 최소 5kg 필요")는 meta 줄로 나뉘어 온다.
+      // 여기에 '홍보할 메뉴 고르기' 링크가 붙는 promo 항목이 하나 따라온다.
+      // id는 stock-<재료id>/promo-main 으로 안정적이라 숨김(X)·완료 기록이 유지된다.
       const aiSuggested: AiSuggestedTodo[] =
         aiSuggestResult.status === 'fulfilled' ? aiSuggestResult.value.todos : [];
       const aiStockIds = new Set(
@@ -150,6 +157,9 @@ export default function DashboardScreen() {
           id: s.id_hint,
           title: s.title,
           subtitle: s.subtitle,
+          // 재고 항목만 근거 줄을 붙인다 — 홍보 항목은 아래에 '메뉴 고르기' 링크가 있어 중복
+          meta: s.kind === 'stock' ? s.subtitle : undefined,
+          urgentLabel: s.urgent ? '없음' : undefined,
           actionable: s.kind === 'stock',
           done: completedSet.has(s.id_hint),
           source: 'ai',
@@ -179,16 +189,21 @@ export default function DashboardScreen() {
           .slice(0, 4)
           .forEach((s) => {
             const stockId = `stock-${s.ingredient_id}`;
-            // 브루 제안이 이미 실행형 문장으로 만든 재료는 중복으로 넣지 않는다
+            // 브루 제안에 이미 들어간 재료는 중복으로 넣지 않는다
             if (aiStockIds.has(stockId)) return;
             if (!dismissedSet.has(stockId)) {
               const soldOut = s.current_quantity <= 0;
+              // 브루 제안과 같은 형식·같은 쉬운 말로 ('안전재고' 같은 용어는 쓰지 않는다)
+              const need = `최소 ${s.safety_quantity > 0 ? s.safety_quantity : 3}${s.unit} 필요`;
+              const meta = soldOut
+                ? `다 떨어짐 · ${need}`
+                : `${s.current_quantity}${s.unit} 남음 · ${need}`;
               next.push({
                 id: stockId,
-                title: soldOut ? `${s.name} 재고 소진` : `${s.name} 재고 부족`,
-                subtitle: s.safety_quantity > 0
-                  ? `잔여 ${s.current_quantity}${s.unit} · 안전재고 ${s.safety_quantity}${s.unit}`
-                  : `잔여 ${s.current_quantity}${s.unit} · 기준 3${s.unit} 미만`,
+                title: `${s.name} 발주`,
+                subtitle: meta,
+                meta,
+                urgentLabel: soldOut ? '없음' : undefined,
                 actionable: true,
                 done: completedSet.has(stockId), // [한글 주석] 기존 완료 기록이 있으면 체크 상태 유지
                 source: 'ai',
@@ -207,13 +222,16 @@ export default function DashboardScreen() {
           .forEach((c) => {
             const compId = `comp-${c.id}`;
             if (!dismissedSet.has(compId)) {
+              const expired = c.status === 'expired';
+              const compMeta = expired
+                ? `기한 지남 · ${c.expiry_date}까지였어요`
+                : `${c.days_left}일 남음 · ${c.expiry_date}까지`;
               next.push({
                 id: compId,
-                title: c.status === 'expired' ? `${c.name} 만료됨` : `${c.name} 갱신 임박`,
-                subtitle:
-                  c.status === 'expired'
-                    ? `만료일 ${c.expiry_date} 경과 — 챗봇에서 갱신 안내 확인`
-                    : `D-${c.days_left} · 만료일 ${c.expiry_date}`,
+                title: expired ? `${c.name} 갱신` : `${c.name} 갱신 준비`,
+                subtitle: compMeta,
+                meta: compMeta,
+                urgentLabel: expired ? '지남' : undefined,
                 actionable: false,
                 done: completedSet.has(compId), // [한글 주석] 기존 완료 기록이 있으면 체크 상태 유지
                 source: 'ai',
@@ -437,7 +455,7 @@ export default function DashboardScreen() {
       {/* [한글 주석: UI 카드 아래로 텅 빈 여백이 무한정 스크롤되어 내려가는 현상을 막기 위해 오버스크롤 제한 지정] */}
       <Animated.ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: bottomInset + s(16) }]}
         showsVerticalScrollIndicator={false}
         bounces={false}
         overScrollMode="never"
@@ -469,7 +487,16 @@ export default function DashboardScreen() {
           [한글 주석: 대형 모서리 라운딩 바디 카드시트]
           배경 오로라와 툭 끊김 없이 자연스럽게 감싸안는 화이트-그레이 베이지 시트를 얹었습니다.
         */}
-        <View style={styles.body}>
+        {/* [한글 주석] 하단 여백 = 탭 바(≈72) + 기기 제스처 바 실측값.
+            예전 고정 150은 홈 인디케이터 없는 기기에서 과했고, 큰 제스처 바에서는 모자랐다 */}
+        <View
+          style={[
+            styles.body,
+            { paddingBottom: s(72) + bottomInset + s(24) },
+            // [한글 주석] 폴드를 펼치면 673dp라 카드가 가로로 늘어져 읽기 나쁘다 → 폭을 묶고 가운데 정렬
+            isWide && { maxWidth: contentMaxWidth, width: '100%', alignSelf: 'center' },
+          ]}
+        >
           <FadeInUp key={`sales-${runId}`} delay={80}>
             <SalesCard
               key={`salescard-${runId}`}
@@ -510,11 +537,11 @@ const styles = StyleSheet.create({
   content: { paddingBottom: 16 }, // [한글 주석: 하단 과도한 여백 제거 — 콤팩트한 16px 패딩으로 밀착]
   body: {
     backgroundColor: colors.creamSand,
-    borderTopLeftRadius: 36,
-    borderTopRightRadius: 36,
+    borderTopLeftRadius: s(36),
+    borderTopRightRadius: s(36),
     paddingHorizontal: spacing.globalPadding,
     paddingTop: spacing.verticalGap,
-    paddingBottom: 150,
+    // [한글 주석] paddingBottom 은 Dashboard 안에서 하단 탭 바 + 제스처 바 실측값으로 덮어쓴다
     gap: spacing.verticalGap,
   },
 });

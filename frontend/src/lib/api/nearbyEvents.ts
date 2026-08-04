@@ -7,6 +7,8 @@ import { apiFetch } from './client';
 
 export type NearbyEventItem = {
   name: string;
+  /** 주최기관 — 이름 앞의 "[마포구립서강도서관]" 같은 대괄호를 서버가 떼어 따로 준다 */
+  host?: string;
   place: string;
   source: string; // "한국관광공사 TourAPI" / "서울 열린데이터광장" / "네이버 검색"
   start_date: string; // YYYY-MM-DD (조회 기간 안에서의 시작일)

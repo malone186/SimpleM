@@ -21,6 +21,7 @@ import { WebView } from 'react-native-webview';
 import { API_BASE_URL } from '../../lib/api/client';
 import { NAVER_CLIENT_ID, NAVER_MAP_ERROR, loadNaverMaps } from '../../lib/naverMap';
 import { colors, shadows, typography } from '../../theme';
+import { useResponsive } from '../../theme/responsive';
 
 type Picked = { lat: number; lon: number; address?: string };
 
@@ -37,6 +38,8 @@ export default function StoreLocationPicker({
   onClose: () => void;
   onConfirm: (picked: Picked) => void;
 }) {
+  // [한글 주석] 뷰포트 비례 계산 — 가로모드·작은 기기에서 지도 높이를 줄인다
+  const { vh } = useResponsive();
   const [picked, setPicked] = useState<Picked | null>(initial ?? null);
   const [query, setQuery] = useState('');
   const [notice, setNotice] = useState('');
@@ -173,7 +176,8 @@ export default function StoreLocationPicker({
             </TouchableOpacity>
           </View>
 
-          <View style={styles.mapBox}>
+          {/* [한글 주석] 지도 높이는 뷰포트 비례 — 세로 짧은 기기에서 아래 버튼이 밀리지 않게 */}
+          <View style={[styles.mapBox, { height: Math.min(vh(38), 300) }]}>
             {Platform.OS === 'web' ? (
               <View id="store-location-picker-map" style={{ width: '100%', height: '100%' }} />
             ) : (
@@ -264,7 +268,7 @@ const styles = StyleSheet.create({
   },
   searchBtnText: { ...typography.L5, color: colors.white, fontWeight: '800' },
   mapBox: {
-    height: 300,
+    // [한글 주석] 높이는 컴포넌트에서 뷰포트 비례로 덮어쓴다 (고정 300 은 가로모드에서 버튼을 밀어냈다)
     borderRadius: 14,
     overflow: 'hidden',
     marginTop: 12,

@@ -8,6 +8,7 @@ import Svg, { Circle, Defs, FeGaussianBlur, Filter, LinearGradient, Path, Stop }
 
 import { FadeInUp, PressableScale } from '../../components/motion';
 import { colors } from '../../theme';
+import { s, useBottomInset, useResponsive, useTopInset } from '../../theme/responsive';
 import { useTranslation } from '../../i18n/translations';
 import { useAuth } from '../../auth/AuthContext';
 import Brew from '../../components/brew/Brew';
@@ -45,12 +46,7 @@ const LAYOUT = [
 const CARD_H = 132; // 카드 높이 (스크롤이 있으므로 넉넉하게)
 const GAP = -14; // 음수 간격 — 뒤 카드가 앞 카드 위로 살짝 올라타는 스택 느낌 (zIndex로 아래 카드가 위에 쌓인다)
 
-// 상태바(시계·카메라 노치)에 가리지 않을 만큼만 띄운다.
-const TOP_INSET = Platform.select({
-  android: (StatusBar.currentHeight ?? 24) + 4,
-  ios: 56,
-  default: 44, // 웹(디바이스 프레임)
-}) as number;
+// [한글 주석] 상태바 여백은 useTopInset() 훅이 기기 실측값으로 계산한다 (고정값은 기기마다 어긋났다).
 
 // 배경색 밝기로 텍스트 명암 결정
 const isDark = (hex: string) => {
@@ -88,6 +84,10 @@ export default function ManagementScreen() {
   const { t, language } = useTranslation();
   const navigation = useNavigation<any>();
   const { user } = useAuth();
+  // [한글 주석] 노치/펀치홀 실측 여백 + 화면 급수 (좁은 기기에서 마스코트 축소)
+  const topInset = useTopInset();
+  const bottomInset = useBottomInset();
+  const { isCompact, isXS, isWide, contentMaxWidth } = useResponsive();
 
   // [한글 주석] 직원 계정에는 단골 화면만 보여준다.
   // 실제 차단은 서버가 하지만(require_owner), 눌러서 403을 만나는 것보다
@@ -150,7 +150,7 @@ export default function ManagementScreen() {
       </View>
 
       {/* 헤더 — ScrollView 밖에 있어 카드가 흘러도 제자리에 고정된다 */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: topInset }]}>
         {/* 제목 — 다른 탭(재고·챗봇)들과 동일하게 세로축 중앙 정렬 */}
         <View style={styles.headerLeft}>
           <FadeInUp key={`title-${runId}`}>
@@ -172,7 +172,8 @@ export default function ManagementScreen() {
             <Ionicons name="settings-outline" size={15} color={colors.creamSand} />
             <Text style={styles.gearText}>{t('settings')}</Text>
           </PressableScale>
-          <Brew mood="clipboard" size={120} />
+          {/* [한글 주석] 좁은 화면에서는 마스코트가 제목 자리를 뺏는다 — 단계적으로 축소 */}
+          <Brew mood="clipboard" size={isXS ? 72 : isCompact ? 96 : s(120)} />
         </View>
       </View>
 
@@ -180,7 +181,13 @@ export default function ManagementScreen() {
       <View style={styles.body}>
         <Animated.ScrollView
           style={styles.scroll}
-          contentContainerStyle={styles.deck}
+          // [한글 주석] 하단 탭 바 + 제스처 바 실측 여백을 더해 마지막 카드가 가리지 않게 한다
+          contentContainerStyle={[
+            styles.deck,
+            { paddingBottom: s(72) + bottomInset + s(24) },
+            // [한글 주석] 폴드 펼침에서 카드가 가로로 늘어지지 않게 폭 제한 + 가운데 정렬
+            isWide && { maxWidth: contentMaxWidth, width: '100%', alignSelf: 'center' },
+          ]}
           showsVerticalScrollIndicator={false}
           onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
             useNativeDriver: true,
@@ -287,7 +294,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'stretch',
     justifyContent: 'space-between',
-    paddingTop: TOP_INSET,
     paddingBottom: 12,
     paddingHorizontal: 18,
     gap: 10,

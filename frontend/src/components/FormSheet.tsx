@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 
 import { colors, spacing, typography } from '../theme';
+import { useBottomInset } from '../theme/responsive';
 import { PressableScale } from './motion';
 
 export default function FormSheet({
@@ -39,6 +40,8 @@ export default function FormSheet({
   // 그래서 항목이 많은 폼(직원 추가)은 시트가 화면 위로 넘쳐 잘린 채 스크롤도 안 됐다.
   const { height: windowHeight } = useWindowDimensions();
   const sheetMaxHeight = Math.round(windowHeight * 0.85);
+  // [한글 주석] 아이폰 홈 인디케이터·갤럭시 제스처 바에 마지막 버튼이 물리지 않게 실측 여백을 더한다
+  const bottomInset = useBottomInset();
 
   useEffect(() => {
     if (visible) {
@@ -59,7 +62,7 @@ export default function FormSheet({
         </Animated.View>
 
         <Animated.View style={[styles.sheetWrap, { transform: [{ translateY }] }]}>
-          <View style={[styles.sheet, { maxHeight: sheetMaxHeight }]}>
+          <View style={[styles.sheet, { maxHeight: sheetMaxHeight, paddingBottom: 24 + bottomInset }]}>
             <View style={styles.handle} />
             <Text style={styles.title}>{title}</Text>
             {/* 항목이 많은 폼(직원 추가)은 스크롤이 필요하다. 스크롤바까지 숨기면

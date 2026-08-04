@@ -193,8 +193,13 @@ def _send_one(access_token: str, project_id: str, token: str, title: str, body: 
             "notification": {
                 "channel_id": CHANNEL_URGENT if urgent else CHANNEL_DEFAULT,
                 "sound": "default",
-                # 같은 종류 알림이 여러 개 쌓이지 않고 최신 것으로 덮이게 한다
-                "tag": data.get("category", "general"),
+                # 같은 알림이 여러 개 쌓이지 않고 최신 것으로 덮이게 한다.
+                #
+                # 기본값을 category로 두면 한 번에 여러 건을 보내는 규칙에서 사고가 난다 —
+                # 실제로 주변 소식 3건(행사·개업·폐업)을 연달아 보냈더니 안드로이드가
+                # 같은 tag로 보고 앞의 둘을 덮어써, 폰에는 마지막 하나만 남았다.
+                # 서로 다른 사건이면 호출자가 data["tag"]로 구분값을 준다.
+                "tag": data.get("tag") or data.get("category", "general"),
             },
         },
     }

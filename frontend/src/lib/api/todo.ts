@@ -57,12 +57,14 @@ export async function deleteTodo(token: string, id: number): Promise<void> {
   });
 }
 
-// ── 브루의 오늘 할 일 제안 (LLM 실행형 문장 + 홍보 추천 메뉴) ──
+// ── 브루의 오늘 할 일 제안 (재고 발주 + 홍보 추천) ──
+// 제목은 훑어보기 좋게 짧은 라벨, 숫자 근거는 subtitle(회색 보조줄)로 나뉘어 온다.
 export type AiSuggestedTodo = {
-  id_hint: string;            // stock-<재료id> | promo-<메뉴명> — 숨김/완료 기록의 키
-  title: string;              // "원두가 2kg 남았어요 — 오늘 발주하세요"
-  subtitle: string;           // 근거 한 줄
+  id_hint: string;            // stock-<재료id> | promo-main — 숨김/완료 기록의 키
+  title: string;              // "에티오피아 원두 발주"
+  subtitle: string;           // "다 떨어짐 · 최소 5kg 필요"
   kind: 'stock' | 'promo';
+  urgent?: boolean;           // 재료가 0 — 앱에서 빨간 '없음' 배지
   menu?: string | null;       // promo일 때 홍보할 메뉴명
 };
 

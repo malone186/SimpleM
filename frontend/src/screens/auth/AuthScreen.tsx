@@ -25,6 +25,7 @@ import { FadeInUp, PressableScale } from '../../components/motion';
 import { IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
 import { colors, spacing, typography } from '../../theme';
+import { s, useBottomInset, useResponsive, useTopInset } from '../../theme/responsive';
 
 const LOGO = require('../../../assets/brewnote_welcome_mascot.png'); // [한글 주석] 로그인/로그아웃 화면 로고 — 사장님 요청 귀여운 BREWNOTE 강아지 마스코트
 
@@ -163,6 +164,10 @@ function ShiftTimePicker({
 }
 
 export default function AuthScreen() {
+  // [한글 주석] 헤더 없는 전체 화면 — 노치·제스처 바 여백과 기기 급수를 직접 계산한다
+  const topInset = useTopInset();
+  const bottomInset = useBottomInset();
+  const { gutter, isWide, vw, vh } = useResponsive();
   const {
     login, signup, loginWithGoogle,
     firebaseAuthEnabled, sendResetEmail,   // 팀원: 비밀번호 재설정 메일
@@ -725,7 +730,17 @@ export default function AuthScreen() {
       keyboardVerticalOffset={0}
     >
       <ScrollView
-        contentContainerStyle={styles.content}
+        // [한글 주석] 로그인 화면은 네비게이터 헤더가 없다 → 노치 실측 높이만큼 직접 띄우고,
+        // 좌우 여백도 기기 폭에 맞춘다. 폴드 펼침에서는 입력 폼이 가로로 늘어지지 않게 폭을 묶는다.
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingHorizontal: gutter,
+            paddingTop: topInset + s(16),
+            paddingBottom: bottomInset + s(96),
+          },
+          isWide && { maxWidth: 460, width: '100%', alignSelf: 'center' },
+        ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -733,7 +748,12 @@ export default function AuthScreen() {
         {/* 브랜드 */}
         <FadeInUp>
           <View style={styles.brand}>
-            <Image source={LOGO} style={styles.logo} resizeMode="contain" />
+            {/* [한글 주석] 화면 폭 비례 + 상한 — 좁은 기기에서 잘리지 않고, 넓은 기기에서 과하지 않게 */}
+            <Image
+              source={LOGO}
+              style={[styles.logo, { width: Math.min(vw(74), 310), height: Math.min(vw(45), 190) }]}
+              resizeMode="contain"
+            />
             <Text style={styles.brandSub}>카페 사장님을 위한 운영 파트너</Text>
           </View>
         </FadeInUp>
@@ -1103,7 +1123,9 @@ export default function AuthScreen() {
             <Text style={styles.mapHintText}>예: 서울 중구 명동길 26 · 상호명으로도 찾을 수 있어요</Text>
 
             {/* [한글 주석] 지도가 그려지는 영역 — 클릭/핀 드래그로 위치 지정 (웹 전용, 앱은 주소 입력으로 설정) */}
-            <View style={{ marginVertical: 10, borderRadius: 14, overflow: 'hidden', height: 260, backgroundColor: colors.creamSand }}>
+            {/* [한글 주석] 고정 260 은 세로가 짧은 화면(가로모드·플립)에서 화면을 다 먹었다 → 뷰포트 비례 */}
+            {/* [한글 주석] 고정 260 은 세로가 짧은 화면(가로모드·플립)에서 화면을 다 먹었다 → 뷰포트 비례 */}
+            <View style={{ marginVertical: 10, borderRadius: 14, overflow: 'hidden', height: Math.min(vh(34), 260), backgroundColor: colors.creamSand }}>
               {Platform.OS === 'web' ? (
                 <View id="signup-map-container" style={{ width: '100%', height: '100%' }} />
               ) : (
@@ -1437,13 +1459,11 @@ const styles = StyleSheet.create({
   //   키보드 위로 끌어올릴 스크롤 여유 공간. 이 값이 부족하면 칸이 키보드에 가려진다.
   content: {
     flexGrow: 1,
-    padding: spacing.globalPadding,
-    paddingTop: 60,
-    paddingBottom: 120,
     gap: spacing.verticalGap,
   },
   brand: { alignItems: 'center', marginBottom: 8 },
-  logo: { width: 310, height: 190, resizeMode: 'contain' },
+  // [한글 주석] 크기는 화면에서 폭 비례로 덮어쓴다 (고정 310×190 은 SE·플립에서 좌우가 잘렸다)
+  logo: { resizeMode: 'contain' },
   brandSub: { ...typography.L4, color: colors.mochaBrown, marginTop: 10 },
   form: { gap: 12 },
   field: {

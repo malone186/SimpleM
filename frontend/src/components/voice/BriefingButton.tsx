@@ -9,9 +9,12 @@ import { useAuth } from '../../auth/AuthContext';
 import { usePreferences } from '../../preferences/PreferencesContext';
 import { useBriefing } from '../../lib/speech/useBriefing';
 import { colors, shadows, typography } from '../../theme';
+import { useResponsive } from '../../theme/responsive';
 import { toast } from '../toast';
 
 export default function BriefingButton() {
+  // [한글 주석] 화면 비례 계산 — 회전·폴더블 전개에 즉시 반응
+  const { vw, vh } = useResponsive();
   const { token } = useAuth();
   const prefs = usePreferences();
   const briefing = useBriefing({
@@ -28,7 +31,8 @@ export default function BriefingButton() {
   return (
     <View style={styles.wrap} pointerEvents="box-none">
       {!!data && (
-        <View style={styles.card}>
+        // [한글 주석] 폭은 화면 비례 + 상한, 높이는 뷰포트 비례 — 플립 커버/가로모드에서도 안 밀린다
+        <View style={[styles.card, { width: Math.min(vw(76), 280), maxHeight: vh(42) }]}>
           <View style={styles.header}>
             <Text style={styles.title}>오늘의 브리핑</Text>
             <Pressable onPress={briefing.dismiss} hitSlop={8} accessibilityLabel="브리핑 닫기">
@@ -82,8 +86,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   card: {
-    width: 280,
-    maxHeight: 320,
+    // [한글 주석] 폭·높이는 컴포넌트에서 화면 비례로 덮어쓴다 (고정 280 은 플립 커버 화면에서 밀려났다)
     backgroundColor: colors.coffeeCream,
     borderRadius: 16,
     borderWidth: 1,

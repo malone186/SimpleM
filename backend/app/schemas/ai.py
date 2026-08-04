@@ -265,6 +265,8 @@ class NotificationSettingBody(BaseModel):
     stock_alert: bool = Field(True, description="재고 소진 임박")
     sensor_alert: bool = Field(True, description="설비 이상 (방해금지 무시)")
     nearby_alert: bool = Field(True, description="주변 소식 — 곧 열리는 행사·경쟁 카페 개업/폐업")
+    insight_alert: bool = Field(
+        True, description="아침 브리핑과 선제 인사이트 — 정산 미입력·뜸해진 단골·POS 연동 끊김 등")
     report_frequency: Literal["daily", "weekly"] = "weekly"
     dnd_enabled: bool = False
     dnd_start: str = Field("22:00", pattern=r"^\d{2}:\d{2}$")

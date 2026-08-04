@@ -568,6 +568,9 @@ class NotificationSetting(Base):
     sensor_alert: Mapped[bool] = mapped_column(Boolean, default=True)       # 설비 이상(긴급)
     # 주변 소식(행사 D-day·경쟁 카페 개업/폐업) — 상권 변화라 재고·서류와 성격이 달라 따로 끈다
     nearby_alert: Mapped[bool] = mapped_column(Boolean, default=True)
+    # 선제 인사이트(정산 미입력·뜸해진 단골·POS 연동 끊김·메뉴 원가…)와 아침 브리핑.
+    # 앱 설정의 '놓친 일 먼저 알려주기' 스위치가 이 값을 함께 움직인다.
+    insight_alert: Mapped[bool] = mapped_column(Boolean, default=True)
     report_frequency: Mapped[str] = mapped_column(String(10), default="weekly")  # daily | weekly
     dnd_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     dnd_start: Mapped[str] = mapped_column(String(5), default="22:00")  # HH:MM
@@ -597,12 +600,17 @@ class SentNotification(Base):
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
-def ensure_notification_setting_columns(engine) -> None:
-    """[자가치유 스키마] notification_settings에 nearby_alert 컬럼이 없으면 멱등하게 추가한다.
+# 나중에 추가된 알림 종류 스위치들 — 기존 테이블에 없으면 여기서 붙인다.
+# 전부 '켜짐'으로 채운다: 새 기능은 켜진 채로 시작하고 사장님이 끄면 그때 꺼진다.
+_NOTIFICATION_LATE_COLUMNS = ("nearby_alert", "insight_alert")
 
-    이 테이블은 nearby_alert 없이 먼저 만들어졌고 create_all은 기존 테이블을 ALTER하지
-    않는다 — 컬럼이 빠진 채로 두면 설정 조회가 통째로 500이 난다([[create-all-no-alter-trap]]).
-    기존 행은 TRUE로 채운다: 새 기능은 켜진 채로 시작하고 사장님이 끄면 그때 꺼진다.
+
+def ensure_notification_setting_columns(engine) -> None:
+    """[자가치유 스키마] notification_settings에 뒤늦게 생긴 컬럼을 멱등하게 추가한다.
+
+    이 테이블은 nearby_alert·insight_alert 없이 먼저 만들어졌고 create_all은 기존 테이블을
+    ALTER하지 않는다 — 컬럼이 빠진 채로 두면 설정 조회가 통째로 500이 난다
+    ([[create-all-no-alter-trap]]).
     """
     try:
         insp = inspect(engine)
@@ -612,16 +620,18 @@ def ensure_notification_setting_columns(engine) -> None:
     except Exception as e:
         logger.warning(f"[알림 스키마] notification_settings 점검 실패 — 건너뜁니다: {e}")
         return
-    if "nearby_alert" in existing:
-        return
-    try:
-        with engine.begin() as conn:
-            conn.execute(text(
-                "ALTER TABLE notification_settings ADD COLUMN nearby_alert BOOLEAN NOT NULL DEFAULT TRUE"
-            ))
-        logger.info("[알림 스키마] notification_settings.nearby_alert 컬럼 추가 완료")
-    except Exception as e:
-        logger.warning(f"[알림 스키마] nearby_alert 보강 실패 — 알림 설정 조회가 막힐 수 있습니다: {e}")
+
+    for column in _NOTIFICATION_LATE_COLUMNS:
+        if column in existing:
+            continue
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    f"ALTER TABLE notification_settings ADD COLUMN {column} BOOLEAN NOT NULL DEFAULT TRUE"
+                ))
+            logger.info("[알림 스키마] notification_settings.%s 컬럼 추가 완료", column)
+        except Exception as e:
+            logger.warning(f"[알림 스키마] {column} 보강 실패 — 알림 설정 조회가 막힐 수 있습니다: {e}")
 
 
 class NearbyCafeWatch(Base):

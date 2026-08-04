@@ -53,6 +53,16 @@ EVENT_MILESTONES = [1, 7]
 # 프론트 AlertsWatcher의 REPORT_HOUR와 같은 값이어야 한다.
 REPORT_HOUR = 9
 
+# 아침 브리핑을 내보낼 가장 이른 시각 (KST). 매장 오픈 시각을 알면 그쪽을 쓰고,
+# 모르거나 새벽 오픈이면 이 값으로 — 문 열기 전에 도착해야 준비에 쓸 수 있다.
+BRIEFING_FALLBACK_HOUR = 8
+
+# 선제 인사이트 푸시에서 '전용 규칙이 이미 담당하는' 영역은 뺀다.
+# (재고=규칙 3, 서류=규칙 1, 설비=규칙 4, 주변 상권=규칙 7·8)
+INSIGHT_PUSH_SKIP_CATEGORIES = {"inventory", "document", "market"}
+# 한 번 실행에 내보낼 인사이트 푸시 개수 — 여러 건이 한꺼번에 울리면 알림을 꺼 버린다
+INSIGHT_PUSH_MAX = 2
+
 
 # ---------------------------------------------------------------------------
 # 설정 · 방해금지
@@ -192,8 +202,10 @@ def check_compliance(db, store_id: str, settings) -> list[str]:
 
         # screen은 프론트 RootNavigator의 실제 라우트 이름이어야 한다 — 'Documents'(복수)로
         # 보내던 시절엔 탭해도 이동이 조용히 실패했다. 라우트는 'Document'(단수)다.
+        # 서류마다 tag를 나눈다 — 같은 날 두 건이 만료되면 category가 같아 하나로 덮인다
         if _dispatch(db, store_id, "compliance", f"compliance:{item['id']}:{milestone}",
-                     title, body, {"screen": "Document", "item_id": item["id"]}):
+                     title, body, {"screen": "Document", "item_id": item["id"],
+                                   "tag": f"compliance_{item['id']}"}):
             sent.append(f"compliance:{item['name']}:{milestone}")
     return sent
 
@@ -408,9 +420,10 @@ def check_sensor(db, store_id: str, settings, now: datetime) -> list[str]:
     sent: list[str] = []
     for fault in faults[:2]:
         key = f"sensor:{fault['source']}:{bucket.isoformat()}"
+        # 설비마다 tag를 나눈다 — 냉장고와 제빙기가 동시에 이상이면 하나로 덮인다
         if _dispatch(db, store_id, "sensor", key, f"🚨 {fault['title']}",
                      f"{fault['reason']} {fault['action']}",
-                     {"screen": "Dashboard"}, urgent=True):
+                     {"screen": "Dashboard", "tag": f"sensor_{fault['source']}"}, urgent=True):
             sent.append(key)
     return sent
 
@@ -624,7 +637,9 @@ def check_nearby_event(db, store_id: str, settings, now: datetime) -> list[str]:
 
         if _dispatch(db, store_id, "nearby", key, title[:200], body,
                      {"screen": "StoreMap", "event_name": event.get("name") or "",
-                      "start_date": event.get("start_date") or ""}):
+                      "start_date": event.get("start_date") or "",
+                      # 같은 nearby라도 행사·개업·폐업은 서로 다른 알림이다 (tag가 같으면 덮인다)
+                      "tag": "nearby_event"}):
             return [key]
         return []
     return []
@@ -701,7 +716,7 @@ def check_nearby_cafe(db, store_id: str, settings, now: datetime) -> list[str]:
         body += " — 지도에서 후기·강점을 확인해 보세요."
         key = f"cafeopen:{today}:{len(opened)}"
         if _dispatch(db, store_id, "nearby", key, title, body,
-                     {"screen": "StoreMap", "focus": "changes"}):
+                     {"screen": "StoreMap", "focus": "changes", "tag": "nearby_open"}):
             nearby_watch_service.mark_notified(db, store_id, [c["place_key"] for c in opened], "opened")
             sent.append(key)
 
@@ -716,10 +731,145 @@ def check_nearby_cafe(db, store_id: str, settings, now: datetime) -> list[str]:
         body += " — 검색에서 사라졌어요(추정). 손님이 넘어올 기회예요."
         key = f"cafeclose:{today}:{len(closed)}"
         if _dispatch(db, store_id, "nearby", key, title, body,
-                     {"screen": "StoreMap", "focus": "changes"}):
+                     {"screen": "StoreMap", "focus": "changes", "tag": "nearby_close"}):
             nearby_watch_service.mark_notified(db, store_id, [c["place_key"] for c in closed], "closed")
             sent.append(key)
 
+    return sent
+
+
+# ---------------------------------------------------------------------------
+# 규칙 9 — 아침 브리핑 (하루의 시작에 한 번, 오늘 할 일을 먼저 정리해 준다)
+# ---------------------------------------------------------------------------
+
+def _briefing_send_hour(db, store_id: str) -> int:
+    """브리핑 발송 시각 = 매장 오픈 시각(문 열기 전에 읽어야 준비에 쓴다).
+
+    프로필이 없거나 새벽 오픈(자정 넘김)이면 기본값으로 — 새벽 5시에 울리면 안 된다.
+    """
+    try:
+        from app.models.ai import StoreProfile
+
+        profile = db.get(StoreProfile, store_id)
+        if profile and profile.open_hour:
+            minutes = _parse_hhmm(profile.open_hour)
+            if minutes is not None:
+                hour = minutes // 60
+                if 6 <= hour <= 12:
+                    return hour
+    except Exception:
+        pass
+    return BRIEFING_FALLBACK_HOUR
+
+
+def check_briefing(db, store_id: str, settings, now: datetime) -> list[str]:
+    """오늘의 브리핑 — 어제 실적 한 줄 + 지금 가장 급한 일 둘.
+
+    리포트(규칙 2)가 '끝난 기간의 성적표'라면 이건 '오늘 무엇을 할지'다. 그래서 마감이
+    아니라 오픈 시각에 나가고, 본문에 조치할 일이 들어간다. 리포트 수신 설정을 따른다 —
+    사장님이 '경영 리포트 알림'을 끄면 아침 브리핑도 함께 조용해지는 편이 자연스럽다.
+    """
+    if not settings.report_alert:
+        return []
+    if now.hour < _briefing_send_hour(db, store_id):
+        return []
+
+    dedupe_key = f"briefing:{now.date().isoformat()}"
+    if _already_sent(db, store_id, dedupe_key):
+        return []
+
+    from app.services.ai import briefing_service
+
+    try:
+        # deep=True — 하루 한 번 도는 자리라, 무거운 스캐너(단골 이탈·원두 시세)도 여기서 갱신한다.
+        # 이 결과가 캐시에 남아 앱이 인사이트를 폴링할 때 곧바로 보인다.
+        briefing = briefing_service.build(store_id, force_refresh=True, deep=True)
+    except Exception:
+        logger.exception("아침 브리핑 생성 실패 (%s)", store_id)
+        return []
+
+    # 어제 매출도 없고 챙길 일도 없으면 보내지 않는다 — 할 말이 없는 알림은 신뢰를 깎는다
+    if not briefing.get("priorities") and not (briefing["facts"]["yesterday_sales"]["total"] > 0):
+        return []
+
+    if _dispatch(db, store_id, "briefing", dedupe_key,
+                 f"☕ 오늘의 브리핑 · {briefing['headline']}"[:200],
+                 briefing_service.push_body(briefing),
+                 {"screen": "Dashboard", "tag": "briefing"}):
+        return [dedupe_key]
+    return []
+
+
+# ---------------------------------------------------------------------------
+# 규칙 10 — 선제 인사이트 (전용 규칙이 없는 나머지 영역을 전부 덮는다)
+# ---------------------------------------------------------------------------
+
+# 인사이트 영역 → 탭했을 때 열릴 화면 (프론트 RootNavigator의 실제 라우트 이름)
+INSIGHT_SCREEN = {
+    "inventory": "Order",
+    "document": "Document",
+    "market": "StoreMap",
+    "settlement": "Dashboard",
+    "customer": "Membership",
+    "marketing": "Marketing",
+    "system": "Settings",
+    "forecast": "Dashboard",
+    "menu": "Cost",
+    "order": "Order",
+    "staff": "Staff",
+    "tax": "Document",
+    "sales": "Dashboard",
+    "data": "Dashboard",
+    "reward": "Shop",
+}
+
+INSIGHT_ICON = {
+    "settlement": "💳", "customer": "🙋", "marketing": "📣", "system": "🔌",
+    "forecast": "🔮", "menu": "🧮", "order": "🚚", "staff": "👥",
+    "tax": "🧾", "sales": "📉", "data": "✏️", "reward": "🎁",
+}
+
+
+def check_insights(db, store_id: str, settings, now: datetime) -> list[str]:
+    """정산 미입력·뜸해진 단골·POS 연동 끊김·팔수록 손해인 메뉴처럼, 전용 알림 규칙이
+    없는 영역의 '지금 조치' 건을 내보낸다.
+
+    같은 사건을 두 번 보내지 않도록 dedupe 키에 인사이트 key를 그대로 쓴다 —
+    상황이 바뀌면 key가 달라져 새 알림이 되고, 그대로면 영영 한 번만 나간다.
+    사장님이 앱에서 확인/미루기 한 건은 스캔 단계에서 이미 빠져 있다.
+    """
+    if not getattr(settings, "insight_alert", True):
+        return []
+    if now.hour < REPORT_HOUR:
+        return []  # 새벽에 "원가율이 높아요"는 쓸모가 없다
+
+    from app.services.ai import insight_service
+
+    try:
+        # 브리핑(규칙 9)이 이미 돌았다면 그 결과가 캐시에 있어 여기서는 다시 계산하지 않는다
+        scan = insight_service.scan(store_id)
+    except Exception:
+        logger.exception("인사이트 알림 스캔 실패 (%s)", store_id)
+        return []
+
+    sent: list[str] = []
+    for item in scan.get("insights", []):
+        if len(sent) >= INSIGHT_PUSH_MAX:
+            break
+        if item.get("severity") != "high":
+            continue  # medium 이하는 앱을 열었을 때 보면 되는 일이다
+        category = item.get("category") or ""
+        if category in INSIGHT_PUSH_SKIP_CATEGORIES:
+            continue
+
+        key = f"insight:{item['key']}"[:120]
+        icon = INSIGHT_ICON.get(category, "🔔")
+        body = (item.get("body") or "")[:300]
+        if _dispatch(db, store_id, "insight", key,
+                     f"{icon} {item['title']}"[:200], body,
+                     {"screen": INSIGHT_SCREEN.get(category, "Dashboard"),
+                      "tag": f"insight_{category}"}):
+            sent.append(key)
     return sent
 
 
@@ -747,6 +897,8 @@ def run_for_store(db, store_id: str, now: Optional[datetime] = None) -> dict[str
     sent += check_bean_price(db, store_id, settings, now)   # 규칙 6 — 원두 시세 하락
     sent += check_nearby_event(db, store_id, settings, now) # 규칙 7 — 주변 행사 D-day + AI 플랜
     sent += check_nearby_cafe(db, store_id, settings, now)  # 규칙 8 — 주변 카페 개업·폐업
+    sent += check_briefing(db, store_id, settings, now)     # 규칙 9 — 아침 브리핑
+    sent += check_insights(db, store_id, settings, now)     # 규칙 10 — 나머지 영역의 '지금 조치'
     return {"store_id": store_id, "sent": sent}
 
 

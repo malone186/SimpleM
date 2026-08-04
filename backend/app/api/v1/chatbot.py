@@ -55,6 +55,7 @@ from app.schemas.ai import (
     TodoUpdate,
 )
 from app.services.ai import (
+    briefing_service,
     cafe_similarity_service,
     chat_quota_service,
     document_service,
@@ -1145,6 +1146,7 @@ def get_notification_settings(current_user: User = Depends(get_current_user),
         # 컬럼 보강(ensure_notification_setting_columns) 이전에 만들어진 행이 섞일 수 있어
         # 없으면 켜진 것으로 읽는다 — 새 기능은 기본 on이다
         nearby_alert=getattr(row, "nearby_alert", True),
+        insight_alert=getattr(row, "insight_alert", True),
         report_frequency=row.report_frequency,
         dnd_enabled=row.dnd_enabled,
         dnd_start=row.dnd_start,
@@ -1258,6 +1260,20 @@ def get_insights_api(
     사장님이 조치를 끝내면 다음 호출에서 그 항목은 자연히 사라진다.
     """
     return insight_service.scan(current_user.email, include_dismissed=include_dismissed)
+
+
+@router.get("/briefing")
+def get_briefing_api(
+    refresh: bool = False,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """오늘의 브루 브리핑 — 어제 실적·오늘 근무·오늘 입금 예정 + 지금 급한 일 3가지.
+
+    아침에 푸시로 나가는 것과 같은 내용이고, 매장별로 하루 한 번 만들어 캐시한다
+    (refresh=true면 다시 만든다). 인사이트 스캔과 같은 근거를 쓰므로 알림·할 일·
+    브리핑이 서로 다른 말을 하지 않는다.
+    """
+    return briefing_service.build(current_user.email, force_refresh=refresh)
 
 
 @router.post("/insights/{insight_key:path}/dismiss")

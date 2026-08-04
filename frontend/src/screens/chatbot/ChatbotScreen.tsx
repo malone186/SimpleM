@@ -47,13 +47,9 @@ import {
   type ChatSession,
 } from '../../lib/chatSessions';
 import { colors, spacing, typography } from '../../theme';
+import { fs, s, useBottomInset, useResponsive, useTopInset } from '../../theme/responsive';
 
-// 상단 브라운 헤더의 상태바 여백 (재고/관리 탭과 동일 계산 — 세 탭 헤더 높이·글씨 가림 통일)
-const TOP_INSET = Platform.select({
-  android: (StatusBar.currentHeight ?? 24) + 4,
-  ios: 56,
-  default: 44, // 웹(디바이스 프레임)
-}) as number;
+// [한글 주석] 상태바 여백은 useTopInset() 훅이 기기 실측값으로 계산한다 (고정값은 기기마다 어긋났다).
 
 const SUGGESTIONS = [
   '이번 주 경영 리포트 만들어줘',
@@ -94,6 +90,10 @@ export default function ChatbotScreen() {
   // [한글 주석: 전역 다국어 번역 훅 연동]
   const { t, language } = useTranslation();
   const { token } = useAuth();
+  // [한글 주석] 노치 실측 여백 + 하단 제스처 바 + 화면 급수 (좁은 화면에서 헤더를 접는다)
+  const topInset = useTopInset();
+  const bottomInset = useBottomInset();
+  const { isCompact, isXS, isShortViewport, isWide } = useResponsive();
   const route = useRoute<RouteProp<RootTabParamList, 'Chatbot'>>();
   const [messages, setMessages] = useState<Msg[]>([GREETING]);
   const [input, setInput] = useState('');
@@ -279,7 +279,8 @@ export default function ChatbotScreen() {
     <KeyboardAvoidingView
       style={styles.root}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      // [한글 주석] 고정 90은 홈 인디케이터 없는 기기에서 입력창을 과하게 띄웠다 → 실측 inset 기반으로
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 56 + bottomInset : 0}
     >
       {/* [딥브라운 오로라 배경] 재고/관리 탭과 동일 — 상단 딥브라운에서 하단 크림으로 */}
       <View style={StyleSheet.absoluteFill}>
@@ -303,7 +304,7 @@ export default function ChatbotScreen() {
       </View>
 
       {/* 브라운 헤더 — 관리 탭과 동일 (제목/부제 + 마스코트만). 새 채팅/기록은 헤더 밖 시트 상단으로 이동 */}
-      <View style={styles.brownHeader}>
+      <View style={[styles.brownHeader, { paddingTop: topInset }]}>
         <View style={styles.brownHeaderLeft}>
           <FadeInUp>
             <Text style={styles.brownHeaderTitle}>{language === 'en' ? 'Brew AI Assistant' : '브루 챗봇'}</Text>
@@ -313,7 +314,8 @@ export default function ChatbotScreen() {
         <View style={styles.brownHeaderRight}>
           {/* greet 일러스트는 clipboard(317)보다 프레임 여백이 커(380) 작아 보인다 —
               캐릭터 크기를 관리 탭과 맞추려고 프레임 비율(380/317)만큼 키운다 */}
-          <Brew mood="happy" size={144} />
+          {/* [한글 주석] 좁은/낮은 화면에서는 마스코트를 줄여 대화 영역을 확보한다 */}
+          <Brew mood="happy" size={isXS ? 80 : isCompact ? 108 : s(144)} />
         </View>
       </View>
 
@@ -332,7 +334,11 @@ export default function ChatbotScreen() {
       <ScrollView
         ref={scrollRef}
         style={styles.list}
-        contentContainerStyle={styles.listContent}
+        // [한글 주석] 폴드 펼침(≈673dp)에서는 말풍선이 지나치게 길어져 읽기 힘들다 → 폭 제한 + 가운데 정렬
+        contentContainerStyle={[
+          styles.listContent,
+          isWide && { maxWidth: 560, width: '100%', alignSelf: 'center' },
+        ]}
         showsVerticalScrollIndicator={false}
         onContentSizeChange={scrollDown}
       >
@@ -393,7 +399,8 @@ export default function ChatbotScreen() {
         )}
       </ScrollView>
 
-      <View style={styles.inputBar}>
+      {/* [한글 주석] 하단 제스처 바/홈 인디케이터 실측 여백을 더해 입력창이 시스템 바에 물리지 않게 한다 */}
+      <View style={[styles.inputBar, { paddingBottom: s(10) + bottomInset }]}>
         <TextInput
           ref={inputRef}
           style={styles.input}
@@ -476,16 +483,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'stretch',
     justifyContent: 'space-between',
-    paddingTop: TOP_INSET,
     paddingBottom: 12,
     paddingHorizontal: 18,
     gap: 10,
   },
   brownHeaderLeft: { flex: 1, justifyContent: 'center' },
   // 관리 탭 헤더 높이(설정칩+마스코트 ~153)에 맞춰 마스코트를 하단 정렬 — 챗봇 헤더엔 버튼이 없어 minHeight로 확보
-  brownHeaderRight: { alignItems: 'flex-end', justifyContent: 'flex-end', minHeight: 154 },
-  brownHeaderTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
-  brownHeaderSub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
+  // [한글 주석] minHeight 고정 154는 세로가 짧은 화면에서 대화 영역을 통째로 잡아먹었다 → 스케일 적용
+  brownHeaderRight: { alignItems: 'flex-end', justifyContent: 'flex-end', minHeight: s(154) },
+  brownHeaderTitle: { fontSize: fs(24), fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
+  brownHeaderSub: { fontSize: fs(11.5), color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
   // 새 채팅/기록 — 브라운 헤더 아래 크림 시트 상단 섹션의 칩 (크림 배경이라 어두운 글씨)
   chatActionsRow: {
     flexDirection: 'row',
@@ -573,7 +580,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 12,
     paddingTop: 10,
-    paddingBottom: Platform.OS === 'ios' ? 14 : 12, // [한글 주석: 키보드 및 탭 바에 입력창이 묻히지 않도록 하단 세이프티 여백 보정]
+    // [한글 주석] paddingBottom 은 기기 하단 inset 을 더해 인라인으로 덮어쓴다 (고정값은 기기마다 어긋났다)
     borderTopWidth: 1,
     borderTopColor: colors.mutedSand,
     backgroundColor: colors.white,
@@ -600,6 +607,7 @@ const styles = StyleSheet.create({
   modalRoot: { flex: 1, justifyContent: 'flex-end', width: '100%', maxWidth: 420, alignSelf: 'center' },
   modalDim: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: colors.black40 },
   sheet: {
+    // [한글 주석] 세로가 짧은 기기(가로모드·플립)에서도 핸들과 목록이 함께 보이도록 비율 유지
     maxHeight: '70%',
     backgroundColor: colors.creamSand,
     borderTopLeftRadius: 28,

@@ -6,10 +6,12 @@ import {
   PanResponder,
   Pressable,
   StyleSheet,
+  useWindowDimensions,
   View,
   ViewStyle,
 } from 'react-native';
 import { colors } from '../../theme';
+import { useBottomInset } from '../../theme/responsive';
 
 interface SwipeDownModalProps {
   visible: boolean;
@@ -24,6 +26,9 @@ export const SwipeDownModal: React.FC<SwipeDownModalProps> = ({
   children,
   sheetStyle,
 }) => {
+  // [한글 주석] 기기 하단 시스템 바 실측값 + 현재 화면 높이 (회전·폴더블 전개 시 즉시 반영)
+  const bottomInset = useBottomInset();
+  const { height: windowHeight } = useWindowDimensions();
   // 모달 수직 이동 애니메이션 값 (0: 원래 위치, >0: 아래로 이동)
   const translateY = useRef(new Animated.Value(0)).current;
 
@@ -88,6 +93,10 @@ export const SwipeDownModal: React.FC<SwipeDownModalProps> = ({
             sheetStyle,
             {
               transform: [{ translateY }],
+              // [한글 주석] 하단 제스처 바/홈 인디케이터 실측 여백 — 마지막 버튼이 시스템 바에 물리지 않게
+              paddingBottom: 20 + bottomInset,
+              // 세로가 짧은 기기(가로모드·플립 커버)에서 시트가 화면을 넘지 않게 상한을 둔다
+              maxHeight: windowHeight * 0.9,
             },
           ]}
         >
@@ -124,7 +133,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 20,
-    paddingBottom: 36,
     gap: 4,
   },
   handleWrapper: {

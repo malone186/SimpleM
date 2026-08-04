@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 
 import { colors, spacing } from '../../theme';
+import { useTopInset } from '../../theme/responsive';
 import { type BrewMood } from '../brew/Brew';
 import MascotEasterEgg from './MascotEasterEgg';
 import MarqueeText from '../MarqueeText';
@@ -189,6 +190,8 @@ export default function WelcomeHeader({
   onOpenMap?: () => void;
 }) {
   const greeting = useTimeGreeting();
+  // [한글 주석] 상태바(노치·펀치홀·다이나믹 아일랜드) 실측 높이
+  const topInset = useTopInset();
   const { announce, dismiss } = useAdminAnnouncement(refreshTrigger);
 
   // 알림함 (지도 아이콘 옆 벨) — 지난 공지를 스택형으로 모아 본다
@@ -265,7 +268,9 @@ export default function WelcomeHeader({
   });
 
   return (
-    <View style={styles.header}>
+    // [한글 주석] 예전 paddingTop: 38 고정값 → 기기 실측 노치 높이로 교체.
+    // 다이나믹 아일랜드(59pt)에서는 아이콘 줄이 가렸고, 노치 없는 기기에서는 여백이 남았다.
+    <View style={[styles.header, { paddingTop: topInset }]}>
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.iconBtn} onPress={onOpenMap} hitSlop={10} activeOpacity={0.85}>
           <Ionicons name="map-outline" size={19} color={colors.creamSand} />
@@ -450,7 +455,6 @@ export default function WelcomeHeader({
 const styles = StyleSheet.create({
   header: {
     backgroundColor: 'transparent',
-    paddingTop: 38,
     paddingBottom: 12,
     paddingHorizontal: spacing.globalPadding,
   },

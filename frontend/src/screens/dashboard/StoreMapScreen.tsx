@@ -57,6 +57,7 @@ import {
   type ResolvedStoreLocation,
 } from '../../lib/api/store';
 import { colors, shadows, spacing, typography } from '../../theme';
+import { useResponsive } from '../../theme/responsive';
 
 const RADIUS_OPTIONS = [500, 1000, 2000] as const;
 
@@ -64,6 +65,8 @@ const RADIUS_OPTIONS = [500, 1000, 2000] as const;
 const EVENT_DAYS = 14;
 
 export default function StoreMapScreen() {
+  // [한글 주석] 뷰포트 비례 계산 — 지도가 화면을 다 먹지 않게 높이를 조정한다
+  const { vh } = useResponsive();
   const { token, user } = useAuth();
 
   const [store, setStore] = useState<ResolvedStoreLocation | null>(null);
@@ -405,7 +408,8 @@ export default function StoreMapScreen() {
           지도만 덩그러니 남아 어색하다. 지도를 스크롤뷰 첫 요소로 넣어 함께 위로 밀려 올라가게 한다.
           핀 색: 브라운=내 매장(고정), 초록=주변 카페, 오렌지=인근 행사 */}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 28 }} showsVerticalScrollIndicator={false}>
-        <View style={styles.mapBox}>
+        {/* [한글 주석] 지도 높이는 뷰포트 비례 — 가로모드/작은 기기에서 화면을 다 먹지 않게 */}
+        <View style={[styles.mapBox, { height: Math.min(vh(40), 360) }]}>
           <StoreLocationMap
             lat={store.lat}
             lon={store.lon}
@@ -841,7 +845,9 @@ export default function StoreMapScreen() {
                         {e.name}
                       </Text>
                       <Text style={styles.eventMeta} numberOfLines={1}>
-                        {formatEventRange(e.start_date, e.end_date)} · {e.place || '장소 미상'}
+                        {/* 장소를 모를 때만 주최기관으로 대신한다 — 대개 장소에 이미 기관명이 들어 있어
+                            둘 다 쓰면 "마포구립서강도서관 · 마포구립서강도서관 3층"처럼 겹친다 */}
+                        {formatEventRange(e.start_date, e.end_date)} · {e.place || e.host || '장소 미상'}
                         {e.distance_km != null ? ` · ${e.distance_km}km` : ''}
                       </Text>
                     </View>
@@ -1269,7 +1275,8 @@ const styles = StyleSheet.create({
   },
   primaryBtnText: { ...typography.L4, color: colors.white },
 
-  mapBox: { height: 320, backgroundColor: colors.coffeeCream },
+  // [한글 주석] 높이는 화면에서 뷰포트 비례로 덮어쓴다 (고정 320 은 가로모드에서 화면을 다 먹었다)
+  mapBox: { backgroundColor: colors.coffeeCream },
   body: { paddingHorizontal: spacing.globalPadding, paddingTop: 14, gap: 10 },
 
   storeRow: {

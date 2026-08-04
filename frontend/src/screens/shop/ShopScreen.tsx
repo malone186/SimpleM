@@ -23,12 +23,18 @@ import {
 } from '../../lib/api/rewards';
 import { useEquipped } from '../../rewards/EquippedContext';
 import { colors, typography } from '../../theme';
+// [한글 주석] load() 안의 지역변수 s(shop 응답)와 겹치지 않게 스케일 함수는 sc 로 별칭 처리
+import { s as sc, useBottomInset, useResponsive, useTopInset } from '../../theme/responsive';
 
 // 화면에 보여줄 부위 순서 — 위에서부터 눈에 띄는 것 순
 const SLOT_ORDER: ItemSlot[] = ['pose', 'background'];
 
 export default function ShopScreen() {
   const { token } = useAuth();
+  // [한글 주석] 기기 안전영역 실측 — 탭 직속 화면이라 위·아래를 직접 비워 줘야 한다
+  const topInset = useTopInset();
+  const bottomInset = useBottomInset();
+  const { gutter, isWide, contentMaxWidth } = useResponsive();
   // 구매·착용하면 홈 화면 마스코트도 같이 바뀌어야 한다
   const { refresh: refreshEquipped } = useEquipped();
   const [shop, setShop] = useState<ShopState | null>(null);
@@ -97,7 +103,7 @@ export default function ShopScreen() {
 
   if (loading) {
     return (
-      <Screen>
+      <Screen safeTop withTabBar>
         <View style={styles.center}>
           <ActivityIndicator color={colors.pointOrange} />
         </View>
@@ -115,7 +121,14 @@ export default function ShopScreen() {
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.creamSand }}
-      contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
+      // [한글 주석] 탭 직속 화면 — 위는 노치/펀치홀 실측 여백, 아래는 제스처 바 + 탭 바 높이만큼 비운다.
+      // 예전 고정값(padding 20 / paddingBottom 40)은 마지막 카드가 탭 바에 가려졌다.
+      contentContainerStyle={{
+        paddingHorizontal: gutter,
+        paddingTop: topInset + sc(8),
+        paddingBottom: bottomInset + sc(88),
+        ...(isWide ? { maxWidth: contentMaxWidth, width: '100%', alignSelf: 'center' } : null),
+      }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.mochaBrown} />}
     >
       <ScreenTitle title="상점" subtitle="할 일을 끝내면 코인이 쌓여요" />

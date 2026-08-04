@@ -38,6 +38,73 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", "", text or "")
 
 
+# 이름 맨 앞의 주최기관 대괄호 — "[마포구립서강도서관] 8월/청년 Book C클래스"의 앞부분
+_HOST_PREFIX = re.compile(r"^\s*[\[(<【]\s*([^\]\)>】]{2,30}?)\s*[\])>】]\s*")
+# "8월/", "8월 " 같은 월 표기 접두사 — 기간은 따로 보여주므로 이름에 있을 필요가 없다
+_MONTH_PREFIX = re.compile(r"^\s*\d{1,2}\s*월\s*[/·\-]?\s*")
+# 잘린 꼬리에 남는 매달린 기호 — 반드시 뒤쪽만 깎는다. 양쪽을 깎으면 "[동굴로]"의
+# 여는 괄호까지 사라져 "동굴로]"가 된다(실제로 그렇게 나왔다).
+_DANGLING_TAIL = " \t-–—~/,·|:;(<[【&+"
+_DANGLING_HEAD = " \t-–—~/,·|:;&+"
+# 화면·알림 제목에 들어갈 최대 길이. 이보다 길면 단어 경계에서 자르고 말줄임을 붙인다.
+DISPLAY_LIMIT = 34
+
+
+def clean_event_name(raw: str) -> tuple[str, str]:
+    """행사 제목을 사람이 읽을 이름으로 다듬는다. 반환: (이름, 주최기관)
+
+    수집원이 네이버 뉴스·블로그 글 제목이라 "[마포구립서강도서관] 8월/청년 Book C클래스
+    [떠나고, 쓰다 -" 같은 모양으로 들어온다. 이대로 두면 알림 제목과 지도 카드에 그대로
+    나가서 무슨 행사인지 읽히지 않는다.
+
+      · 맨 앞 대괄호(주최기관)는 떼어 host로 돌려준다 — 버리지 않는다(화면에서 따로 쓸 수 있게)
+      · "8월/" 같은 월 표기는 뗀다 (기간은 카드에 이미 있다)
+      · 닫히지 않은 괄호가 남으면(잘린 흔적) 그 앞까지만 쓴다
+      · 매달린 기호(- ~ , 등)로 끝나면 지운다
+
+    다듬은 결과가 너무 짧아지면(2자 미만) 원본을 그대로 쓴다 — 이름을 잃는 것보다 낫다.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return "", ""
+
+    host = ""
+    m = _HOST_PREFIX.match(text)
+    # 대괄호를 뗀 뒤에도 이름이 남을 때만 뗀다 ("[동굴로]"처럼 그것 자체가 이름이면 유지)
+    if m and len(text[m.end():].strip()) >= 4:
+        host = m.group(1).strip()
+        text = text[m.end():]
+
+    text = _MONTH_PREFIX.sub("", text)
+
+    # 열린 괄호가 닫히지 않았다면 잘린 것이다 — 그 앞까지만 남긴다
+    for open_ch, close_ch in (("[", "]"), ("(", ")"), ("【", "】"), ("<", ">")):
+        pos = text.rfind(open_ch)
+        if pos > 0 and close_ch not in text[pos:]:
+            text = text[:pos]
+
+    text = re.sub(r"\s+", " ", text).lstrip(_DANGLING_HEAD).rstrip(_DANGLING_TAIL).strip()
+    if len(text) < 2:
+        return (raw or "").strip(), host
+
+    # 너무 길면 말줄임보다 '뒤에 붙은 부제 괄호'를 먼저 뗀다 —
+    # "청년 Book C클래스 [떠나고, 쓰다 - 여행 에세이…"보다 "청년 Book C클래스"가 읽힌다.
+    # (짧은 이름의 괄호는 이름의 일부이므로 건드리지 않는다: "차슬아 개인전 [동굴로]")
+    while len(text) > DISPLAY_LIMIT:
+        trimmed = re.sub(r"\s*[\[(【<][^\[(【<]*[\])】>]\s*$", "", text).strip()
+        if trimmed == text or len(trimmed) < 2:
+            break
+        text = trimmed
+
+    # 그래도 길면 단어 경계에서 줄이고 말줄임을 붙인다 — 알림 제목은 D-day와
+    # 거리까지 함께 들어가서, 이름이 길면 정작 중요한 뒷부분이 OS에서 잘린다.
+    if len(text) > DISPLAY_LIMIT:
+        cut = text[:DISPLAY_LIMIT]
+        space = cut.rfind(" ")
+        text = (cut[:space] if space >= DISPLAY_LIMIT // 2 else cut).rstrip(_DANGLING_TAIL) + "…"
+    return text, host
+
+
 def _dist_for_sort(v: Optional[float]) -> float:
     """비교·정렬용 거리 — 미상(None)만 맨 뒤로 보낸다.
 
@@ -71,7 +138,9 @@ def find_nearby_events(lat: float, lon: float, days: int = DEFAULT_DAYS) -> dict
 
     grouped: dict[tuple[str, str], dict[str, Any]] = {}
     for row in rows:
-        name = (row.get("name") or "").strip()
+        # 다듬은 이름을 여기서부터 쓴다 — 이 함수를 지나면 화면·알림·AI 프롬프트가
+        # 전부 같은 이름을 보므로, 정리는 이 한 곳에서만 하면 된다.
+        name, host = clean_event_name(row.get("name") or "")
         if not name:
             continue
         day_iso = row.get("date") or ""
@@ -83,6 +152,8 @@ def find_nearby_events(lat: float, lon: float, days: int = DEFAULT_DAYS) -> dict
         if ev is None:
             grouped[key] = {
                 "name": name,
+                # 주최기관 — 이름에서 뗀 값. 장소가 비었을 때 화면이 대신 쓸 수 있다.
+                "host": host,
                 "place": (row.get("place") or "").strip(),
                 "source": row.get("source") or "",
                 "dates": [day_iso] if day_iso else [],

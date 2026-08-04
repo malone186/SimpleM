@@ -1,5 +1,6 @@
 // 디자인 스펙 기반 테마 (Design Specification §1, §3)
 // 커피 전문점 아이덴티티 — Mocha & Espresso Brown + Cream White + Terracotta Orange
+import { fs, s } from './responsive';
 
 export const colors = {
   creamSand: '#FAF9F6', // [배경색] 노랑기를 걷어내고 밝고 투명함을 더한 소프트 베이지-그레이 오프화이트
@@ -35,18 +36,26 @@ export const shadows = {
 } as const;
 
 // 타이포그래피 계층 (§3)
+// [한글 주석] 숫자를 fs()로 감싼 이유 — 시안(390dp)에서 뽑은 값이라 플립 커버 화면에서는 넘치고
+// 폴드 펼침에서는 빈약해 보인다. fs()가 기기 폭에 맞춰 완만히 조정하고, OS '글자 크게' 배율이
+// 1.3배를 넘으면 상한을 걸어 버튼 라벨이 두 줄로 터지는 것을 막는다.
 export const typography = {
-  L1: { fontSize: 20, fontWeight: '900' as const }, // 대표 강조 헤더
-  L2: { fontSize: 30, fontWeight: '900' as const }, // 실시간 숫자 금액
-  L3: { fontSize: 16, fontWeight: '700' as const }, // 카드 내부 값
-  L4: { fontSize: 12, fontWeight: '700' as const }, // 주요 알림 타이틀
-  L5: { fontSize: 10, fontWeight: '500' as const }, // 캡션 & 서브 정보
+  L1: { fontSize: fs(20), fontWeight: '900' as const }, // 대표 강조 헤더
+  L2: { fontSize: fs(30), fontWeight: '900' as const }, // 실시간 숫자 금액
+  L3: { fontSize: fs(16), fontWeight: '700' as const }, // 카드 내부 값
+  L4: { fontSize: fs(12), fontWeight: '700' as const }, // 주요 알림 타이틀
+  L5: { fontSize: fs(10), fontWeight: '500' as const }, // 캡션 & 서브 정보
 } as const;
 
 // 간격 시스템 (§2)
+// [한글 주석] 여백도 기기 폭을 따라간다 — 작은 화면에서 20px 좌우 여백은 콘텐츠 폭을 크게 갉아먹는다.
 export const spacing = {
-  globalPadding: 20, // px-5
-  verticalGap: 20, // space-y-5
-  gridGap: 10, // gap-2.5
+  globalPadding: s(20), // px-5
+  verticalGap: s(20), // space-y-5
+  gridGap: s(10), // gap-2.5
 } as const;
+
+// 반응형 유틸을 테마 경유로도 쓸 수 있게 재수출 (import 경로 한 곳으로 통일)
+export { fs, ms, s, useResponsive, vs, wp, hp, gridItemBasis } from './responsive';
+export type { Breakpoint, ResponsiveInfo } from './responsive';
 

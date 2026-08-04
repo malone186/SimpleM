@@ -858,6 +858,21 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 6371 * 2 * math.asin(math.sqrt(a))
 
 
+def _cut_title(text: str, limit: int = 50) -> str:
+    """행사 제목 길이 제한 — 단어 중간에서 자르지 않는다.
+
+    그냥 [:40]으로 자르면 "…[행복맘껏time] 두 번째 일요"처럼 말이 끊긴 채 알림 제목과
+    지도 카드에 그대로 나간다. 한도를 넘으면 마지막 공백까지만 남기고, 남는 게 너무
+    짧아지면(한 단어가 긴 경우) 그냥 자른다.
+    """
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    space = cut.rfind(" ")
+    return (cut[:space] if space >= limit // 2 else cut).rstrip()
+
+
 def _fetch_events_tourapi(lat: float, lon: float, start: date, days: int) -> list[dict[str, Any]]:
     """한국관광공사 TourAPI 축제·행사 — **전국** 커버. TOUR_API_KEY(data.go.kr 무료 발급) 필요.
 
@@ -898,7 +913,7 @@ def _fetch_events_tourapi(lat: float, lon: float, start: date, days: int) -> lis
         dist = _haversine_km(lat, lon, elat, elon)
         if dist > EVENT_RADIUS_KM:
             continue
-        title = (row.get("title") or "행사").strip()[:40]
+        title = _cut_title(row.get("title") or "행사")
         for i in range(days):
             d = start + timedelta(days=i)
             if ev_start <= d <= ev_end:
@@ -957,7 +972,7 @@ def _fetch_events_seoul(lat: float, lon: float, start: date, days: int) -> list[
             dist = _haversine_km(lat, lon, elat, elon)
             if dist > EVENT_RADIUS_KM:
                 continue
-            title = (row.get("TITLE") or "행사").strip()[:40]
+            title = _cut_title(row.get("TITLE") or "행사")
             if (title, d) in seen:
                 continue
             seen.add((title, d))
@@ -1052,7 +1067,7 @@ def _fetch_events_naver(lat: float, lon: float, start: date, days: int) -> list[
 
     events: list[dict[str, Any]] = []
     for row in (data.get("events") or [])[:8]:   # 지오코딩 호출을 아끼려고 상위 8건까지만
-        name = str(row.get("name") or "").strip()[:40]
+        name = _cut_title(str(row.get("name") or ""))
         place = str(row.get("place") or "").strip()[:30]
         if not (name and place):
             continue

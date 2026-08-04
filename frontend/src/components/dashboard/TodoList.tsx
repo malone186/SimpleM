@@ -28,6 +28,13 @@ export type Todo = {
   // 누르면 홍보 스튜디오로 이동하며 menu(홍보할 메뉴명)가 프롬프트에 자동 입력된다.
   action?: 'marketing';
   menu?: string;
+  // [한글 주석] 제목 아래 회색 한 줄 — 숫자 근거만 담는다 ("0kg 남음 · 안전재고 5kg").
+  // 제목은 '무엇을 할지'만, 근거는 여기로 나눠야 훑어볼 때 읽힌다.
+  // subtitle과 따로 두는 이유: subtitle엔 '사장님 직접 추가' 같은 안 보여줄 값도 들어온다.
+  meta?: string;
+  // [한글 주석] 재료가 다 떨어졌거나 서류 기한이 지난 급한 항목 — 제목 옆 빨간 배지 문구
+  // ('없음'·'지남'처럼 어려운 말 없이 짧게)
+  urgentLabel?: string;
 };
 
 const CATEGORIES: { id: TodoCategory; label: string; icon: string; tag: string }[] = [
@@ -562,10 +569,16 @@ function TodoItem({
 
         {/* [2. 한 줄로 깔끔하게 정돈된 타이틀 텍스트] */}
         <View style={{ flex: 1, marginLeft: 8 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1 }}>
             <Text style={[styles.taskItemTitle, disabled && styles.strike]} numberOfLines={2}>
               {displayTitle}
             </Text>
+            {/* 다 떨어졌거나 기한이 지난 급한 항목 강조 */}
+            {!!todo.urgentLabel && !disabled && (
+              <View style={styles.urgentBadge}>
+                <Text style={styles.urgentBadgeText}>{todo.urgentLabel}</Text>
+              </View>
+            )}
             {/* AI 출처 배지 */}
             {todo.source === 'ai' && (
               <View style={[styles.aiBadge, disabled && styles.aiBadgeDone]}>
@@ -573,6 +586,12 @@ function TodoItem({
               </View>
             )}
           </View>
+          {/* 숫자 근거 한 줄 — 제목이 짧아진 만큼 여기서 상황을 보여준다 */}
+          {!!todo.meta && (
+            <Text style={[styles.taskItemMeta, disabled && styles.taskItemMetaDone]} numberOfLines={1}>
+              {todo.meta}
+            </Text>
+          )}
           {/* 홍보 추천 항목 — 누르면 등록된 전체 메뉴에서 홍보할 메뉴를 고르는 모달이 열린다 */}
           {todo.action === 'marketing' && !disabled && (
             <TouchableOpacity
@@ -851,6 +870,28 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#8C827A',
     flexShrink: 1,
+  },
+  // 제목 아래 숫자 근거 줄 (0kg 남음 · 안전재고 5kg)
+  taskItemMeta: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#9A8E84',
+    letterSpacing: -0.2,
+    marginTop: 2,
+  },
+  taskItemMetaDone: {
+    color: '#B5ABA2',
+  },
+  urgentBadge: {
+    backgroundColor: '#FEE2E2',
+    borderRadius: 999,
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+  },
+  urgentBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#DC2626',
   },
   strike: {
     textDecorationLine: 'line-through',

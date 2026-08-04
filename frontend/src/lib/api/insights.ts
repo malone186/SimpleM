@@ -7,14 +7,21 @@ import { apiFetch } from './client';
 
 /** 인사이트가 속한 영역 */
 export type InsightCategory =
-  | 'inventory'  // 재고 소진 예상, 단가 인상, 잠자는 재고
-  | 'order'      // 진행 안 된 발주
-  | 'document'   // 갱신 서류, 확정 안 한 명세서, 장부·실사표
-  | 'tax'        // 신고 기한
-  | 'sales'      // 매출 급락
-  | 'staff'      // 주휴수당, 근로계약서
-  | 'data'       // 판매 입력 누락, 레시피 없는 메뉴
-  | 'market';    // 주변 상권 변화 — 경쟁 카페 개업·폐업
+  | 'inventory'   // 재고 소진 예상, 단가 인상, 잠자는 재고, 원두 시세 하락
+  | 'order'       // 보내지 않은 발주서
+  | 'document'    // 갱신 서류, 확정 안 한 명세서, 장부·실사표
+  | 'tax'         // 신고 기한
+  | 'sales'       // 매출 급락
+  | 'staff'       // 주휴수당, 근로계약서, 임금명세서
+  | 'data'        // 판매 입력 누락, 레시피 없는 메뉴
+  | 'market'      // 주변 상권 변화 — 경쟁 카페 개업·폐업
+  | 'settlement'  // 카드 정산 — 어제 매출 미입력, 오늘 입금 예정
+  | 'customer'    // 단골 — 대기 중인 체크인, 뜸해진 단골
+  | 'marketing'   // 홍보 공백, 주말 홍보 타이밍
+  | 'system'      // 연동 상태 — POS 오류·동기화 정지, 설비 이상
+  | 'forecast'    // 내일 수요 급증·비 예보
+  | 'menu'        // 메뉴 수익성 — 원가율, 팔수록 손해인 메뉴
+  | 'reward';     // 안 쓰고 쌓인 포인트
 
 /** high=지금 조치, medium=이번 주, low=알아두면 좋음 */
 export type InsightSeverity = 'high' | 'medium' | 'low';
