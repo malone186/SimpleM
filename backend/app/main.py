@@ -95,6 +95,33 @@ try:
 except Exception:
     logger.exception("DB 테이블 자동 생성 실패 — DB 연결을 확인하세요. DB 없이 서버를 계속 띄웁니다.")
 
+def _check_timezone() -> None:
+    """서버의 로컬 시간대가 KST인지 확인하고, 아니면 크게 경고한다.
+
+    코드 상당수가 date.today()/datetime.now()로 '오늘'을 구한다 — 즉 로컬 시간대가
+    한국이어야 맞다. 컨테이너 기본값은 UTC라서, TZ를 안 주면 자정~오전 9시(KST)에
+    '오늘'이 어제가 된다. 아침 브리핑·리포트·정산 입금일·예측이 다 이 시간대에 돌아
+    조용히 하루씩 밀린다 — 에러가 안 나서 로그만 봐서는 절대 못 찾는다.
+
+    Dockerfile이 TZ=Asia/Seoul을 주지만, zoneinfo가 없으면 그 설정은 조용히 무시된다.
+    그래서 '설정했다'가 아니라 '실제로 +9인가'를 뜬 뒤에 확인한다.
+    """
+    from datetime import datetime, timedelta
+
+    offset = datetime.now().astimezone().utcoffset() or timedelta(0)
+    if offset == timedelta(hours=9):
+        logger.info("시간대 확인: KST(+09:00) — 오늘 날짜 %s", datetime.now().date())
+        return
+    logger.error(
+        "[시간대 경고] 서버 로컬 시간대가 KST가 아닙니다 (UTC%+.1f시간). "
+        "'오늘'을 쓰는 기능(아침 브리핑·리포트·정산·예측)이 날짜를 잘못 계산합니다. "
+        "컨테이너에 TZ=Asia/Seoul과 tzdata를 주세요. 현재 로컬 날짜=%s / 한국 날짜=%s",
+        offset.total_seconds() / 3600,
+        datetime.now().date(),
+        (datetime.now().astimezone() + (timedelta(hours=9) - offset)).date(),
+    )
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     """앱 수명 훅 — 백그라운드 폴링 작업들을 띄운다 (백엔드 B).
@@ -113,6 +140,8 @@ async def _lifespan(app: FastAPI):
     from app.api.v1.pos import auto_sync_loop
     from app.services.ai.nearby_event_service import nearby_event_refresh_loop
     from app.services.operation.bean_market_service import price_snapshot_loop
+
+    _check_timezone()
 
     pos_task = asyncio.create_task(auto_sync_loop())
     snapshot_task = asyncio.create_task(price_snapshot_loop())
