@@ -180,13 +180,21 @@ def _item_to_cafe(item: dict[str, Any], lat: float, lon: float) -> Optional[dict
 
 
 def find_nearby_cafes(lat: float, lon: float, radius_m: int = 1000, limit: int = 20,
-                      exclude_name: str = "") -> dict[str, Any]:
+                      exclude_name: str = "",
+                      exclude_place: Optional[dict[str, str]] = None) -> dict[str, Any]:
     """매장 좌표 기준 반경 안의 카페 목록 (거리순).
 
     반환: {"region": "서울특별시 강남구 역삼동", "radius_m": 1000, "count": n, "cafes": [...]}
     카페 하나: {name, category, address, telephone, link, lat, lon, distance_m}
+
+    exclude_place: '내 카페'로 지정(link)한 네이버 장소 {"name","address"} — 등록 상호
+    (exclude_name)와 네이버 상호가 다르거나 지도 핀이 50m 넘게 어긋나면 이름 매칭이
+    빗나가 내 가게가 경쟁 목록에 유사도 100%로 뜬다. 지정 장소는 이름(+주소)으로 뺀다.
     """
-    cache_key = f"{round(lat, 4)},{round(lon, 4)},{radius_m},{limit},{exclude_name}"
+    ex_place_name = re.sub(r"\s+", "", (exclude_place or {}).get("name", "")).lower()
+    ex_place_addr = re.sub(r"\s+", "", (exclude_place or {}).get("address", "")).lower()
+    cache_key = (f"{round(lat, 4)},{round(lon, 4)},{radius_m},{limit},{exclude_name},"
+                 f"{ex_place_name}|{ex_place_addr}")
     hit = _cafe_cache.get(cache_key)
     if hit and time.time() - hit[0] < _CAFE_TTL:
         return {**hit[1], "cached": True}
@@ -236,8 +244,16 @@ def find_nearby_cafes(lat: float, lon: float, radius_m: int = 1000, limit: int =
             if key in seen:
                 continue
             # 내 매장 자신은 경쟁 목록에서 뺀다 (상호가 같고 20m 안이면 본인으로 본다)
-            if excluded and re.sub(r"\s+", "", cafe["name"]).lower() == excluded and cafe["distance_m"] < 50:
+            norm_name = re.sub(r"\s+", "", cafe["name"]).lower()
+            if excluded and norm_name == excluded and cafe["distance_m"] < 50:
                 continue
+            # '내 카페'로 지정한 네이버 장소는 확실히 뺀다 — 이름이 같고
+            # (주소까지 같거나 · 주소 정보가 없으면 반경 300m 안이면) 본인으로 본다.
+            if ex_place_name and norm_name == ex_place_name:
+                norm_addr = re.sub(r"\s+", "", cafe.get("address", "")).lower()
+                if (ex_place_addr and norm_addr == ex_place_addr) \
+                        or (not ex_place_addr and cafe["distance_m"] < 300):
+                    continue
             seen.add(key)
             cafes.append(cafe)
 
@@ -503,12 +519,14 @@ _NEIGHBORHOOD_PROMPT = """너는 카페 사장님 전용 상권 분석가다.
 
 def analyze_neighborhood(lat: float, lon: float, store_name: str = "내 매장",
                          biz_type: str = "", radius_m: int = 1000,
-                         limit: int = 20) -> dict[str, Any]:
+                         limit: int = 20,
+                         exclude_place: Optional[dict[str, str]] = None) -> dict[str, Any]:
     """주변 카페를 모으고 상권 전체를 Gemini로 분석한다 (매장 지도 화면의 요약 카드용).
 
     반환: {region, radius_m, count, cafes:[...], insight:{...}|None}
     """
-    found = find_nearby_cafes(lat, lon, radius_m=radius_m, limit=limit, exclude_name=store_name)
+    found = find_nearby_cafes(lat, lon, radius_m=radius_m, limit=limit,
+                              exclude_name=store_name, exclude_place=exclude_place)
     cafes = found["cafes"]
     region = found["region"]
 

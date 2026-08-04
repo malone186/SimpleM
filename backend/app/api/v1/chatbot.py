@@ -444,6 +444,21 @@ def _store_point(current_user: User, lat: Optional[float], lon: Optional[float])
     )
 
 
+def _linked_place(store_id: str) -> Optional[dict[str, str]]:
+    """'내 카페'로 지정(link)한 네이버 장소 — 주변 카페 목록에서 본인 가게를 빼는 데 쓴다."""
+    try:
+        from app.models.ai import CafeReviewLink
+        from app.services.ai.document_service import _session
+
+        with _session() as db:
+            row = db.get(CafeReviewLink, store_id)
+            if row and row.place_name:
+                return {"name": row.place_name, "address": row.place_address or ""}
+    except Exception:
+        pass
+    return None
+
+
 @router.get("/nearby-cafes")
 def get_nearby_cafes_api(
     lat: Optional[float] = None,
@@ -463,6 +478,7 @@ def get_nearby_cafes_api(
             radius_m=max(200, min(radius_m, 3000)),
             limit=max(1, min(limit, 30)),
             exclude_name=current_user.store_name or "",
+            exclude_place=_linked_place(current_user.email),
         )
     except nearby_cafe_service.NearbyCafeError as e:
         raise HTTPException(503, str(e))
@@ -514,6 +530,7 @@ def get_neighborhood_insight_api(
             biz_type=current_user.store_biz_type or "",
             radius_m=max(200, min(radius_m, 3000)),
             limit=max(1, min(limit, 30)),
+            exclude_place=_linked_place(current_user.email),
         )
     except nearby_cafe_service.NearbyCafeError as e:
         raise HTTPException(503, str(e))
