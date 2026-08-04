@@ -228,6 +228,13 @@ export default function AuthScreen() {
   const [findEmailInput, setFindEmailInput] = useState('');
   const [findNewPwInput, setFindNewPwInput] = useState(''); // 재설정할 새 비밀번호
   const [findBusy, setFindBusy] = useState(false);
+  // [한글 주석] 비밀번호 재설정 방식 — 'mail'은 Firebase 재설정 링크, 'verify'는 본인확인 후 즉시 변경.
+  //
+  // 계정이 사는 곳이 두 군데다(auth/loginFallback.ts 참고). 데모 계정과 백엔드로 가입한
+  // 계정은 Firebase에 없어서 재설정 메일이 아예 발송되지 않는데, 화면은 계정 존재를 숨기려고
+  // "가입된 이메일이면 보냈어요"라고만 하니 사장님은 오지 않는 메일을 계속 기다리게 됐다.
+  // 그래서 메일을 못 받았을 때 쓸 수 있는 본인확인 재설정을 항상 열어 둔다.
+  const [resetMode, setResetMode] = useState<'mail' | 'verify'>('mail');
   const submitStaff = async () => {
     if (!staffId.trim() || !staffPw.trim()) {
       setError('아이디와 비밀번호를 입력해 주세요.');
@@ -822,6 +829,7 @@ export default function AuthScreen() {
                         setFindPhoneInput('');
                         setFindEmailInput('');
                         setFindNewPwInput('');
+                        setResetMode('mail'); // 매번 기본(메일)에서 시작한다
                         setShowFindModal(true);
                       }}
                       to={0.96}
@@ -1342,7 +1350,7 @@ export default function AuthScreen() {
                   <Text style={styles.submitText}>{findBusy ? '조회 중…' : '아이디 찾기'}</Text>
                 </PressableScale>
               </View>
-            ) : firebaseAuthEnabled ? (
+            ) : firebaseAuthEnabled && resetMode === 'mail' ? (
               // Firebase 로그인 환경 — 로그인이 검증하는 Firebase 비밀번호를 바꾸려면 재설정 메일이 정답.
               <View style={{ gap: 10, marginTop: 12 }}>
                 <Text style={styles.findDesc}>
@@ -1362,9 +1370,24 @@ export default function AuthScreen() {
                 >
                   <Text style={styles.submitText}>{findBusy ? '메일 보내는 중…' : '재설정 메일 보내기'}</Text>
                 </PressableScale>
+                {/* 메일이 안 오는 계정(백엔드로 가입·데모 계정)을 위한 출구 */}
+                <PressableScale
+                  onPress={() => {
+                    setResetMode('verify');
+                    setFindResult(null);
+                  }}
+                  to={0.97}
+                >
+                  <Text style={styles.findSwitchLink}>
+                    메일이 오지 않나요? 휴대폰 번호로 바로 재설정하기
+                  </Text>
+                </PressableScale>
               </View>
             ) : (
-              // Firebase 미설정(mock) 폴백 — 메일 인프라가 없으니 본인확인 후 즉시 재설정.
+              // 본인확인 후 즉시 재설정 — 메일 인프라가 없는 환경(mock)과,
+              // Firebase에 계정이 없어 재설정 메일이 나가지 않는 계정이 함께 쓴다.
+              // 바꾼 비밀번호는 백엔드에 저장되고, 로그인은 Firebase 실패 시 백엔드로
+              // 폴백하므로(auth/loginFallback.ts) 어느 쪽 계정이든 이 비밀번호로 들어갈 수 있다.
               <View style={{ gap: 10, marginTop: 12 }}>
                 <Text style={styles.findDesc}>
                   본인 확인을 위해 가입 이메일과 휴대폰 번호를 입력하시면 새 비밀번호로 즉시 재설정됩니다.
@@ -1396,6 +1419,17 @@ export default function AuthScreen() {
                 >
                   <Text style={styles.submitText}>{findBusy ? '변경 중…' : '비밀번호 재설정'}</Text>
                 </PressableScale>
+                {firebaseAuthEnabled && (
+                  <PressableScale
+                    onPress={() => {
+                      setResetMode('mail');
+                      setFindResult(null);
+                    }}
+                    to={0.97}
+                  >
+                    <Text style={styles.findSwitchLink}>재설정 메일로 받기</Text>
+                  </PressableScale>
+                )}
               </View>
             )}
 
@@ -1867,6 +1901,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.mochaBrown,
     lineHeight: 18,
+  },
+  // 재설정 방식 전환 링크 (메일 ↔ 본인확인)
+  findSwitchLink: {
+    ...typography.L5,
+    fontSize: 12,
+    color: colors.espressoBrown,
+    textAlign: 'center',
+    textDecorationLine: 'underline',
+    paddingVertical: 6,
   },
   findResultBox: {
     flexDirection: 'row',
