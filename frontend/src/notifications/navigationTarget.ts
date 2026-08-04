@@ -10,7 +10,7 @@ import { createNavigationContainerRef } from '@react-navigation/native';
 export const navigationRef = createNavigationContainerRef();
 
 /** 하단 탭에 속한 화면들 — 스택이 아니라 'Tabs' 안에 중첩돼 있어 따로 넘겨야 한다 */
-const TAB_SCREENS = new Set(['Dashboard', 'Inventory', 'Order', 'Chatbot', 'Management']);
+const TAB_SCREENS = new Set(['Dashboard', 'Inventory', 'Chatbot', 'Management']);
 
 /**
  * 서버가 보낸 screen 값을 실제 라우트 이름으로 교정한다.
@@ -19,10 +19,13 @@ const TAB_SCREENS = new Set(['Dashboard', 'Inventory', 'Order', 'Chatbot', 'Mana
  * 이동이 조용히 실패했다. 서버는 고쳤지만 이미 발송된 알림과 기기에 남아 있는
  * 알림에는 옛 값이 그대로 있으므로 여기서도 흡수한다.
  */
+// 'Order'(발주)는 탭에서 빠진 화면이라 라우트가 없다. 서버·기기에 남아 있는 알림이
+// 아직 Order를 보내므로, 같은 내용을 다루는 재고 화면으로 흡수한다.
 const ALIASES: Record<string, string> = {
   Documents: 'Document',
   Report: 'Dashboard',
-  Stock: 'Order',
+  Order: 'Inventory',
+  Stock: 'Inventory',
 };
 
 export type PushTarget = { screen: string; params?: Record<string, string> };

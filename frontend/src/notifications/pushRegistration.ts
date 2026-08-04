@@ -76,7 +76,7 @@ async function ensureChannels(N: typeof import('expo-notifications')): Promise<v
 
   await N.setNotificationChannelAsync(CHANNEL_DEFAULT, {
     name: '브루노트 알림',
-    description: '경영 리포트·재고 소진·서류 갱신 안내',
+    description: '매출 리포트·재료 부족·서류 갱신 안내',
     importance: N.AndroidImportance.DEFAULT,
     sound: 'default',
   });
