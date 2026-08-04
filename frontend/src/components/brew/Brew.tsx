@@ -96,7 +96,8 @@ export default function Brew({
   const poseSource = (apronColor && APRON_VARIANTS[mood]?.[apronColor as ApronColor]) || POSES[mood];
   // 눈 뜬 포즈만 눈 깜빡임 오버레이가 있다. 있으면 눈 부위만 잠깐 감았다 뜬다.
   // (앞치마 색 변형 위에도 그대로 얹힌다 — 눈은 상단, 앞치마는 하단이라 안 겹친다)
-  const blinkSource = disableMotion ? undefined : BLINK_OVERLAY[mood];
+  // 깜빡임은 흔들림(sway)과 별개다 — disableMotion(홈 마스코트·썸네일)이어도 눈은 깜빡인다.
+  const blinkSource = BLINK_OVERLAY[mood];
   // [한글 주석: disableMotion이 켜지면 강아지 고유의 흔들림 모션을 'none'(정지) 상태로 바꿉니다]
   const motion = disableMotion ? 'none' : MOTION_BY_MOOD[mood];
 
@@ -121,9 +122,10 @@ export default function Brew({
   // 눈 깜빡임 — 몇 초에 한 번 눈 부위 오버레이 opacity를 잠깐 1로 올렸다 내린다.
   useEffect(() => {
     if (!blinkSource) return;
+    // 약 1.5초에 한 번 깜빡임 — 대기(1235) + 감기(85) + 멈춤(60) + 뜨기(120) ≈ 1500ms
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.delay(3400),
+        Animated.delay(1235),
         Animated.timing(blink, { toValue: 1, duration: 85, easing: Easing.out(Easing.quad), useNativeDriver: true }),
         Animated.delay(60),
         Animated.timing(blink, { toValue: 0, duration: 120, easing: Easing.in(Easing.quad), useNativeDriver: true }),
