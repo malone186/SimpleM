@@ -29,6 +29,7 @@ import StoreLocationMap from '../../components/dashboard/StoreLocationMap';
 import StoreLocationPicker from '../../components/dashboard/StoreLocationPicker';
 import {
   getCafeAnalysis,
+  getCafeSimilarity,
   getMyCafeCandidates,
   getMyCafeReviews,
   getNearbyCafeChanges,
@@ -37,6 +38,7 @@ import {
   type CafeAnalysisResult,
   type CafeCandidate,
   type CafeChangesResult,
+  type CafeSimilarity,
   type NearbyCafe,
   type NeighborhoodResult,
 } from '../../lib/api/nearbyCafes';
@@ -94,6 +96,10 @@ export default function StoreMapScreen() {
   const [analysis, setAnalysis] = useState<CafeAnalysisResult | null>(null);
   const [analysisError, setAnalysisError] = useState('');
 
+  // 내 카페와의 유사도 — 카페 이름 → {total, tier, axes, reason}. 목록 배지·정렬·상세 비교에 쓴다.
+  const [simMap, setSimMap] = useState<Record<string, CafeSimilarity>>({});
+  const [sortMode, setSortMode] = useState<'distance' | 'similarity'>('distance');
+
   // 내 카페 리뷰 — 사장님이 자기 가게 후기를 지도 화면에서 바로 확인
   const [myCafe, setMyCafe] = useState<CafeAnalysisResult | null>(null);
   const [loadingMyCafe, setLoadingMyCafe] = useState(false);
@@ -144,6 +150,22 @@ export default function StoreMapScreen() {
       try {
         const data = await getNeighborhoodInsight(token, radiusM);
         setNearby(data);
+        // 유사도 채점은 뒤이어 비동기로 — 배지가 준비되는 대로 목록에 나타난다
+        if (data.cafes.length > 0) {
+          getCafeSimilarity(
+            token,
+            data.region ?? '',
+            data.cafes.map((c) => ({ name: c.name, category: c.category, distance_m: c.distance_m })),
+          )
+            .then((sim) => {
+              const map: Record<string, CafeSimilarity> = {};
+              sim.results.forEach((r) => { map[r.name] = r; });
+              setSimMap(map);
+            })
+            .catch(() => setSimMap({})); // 채점 실패해도 목록은 그대로 (배지만 생략)
+        } else {
+          setSimMap({});
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         setNearbyError(msg.replace(/^\d+\s·\s/, ''));
@@ -367,7 +389,15 @@ export default function StoreMapScreen() {
   const eventInsight = events?.insight ?? null;
   // 목록은 거리순이라 첫 항목이 곧 가장 가까운 경쟁점이다
   const nearest = nearby?.cafes[0]?.distance_m ?? null;
-  const visibleCafes = showAllCafes ? (nearby?.cafes ?? []) : (nearby?.cafes ?? []).slice(0, 5);
+  // 정렬: 거리순(기본) ↔ 유사도순. 유사도 미채점 카페는 뒤로 보낸다.
+  const sortedCafes = (() => {
+    const list = [...(nearby?.cafes ?? [])];
+    if (sortMode === 'similarity') {
+      list.sort((a, b) => (simMap[b.name]?.total ?? -1) - (simMap[a.name]?.total ?? -1));
+    }
+    return list;
+  })();
+  const visibleCafes = showAllCafes ? sortedCafes : sortedCafes.slice(0, 5);
 
   return (
     <View style={styles.root}>
@@ -524,6 +554,24 @@ export default function StoreMapScreen() {
             </View>
           </View>
 
+          {/* 정렬 토글 — 유사도는 채점이 끝난 뒤에만 선택 가능 */}
+          {Object.keys(simMap).length > 0 && (
+            <View style={styles.sortRow}>
+              {([['distance', '거리순'], ['similarity', '유사도순']] as const).map(([mode, label]) => (
+                <TouchableOpacity
+                  key={mode}
+                  style={[styles.chip, sortMode === mode && styles.chipActive]}
+                  onPress={() => setSortMode(mode)}
+                >
+                  <Text style={[styles.chipText, sortMode === mode && styles.chipTextActive]}>
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              <Text style={styles.sortHint}>유사도 = 내 카페와 메뉴·가격·컨셉이 겹치는 정도</Text>
+            </View>
+          )}
+
           {loadingNearby ? (
             <View style={styles.inlineLoading}>
               <ActivityIndicator size="small" color={colors.mochaBrown} />
@@ -623,6 +671,13 @@ export default function StoreMapScreen() {
                       {cafe.category.split('>').pop()}
                     </Text>
                   </View>
+                  {simMap[cafe.name] && (
+                    <View style={[styles.simBadge, simBadgeTone(simMap[cafe.name].total).bg]}>
+                      <Text style={[styles.simBadgeText, simBadgeTone(simMap[cafe.name].total).fg]}>
+                        유사 {simMap[cafe.name].total}%
+                      </Text>
+                    </View>
+                  )}
                   <Ionicons name="chevron-forward" size={16} color={colors.mochaBrown} />
                 </TouchableOpacity>
               ))}
@@ -844,6 +899,33 @@ export default function StoreMapScreen() {
             </View>
 
             <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
+              {/* 내 카페와의 유사도 — 총점 + 5축 비교 (메뉴30·가격25·컨셉20·분위기15·고객층10 가중) */}
+              {selected && simMap[selected.name] && (
+                <View style={styles.simBox}>
+                  <View style={styles.simBoxHead}>
+                    <Text style={styles.simBoxTitle}>우리 가게와 유사도 {simMap[selected.name].total}%</Text>
+                    <View style={[styles.simBadge, simBadgeTone(simMap[selected.name].total).bg]}>
+                      <Text style={[styles.simBadgeText, simBadgeTone(simMap[selected.name].total).fg]}>
+                        {simMap[selected.name].tier}
+                      </Text>
+                    </View>
+                  </View>
+                  {([['menu', '메뉴'], ['price', '가격대'], ['concept', '컨셉'],
+                     ['atmosphere', '분위기'], ['customers', '고객층']] as const).map(([k, label]) => (
+                    <View key={k} style={styles.axisRow}>
+                      <Text style={styles.axisLabel}>{label}</Text>
+                      <View style={styles.axisTrack}>
+                        <View style={[styles.axisFill, { width: `${simMap[selected.name].axes[k]}%` }]} />
+                      </View>
+                      <Text style={styles.axisValue}>{simMap[selected.name].axes[k]}</Text>
+                    </View>
+                  ))}
+                  {!!simMap[selected.name].reason && (
+                    <Text style={styles.simReason}>{simMap[selected.name].reason}</Text>
+                  )}
+                </View>
+              )}
+
               {analysisError ? (
                 <Text style={styles.errorText}>{analysisError}</Text>
               ) : !analysis ? (
@@ -1098,6 +1180,17 @@ function formatEventRange(start: string, end: string) {
 }
 
 // 한눈 요약 숫자 한 칸 (주변 카페 수 · 최근접 거리 · 경쟁 강도)
+// 유사도 배지 색 — 높을수록 '직접 경쟁'이라 경고 톤, 낮으면 공존 가능이라 초록 톤
+function simBadgeTone(total: number) {
+  if (total >= 80) {
+    return { bg: { backgroundColor: 'rgba(178, 59, 46, 0.10)' }, fg: { color: '#B23B2E' } };
+  }
+  if (total >= 50) {
+    return { bg: { backgroundColor: 'rgba(216, 150, 20, 0.14)' }, fg: { color: '#9A6B00' } };
+  }
+  return { bg: { backgroundColor: colors.trendGreenBg }, fg: { color: colors.trendGreenText } };
+}
+
 function Stat({ value, label, accent }: { value: string; label: string; accent?: boolean }) {
   return (
     <View style={styles.statBox}>
@@ -1360,6 +1453,29 @@ const styles = StyleSheet.create({
   distanceText: { ...typography.L5, color: colors.trendGreenText, fontWeight: '800' },
   cafeName: { ...typography.L4, color: colors.espressoBrown },
   cafeMeta: { ...typography.L5, color: colors.mochaBrown, marginTop: 2 },
+
+  // ── 유사도 (정렬 토글 · 배지 · 상세 축 비교) ──
+  sortRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  sortHint: { ...typography.L5, color: '#AEAEB2', marginLeft: 2, flexShrink: 1 },
+  simBadge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 },
+  simBadgeText: { fontSize: 10.5, fontWeight: '800' },
+  simBox: {
+    backgroundColor: colors.white,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    gap: 7,
+  },
+  simBoxHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 },
+  simBoxTitle: { ...typography.L4, fontSize: 13.5, color: colors.espressoBrown },
+  axisRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  axisLabel: { ...typography.L5, color: colors.mochaBrown, width: 42 },
+  axisTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: colors.coffeeCream, overflow: 'hidden' },
+  axisFill: { height: '100%', borderRadius: 3, backgroundColor: colors.espressoBrown },
+  axisValue: { ...typography.L5, color: colors.espressoBrown, width: 24, textAlign: 'right', fontWeight: '700' },
+  simReason: { ...typography.L5, color: colors.mochaBrown, lineHeight: 16, marginTop: 3 },
 
   // --- 주변 행사 ---
   // '없음'과 '못 불러옴'을 같은 상자로 — 화면이 빨간 오류 카드로 놀라게 하지 않는다

@@ -56,8 +56,11 @@ try:
     ensure_notification_setting_columns(engine)
 
     # [자가치유] 기존 sales 테이블에 단골 연결용 customer_id·payment_method를 보강한다.
-    from app.models.membership import ensure_sale_customer_columns
+    from app.models.membership import (
+        ensure_membership_extra_columns, ensure_sale_customer_columns,
+    )
     ensure_sale_customer_columns(engine)
+    ensure_membership_extra_columns(engine)
 
     # [한글 주석] 로그인 데모를 즉시 하실 수 있게 테스트용 사장님 계정을 자동으로 생성(시딩)해 둡니다.
     db_session = SessionLocal()
@@ -92,19 +95,25 @@ async def _lifespan(app: FastAPI):
     · 원두 시세 스냅샷: 가격 이력을 하루 1회 쌓아 추이(트렌드)의 원천 데이터를 만든다.
       오늘 쌓기 시작해야 다음 주에 그래프가 나오므로 앱이 뜰 때부터 돌린다.
       BEAN_SNAPSHOT_INTERVAL=0 이면 비활성.
+    · 주변 행사 프리페치: 매일 새벽(NEARBY_EVENT_REFRESH_HOUR, 기본 4시) 등록된 모든 매장의
+      주변 행사 캐시를 미리 채운다. 지도 화면 첫 열람이 즉시 뜨고, 그날 최신 행사가 반영된다.
+      NEARBY_EVENT_REFRESH_HOUR<0 이면 비활성.
     """
     import asyncio
 
     from app.api.v1.pos import auto_sync_loop
+    from app.services.ai.nearby_event_service import nearby_event_refresh_loop
     from app.services.operation.bean_market_service import price_snapshot_loop
 
     pos_task = asyncio.create_task(auto_sync_loop())
     snapshot_task = asyncio.create_task(price_snapshot_loop())
+    event_task = asyncio.create_task(nearby_event_refresh_loop())
     try:
         yield
     finally:
         pos_task.cancel()
         snapshot_task.cancel()
+        event_task.cancel()
 
 
 app = FastAPI(

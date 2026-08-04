@@ -56,7 +56,7 @@ def naver(monkeypatch):
     """find_nearby_cafes 스텁 — 테스트가 '오늘 검색에 잡힌 카페'를 직접 정한다."""
     state = {"cafes": []}
 
-    def fake(lat, lon, radius_m=1000, limit=20, exclude_name=""):
+    def fake(lat, lon, radius_m=1000, limit=20, exclude_name="", **kwargs):
         return {"region": "서울특별시 강남구 역삼동", "radius_m": radius_m,
                 "count": len(state["cafes"]), "cafes": list(state["cafes"]), "cached": False}
 

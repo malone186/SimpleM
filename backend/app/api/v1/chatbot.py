@@ -55,6 +55,7 @@ from app.schemas.ai import (
     TodoUpdate,
 )
 from app.services.ai import (
+    cafe_similarity_service,
     chat_quota_service,
     document_service,
     forecast_service,
@@ -444,6 +445,21 @@ def _store_point(current_user: User, lat: Optional[float], lon: Optional[float])
     )
 
 
+def _linked_place(store_id: str) -> Optional[dict[str, str]]:
+    """'내 카페'로 지정(link)한 네이버 장소 — 주변 카페 목록에서 본인 가게를 빼는 데 쓴다."""
+    try:
+        from app.models.ai import CafeReviewLink
+        from app.services.ai.document_service import _session
+
+        with _session() as db:
+            row = db.get(CafeReviewLink, store_id)
+            if row and row.place_name:
+                return {"name": row.place_name, "address": row.place_address or ""}
+    except Exception:
+        pass
+    return None
+
+
 @router.get("/nearby-cafes")
 def get_nearby_cafes_api(
     lat: Optional[float] = None,
@@ -463,9 +479,35 @@ def get_nearby_cafes_api(
             radius_m=max(200, min(radius_m, 3000)),
             limit=max(1, min(limit, 30)),
             exclude_name=current_user.store_name or "",
+            exclude_place=_linked_place(current_user.email),
         )
     except nearby_cafe_service.NearbyCafeError as e:
         raise HTTPException(503, str(e))
+
+
+class SimilarityCafeIn(BaseModel):
+    name: str
+    category: str = ""
+    distance_m: int = 0
+
+
+class SimilarityRequest(BaseModel):
+    region: str = ""
+    cafes: list[SimilarityCafeIn]
+
+
+@router.post("/nearby-cafes/similarity")
+def cafe_similarity_api(
+    body: SimilarityRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """주변 카페들을 내 카페와 5축(메뉴30·가격25·컨셉20·분위기15·고객층10) 비교해
+    유사도 0~100%를 매긴다. 내 카페 프로필 = DB(메뉴·가격·업태) + 내 매장 리뷰 분석."""
+    return cafe_similarity_service.score_nearby(
+        current_user.email,
+        [c.model_dump() for c in body.cafes],
+        region=body.region,
+    )
 
 
 @router.get("/nearby-cafes/insight")
@@ -489,6 +531,7 @@ def get_neighborhood_insight_api(
             biz_type=current_user.store_biz_type or "",
             radius_m=max(200, min(radius_m, 3000)),
             limit=max(1, min(limit, 30)),
+            exclude_place=_linked_place(current_user.email),
         )
     except nearby_cafe_service.NearbyCafeError as e:
         raise HTTPException(503, str(e))
@@ -1380,6 +1423,19 @@ def grant_chat_quota(store_id: Optional[str] = Depends(_optional_store_id)) -> d
 # ---------------------------------------------------------------------------
 # 할 일 목록 — 사장님 직접 입력과 브루(AI) 추가가 같은 저장소를 쓴다
 # ---------------------------------------------------------------------------
+
+@router.get("/todos/ai-suggestions")
+def ai_todo_suggestions_api(current_user: User = Depends(get_current_user)):
+    """브루의 오늘 할 일 제안 — 재고·판매 데이터를 LLM이 읽고 실행형 문장으로 만든다.
+
+    '재고 부족' 같은 상태 나열 대신 "원두가 2kg 남았어요 — 오늘 발주하세요"로,
+    그리고 홍보 가치가 큰 메뉴 1개를 골라 "○○를 홍보해 보세요"(kind=promo)를 준다.
+    매장별 하루 캐시. 키 없으면 규칙 기반 문장으로 폴백.
+    """
+    from app.services.ai import ai_todo_service
+
+    return ai_todo_service.suggest_todos(current_user.email)
+
 
 @router.get("/todos", response_model=list[TodoResponse])
 def list_todos(current_user: User = Depends(get_current_user)):

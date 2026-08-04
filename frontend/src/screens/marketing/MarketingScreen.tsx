@@ -8,7 +8,7 @@
 // 서버가 들고 있다), 마음에 안 들면 이미지만 다시 그릴 수 있다.
 //
 // 지난 홍보물은 보관함(문서 kind=marketing_content)에서 다시 열어볼 수 있다.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -20,6 +20,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRoute } from '@react-navigation/native';
 
 import { useAuth } from '../../auth/AuthContext';
 import { PressableScale } from '../../components/motion';
@@ -79,6 +80,7 @@ type Phase = 'idle' | 'copy' | 'image' | 'restyle';
 
 export default function MarketingScreen() {
   const { token } = useAuth();
+  const route = useRoute<any>();
 
   // 입력 폼
   const [channel, setChannel] = useState<PromotionChannel>('instagram');
@@ -86,6 +88,24 @@ export default function MarketingScreen() {
   const [tone, setTone] = useState('');
   const [menu, setMenu] = useState('');
   const [imageStyle, setImageStyle] = useState(''); // IMAGE_STYLES의 key (빈 값 = 자동)
+
+  // [브루 추천 연결] 투두의 '홍보하러 가기'로 들어오면 홍보할 메뉴·주제가 자동 입력된다.
+  // ts를 의존성에 둬서 같은 메뉴를 다시 눌러도(파라미터 갱신) 다시 채워진다.
+  const autoRanTs = useRef<number>(0);
+  useEffect(() => {
+    const prefill = (route.params?.prefillMenu ?? '').trim();
+    if (!prefill) return;
+    setMenu(prefill);
+    const autoTopic = `${prefill} 집중 홍보`;
+    setTopic(autoTopic);
+    // 메뉴를 고른 순간 문구+이미지까지 자동 생성 — 결과가 뜨면 그 위에서 수정하면 된다.
+    // ts(누른 시각)로 같은 진입의 중복 실행을 막고, 재진입(새 ts)이면 다시 생성한다.
+    const ts = route.params?.ts ?? 0;
+    if (autoRanTs.current === ts) return;
+    autoRanTs.current = ts;
+    generate({ topic: autoTopic, menu: prefill });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.params?.prefillMenu, route.params?.ts]);
 
   // 생성 상태·결과
   const [phase, setPhase] = useState<Phase>('idle');
@@ -130,8 +150,10 @@ export default function MarketingScreen() {
     setSelectedImageId(focusImageId ?? imgs[imgs.length - 1]?.image_id ?? '');
   };
 
-  /** 문구 → 이미지 순서로 자동 생성. 문구가 나오는 즉시 화면에 먼저 보여준다. */
-  const generate = async () => {
+  /** 문구 → 이미지 순서로 자동 생성. 문구가 나오는 즉시 화면에 먼저 보여준다.
+   * overrides: 투두의 '홍보할 메뉴 고르기'로 진입한 직후엔 setState가 아직 반영 전이라
+   * 명시적 값으로 바로 생성한다 (버튼 클릭 시엔 인자 없이 상태값 사용). */
+  const generate = async (overrides?: { topic?: string; menu?: string }) => {
     if (!token) {
       toast('로그인이 필요해요', '로그인 후 홍보물을 만들 수 있습니다.');
       return;
@@ -143,7 +165,9 @@ export default function MarketingScreen() {
     setSelectedImageId('');
     setShowRaw(false);
     try {
-      const doc = await createPromotionCopy(token, { topic, channel, tone, menu });
+      const doc = await createPromotionCopy(token, {
+        topic: overrides?.topic ?? topic, channel, tone, menu: overrides?.menu ?? menu,
+      });
       setResult(doc); // 문구 먼저 표시 — 이미지는 아래에서 이어서
 
       setPhase('image');
@@ -397,7 +421,7 @@ export default function MarketingScreen() {
                 ? '홍보 이미지를 그리는 중...'
                 : '✨ AI 홍보물 만들기 (문구 + 이미지)'
           }
-          onPress={generate}
+          onPress={() => generate()}
           disabled={busy}
           style={{ marginTop: 14 }}
         />

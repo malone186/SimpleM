@@ -56,3 +56,18 @@ export async function deleteTodo(token: string, id: number): Promise<void> {
     headers: auth(token),
   });
 }
+
+// ── 브루의 오늘 할 일 제안 (LLM 실행형 문장 + 홍보 추천 메뉴) ──
+export type AiSuggestedTodo = {
+  id_hint: string;            // stock-<재료id> | promo-<메뉴명> — 숨김/완료 기록의 키
+  title: string;              // "원두가 2kg 남았어요 — 오늘 발주하세요"
+  subtitle: string;           // 근거 한 줄
+  kind: 'stock' | 'promo';
+  menu?: string | null;       // promo일 때 홍보할 메뉴명
+};
+
+export async function getAiTodoSuggestions(
+  token: string,
+): Promise<{ engine: string; todos: AiSuggestedTodo[] }> {
+  return apiFetch('/api/v1/chatbot/todos/ai-suggestions', { headers: auth(token) });
+}

@@ -237,3 +237,93 @@ def _attach_tips(events: list[dict[str, Any]], insight: Optional[dict[str, Any]]
     if not tips:
         return events
     return [{**e, "tip": tips.get(_norm(e["name"]), "")} for e in events]
+
+
+# ---------------------------------------------------------------------------
+# 3) 새벽 프리페치 — 지도 화면이 열리기 전에 캐시를 미리 데워 둔다
+# ---------------------------------------------------------------------------
+
+def refresh_all_stores(days: int = DEFAULT_DAYS) -> dict[str, Any]:
+    """매장 위치가 등록된 모든 사장님의 주변 행사 캐시를 미리 채운다.
+
+    지도 화면(GET /nearby-events)이 부르는 것과 '같은 인자'로 analyze_nearby_events를
+    호출한다 — store_lat/lon + store_name + 기본 days. 그래야 캐시 키가 맞아 화면이
+    열릴 때 이미 데워진 캐시(_event_cache 6h + _insight_cache 6h)를 그대로 쓴다.
+    첫 열람이 몇 초 걸리던 것을 없애고, 새벽마다 그날의 최신 행사를 미리 확보한다.
+
+    블로킹 호출(네이버·Gemini)이므로 매장을 '순차로' 돈다 — 팀 공유 Gemini 키를
+    새벽에 한꺼번에 때리지 않기 위해서다. 한 매장이 실패해도 다음으로 계속한다.
+    """
+    from app.core.database import SessionLocal
+    from app.models.user import User
+
+    db = SessionLocal()
+    try:
+        stores = (
+            db.query(User)
+            .filter(User.store_lat.isnot(None), User.store_lon.isnot(None))
+            .all()
+        )
+        # DB 커넥션을 네트워크 대기 동안 붙잡지 않도록 필요한 값만 뽑아 두고 닫는다
+        targets = [
+            (u.store_lat, u.store_lon,
+             u.store_name or u.name or "내 매장",
+             u.store_biz_type or "")
+            for u in stores
+        ]
+    finally:
+        db.close()
+
+    ok = 0
+    for lat, lon, store_name, biz_type in targets:
+        try:
+            analyze_nearby_events(lat, lon, store_name=store_name,
+                                  biz_type=biz_type, days=days)
+            ok += 1
+        except Exception:
+            logger.warning("[행사 프리페치] 매장 '%s' 갱신 실패 — 건너뜀", store_name, exc_info=True)
+    logger.info("[행사 프리페치] 매장 %d곳 중 %d곳 캐시 갱신 완료", len(targets), ok)
+    return {"stores": len(targets), "refreshed": ok, "failed": len(targets) - ok}
+
+
+async def nearby_event_refresh_loop() -> None:
+    """새벽에 하루 1회, 등록된 모든 매장의 주변 행사 캐시를 미리 채우는 백그라운드 루프.
+
+    NEARBY_EVENT_REFRESH_HOUR (KST, 기본 4시). 음수면 비활성.
+    30분마다 깨어나 '설정 시각 이후 + 오늘 아직 안 돌림'이면 1회 실행한다.
+    정시(4:00 정각) sleep이 아니라 이 방식인 이유 — 컨테이너가 새벽에 잠들어 있다
+    (Cloud Run 스케일-투-제로) 아침에야 깨어나도 그날 첫 기상에서 반드시 한 번 채운다.
+    프로세스가 새로 뜨면(재배포·재시작) 메모리 캐시가 비므로, 낮에 떠도 그 즉시 한 번 데운다.
+    """
+    import asyncio
+    import os
+    from datetime import datetime
+
+    from app.services.ai import forecast_service
+
+    try:
+        hour = int(os.getenv("NEARBY_EVENT_REFRESH_HOUR", "4"))
+    except ValueError:
+        hour = 4
+    if hour < 0:
+        logger.info("[행사 프리페치] NEARBY_EVENT_REFRESH_HOUR<0 — 자동 갱신 비활성")
+        return
+
+    logger.info("[행사 프리페치] 매일 %d시(KST) 이후 첫 기상에 캐시 갱신", hour)
+    last_date: Optional[str] = None
+    while True:
+        try:
+            now = datetime.now(forecast_service.KST)
+            today = now.date().isoformat()
+            # 설정 시각을 지났고 오늘 아직 안 돌렸으면 1회 (새 프로세스는 last_date=None이라 즉시 한 번)
+            if now.hour >= hour and last_date != today:
+                await asyncio.to_thread(refresh_all_stores)
+                last_date = today
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("[행사 프리페치] 루프 오류 — 다음 주기에 재시도")
+        try:
+            await asyncio.sleep(1800)  # 30분마다 점검
+        except asyncio.CancelledError:
+            raise

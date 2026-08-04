@@ -63,6 +63,19 @@ def _place_key(name: str, address: str) -> str:
     return re.sub(r"\s+", "", f"{name}|{address}").lower()[:200]
 
 
+def _linked_place(db, store_id: str) -> Optional[dict[str, str]]:
+    """사장님이 '이게 내 가게'라고 지정한 네이버 장소 (없으면 None)."""
+    from app.models.ai import CafeReviewLink
+
+    try:
+        row = db.get(CafeReviewLink, store_id)
+        if row and row.place_name:
+            return {"name": row.place_name, "address": row.place_address or ""}
+    except Exception:
+        logger.debug("내 카페 지정 조회 실패 — 제외 없이 계속", exc_info=True)
+    return None
+
+
 # ---------------------------------------------------------------------------
 # 1) 카페 개업 · 폐업 감시
 # ---------------------------------------------------------------------------
@@ -90,7 +103,10 @@ def scan_cafe_changes(db, store_id: str, lat: float, lon: float,
 
     try:
         found = nearby_cafe_service.find_nearby_cafes(
-            lat, lon, radius_m=radius_m, limit=WATCH_LIMIT, exclude_name=exclude_name)
+            lat, lon, radius_m=radius_m, limit=WATCH_LIMIT, exclude_name=exclude_name,
+            # '내 카페'로 지정한 장소도 함께 제외한다 — 안 그러면 내 매장이 검색에서
+            # 며칠 빠지는 날 "내 카페가 문을 닫은 것 같아요"라는 알림이 나간다.
+            exclude_place=_linked_place(db, store_id))
     except nearby_cafe_service.NearbyCafeError as e:
         logger.info("주변 카페 감시 건너뜀 (%s): %s", store_id, e)
         return {"scanned": 0, "opened": [], "closed": [], "baseline": baseline, "skipped": "collect_failed"}
