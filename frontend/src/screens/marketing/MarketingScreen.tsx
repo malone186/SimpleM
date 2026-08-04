@@ -439,38 +439,6 @@ export default function MarketingScreen() {
           })}
         </View>
 
-        {/* 실물 사진으로 만들기 — AI 그림 대신 '진짜 우리 메뉴' 사진에 감성 배경 합성 */}
-        <Text style={[styles.fieldLabel, { marginTop: 10 }]}>📷 내 사진으로 만들기 (배경 선택)</Text>
-        <View style={styles.styleRow}>
-          {PHOTO_BG_STYLES.map((s2) => {
-            const active = photoBgStyle === s2.key;
-            return (
-              <PressableScale
-                key={s2.key}
-                style={[styles.styleChip, active && styles.styleChipActive]}
-                onPress={() => setPhotoBgStyle(s2.key)}
-                to={0.93}
-              >
-                <Text style={[styles.styleText, active && styles.styleTextActive]}>
-                  {s2.label}
-                </Text>
-              </PressableScale>
-            );
-          })}
-          <PressableScale
-            style={[styles.styleChip, { backgroundColor: colors.espressoBrown }]}
-            onPress={makeFromPhoto}
-            to={0.93}
-          >
-            <Text style={[styles.styleText, { color: colors.white, fontWeight: '800' }]}>
-              {phase === 'image' ? '합성 중…' : '사진 올려서 만들기'}
-            </Text>
-          </PressableScale>
-        </View>
-        <Text style={styles.photoHint}>
-          메뉴 실물 사진을 올리면 배경만 감성 컷으로 바꿔 드려요 (사진 속 메뉴는 그대로)
-        </Text>
-
         <View style={styles.inputRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.fieldLabel}>말투 (선택)</Text>
@@ -506,6 +474,52 @@ export default function MarketingScreen() {
           disabled={busy}
           style={{ marginTop: 14 }}
         />
+
+        {/* ── 실물 사진으로 만들기 — AI가 '전체'를 그리는 위 버튼과 달리,
+              여기는 올린 사진의 메뉴는 그대로 두고 '배경만' 만들어 합성한다 ── */}
+        <View style={styles.photoDividerRow}>
+          <View style={styles.photoDividerLine} />
+          <Text style={styles.photoDividerText}>또는</Text>
+          <View style={styles.photoDividerLine} />
+        </View>
+        <View style={styles.photoBox}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+            <Ionicons name="camera" size={17} color={colors.espressoBrown} />
+            <Text style={styles.photoBoxTitle}>실물 사진으로 만들기</Text>
+          </View>
+          <Text style={styles.photoHint}>
+            메뉴 사진을 올리면 <Text style={{ fontWeight: '800' }}>메뉴는 그대로 두고 배경만</Text> 감성
+            컷으로 바꿔 드려요. AI가 그린 가짜 메뉴가 아니라 진짜 우리 메뉴가 담깁니다.
+          </Text>
+          <View style={styles.styleRow}>
+            {PHOTO_BG_STYLES.map((s2) => {
+              const active = photoBgStyle === s2.key;
+              return (
+                <PressableScale
+                  key={s2.key}
+                  style={[styles.styleChip, active && styles.styleChipActive]}
+                  onPress={() => setPhotoBgStyle(s2.key)}
+                  to={0.93}
+                >
+                  <Text style={[styles.styleText, active && styles.styleTextActive]}>
+                    {s2.label}
+                  </Text>
+                </PressableScale>
+              );
+            })}
+          </View>
+          <PressableScale
+            style={[styles.photoUploadBtn, busy && { opacity: 0.55 }]}
+            onPress={makeFromPhoto}
+            disabled={busy}
+            to={0.97}
+          >
+            <Ionicons name="image-outline" size={17} color={colors.white} />
+            <Text style={styles.photoUploadBtnText}>
+              {phase === 'image' ? '내 사진에 배경 입히는 중…' : '📷 메뉴 사진 올려서 만들기'}
+            </Text>
+          </PressableScale>
+        </View>
         {busy && phase !== 'restyle' && (
           <View style={styles.progressRow}>
             <ActivityIndicator size="small" color={colors.pointOrange} />
@@ -894,7 +908,23 @@ const styles = StyleSheet.create({
   },
   styleText: { fontSize: 11.5, fontWeight: '700', color: colors.mochaBrown },
   styleTextActive: { color: colors.white },
-  photoHint: { fontSize: 11, color: colors.mochaBrown, marginTop: 6, lineHeight: 15 },
+  photoHint: { fontSize: 11, color: colors.mochaBrown, marginTop: 6, lineHeight: 16 },
+  photoDividerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16, marginBottom: 10 },
+  photoDividerLine: { flex: 1, height: 1, backgroundColor: colors.mutedSand },
+  photoDividerText: { fontSize: 11, fontWeight: '700', color: colors.mochaBrown },
+  photoBox: {
+    backgroundColor: colors.coffeeCream,
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+  },
+  photoBoxTitle: { fontSize: 14.5, fontWeight: '900', color: colors.espressoBrown },
+  photoUploadBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: colors.espressoBrown, borderRadius: 12, paddingVertical: 13, marginTop: 10,
+  },
+  photoUploadBtnText: { color: colors.white, fontSize: 13.5, fontWeight: '800' },
 
   progressRow: {
     flexDirection: 'row',

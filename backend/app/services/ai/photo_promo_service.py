@@ -117,8 +117,9 @@ def _composite(cut, bg):
     from PIL import Image, ImageFilter
 
     W, H = bg.size
-    # 피사체 크기: 캔버스 높이의 62% (여백을 남겨 '광고 컷' 구도)
-    target_h = int(H * 0.62)
+    # 피사체 크기: 캔버스 높이의 68% — '내 메뉴'가 주인공으로 보이게 크게.
+    # (62%로는 배경이 화면을 지배해 'AI가 다 그린 그림'처럼 오해될 수 있었다)
+    target_h = int(H * 0.68)
     scale = target_h / cut.height
     cut = cut.resize((max(1, int(cut.width * scale)), target_h), Image.LANCZOS)
     if cut.width > int(W * 0.86):  # 아주 넓은 피사체(접시 등)는 폭 기준으로 재조정
