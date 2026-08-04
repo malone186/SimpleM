@@ -639,6 +639,9 @@ def check_nearby_cafe(db, store_id: str, settings, now: datetime) -> list[str]:
 
     스캔 자체가 이 규칙 안에 있다 — 관측 대장(nearby_cafe_watch)이 매일 갱신돼야
     '어제와 비교'가 성립하기 때문이다. 하루 한 번만 돌도록 날짜 키로 잠근다.
+
+    보낼 목록은 스캔 결과가 아니라 대장의 '아직 안 알린 변화'에서 가져온다 —
+    지도 화면의 백그라운드 스캔이 먼저 돌아 변화를 확정해 버린 날에도 알림이 나가야 한다.
     """
     if not getattr(settings, "nearby_alert", True):
         return []
@@ -653,35 +656,39 @@ def check_nearby_cafe(db, store_id: str, settings, now: datetime) -> list[str]:
 
     today = now.date().isoformat()
     scan_key = f"cafescan:{today}"
-    if _already_sent(db, store_id, scan_key):
-        return []  # 오늘 이미 훑었다
 
-    try:
-        result = nearby_watch_service.scan_cafe_changes(
-            db, store_id, *point,
-            exclude_name=nearby_watch_service.store_name_of(db, store_id),
-            today=now.date())
-    except Exception:
-        logger.exception("주변 카페 감시 실패 (%s)", store_id)
-        db.rollback()
-        return []
-
-    # 스캔이 성공했으면 '오늘은 돌았다'고 기록한다. 발송 이력 테이블을 그대로 쓰지만
-    # 이 키는 알림이 아니라 잠금이므로 푸시로 나가지 않는다.
-    # (부실한 스캔이면 기록하지 않아 다음 실행에서 다시 시도한다)
-    if result.get("skipped") is None:
-        from app.models.ai import SentNotification
-        from sqlalchemy.exc import IntegrityError
-
-        db.add(SentNotification(store_id=store_id, dedupe_key=scan_key, category="nearby",
-                                title="[내부] 주변 카페 스캔", body=""))
+    # ① 오늘 아직 안 훑었으면 훑는다 (하루 한 번 — 네이버 검색 13회짜리 작업이다)
+    if not _already_sent(db, store_id, scan_key):
         try:
-            db.commit()
-        except IntegrityError:
+            result = nearby_watch_service.scan_cafe_changes(
+                db, store_id, *point,
+                exclude_name=nearby_watch_service.store_name_of(db, store_id),
+                today=now.date())
+        except Exception:
+            logger.exception("주변 카페 감시 실패 (%s)", store_id)
             db.rollback()
+            return []
+
+        # 스캔이 성공했으면 '오늘은 돌았다'고 기록한다. 발송 이력 테이블을 그대로 쓰지만
+        # 이 키는 알림이 아니라 잠금이므로 푸시로 나가지 않는다.
+        # (부실한 스캔이면 기록하지 않아 다음 실행에서 다시 시도한다)
+        if result.get("skipped") is None:
+            from sqlalchemy.exc import IntegrityError
+
+            from app.models.ai import SentNotification
+
+            db.add(SentNotification(store_id=store_id, dedupe_key=scan_key, category="nearby",
+                                    title="[내부] 주변 카페 스캔", body=""))
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+
+    # ② 보낼 것은 대장에서 고른다 — 스캔을 누가 돌렸든(지도 화면 백그라운드 포함) 유실되지 않게
+    pending = nearby_watch_service.pending_changes(db, store_id)
 
     sent: list[str] = []
-    opened, closed = result.get("opened") or [], result.get("closed") or []
+    opened, closed = pending["opened"], pending["closed"]
 
     if opened:
         head = opened[0]

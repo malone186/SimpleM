@@ -224,6 +224,28 @@ def test_cafe_change_push_is_sent_once_per_day(db, naver, sent):
     assert len(sent) == 1
 
 
+def test_push_goes_out_even_if_map_screen_scanned_first(db, naver, sent):
+    """지도 화면의 백그라운드 스캔이 변화를 먼저 확정해도 알림은 나가야 한다.
+
+    예전엔 '이번 스캔에서 발견한 변화'만 보내서, 사장님이 아침에 지도를 한 번 열면
+    그날의 개업·폐업 알림이 통째로 증발했다.
+    """
+    settings = _settings(db)
+    naver["cafes"] = BASE
+    nws.scan_cafe_changes(db, STORE, LAT, LON, today=DAY1)
+    naver["cafes"] = BASE[:-1] + [_cafe("새로생긴카페", 150)]
+    nws.scan_cafe_changes(db, STORE, LAT, LON, today=DAY2)
+    nws.scan_cafe_changes(db, STORE, LAT, LON, today=DAY3)
+    # 오늘(DAY4)의 스캔을 알림 규칙보다 먼저 끝내 버린다 — 신규·폐업이 여기서 확정된다
+    early = nws.scan_cafe_changes(db, STORE, LAT, LON, today=DAY4)
+    assert early["opened"] and early["closed"]
+
+    ns.check_nearby_cafe(db, STORE, settings, datetime(2026, 8, 4, 11, 0, tzinfo=KST))
+
+    titles = " ".join(m["title"] for m in sent)
+    assert "새로 생겼어요" in titles and "문을 닫은 것 같아요" in titles
+
+
 def test_nearby_alert_off_sends_nothing(db, naver, sent):
     settings = _settings(db)
     settings.nearby_alert = False

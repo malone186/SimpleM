@@ -45,6 +45,10 @@ HEALTHY_SCAN_RATIO = 0.6
 # 행사 알림 지평선 — 이 안에 시작하는 행사만 알린다. 2주 전에 알려 봐야 잊는다.
 EVENT_ALERT_DAYS = 7
 
+# 카페 변화를 '아직 알릴 만한 소식'으로 볼 기간. 푸시가 꺼져 있던 두 달치가
+# 어느 날 한꺼번에 울리는 일을 막는다.
+NOTIFY_WINDOW_DAYS = 14
+
 _PLAN_TTL = 12 * 3600
 _plan_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
@@ -176,6 +180,33 @@ def _as_change(row, kind: str) -> dict[str, Any]:
         "closed_on": row.closed_on,
         "place_key": row.place_key,
     }
+
+
+def pending_changes(db, store_id: str, days: int = NOTIFY_WINDOW_DAYS) -> dict[str, Any]:
+    """확정됐지만 아직 알리지 않은 변화 (알림 규칙 8이 실제로 보낼 목록).
+
+    scan_cafe_changes가 그 자리에서 돌려주는 '이번 스캔의 변화'만 보면 알림이 샌다:
+    지도 화면을 열면 백그라운드 스캔이 먼저 돌 수 있고, 그러면 변화는 대장에 확정돼 있는데
+    정작 스케줄러의 스캔은 아무 변화도 못 보고 지나간다(그 가게는 이미 처리된 상태다).
+    그래서 '누가 찾았든 아직 안 알린 것'을 여기서 다시 모은다.
+
+    너무 오래된 변화는 뺀다 — 푸시가 꺼져 있던 두 달치가 어느 날 한꺼번에 울리면 안 된다.
+    """
+    from app.models.ai import NearbyCafeWatch
+
+    since = (date.today() - timedelta(days=max(1, days))).isoformat()
+    rows = db.query(NearbyCafeWatch).filter(NearbyCafeWatch.store_id == store_id).all()
+
+    opened = [_as_change(r, "opened") for r in rows
+              if r.status == "open" and not r.is_baseline and not r.open_notified
+              and r.seen_count >= NEW_CONFIRM_SCANS
+              and r.first_seen != r.last_seen and r.first_seen >= since]
+    closed = [_as_change(r, "closed") for r in rows
+              if r.status == "closed" and not r.close_notified and (r.closed_on or "") >= since]
+
+    opened.sort(key=lambda c: c["distance_m"])   # 가까운 곳이 먼저 — 알림 본문의 대표가 된다
+    closed.sort(key=lambda c: c["distance_m"])
+    return {"opened": opened, "closed": closed}
 
 
 def mark_notified(db, store_id: str, place_keys: list[str], kind: str) -> None:
