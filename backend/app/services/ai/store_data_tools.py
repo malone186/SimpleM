@@ -25,11 +25,19 @@ def get_store_profile(store_id: str) -> str:
 
 
 @tool
-def get_sales_history(store_id: str, days: int = 14) -> str:
-    """최근 N일(기본 14일)의 실제 판매 원장을 조회한다 — 일별 매출액·판매 잔 수와
-    메뉴별 매출 순위. '지난주 매출', '어제 얼마 팔았어', '요즘 뭐가 제일 잘나가'
-    같은 질문에 쓴다. 예측이 아니라 이미 일어난 실적이다."""
-    return _dump(store_data_service.get_sales_history(store_id, days=days))
+def get_sales_history(store_id: str, days: int = 14,
+                      start_date: str = "", end_date: str = "") -> str:
+    """실제 판매 원장을 조회한다 — 일별 매출액·판매 잔 수와 메뉴별 매출 순위.
+    '지난주 매출', '어제 얼마 팔았어', '요즘 뭐가 제일 잘나가' 같은 질문에 쓴다.
+    예측이 아니라 이미 일어난 실적이다.
+
+    특정 날짜·기간을 물으면 days로 며칠 전인지 역산하지 말고 start_date/end_date에
+    날짜(YYYY-MM-DD)를 그대로 넣어라. 어제 하루면 둘 다 어제 날짜를 넣는다.
+    days는 '오늘부터 거슬러 N일'이라 days=1은 오늘 하루뿐이다 — 어제를 보려고
+    days=1을 넣으면 오늘 치만 조회돼 '판매 없음'으로 오해하게 된다.
+    응답의 start_date·end_date가 실제로 조회된 구간이니 그 기간을 밝혀 보고해라."""
+    return _dump(store_data_service.get_sales_history(
+        store_id, days=days, start_date=start_date, end_date=end_date))
 
 
 @tool

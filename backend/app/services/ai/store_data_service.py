@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any, Optional
 
 from app.services.ai.untrusted import quote_fields
@@ -111,16 +111,43 @@ def get_store_profile(store_id: str) -> dict[str, Any]:
 # 판매 원장
 # ---------------------------------------------------------------------------
 
-def get_sales_history(store_id: str, days: int = 14) -> dict[str, Any]:
-    """최근 N일 판매 원장 — 일별 매출·잔 수와 메뉴별 판매 순위."""
+def get_sales_history(store_id: str, days: int = 14,
+                      start_date: str = "", end_date: str = "") -> dict[str, Any]:
+    """판매 원장 — 일별 매출·잔 수와 메뉴별 판매 순위.
+
+    날짜 경계는 KST 달력 하루다. 예전에는 `datetime.now() - timedelta(days=N)`으로
+    '지금부터 N×24시간 전'을 잡았는데, 그러면 오후 5시에 days=1을 부르면 어제 오후
+    5시부터가 되어 어제 낮 매출이 통째로 빠졌다 — 조회 시각에 따라 답이 달라졌다.
+    실제로 챗봇이 "어제 매출 얼마야?"에 days=1을 넣어 "판매 내역이 없다"고 답했다.
+
+    start_date/end_date(YYYY-MM-DD)를 주면 그 구간만 본다(양끝 포함). 에이전트는
+    '어제'를 이미 실제 날짜로 풀어서 알고 있으므로, 며칠치인지 역산하게 두는 것보다
+    날짜를 그대로 받는 쪽이 틀릴 여지가 없다.
+    """
     from app.models.inventory import Menu, Sale
 
-    since = datetime.now() - timedelta(days=max(1, days))
+    today = datetime.now(KST).date()
+    try:
+        end = date.fromisoformat(end_date) if end_date else today
+    except ValueError:
+        end = today
+    try:
+        start = date.fromisoformat(start_date) if start_date else end - timedelta(days=max(1, days) - 1)
+    except ValueError:
+        start = end - timedelta(days=max(1, days) - 1)
+    if start > end:
+        start, end = end, start
+
+    # KST 달력 경계를 tz가 붙은 시각으로 바꿔 timestamptz 컬럼과 비교한다
+    since = datetime.combine(start, time.min, tzinfo=KST)
+    until = datetime.combine(end + timedelta(days=1), time.min, tzinfo=KST)
+    span = (end - start).days + 1
+
     with _db() as db:
         rows = (
             db.query(Sale, Menu.name)
             .join(Menu, Sale.menu_id == Menu.id)
-            .filter(Sale.store_id == store_id, Sale.sold_at >= since)
+            .filter(Sale.store_id == store_id, Sale.sold_at >= since, Sale.sold_at < until)
             .order_by(Sale.sold_at.desc())
             .limit(2000)
             .all()
@@ -142,11 +169,15 @@ def get_sales_history(store_id: str, days: int = 14) -> dict[str, Any]:
         reverse=True,
     )
     return {
-        "period_days": days,
+        # 어느 구간을 본 것인지 함께 준다 — 모델이 "며칠치인지"를 스스로 되짚지 않아도 되고,
+        # 답변에 기간을 밝히라는 지침도 이 값으로 지킬 수 있다
+        "period_days": span,
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
         "total_revenue": sum(v["revenue"] for v in by_day.values()),
         "total_cups": sum(v["cups"] for v in by_day.values()),
         "days_with_sales": len(by_day),
-        "daily": daily[:days],
+        "daily": daily[:span],
         "by_menu": menus[:20],
     }
 
