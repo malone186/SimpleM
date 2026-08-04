@@ -1162,12 +1162,9 @@ export default function SettingsScreen() {
           })}
         </View>
 
-        {/* [한글 주석] AI 목소리 분당 한도 안내 — 4종 목소리는 구글 AI 음성(Gemini TTS)으로
-            합성하는데 무료 한도가 분당 3회다. 넘어가면 서버가 429를 주고 기기에 내장된
-            기본 목소리로 자동 전환된다. 안내가 없으면 "목소리가 갑자기 이상해졌다"는
-            고장으로 오해하기 쉬워서, 왜 그런지와 언제 돌아오는지를 여기 적어둔다.
-            AI 목소리를 쓰지 않는 환경(오디오 모듈이 없는 네이티브 빌드)에서는 이 한도가
-            아예 적용되지 않으므로 문구를 띄우지 않는다 — 없는 제한을 안내하면 더 헷갈린다. */}
+        {/* [한글 주석] AI 목소리(Gemini TTS) 무료 한도는 분당 3회 — 넘으면 기기 기본
+            목소리로 자동 전환된다. 고장으로 오해하지 않게 한 줄로만 알린다.
+            AI 목소리를 안 쓰는 환경(네이티브)에서는 없는 제한이라 아예 감춘다. */}
         {speechPlayer.usesAiVoice() && (
           <View style={[styles.voiceQuotaNote, aiVoiceWait > 0 && styles.voiceQuotaNoteActive]}>
             <Ionicons
@@ -1179,20 +1176,13 @@ export default function SettingsScreen() {
             <Text style={styles.voiceQuotaText}>
               {aiVoiceWait > 0 ? (
                 <>
-                  <Text style={styles.voiceQuotaStrong}>
-                    AI 목소리 사용량(1분에 3회)을 다 썼어요.
-                  </Text>
-                  {' 지금은 기기 기본 목소리로 읽어드리고, 약 '}
-                  <Text style={styles.voiceQuotaStrong}>{aiVoiceWait}초</Text>
-                  {' 뒤에 고르신 목소리로 자동으로 돌아옵니다.'}
+                  <Text style={styles.voiceQuotaStrong}>지금은 기본 목소리</Text>
+                  {` · 약 ${aiVoiceWait}초 뒤 복귀`}
                 </>
               ) : (
                 <>
-                  <Text style={styles.voiceQuotaStrong}>AI 목소리는 1분에 3회까지</Text>
-                  {' 사용할 수 있어요. 짧은 시간에 더 많이 들으시면 자동으로 '}
-                  <Text style={styles.voiceQuotaStrong}>기기 기본 목소리</Text>
-                  {'로 바뀌어 읽어드리고, 1분이 지나면 다시 고르신 목소리로 돌아옵니다. '}
-                  {'(같은 문장은 저장해 두었다가 다시 들려드려서 횟수에 포함되지 않아요)'}
+                  <Text style={styles.voiceQuotaStrong}>AI 목소리는 1분에 3회</Text>
+                  {'까지예요. 넘으면 기본 목소리로 읽고 1분 뒤 돌아옵니다.'}
                 </>
               )}
             </Text>
