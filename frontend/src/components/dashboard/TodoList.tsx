@@ -560,7 +560,7 @@ function TodoItem({
         {/* [2. 한 줄로 깔끔하게 정돈된 타이틀 텍스트] */}
         <View style={{ flex: 1, marginLeft: 8 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-            <Text style={[styles.taskItemTitle, disabled && styles.strike]} numberOfLines={1}>
+            <Text style={[styles.taskItemTitle, disabled && styles.strike]} numberOfLines={2}>
               {todo.title}
             </Text>
             {/* AI 출처 배지 */}
@@ -841,6 +841,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#2C221E', // 에스프레소 잉크 톤
     letterSpacing: -0.3,
+    flexShrink: 1,   // 옆의 '브루' 배지에 밀려 잘리지 않고 줄바꿈되도록
+    lineHeight: 18,  // 두 줄일 때 답답하지 않게
   },
   taskItemSub: {
     fontSize: 11.5,
