@@ -63,22 +63,31 @@ try:
     ensure_membership_extra_columns(engine)
 
     # [한글 주석] 로그인 데모를 즉시 하실 수 있게 테스트용 사장님 계정을 자동으로 생성(시딩)해 둡니다.
+    #
+    # 비밀번호는 앱 로그인 화면의 '데모 로그인' 버튼이 그대로 보내는 값이다
+    # (frontend/src/screens/auth/AuthScreen.tsx handleDemoLogin).
+    # 예전엔 여기가 owner123, 버튼이 owner1234라 데모 로그인이 무조건 401이었다.
+    # 값이 어긋나면 다시 그 상태가 되므로, 이미 있는 계정도 비밀번호만 맞춰 둔다.
     db_session = SessionLocal()
     try:
-        from app.core.auth import get_password_hash
+        from app.core.auth import get_password_hash, verify_password
         from app.models.user import User
-        owner_exists = db_session.query(User).filter(User.email == "owner@cafe.com").first()
+        DEMO_EMAIL, DEMO_PASSWORD = "owner@cafe.com", "owner1234"
+        owner_exists = db_session.query(User).filter(User.email == DEMO_EMAIL).first()
         if not owner_exists:
-            hashed_pwd = get_password_hash("owner123")
             test_user = User(
-                email="owner@cafe.com",
-                hashed_password=hashed_pwd,
+                email=DEMO_EMAIL,
+                hashed_password=get_password_hash(DEMO_PASSWORD),
                 name="포슬이",
                 store_name="포슬카페"
             )
             db_session.add(test_user)
             db_session.commit()
-            logger.info("🎉 테스트용 사장님 계정이 자동으로 생성되었습니다: owner@cafe.com / owner123")
+            logger.info(f"🎉 테스트용 사장님 계정이 자동으로 생성되었습니다: {DEMO_EMAIL} / {DEMO_PASSWORD}")
+        elif not verify_password(DEMO_PASSWORD, owner_exists.hashed_password):
+            owner_exists.hashed_password = get_password_hash(DEMO_PASSWORD)
+            db_session.commit()
+            logger.info(f"🔑 데모 계정 비밀번호를 표준값으로 맞췄습니다: {DEMO_EMAIL} / {DEMO_PASSWORD}")
     except Exception as seed_err:
         logger.error(f"테스트 계정 자동 생성 중 오류 발생: {seed_err}")
     finally:

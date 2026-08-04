@@ -26,6 +26,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
 
 import { auth } from '../lib/firebase';
+import { shouldRetryWithBackendLogin } from './loginFallback';
 import { API_BASE_URL } from '../lib/api/client';
 import { unregisterFromPush } from '../notifications/pushRegistration';
 
@@ -250,85 +251,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [persistSession]
   );
 
+  // [한글 주석] 백엔드 자체 로그인(/auth/login) — 백엔드 DB에만 있는 계정용.
+  // 백엔드가 돌려주는 HS256 토큰은 get_current_user가 Firebase 토큰과 똑같이 받아 준다.
+  const loginViaBackend = useCallback(
+    async (cleanEmail: string, password: string, autoLogin: boolean) => {
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, password }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        let errMsg = '이메일 또는 비밀번호가 일치하지 않습니다.';
+        if (typeof errData.detail === 'string') {
+          errMsg = errData.detail;
+        } else if (Array.isArray(errData.detail) && errData.detail[0]?.msg) {
+          errMsg = errData.detail[0].msg;
+        }
+        throw new Error(errMsg);
+      }
+
+      const data = await res.json();
+      const u = { email: data.email, name: data.name, token: data.access_token };
+      setUser({ email: u.email, name: u.name });
+      setToken(u.token);
+      await persistSession(u, autoLogin);
+    },
+    [persistSession],
+  );
+
   // [한글 주석] Firebase Auth를 통해 사용자를 인증하고 ID Token을 획득하여 백엔드와 동기화합니다.
   // 가짜 Firebase 키 상황일 경우 백엔드 자체 로컬 인증 API로 즉시 우회합니다.
   const login = useCallback(
     async (email: string, password: string, autoLogin: boolean) => {
-      const FIREBASE_API_KEY = process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '';
-      // [한글 주석] 'mock-' 또는 'demo-' 키일 경우 파이어베이스가 아닌 백엔드 자체 인증으로 우회합니다.
-      const isMockFirebase =
-        FIREBASE_API_KEY.startsWith('mock-') ||
-        FIREBASE_API_KEY.startsWith('demo-') ||
-        !FIREBASE_API_KEY;
+      const cleanEmail = email.trim().toLowerCase();
 
-      if (isMockFirebase) {
-        try {
-          // [한글 주석: 가짜 키 상태이므로 백엔드의 로컬 로그인 API 창구를 노크하여 전용 토큰을 얻어옵니다]
-          const res = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
-          });
-
-          if (!res.ok) {
-            const cleanEmail = email.trim().toLowerCase();
-            // [한글 주석: 사장님의 테스트를 방해하지 않도록 owner@cafe.com 시도 시 무조건 안전 로그인 세션 발행]
-            if (cleanEmail === 'owner@cafe.com' || cleanEmail.includes('owner') || cleanEmail.includes('demo')) {
-              const demoUser = {
-                email: 'owner@cafe.com',
-                name: '브루 사장님',
-                token: 'demo-local-access-token-owner-cafe',
-              };
-              setUser({ email: demoUser.email, name: demoUser.name });
-              setToken(demoUser.token);
-              await persistSession(demoUser, autoLogin);
-              return;
-            }
-
-            const errData = await res.json().catch(() => ({}));
-            let errMsg = '이메일 또는 비밀번호가 일치하지 않습니다.';
-            if (typeof errData.detail === 'string') {
-              errMsg = errData.detail;
-            } else if (Array.isArray(errData.detail) && errData.detail[0]?.msg) {
-              errMsg = errData.detail[0].msg;
-            }
-            throw new Error(errMsg);
-          }
-
-          const data = await res.json();
-          const u = {
-            email: data.email,
-            name: data.name,
-            token: data.access_token,
-          };
-
-          // 로컬 환경 상태값 세팅 및 세션 영구 보관
-          setUser({ email: u.email, name: u.name });
-          setToken(u.token);
-          await persistSession(u, autoLogin);
-          return;
-        } catch (error: any) {
-          const cleanEmail = email.trim().toLowerCase();
-          if (cleanEmail === 'owner@cafe.com' || cleanEmail.includes('owner') || cleanEmail.includes('demo')) {
-            const demoUser = {
-              email: 'owner@cafe.com',
-              name: '브루 사장님',
-              token: 'demo-local-access-token-owner-cafe',
-            };
-            setUser({ email: demoUser.email, name: demoUser.name });
-            setToken(demoUser.token);
-            await persistSession(demoUser, autoLogin);
-            return;
-          }
-          throw new Error(error.message || '로컬 로그인 중 오류가 발생했습니다.');
-        }
+      // [한글 주석] auth는 실제 Firebase 키가 있을 때만 non-null (lib/firebase.ts).
+      // 'mock-'/'demo-' 키나 키 없음이면 백엔드 자체 인증만 쓴다.
+      if (!auth) {
+        await loginViaBackend(cleanEmail, password, autoLogin);
+        return;
       }
 
       try {
         // 1. Firebase Auth를 통한 이메일/비밀번호 로그인 처리
         const userCredential = await signInWithEmailAndPassword(
           auth,
-          email.trim().toLowerCase(),
+          cleanEmail,
           password
         );
         const fbUser = userCredential.user;
@@ -352,17 +322,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         syncProfileInBackground(idToken, userName);
 
       } catch (error: any) {
+        // [핵심] Firebase가 거절했다고 로그인을 포기하면 안 된다.
+        //
+        // 계정이 사는 곳이 두 군데다. 앱에서 가입하면 Firebase에 생기지만,
+        // 데모/시드 계정(owner@cafe.com)과 백엔드 /auth/signup으로 만든 계정은
+        // 백엔드 DB에만 있다. 예전엔 이 경로에서 Firebase만 물어보고 끝내서,
+        // DB에 멀쩡히 있는 계정이 비밀번호를 맞게 넣어도 "일치하지 않습니다"만 떴다.
+        // Firebase가 자격증명 문제로 막았을 때는 백엔드 로그인을 한 번 더 두드린다.
+        if (shouldRetryWithBackendLogin(error?.code)) {
+          try {
+            await loginViaBackend(cleanEmail, password, autoLogin);
+            return;
+          } catch {
+            // 백엔드에도 없는 계정 — 아래 Firebase 기준 안내 문구로 떨어진다
+          }
+        }
+
         // Firebase 에러 코드를 한글 메시지로 친절하게 반환합니다.
         let msg = '로그인 중 오류가 발생했습니다.';
-        if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        if (
+          error.code === 'auth/user-not-found' ||
+          error.code === 'auth/wrong-password' ||
+          error.code === 'auth/invalid-credential' ||
+          error.code === 'auth/invalid-login-credentials'
+        ) {
           msg = '이메일 또는 비밀번호가 일치하지 않습니다.';
         } else if (error.code === 'auth/invalid-email') {
           msg = '유효하지 않은 이메일 형식입니다.';
+        } else if (error.code === 'auth/too-many-requests') {
+          msg = '로그인 시도가 너무 많았어요. 잠시 후 다시 시도해 주세요.';
+        } else if (error.code === 'auth/network-request-failed') {
+          msg = '네트워크 연결을 확인해 주세요.';
         }
         throw new Error(msg);
       }
     },
-    [persistSession, syncProfileInBackground]
+    [persistSession, syncProfileInBackground, loginViaBackend]
   );
 
   // [한글 주석] Firebase Auth로 계정을 최초 생성하고 닉네임을 설정합니다.
@@ -377,8 +372,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       phone?: string,
       store?: { lat?: number; lon?: number; address?: string; bizType?: string },
     ) => {
-      const FIREBASE_API_KEY = process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '';
-      const isMockFirebase = FIREBASE_API_KEY.startsWith('mock-') || !FIREBASE_API_KEY;
+      // [한글 주석] 판단 기준을 lib/firebase.ts 한 곳으로 모은다 — 'demo-' 키를 여기서만
+      // 놓쳐서 auth(null)로 Firebase를 호출하는 사고를 막는다.
+      const isMockFirebase = !auth;
 
       // [매장 고정 위치] 좌표는 짝으로만 의미가 있다 — 한쪽만 있으면 보내지 않는다
       const hasPin = typeof store?.lat === 'number' && typeof store?.lon === 'number';
@@ -512,8 +508,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginWithGoogle = useCallback(
     async (autoLogin: boolean) => {
-      const FIREBASE_API_KEY = process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '';
-      const isMockFirebase = FIREBASE_API_KEY.startsWith('mock-') || !FIREBASE_API_KEY;
+      const isMockFirebase = !auth;
 
       // [한글 주석] Mock 모드일 때는 백엔드 로컬 인증으로 전용 데모 계정에 진짜 토큰을 발급받아 우회 로그인합니다.
       // (하드코딩된 owner 계정 대신 데모 계정 자동 가입 방식 — 비밀번호 불일치로 죽지 않는다.
