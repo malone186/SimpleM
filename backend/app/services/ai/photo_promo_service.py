@@ -134,8 +134,90 @@ def _background(style: str, aspect_ratio: str):
         return bg, "gradient"
 
 
+def _clean_edge(cut):
+    """③ 가장자리 정리 — rembg 매팅이 남긴 밝은 테두리(halo)를 깎고 경계를 살짝 부드럽게.
+
+    1px 침식으로 피사체 밖으로 번진 배경색 링을 제거하고, 약한 페더링으로 계단
+    현상을 없애 배경에 녹아들게 한다. '오려 붙인' 티가 가장 먼저 나는 곳이 경계다.
+    """
+    from PIL import ImageFilter
+
+    alpha = cut.split()[-1]
+    alpha = alpha.filter(ImageFilter.MinFilter(3))       # 1px 침식 → halo 제거
+    alpha = alpha.filter(ImageFilter.GaussianBlur(0.6))  # 미세 페더 → 경계 부드럽게
+    cut = cut.copy()
+    cut.putalpha(alpha)
+    return cut
+
+
+def _harmonize_color(cut, bg_region, strength: float = 0.35, cap: float = 14.0):
+    """① 색 조화 — 피사체의 화이트밸런스·노출을 '놓일 자리'의 배경 톤 쪽으로 살짝 당긴다.
+
+    RGB 채널별 '평균 차이'만 strength만큼, 그리고 절대 이동량을 cap(±14레벨)으로 막아
+    더한다. 균일한 평행이동이라 방향이 직관적이고(따뜻한 배경 = R↑·B↓ → 피사체도 그쪽)
+    제품색이 폭주하지 않는다 — 표준편차까지 맞추는 정식 Reinhard는 평균이 크게 다르면
+    픽셀을 극단으로 튕겨(실측: 쿨톤 컵이 네온으로) 광고물엔 위험해 쓰지 않는다. cap
+    덕에 최악의 경우에도 은은한 정합에 그치고 메뉴 본래 색은 유지된다.
+    """
+    import numpy as np
+    from PIL import Image
+
+    a = np.asarray(cut.split()[-1])
+    m = a > 40  # 반투명 경계는 통계 오염을 막기 위해 제외
+    if int(m.sum()) < 50:  # 피사체가 거의 없으면 손대지 않는다
+        return cut
+
+    rgb = np.asarray(cut.convert("RGB"), dtype=np.float32)
+    bg = np.asarray(bg_region.convert("RGB"), dtype=np.float32)
+    out = rgb.copy()
+    for ch in range(3):  # R·G·B 각각 배경 평균 쪽으로 (밝기 정합도 자연히 따라온다)
+        cm = float(rgb[..., ch][m].mean())
+        bm = float(bg[..., ch].mean())
+        shift = max(-cap, min(cap, (bm - cm) * strength))  # 절대 이동량 상한
+        out[..., ch] += shift
+
+    res = np.dstack([out.clip(0, 255).astype(np.uint8), a]).astype(np.uint8)
+    return Image.fromarray(res, "RGBA")
+
+
+def _unify_grade(im):
+    """② 통합 그레이딩 — 합성 완료본 '전체'에 공통 레이어를 한 번 덮어 하나처럼 묶는다.
+
+    피사체와 배경이 같은 위층(따뜻한 틴트·비네트·필름 그레인·미세 대비)을 공유하면
+    서로 다른 출처(실물 사진 vs AI 배경)의 이질감이 크게 줄어든다.
+    """
+    import numpy as np
+    from PIL import Image, ImageEnhance
+
+    im = im.convert("RGB")
+    W, H = im.size
+    arr = np.asarray(im, dtype=np.float32)
+
+    # ⓐ 아주 옅은 따뜻한 틴트 — 같은 광원 아래 있는 느낌
+    arr[..., 0] *= 1.015  # R ↑
+    arr[..., 2] *= 0.985  # B ↓
+
+    # ⓑ 비네트 — 가장자리를 살짝 눌러 중앙(피사체)로 시선을 모으고 프레임을 하나로
+    yy, xx = np.mgrid[0:H, 0:W]
+    r = np.sqrt(((xx - W / 2) / (W * 0.75)) ** 2 + ((yy - H * 0.55) / (H * 0.75)) ** 2)
+    vig = np.clip(1.0 - (r - 0.7) * 0.35, 0.82, 1.0)[..., None]
+    arr *= vig
+
+    # ⓒ 필름 그레인 — 실물/AI의 노이즈 특성 차이를 덮어 경계감을 흐린다
+    arr += np.random.normal(0, 3.0, (H, W, 1)).astype(np.float32)
+
+    out = Image.fromarray(arr.clip(0, 255).astype(np.uint8), "RGB")
+    # ⓓ 미세 대비 — 붙인 요소들을 같은 톤 커브 위에 올린다
+    return ImageEnhance.Contrast(out).enhance(1.04)
+
+
 def _composite(cut, bg):
-    """피사체를 배경 중앙 하단에 그림자와 함께 얹는다."""
+    """피사체를 배경 중앙 하단에 얹는다 — 색/밝기 조화(①)·가장자리 정리(③)·통합 그레이딩(②).
+
+    단순히 붙이면 사장님 사진의 원래 노출·화이트밸런스가 AI 배경 위에 '스티커처럼'
+    떠 보인다. 붙이기 전에 경계를 정리하고 색을 배경 톤으로 부분 매칭한 뒤, 합성이
+    끝난 전체에 공통 그레이딩을 한 번 덮어 자연스럽게 녹인다.
+    """
     from PIL import Image, ImageFilter
 
     W, H = bg.size
@@ -151,6 +233,11 @@ def _composite(cut, bg):
     x = (W - cut.width) // 2
     y = H - cut.height - int(H * 0.10)  # 바닥에서 10% 띄움
 
+    # ③ 가장자리 정리 → ① 놓일 자리의 배경 톤으로 색·밝기 부분 매칭
+    cut = _clean_edge(cut)
+    region = bg.convert("RGB").crop((x, y, x + cut.width, y + cut.height))
+    cut = _harmonize_color(cut, region)
+
     canvas = bg.convert("RGBA")
     # 그림자: 피사체 실루엣을 눌러(높이 22%) 발밑에 깔고 크게 블러 — 조명 정합감
     alpha = cut.split()[-1]
@@ -160,7 +247,9 @@ def _composite(cut, bg):
     shadow.putalpha(shadow_mask.point(lambda a: int(a * 0.38)))
     canvas.alpha_composite(shadow, (x, y + cut.height - sh_h // 2))
     canvas.alpha_composite(cut, (x, y))
-    return canvas.convert("RGB")
+
+    # ② 합성 완료본 전체에 공통 그레이딩 — 피사체+배경을 하나의 톤으로
+    return _unify_grade(canvas.convert("RGB"))
 
 
 def compose_from_photo(store_id: str, photo_bytes: bytes, style: str = "wood",

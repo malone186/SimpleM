@@ -40,7 +40,6 @@ export type RootTabParamList = {
   // prefill: 다른 화면(경영 리포트 등)에서 버튼으로 넘어올 때 입력창에 미리 채울 질문
   //   ts: 같은 질문을 다시 눌러도 파라미터가 바뀌어 재입력되도록 하는 클릭 시각
   Chatbot: { prefill?: string; ts?: number } | undefined;
-  Shop: undefined;
   Management: undefined;
 };
 
@@ -75,6 +74,7 @@ export type RootStackParamList = {
   // section: 특정 설정 하위 화면으로 바로 진입 (예: 카드 정산 설정)
   Settings: { section?: 'account' | 'notification' | 'appearance' | 'inquiry' | 'legal' | 'settlement' } | undefined;
   StoreMap: undefined;
+  Shop: undefined;
 };
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -83,7 +83,6 @@ const ICONS: Record<keyof RootTabParamList, keyof typeof Ionicons.glyphMap> = {
   Dashboard: 'home',
   Inventory: 'file-tray-stacked',
   Chatbot: 'chatbubble-ellipses',
-  Shop: 'storefront',
   Management: 'grid',
 };
 
@@ -91,7 +90,6 @@ const LABELS: Record<keyof RootTabParamList, string> = {
   Dashboard: '홈',
   Inventory: '재고',
   Chatbot: '챗봇',
-  Shop: '상점',
   Management: '관리',
 };
 
@@ -199,6 +197,7 @@ export default function RootNavigator() {
 
         <Stack.Screen name="Settings" component={SettingsScreen} options={({ navigation }) => erpHeader('설정', navigation)} />
         <Stack.Screen name="StoreMap" component={StoreMapScreen} options={({ navigation }) => erpHeader('매장 위치', navigation)} />
+        <Stack.Screen name="Shop" component={ShopScreen} options={({ navigation }) => erpHeader('포인트 상점', navigation)} />
       </Stack.Navigator>
     </NavigationContainer>
   );
@@ -212,7 +211,6 @@ const TAB_LABEL_KEYS: Record<keyof RootTabParamList, TranslationKey> = {
   Dashboard: 'tabHome',
   Inventory: 'tabInventory',
   Chatbot: 'tabChatbot',
-  Shop: 'tabShop',
   Management: 'tabManagement',
 };
 
@@ -226,7 +224,6 @@ const withSwipe = (Component: React.ComponentType<any>) => (props: any) => (
 const WrappedDashboardScreen = withSwipe(DashboardScreen);
 const WrappedInventoryScreen = withSwipe(InventoryScreen);
 const WrappedChatbotScreen = withSwipe(ChatbotScreen);
-const WrappedShopScreen = withSwipe(ShopScreen);
 const WrappedManagementScreen = withSwipe(ManagementScreen);
 
 function TabsNavigator() {
@@ -286,7 +283,6 @@ function TabsNavigator() {
       <Tab.Screen name="Dashboard" component={WrappedDashboardScreen} />
       <Tab.Screen name="Inventory" component={WrappedInventoryScreen} />
       <Tab.Screen name="Chatbot" component={WrappedChatbotScreen} />
-      <Tab.Screen name="Shop" component={WrappedShopScreen} />
       <Tab.Screen name="Management" component={WrappedManagementScreen} />
     </Tab.Navigator>
   );
