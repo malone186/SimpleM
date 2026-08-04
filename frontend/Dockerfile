@@ -4,11 +4,12 @@
 FROM node:22-alpine AS build
 
 WORKDIR /app
-COPY package.json package-lock.json ./
-# package-lock.json은 npm 11로 만들어졌다. node:22 기본 npm(10.9)은 테스트 도구의
-# peer 의존(react-test-renderer 계열)을 다르게 풀어 `npm ci`가 "lock과 불일치"로 죽는다.
-# 락파일을 만든 쪽에 맞춘다 — 로컬에서 npm ci가 통과하면 여기서도 통과한다.
-RUN npm install -g npm@11 && npm ci
+# .npmrc(legacy-peer-deps=true)를 락파일과 '같이' 가져와야 한다.
+# @testing-library/react-native가 test-renderer를 peer로 요구하는데 락에는 없어,
+# 이 설정 없이 npm ci를 돌리면 "package.json과 lock이 어긋났다"며 빌드가 선다.
+# COPY . . 는 npm ci 뒤라서 그때 가져오면 늦는다.
+COPY package.json package-lock.json .npmrc ./
+RUN npm ci
 
 COPY . .
 # expo export가 NODE_ENV=production으로 돌므로 .env.production이 .env를 덮는다
