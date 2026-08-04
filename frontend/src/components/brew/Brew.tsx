@@ -29,7 +29,9 @@ export type BrewMood = keyof typeof POSES;
 // 안에 이미 캡·앞치마를 착용하고 컵까지 들고 있어서, 모자를 또 얹으면 스티커를
 // 덧붙이는 꼴이 된다. 게다가 포즈마다 머리 위치가 달라 좌표를 맞출 수도 없다.
 // 그래서 상점은 '포즈 교체'(mood)로 가고, 겹쳐 그리는 건 배경만 남겼다.
-export type BrewAccessory = { id: string; slot: 'background'; emoji: string };
+// background: 캐릭터 뒤 배경 효과 / frame: 박스 테두리를 두르는 프레임.
+// 둘은 서로 다른 슬롯이라 동시에 착용할 수 있다 — 겹쳐도 캐릭터를 안 가린다.
+export type BrewAccessory = { id: string; slot: 'background' | 'frame'; emoji: string };
 
 // 배경 장식과 캐릭터의 크기 관계.
 //
@@ -41,20 +43,26 @@ export type BrewAccessory = { id: string; slot: 'background'; emoji: string };
 // 테두리 공간을 만든다 — 전체 차지 면적이 그대로라 레이아웃도 안 흔들린다.
 const CHAR_SHRINK_WITH_BG = 0.76;
 
+// 배경·프레임 모두 박스를 가득 채우는 동일 배치 — 캐릭터가 그보다 작아져서
+// (CHAR_SHRINK_WITH_BG) 바깥 테두리 공간에 효과·프레임이 드러난다.
+const FILL_BOX = (): StyleProp<ViewStyle> => ({
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  alignItems: 'center',
+  justifyContent: 'center',
+});
+
 const SLOT_LAYOUT: Record<BrewAccessory['slot'], (size: number) => StyleProp<ViewStyle>> = {
-  background: () => ({
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-  }),
+  background: FILL_BOX,
+  frame: FILL_BOX,
 };
 
 const SLOT_SCALE: Record<BrewAccessory['slot'], number> = {
   background: 1, // 박스를 가득 채운다 (캐릭터가 그보다 작아져서 고리가 드러난다)
+  frame: 1,
 };
 
 // idle 움직임 종류
@@ -129,11 +137,15 @@ export default function Brew({
   // 캐릭터 쪽도 position:relative로 만들어 zIndex가 실제로 먹히게 한다.
   const decor = (boxSize: number) =>
     accessories.map((acc) => {
+      // 프론트가 아직 모르는 슬롯이면 조용히 건너뛴다 — 백엔드가 새 슬롯을 먼저
+      // 추가해도(구버전 앱) 화면이 깨지지 않게 한다.
+      const layout = SLOT_LAYOUT[acc.slot];
+      if (!layout) return null;
       const Art = ACCESSORY_ART[acc.id];
-      const px = boxSize * SLOT_SCALE[acc.slot];
+      const px = boxSize * (SLOT_SCALE[acc.slot] ?? 1);
       // 캐릭터 바깥 고리에 그려지므로 가릴 일이 없다 — 흐리면 산 티가 안 나서 진하게 둔다
       return (
-        <View key={acc.id} style={[SLOT_LAYOUT[acc.slot](boxSize), { zIndex: 0, opacity: 0.85 }]} pointerEvents="none">
+        <View key={acc.id} style={[layout(boxSize), { zIndex: 0, opacity: 0.85 }]} pointerEvents="none">
           {/* 아직 그림이 없는 아이템만 이모지로 대체 — 새 아이템을 추가해도 화면이 비지 않는다 */}
           {Art ? <Art size={px} /> : <Text style={{ fontSize: px }}>{acc.emoji}</Text>}
         </View>

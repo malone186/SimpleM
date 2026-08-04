@@ -1,8 +1,8 @@
 // 포인트·상점 API (백엔드 B) — 할 일을 끝내면 코인이 쌓이고, 코인으로 브루를 꾸민다.
 import { apiFetch } from './client';
 
-/** 꾸미기 부위 — 같은 부위에는 하나만 착용된다 */
-export type ItemSlot = 'pose' | 'background';
+/** 꾸미기 부위 — 같은 부위에는 하나만 착용된다 (부위가 다르면 함께 착용된다) */
+export type ItemSlot = 'pose' | 'background' | 'frame';
 
 export type ShopItem = {
   id: string;

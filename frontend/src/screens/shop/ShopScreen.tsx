@@ -27,7 +27,7 @@ import { colors, typography } from '../../theme';
 import { s as sc, useBottomInset, useResponsive, useTopInset } from '../../theme/responsive';
 
 // 화면에 보여줄 부위 순서 — 위에서부터 눈에 띄는 것 순
-const SLOT_ORDER: ItemSlot[] = ['pose', 'background'];
+const SLOT_ORDER: ItemSlot[] = ['pose', 'background', 'frame'];
 
 export default function ShopScreen() {
   const { token } = useAuth();
@@ -114,9 +114,10 @@ export default function ShopScreen() {
   // 착용 중인 포즈가 있으면 그 모습으로 미리 보여준다 (없으면 기본 인사 포즈)
   const equippedPose = (shop?.items ?? []).find((i) => i.equipped && i.slot === 'pose');
   const previewMood = (equippedPose?.mood as BrewMood | undefined) ?? 'top';
+  // 포즈 외 착용 아이템(배경·프레임)은 모두 미리보기 브루에 겹쳐 보여준다
   const equipped = (shop?.items ?? [])
-    .filter((i) => i.equipped && i.slot === 'background')
-    .map((i) => ({ id: i.id, slot: 'background' as const, emoji: i.emoji }));
+    .filter((i) => i.equipped && i.slot !== 'pose')
+    .map((i) => ({ id: i.id, slot: i.slot as Exclude<ItemSlot, 'pose'>, emoji: i.emoji }));
 
   return (
     <ScrollView
