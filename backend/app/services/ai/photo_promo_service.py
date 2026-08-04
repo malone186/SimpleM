@@ -6,6 +6,7 @@ AI 생성 이미지는 우리 매장 실물과 다를 수 있다. 그래서 사�
 
   ① 누끼: rembg(u2netp) — 첫 호출 때 모델(~5MB)을 내려받아 세션을 재사용
   ② 배경: Pollinations(무료)로 '빈' 카페 배경 생성 → 실패 시 크림 그라데이션 폴백
+          (유료 Gemini 이미지 모델은 비용 때문에 쓰지 않는다)
   ③ 합성: Pillow — 피사체를 중앙 하단에 배치하고 부드러운 그림자를 깔아
           '스티커 붙인 느낌'을 줄인다
   ④ 저장·문서 연결은 기존 marketing_service 경로를 그대로 재사용
@@ -96,7 +97,12 @@ def _cutout(photo_bytes: bytes):
 
 
 def _background(style: str, aspect_ratio: str):
-    """배경 이미지(RGB). Pollinations 실패 시 크림 그라데이션 폴백 — 항상 성공한다."""
+    """배경 이미지(RGB). Pollinations(무료) → 크림 그라데이션 폴백 — 항상 성공한다.
+
+    유료 Gemini 이미지 모델은 쓰지 않는다(비용). 무료 Pollinations(FLUX)로 '빈' 카페
+    배경을 만들고, 실패하면 외부 호출 없는 그라데이션으로 항상 성공시킨다. 배경엔
+    글자를 넣지 않으므로(_NO_TEXT) 모델의 한글 렌더링 문제와 무관하다.
+    """
     from PIL import Image
 
     from app.services.ai import marketing_service as M
