@@ -5,7 +5,10 @@ FROM node:22-alpine AS build
 
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+# package-lock.json은 npm 11로 만들어졌다. node:22 기본 npm(10.9)은 테스트 도구의
+# peer 의존(react-test-renderer 계열)을 다르게 풀어 `npm ci`가 "lock과 불일치"로 죽는다.
+# 락파일을 만든 쪽에 맞춘다 — 로컬에서 npm ci가 통과하면 여기서도 통과한다.
+RUN npm install -g npm@11 && npm ci
 
 COPY . .
 # expo export가 NODE_ENV=production으로 돌므로 .env.production이 .env를 덮는다
