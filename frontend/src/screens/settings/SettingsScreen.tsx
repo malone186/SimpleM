@@ -1163,7 +1163,9 @@ export default function SettingsScreen() {
         </View>
 
         {/* [한글 주석] AI 목소리(Gemini TTS) 무료 한도는 분당 3회 — 넘으면 기기 기본
-            목소리로 자동 전환된다. 고장으로 오해하지 않게 한 줄로만 알린다.
+            목소리로 자동 전환된다. 고장으로 오해하지 않게 짧게 알린다.
+            한 문단으로 흘리면 좁은 폭에서 "…읽고 / 1분 뒤"처럼 어절 중간이 끊겨 보여,
+            제목 줄과 설명 줄을 따로 두어 줄바꿈 위치를 고정한다.
             AI 목소리를 안 쓰는 환경(네이티브)에서는 없는 제한이라 아예 감춘다. */}
         {speechPlayer.usesAiVoice() && (
           <View style={[styles.voiceQuotaNote, aiVoiceWait > 0 && styles.voiceQuotaNoteActive]}>
@@ -1173,19 +1175,16 @@ export default function SettingsScreen() {
               color={aiVoiceWait > 0 ? colors.espressoBrown : colors.mochaBrown}
               style={{ marginTop: 1 }}
             />
-            <Text style={styles.voiceQuotaText}>
-              {aiVoiceWait > 0 ? (
-                <>
-                  <Text style={styles.voiceQuotaStrong}>지금은 기본 목소리</Text>
-                  {` · 약 ${aiVoiceWait}초 뒤 복귀`}
-                </>
-              ) : (
-                <>
-                  <Text style={styles.voiceQuotaStrong}>AI 목소리는 1분에 3회</Text>
-                  {'까지예요. 넘으면 기본 목소리로 읽고 1분 뒤 돌아옵니다.'}
-                </>
-              )}
-            </Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.voiceQuotaStrong}>
+                {aiVoiceWait > 0 ? '지금은 기본 목소리로 읽고 있어요' : 'AI 목소리는 1분에 3회까지'}
+              </Text>
+              <Text style={styles.voiceQuotaText}>
+                {aiVoiceWait > 0
+                  ? `약 ${aiVoiceWait}초 뒤 AI 목소리로 돌아옵니다`
+                  : '넘으면 기본 목소리로 읽고, 1분 뒤 돌아옵니다'}
+              </Text>
+            </View>
           </View>
         )}
 
@@ -1837,15 +1836,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(110, 85, 68, 0.09)',
     borderColor: colors.espressoBrown,
   },
-  voiceQuotaText: {
-    flex: 1,
-    fontSize: 10.5,
-    lineHeight: 15,
-    color: colors.mochaBrown,
-  },
+  // 제목 줄 / 설명 줄을 나눠 좁은 폭에서도 줄바꿈 위치가 흔들리지 않게 한다
   voiceQuotaStrong: {
+    fontSize: 11,
+    lineHeight: 15,
     fontWeight: '800',
     color: colors.espressoBrown,
+  },
+  voiceQuotaText: {
+    fontSize: 10.5,
+    lineHeight: 14,
+    marginTop: 1,
+    color: colors.mochaBrown,
   },
   // [한글 주석: 말하는 속도 5단계 칩]
   // [한글 주석] 5단계가 반드시 한 줄에 들어가야 한다 — 줄바꿈되면 '아주 빠르게'만 아래로
