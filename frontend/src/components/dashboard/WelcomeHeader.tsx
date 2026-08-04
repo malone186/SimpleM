@@ -183,6 +183,7 @@ export default function WelcomeHeader({
   mood = 'top',
   onOpenMap,
   onOpenPushModal,
+  onOpenShop,
   hasUnreadPush = true,
 }: {
   storeName: string;
@@ -190,8 +191,10 @@ export default function WelcomeHeader({
   mood?: BrewMood;
   onOpenMap?: () => void;
   onOpenPushModal?: () => void;
+  onOpenShop?: () => void;
   hasUnreadPush?: boolean;
 }) {
+  const navigation = useNavigation<any>();
   const greeting = useTimeGreeting();
   const { announce, dismiss } = useAdminAnnouncement(refreshTrigger);
 
@@ -262,8 +265,6 @@ export default function WelcomeHeader({
   // [한글 주석: 사장님이 새로 추가된 3번째 알림 아이콘(🔔✨)을 누르면 열리는 전용 푸시 알림 모달 상태]
   const [pushModalOpen, setPushModalOpen] = useState(false);
 
-  const navigation = useNavigation<any>();
-
   const openInbox = () => {
     setNewBaseline(readMaxId);
     setSelectedId(null); // 항상 목록부터 — 지난번 상세가 남아 있지 않게
@@ -327,33 +328,46 @@ export default function WelcomeHeader({
   return (
     <View style={styles.header}>
       <View style={styles.topBar}>
-        <TouchableOpacity style={styles.iconBtn} onPress={onOpenMap} hitSlop={10} activeOpacity={0.85}>
-          <Ionicons name="map-outline" size={19} color={colors.creamSand} />
-        </TouchableOpacity>
+        {/* [한글 주석: 왼쪽 기존 아이콘 3개 그룹 (지도, 알림, 말풍선)] */}
+        <View style={styles.leftIconGroup}>
+          <TouchableOpacity style={styles.iconBtn} onPress={onOpenMap} hitSlop={10} activeOpacity={0.85}>
+            <Ionicons name="map-outline" size={19} color={colors.creamSand} />
+          </TouchableOpacity>
 
-        {/* 기존 공지 알림함 */}
-        <TouchableOpacity style={styles.iconBtn} onPress={openInbox} hitSlop={10} activeOpacity={0.85}>
-          <Ionicons name="notifications-outline" size={19} color={colors.creamSand} />
-          {unreadCount > 0 && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
+          {/* 기존 공지 알림함 */}
+          <TouchableOpacity style={styles.iconBtn} onPress={openInbox} hitSlop={10} activeOpacity={0.85}>
+            <Ionicons name="notifications-outline" size={19} color={colors.creamSand} />
+            {unreadCount > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
 
-        {/* [한글 주석: 사장님 요청 — 기존 1,2번 아이콘과 100% 톤앤매너가 어우러지는 세련된 3번째 스마트 푸시 알림 버튼 💬] */}
+          {/* [한글 주석: 세련된 3번째 스마트 푸시 알림 버튼 💬] */}
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={onOpenPushModal || (() => setPushModalOpen(true))}
+            hitSlop={10}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="chatbubbles-outline" size={19} color={colors.creamSand} />
+            {hasUnreadPush && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>N</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {/* [한글 주석: 사장님 요청 — 상점 버튼 🛍️ (상단 맨 우측 독립 배치)] */}
         <TouchableOpacity
           style={styles.iconBtn}
-          onPress={onOpenPushModal || (() => setPushModalOpen(true))}
+          onPress={onOpenShop || (() => navigation.navigate('Shop'))}
           hitSlop={10}
           activeOpacity={0.85}
         >
-          <Ionicons name="chatbubbles-outline" size={19} color={colors.creamSand} />
-          {hasUnreadPush && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>N</Text>
-            </View>
-          )}
+          <Ionicons name="storefront-outline" size={19} color={colors.creamSand} />
         </TouchableOpacity>
       </View>
 
@@ -509,8 +523,19 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     paddingHorizontal: spacing.globalPadding,
   },
-  // marginTop으로 아이콘 줄을 아주 조금 아래로 내린다
-  topBar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, marginBottom: 8 },
+  // marginTop으로 아이콘 줄을 아주 조금 아래로 내리고, 양쪽 끝 분리(space-between) 적용
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 6,
+    marginBottom: 8,
+  },
+  leftIconGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   iconBtn: {
     alignItems: 'center',
     justifyContent: 'center',

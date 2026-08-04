@@ -718,6 +718,7 @@ export default function DashboardScreen() {
             mood={brewMood}
             onOpenMap={() => navigation.navigate('StoreMap')}
             onOpenPushModal={handleOpenPushModal}
+            onOpenShop={() => navigation.navigate('Shop')}
             hasUnreadPush={!pushBadgeSeen}
             refreshTrigger={runId}
           />
@@ -738,17 +739,6 @@ export default function DashboardScreen() {
               onEditTodo={handleEditTodo}
               onDeleteTodo={handleDeleteTodo}
               onRestoreAiTodos={handleRestoreAiTodos}
-            />
-          </FadeInUp>
-
-          {/* [한글 주석: 투두(SalesCard) 바로 아래 신설된 독립 스마트 알림 센터 카드 패널 — 가로 넓고 훤칠함] */}
-          <FadeInUp key={`alert-center-${runId}`} delay={95}>
-            <AlertCenterCard
-              alerts={alerts}
-              onPressAlert={handlePressAlert}
-              onDismissAlert={handleDismissAlert}
-              onClearAllAlerts={handleClearAllAlerts}
-              onRestoreAlerts={handleRestoreAlerts}
             />
           </FadeInUp>
 

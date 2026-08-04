@@ -265,29 +265,12 @@ export default function AlertCenterCard({
       ) : !isExpanded ? (
         /* ━━━ [한글 주석: 접혀있을 때 — 입체적인 겹겹이 스택 카드] ━━━ */
         <Pressable style={styles.stackWrapper} onPress={toggleExpand}>
-          {secondAlert && (
-            <View style={styles.stackLayerBack}>
-              <Text style={styles.stackLayerBackText} numberOfLines={1}>
-                {secondAlert.title}
-              </Text>
-            </View>
-          )}
-
           <AnimatedAlertItem
             item={topAlert}
             index={0}
             onPress={() => onPressAlert?.(topAlert)}
             onDismiss={() => onDismissAlert?.(topAlert.id)}
           />
-
-          {alerts.length > 1 && (
-            <View style={styles.stackHintRow}>
-              <Text style={styles.stackHintText}>
-                총 {alerts.length}개의 알림이 있습니다. (터치하거나 세모 🔽 눌러서 펼치기)
-              </Text>
-              <Ionicons name="chevron-down" size={13} color={colors.mochaBrown} />
-            </View>
-          )}
         </Pressable>
       ) : (
         /* ━━━ [한글 주석: 펼쳐졌을 때 — 아이폰 순차 애니메이션 리스트] ━━━ */
