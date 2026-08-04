@@ -20,6 +20,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRoute } from '@react-navigation/native';
 
 import { useAuth } from '../../auth/AuthContext';
 import { PressableScale } from '../../components/motion';
@@ -79,6 +80,7 @@ type Phase = 'idle' | 'copy' | 'image' | 'restyle';
 
 export default function MarketingScreen() {
   const { token } = useAuth();
+  const route = useRoute<any>();
 
   // 입력 폼
   const [channel, setChannel] = useState<PromotionChannel>('instagram');
@@ -86,6 +88,17 @@ export default function MarketingScreen() {
   const [tone, setTone] = useState('');
   const [menu, setMenu] = useState('');
   const [imageStyle, setImageStyle] = useState(''); // IMAGE_STYLES의 key (빈 값 = 자동)
+
+  // [브루 추천 연결] 투두의 '홍보하러 가기'로 들어오면 홍보할 메뉴·주제가 자동 입력된다.
+  // ts를 의존성에 둬서 같은 메뉴를 다시 눌러도(파라미터 갱신) 다시 채워진다.
+  useEffect(() => {
+    const prefill = (route.params?.prefillMenu ?? '').trim();
+    if (prefill) {
+      setMenu(prefill);
+      setTopic(`${prefill} 집중 홍보`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.params?.prefillMenu, route.params?.ts]);
 
   // 생성 상태·결과
   const [phase, setPhase] = useState<Phase>('idle');

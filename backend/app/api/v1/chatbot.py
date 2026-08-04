@@ -1352,6 +1352,19 @@ def grant_chat_quota(store_id: Optional[str] = Depends(_optional_store_id)) -> d
 # 할 일 목록 — 사장님 직접 입력과 브루(AI) 추가가 같은 저장소를 쓴다
 # ---------------------------------------------------------------------------
 
+@router.get("/todos/ai-suggestions")
+def ai_todo_suggestions_api(current_user: User = Depends(get_current_user)):
+    """브루의 오늘 할 일 제안 — 재고·판매 데이터를 LLM이 읽고 실행형 문장으로 만든다.
+
+    '재고 부족' 같은 상태 나열 대신 "원두가 2kg 남았어요 — 오늘 발주하세요"로,
+    그리고 홍보 가치가 큰 메뉴 1개를 골라 "○○를 홍보해 보세요"(kind=promo)를 준다.
+    매장별 하루 캐시. 키 없으면 규칙 기반 문장으로 폴백.
+    """
+    from app.services.ai import ai_todo_service
+
+    return ai_todo_service.suggest_todos(current_user.email)
+
+
 @router.get("/todos", response_model=list[TodoResponse])
 def list_todos(current_user: User = Depends(get_current_user)):
     """할 일 목록 조회 — 미완료가 먼저, 기한 임박 순.

@@ -1,7 +1,8 @@
 // 할 일 목록 (Design Spec §4-③ 연동 — iOS 팝업 모달 기반 새 업무 등록 및 1줄 세련 레이아웃 최종)
 import { useEffect, useRef, useState, useMemo } from 'react';
-import { Animated, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Animated, Modal, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 
 import { colors, spacing, typography, shadows } from '../../theme';
 import { PopIn, PressableScale, SlideUp } from '../motion';
@@ -21,6 +22,10 @@ export type Todo = {
   timeGroup?: string;
   dateKey?: string;
   category?: TodoCategory;
+  // [한글 주석] 브루 추천 액션 — 'marketing'이면 항목 아래 '홍보하러 가기' 링크가 붙고,
+  // 누르면 홍보 스튜디오로 이동하며 menu(홍보할 메뉴명)가 프롬프트에 자동 입력된다.
+  action?: 'marketing';
+  menu?: string;
 };
 
 const CATEGORIES: { id: TodoCategory; label: string; icon: string; tag: string }[] = [
@@ -403,6 +408,7 @@ function TodoItem({
   const animOpacity = useRef(new Animated.Value(1)).current;
   const checkScale = useRef(new Animated.Value(1)).current;
   const cardScale = useRef(new Animated.Value(1)).current;
+  const navigation = useNavigation<any>();
 
   const handleToggle = () => {
     // [한글 주석: 산디과 감성 과하지 않고 쫀득한 명품 절제형 Bouncy Spring 완료 인터랙션]
@@ -497,6 +503,19 @@ function TodoItem({
               </View>
             )}
           </View>
+          {/* 홍보 추천 항목 — 누르면 홍보 스튜디오로, 메뉴가 프롬프트에 자동 입력된다 */}
+          {todo.action === 'marketing' && !disabled && (
+            <TouchableOpacity
+              onPress={() =>
+                navigation.navigate('Marketing', { prefillMenu: todo.menu ?? '', ts: Date.now() })
+              }
+              style={styles.promoLink}
+              hitSlop={{ top: 6, bottom: 6 }}
+            >
+              <Ionicons name="megaphone-outline" size={11} color="#8C6F56" />
+              <Text style={styles.promoLinkText}>홍보하러 가기 ›</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* [3. 우측 액션 버튼 - [한글 주석] 지난 날짜(isPastDate)일 때는 수정/삭제 버튼 숨김] */}
@@ -792,6 +811,20 @@ const styles = StyleSheet.create({
   },
   aiBadgeTextDone: {
     color: '#8C827A',
+  },
+  // 브루 홍보 추천 항목의 '홍보하러 가기' 링크
+  promoLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginTop: 3,
+    alignSelf: 'flex-start',
+  },
+  promoLinkText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#8C6F56',
+    textDecorationLine: 'underline',
   },
   actionsRight: {
     flexDirection: 'row',
