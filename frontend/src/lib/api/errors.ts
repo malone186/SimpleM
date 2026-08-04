@@ -8,6 +8,7 @@
 // 그 문장을 그대로 화면에 띄우는 게 가장 정확한 안내다.
 
 export type ApiFailureKind =
+  | 'quota'
   | 'needs_data' // 아직 데이터가 부족해서 못 하는 것 — 기다리거나 입력해야 열린다
   | 'auth' // 로그인 만료
   | 'missing' // 서버에 이 기능이 아직 없음 (배포 안 됨)
@@ -64,6 +65,16 @@ export function describeApiFailure(
         ? `Not enough data yet for the ${subject}.`
         : `${withObjectParticle(subject)} 만들 데이터가 아직 부족해요.`),
       retryable: false,
+    };
+  }
+  // 429 = AI 사용량 한도 — 서버 고장이 아니므로 백엔드가 준 이유를 그대로 보여준다
+  if (status === 429) {
+    return {
+      kind: 'quota',
+      message: detail || (en
+        ? 'AI usage limit reached for now. Please try again later.'
+        : '오늘 사용할 수 있는 AI 사용량이 잠시 부족해요. 조금 뒤에 다시 시도해 주세요.'),
+      retryable: true,
     };
   }
   if (status === 401 || status === 403) {

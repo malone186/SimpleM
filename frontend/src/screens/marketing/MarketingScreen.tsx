@@ -213,20 +213,41 @@ export default function MarketingScreen() {
     try {
       let doc = result;
       if (!doc) {
-        // 문구가 아직 없으면 먼저 만들어 사진 이미지가 문서에 함께 묶이게 한다
+        // 문구가 아직 없으면 먼저 만들어 사진 이미지가 문서에 함께 묶이게 한다.
+        // 단, 문구는 Gemini 쿼터에 묶여 실패할 수 있다 — 그래도 사진 합성(쿼터 무관)은
+        // 계속 진행한다. 문구 없이 이미지만이라도 손에 쥐여주는 게 이 기능의 본질이다.
         setPhase('copy');
-        doc = await createPromotionCopy(token, { topic, channel, tone, menu });
-        setResult(doc);
+        try {
+          doc = await createPromotionCopy(token, { topic, channel, tone, menu });
+          setResult(doc);
+        } catch (copyErr) {
+          toast('문구는 잠시 쉬어요', describeApiFailure(copyErr, '홍보 문구').message);
+          doc = null;
+        }
       }
       setPhase('image');
       const img = await createPhotoPromoImage(
         token,
         { uri: a.uri, mimeType: a.mimeType, fileName: a.fileName },
-        { doc_id: doc.id, style: photoBgStyle, aspect_ratio: CHANNEL_META[channel].aspect },
+        { doc_id: doc?.id ?? '', style: photoBgStyle, aspect_ratio: CHANNEL_META[channel].aspect },
       );
-      if (img.doc) applyDoc(img.doc, img.image_id);
+      if (img.doc) {
+        applyDoc(img.doc, img.image_id);
+      } else {
+        // 문구 없이 만든 독립 이미지 — 화면에 보이도록 최소 문서 형태로 감싼다
+        applyDoc({
+          id: '',
+          kind: 'marketing_content',
+          title: '실물 사진 홍보 이미지',
+          content: {
+            channel, channel_label: '', topic, tone, focus_menu: menu, store_name: '',
+            headline: '', sub_headline: '', body: '', sns_caption: '', hashtags: [],
+            short_slogan: '', image_prompt: '', posting_tip: '', images: [img],
+          },
+        } as any, img.image_id);
+      }
       refreshHistory();
-      toast('내 사진으로 만들었어요', '실물 메뉴에 감성 배경을 입혔어요. 문구와 함께 쓰세요!');
+      toast('내 사진으로 만들었어요', '실물 메뉴에 감성 배경을 입혔어요!');
     } catch (e) {
       toast('사진 합성 실패', describeApiFailure(e, '사진 합성').message);
     } finally {
