@@ -76,3 +76,12 @@ def award_derived_todo(body: DerivedTodoDoneRequest, current_user: User = Depend
 def get_equipped(current_user: User = Depends(get_current_user)) -> list[dict]:
     """현재 착용 중인 아이템 — 브루를 그리는 화면들이 가볍게 조회한다."""
     return reward_service.get_equipped(current_user.email)
+
+
+@router.get("/progress")
+def get_progress(current_user: User = Depends(get_current_user)) -> dict:
+    """브루 키우기 상태 — 레벨·EXP·스트릭·일일 도전 (상점 상단 성장 카드).
+
+    일일 도전을 오늘 달성했으면 이 조회 중에 보너스 코인이 지급될 수 있다(하루 한 번).
+    """
+    return reward_service.get_progress(current_user.email)

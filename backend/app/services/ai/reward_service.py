@@ -101,8 +101,13 @@ SLOT_LABEL = {
 REASON_LABEL = {
     "todo_done": "할 일 완료",
     "purchase": "상점 구매",
+    "daily_bonus": "일일 도전 보너스",
     "test_grant": "테스트 지급",  # 개발 중 상점을 확인하려고 수동으로 넣은 코인
 }
+
+# 일일 도전 — 오늘 할 일 N개를 끝내면 보너스 코인 (빈 출석이 아니라 실제 완료 기준)
+DAILY_GOAL = 3
+DAILY_REWARD = 30
 
 
 class RewardError(ValueError):
@@ -229,6 +234,122 @@ def _derived_ref(key: str) -> str:
         return ref
     digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
     return f"k:{key[:45]}#{digest}"
+
+
+# ---------------------------------------------------------------------------
+# 성장(EXP·레벨) · 스트릭 · 일일 도전 — '브루 키우기'
+#
+# EXP = 누적으로 번 코인(양수 delta 합). 쓰는 코인(잔액)과 분리돼, 아이템을 사도 성장은
+# 되돌아가지 않는다. 레벨·칭호는 EXP에서 계산한다. 스트릭은 '할 일을 한 날'의 연속 일수 —
+# 단순 접속이 아니라 실제 완료 기준이라 "빈 출석엔 보상 없음" 원칙과 맞는다.
+# ---------------------------------------------------------------------------
+
+def _level_title(level: int) -> str:
+    if level <= 2:
+        return "새싹 바리스타"
+    if level <= 4:
+        return "견습 바리스타"
+    if level <= 7:
+        return "정식 바리스타"
+    if level <= 10:
+        return "베테랑 바리스타"
+    return "마스터 바리스타"
+
+
+def _level_calc(exp: int) -> tuple[int, int, int, str]:
+    """누적 EXP → (레벨, 현재 레벨 내 EXP, 다음 레벨까지 필요 EXP, 칭호).
+
+    레벨 L→L+1 비용 = 100 + (L-1)*50 (오를수록 완만하게 늘어난다).
+    """
+    level, acc = 1, 0
+    while True:
+        cost = 100 + (level - 1) * 50
+        if exp < acc + cost:
+            return level, exp - acc, cost, _level_title(level)
+        acc += cost
+        level += 1
+
+
+def _to_kst_date(dt):
+    """PointLedger.created_at(naive UTC일 수 있음) → KST 날짜."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(KST).date()
+
+
+def _streak(active_dates: set, today) -> tuple[int, bool]:
+    """할 일을 한 날의 연속 일수. 오늘 아직 안 했어도 어제까지 이어졌으면 유지된다."""
+    if today in active_dates:
+        cur = today
+    elif (today - timedelta(days=1)) in active_dates:
+        cur = today - timedelta(days=1)
+    else:
+        return 0, False
+    n = 0
+    while cur in active_dates:
+        n += 1
+        cur -= timedelta(days=1)
+    return n, today in active_dates
+
+
+def get_progress(store_id: str) -> dict[str, Any]:
+    """브루 키우기 상태 — 레벨·EXP·스트릭·일일 도전.
+
+    일일 도전을 달성했는데 아직 보너스를 안 받았으면 여기서 지급한다(하루 한 번, ref로 멱등).
+    """
+    from app.models.ai import PointLedger
+
+    with _session() as db:
+        rows = db.query(PointLedger.created_at, PointLedger.reason, PointLedger.delta).filter(
+            PointLedger.store_id == store_id, PointLedger.delta > 0
+        ).all()
+
+    today = datetime.now(KST).date()
+    exp = 0
+    active: set = set()
+    todo_today = 0
+    daily_claimed = False
+    for created, reason, delta in rows:
+        exp += int(delta)
+        d = _to_kst_date(created)
+        if not d:
+            continue
+        active.add(d)
+        if d == today and reason == "todo_done":
+            todo_today += 1
+        if d == today and reason == "daily_bonus":
+            daily_claimed = True
+
+    # 일일 도전 달성 & 미수령 → 보너스 지급 (멱등: ref=daily:날짜)
+    reward_given = False
+    if todo_today >= DAILY_GOAL and not daily_claimed:
+        if award(store_id, DAILY_REWARD, "daily_bonus", f"daily:{today.isoformat()}",
+                 f"일일 도전 달성(+{DAILY_REWARD})"):
+            exp += DAILY_REWARD
+            daily_claimed = True
+            reward_given = True
+
+    streak, active_today = _streak(active, today)
+    level, in_level, to_next, title = _level_calc(exp)
+    return {
+        "exp": exp,
+        "level": level,
+        "level_title": title,
+        "exp_in_level": in_level,
+        "exp_to_next": to_next,
+        "streak": streak,
+        "streak_active_today": active_today,
+        "daily": {
+            "goal": DAILY_GOAL,
+            "progress": min(todo_today, DAILY_GOAL),
+            "done": todo_today >= DAILY_GOAL,
+            "reward": DAILY_REWARD,
+            "claimed": daily_claimed,
+            "just_awarded": reward_given,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

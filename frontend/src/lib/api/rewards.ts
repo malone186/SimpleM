@@ -101,3 +101,30 @@ export function awardDerivedTodo(
 export function getEquipped(token?: string | null): Promise<EquippedItem[]> {
   return apiFetch<EquippedItem[]>('/api/v1/rewards/equipped', { headers: authHeader(token) });
 }
+
+/** 오늘 할 일 N개 완료 시 보너스 — 진행 상황 */
+export type DailyChallenge = {
+  goal: number;
+  progress: number;
+  done: boolean;
+  reward: number;
+  claimed: boolean;
+  just_awarded: boolean;
+};
+
+/** 브루 키우기 상태 — 레벨·EXP·스트릭·일일 도전 */
+export type Progress = {
+  exp: number;
+  level: number;
+  level_title: string;
+  exp_in_level: number;
+  exp_to_next: number;
+  streak: number;
+  streak_active_today: boolean;
+  daily: DailyChallenge;
+};
+
+/** 성장 상태 조회 (일일 도전을 달성했으면 이 호출 중에 보너스가 지급될 수 있다) */
+export function getProgress(token?: string | null): Promise<Progress> {
+  return apiFetch<Progress>('/api/v1/rewards/progress', { headers: authHeader(token) });
+}

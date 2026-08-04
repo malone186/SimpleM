@@ -13,10 +13,12 @@ import { Badge, Card, Screen, ScreenTitle, SectionTitle } from '../../components
 import {
   buyItem,
   equipItem,
+  getProgress,
   getShop,
   getWallet,
   type ItemSlot,
   type PointHistoryItem,
+  type Progress,
   type ShopItem,
   type ShopState,
   type Wallet,
@@ -39,6 +41,7 @@ export default function ShopScreen() {
   const { refresh: refreshEquipped } = useEquipped();
   const [shop, setShop] = useState<ShopState | null>(null);
   const [wallet, setWallet] = useState<Wallet | null>(null);
+  const [progress, setProgress] = useState<Progress | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyItem, setBusyItem] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -46,9 +49,10 @@ export default function ShopScreen() {
   const load = useCallback(async () => {
     if (!token) return;
     try {
-      const [s, w] = await Promise.all([getShop(token), getWallet(token)]);
+      const [s, w, p] = await Promise.all([getShop(token), getWallet(token), getProgress(token)]);
       setShop(s);
       setWallet(w);
+      setProgress(p);
     } catch {
       toast('불러오기 실패', '잠시 후 다시 시도해 주세요.');
     } finally {
@@ -151,6 +155,13 @@ export default function ShopScreen() {
         </Card>
       </FadeInUp>
 
+      {/* ── 브루 키우기 (레벨·EXP·스트릭·일일 도전) ── */}
+      {progress && (
+        <FadeInUp delay={40}>
+          <GrowthCard progress={progress} />
+        </FadeInUp>
+      )}
+
       {/* ── 부위별 아이템 ── */}
       {SLOT_ORDER.map((slot, si) => {
         const items = (shop?.items ?? []).filter((i) => i.slot === slot);
@@ -247,6 +258,49 @@ function ShopRow({
   );
 }
 
+/** 브루 키우기 카드 — 레벨·EXP 바·스트릭 불꽃·오늘의 도전 */
+function GrowthCard({ progress }: { progress: Progress }) {
+  const expPct = Math.max(0, Math.min(1, progress.exp_in_level / Math.max(1, progress.exp_to_next)));
+  const remain = Math.max(0, progress.exp_to_next - progress.exp_in_level);
+  const d = progress.daily;
+  const dailyPct = Math.max(0, Math.min(1, d.progress / Math.max(1, d.goal)));
+  return (
+    <Card style={styles.growthCard}>
+      <View style={styles.growthTop}>
+        <View style={styles.levelBadge}>
+          <Text style={styles.levelBadgeText}>Lv.{progress.level}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.growthTitle}>{progress.level_title}</Text>
+          <Text style={styles.growthSub}>다음 레벨까지 {remain} EXP</Text>
+        </View>
+        <View style={[styles.streakPill, !progress.streak_active_today && styles.streakPillDim]}>
+          <Text style={styles.streakEmoji}>🔥</Text>
+          <Text style={styles.streakText}>{progress.streak}일</Text>
+        </View>
+      </View>
+
+      <View style={styles.expTrack}>
+        <View style={[styles.expFill, { width: `${expPct * 100}%` }]} />
+      </View>
+
+      <View style={styles.dailyRow}>
+        <Text style={styles.dailyLabel}>
+          오늘의 도전 · 할 일 {d.progress}/{d.goal}
+        </Text>
+        {d.claimed ? (
+          <Badge label={`+${d.reward} 완료`} tone="green" />
+        ) : (
+          <Text style={styles.dailyReward}>달성 시 +{d.reward} 🪙</Text>
+        )}
+      </View>
+      <View style={styles.dailyTrack}>
+        <View style={[styles.dailyFill, { width: `${dailyPct * 100}%` }]} />
+      </View>
+    </Card>
+  );
+}
+
 /** 목록 썸네일 — 사면 실제로 보게 될 그림을 그대로 작게 보여준다 (포즈는 브루 자신) */
 function ItemArt({ item }: { item: ShopItem }) {
   if (item.slot === 'pose' && item.mood) {
@@ -295,6 +349,40 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
 
   heroCard: { alignItems: 'center', paddingVertical: 22, marginBottom: 6 },
+
+  // 브루 키우기 성장 카드
+  growthCard: { paddingVertical: 14, marginBottom: 6, gap: 10 },
+  growthTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  levelBadge: {
+    backgroundColor: colors.pointOrange,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    minWidth: 46,
+    alignItems: 'center',
+  },
+  levelBadgeText: { ...typography.L4, color: colors.white },
+  growthTitle: { ...typography.L3, color: colors.espressoBrown },
+  growthSub: { ...typography.L5, color: colors.mochaBrown, marginTop: 1 },
+  streakPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: colors.coffeeCream,
+    borderRadius: 12,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  streakPillDim: { opacity: 0.5 },
+  streakEmoji: { fontSize: 13 },
+  streakText: { ...typography.L4, color: colors.espressoBrown },
+  expTrack: { height: 9, borderRadius: 5, backgroundColor: colors.mutedSand, overflow: 'hidden' },
+  expFill: { height: '100%', borderRadius: 5, backgroundColor: colors.pointOrange },
+  dailyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
+  dailyLabel: { ...typography.L5, color: colors.espressoBrown },
+  dailyReward: { ...typography.L5, color: colors.mochaBrown },
+  dailyTrack: { height: 7, borderRadius: 4, backgroundColor: colors.mutedSand, overflow: 'hidden' },
+  dailyFill: { height: '100%', borderRadius: 4, backgroundColor: colors.trendGreenText },
   coinRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, marginTop: 10 },
   coinIcon: { fontSize: 24, marginBottom: 2 },
   coinValue: { ...typography.L2, color: colors.espressoBrown },
