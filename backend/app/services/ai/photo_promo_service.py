@@ -54,6 +54,12 @@ _NO_TEXT = (" IMPORTANT: absolutely no text, no letters, no logos, no food, no d
 
 _session = None  # rembg 세션 — 프로세스당 1회 로드해 재사용
 
+# 배경 캐시 — (스타일, 비율)별로 6시간 재사용. 배경 생성(Pollinations)이 수십 초로
+# 가장 느린 구간이라, 실측 프로덕션 첫 합성이 78초까지 갔고 모바일 연결이 그 사이
+# 끊겨 '인터넷 연결 확인' 오류로 보였다. 같은 배경을 재사용하면 합성은 2~3초로 준다.
+_BG_TTL = 6 * 3600
+_bg_cache: dict[tuple[str, str], tuple[float, bytes]] = {}
+
 
 class PhotoPromoError(RuntimeError):
     """사진 합성 실패 (누끼 불가·이미지 손상 등)."""
@@ -97,8 +103,16 @@ def _background(style: str, aspect_ratio: str):
 
     w, h = M._AR_SIZES.get(aspect_ratio, (1472, 1472))
     meta = BACKGROUND_STYLES.get(style) or BACKGROUND_STYLES["wood"]
+
+    import time as _time
+    key = (style, aspect_ratio)
+    hit = _bg_cache.get(key)
+    if hit and _time.time() - hit[0] < _BG_TTL:
+        bg = Image.open(io.BytesIO(hit[1])).convert("RGB").resize((w, h))
+        return bg, "pollinations(cached)"
     try:
         bg_bytes, _mime = M._pollinations_generate(meta["prompt"] + _NO_TEXT, aspect_ratio)
+        _bg_cache[key] = (_time.time(), bg_bytes)
         bg = Image.open(io.BytesIO(bg_bytes)).convert("RGB").resize((w, h))
         return bg, "pollinations"
     except Exception as e:
