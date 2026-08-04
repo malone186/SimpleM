@@ -29,6 +29,7 @@ export const translations = {
     tabInventory: '재고',
     tabOrder: '발주',
     tabChatbot: '챗봇',
+    tabShop: '상점',
     tabManagement: '관리',
 
     // 3. 대시보드 (Dashboard & WelcomeHeader)
@@ -181,6 +182,7 @@ export const translations = {
     tabInventory: 'Inventory',
     tabOrder: 'Order',
     tabChatbot: 'AI Chat',
+    tabShop: 'Shop',
     tabManagement: 'Management',
 
     // 3. Dashboard & WelcomeHeader
