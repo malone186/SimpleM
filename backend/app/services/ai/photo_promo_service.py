@@ -82,8 +82,10 @@ def _cutout(photo_bytes: bytes):
         src = Image.open(io.BytesIO(photo_bytes)).convert("RGBA")
     except Exception:
         raise PhotoPromoError("사진 파일을 읽지 못했습니다. JPG/PNG 사진인지 확인해 주세요.")
-    # 아주 큰 원본은 누끼 전에 줄인다 — 품질 손해 없이 속도·메모리 확보
-    src.thumbnail((1600, 1600))
+    # 아주 큰 원본은 누끼 전에 줄인다 — 속도·메모리 확보.
+    # (1600에서 1280으로 축소: 1Gi 인스턴스에서 onnx 추론 중 OOM으로 503이 나던
+    #  실측 사례 대응. 홍보 컷 기준 화질 차이는 체감되지 않는다)
+    src.thumbnail((1280, 1280))
     cut = remove(src, session=_session)
 
     bbox = cut.getbbox()

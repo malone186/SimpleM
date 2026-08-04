@@ -68,7 +68,7 @@ jobs:
             --source backend \
             --region asia-northeast3 \
             --allow-unauthenticated \
-            --memory 1Gi --cpu 1 --timeout 300 \
+            --memory 2Gi --cpu 1 --timeout 300 \
             --env-vars-file backend/deploy/env.yaml \
             --set-secrets FCM_SERVICE_ACCOUNT_JSON=fcm-sa:latest \
             --quiet
