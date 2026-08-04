@@ -71,6 +71,25 @@ function isSpeaking(): boolean {
 // [한글 주석] 1순위 — 서버 TTS (Gemini, 진짜 다른 목소리)
 // ═══════════════════════════════════════════════════
 
+// [한글 주석] AI 목소리 분당 한도(무료 티어 3회) — 서버가 429 + Retry-After로 알려준다.
+// 한도를 넘으면 이 시각까지는 기기 기본 목소리로 읽는다는 뜻이고, 설정 화면이 그
+// 남은 시간을 사장님께 보여준다.
+//
+// 한도 중에도 서버는 계속 부른다: 반복되는 알림 문구와 설정 샘플은 서버 디스크 캐시에
+// 있어서 구글을 부르지 않고 200으로 나오고, 그건 한도와 무관하게 AI 목소리로 들려드릴
+// 수 있다. 미리 끊어버리면 공짜로 쓸 수 있는 캐시까지 기기 목소리로 떨어진다.
+let _serverBlockedUntil = 0; // epoch ms
+
+/** 웹은 서버 TTS(Gemini)가 1순위 — 즉 AI 목소리를 실제로 쓴다 */
+function usesAiVoice(): boolean {
+  return true;
+}
+
+/** AI 목소리를 지금 쓸 수 있는지 / 아니면 몇 초 뒤에 풀리는지 (설정 화면 안내용) */
+function aiVoiceCooldownSec(): number {
+  return Math.max(0, Math.ceil((_serverBlockedUntil - Date.now()) / 1000));
+}
+
 async function _speakViaServer(text: string, voiceType: string, speed: number): Promise<void> {
   if (!_authToken) throw new Error('로그인 토큰 없음 — 로컬 TTS로 폴백');
 
@@ -82,7 +101,16 @@ async function _speakViaServer(text: string, voiceType: string, speed: number): 
     },
     body: JSON.stringify({ text, voice_type: voiceType }),
   });
+  if (res.status === 429) {
+    // 분당 한도 초과 — 실패가 아니라 '이번엔 기기 목소리로 읽어라'는 신호다
+    const wait = Math.min(Number(res.headers.get('Retry-After')) || 60, 60);
+    _serverBlockedUntil = Date.now() + wait * 1000;
+    throw new Error(`AI 음성 분당 한도 — ${wait}초 뒤 복귀`);
+  }
   if (!res.ok) throw new Error(`서버 TTS ${res.status}`);
+  // 캐시 응답(hit)은 구글을 부르지 않은 것이라 한도가 풀렸다는 증거가 못 된다.
+  // 새로 합성된 응답(miss)이 왔을 때만 대기 표시를 푼다.
+  if (res.headers.get('X-Tts-Cache') !== 'hit') _serverBlockedUntil = 0;
   const blob = await res.blob();
 
   const url = URL.createObjectURL(blob);
@@ -255,7 +283,19 @@ const speechPlayer: SpeechPlayer = {
   cancelAll,
   isSpeaking,
   setAuthToken,
+  usesAiVoice,
+  aiVoiceCooldownSec,
 };
 
 export default speechPlayer;
-export { isEarphoneConnected, canPlayAudio, speak, enqueue, cancelAll, isSpeaking, setAuthToken };
+export {
+  isEarphoneConnected,
+  canPlayAudio,
+  speak,
+  enqueue,
+  cancelAll,
+  isSpeaking,
+  setAuthToken,
+  usesAiVoice,
+  aiVoiceCooldownSec,
+};

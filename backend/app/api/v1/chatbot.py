@@ -1069,15 +1069,26 @@ def synthesize_speech_api(
     같은 (목소리, 문장)은 서버 디스크 캐시에서 즉시 반환된다 (팀 공유 쿼터 절약).
     실패(쿼터·오프라인) 시 프론트 speechPlayer가 기기 로컬 TTS로 폴백하므로
     알림이 끊기지는 않는다. 로그인 필수 — 익명 호출로 쿼터가 새지 않게 한다.
+
+    무료 티어 한도(분당 3회)를 넘으면 429 + Retry-After를 준다 — 프론트는 그 신호를 받아
+    기기 기본 목소리로 읽는다 (에러 토스트 없이 조용히 전환). 캐시에서 나온 응답은
+    구글을 부르지 않았다는 뜻이라 X-Tts-Cache: hit로 알려준다 — 프론트가 이걸 보고
+    "한도가 풀렸다"고 잘못 판단하지 않게.
     """
     from fastapi.responses import Response
 
     try:
-        wav = tts_service.synthesize(body.text, voice_type=body.voice_type)
+        wav, from_cache = tts_service.synthesize_ex(body.text, voice_type=body.voice_type)
+    except tts_service.TtsRateLimited as e:
+        raise HTTPException(
+            429, str(e),
+            headers={"Retry-After": str(e.retry_after), "X-Tts-Fallback": "device"},
+        )
     except tts_service.TtsError as e:
         raise HTTPException(503, str(e))
     return Response(content=wav, media_type="audio/wav",
-                    headers={"Cache-Control": "private, max-age=3600"})
+                    headers={"Cache-Control": "private, max-age=3600",
+                             "X-Tts-Cache": "hit" if from_cache else "miss"})
 
 
 # ---------------------------------------------------------------------------

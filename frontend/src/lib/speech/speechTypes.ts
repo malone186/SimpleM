@@ -71,6 +71,14 @@ export type SpeechPlayer = {
   /** 서버 TTS(/chatbot/tts) 호출용 로그인 토큰 주입 — AlertsWatcher가 로그인/로그아웃 시 호출.
    *  토큰이 없으면(비로그인) 서버 TTS를 건너뛰고 기기 로컬 TTS로만 말한다. */
   setAuthToken: (token: string | null) => void;
+  /** 이 환경이 AI 목소리(서버 TTS)를 쓰는지. false면 항상 기기 내장 목소리로 읽는다 —
+   *  네이티브 빌드에 오디오 재생 모듈이 없어 서버가 준 WAV를 틀 수 없기 때문이다.
+   *  설정 화면의 '분당 3회' 안내는 이게 true일 때만 의미가 있다. */
+  usesAiVoice: () => boolean;
+  /** AI 목소리(서버 TTS)가 분당 한도로 쉬고 있는 남은 초. 0이면 지금 AI 목소리로 나간다.
+   *  무료 티어가 분당 3회라 그 이상은 기기 기본 목소리로 자동 전환된다 — 설정 화면 안내용.
+   *  (usesAiVoice()가 false인 환경에서는 항상 0) */
+  aiVoiceCooldownSec: () => number;
 };
 
 

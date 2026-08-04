@@ -212,6 +212,26 @@ export default function SettingsScreen() {
     }
   };
 
+  // [한글 주석] AI 목소리 분당 한도 — 무료 티어(Gemini TTS)가 분당 3회라, 그 이상 들으면
+  // 서버가 429를 주고 기기 기본 목소리로 자동 전환된다. 사장님이 샘플을 연달아 눌렀을 때
+  // "목소리가 왜 갑자기 달라졌지?" 하지 않도록, 남은 대기 시간을 안내 문구로 보여준다.
+  const [aiVoiceWait, setAiVoiceWait] = useState(0);
+
+  useEffect(() => {
+    if (aiVoiceWait <= 0) return;
+    const timer = setInterval(() => {
+      setAiVoiceWait(speechPlayer.aiVoiceCooldownSec?.() ?? 0);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [aiVoiceWait]);
+
+  /** 목소리·속도 샘플 재생 — 재생이 끝나면 AI 목소리 대기 상태를 화면에 반영한다 */
+  const playVoiceSample = (text: string, options: { voiceType: string; rate: number }) => {
+    speechPlayer
+      .speak(text, options)
+      .finally(() => setAiVoiceWait(speechPlayer.aiVoiceCooldownSec?.() ?? 0));
+  };
+
   // [한글 주석: 1대1 CS 탭 슬라이더 너비 및 슬라이드 애니메이션 상태]
   const [csTrackWidth, setCsTrackWidth] = useState(300);
   const csSlideAnim = useRef(new Animated.Value(0)).current;
@@ -1087,7 +1107,7 @@ export default function SettingsScreen() {
                     : vt === 'cute_child'
                       ? '우와 사장님 안녕! 귀여운 꼬마 목소리야!'
                       : '안녕하세요 사장님! 다정한 아나운서 여성 목소리입니다.';
-              speechPlayer.speak(sampleText, { voiceType: vt, rate: prefs.speechRate });
+              playVoiceSample(sampleText, { voiceType: vt, rate: prefs.speechRate });
             }}
             to={0.88}
           >
@@ -1114,7 +1134,7 @@ export default function SettingsScreen() {
                         : vt === 'cute_child'
                           ? '우와 사장님 안녕! 귀여운 꼬마 목소리야!'
                           : '안녕하세요 사장님! 다정한 아나운서 여성 목소리입니다.';
-                  speechPlayer.speak(sampleText, { voiceType: vt, rate: prefs.speechRate });
+                  playVoiceSample(sampleText, { voiceType: vt, rate: prefs.speechRate });
                 }}
                 to={0.94}
               >
@@ -1142,6 +1162,43 @@ export default function SettingsScreen() {
           })}
         </View>
 
+        {/* [한글 주석] AI 목소리 분당 한도 안내 — 4종 목소리는 구글 AI 음성(Gemini TTS)으로
+            합성하는데 무료 한도가 분당 3회다. 넘어가면 서버가 429를 주고 기기에 내장된
+            기본 목소리로 자동 전환된다. 안내가 없으면 "목소리가 갑자기 이상해졌다"는
+            고장으로 오해하기 쉬워서, 왜 그런지와 언제 돌아오는지를 여기 적어둔다.
+            AI 목소리를 쓰지 않는 환경(오디오 모듈이 없는 네이티브 빌드)에서는 이 한도가
+            아예 적용되지 않으므로 문구를 띄우지 않는다 — 없는 제한을 안내하면 더 헷갈린다. */}
+        {speechPlayer.usesAiVoice() && (
+          <View style={[styles.voiceQuotaNote, aiVoiceWait > 0 && styles.voiceQuotaNoteActive]}>
+            <Ionicons
+              name={aiVoiceWait > 0 ? 'time-outline' : 'information-circle-outline'}
+              size={14}
+              color={aiVoiceWait > 0 ? colors.espressoBrown : colors.mochaBrown}
+              style={{ marginTop: 1 }}
+            />
+            <Text style={styles.voiceQuotaText}>
+              {aiVoiceWait > 0 ? (
+                <>
+                  <Text style={styles.voiceQuotaStrong}>
+                    AI 목소리 사용량(1분에 3회)을 다 썼어요.
+                  </Text>
+                  {' 지금은 기기 기본 목소리로 읽어드리고, 약 '}
+                  <Text style={styles.voiceQuotaStrong}>{aiVoiceWait}초</Text>
+                  {' 뒤에 고르신 목소리로 자동으로 돌아옵니다.'}
+                </>
+              ) : (
+                <>
+                  <Text style={styles.voiceQuotaStrong}>AI 목소리는 1분에 3회까지</Text>
+                  {' 사용할 수 있어요. 짧은 시간에 더 많이 들으시면 자동으로 '}
+                  <Text style={styles.voiceQuotaStrong}>기기 기본 목소리</Text>
+                  {'로 바뀌어 읽어드리고, 1분이 지나면 다시 고르신 목소리로 돌아옵니다. '}
+                  {'(같은 문장은 저장해 두었다가 다시 들려드려서 횟수에 포함되지 않아요)'}
+                </>
+              )}
+            </Text>
+          </View>
+        )}
+
         {/* [한글 주석] 말하는 속도 — 알림을 읽는 빠르기. 5단계로 고르고, 고르는 즉시
             그 속도로 샘플이 나가 바로 비교된다. 값은 목소리 타입의 기본 속도에 곱해지므로
             어떤 목소리를 골라도 사장님이 정한 빠르기가 그대로 따라간다. */}
@@ -1155,7 +1212,7 @@ export default function SettingsScreen() {
                 style={[styles.rateChip, active && styles.rateChipActive]}
                 onPress={() => {
                   prefs.setPref('speechRate', step.value);
-                  speechPlayer.speak(
+                  playVoiceSample(
                     '이 속도로 알림을 읽어드릴게요. 사장님, 오늘도 좋은 하루 되세요.',
                     { voiceType: prefs.voiceType ?? 'warm_female', rate: step.value }
                   );
@@ -1771,6 +1828,34 @@ const styles = StyleSheet.create({
     color: colors.mochaBrown,
     marginTop: 4,
     lineHeight: 13,
+  },
+  // [한글 주석: AI 목소리 분당 한도(3회) 안내 — 초과 시 기기 기본 목소리로 전환됨을 알린다]
+  voiceQuotaNote: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    marginTop: 10,
+    marginBottom: 14,
+    backgroundColor: '#FFFDF9',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#EFECE6',
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  voiceQuotaNoteActive: {
+    backgroundColor: 'rgba(110, 85, 68, 0.09)',
+    borderColor: colors.espressoBrown,
+  },
+  voiceQuotaText: {
+    flex: 1,
+    fontSize: 10.5,
+    lineHeight: 15,
+    color: colors.mochaBrown,
+  },
+  voiceQuotaStrong: {
+    fontWeight: '800',
+    color: colors.espressoBrown,
   },
   // [한글 주석: 말하는 속도 5단계 칩]
   // [한글 주석] 5단계가 반드시 한 줄에 들어가야 한다 — 줄바꿈되면 '아주 빠르게'만 아래로

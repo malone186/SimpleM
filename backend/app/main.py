@@ -132,6 +132,10 @@ app.add_middleware(
     allow_credentials=True,             # 인증 정보(토큰/쿠키) 전송을 허용
     allow_methods=["*"],                # 모든 HTTP 메소드 허용
     allow_headers=["*"],                # 모든 커스텀 헤더 허용
+    # [응답 헤더 노출] 브라우저는 안전 목록 밖 응답 헤더를 JS에 숨긴다. TTS가 분당 한도로
+    # 기기 목소리로 전환될 때 프론트가 "언제 돌아오는지(Retry-After)"와 "캐시 응답인지
+    # (X-Tts-Cache)"를 읽어야 해서 명시적으로 노출한다. (credentials=True라 "*"는 불가)
+    expose_headers=["Retry-After", "X-Tts-Cache", "X-Tts-Fallback"],
 )
 
 

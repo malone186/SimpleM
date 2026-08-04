@@ -72,6 +72,18 @@ async function _voiceIdFor(voiceType: string): Promise<string | undefined> {
   return ids[idx % ids.length];
 }
 
+/** 네이티브는 서버가 준 WAV를 틀 오디오 모듈이 없어 AI 목소리를 쓰지 않는다 —
+ *  항상 기기 내장 목소리다. (expo-audio를 넣은 빌드가 나오면 여기도 true로 바꾸고
+ *  웹처럼 분당 한도 대기를 세면 된다) */
+function usesAiVoice(): boolean {
+  return false;
+}
+
+/** AI 목소리(서버 TTS) 대기 시간 — 쓰지 않으므로 항상 0 */
+function aiVoiceCooldownSec(): number {
+  return 0;
+}
+
 /** 현재 재생 중인지 확인 (동기) */
 function isSpeaking(): boolean {
   return _speaking;
@@ -216,7 +228,19 @@ const speechPlayer: SpeechPlayer = {
   cancelAll,
   isSpeaking,
   setAuthToken,
+  usesAiVoice,
+  aiVoiceCooldownSec,
 };
 
 export default speechPlayer;
-export { isEarphoneConnected, canPlayAudio, speak, enqueue, cancelAll, isSpeaking, setAuthToken };
+export {
+  isEarphoneConnected,
+  canPlayAudio,
+  speak,
+  enqueue,
+  cancelAll,
+  isSpeaking,
+  setAuthToken,
+  usesAiVoice,
+  aiVoiceCooldownSec,
+};
