@@ -83,7 +83,62 @@ export type CafeCandidate = {
   distance_m: number | null;
 };
 
+/** 상권 변화 한 건 — 새로 생긴 카페(opened) 또는 문 닫은 것으로 보이는 카페(closed) */
+export type CafeChange = {
+  kind: 'opened' | 'closed';
+  name: string;
+  address: string;
+  category: string;
+  distance_m: number;
+  lat: number | null;
+  lon: number | null;
+  first_seen: string; // YYYY-MM-DD — 처음 검색에 잡힌 날
+  last_seen: string;
+  closed_on: string | null;
+  place_key: string;
+};
+
+export type CafeChangesResult = {
+  days: number;
+  tracked: number;    // 지금 관측 중인 카페 수
+  last_scan: string;  // 마지막으로 훑은 날 (빈 문자열이면 아직 관측 전)
+  opened: CafeChange[];
+  closed: CafeChange[];
+  count: number;
+};
+
 const auth = (token: string) => ({ headers: { Authorization: `Bearer ${token}` } });
+
+// ── 내 카페와의 유사도 (5축: 메뉴30·가격25·컨셉20·분위기15·고객층10) ──
+export type SimilarityAxes = {
+  menu: number; price: number; concept: number; atmosphere: number; customers: number;
+};
+
+export type CafeSimilarity = {
+  name: string;
+  total: number;              // 0~100 가중 총점
+  tier: string;               // 직접 경쟁 | 부분 경쟁 | 보완 관계
+  axes: SimilarityAxes;
+  reason: string;             // 한 줄 근거
+};
+
+export type SimilarityResult = {
+  engine: 'ai' | 'heuristic' | 'none';
+  weights: SimilarityAxes;
+  results: CafeSimilarity[];
+};
+
+/** 주변 카페들을 내 카페(메뉴·가격 DB + 내 매장 리뷰 평판)와 비교해 유사도를 매긴다. */
+export const getCafeSimilarity = (
+  token: string,
+  region: string,
+  cafes: { name: string; category: string; distance_m: number }[],
+) =>
+  apiFetch<SimilarityResult>('/api/v1/chatbot/nearby-cafes/similarity', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ region, cafes }),
+  });
 
 /** 매장 반경 안의 카페 목록 (거리순). 좌표 생략 시 계정에 등록된 매장 위치 사용. */
 export const getNearbyCafes = (token: string, radiusM = 1000, limit = 20) =>
@@ -98,6 +153,15 @@ export const getNeighborhoodInsight = (token: string, radiusM = 1000, limit = 20
     `/api/v1/chatbot/nearby-cafes/insight?radius_m=${radiusM}&limit=${limit}`,
     auth(token),
   );
+
+/** 최근 상권 변화 — 새로 생긴 카페·문 닫은 카페.
+ *
+ * 서버가 매일 한 번 반경 1km를 훑어 쌓아 둔 관측 기록을 그대로 읽는다(즉시 응답).
+ * 오늘 아직 안 훑었으면 서버가 백그라운드로 훑어 다음 조회부터 반영된다.
+ * 관측을 막 시작한 매장은 비어 있는 게 정상 — 변화는 하루 뒤부터 잡힌다.
+ */
+export const getNearbyCafeChanges = (token: string, days = 30) =>
+  apiFetch<CafeChangesResult>(`/api/v1/chatbot/nearby-cafes/changes?days=${days}`, auth(token));
 
 /** 지정한 '내 카페'의 네이버 후기 + 분석. 아직 지정 안 했으면 linked=false로 온다. */
 export const getMyCafeReviews = (token: string) =>

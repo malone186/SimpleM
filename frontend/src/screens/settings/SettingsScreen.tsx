@@ -860,6 +860,19 @@ export default function SettingsScreen() {
         />
         <Divider />
         <Row
+          label="주변 소식 알림"
+          hint="근처에서 곧 열리는 행사(무엇을 준비할지 AI 제안 포함)와 주변 카페가 새로 생기거나 없어질 때 알려드려요"
+          right={
+            <Switch
+              value={prefs.nearbyAlert}
+              onValueChange={(v) => prefs.setPref('nearbyAlert', v)}
+              trackColor={{ false: '#D6CFC7', true: colors.espressoBrown }}
+              thumbColor={colors.white}
+            />
+          }
+        />
+        <Divider />
+        <Row
           label="알림 음성 읽어주기"
           hint="완료 알림·브리핑을 사장님 목소리 설정으로 읽어드려요"
           right={

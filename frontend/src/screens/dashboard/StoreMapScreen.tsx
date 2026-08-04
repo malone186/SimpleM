@@ -29,17 +29,27 @@ import StoreLocationMap from '../../components/dashboard/StoreLocationMap';
 import StoreLocationPicker from '../../components/dashboard/StoreLocationPicker';
 import {
   getCafeAnalysis,
+  getCafeSimilarity,
   getMyCafeCandidates,
   getMyCafeReviews,
+  getNearbyCafeChanges,
   getNeighborhoodInsight,
   linkMyCafe,
   type CafeAnalysisResult,
   type CafeCandidate,
+  type CafeChangesResult,
+  type CafeSimilarity,
   type NearbyCafe,
   type NeighborhoodResult,
 } from '../../lib/api/nearbyCafes';
 import { describeApiFailure, type ApiFailure } from '../../lib/api/errors';
-import { getNearbyEvents, type NearbyEventsResult } from '../../lib/api/nearbyEvents';
+import {
+  getEventPlan,
+  getNearbyEvents,
+  type EventPlan,
+  type NearbyEventItem,
+  type NearbyEventsResult,
+} from '../../lib/api/nearbyEvents';
 import {
   cacheRegisteredStore,
   resolveStoreLocation,
@@ -74,9 +84,21 @@ export default function StoreMapScreen() {
   const [eventsError, setEventsError] = useState<ApiFailure | null>(null);
   const [showAllEvents, setShowAllEvents] = useState(false);
 
+  // 상권 변화 — 서버가 매일 훑어 쌓아 둔 '새로 생긴 / 없어진 카페'. 순수 DB 조회라 즉시 온다.
+  const [changes, setChanges] = useState<CafeChangesResult | null>(null);
+
+  // 행사 하나에 대한 AI 이벤트·준비 플랜 (행사 카드에서 눌러 연다)
+  const [planEvent, setPlanEvent] = useState<NearbyEventItem | null>(null);
+  const [plan, setPlan] = useState<EventPlan | null>(null);
+  const [planError, setPlanError] = useState('');
+
   const [selected, setSelected] = useState<NearbyCafe | null>(null);
   const [analysis, setAnalysis] = useState<CafeAnalysisResult | null>(null);
   const [analysisError, setAnalysisError] = useState('');
+
+  // 내 카페와의 유사도 — 카페 이름 → {total, tier, axes, reason}. 목록 배지·정렬·상세 비교에 쓴다.
+  const [simMap, setSimMap] = useState<Record<string, CafeSimilarity>>({});
+  const [sortMode, setSortMode] = useState<'distance' | 'similarity'>('distance');
 
   // 내 카페 리뷰 — 사장님이 자기 가게 후기를 지도 화면에서 바로 확인
   const [myCafe, setMyCafe] = useState<CafeAnalysisResult | null>(null);
@@ -128,6 +150,22 @@ export default function StoreMapScreen() {
       try {
         const data = await getNeighborhoodInsight(token, radiusM);
         setNearby(data);
+        // 유사도 채점은 뒤이어 비동기로 — 배지가 준비되는 대로 목록에 나타난다
+        if (data.cafes.length > 0) {
+          getCafeSimilarity(
+            token,
+            data.region ?? '',
+            data.cafes.map((c) => ({ name: c.name, category: c.category, distance_m: c.distance_m })),
+          )
+            .then((sim) => {
+              const map: Record<string, CafeSimilarity> = {};
+              sim.results.forEach((r) => { map[r.name] = r; });
+              setSimMap(map);
+            })
+            .catch(() => setSimMap({})); // 채점 실패해도 목록은 그대로 (배지만 생략)
+        } else {
+          setSimMap({});
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         setNearbyError(msg.replace(/^\d+\s·\s/, ''));
@@ -162,6 +200,39 @@ export default function StoreMapScreen() {
   useEffect(() => {
     loadEvents();
   }, [loadEvents]);
+
+  // 2-b') 상권 변화 — 실패해도 조용히 넘어간다(다른 카드가 다 뜨는데 이것만 에러 상자를
+  // 세울 이유가 없다. 관측 전이면 애초에 빈 결과가 정상이다).
+  useEffect(() => {
+    if (!token || !store) return;
+    let cancelled = false;
+    getNearbyCafeChanges(token)
+      .then((r) => {
+        if (!cancelled) setChanges(r);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [token, store]);
+
+  // 행사 카드 → AI 이벤트·준비 플랜 (Gemini 1회, 서버에서 12시간 캐시)
+  const openPlan = useCallback(
+    async (event: NearbyEventItem) => {
+      setPlanEvent(event);
+      setPlan(null);
+      setPlanError('');
+      if (!token) return;
+      try {
+        const res = await getEventPlan(token, event.name, event.start_date);
+        setPlan(res.plan);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setPlanError(msg.replace(/^\d+\s·\s/, ''));
+      }
+    },
+    [token],
+  );
 
   // 2-c) 내 카페 리뷰 — 상호만 있으면 조회된다(매장 위치 등록과 무관). 한 번만 부른다.
   const loadMyCafe = useCallback(async () => {
@@ -318,7 +389,15 @@ export default function StoreMapScreen() {
   const eventInsight = events?.insight ?? null;
   // 목록은 거리순이라 첫 항목이 곧 가장 가까운 경쟁점이다
   const nearest = nearby?.cafes[0]?.distance_m ?? null;
-  const visibleCafes = showAllCafes ? (nearby?.cafes ?? []) : (nearby?.cafes ?? []).slice(0, 5);
+  // 정렬: 거리순(기본) ↔ 유사도순. 유사도 미채점 카페는 뒤로 보낸다.
+  const sortedCafes = (() => {
+    const list = [...(nearby?.cafes ?? [])];
+    if (sortMode === 'similarity') {
+      list.sort((a, b) => (simMap[b.name]?.total ?? -1) - (simMap[a.name]?.total ?? -1));
+    }
+    return list;
+  })();
+  const visibleCafes = showAllCafes ? sortedCafes : sortedCafes.slice(0, 5);
 
   return (
     <View style={styles.root}>
@@ -475,6 +554,24 @@ export default function StoreMapScreen() {
             </View>
           </View>
 
+          {/* 정렬 토글 — 유사도는 채점이 끝난 뒤에만 선택 가능 */}
+          {Object.keys(simMap).length > 0 && (
+            <View style={styles.sortRow}>
+              {([['distance', '거리순'], ['similarity', '유사도순']] as const).map(([mode, label]) => (
+                <TouchableOpacity
+                  key={mode}
+                  style={[styles.chip, sortMode === mode && styles.chipActive]}
+                  onPress={() => setSortMode(mode)}
+                >
+                  <Text style={[styles.chipText, sortMode === mode && styles.chipTextActive]}>
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              <Text style={styles.sortHint}>유사도 = 내 카페와 메뉴·가격·컨셉이 겹치는 정도</Text>
+            </View>
+          )}
+
           {loadingNearby ? (
             <View style={styles.inlineLoading}>
               <ActivityIndicator size="small" color={colors.mochaBrown} />
@@ -574,6 +671,13 @@ export default function StoreMapScreen() {
                       {cafe.category.split('>').pop()}
                     </Text>
                   </View>
+                  {simMap[cafe.name] && (
+                    <View style={[styles.simBadge, simBadgeTone(simMap[cafe.name].total).bg]}>
+                      <Text style={[styles.simBadgeText, simBadgeTone(simMap[cafe.name].total).fg]}>
+                        유사 {simMap[cafe.name].total}%
+                      </Text>
+                    </View>
+                  )}
                   <Ionicons name="chevron-forward" size={16} color={colors.mochaBrown} />
                 </TouchableOpacity>
               ))}
@@ -593,6 +697,64 @@ export default function StoreMapScreen() {
                 </Text>
               )}
             </>
+          )}
+
+          {/* ③-b 상권 변화 — 새로 생긴 카페 / 문 닫은 것으로 보이는 카페.
+              매일 훑은 결과를 어제와 비교해 서버가 찾아낸다(같은 내용이 알림으로도 나간다). */}
+          {!!changes && changes.count > 0 && (
+            <View style={styles.changeCard}>
+              <View style={styles.changeHead}>
+                <Ionicons name="pulse-outline" size={16} color={colors.pointOrange} />
+                <Text style={styles.changeTitle}>최근 상권 변화</Text>
+                <Text style={styles.changeNote}>최근 {changes.days}일</Text>
+              </View>
+
+              {changes.opened.map((c) => (
+                <View key={`open-${c.place_key}`} style={styles.changeRow}>
+                  <View style={[styles.changeBadge, styles.changeBadgeNew]}>
+                    <Text style={styles.changeBadgeText}>신규</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.changeName} numberOfLines={1}>{c.name}</Text>
+                    <Text style={styles.changeMeta} numberOfLines={1}>
+                      {c.distance_m}m · {c.first_seen}부터 확인됨
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.changeLookBtn}
+                    onPress={() =>
+                      openCafe({
+                        name: c.name, category: c.category, address: c.address, telephone: '',
+                        link: '', lat: c.lat ?? store.lat, lon: c.lon ?? store.lon,
+                        distance_m: c.distance_m,
+                      })
+                    }
+                  >
+                    <Text style={styles.changeLookText}>분석</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+
+              {changes.closed.map((c) => (
+                <View key={`close-${c.place_key}`} style={styles.changeRow}>
+                  <View style={[styles.changeBadge, styles.changeBadgeGone]}>
+                    <Text style={styles.changeBadgeText}>폐업?</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.changeName, styles.changeNameGone]} numberOfLines={1}>
+                      {c.name}
+                    </Text>
+                    <Text style={styles.changeMeta} numberOfLines={1}>
+                      {c.distance_m}m · {c.closed_on || c.last_seen}부터 검색에서 사라짐
+                    </Text>
+                  </View>
+                </View>
+              ))}
+
+              <Text style={styles.aiNote}>
+                네이버 지역검색에 잡히는지로 판단해요. 폐업은 추정이라 실제로는 영업 중일 수 있어요.
+              </Text>
+            </View>
           )}
 
           {/* ④ 주변 행사 — 지도의 오렌지 핀과 같은 데이터. 반경은 예측과 맞춰 3km 고정 */}
@@ -687,6 +849,12 @@ export default function StoreMapScreen() {
 
                   {!!e.tip && <Text style={styles.eventTip}>💡 {e.tip}</Text>}
 
+                  {/* 이 행사에 무슨 이벤트를 하고 뭘 준비할지 — 누를 때만 AI를 부른다 */}
+                  <TouchableOpacity style={styles.planBtn} onPress={() => openPlan(e)}>
+                    <Ionicons name="sparkles-outline" size={13} color={colors.white} />
+                    <Text style={styles.planBtnText}>이 행사, 뭘 준비할까?</Text>
+                  </TouchableOpacity>
+
                   <Text style={styles.eventSource}>
                     {e.source}
                     {e.boost_pct ? ` · 예측 매출 +${e.boost_pct}% 반영 중` : ''}
@@ -731,6 +899,33 @@ export default function StoreMapScreen() {
             </View>
 
             <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
+              {/* 내 카페와의 유사도 — 총점 + 5축 비교 (메뉴30·가격25·컨셉20·분위기15·고객층10 가중) */}
+              {selected && simMap[selected.name] && (
+                <View style={styles.simBox}>
+                  <View style={styles.simBoxHead}>
+                    <Text style={styles.simBoxTitle}>우리 가게와 유사도 {simMap[selected.name].total}%</Text>
+                    <View style={[styles.simBadge, simBadgeTone(simMap[selected.name].total).bg]}>
+                      <Text style={[styles.simBadgeText, simBadgeTone(simMap[selected.name].total).fg]}>
+                        {simMap[selected.name].tier}
+                      </Text>
+                    </View>
+                  </View>
+                  {([['menu', '메뉴'], ['price', '가격대'], ['concept', '컨셉'],
+                     ['atmosphere', '분위기'], ['customers', '고객층']] as const).map(([k, label]) => (
+                    <View key={k} style={styles.axisRow}>
+                      <Text style={styles.axisLabel}>{label}</Text>
+                      <View style={styles.axisTrack}>
+                        <View style={[styles.axisFill, { width: `${simMap[selected.name].axes[k]}%` }]} />
+                      </View>
+                      <Text style={styles.axisValue}>{simMap[selected.name].axes[k]}</Text>
+                    </View>
+                  ))}
+                  {!!simMap[selected.name].reason && (
+                    <Text style={styles.simReason}>{simMap[selected.name].reason}</Text>
+                  )}
+                </View>
+              )}
+
               {analysisError ? (
                 <Text style={styles.errorText}>{analysisError}</Text>
               ) : !analysis ? (
@@ -860,6 +1055,106 @@ export default function StoreMapScreen() {
         </View>
       </Modal>
 
+      {/* 행사 대비 AI 플랜 — "이 행사에 무슨 이벤트를 걸고, 뭘 미리 해 둘까" */}
+      <Modal visible={!!planEvent} animationType="slide" transparent onRequestClose={() => setPlanEvent(null)}>
+        <View style={styles.modalRoot}>
+          <Pressable style={styles.backdrop} onPress={() => setPlanEvent(null)} />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHead}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sheetTitle}>{planEvent?.name}</Text>
+                <Text style={styles.sheetMeta}>
+                  {planEvent
+                    ? `${formatEventRange(planEvent.start_date, planEvent.end_date)} · ${planEvent.place || '장소 미상'}`
+                    : ''}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setPlanEvent(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Ionicons name="close" size={22} color={colors.espressoBrown} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
+              {planError ? (
+                <>
+                  <Text style={styles.errorText}>{planError}</Text>
+                  {!!planEvent && (
+                    <TouchableOpacity style={styles.retryBtn} onPress={() => openPlan(planEvent)}>
+                      <Text style={styles.retryText}>다시 시도</Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              ) : !plan ? (
+                <View style={styles.inlineLoading}>
+                  <ActivityIndicator size="small" color={colors.pointOrange} />
+                  <Text style={styles.inlineLoadingText}>
+                    이 행사에 맞는 이벤트와 준비할 것을 짜는 중...
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  <View style={styles.tagRow}>
+                    <Tag label={`영향 ${plan.impact_level}`} />
+                    {!!plan.busy_window && <Tag label={plan.busy_window} />}
+                  </View>
+                  <Text style={styles.planHeadline}>{plan.headline}</Text>
+                  <Text style={styles.sheetSummary}>{plan.expected_change}</Text>
+
+                  {/* 이벤트 제안 — 이 화면에서 가장 눈에 띄어야 하는 부분 */}
+                  {plan.promotions?.length > 0 && (
+                    <View style={{ marginTop: 14 }}>
+                      <Text style={styles.listTitle}>🎁 이런 이벤트 어때요</Text>
+                      {plan.promotions.map((p, i) => (
+                        <View key={`promo-${i}`} style={styles.promoBox}>
+                          <Text style={styles.promoTitle}>{p.title}</Text>
+                          <Text style={styles.promoDetail}>{p.detail}</Text>
+                          {!!p.why && <Text style={styles.promoWhy}>→ {p.why}</Text>}
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  {!!plan.menu_idea && (
+                    <View style={styles.strategyBox}>
+                      <Text style={styles.strategyLabel}>☕ 기간 한정 메뉴</Text>
+                      <Text style={styles.strategyText}>{plan.menu_idea}</Text>
+                    </View>
+                  )}
+
+                  {plan.prep_actions?.length > 0 && (
+                    <View style={styles.actionBox}>
+                      <Text style={styles.actionTitle}>행사 전에 해 둘 일</Text>
+                      {plan.prep_actions.map((text, i) => (
+                        <View key={`prep-${i}`} style={styles.actionRow}>
+                          <View style={[styles.actionNum, styles.actionNumEvent]}>
+                            <Text style={styles.actionNumText}>{i + 1}</Text>
+                          </View>
+                          <Text style={styles.actionText}>{text}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  <TagBlock title="📦 넉넉히 준비할 재료" items={plan.stock_prep} tone="warn" />
+                  {!!plan.staffing && <TagBlock title="👥 인력 배치" items={[plan.staffing]} />}
+
+                  {!!plan.promo_copy && (
+                    <View style={styles.copyBox}>
+                      <Text style={styles.copyLabel}>📣 그대로 쓰는 홍보 문구</Text>
+                      <Text style={styles.copyText}>{plan.promo_copy}</Text>
+                    </View>
+                  )}
+
+                  <Text style={styles.aiNote}>
+                    공개된 행사 정보를 바탕으로 AI가 짠 제안이에요. 매장 사정에 맞게 골라 쓰세요.
+                  </Text>
+                </>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       <StoreLocationPicker
         visible={pickerOpen}
         initial={{ lat: store.lat, lon: store.lon, address: store.region }}
@@ -885,6 +1180,17 @@ function formatEventRange(start: string, end: string) {
 }
 
 // 한눈 요약 숫자 한 칸 (주변 카페 수 · 최근접 거리 · 경쟁 강도)
+// 유사도 배지 색 — 높을수록 '직접 경쟁'이라 경고 톤, 낮으면 공존 가능이라 초록 톤
+function simBadgeTone(total: number) {
+  if (total >= 80) {
+    return { bg: { backgroundColor: 'rgba(178, 59, 46, 0.10)' }, fg: { color: '#B23B2E' } };
+  }
+  if (total >= 50) {
+    return { bg: { backgroundColor: 'rgba(216, 150, 20, 0.14)' }, fg: { color: '#9A6B00' } };
+  }
+  return { bg: { backgroundColor: colors.trendGreenBg }, fg: { color: colors.trendGreenText } };
+}
+
 function Stat({ value, label, accent }: { value: string; label: string; accent?: boolean }) {
   return (
     <View style={styles.statBox}>
@@ -1148,6 +1454,29 @@ const styles = StyleSheet.create({
   cafeName: { ...typography.L4, color: colors.espressoBrown },
   cafeMeta: { ...typography.L5, color: colors.mochaBrown, marginTop: 2 },
 
+  // ── 유사도 (정렬 토글 · 배지 · 상세 축 비교) ──
+  sortRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  sortHint: { ...typography.L5, color: '#AEAEB2', marginLeft: 2, flexShrink: 1 },
+  simBadge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 },
+  simBadgeText: { fontSize: 10.5, fontWeight: '800' },
+  simBox: {
+    backgroundColor: colors.white,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    gap: 7,
+  },
+  simBoxHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 },
+  simBoxTitle: { ...typography.L4, fontSize: 13.5, color: colors.espressoBrown },
+  axisRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  axisLabel: { ...typography.L5, color: colors.mochaBrown, width: 42 },
+  axisTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: colors.coffeeCream, overflow: 'hidden' },
+  axisFill: { height: '100%', borderRadius: 3, backgroundColor: colors.espressoBrown },
+  axisValue: { ...typography.L5, color: colors.espressoBrown, width: 24, textAlign: 'right', fontWeight: '700' },
+  simReason: { ...typography.L5, color: colors.mochaBrown, lineHeight: 16, marginTop: 3 },
+
   // --- 주변 행사 ---
   // '없음'과 '못 불러옴'을 같은 상자로 — 화면이 빨간 오류 카드로 놀라게 하지 않는다
   eventEmptyBox: {
@@ -1226,7 +1555,79 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   eventSource: { ...typography.L5, color: '#A99C90' },
+  // 행사 카드의 'AI 준비 플랜' — 누를 때만 AI를 부르므로 카드 안에서 확실히 눌리게 보여 준다
+  planBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: colors.pointOrange,
+    borderRadius: 10,
+    paddingVertical: 9,
+  },
+  planBtnText: { ...typography.L5, color: colors.white, fontWeight: '800' },
   emptyText: { ...typography.L5, color: colors.mochaBrown, textAlign: 'center', paddingVertical: 18 },
+
+  // 상권 변화 — 개업(초록)·폐업(회색)을 배지 색으로 구분한다
+  changeCard: {
+    backgroundColor: colors.white,
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(226, 130, 87, 0.35)',
+    gap: 10,
+    ...shadows.soft,
+  },
+  changeHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  changeTitle: { ...typography.L3, color: colors.espressoBrown, flex: 1 },
+  changeNote: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700' },
+  changeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  changeBadge: {
+    minWidth: 46,
+    paddingVertical: 5,
+    paddingHorizontal: 7,
+    borderRadius: 9,
+    alignItems: 'center',
+  },
+  changeBadgeNew: { backgroundColor: 'rgba(93, 158, 106, 0.16)' },
+  changeBadgeGone: { backgroundColor: 'rgba(120, 110, 100, 0.14)' },
+  changeBadgeText: { ...typography.L5, color: colors.espressoBrown, fontWeight: '800' },
+  changeName: { ...typography.L4, color: colors.espressoBrown },
+  changeNameGone: { textDecorationLine: 'line-through', color: colors.mochaBrown },
+  changeMeta: { ...typography.L5, color: colors.mochaBrown, marginTop: 2 },
+  changeLookBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+  },
+  changeLookText: { ...typography.L5, color: colors.espressoBrown, fontWeight: '700' },
+
+  // 행사 플랜 시트
+  planHeadline: { ...typography.L3, color: colors.espressoBrown, marginTop: 10, lineHeight: 21 },
+  promoBox: {
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    gap: 3,
+  },
+  promoTitle: { ...typography.L4, color: colors.espressoBrown },
+  promoDetail: { ...typography.L5, color: colors.mochaBrown, lineHeight: 17 },
+  promoWhy: { ...typography.L5, color: '#B4542C', fontWeight: '700' },
+  copyBox: {
+    marginTop: 14,
+    backgroundColor: 'rgba(226, 130, 87, 0.12)',
+    borderRadius: 12,
+    padding: 12,
+    gap: 4,
+  },
+  copyLabel: { ...typography.L5, color: '#B4542C', fontWeight: '800' },
+  copyText: { ...typography.L4, color: colors.espressoBrown, lineHeight: 19 },
 
   modalRoot: { flex: 1, justifyContent: 'flex-end', width: '100%', maxWidth: 420, alignSelf: 'center' },
   backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: colors.black40 },

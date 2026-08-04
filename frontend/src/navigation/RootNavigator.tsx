@@ -28,6 +28,7 @@ import OrderScreen from '../screens/order/OrderScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 import SalesInputScreen from '../screens/sales/SalesInputScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
+import ShopScreen from '../screens/shop/ShopScreen';
 import StaffScreen from '../screens/staff/StaffScreen';
 import TaxDraftDetailScreen from '../screens/document/TaxDraftDetailScreen';
 import { colors, typography } from '../theme';
@@ -39,6 +40,7 @@ export type RootTabParamList = {
   // prefill: 다른 화면(경영 리포트 등)에서 버튼으로 넘어올 때 입력창에 미리 채울 질문
   //   ts: 같은 질문을 다시 눌러도 파라미터가 바뀌어 재입력되도록 하는 클릭 시각
   Chatbot: { prefill?: string; ts?: number } | undefined;
+  Shop: undefined;
   Management: undefined;
 };
 
@@ -59,7 +61,8 @@ export type RootStackParamList = {
   Menu: { focusMenuIds?: number[] } | undefined;
   SalesInput: undefined;
   ManualSales: undefined;
-  Marketing: undefined;
+  // prefillMenu: 투두의 '홍보하러 가기'로 진입 시 홍보할 메뉴명 자동 입력 (ts: 재진입 갱신용)
+  Marketing: { prefillMenu?: string; ts?: number } | undefined;
   Cost: undefined;
   Legal: { doc?: 'privacy' | 'terms' } | undefined;
   Document: undefined;
@@ -80,6 +83,7 @@ const ICONS: Record<keyof RootTabParamList, keyof typeof Ionicons.glyphMap> = {
   Dashboard: 'home',
   Inventory: 'file-tray-stacked',
   Chatbot: 'chatbubble-ellipses',
+  Shop: 'storefront',
   Management: 'grid',
 };
 
@@ -87,6 +91,7 @@ const LABELS: Record<keyof RootTabParamList, string> = {
   Dashboard: '홈',
   Inventory: '재고',
   Chatbot: '챗봇',
+  Shop: '상점',
   Management: '관리',
 };
 
@@ -203,6 +208,7 @@ const TAB_LABEL_KEYS: Record<keyof RootTabParamList, TranslationKey> = {
   Dashboard: 'tabHome',
   Inventory: 'tabInventory',
   Chatbot: 'tabChatbot',
+  Shop: 'tabShop',
   Management: 'tabManagement',
 };
 
@@ -216,6 +222,7 @@ const withSwipe = (Component: React.ComponentType<any>) => (props: any) => (
 const WrappedDashboardScreen = withSwipe(DashboardScreen);
 const WrappedInventoryScreen = withSwipe(InventoryScreen);
 const WrappedChatbotScreen = withSwipe(ChatbotScreen);
+const WrappedShopScreen = withSwipe(ShopScreen);
 const WrappedManagementScreen = withSwipe(ManagementScreen);
 
 function TabsNavigator() {
@@ -275,6 +282,7 @@ function TabsNavigator() {
       <Tab.Screen name="Dashboard" component={WrappedDashboardScreen} />
       <Tab.Screen name="Inventory" component={WrappedInventoryScreen} />
       <Tab.Screen name="Chatbot" component={WrappedChatbotScreen} />
+      <Tab.Screen name="Shop" component={WrappedShopScreen} />
       <Tab.Screen name="Management" component={WrappedManagementScreen} />
     </Tab.Navigator>
   );

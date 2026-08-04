@@ -10,7 +10,7 @@
   - 스캐너 하나가 실패해도 나머지 인사이트는 정상 반환한다 (매장마다 안 쓰는 기능이 있다).
   - 같은 인사이트는 key로 중복 제거되고, 사장님이 확인/미루기 하면 그 상태를 존중한다.
 
-카테고리: inventory | order | document | tax | sales | staff | data
+카테고리: inventory | order | document | tax | sales | staff | data | market(주변 상권 변화)
 심각도  : high(지금 조치) | medium(이번 주) | low(알아두면 좋음)
 """
 
@@ -33,6 +33,7 @@ SALES_GAP_DAYS = 2          # 판매 기록이 이만큼 끊기면 입력 누락
 STOCKTAKE_CYCLE_DAYS = 30   # 재고실사 권장 주기
 DORMANT_DAYS = 60           # 이 기간 움직임이 없으면 사장 재고로 본다
 WEEKLY_ALLOWANCE_HOURS = 15 # 주휴수당 발생 기준 주간 근무시간
+NEARBY_CHANGE_DAYS = 14     # 주변 카페 개업·폐업을 '최근 소식'으로 볼 기간
 
 SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
@@ -170,6 +171,44 @@ def _scan_renewals(db, store_id: str, today: date) -> list[dict[str, Any]]:
             due_date=item.expiry_date,
             days_left=days_left,
         ))
+    return out
+
+
+def _scan_nearby_changes(db, store_id: str, today: date) -> list[dict[str, Any]]:
+    """주변 카페 개업·폐업 — 매일 쌓아 둔 관측 대장(nearby_cafe_watch)만 읽는다.
+
+    여기서는 네이버를 부르지 않는다. 이 스캐너는 앱이 10분마다 폴링하는 경로라
+    외부 호출을 넣으면 화면 전체가 그만큼 느려진다. 수집은 알림 스케줄러와
+    지도 화면 조회가 백그라운드로 하고(nearby_watch_service), 여기서는 결과만 본다.
+    """
+    from app.services.ai import nearby_watch_service
+
+    changes = nearby_watch_service.recent_changes(db, store_id, days=NEARBY_CHANGE_DAYS)
+    out = []
+
+    for cafe in changes["opened"][:3]:
+        out.append(_insight(
+            key=f"nearby_open:{cafe['place_key']}",
+            category="market",
+            severity="medium",
+            title=f"근처에 카페가 새로 생겼어요 — {cafe['name']}",
+            body=f"내 매장에서 {cafe['distance_m']}m. {cafe['first_seen']}부터 검색에 잡히기 시작했어요.",
+            action=f"{cafe['name']} 어떤 카페야?",
+            due_date=cafe["first_seen"] or None,
+        ))
+
+    for cafe in changes["closed"][:3]:
+        out.append(_insight(
+            key=f"nearby_close:{cafe['place_key']}",
+            category="market",
+            severity="medium",
+            title=f"근처 카페가 문을 닫은 것 같아요 — {cafe['name']}",
+            body=(f"내 매장에서 {cafe['distance_m']}m. 며칠째 검색에서 사라졌어요(추정). "
+                  "그 가게 손님을 받을 준비를 해 보세요."),
+            action="우리 동네 상권 어때?",
+            due_date=cafe.get("closed_on"),
+        ))
+
     return out
 
 
@@ -566,6 +605,7 @@ _SCANNERS: list[tuple[str, Callable]] = [
     ("missing_contracts", _scan_missing_contracts),
     ("periodic_documents", _scan_periodic_documents),
     ("data_quality", _scan_data_quality),
+    ("nearby_changes", _scan_nearby_changes),
 ]
 
 

@@ -24,6 +24,7 @@ export type Preferences = {
   priceSurgeAlert: boolean; // 단가 급등 알림
   reportFrequency: ReportFrequency; // AI 경영 리포트 수신 주기
   proactiveInsights: boolean; // 선제 알림 — 매장 데이터에서 찾아낸 '곧 할 일·놓친 일'을 먼저 알려줌
+  nearbyAlert: boolean;     // 주변 소식 — 곧 열리는 행사(AI 준비 제안 포함)·경쟁 카페 개업/폐업
   dndEnabled: boolean;      // 방해 금지 시간대 사용
   dndStart: string;         // 'HH:MM'
   dndEnd: string;           // 'HH:MM'
@@ -46,6 +47,7 @@ const DEFAULTS: Preferences = {
   priceSurgeAlert: true,
   reportFrequency: 'weekly',
   proactiveInsights: true,
+  nearbyAlert: true,
   dndEnabled: true,
   dndStart: '22:00',
   dndEnd: '08:00',

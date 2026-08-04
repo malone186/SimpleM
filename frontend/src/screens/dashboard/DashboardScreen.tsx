@@ -17,7 +17,7 @@ import { toast } from '../../components/toast';
 import { FadeInUp, PressableScale } from '../../components/motion';
 import { listCompliance } from '../../lib/api/documents';
 import { listStocks } from '../../lib/api/inventory';
-import { createTodo, deleteTodo, listTodos, updateTodo } from '../../lib/api/todo';
+import { createTodo, deleteTodo, getAiTodoSuggestions, listTodos, updateTodo, type AiSuggestedTodo } from '../../lib/api/todo';
 import { fetchInsights } from '../../lib/api/insights';
 import AlertCenterCard, { type AlertItem } from '../../components/dashboard/AlertCenterCard';
 import { navigateToTarget } from '../../notifications/navigationTarget';
@@ -155,12 +155,37 @@ export default function DashboardScreen() {
         });
       }
 
-      const [stocksResult, complianceResult, serverTodosResult, insightsResult] = await Promise.allSettled([
+      const [stocksResult, complianceResult, serverTodosResult, insightsResult, aiSuggestResult] = await Promise.allSettled([
         listStocks(token),
         listCompliance(token),
         listTodos(token),
         fetchInsights(token),
+        getAiTodoSuggestions(token),
       ]);
+
+      // [브루 제안] LLM이 재고·판매 데이터로 만든 '실행형 문장' 투두 —
+      // "재고 부족" 대신 "원두가 2kg 남았어요 — 오늘 발주하세요"로, 그리고
+      // 홍보 가치 있는 메뉴 1개를 골라 '홍보하러 가기' 링크가 붙는 promo 항목을 준다.
+      // id는 stock-<재료id>/promo-<메뉴> 로 안정적이라 숨김(X)·완료 기록이 유지된다.
+      const aiSuggested: AiSuggestedTodo[] =
+        aiSuggestResult.status === 'fulfilled' ? aiSuggestResult.value.todos : [];
+      const aiStockIds = new Set(
+        aiSuggested.filter((s) => s.kind === 'stock').map((s) => s.id_hint),
+      );
+
+      aiSuggested.forEach((s) => {
+        if (dismissedSet.has(s.id_hint)) return;
+        next.push({
+          id: s.id_hint,
+          title: s.title,
+          subtitle: s.subtitle,
+          actionable: s.kind === 'stock',
+          done: completedSet.has(s.id_hint),
+          source: 'ai',
+          ...(s.kind === 'promo' ? { action: 'marketing' as const, menu: s.menu ?? '' } : null),
+        });
+      });
+
       try {
         if (stocksResult.status === 'rejected') throw stocksResult.reason;
         const stocks = stocksResult.value;
@@ -199,6 +224,8 @@ export default function DashboardScreen() {
           .slice(0, 4)
           .forEach((s) => {
             const stockId = `stock-${s.ingredient_id}`;
+            // 브루 제안이 이미 실행형 문장으로 만든 재료는 중복으로 넣지 않는다
+            if (aiStockIds.has(stockId)) return;
             if (!dismissedSet.has(stockId)) {
               const soldOut = s.current_quantity <= 0;
               next.push({

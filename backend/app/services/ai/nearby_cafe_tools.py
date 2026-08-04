@@ -80,4 +80,35 @@ def analyze_neighborhood_competition(store_id: str, radius_m: int = 1000) -> str
     return json.dumps(result, ensure_ascii=False)
 
 
-TOOLS = [list_nearby_cafes, analyze_nearby_cafe, analyze_neighborhood_competition]
+@tool
+def list_nearby_cafe_changes(store_id: str, days: int = 30) -> str:
+    """최근 주변 상권의 '변화'를 조회한다 — 새로 생긴 카페와 문을 닫은 것으로 보이는 카페.
+    "요즘 근처에 새로 생긴 카페 있어?", "옆에 있던 카페 없어졌지?" 같은 질문에 쓴다.
+    매일 한 번 반경 1km를 훑어 쌓아 둔 관측 기록을 읽는다(폐업은 검색에서 사라진 것에 근거한 추정).
+    days: 며칠 안의 변화를 볼지 (기본 30일)."""
+    from app.core.database import SessionLocal
+    from app.services.ai import nearby_watch_service
+
+    loc = _store_location(store_id)
+    if isinstance(loc, str):
+        return loc
+    lat, lon, store_name, _ = loc
+
+    db = SessionLocal()
+    try:
+        result = nearby_watch_service.recent_changes(db, store_id, days=days)
+        if not result["count"]:
+            # 관측을 시작한 적이 없으면 지금 한 번 훑어 기준선을 만든다 — 변화는 내일부터 잡힌다
+            if not result["last_scan"]:
+                nearby_watch_service.scan_if_stale(db, store_id, lat, lon, exclude_name=store_name)
+                return ("주변 카페 관측을 이제 막 시작했습니다. 지금 있는 가게들을 기준으로 잡아 두었고, "
+                        "새로 생기거나 없어지는 곳은 내일부터 알려드릴 수 있어요.")
+            return (f"최근 {days}일 안에는 반경 1km에서 새로 생기거나 없어진 카페가 확인되지 않았습니다 "
+                    f"(관측 중인 카페 {result['tracked']}곳, 마지막 확인 {result['last_scan']}).")
+        return json.dumps(result, ensure_ascii=False)
+    finally:
+        db.close()
+
+
+TOOLS = [list_nearby_cafes, analyze_nearby_cafe, analyze_neighborhood_competition,
+         list_nearby_cafe_changes]

@@ -174,14 +174,31 @@ def update_todo(store_id: str, todo_id: int, req: TodoUpdate) -> dict[str, Any]:
             row.note = req.note.strip() or None
         if req.due_date is not None:
             row.due_date = req.due_date
+        just_completed = False
         if req.done is not None and req.done != row.done:
             row.done = req.done
             # done_at은 목록에서 언제 감출지 정하는 기준이라 완료 시점에만 찍는다
             row.done_at = datetime.now(timezone.utc) if req.done else None
+            just_completed = req.done
 
+        completed_title = row.title
         db.commit()
         db.refresh(row)
-        return _to_dict(row)
+        result = _to_dict(row)
+
+    # 할 일을 끝내면 코인을 준다 (게임화 보상).
+    # 세션을 닫은 뒤에 부르는 이유: 적립이 실패해도 '할 일 완료' 자체는 이미 저장돼야 한다.
+    # 완료를 껐다 켜도 reward_service가 할 일 id로 중복을 막아 한 번만 지급된다.
+    if just_completed:
+        try:
+            from app.services.ai import reward_service
+
+            if reward_service.award_todo_done(store_id, todo_id, completed_title):
+                result["points_awarded"] = reward_service.POINTS_PER_TODO
+        except Exception:
+            logger.exception("할 일 완료 포인트 적립 실패 — 할 일 저장은 정상")
+
+    return result
 
 
 def complete_todo(store_id: str, todo_id: int) -> dict[str, Any]:

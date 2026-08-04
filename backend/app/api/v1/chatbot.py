@@ -14,7 +14,7 @@ from datetime import date
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Header, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel, Field
@@ -55,6 +55,7 @@ from app.schemas.ai import (
     TodoUpdate,
 )
 from app.services.ai import (
+    cafe_similarity_service,
     chat_quota_service,
     document_service,
     forecast_service,
@@ -62,6 +63,7 @@ from app.services.ai import (
     marketing_service,
     nearby_cafe_service,
     nearby_event_service,
+    nearby_watch_service,
     notification_service,
     ocr_service,
     price_service,
@@ -443,6 +445,21 @@ def _store_point(current_user: User, lat: Optional[float], lon: Optional[float])
     )
 
 
+def _linked_place(store_id: str) -> Optional[dict[str, str]]:
+    """'내 카페'로 지정(link)한 네이버 장소 — 주변 카페 목록에서 본인 가게를 빼는 데 쓴다."""
+    try:
+        from app.models.ai import CafeReviewLink
+        from app.services.ai.document_service import _session
+
+        with _session() as db:
+            row = db.get(CafeReviewLink, store_id)
+            if row and row.place_name:
+                return {"name": row.place_name, "address": row.place_address or ""}
+    except Exception:
+        pass
+    return None
+
+
 @router.get("/nearby-cafes")
 def get_nearby_cafes_api(
     lat: Optional[float] = None,
@@ -462,9 +479,35 @@ def get_nearby_cafes_api(
             radius_m=max(200, min(radius_m, 3000)),
             limit=max(1, min(limit, 30)),
             exclude_name=current_user.store_name or "",
+            exclude_place=_linked_place(current_user.email),
         )
     except nearby_cafe_service.NearbyCafeError as e:
         raise HTTPException(503, str(e))
+
+
+class SimilarityCafeIn(BaseModel):
+    name: str
+    category: str = ""
+    distance_m: int = 0
+
+
+class SimilarityRequest(BaseModel):
+    region: str = ""
+    cafes: list[SimilarityCafeIn]
+
+
+@router.post("/nearby-cafes/similarity")
+def cafe_similarity_api(
+    body: SimilarityRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """주변 카페들을 내 카페와 5축(메뉴30·가격25·컨셉20·분위기15·고객층10) 비교해
+    유사도 0~100%를 매긴다. 내 카페 프로필 = DB(메뉴·가격·업태) + 내 매장 리뷰 분석."""
+    return cafe_similarity_service.score_nearby(
+        current_user.email,
+        [c.model_dump() for c in body.cafes],
+        region=body.region,
+    )
 
 
 @router.get("/nearby-cafes/insight")
@@ -488,6 +531,7 @@ def get_neighborhood_insight_api(
             biz_type=current_user.store_biz_type or "",
             radius_m=max(200, min(radius_m, 3000)),
             limit=max(1, min(limit, 30)),
+            exclude_place=_linked_place(current_user.email),
         )
     except nearby_cafe_service.NearbyCafeError as e:
         raise HTTPException(503, str(e))
@@ -508,6 +552,43 @@ def get_cafe_analysis_api(
     if not result["review_count"]:
         raise HTTPException(404, f"'{name}'에 대한 네이버 후기를 찾지 못했습니다.")
     return result
+
+
+@router.get("/nearby-cafes/changes")
+def get_nearby_cafe_changes_api(
+    background: BackgroundTasks,
+    days: int = 30,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """최근 상권 변화 — 반경 1km에서 새로 생긴 카페와 문 닫은 것으로 보이는 카페.
+
+    응답은 관측 대장(nearby_cafe_watch)만 읽어 즉시 돌려주고, 오늘 아직 훑지 않았으면
+    백그라운드로 한 번 스캔한다(다음 조회부터 반영). 화면이 네이버 검색을 기다리지 않는다.
+
+    첫 조회는 비어 있는 게 정상이다 — 첫 스캔은 '지금 있는 가게'를 기준선으로 삼을 뿐,
+    그것을 신규 개업이라고 말하지 않는다. 변화는 하루 뒤부터 잡힌다.
+    """
+    result = nearby_watch_service.recent_changes(db, current_user.email, days=max(1, min(days, 180)))
+
+    if current_user.store_lat is not None and current_user.store_lon is not None:
+        background.add_task(
+            _scan_nearby_cafes_bg, current_user.email,
+            float(current_user.store_lat), float(current_user.store_lon),
+            current_user.store_name or "",
+        )
+    return result
+
+
+def _scan_nearby_cafes_bg(store_id: str, lat: float, lon: float, store_name: str) -> None:
+    """백그라운드 스캔 — 요청 세션과 분리된 자기 세션을 쓴다(응답이 끝난 뒤 도는 작업)."""
+    from app.services.ai.document_service import _session
+
+    try:
+        with _session() as db:
+            nearby_watch_service.scan_if_stale(db, store_id, lat, lon, exclude_name=store_name)
+    except Exception:
+        logger.exception("주변 카페 변화 스캔(백그라운드) 실패: %s", store_id)
 
 
 class CafeLinkRequest(BaseModel):
@@ -643,6 +724,37 @@ def get_nearby_events_api(
         biz_type=current_user.store_biz_type or "",
         days=days,
     )
+
+
+@router.get("/nearby-events/plan")
+def get_nearby_event_plan_api(
+    name: str,
+    start_date: str = "",
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """행사 하나에 맞춘 AI 이벤트·준비 플랜 (지도 화면 행사 카드의 'AI 준비 플랜' 버튼).
+
+    이벤트 아이디어·한정 메뉴·미리 할 일·재료 준비·인력 배치·홍보 문구를 한 번에 만든다.
+    행사 정보는 클라이언트가 준 이름을 그대로 믿지 않고, 서버가 수집한 목록에서 다시 찾는다 —
+    그래야 없는 행사에 대한 플랜을 지어내지 않는다.
+    """
+    p_lat, p_lon = _store_point(current_user, None, None)
+    events = nearby_event_service.find_nearby_events(p_lat, p_lon).get("events", [])
+
+    from app.services.ai.nearby_event_service import _norm
+
+    target = _norm(name)
+    event = next((e for e in events if _norm(e["name"]) == target), None)
+    if event is None and start_date:
+        event = next((e for e in events if e.get("start_date") == start_date), None)
+    if event is None:
+        raise HTTPException(404, f"'{name}' 행사를 주변 행사 목록에서 찾지 못했습니다.")
+
+    plan = nearby_watch_service.plan_for_store(db, current_user.email, event)
+    if plan is None:
+        raise HTTPException(503, "지금은 AI 플랜을 만들지 못했어요. 잠시 후 다시 시도해 주세요.")
+    return {"event": event, "plan": plan}
 
 
 class SaleItemIn(BaseModel):
@@ -885,6 +997,32 @@ def create_marketing_image(
         raise HTTPException(502, str(e))
 
 
+@router.post("/marketing/photo-image")
+async def create_marketing_photo_image(
+    file: UploadFile = File(...),
+    style: str = Form("wood"),
+    aspect_ratio: str = Form("1:1"),
+    doc_id: str = Form(""),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """실물 메뉴 사진으로 홍보 이미지 — 누끼(rembg) + 감성 배경 합성.
+
+    AI 생성 이미지와 달리 '우리 매장 실물'이 그대로 담긴다. doc_id를 주면
+    해당 홍보 문서의 images에 붙는다. 배경 스타일: wood/marble/cozy/studio/season.
+    """
+    from app.services.ai import photo_promo_service
+
+    content = await file.read()
+    if len(content) > MAX_IMAGE_BYTES:
+        raise HTTPException(413, "사진이 15MB를 초과합니다")
+    try:
+        return photo_promo_service.compose_from_photo(
+            current_user.email, content, style=style,
+            aspect_ratio=aspect_ratio, doc_id=doc_id)
+    except photo_promo_service.PhotoPromoError as e:
+        raise HTTPException(422, str(e))
+
+
 @router.post("/marketing/image/overlay")
 def restyle_marketing_image(
     body: MarketingOverlayRequest,
@@ -993,6 +1131,9 @@ def get_notification_settings(current_user: User = Depends(get_current_user),
         report_alert=row.report_alert,
         stock_alert=row.stock_alert,
         sensor_alert=row.sensor_alert,
+        # 컬럼 보강(ensure_notification_setting_columns) 이전에 만들어진 행이 섞일 수 있어
+        # 없으면 켜진 것으로 읽는다 — 새 기능은 기본 on이다
+        nearby_alert=getattr(row, "nearby_alert", True),
         report_frequency=row.report_frequency,
         dnd_enabled=row.dnd_enabled,
         dnd_start=row.dnd_start,
@@ -1308,6 +1449,19 @@ def grant_chat_quota(store_id: Optional[str] = Depends(_optional_store_id)) -> d
 # ---------------------------------------------------------------------------
 # 할 일 목록 — 사장님 직접 입력과 브루(AI) 추가가 같은 저장소를 쓴다
 # ---------------------------------------------------------------------------
+
+@router.get("/todos/ai-suggestions")
+def ai_todo_suggestions_api(current_user: User = Depends(get_current_user)):
+    """브루의 오늘 할 일 제안 — 재고·판매 데이터를 LLM이 읽고 실행형 문장으로 만든다.
+
+    '재고 부족' 같은 상태 나열 대신 "원두가 2kg 남았어요 — 오늘 발주하세요"로,
+    그리고 홍보 가치가 큰 메뉴 1개를 골라 "○○를 홍보해 보세요"(kind=promo)를 준다.
+    매장별 하루 캐시. 키 없으면 규칙 기반 문장으로 폴백.
+    """
+    from app.services.ai import ai_todo_service
+
+    return ai_todo_service.suggest_todos(current_user.email)
+
 
 @router.get("/todos", response_model=list[TodoResponse])
 def list_todos(current_user: User = Depends(get_current_user)):

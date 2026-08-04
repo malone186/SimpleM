@@ -180,13 +180,21 @@ def _item_to_cafe(item: dict[str, Any], lat: float, lon: float) -> Optional[dict
 
 
 def find_nearby_cafes(lat: float, lon: float, radius_m: int = 1000, limit: int = 20,
-                      exclude_name: str = "") -> dict[str, Any]:
+                      exclude_name: str = "",
+                      exclude_place: Optional[dict[str, str]] = None) -> dict[str, Any]:
     """매장 좌표 기준 반경 안의 카페 목록 (거리순).
 
     반환: {"region": "서울특별시 강남구 역삼동", "radius_m": 1000, "count": n, "cafes": [...]}
     카페 하나: {name, category, address, telephone, link, lat, lon, distance_m}
+
+    exclude_place: '내 카페'로 지정(link)한 네이버 장소 {"name","address"} — 등록 상호
+    (exclude_name)와 네이버 상호가 다르거나 지도 핀이 50m 넘게 어긋나면 이름 매칭이
+    빗나가 내 가게가 경쟁 목록에 유사도 100%로 뜬다. 지정 장소는 이름(+주소)으로 뺀다.
     """
-    cache_key = f"{round(lat, 4)},{round(lon, 4)},{radius_m},{limit},{exclude_name}"
+    ex_place_name = re.sub(r"\s+", "", (exclude_place or {}).get("name", "")).lower()
+    ex_place_addr = re.sub(r"\s+", "", (exclude_place or {}).get("address", "")).lower()
+    cache_key = (f"{round(lat, 4)},{round(lon, 4)},{radius_m},{limit},{exclude_name},"
+                 f"{ex_place_name}|{ex_place_addr}")
     hit = _cafe_cache.get(cache_key)
     if hit and time.time() - hit[0] < _CAFE_TTL:
         return {**hit[1], "cached": True}
@@ -236,8 +244,18 @@ def find_nearby_cafes(lat: float, lon: float, radius_m: int = 1000, limit: int =
             if key in seen:
                 continue
             # 내 매장 자신은 경쟁 목록에서 뺀다 (상호가 같고 20m 안이면 본인으로 본다)
-            if excluded and re.sub(r"\s+", "", cafe["name"]).lower() == excluded and cafe["distance_m"] < 50:
+            norm_name = re.sub(r"\s+", "", cafe["name"]).lower()
+            if excluded and norm_name == excluded and cafe["distance_m"] < 50:
                 continue
+            # '내 카페'로 지정한 네이버 장소는 확실히 뺀다 — 이름이 같으면 주소 일치
+            # '또는' 600m 이내로 본인 판정. (링크 주소가 도로명·검색 결과가 지번으로
+            # 문자열이 어긋나는 경우 대비. 600m인 이유: 사장님이 찍은 지도 핀과 네이버
+            # 등록 좌표가 실측 400m+ 어긋난 사례가 있었다. 프랜차이즈는 지점명까지
+            # 포함된 상호라 이름+근접만으로 다른 지점이 오인 제외될 일은 없다.)
+            if ex_place_name and norm_name == ex_place_name:
+                norm_addr = re.sub(r"\s+", "", cafe.get("address", "")).lower()
+                if (ex_place_addr and norm_addr == ex_place_addr) or cafe["distance_m"] <= 600:
+                    continue
             seen.add(key)
             cafes.append(cafe)
 
@@ -266,9 +284,22 @@ def search_cafe_candidates(query: str, lat: Optional[float] = None, lon: Optiona
     if not q:
         return []
 
+    # [지역화] 네이버 지역검색은 전국 단위라, 상호만 치면 동명의 유명 카페들이 상위를
+    # 차지해 정작 근처의 내 가게가 후보 5개에 못 든다("후보가 다 너무 멀다" 문제).
+    # 매장 좌표가 있으면 역지오코딩한 동/구 이름을 붙인 검색을 '먼저' 돌려
+    # 내 동네 결과가 후보에 확실히 포함되게 한다 (analyze_cafe와 같은 요령).
+    keywords: list[str] = []
+    if lat is not None and lon is not None:
+        region = _region_names(lat, lon)
+        if region["dong"]:
+            keywords.append(f"{region['dong']} {q}")
+        if region["sigungu"]:
+            keywords.append(f"{region['sigungu']} {q}")
+    keywords += [q, f"{q} 카페"]
+
     seen: set[str] = set()
     out: list[dict[str, Any]] = []
-    for kw in (q, f"{q} 카페"):
+    for kw in keywords:
         for item in _search_local(kw, display=5, sort="random"):
             category = _strip_tags(item.get("category", ""))
             if not any(hint in category for hint in _CAFE_CATEGORY_HINTS):
@@ -490,12 +521,14 @@ _NEIGHBORHOOD_PROMPT = """너는 카페 사장님 전용 상권 분석가다.
 
 def analyze_neighborhood(lat: float, lon: float, store_name: str = "내 매장",
                          biz_type: str = "", radius_m: int = 1000,
-                         limit: int = 20) -> dict[str, Any]:
+                         limit: int = 20,
+                         exclude_place: Optional[dict[str, str]] = None) -> dict[str, Any]:
     """주변 카페를 모으고 상권 전체를 Gemini로 분석한다 (매장 지도 화면의 요약 카드용).
 
     반환: {region, radius_m, count, cafes:[...], insight:{...}|None}
     """
-    found = find_nearby_cafes(lat, lon, radius_m=radius_m, limit=limit, exclude_name=store_name)
+    found = find_nearby_cafes(lat, lon, radius_m=radius_m, limit=limit,
+                              exclude_name=store_name, exclude_place=exclude_place)
     cafes = found["cafes"]
     region = found["region"]
 

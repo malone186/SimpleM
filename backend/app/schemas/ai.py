@@ -264,6 +264,7 @@ class NotificationSettingBody(BaseModel):
     report_alert: bool = Field(True, description="경영 리포트 도착")
     stock_alert: bool = Field(True, description="재고 소진 임박")
     sensor_alert: bool = Field(True, description="설비 이상 (방해금지 무시)")
+    nearby_alert: bool = Field(True, description="주변 소식 — 곧 열리는 행사·경쟁 카페 개업/폐업")
     report_frequency: Literal["daily", "weekly"] = "weekly"
     dnd_enabled: bool = False
     dnd_start: str = Field("22:00", pattern=r"^\d{2}:\d{2}$")
@@ -306,3 +307,46 @@ class TodoResponse(BaseModel):
     done: bool
     due_date: Optional[str] = None
     created_at: Optional[str] = None
+    # 이번 요청으로 완료 처리되며 적립된 코인. 이미 적립된 할 일을 다시 완료 처리하면 없음.
+    # 프론트가 "+10코인" 토스트를 띄울지 판단하는 데 쓴다.
+    points_awarded: Optional[int] = Field(default=None, description="이번에 적립된 코인 수")
+
+
+class PointHistoryItem(BaseModel):
+    id: int
+    delta: int = Field(description="적립은 양수, 사용은 음수")
+    reason: str
+    reason_label: str
+    memo: str
+    created_at: Optional[str] = None
+
+
+class WalletResponse(BaseModel):
+    balance: int
+    total_earned: int
+    history: list[PointHistoryItem]
+
+
+class ShopItemResponse(BaseModel):
+    id: str
+    slot: str
+    slot_label: str
+    name: str
+    emoji: str
+    price: int
+    desc: str
+    owned: bool
+    equipped: bool
+    affordable: bool
+    # 포즈 상품일 때만 채워진다 — 프론트 Brew의 mood 값
+    mood: Optional[str] = None
+
+
+class ShopResponse(BaseModel):
+    balance: int
+    items: list[ShopItemResponse]
+
+
+class EquipRequest(BaseModel):
+    item_id: str
+    equipped: bool = True

@@ -183,6 +183,109 @@ def test_문자는_단문_한도를_넘지_않는다(db):
     """90바이트(EUC-KR)를 넘으면 장문이 되어 나중에 API 전환 시 요금이 2~3배다.
     매장명이 길어도 축약해서 맞춰야 한다."""
     c = _member(db, "01011112222", balance=50000)
+
+    # 뜸해진 단골 안내 — 링크가 없다
     text = svc.build_sms_text(c, None, "아주아주긴카페이름입니다정말로")
     assert svc.sms_byte_length(text) <= svc.SMS_MAX_BYTES
-    assert svc.balance_url(c) in text, "링크는 잘리면 안 된다"
+    assert "http" not in text, "이 문자에는 링크를 넣지 않는다"
+
+    # 충전 직후 — 링크가 있고, 링크는 잘리면 안 된다
+    tx, _ = svc.charge(db, c, pay_amount=10000, credit_amount=10000)
+    charged = svc.build_sms_text(c, tx, "아주아주긴카페이름입니다정말로")
+    assert svc.sms_byte_length(charged) <= svc.SMS_MAX_BYTES
+    assert svc.balance_url(c) in charged, "앞으로 확인할 주소라 자르면 안 된다"
+
+
+# --- 쿠폰 ---
+
+def test_잔액이_남은_손님에게는_쿠폰을_주지_않는다(db):
+    """[핵심] 그 손님은 이미 충전할 때 할인을 받았고 잔액이 묶여 있어 어차피 온다.
+    쿠폰까지 주면 이중 혜택이고 매장만 손해다."""
+    c = _member(db, "01011112222", balance=50000)
+    for d in [40, 30, 20]:
+        _visit(db, c, d)
+    db.refresh(c)
+
+    coupon, msg = svc.issue_coupon(db, c, "아메리카노 1잔 무료", 3000)
+    assert coupon is None
+    assert "잔액" in msg
+
+
+def test_잔액을_다_쓴_손님에게는_쿠폰을_준다(db):
+    """올 이유가 아무것도 없는 손님이다. 쿠폰이 필요한 자리는 여기다."""
+    c = _member(db, "01033334444", balance=12000)
+    for d in [40, 30, 20]:
+        _visit(db, c, d)
+    db.refresh(c)
+    svc.use(db, c, c.balance)
+    db.refresh(c)
+    assert c.balance == 0
+
+    coupon, _ = svc.issue_coupon(db, c, "아메리카노 1잔 무료", 3000, reason="20일째 미방문")
+    assert coupon is not None
+    assert coupon.expires_at is not None, "기한이 없으면 1년 뒤에 들고 와도 받아줘야 한다"
+
+
+def test_쿠폰은_잔액을_건드리지_않는다(db):
+    """잔액에 얹으면 공짜로 받은 쿠폰을 현금으로 환불해 갈 수 있다."""
+    c = _member(db, "01055556666", balance=5000)
+    svc.use(db, c, 5000)
+    db.refresh(c)
+
+    coupon, _ = svc.issue_coupon(db, c, "아메리카노 1잔 무료", 3000)
+    db.refresh(c)
+    assert c.balance == 0, "발급해도 잔액은 그대로"
+
+    svc.use_coupon(db, STORE, coupon.id)
+    db.refresh(c)
+    assert c.balance == 0, "사용해도 잔액은 그대로"
+
+
+def test_미사용_쿠폰이_있으면_또_주지_않는다(db):
+    """안 쓰는 사람에게 계속 보내는 건 효과가 없고,
+    여러 장을 한 번에 쓰겠다는 분쟁도 생긴다."""
+    c = _member(db, "01077778888", balance=3000)
+    svc.use(db, c, 3000)
+    db.refresh(c)
+
+    svc.issue_coupon(db, c, "아메리카노 1잔 무료", 3000)
+    again, msg = svc.issue_coupon(db, c, "라떼 1잔 무료", 3800)
+    assert again is None
+    assert "쓰지 않은" in msg
+
+
+def test_사용한_쿠폰은_다시_못_쓴다(db):
+    c = _member(db, "01099990000", balance=3000)
+    svc.use(db, c, 3000)
+    db.refresh(c)
+    coupon, _ = svc.issue_coupon(db, c, "아메리카노 1잔 무료", 3000)
+
+    ok, _ = svc.use_coupon(db, STORE, coupon.id)
+    assert ok
+    ok, msg = svc.use_coupon(db, STORE, coupon.id)
+    assert not ok
+    assert "이미 사용" in msg
+
+
+def test_문자_문구가_손님에_따라_갈린다(db):
+    """잔액 있는 손님에게 "잔액 0원 남아있습니다"는 말이 안 되고,
+    잔액 없는 손님에게 잔액 안내는 올 이유가 되지 않는다."""
+    rich = _member(db, "01011113333", balance=50000)
+    for d in [40, 30, 20]:
+        _visit(db, rich, d)
+
+    poor = _member(db, "01022224444", balance=12000)
+    for d in [40, 30, 20]:
+        _visit(db, poor, d)
+    db.refresh(poor)
+    svc.use(db, poor, poor.balance)
+    db.refresh(poor)
+    svc.issue_coupon(db, poor, "아메리카노 1잔 무료", 3000)
+
+    risk = {r["customer_id"]: r for r in svc.find_churn_risk(db, STORE, store_name="테스트카페")}
+
+    assert "잔액" in risk[rich.id]["sms_text"]
+    assert "아메리카노 1잔 무료" in risk[poor.id]["sms_text"]
+    # 뜸해진 단골 문자에는 링크를 넣지 않는다 — 금액을 이미 적어 보내는데 군더더기다
+    assert "http" not in risk[rich.id]["sms_text"]
+    assert "http" not in risk[poor.id]["sms_text"]

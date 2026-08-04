@@ -51,9 +51,16 @@ try:
     from app.models.ai import ensure_employee_profile_columns
     ensure_employee_profile_columns(engine)
 
+    # [자가치유] 기존 notification_settings 테이블에 nearby_alert(주변 소식) 컬럼을 보강한다.
+    from app.models.ai import ensure_notification_setting_columns
+    ensure_notification_setting_columns(engine)
+
     # [자가치유] 기존 sales 테이블에 단골 연결용 customer_id·payment_method를 보강한다.
-    from app.models.membership import ensure_sale_customer_columns
+    from app.models.membership import (
+        ensure_membership_extra_columns, ensure_sale_customer_columns,
+    )
     ensure_sale_customer_columns(engine)
+    ensure_membership_extra_columns(engine)
 
     # [한글 주석] 로그인 데모를 즉시 하실 수 있게 테스트용 사장님 계정을 자동으로 생성(시딩)해 둡니다.
     db_session = SessionLocal()

@@ -60,6 +60,15 @@ class Customer(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+    # [한글 주석] 동의를 누가 했는지 남긴다.
+    #   SELF  — 손님이 QR을 찍어 직접 번호를 넣고 동의 체크
+    #   OWNER — 사장님이 대신 입력하고 "동의를 받았다"고 체크
+    #
+    #   둘의 무게가 다르다. 사장님 체크는 사장님의 진술이지 손님의 동의가 아니다.
+    #   나중에 "동의를 받았느냐"는 질문이 나오면 SELF만이 실제 근거가 된다.
+    consent_source = Column(String(10), nullable=True)
+    consent_at = Column(DateTime(timezone=True), nullable=True)
+
     transactions = relationship(
         "BalanceTransaction", back_populates="customer",
         cascade="all, delete-orphan",
@@ -136,6 +145,46 @@ class BalanceTransaction(Base):
     customer = relationship("Customer", back_populates="transactions")
 
 
+class Coupon(Base):
+    """이탈 방지 쿠폰 — 잔액을 다 쓰고 발길이 끊긴 손님에게만 준다.
+
+    [한글 주석] 왜 잔액에 얹지 않고 별도 표로 두는가:
+
+      잔액에 3,000원을 더하는 방식이 간단해 보이지만 환불이 꼬인다.
+      환불액은 '실제 낸 돈 / 적립액' 비율로 계산하는데, 쿠폰으로 늘어난 잔액에는
+      손님이 낸 돈이 없다. 그대로 두면 공짜로 받은 쿠폰을 현금으로 환불해 가게 된다.
+
+      또 원가 분석에서도 구분이 필요하다. 충전 보너스는 '판매를 위해 깎아준 몫'이고
+      쿠폰은 '안 오는 손님을 부르려고 쓴 판촉비'다. 성격이 달라 섞으면
+      선불 회원제가 남는 장사인지 판단이 흐려진다.
+
+    [원칙] 잔액이 남은 손님에게는 주지 않는다.
+      그 손님은 이미 16.7% 할인받고 충전했고, 잔액이 묶여 있어 어차피 온다.
+      쿠폰까지 주면 이중 혜택이고 매장만 손해다.
+      쿠폰이 필요한 건 '올 이유가 아무것도 없는' 잔액 0원 손님이다.
+    """
+    __tablename__ = "coupons"
+
+    id = Column(Integer, primary_key=True, index=True)
+    store_id = Column(String(100), nullable=False, index=True)
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"),
+                         nullable=False, index=True)
+
+    title = Column(String(60), nullable=False)      # "아메리카노 1잔 무료"
+    # 원가·판촉비 집계에 쓰는 금액 상당액. 무료 음료면 그 메뉴 판매가.
+    amount = Column(Integer, default=0, nullable=False)
+    menu_id = Column(Integer, ForeignKey("menus.id", ondelete="SET NULL"), nullable=True)
+
+    issued_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # [한글 주석] 만료가 없으면 1년 뒤에 들고 와도 받아줘야 한다.
+    # 이탈 방지 쿠폰은 '지금 오시라'는 뜻이라 기한이 있어야 의미가 산다.
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    used_at = Column(DateTime(timezone=True), nullable=True)
+    issue_reason = Column(String(100), nullable=True)   # "12일째 미방문"
+
+    customer = relationship("Customer")
+
+
 class StaffAccount(Base):
     """직원 로그인 계정.
 
@@ -184,6 +233,14 @@ class StoreQr(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+# 체크인 종류
+#   PAYMENT — 이미 회원인 손님이 "잔액으로 결제해 주세요"
+#   SIGNUP  — 처음 온 손님이 QR로 직접 등록한 뒤 "충전해 주세요"
+# [한글 주석] 사장님 화면에서 둘을 구분해야 한다.
+# 결제 요청은 메뉴를 눌러 차감하면 되지만, 신규 등록은 충전부터 해야 한다.
+CHECKIN_PAYMENT = "PAYMENT"
+CHECKIN_SIGNUP = "SIGNUP"
+
 # 체크인 상태
 CHECKIN_WAITING = "WAITING"   # 손님이 요청함, 사장님이 아직 처리 안 함
 CHECKIN_DONE = "DONE"         # 결제 처리됨
@@ -211,6 +268,7 @@ class CheckIn(Base):
     customer_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"),
                          nullable=False, index=True)
     status = Column(String(10), default=CHECKIN_WAITING, nullable=False, index=True)
+    kind = Column(String(10), default=CHECKIN_PAYMENT, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(),
                         nullable=False, index=True)
     resolved_at = Column(DateTime(timezone=True), nullable=True)
@@ -242,6 +300,39 @@ def _ensure_transaction_menu_column(engine) -> None:
         logger.info("[단골 스키마] balance_transactions.menu_id 추가 완료")
     except Exception as e:
         logger.warning(f"[단골 스키마] menu_id 보강 실패: {e}")
+
+
+def ensure_membership_extra_columns(engine) -> None:
+    """[자가치유 스키마] 나중에 추가된 컬럼들을 보강한다.
+
+    [한글 주석] create_all은 기존 테이블을 ALTER하지 않는다.
+    이 컬럼들이 없으면 QR 셀프 등록과 동의 기록이 통째로 죽는다.
+    """
+    targets = [
+        ("customers", "consent_source", "VARCHAR(10)"),
+        ("customers", "consent_at", "TIMESTAMP WITH TIME ZONE"),
+        ("checkins", "kind", "VARCHAR(10)"),
+    ]
+    try:
+        insp = inspect(engine)
+    except Exception as e:
+        logger.warning(f"[단골 스키마] 점검 실패: {e}")
+        return
+
+    for table, col, coltype in targets:
+        try:
+            if not insp.has_table(table):
+                continue
+            if col in {c["name"] for c in insp.get_columns(table)}:
+                continue
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}"))
+                if table == "checkins" and col == "kind":
+                    # 기존 체크인은 전부 결제 요청이었다
+                    conn.execute(text("UPDATE checkins SET kind = 'PAYMENT' WHERE kind IS NULL"))
+            logger.info("[단골 스키마] %s.%s 추가 완료", table, col)
+        except Exception as e:
+            logger.warning(f"[단골 스키마] {table}.{col} 보강 실패: {e}")
 
 
 def ensure_sale_customer_columns(engine) -> None:

@@ -14,6 +14,7 @@ try {
 }
 
 import Brew, { type BrewMood } from '../brew/Brew';
+import { useEquipped } from '../../rewards/EquippedContext';
 import { colors } from '../../theme';
 
 // [한글 주석] 진동 피드백 — 웹에선 동작하지 않고, 실패 시에도 안전하게 예외 처리
@@ -97,6 +98,11 @@ export default function MascotEasterEgg({
 }) {
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
+
+  // 상점에서 산 것 (전역 공유 — 구매·착용하면 여기도 같이 바뀐다).
+  // 포즈를 샀으면 그 모습으로, 안 샀으면 화면이 정한 기본 포즈로 그린다.
+  const { accessories, poseMood } = useEquipped();
+  const shownMood = poseMood ?? mood;
 
   // 강아지 반동(탭 공통) + 풍선 부풀기(롱프레스) — 최종 스케일은 둘의 곱
   const scale = useRef(new Animated.Value(1)).current;
@@ -262,7 +268,8 @@ export default function MascotEasterEgg({
     <View style={[{ position: 'relative', alignItems: 'center' }, style]}>
       <Pressable onPress={onPress} onPressIn={onPressIn} onPressOut={onPressOut} hitSlop={6}>
         <Animated.View style={{ transform: [{ scale: combinedScale }, { rotate }] }}>
-          <Brew mood={mood} size={size} disableMotion />
+          {/* 상점에서 산 포즈·배경을 홈 마스코트에 그대로 반영한다 */}
+          <Brew mood={shownMood} size={size} disableMotion accessories={accessories} />
         </Animated.View>
       </Pressable>
 

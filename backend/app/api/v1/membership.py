@@ -7,6 +7,7 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user, require_owner
@@ -102,6 +103,18 @@ def update_customer_api(customer_id: int, payload: CustomerUpdate,
     db.commit()
     db.refresh(c)
     return _customer_out(db, c)
+
+
+@router.delete("/customers/{customer_id}", summary="회원 삭제 (이력 있으면 숨김)")
+def delete_customer_api(customer_id: int, db: Session = Depends(get_db),
+                        user: User = Depends(require_owner)):
+    """[한글 주석] 잔액이 남아 있으면 거부합니다 — 지우면 손님 돈이 장부에서 사라집니다.
+    이용 기록이 있으면 목록에서 숨기기만 합니다("누가 언제 얼마" 기록은 지우면 안 됩니다).
+    거래가 하나도 없는 빈 회원만 완전히 삭제됩니다."""
+    ok, msg = svc.delete_customer(db, user.email, customer_id)
+    if not ok:
+        raise HTTPException(status_code=400, detail=msg)
+    return {"success": True, "message": msg}
 
 
 @router.get("/customers/{customer_id}/transactions",
@@ -311,6 +324,58 @@ def cost_analysis_api(days: int = Query(90, ge=7, le=365),
     일반 판매 원가율과 나란히 보여 차이를 드러냅니다.
     """
     return svc.get_prepaid_cost_analysis(db, user.email, days)
+
+
+class CouponIssueRequest(BaseModel):
+    title: str = Field(..., max_length=60, description="예: 아메리카노 1잔 무료")
+    amount: int = Field(0, ge=0, description="금액 상당액 (판촉비 집계용)")
+    menu_id: Optional[int] = None
+    reason: Optional[str] = None
+
+
+@router.post("/customers/{customer_id}/coupons", summary="이탈 방지 쿠폰 발급")
+def issue_coupon_api(customer_id: int, payload: CouponIssueRequest,
+                     db: Session = Depends(get_db),
+                     user: User = Depends(require_owner)):
+    """[한글 주석] 잔액이 남은 손님에게는 발급되지 않습니다.
+
+    그 손님은 이미 충전할 때 할인을 받았고 잔액이 묶여 있어 어차피 옵니다.
+    쿠폰까지 주면 이중 혜택이라 매장만 손해입니다.
+    쿠폰이 필요한 건 '올 이유가 아무것도 없는' 잔액 0원 손님입니다.
+    """
+    c = _get_customer(db, customer_id, user.email)
+    coupon, msg = svc.issue_coupon(db, c, payload.title, payload.amount,
+                                   payload.menu_id, payload.reason)
+    if not coupon:
+        raise HTTPException(status_code=400, detail=msg)
+    return {
+        "id": coupon.id,
+        "title": coupon.title,
+        "expires_at": coupon.expires_at,
+        "message": msg,
+        "sms_text": svc.build_sms_text(c, None, getattr(user, "store_name", None),
+                                       coupon.title),
+        "phone": c.phone,
+    }
+
+
+@router.get("/customers/{customer_id}/coupons", summary="쿠폰 목록")
+def list_coupons_api(customer_id: int, only_usable: bool = Query(False),
+                     db: Session = Depends(get_db),
+                     user: User = Depends(get_current_user)):
+    _get_customer(db, customer_id, user.email)
+    return svc.list_coupons(db, customer_id, only_usable)
+
+
+@router.post("/coupons/{coupon_id}/use", summary="쿠폰 사용 처리")
+def use_coupon_api(coupon_id: int, db: Session = Depends(get_db),
+                   user: User = Depends(get_current_user)):
+    """[한글 주석] 잔액을 건드리지 않습니다. 쿠폰은 잔액과 다른 물건입니다.
+    직원도 처리할 수 있습니다 — 계산대 업무이고 현금이 나가지 않습니다."""
+    ok, msg = svc.use_coupon(db, user.email, coupon_id)
+    if not ok:
+        raise HTTPException(status_code=400, detail=msg)
+    return {"success": True, "message": msg}
 
 
 @router.get("/reconcile", summary="잔액 검증 (캐시 vs 거래이력)")

@@ -42,8 +42,40 @@ export type NearbyEventsResult = {
   cached?: boolean;
 };
 
+/** 행사 하나에 맞춘 AI 이벤트·준비 플랜 (행사 카드의 'AI 준비 플랜' 버튼) */
+export type EventPlan = {
+  headline: string;
+  impact_level: string;      // 낮음 / 보통 / 높음
+  expected_change: string;   // 손님이 어떻게 달라질지
+  busy_window: string;       // 특히 붐빌 날짜·시간대
+  promotions: { title: string; detail: string; why: string }[];
+  menu_idea: string;         // 행사 기간 한정 메뉴
+  prep_actions: string[];    // 미리 해 둘 일
+  stock_prep: string[];      // 넉넉히 확보할 재료
+  staffing: string;          // 인력 배치
+  promo_copy: string;        // 그대로 쓸 홍보 문구
+  cached?: boolean;
+};
+
+export type EventPlanResult = {
+  event: NearbyEventItem;
+  plan: EventPlan;
+};
+
 const auth = (token: string) => ({ headers: { Authorization: `Bearer ${token}` } });
 
 /** 매장 주변 행사 목록 + AI 대비 조언. 좌표는 계정에 등록된 매장 고정 위치를 쓴다. */
 export const getNearbyEvents = (token: string, days = 14) =>
   apiFetch<NearbyEventsResult>(`/api/v1/chatbot/nearby-events?days=${days}`, auth(token));
+
+/** 행사 하나에 맞춘 이벤트·준비 플랜을 AI가 짜 준다 (Gemini 1회, 12시간 캐시).
+ *
+ * 서버는 이름을 그대로 믿지 않고 수집된 행사 목록에서 다시 찾는다 —
+ * 목록에 없는 행사면 404로 돌아온다(없는 행사에 대한 계획을 지어내지 않는다).
+ */
+export const getEventPlan = (token: string, name: string, startDate = '') =>
+  apiFetch<EventPlanResult>(
+    `/api/v1/chatbot/nearby-events/plan?name=${encodeURIComponent(name)}` +
+      (startDate ? `&start_date=${startDate}` : ''),
+    auth(token),
+  );

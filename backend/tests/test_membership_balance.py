@@ -233,3 +233,58 @@ def test_할인율은_결제액이_아니라_적립액_기준이다(db):
     db.refresh(plan)
     assert plan.discount_rate == 16.7
     assert plan.bonus_amount == 10000
+
+
+# --- 회원 정리 ---
+
+def test_잔액이_남으면_삭제할_수_없다(db):
+    """[핵심] 지우면 손님 돈이 장부에서 사라진다.
+    환불하거나 보정으로 정리한 뒤에 지워야 한다."""
+    c = _customer(db, 5000)
+    ok, msg = svc.delete_customer(db, STORE, c.id)
+    assert not ok
+    assert "잔액" in msg
+    assert db.query(Customer).filter(Customer.id == c.id).first() is not None
+
+
+def test_이용_기록이_있으면_숨기기만_한다(db):
+    """"누가 언제 얼마를 썼나"는 지우면 안 되는 기록이다."""
+    c = _customer(db, 5000)
+    svc.use(db, c, 5000, "아메리카노")
+    db.refresh(c)
+    assert c.balance == 0
+
+    ok, msg = svc.delete_customer(db, STORE, c.id)
+    assert ok
+    assert "숨겼" in msg
+
+    row = db.query(Customer).filter(Customer.id == c.id).first()
+    assert row is not None, "행이 남아 있어야 거래 이력이 유효하다"
+    assert row.is_active is False
+    assert len(svc.list_transactions(db, c.id)) == 2, "이력은 그대로"
+
+
+def test_거래가_없는_빈_회원은_완전히_지운다(db):
+    """번호를 잘못 눌러 만든 회원이다. 남겨둘 이유가 없다."""
+    c, _ = svc.create_customer(db, STORE, "01088887777", "오타")
+    cid = c.id
+
+    ok, _ = svc.delete_customer(db, STORE, cid)
+    assert ok
+    assert db.query(Customer).filter(Customer.id == cid).first() is None
+
+
+def test_숨긴_회원은_목록과_이탈감지에서_빠진다(db):
+    c = _customer(db, 3000)
+    svc.use(db, c, 3000)
+    svc.delete_customer(db, STORE, c.id)
+
+    assert not any(x.id == c.id for x in svc.find_customers(db, STORE))
+    assert not any(r["customer_id"] == c.id for r in svc.find_churn_risk(db, STORE))
+
+
+def test_남의_매장_회원은_지울_수_없다(db):
+    c, _ = svc.create_customer(db, "other@cafe.com", "01099998888")
+    ok, msg = svc.delete_customer(db, STORE, c.id)
+    assert not ok
+    assert "찾을 수 없" in msg

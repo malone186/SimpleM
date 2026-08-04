@@ -3,8 +3,9 @@
 # A (ai.py)
 from app.models.ai import (
     AdminAccount, AdminNotification, CafeReviewLink, ChatSession, ComplianceItem, DailySalesEntry,
-    DeviceToken, EmployeeProfile, GeneratedDocument, InsightAck, NotificationSetting, OcrDocument,
-    OcrItem, PosConnection, PosSyncedOrder, SentNotification, SettlementSetting, TodoItem,
+    DeviceToken, EmployeeProfile, GeneratedDocument, InsightAck, NearbyCafeWatch,
+    NotificationSetting, OcrDocument, OcrItem, PosConnection, PosSyncedOrder, SentNotification,
+    SettlementSetting, TodoItem,
 )
 
 # I (inquiry.py & inventory.py)
@@ -12,7 +13,9 @@ from app.models.inquiry import Inquiry
 from app.models.inventory import Ingredient, IngredientPriceHistory, Menu, Recipe, Stock, StockTransaction, Sale, Order, OrderItem
 
 # M (membership.py) — 단골 회원 · 선불 충전
-from app.models.membership import BalanceTransaction, ChargePlan, CheckIn, Customer, StoreQr
+from app.models.membership import (
+    BalanceTransaction, ChargePlan, CheckIn, Coupon, Customer, StaffAccount, StoreQr,
+)
 
 # O (operation.py)
 from app.models.operation import Employee, EstimatedPayroll, EstimatedSettlement, Expense, Schedule  # 정산/급여 및 지출 모델 불러오기
