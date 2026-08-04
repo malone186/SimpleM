@@ -61,6 +61,11 @@ const won = (n: number) => `${n.toLocaleString()}원`;
 
 export default function MembershipScreen() {
   const { token } = useAuth();
+  // [한글 주석] 선불 현황 카드는 팀 요청으로 화면에서 뺐다.
+  // summary는 '회원 N명' 숫자 하나 때문에 남겨 둔다 —
+  // 회원 목록은 50개까지만 받으므로 그걸로 세면 51명부터 틀린다.
+  // 백엔드의 선수금/매출 분리 계산은 그대로 둔다. 화면에 안 보이는 것과
+  // 숫자를 안 나누는 것은 다른 문제이고, 섞여서 쌓이면 되돌릴 수 없다.
   const [summary, setSummary] = useState<PrepaidSummary | null>(null);
   const [churn, setChurn] = useState<ChurnRiskCustomer[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -456,35 +461,6 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
           </View>
         )}
       </View>
-
-      {/* ② 선수금 — 매출이 아니라 부채임을 명시한다 */}
-      {summary && (
-        <View style={styles.card}>
-          <View style={styles.cardHead}>
-            <Ionicons name="wallet-outline" size={16} color={colors.mochaBrown} />
-            <Text style={styles.cardTitle}>선불 충전 현황</Text>
-            <Text style={styles.periodText}>최근 {summary.period_days}일</Text>
-          </View>
-
-          <View style={styles.liabilityBox}>
-            <Text style={styles.liabilityLabel}>아직 안 쓴 잔액 (갚아야 할 금액)</Text>
-            <Text style={styles.liabilityValue}>{won(summary.active_balance_total)}</Text>
-            <Text style={styles.liabilityNote}>
-              충전액은 매출이 아닙니다. 커피를 드릴 때 매출로 잡힙니다.
-            </Text>
-          </View>
-
-          <View style={styles.statGrid}>
-            <Stat label="실제 입금" value={won(summary.net_cash_in)} />
-            <Stat label="적립 총액" value={won(summary.credited_total)} />
-            <Stat label="매출 인식" value={won(summary.used_total)} highlight />
-            <Stat label="나간 보너스" value={won(summary.bonus_given)} />
-            {summary.refunded_total > 0 && (
-              <Stat label="환불" value={won(summary.refunded_total)} />
-            )}
-          </View>
-        </View>
-      )}
 
       {/* 실질 원가율 — 선불 회원제가 남는 장사인지 판단하는 숫자 */}
       {cost?.has_data && (
@@ -926,14 +902,6 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
   );
 }
 
-function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
-  return (
-    <View style={styles.statBox}>
-      <Text style={styles.statLabel}>{label}</Text>
-      <Text style={[styles.statValue, highlight && { color: colors.trendGreenText }]}>{value}</Text>
-    </View>
-  );
-}
 
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.creamSand },
@@ -948,10 +916,10 @@ const styles = StyleSheet.create({
           borderWidth: 1, borderColor: colors.mutedSand },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   cardTitle: { fontSize: 14, fontWeight: 'bold', color: colors.espressoBrown },
+  periodText: { fontSize: 11, color: '#9A8F86', marginLeft: 'auto' },
   badge: { fontSize: 11, fontWeight: '800', color: '#B23B2E',
            backgroundColor: '#FDECEA', paddingHorizontal: 7, paddingVertical: 2,
            borderRadius: 9, overflow: 'hidden' },
-  periodText: { fontSize: 11, color: '#9A8F86', marginLeft: 'auto' },
 
   churnRow: { flexDirection: 'row', alignItems: 'center', gap: 8,
               backgroundColor: '#FDF7F6', borderRadius: 10, padding: 10 },
@@ -964,16 +932,7 @@ const styles = StyleSheet.create({
             paddingVertical: 7, borderRadius: 8 },
   smsBtnText: { color: '#FFF', fontSize: 11, fontWeight: 'bold' },
 
-  liabilityBox: { backgroundColor: '#FAF8F6', borderRadius: 10, padding: 12, gap: 3 },
-  liabilityLabel: { fontSize: 11, color: '#7A6E65' },
-  liabilityValue: { fontSize: 22, fontWeight: '900', color: colors.espressoBrown },
-  liabilityNote: { fontSize: 10.5, color: '#B0A79E', lineHeight: 15, marginTop: 2 },
 
-  statGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  statBox: { flexGrow: 1, minWidth: '45%', backgroundColor: '#FAF8F6',
-             borderRadius: 8, padding: 9 },
-  statLabel: { fontSize: 10.5, color: '#9A8F86' },
-  statValue: { fontSize: 13, fontWeight: '800', color: colors.espressoBrown, marginTop: 2 },
 
   addBtn: { flexDirection: 'row', alignItems: 'center', gap: 2, marginLeft: 'auto',
             backgroundColor: colors.pointOrange, paddingHorizontal: 9,
