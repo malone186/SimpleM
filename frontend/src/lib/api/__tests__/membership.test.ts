@@ -22,7 +22,7 @@ import {
 const TOKEN = 'test-token-abc';
 
 function mockJson(body: unknown = {}) {
-  (global.fetch as jest.Mock).mockResolvedValue({
+  (globalThis.fetch as jest.Mock).mockResolvedValue({
     ok: true,
     status: 200,
     json: async () => body,
@@ -30,7 +30,7 @@ function mockJson(body: unknown = {}) {
 }
 
 function lastCall() {
-  const calls = (global.fetch as jest.Mock).mock.calls;
+  const calls = (globalThis.fetch as jest.Mock).mock.calls;
   const [url, init] = calls[calls.length - 1];
   return { url: String(url), init: init ?? {} };
 }
@@ -57,7 +57,7 @@ describe('모든 사장님 API는 토큰을 붙인다', () => {
     ['뜸해진 단골', () => fetchChurnRisk(TOKEN)],
   ];
 
-  test.each(cases)('%s', async (_label, call) => {
+  test.each(cases)('%s', async (_label: string, call: () => Promise<unknown>) => {
     mockJson();
     await call();
     expect(headerOf(lastCall().init, 'Authorization')).toBe(`Bearer ${TOKEN}`);
@@ -103,7 +103,7 @@ test('환불은 잔액 차감분을 보낸다 (건넬 현금이 아니다)', asy
 test('서버 오류 메시지를 그대로 전달한다', async () => {
   // [한글 주석] "잔액이 부족합니다 (잔액 1,000원)" 같은 메시지가
   // 화면까지 와야 직원이 무엇이 문제인지 안다.
-  (global.fetch as jest.Mock).mockResolvedValue({
+  (globalThis.fetch as jest.Mock).mockResolvedValue({
     ok: false,
     status: 400,
     json: async () => ({ detail: '잔액이 부족합니다. (잔액 1,000원 / 필요 4,000원)' }),

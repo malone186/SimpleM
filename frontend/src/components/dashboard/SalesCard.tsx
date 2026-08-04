@@ -21,6 +21,7 @@ import {
 import { describeApiFailure, type ApiFailure } from '../../lib/api/errors';
 import Brew from '../brew/Brew';
 import TodoList, { type Todo } from './TodoList';
+import AlertCenterCard, { type AlertItem } from './AlertCenterCard';
 
 // (삭제함 - Web 호환성을 위해 addListener + 일반 Circle을 사용하도록 개선)
 
@@ -254,6 +255,11 @@ export default function SalesCard({
   onEditTodo,
   onDeleteTodo,
   onRestoreAiTodos,
+  alerts = [],
+  onPressAlert,
+  onDismissAlert,
+  onClearAllAlerts,
+  onRestoreAlerts,
 }: {
   onPressReport?: () => void;
   todos?: Todo[];
@@ -263,6 +269,11 @@ export default function SalesCard({
   onEditTodo?: (id: string, newTitle: string) => void;
   onDeleteTodo?: (id: string) => void;
   onRestoreAiTodos?: () => void;
+  alerts?: AlertItem[];
+  onPressAlert?: (alert: AlertItem) => void;
+  onDismissAlert?: (id: string) => void;
+  onClearAllAlerts?: () => void;
+  onRestoreAlerts?: () => void;
 }) {
   const { token } = useAuth();
   const [forecast, setForecast] = useState<SalesForecast | null>(null);
@@ -656,7 +667,7 @@ export default function SalesCard({
         })}
       </View>
 
-      {/* [한글 주석: 홈 카드는 오늘의 할 일(TodoList)을 상시 깨끗하게 노출합니다] */}
+      {/* [한글 주석: 홈 카드는 오늘의 할 일(TodoList)에서 상자를 깔끔히 마감합니다] */}
       <View style={styles.todoWrapper}>
         <TodoList
           todos={todos}

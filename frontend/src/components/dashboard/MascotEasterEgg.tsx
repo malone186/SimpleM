@@ -273,6 +273,8 @@ export default function MascotEasterEgg({
         </Animated.View>
       </Pressable>
 
+
+
       {bubble && (
         <Animated.View
           pointerEvents="none"
