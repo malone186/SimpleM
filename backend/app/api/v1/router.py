@@ -52,6 +52,9 @@ api_router.include_router(staff_router)
 from app.api.v1.store import router as store_router
 api_router.include_router(store_router)
 
-# R (roastery_search)
+# R (rewards, roastery_search)
+from app.api.v1.rewards import router as rewards_router
+api_router.include_router(rewards_router)
+
 from app.api.v1.roastery_search import router as roastery_search_router
 api_router.include_router(roastery_search_router)

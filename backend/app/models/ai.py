@@ -383,6 +383,54 @@ class ChatQuota(Base):
     )
 
 
+class PointLedger(Base):
+    """포인트 원장 — 적립·사용을 한 줄씩 남긴다 (게임화 보상)
+
+    잔액을 별도 컬럼으로 들고 있지 않고 delta의 합으로 계산한다. 잔액 컬럼과 내역이
+    어긋나는 사고(중복 적립·롤백 누락)가 이 규모에선 훨씬 비싸다. 상점 화면이
+    요구하는 '적립 내역'도 이 표가 그대로 답이 된다.
+
+    중복 적립 방지는 (store_id, reason, ref)의 유니크 제약으로 한다. 할 일 완료를
+    껐다 켰다 반복해 포인트를 무한 획득하는 걸 DB 차원에서 막는다 — 애플리케이션
+    조건문만으로는 동시 요청에서 뚫린다.
+    """
+
+    __tablename__ = "point_ledgers"
+    __table_args__ = (
+        UniqueConstraint("store_id", "reason", "ref", name="uq_point_ledger_source"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    store_id: Mapped[str] = mapped_column(String(100), index=True)
+    delta: Mapped[int] = mapped_column(Integer)  # 적립은 양수, 사용은 음수
+    reason: Mapped[str] = mapped_column(String(32))  # todo_done | purchase | ...
+    # 적립 출처 식별자. 같은 reason 안에서 유일해야 하는 값 (예: 할 일 id).
+    # 상점 구매처럼 여러 번 일어나도 되는 건 매번 다른 값을 넣는다.
+    ref: Mapped[str] = mapped_column(String(64))
+    memo: Mapped[str] = mapped_column(String(200), default="")  # 내역 화면에 그대로 보여줄 문구
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class OwnedItem(Base):
+    """구매한 꾸미기 아이템 — 매장(사장님)별 보유 목록
+
+    아이템 카탈로그 자체는 코드 상수(reward_service.SHOP_ITEMS)로 둔다. 종류가 적고
+    가격·이름을 바꾸는 데 마이그레이션까지 필요할 이유가 없다.
+    equipped는 부위(slot)당 하나만 true — 서비스 레이어가 보장한다.
+    """
+
+    __tablename__ = "owned_items"
+    __table_args__ = (
+        UniqueConstraint("store_id", "item_id", name="uq_owned_item"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    store_id: Mapped[str] = mapped_column(String(100), index=True)
+    item_id: Mapped[str] = mapped_column(String(40))
+    equipped: Mapped[bool] = mapped_column(Boolean, default=False)
+    acquired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class AdminAccount(Base):
     """관리자 콘솔 계정 — 비밀번호를 공유 DB에 bcrypt 해시로 저장한다
 

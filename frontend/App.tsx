@@ -4,6 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/auth/AuthContext';
 import { PreferencesProvider } from './src/preferences/PreferencesContext';
 import { DessertProvider } from './src/dessert/DessertContext';
+import { EquippedProvider } from './src/rewards/EquippedContext';
 import DeviceFrame from './src/components/DeviceFrame';
 import ErrorBoundary from './src/components/ErrorBoundary';
 import Splash from './src/components/Splash';
@@ -18,6 +19,8 @@ export default function App() {
       <PreferencesProvider>
         <AuthProvider>
           <DessertProvider>
+          {/* 상점에서 산 꾸미기 아이템을 브루가 나오는 모든 화면에 공유 */}
+          <EquippedProvider>
           <DeviceFrame>
             {/* 화면 하나가 터져도 앱 전체가 흰 화면이 되지 않도록 감싼다 */}
             <ErrorBoundary>
@@ -33,6 +36,7 @@ export default function App() {
             {/* 설정의 글자 크기·다크모드를 앱 콘텐츠에 실제 적용 (웹) */}
             <WebAppearance />
           </DeviceFrame>
+          </EquippedProvider>
           </DessertProvider>
         </AuthProvider>
       </PreferencesProvider>
