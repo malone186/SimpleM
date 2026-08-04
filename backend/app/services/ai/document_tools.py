@@ -17,6 +17,20 @@ def _dump(data) -> str:
 
 
 @tool
+def draft_purchase_order(store_id: str) -> str:
+    """발주서 초안을 만든다. 최소 보유량 아래로 떨어진 재료를 모아 발주 수량·예상 금액까지 채운다.
+
+    '발주서 만들어줘', '뭐 시켜야 하는지 정리해줘' 같은 요청에 쓴다. 초안만 만들고
+    실제 발주 전송은 하지 않는다 — 사장님이 문서를 확인한 뒤 직접 주문해야 한다.
+    담을 품목이 없으면(재고가 모두 넉넉하면) 그 사실을 문장으로 돌려준다.
+    """
+    try:
+        return _dump(document_service.generate_purchase_order(store_id))
+    except document_service.DocumentError as e:
+        return str(e)
+
+
+@tool
 def create_stocktake_sheet(store_id: str) -> str:
     """재고실사표를 만든다. 전체 재료의 장부상 수량이 채워진 시트로, 실사 수량은 현장에서 기입한다."""
     return _dump(document_service.generate_stocktake_sheet(store_id))
@@ -165,6 +179,7 @@ TOOLS = [
     delete_renewal_reminder,
     draft_employment_contract_document,
     draft_payslip_document,
+    draft_purchase_order,
     get_upcoming_renewals,
     get_wage_ledger,
     list_generated_documents,

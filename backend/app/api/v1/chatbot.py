@@ -250,6 +250,19 @@ async def reject_document(
 # 매장별 데이터이므로 로그인 필수 (store_id = 로그인 이메일)
 # ---------------------------------------------------------------------------
 
+@router.post("/documents/purchase-order", response_model=GeneratedDocumentResponse, status_code=201)
+def create_purchase_order(current_user: User = Depends(get_current_user)):
+    """발주서 초안 — 최소 보유량 아래로 떨어진 재료를 모아 발주 수량까지 채운 문서.
+
+    담을 품목이 없으면(재고가 모두 넉넉하면) 409와 함께 그 사실을 문장으로 준다 —
+    프론트가 그대로 띄우면 "왜 안 만들어지지"를 붙잡을 일이 없다.
+    """
+    try:
+        return document_service.generate_purchase_order(current_user.email)
+    except document_service.DocumentError as e:
+        raise HTTPException(409, str(e))
+
+
 @router.post("/documents/stocktake", response_model=GeneratedDocumentResponse, status_code=201)
 def create_stocktake_sheet(current_user: User = Depends(get_current_user)):
     """재고실사표 — 장부상 수량이 채워진 실사용 시트."""
