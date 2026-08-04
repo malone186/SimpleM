@@ -73,14 +73,21 @@ SHOP_ITEMS: list[dict[str, Any]] = [
      "desc": "오픈·이벤트 날의 들뜬 기분"},
     {"id": "bg_bubble", "slot": "background", "name": "뽀글 거품", "emoji": "🫧", "price": 300,
      "desc": "라떼 거품처럼 몽글몽글"},
-    # 프레임 — 박스 테두리에 둘러지는 새 슬롯. 캐릭터를 안 건드려 어떤 포즈·배경과도
-    # 같이 착용된다(배경과 다른 슬롯이라 둘 다 낄 수 있어 조합의 수가 늘어난다).
-    {"id": "frame_wood", "slot": "frame", "name": "우드 프레임", "emoji": "🖼️", "price": 250,
-     "desc": "원목 액자에 담긴 브루"},
-    {"id": "frame_dots", "slot": "frame", "name": "도트 프레임", "emoji": "⚪", "price": 250,
-     "desc": "동글동글 점선 테두리"},
-    {"id": "frame_neon", "slot": "frame", "name": "네온 링", "emoji": "💚", "price": 400,
-     "desc": "은은하게 빛나는 고리"},
+    # 앞치마 색 — 브루가 입은 앞치마만 색을 바꾼다(털·모자·컵·글자는 그대로). 포즈별로
+    # '앞치마 영역 마스크'로 리컬러한 변형 PNG를 미리 구워 두고, color 값으로 그 이미지를
+    # 골라 원본 포즈를 대체한다(프론트 apronVariants.ts). pose와 다른 슬롯이라 함께 착용된다.
+    {"id": "apron_navy", "slot": "apron", "color": "navy", "name": "네이비 앞치마", "emoji": "🔵", "price": 300,
+     "desc": "차분한 감색 앞치마"},
+    {"id": "apron_forest", "slot": "apron", "color": "forest", "name": "포레스트 앞치마", "emoji": "🟢", "price": 300,
+     "desc": "숲빛 그린 앞치마"},
+    {"id": "apron_wine", "slot": "apron", "color": "wine", "name": "와인 앞치마", "emoji": "🍷", "price": 350,
+     "desc": "깊은 버건디 앞치마"},
+    {"id": "apron_mustard", "slot": "apron", "color": "mustard", "name": "머스터드 앞치마", "emoji": "🟡", "price": 300,
+     "desc": "따뜻한 겨자색 앞치마"},
+    {"id": "apron_charcoal", "slot": "apron", "color": "charcoal", "name": "차콜 앞치마", "emoji": "⚫", "price": 300,
+     "desc": "시크한 차콜 블랙 앞치마"},
+    {"id": "apron_terracotta", "slot": "apron", "color": "terracotta", "name": "테라코타 앞치마", "emoji": "🟠", "price": 300,
+     "desc": "구움과자 같은 테라코타 앞치마"},
 ]
 
 _ITEM_BY_ID = {item["id"]: item for item in SHOP_ITEMS}
@@ -88,7 +95,7 @@ _ITEM_BY_ID = {item["id"]: item for item in SHOP_ITEMS}
 SLOT_LABEL = {
     "pose": "브루 모습",
     "background": "배경 효과",
-    "frame": "브루 프레임",
+    "apron": "앞치마 색",
 }
 
 REASON_LABEL = {
@@ -271,6 +278,8 @@ def get_equipped(store_id: str) -> list[dict[str, Any]]:
         entry = {"id": i, "slot": item["slot"], "emoji": item["emoji"]}
         if item.get("mood"):
             entry["mood"] = item["mood"]
+        if item.get("color"):
+            entry["color"] = item["color"]  # 앞치마 색 — 프론트가 변형 이미지를 고른다
         out.append(entry)
     return out
 

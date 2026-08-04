@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import { Animated, Easing, Image, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { ACCESSORY_ART } from './accessories';
+import { APRON_VARIANTS, type ApronColor } from './apronVariants';
 
 // 캐릭터 시트에서 잘라낸 포즈들 (표정 매칭 표)
 const POSES = {
@@ -29,40 +30,27 @@ export type BrewMood = keyof typeof POSES;
 // 안에 이미 캡·앞치마를 착용하고 컵까지 들고 있어서, 모자를 또 얹으면 스티커를
 // 덧붙이는 꼴이 된다. 게다가 포즈마다 머리 위치가 달라 좌표를 맞출 수도 없다.
 // 그래서 상점은 '포즈 교체'(mood)로 가고, 겹쳐 그리는 건 배경만 남겼다.
-// background: 캐릭터 뒤 배경 효과 / frame: 박스 테두리를 두르는 프레임.
-// 둘은 서로 다른 슬롯이라 동시에 착용할 수 있다 — 겹쳐도 캐릭터를 안 가린다.
-export type BrewAccessory = { id: string; slot: 'background' | 'frame'; emoji: string };
+export type BrewAccessory = { id: string; slot: 'background'; emoji: string };
 
-// 배경 장식과 캐릭터의 크기 관계.
-//
-// 둘을 같은 크기로 그리면 장식이 전부 캐릭터 뒤에 숨어서 산 사람 입장에선 아무것도
-// 안 보인다(실제로 하트 하나만 옆으로 삐져나왔다).
-//
-// 장식을 박스 밖으로 키우는 방법도 있지만, 상점 카드나 원형 프레임처럼 overflow를
-// 자르는 부모 안에서는 그대로 잘려나간다. 그래서 반대로 캐릭터를 조금 줄여 박스 안에
-// 테두리 공간을 만든다 — 전체 차지 면적이 그대로라 레이아웃도 안 흔들린다.
-const CHAR_SHRINK_WITH_BG = 0.76;
-
-// 배경·프레임 모두 박스를 가득 채우는 동일 배치 — 캐릭터가 그보다 작아져서
-// (CHAR_SHRINK_WITH_BG) 바깥 테두리 공간에 효과·프레임이 드러난다.
-const FILL_BOX = (): StyleProp<ViewStyle> => ({
-  position: 'absolute',
-  top: 0,
-  left: 0,
-  right: 0,
-  bottom: 0,
-  alignItems: 'center',
-  justifyContent: 'center',
-});
+// [예전 메모] 정적(테두리 고정) 장식 때는 캐릭터를 줄여(0.76) 박스 안에 테두리 공간을
+// 만들어야 장식이 보였다. 지금 배경 효과는 파티클(반짝임·커피콩 등)이 박스 전체에서
+// 캐릭터 '뒤'로 흐르므로 위·옆·빈틈으로 잘 보인다 — 캐릭터를 줄일 필요가 없다.
+// 오히려 줄이면 '효과를 켜면 마스코트가 갑자기 작아지는' 문제만 생겨 없앴다.
 
 const SLOT_LAYOUT: Record<BrewAccessory['slot'], (size: number) => StyleProp<ViewStyle>> = {
-  background: FILL_BOX,
-  frame: FILL_BOX,
+  background: () => ({
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  }),
 };
 
 const SLOT_SCALE: Record<BrewAccessory['slot'], number> = {
-  background: 1, // 박스를 가득 채운다 (캐릭터가 그보다 작아져서 고리가 드러난다)
-  frame: 1,
+  background: 1, // 박스를 가득 채운다 (캐릭터가 그보다 작아져서 효과가 드러난다)
 };
 
 // idle 움직임 종류
@@ -89,6 +77,7 @@ export default function Brew({
   style,
   disableMotion = false, // [한글 주석: 말풍선 등과 애니메이션을 통합하기 위해 자체 모션을 끌 수 있는 제어 장치 추가]
   accessories = [],
+  apronColor,
 }: {
   mood?: BrewMood;
   size?: number;
@@ -97,8 +86,12 @@ export default function Brew({
   style?: StyleProp<ViewStyle>;
   disableMotion?: boolean;
   accessories?: BrewAccessory[]; // 상점에서 산 꾸미기 아이템 (착용 중인 것만)
+  apronColor?: string; // 상점에서 산 앞치마 색 (navy·forest 등). 없으면 기본 갈색.
 }) {
   const a = useRef(new Animated.Value(0)).current;
+  // 앞치마 색을 착용했으면 그 색으로 리컬러한 변형 이미지를 쓴다(원본 포즈를 대체).
+  // 변형이 없으면(색 미착용·해당 포즈 변형 부재) 원본 갈색 포즈로 안전하게 폴백.
+  const poseSource = (apronColor && APRON_VARIANTS[mood]?.[apronColor as ApronColor]) || POSES[mood];
   // [한글 주석: disableMotion이 켜지면 강아지 고유의 흔들림 모션을 'none'(정지) 상태로 바꿉니다]
   const motion = disableMotion ? 'none' : MOTION_BY_MOOD[mood];
 
@@ -153,12 +146,12 @@ export default function Brew({
     });
 
   const hasDecor = accessories.length > 0;
-  // 배경을 산 경우에만 캐릭터를 줄여 테두리 공간을 낸다
-  const charSize = hasDecor ? size * CHAR_SHRINK_WITH_BG : size;
+  // 효과가 있어도 캐릭터 크기는 그대로 — 파티클은 캐릭터 뒤로 흐르므로 줄일 필요가 없다
+  const charSize = size;
 
   const img = (
     <Animated.Image
-      source={POSES[mood]}
+      source={poseSource}
       resizeMode="contain"
       style={{ width: charSize, height: charSize, transform }}
     />
@@ -183,7 +176,7 @@ export default function Brew({
           {decor(size * 0.9)}
           <View style={{ position: 'relative', zIndex: 1 }}>
             <Image
-              source={POSES[mood]}
+              source={poseSource}
               resizeMode="contain"
               style={{ width: charSize * 0.9, height: charSize * 0.9 }}
             />
