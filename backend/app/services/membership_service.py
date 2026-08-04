@@ -568,13 +568,19 @@ def build_sms_text(customer: Customer, tx: Optional[BalanceTransaction] = None,
         return f"[{shop[:6]}] 잔액 {customer.balance:,}원\n{url}"
 
     # --- 뜸해진 단골 안내: 링크 없음 ---
+    #
+    # [한글 주석] 말투를 부드럽게 맞춘다.
+    #   "기다리고 있겠습니다"는 정중하지만 손님에게 부담을 준다 —
+    #   안 온 걸 알고 있다는 뜻이 되고, 와야 할 것 같은 압박이 된다.
+    #   "편하실 때 들러주세요"는 같은 말을 하면서 선택권을 손님에게 남긴다.
+    #   세 경우 모두 같은 맺음말을 써서 톤을 통일한다.
     if coupon_title:
-        body = f"오랜만이에요! {coupon_title} 드립니다"
+        body = f"{coupon_title} 쿠폰 드려요. 편하실 때 들러주세요"
     elif (customer.balance or 0) > 0:
-        body = f"잔액 {customer.balance:,}원 남아있어요. 기다리고 있겠습니다"
+        body = f"잔액 {customer.balance:,}원 남아있어요. 편하실 때 들러주세요"
     else:
         # 쿠폰도 잔액도 없으면 보낼 말이 마땅치 않다 — 담백하게 안부만
-        body = "오랜만이에요! 기다리고 있겠습니다"
+        body = "오랜만이에요. 편하실 때 들러주세요"
 
     text = f"[{shop}] {body}"
     return text if sms_byte_length(text) <= SMS_MAX_BYTES else f"[{shop[:6]}] {body}"
