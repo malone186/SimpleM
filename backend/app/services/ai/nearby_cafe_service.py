@@ -248,12 +248,13 @@ def find_nearby_cafes(lat: float, lon: float, radius_m: int = 1000, limit: int =
             if excluded and norm_name == excluded and cafe["distance_m"] < 50:
                 continue
             # '내 카페'로 지정한 네이버 장소는 확실히 뺀다 — 이름이 같으면 주소 일치
-            # '또는' 300m 이내로 본인 판정. (링크 시점 주소가 도로명, 검색 결과가 지번으로
-            # 와서 문자열이 어긋나도 지점명이 같고 내 핀 근처면 본인이다 — 프랜차이즈는
-            # 지점명까지 포함된 상호라 이름+근접만으로 오인 제외될 일이 없다.)
+            # '또는' 600m 이내로 본인 판정. (링크 주소가 도로명·검색 결과가 지번으로
+            # 문자열이 어긋나는 경우 대비. 600m인 이유: 사장님이 찍은 지도 핀과 네이버
+            # 등록 좌표가 실측 400m+ 어긋난 사례가 있었다. 프랜차이즈는 지점명까지
+            # 포함된 상호라 이름+근접만으로 다른 지점이 오인 제외될 일은 없다.)
             if ex_place_name and norm_name == ex_place_name:
                 norm_addr = re.sub(r"\s+", "", cafe.get("address", "")).lower()
-                if (ex_place_addr and norm_addr == ex_place_addr) or cafe["distance_m"] <= 300:
+                if (ex_place_addr and norm_addr == ex_place_addr) or cafe["distance_m"] <= 600:
                     continue
             seen.add(key)
             cafes.append(cafe)
