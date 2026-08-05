@@ -23,6 +23,7 @@
 """
 
 import logging
+import threading
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -989,6 +990,43 @@ def run_for_store(db, store_id: str, now: Optional[datetime] = None) -> dict[str
     return {"store_id": store_id, "sent": sent}
 
 
+def _warm_forecast_caches(store_ids: list[str]) -> None:
+    """오늘 치 예측을 미리 계산해 DB 캐시(ai_warm_cache)에 넣어 둔다.
+
+    아침에 앱을 처음 켜는 사장님이 SARIMAX 적합과 외부 API 왕복을 기다리게 하지 않으려는
+    것이다(실측 7.0초). 이 크론은 매시간 도는데, 오늘 것이 이미 있으면 바로 넘어가므로
+    실제 계산은 매장당 하루 한 번이다.
+
+    좌표는 계정에 등록된 매장 고정 위치를 쓴다 — 앱이 예측을 부를 때와 같은 좌표여야
+    같은 캐시에 걸린다(예전엔 좌표 없이 계산해 서울시청 기준 캐시가 따로 생겼다).
+    """
+    from app.models.user import User
+    from app.services.ai import forecast_service
+
+    try:
+        with document_service._session() as db:
+            rows = db.query(User.email, User.store_lat, User.store_lon).filter(
+                User.email.in_(store_ids)
+            ).all()
+        coords = {email: (lat, lon) for email, lat, lon in rows}
+    except Exception:
+        logger.exception("예측 예열 — 매장 좌표 조회 실패")
+        coords = {}
+
+    warmed = 0
+    for store_id in store_ids:
+        lat, lon = coords.get(store_id, (None, None))
+        try:
+            if forecast_service.peek_forecast_cache(store_id, lat, lon) is not None:
+                continue  # 오늘 만든 예측이 이미 있다
+            forecast_service.refresh_forecast_background(store_id, lat, lon)
+            warmed += 1
+        except Exception:
+            logger.exception("예측 예열 실패 (%s)", store_id)
+    if warmed:
+        logger.info("예측 예열 완료 — 매장 %d곳", warmed)
+
+
 def run_all(now: Optional[datetime] = None) -> dict[str, Any]:
     """푸시 토큰이 등록된 모든 매장을 순회한다.
 
@@ -1029,4 +1067,11 @@ def run_all(now: Optional[datetime] = None) -> dict[str, Any]:
 
     total = sum(len(r.get("sent", [])) for r in results)
     logger.info("푸시 알림 실행 완료 — 매장 %d곳, 발송 %d건", len(results), total)
+
+    # 예측 예열은 크론 응답을 붙잡지 않는다 — 매장이 늘면 몇 분씩 걸릴 수 있고,
+    # 스케줄러는 응답이 늦으면 실패로 보고 다시 부른다.
+    if store_ids:
+        threading.Thread(target=_warm_forecast_caches, args=(store_ids,),
+                         name="forecast-warm", daemon=True).start()
+
     return {"ran_at": now.isoformat(), "stores": len(results), "sent_total": total, "results": results}
