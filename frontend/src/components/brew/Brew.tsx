@@ -19,29 +19,15 @@ const POSES = {
   hero: require('../../../assets/mascot/brew_hero.png'), // 스탠딩 바리스타 — 브랜드/온보딩
   top: require('../../../assets/mascot/brew_top.png'), // 모자 쓰고 커피 든 바리스타 — 홈 헤더용
   greet: require('../../../assets/mascot/brew_greet.png'), // 발 흔들며 인사하는 브루 — 인사·안내 (현재 미사용)
-  // 새 일러스트(윙크+하트) — 발이 분리돼 있어 '진짜 손 흔들기'가 된다 (아래 PAW_FRAMES)
-  hello: require('../../../assets/mascot/wave2/base.png'),
   coffee: require('../../../assets/mascot/brew_coffee.png'), // 커피잔 든 브루 (현재 미사용)
 } as const;
 
 export type BrewMood = keyof typeof POSES;
 
-// ── 발 흔들기 플립북 ────────────────────────────────────────────────────────
-// hello 포즈는 본체(base, 발 없음) + 발 프레임 3장(내림/중간/올림)으로 쪼개져 있다.
-// 발 프레임만 번갈아 보여주면 팔이 실제로 흔들리는 애니메이션이 된다 — 눈 깜빡임
-// 오버레이와 같은 원리의 '부위 애니메이션'. (원본 AI 일러스트에서 발을 분리·회전 제작)
-const PAW_FRAMES: Partial<Record<BrewMood, [any, any, any]>> = {
-  hello: [
-    require('../../../assets/mascot/wave2/paw_down.png'),
-    require('../../../assets/mascot/wave2/paw_mid.png'),
-    require('../../../assets/mascot/wave2/paw_up.png'),
-  ],
-};
-
 // ── 부위 애니메이션 (레이어 분리) ──────────────────────────────────────────
 // 기존 포즈 그림에서 '들고 있는 물건+발'만 레이어로 분리하고, 가려졌던 몸통은
 // 인페인팅으로 메꿔 뒀다(base). 레이어에만 transform을 걸면 몸은 가만히 있고
-// 물건만 움직인다 — hello의 발 플립북과 같은 원리인데, 이쪽은 프레임을 굽지 않고
+// 물건만 움직인다 — 눈 깜빡임 오버레이와 같은 원리인데, 프레임을 굽지 않고
 // 런타임 transform(들썩임·갸웃)으로 움직여서 그림 한 장 반이면 충분하다.
 type PartKind = 'bob' | 'tilt';
 const PART_ANIM: Partial<Record<BrewMood, { base: any; layer: any; kind: PartKind }>> = {
@@ -88,7 +74,7 @@ const SLOT_SCALE: Record<BrewAccessory['slot'], number> = {
 };
 
 // idle 움직임 종류
-type Motion = 'bounce' | 'wave' | 'pour' | 'paw' | 'part' | 'none';
+type Motion = 'bounce' | 'wave' | 'pour' | 'part' | 'none';
 
 const MOTION_BY_MOOD: Record<BrewMood, Motion> = {
   welcome: 'wave',
@@ -100,7 +86,6 @@ const MOTION_BY_MOOD: Record<BrewMood, Motion> = {
   hero: 'bounce',
   top: 'bounce',
   greet: 'wave',
-  hello: 'paw', // 몸은 고정, 분리된 발 프레임이 흔들린다
   coffee: 'bounce',
 };
 
@@ -125,7 +110,6 @@ export default function Brew({
 }) {
   const a = useRef(new Animated.Value(0)).current;
   const blink = useRef(new Animated.Value(0)).current;
-  const paw = useRef(new Animated.Value(1)).current; // 0=내림 1=중간 2=올림
   const part = useRef(new Animated.Value(0)).current; // 부위 레이어 진행도 (0=제자리)
   // 앞치마 색을 착용했으면 그 색으로 리컬러한 변형 이미지를 쓴다(원본 포즈를 대체).
   // 변형이 없으면(색 미착용·해당 포즈 변형 부재) 원본 갈색 포즈로 안전하게 폴백.
@@ -149,7 +133,7 @@ export default function Brew({
 
   useEffect(() => {
     // 'part'는 몸통이 아니라 분리 레이어가 움직인다 — 몸통 루프는 돌리지 않는다
-    if (motion === 'none' || motion === 'part' || motion === 'paw') return;
+    if (motion === 'none' || motion === 'part') return;
     const cfg =
       motion === 'wave'
         ? { dur: 620 }
@@ -181,22 +165,6 @@ export default function Brew({
     loop.start();
     return () => loop.stop();
   }, [blink, blinkSource]);
-
-  // 발 흔들기 — 중간→올림→중간→내림을 두 번 파닥이고 잠시 쉼 (실제 인사 느낌)
-  const pawFrames = PAW_FRAMES[mood];
-  useEffect(() => {
-    if (!pawFrames || motion !== 'paw') return;
-    const step = (to: number) =>
-      Animated.timing(paw, { toValue: to, duration: 120, easing: Easing.linear, useNativeDriver: true });
-    const loop = Animated.loop(
-      Animated.sequence([
-        step(2), step(1), step(0), step(1), step(2), step(1),
-        Animated.delay(1500),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [paw, pawFrames, motion]);
 
   // 부위 레이어 움직임 — bob: 두 번 들썩이고 쉼 / tilt: 천천히 갸웃했다가 되돌아옴
   useEffect(() => {
@@ -262,36 +230,6 @@ export default function Brew({
       </View>
     ) : null;
 
-  // 발 프레임 오버레이 — 세 장을 겹쳐 두고 opacity로 한 장만 보이게 (플립북).
-  // 모션이 꺼져 있으면 중간 프레임 한 장만 정지 상태로 그린다 (base엔 발이 없으므로 필수).
-  const pawLayer = (dim: number) => {
-    if (!pawFrames) return null;
-    if (disableMotion || motion !== 'paw') {
-      return (
-        <Image
-          source={pawFrames[1]}
-          resizeMode="contain"
-          style={{ position: 'absolute', top: 0, left: 0, width: dim, height: dim }}
-        />
-      );
-    }
-    return pawFrames.map((src, i) => (
-      <Animated.Image
-        key={i}
-        source={src}
-        resizeMode="contain"
-        style={{
-          position: 'absolute', top: 0, left: 0, width: dim, height: dim,
-          opacity: paw.interpolate({
-            inputRange: [i - 0.5, i - 0.49, i + 0.49, i + 0.5],
-            outputRange: [0, 1, 1, 0],
-            extrapolate: 'clamp',
-          }),
-        }}
-      />
-    ));
-  };
-
   // 부위 레이어 — base(물건 없는 몸통) 위에 물건 레이어만 transform으로 움직인다.
   const partLayer = (dim: number) => {
     if (!usePart || !partCfg) return null;
@@ -317,7 +255,6 @@ export default function Brew({
     <Animated.View style={{ width: charSize, height: charSize, transform }}>
       <Image source={bodySource} resizeMode="contain" style={{ width: charSize, height: charSize }} />
       {partLayer(charSize)}
-      {pawLayer(charSize)}
       {blinkLayer(charSize)}
     </Animated.View>
   );
