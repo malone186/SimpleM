@@ -684,6 +684,22 @@ export default function DashboardScreen() {
     toast(`🪙 +${awarded}코인`, '상점에서 브루를 꾸며보세요.');
   };
 
+  /**
+   * 할 일 카드를 누르면 그 일을 처리할 수 있는 화면으로 보낸다.
+   *
+   * 재고 항목의 id는 'stock-<재료id>' 형식이라(ai_todo_service) 여기서 바로 꺼내
+   * 재고 화면의 그 재료로 보낸다 — 목록에서 다시 찾게 하지 않는다.
+   * ts를 함께 넘겨야 같은 재료를 연달아 눌러도 받는 화면이 새 요청으로 인식한다.
+   */
+  const openTodoTarget = (todo: { id: string }) => {
+    const m = /^stock-(\d+)$/.exec(todo.id);
+    if (!m) return; // 재고가 아닌 항목(홍보 등)은 각자 링크로 처리한다
+    navigation.navigate('Tabs', {
+      screen: 'Inventory',
+      params: { focusIngredientId: Number(m[1]), ts: Date.now() },
+    });
+  };
+
   const toggleDone = async (id: string) => {
     // 다음 상태를 지금 값에서 직접 계산한다 — setTodos 콜백 안에서 읽으면
     // 서버로 보낼 값과 화면 값이 어긋날 수 있다
@@ -819,7 +835,7 @@ export default function DashboardScreen() {
             <SalesCard
               key={`salescard-${runId}`}
               todos={todos}
-              onPressTodo={() => {}}
+              onPressTodo={openTodoTarget}
               onToggleDone={toggleDone}
               onAddTodo={handleAddTodo}
               onEditTodo={handleEditTodo}

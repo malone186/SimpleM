@@ -433,9 +433,14 @@ def check_stock(db, store_id: str, settings, now: datetime) -> list[str]:
     title = f"📦 {head['ingredient']} 곧 떨어져요"
     body = " · ".join(parts) + (f" 외 {more}종" if more > 0 else "") + " — 오늘 발주하면 안 끊겨요."
 
-    # 발주 화면은 앱에서 빠졌다 — 같은 내용을 다루는 재고 화면으로 보낸다
-    if _dispatch(db, store_id, "stock", dedupe_key,
-                 title, body, {"screen": "Inventory"}):
+    # 발주 화면은 앱에서 빠졌다 — 같은 내용을 다루는 재고 화면으로 보낸다.
+    # 제목이 "{재료} 곧 떨어져요"이므로 가장 급한 품목 id까지 실어 그 카드가 바로 강조되게 한다.
+    # (id를 못 구한 경우엔 재고 목록까지만 — screen만으로도 이동은 된다)
+    target: dict = {"screen": "Inventory"}
+    if head.get("ingredient_id") is not None:
+        target["focusIngredientId"] = head["ingredient_id"]
+
+    if _dispatch(db, store_id, "stock", dedupe_key, title, body, target):
         return [f"stock:{len(urgent_items)}종"]
     return []
 

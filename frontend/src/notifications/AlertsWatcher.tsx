@@ -30,6 +30,29 @@ import { toast } from '../components/toast';
 import { getNotificationSettings, updateNotificationSettings } from '../lib/api/push';
 import { getSensorRecommendations } from '../lib/api/sensor';
 import { isNativePushAvailable, usePushRegistration } from './pushRegistration';
+import { navigateToTarget } from './navigationTarget';
+
+/**
+ * 재고 화면의 해당 재료로 보낸다.
+ *
+ * AlertsWatcher는 NavigationContainer 바깥에 있어 useNavigation을 못 쓴다 —
+ * 그래서 푸시 알림과 같은 통로(navigationRef)를 쓴다.
+ * ts를 같이 넘기는 이유: 같은 재료 알림을 연달아 눌러도 파라미터가 바뀌어야
+ * 받는 화면이 '새 요청'으로 인식하고 다시 스크롤한다.
+ */
+function goToStock(ingredientId: number) {
+  navigateToTarget({
+    screen: 'Inventory',
+    params: { focusIngredientId: ingredientId, ts: Date.now() },
+  });
+}
+
+/** 여러 품목이 한꺼번에 부족할 때 가장 급한 것(안전재고 대비 잔여가 가장 적은 품목) */
+function lowest(items: StockItem[]): number {
+  const ratio = (s: StockItem) =>
+    s.safety_quantity > 0 ? s.current_quantity / s.safety_quantity : s.current_quantity;
+  return items.reduce((a, b) => (ratio(b) < ratio(a) ? b : a)).ingredient_id;
+}
 
 const POLL_MS = 60_000;           // 감시 주기 (1분)
 const NOTICE_POLL_MS = 15_000;    // 문의 답변 감시 주기 (15초 — 답변 후 빠른 도착 체감)
@@ -299,12 +322,19 @@ export default function AlertsWatcher() {
             const need = s.safety_quantity > 0 ? s.safety_quantity : 3;
             toast(
               s.current_quantity <= 0 ? `📦 ${s.name} 다 떨어졌어요` : `📦 ${s.name} 얼마 안 남았어요`,
-              `${s.current_quantity}${s.unit} 남음 · 최소 ${need}${s.unit} 필요`
+              `${s.current_quantity}${s.unit} 남음 · 최소 ${need}${s.unit} 필요`,
+              // 한 품목이면 그 재료로 바로 보낸다 — 목록에서 다시 찾게 하지 않는다
+              { label: '재고 보기', onPress: () => goToStock(s.ingredient_id) }
             );
           } else if (low.length > 1) {
             const names = low.slice(0, 3).map((s) => s.name).join(', ');
             const rest = low.length > 3 ? ` 외 ${low.length - 3}종` : '';
-            toast('📦 채워야 할 재료가 있어요', `${names}${rest} — 얼마 안 남았어요.`);
+            toast(
+              '📦 채워야 할 재료가 있어요',
+              `${names}${rest} — 얼마 안 남았어요.`,
+              // 여러 품목이면 하나로 특정할 수 없으니, 가장 급한 것(잔여 비율 최소)을 짚어 준다
+              { label: '재고 보기', onPress: () => goToStock(lowest(low)) }
+            );
           }
           if (low.length > 0) {
             state.lowStockDate = today;

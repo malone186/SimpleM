@@ -28,7 +28,9 @@ const ALIASES: Record<string, string> = {
   Stock: 'Inventory',
 };
 
-export type PushTarget = { screen: string; params?: Record<string, string> };
+// 값이 문자열만은 아니다 — 앱 안에서 부를 땐 id를 숫자로 그대로 넘긴다
+// (푸시로 오는 값은 문자열이지만, 받는 화면이 둘 다 받도록 되어 있으면 문제없다)
+export type PushTarget = { screen: string; params?: Record<string, string | number> };
 
 /**
  * 알림에 담긴 목적지로 이동한다. 네비게이터가 아직 준비되지 않았으면 false를 돌려주고,

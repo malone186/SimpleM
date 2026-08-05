@@ -66,7 +66,7 @@ SHOP_ITEMS: list[dict[str, Any]] = [
      "desc": "신나서 폴짝폴짝 뛰어요 (움직이는 포즈!)"},
     {"id": "pose_dance", "slot": "pose", "mood": "dance", "name": "댄스 타임 브루", "emoji": "🕺", "price": 1000,
      "desc": "리듬 타며 춤춰요 (움직이는 포즈!)"},
-    {"id": "pose_hello", "slot": "pose", "mood": "hello", "name": "인사왕 브루", "emoji": "👋", "price": 900,
+    {"id": "pose_hello", "slot": "pose", "mood": "hello", "name": "안니영 브루", "emoji": "👋", "price": 900,
      "desc": "손을 들어 반갑게 인사해요 (움직이는 포즈!)"},
     # 배경 효과 — 캐릭터 위가 아니라 뒤에 깔리므로 어떤 포즈와도 겹치지 않는다.
     {"id": "bg_sparkle", "slot": "background", "name": "반짝임", "emoji": "✨", "price": 300,
@@ -111,7 +111,6 @@ REASON_LABEL = {
     "purchase": "상점 구매",
     "daily_bonus": "일일 도전 보너스",
     "quest": "주간 퀘스트 보상",
-    "admin_grant": "운영자 지급",
     "test_grant": "테스트 지급",  # 개발 중 상점을 확인하려고 수동으로 넣은 코인
     "admin_grant": "관리자 지급",
     "admin_revoke": "관리자 회수",
