@@ -556,6 +556,10 @@ _REFINE_PROMPT = """너는 광고 사진 아트 디렉터다. 아래 '이미지 
   언어로 바꿔라 (일러스트면 brush stroke·line weight·flat color 등).
 - 글자·문자·타이포그래피·간판·로고·메뉴판은 절대 넣지 않는다. poster, sign, text, menu board,
   label, logo 같은 단어 자체를 쓰지 마라 (모델이 깨진 가짜 글자를 그려 넣는다).
+- '글자가 붙어 있을 법한 물건'도 배경에서 빼라: 칠판·액자·자격증·상표 붙은 포장·전단.
+  벽은 비우고, 소품은 식물·컵·원두·천 같은 글자 없는 것만 쓴다.
+- 가능하면 넓은 실내 전경보다 피사체에 가까운 구도를 택해라 — 배경이 넓을수록 모델이
+  빈 벽을 간판으로 채우려 든다(실측).
 - 사람은 얼굴 클로즈업 대신 손·실루엣·뒷모습 위주로만 등장시켜라.
 - {composition_hint}
 - 60~90 단어의 영어 산문 한 문단만 출력한다. 목록·설명·따옴표 금지.
@@ -1016,11 +1020,20 @@ def generate_promotion_image(store_id: str, doc_id: str = "", request: str = "",
     parts.append(
         "Award-winning commercial quality, immaculate composition, rich micro-detail and "
         "texture, professional color grading, clean edges, no watermark, no logo, no brand marks.")
-    # 포스터·네온 같은 스타일은 모델이 가짜 글자(외계 문자) 간판·헤드라인을 그려 넣는
-    # 버릇이 있어(실측) 금지를 강하게 반복한다. 한글은 어차피 우리가 얹는다.
+    # 모델이 가짜 글자(외계 문자)를 그려 넣는 버릇이 있어(실측) 금지를 강하게 반복한다.
+    # 한글은 어차피 우리가 얹는다.
+    #
+    # [실측 2026-08-05] "no text"만으로는 부족하다 — 글자를 직접 안 써도 '글자가 있을
+    # 법한 물건'(간판·메뉴판·칠판·액자·포스터·자격증)을 그려 넣고 거기에 깨진 활자를
+    # 채운다. 그래서 글자 자체가 아니라 **그 물건들을 금지**하고, 벽·창을 비우라고
+    # 지시해야 눈에 띄게 줄어든다(카페 실내 컷에서 큰 간판 → 작은 액자 수준으로).
+    # 완전 제거는 모델 한계라 불가능하다 — 유료 이미지 모델에서만 깨끗하다.
     parts.append(
         "IMPORTANT: absolutely no text, no letters, no words, no numbers, no typography, "
-        "no signs with writing, no captions anywhere in the image. Pure visual imagery only.")
+        "no captions anywhere in the image. Also avoid any object that would carry writing: "
+        "no signage, no menu boards, no chalkboards, no posters, no framed pictures, "
+        "no certificates, no labeled packaging, no printed paper. "
+        "Keep walls plain and empty, keep windows bare. Pure visual imagery only.")
     if layout != "none":
         hint = {"bottom": "the lower third", "top": "the upper third",
                 "center": "the central area"}[layout]
