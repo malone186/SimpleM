@@ -29,19 +29,20 @@
   GEMINI_API_KEY — 문구 생성용 (팀 공유 무료 키, 쿼터 주의)
 
 이미지 생성 공급자 (순서대로 시도, 하나라도 되면 성공):
-  1) gemini      — 최고 품질이지만 무료 티어 한도가 0이라(실측 2026-07-31/08-05,
-                   전 계열 limit: 0) 유료 키(MARKETING_IMAGE_API_KEY)가 있을 때만 동작.
-                   한도 0으로 막히면 1시간 동안 이 공급자를 건너뛴다(왕복 낭비 방지).
-  2) hf          — HuggingFace 공개 Space(FLUX.1-schnell 등)를 키 없이 호출. 무료이고
-                   품질도 충분하지만 Space별 GPU 쿼터가 있어 여러 곳을 차례로 시도한다.
-                   HF_TOKEN을 넣으면 쿼터가 넉넉해진다.
-  3) pollinations — 예전 무료 폴백. 2026-08-05 실측으로 익명 호출이 잔액(pollen) 요구로
-                   막혔다 → POLLINATIONS_TOKEN이 있을 때만 시도한다.
-  MARKETING_IMAGE_PROVIDERS 로 순서·사용 여부를 바꾼다 (기본 "gemini,hf,pollinations").
+  1) pollinations — 주 공급자 (gen.pollinations.ai). GET 한 번으로 이미지를 준다.
+                   2026-08-05 기준 Seed/Flower 같은 무료 티어는 폐지되고("Tiers have
+                   stopped") Pollen 크레딧 지갑 방식이 됐다 → POLLINATIONS_TOKEN 필수.
+                   가입 직후 Setup 퀘스트로 받는 Pollen 1.25면 flux(0.001/장) 기준
+                   약 1,200장을 뽑을 수 있다. 잔액이 떨어지면 402로 막힌다.
+  2) gemini      — 품질은 최고지만 이미지 모델 무료 티어 한도가 0이라(실측 2026-07-31/
+                   08-05, 전 계열 limit: 0) 유료 키(MARKETING_IMAGE_API_KEY)가 있을 때만
+                   동작한다. 한도 0으로 막히면 1시간 건너뛴다(왕복 낭비 방지).
+  MARKETING_IMAGE_PROVIDERS 로 순서·사용 여부를 바꾼다 (기본 "pollinations,gemini").
 모델 교체 (env):
   MARKETING_GEMINI_MODEL — 문구 생성 (기본: GEMINI_MODEL과 동일)
   MARKETING_IMAGE_MODEL  — 이미지 생성 (기본: gemini-2.5-flash-image)
   MARKETING_IMAGE_API_KEY — 이미지 전용 유료 키 (없으면 GEMINI_API_KEY를 쓴다)
+  POLLINATIONS_TOKEN / POLLINATIONS_MODEL — enter.pollinations.ai 가입 후 발급
 한글 폰트 (슬로건 합성용):
   MARKETING_FONT_BOLD / MARKETING_FONT_REGULAR — 없으면 시스템 한글 폰트를 자동 탐색
   (리눅스 나눔고딕·노토, 윈도우 맑은고딕, macOS 애플고딕). 하나도 없으면 슬로건 합성만
@@ -69,7 +70,7 @@ IMAGE_MODEL = os.getenv("MARKETING_IMAGE_MODEL", "gemini-2.5-flash-image")
 # 이미지 전용 키 — 유료 키를 문구용 무료 키와 분리해 둘 수 있다 (없으면 GEMINI_API_KEY)
 IMAGE_API_KEY = os.getenv("MARKETING_IMAGE_API_KEY", "")
 IMAGE_PROVIDERS = [p.strip() for p in
-                   os.getenv("MARKETING_IMAGE_PROVIDERS", "gemini,hf,pollinations").split(",")
+                   os.getenv("MARKETING_IMAGE_PROVIDERS", "pollinations,gemini").split(",")
                    if p.strip()]
 
 UPLOAD_DIR = Path(os.getenv("MARKETING_UPLOAD_DIR",
@@ -416,13 +417,25 @@ def _target_size(aspect_ratio: str, quality: str) -> tuple[int, int]:
     return (max(512, round(w * factor / 64) * 64), max(512, round(h * factor / 64) * 64))
 
 
-def _pollinations_generate(prompt: str, aspect_ratio: str, quality: str = "high") -> tuple[bytes, str]:
-    """무료 폴백 — Pollinations.ai (FLUX 기반, API 키 불필요).
+# Pollinations 신규 API. 예전 image.pollinations.ai/prompt/... 는 레거시고, 지금은
+# gen.pollinations.ai가 공식이다 (OpenAPI: gen.pollinations.ai/openapi.json).
+# 인증은 쿼리스트링 token이 아니라 Authorization: Bearer <pk_/sk_ 키>다.
+POLLINATIONS_URL = os.getenv("POLLINATIONS_URL", "https://gen.pollinations.ai/image")
+# flux: 장당 0.001 Pollen (1 Pollen ≈ 950장). dreamshaper는 0.0001로 10배 싸지만 화질이
+# 떨어진다 — 홍보물은 화질이 곧 설득력이라 flux를 기본으로 둔다.
+POLLINATIONS_MODEL = os.getenv("POLLINATIONS_MODEL", "flux")
 
-    Gemini 이미지 모델은 무료 티어 한도가 0이라(실측 2026-07-31) 유료 키가 없으면
-    항상 막힌다. Pollinations는 키 없이 GET 한 번으로 이미지를 주며 품질도 실측으로
-    확인했다(카페 홍보 사진 수준 충분). 다만 FLUX는 한글 렌더링이 깨지므로
-    글자 없는 이미지 프롬프트로만 부른다 — 슬로건은 앱 화면에서 이미지 위에 얹으면 된다.
+
+def _pollinations_generate(prompt: str, aspect_ratio: str, quality: str = "high") -> tuple[bytes, str]:
+    """주 공급자 — Pollinations.ai (기본 모델 flux).
+
+    GET 한 번으로 이미지를 돌려준다. FLUX는 한글 렌더링이 깨지므로 글자 없는 이미지
+    프롬프트로만 부르고, 슬로건은 _compose_overlay가 Pillow로 직접 얹는다.
+
+    [토큰 필수] 2026-08-05 기준 Pollinations는 Pollen(크레딧) 지갑 방식이고, 예전
+    Seed/Flower 티어는 폐지됐다("Tiers have stopped"). 토큰 없는 익명 호출은 잔액
+    부족으로 402가 난다(실측). enter.pollinations.ai에서 GitHub 로그인 → API 키를
+    만들고 POLLINATIONS_TOKEN에 넣어야 동작한다.
     """
     import urllib.parse
 
@@ -433,150 +446,39 @@ def _pollinations_generate(prompt: str, aspect_ratio: str, quality: str = "high"
     # 기본 quote는 '/'를 남겨 경로가 쪼개지며 404가 난다(실측). 줄바꿈도 공백으로.
     encoded = urllib.parse.quote(" ".join(prompt[:1500].split()), safe="")
     params: dict[str, str] = {
-        "width": str(w), "height": str(h), "nologo": "true",
-        # 매장 홍보물이 Pollinations 공개 피드에 뜨지 않게 한다 (사장님 콘텐츠 보호)
-        "private": "true", "nofeed": "true",
-        # enhance=true: 서버 쪽 LLM이 프롬프트를 화보용으로 보강한다 — 실측으로
-        # 구도·조명 묘사가 눈에 띄게 좋아져 기본 켠다
-        "enhance": "true",
-        # model=flux: 익명 티어에서는 모델명이 사실상 무시되고 기본 모델로 수렴하지만
-        # (실측: flux/turbo/sana/sdxl 전부 같은 md5), 가입 토큰을 붙이면 존중되므로 명시해 둔다
-        "model": "flux",
-        # [같은 이미지 반복 버그 수정] Pollinations는 같은 URL을 캐시로 응답한다 —
-        # seed 없이 부르면 같은 프롬프트는 영원히 같은 이미지가 나온다(실측: seed만
-        # 바꾸면 매번 다른 이미지). 매 호출 랜덤 seed로 항상 새 이미지를 받는다.
+        "model": POLLINATIONS_MODEL,
+        "width": str(w),
+        "height": str(h),
+        # [같은 이미지 반복 버그 수정] 같은 URL은 캐시로 응답해, seed 없이 부르면 같은
+        # 프롬프트가 영원히 같은 이미지를 준다(실측). 매 호출 랜덤 seed로 항상 새 그림을.
         "seed": str(uuid.uuid4().int % 1_000_000_000),
     }
-    # 가입(무료 seed 티어~) 토큰이 있으면 상위 모델(seedream·kontext 등)이 열린다 —
-    # 익명은 이 파라미터 없이 동작하므로 없으면 그냥 뺀다.
-    poll_token = os.getenv("POLLINATIONS_TOKEN", "").strip()
-    if poll_token:
-        params["token"] = poll_token
-        params["model"] = os.getenv("POLLINATIONS_MODEL", "flux")
+
+    token = os.getenv("POLLINATIONS_TOKEN", "").strip()
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+
     try:
-        r = httpx.get(
-            "https://image.pollinations.ai/prompt/" + encoded,
-            params=params,
-            timeout=IMAGE_TIMEOUT,
-            follow_redirects=True,
-        )
-        r.raise_for_status()
+        r = httpx.get(f"{POLLINATIONS_URL}/{encoded}", params=params, headers=headers,
+                      timeout=IMAGE_TIMEOUT, follow_redirects=True)
     except httpx.HTTPError as e:
-        raise MarketingError(f"무료 이미지 생성(Pollinations)도 실패했습니다: {e}")
+        raise MarketingError(f"이미지 생성 서버(Pollinations)에 연결하지 못했습니다: {e}")
+
     ctype = (r.headers.get("content-type") or "").split(";")[0].strip()
-    if not ctype.startswith("image/") or not r.content:
-        raise MarketingError("무료 이미지 생성 응답이 이미지가 아닙니다. 잠시 후 다시 시도해 주세요.")
-    return r.content, ctype
+    if r.status_code == 200 and ctype.startswith("image/") and r.content:
+        return r.content, ctype
 
-
-# ---------------------------------------------------------------------------
-# 무료 폴백 2) HuggingFace 공개 Space — 키 없이 FLUX로 생성
-# ---------------------------------------------------------------------------
-#
-# Pollinations가 익명 무료를 닫으면서(2026-08-05 실측: "Insufficient balance … pollen")
-# 키 없이 쓸 수 있는 실질적 대안이 여기밖에 남지 않았다. 공개 Space는 gradio REST
-# (POST /gradio_api/call/<api> → SSE로 결과 수신)로 그대로 부를 수 있다.
-#
-# Space 하나는 GPU 쿼터에 걸리면 몇 분간 event: error만 돌려주므로(실측: 2장 뽑고 막힘)
-# 여러 Space를 차례로 시도한다 — 한 곳이 막혀도 다음 곳에서 나온다(실측 확인).
-# args는 각 Space의 /gradio_api/info에서 확인한 실제 파라미터 순서다.
-_HF_SPACES: tuple[dict[str, Any], ...] = (
-    {"host": "black-forest-labs-flux-1-schnell.hf.space", "api": "infer", "max_side": 2048,
-     "args": lambda w, h, seed: [None, seed, False, w, h, 4]},              # 4스텝, 실측 ~13초
-    {"host": "multimodalart-flux-1-merged.hf.space", "api": "infer", "max_side": 2048,
-     "args": lambda w, h, seed: [None, seed, False, w, h, 3.5, 8]},
-    {"host": "black-forest-labs-flux-1-dev.hf.space", "api": "infer", "max_side": 2048,
-     "args": lambda w, h, seed: [None, seed, False, w, h, 3.5, 28]},        # 느리지만 품질 최상
-    {"host": "stabilityai-stable-diffusion-3-medium.hf.space", "api": "infer", "max_side": 1344,
-     "args": lambda w, h, seed: [None, "text, letters, watermark", seed, False, w, h, 5.0, 28]},
-)
-HF_TIMEOUT = float(os.getenv("MARKETING_HF_TIMEOUT", "120"))
-
-
-def _hf_space_call(space: dict[str, Any], prompt: str, w: int, h: int, seed: int) -> tuple[bytes, str]:
-    """Space 한 곳에 이미지를 요청한다. 실패는 MarketingError."""
-    import httpx
-
-    side = int(space["max_side"])
-    if max(w, h) > side:  # Space가 받는 최대 해상도로 비율 유지 축소
-        scale = side / max(w, h)
-        w, h = max(512, int(w * scale) // 8 * 8), max(512, int(h * scale) // 8 * 8)
-
-    data = space["args"](w, h, seed)
-    data[0] = prompt[:1800]
-    headers = {}
-    # 토큰이 있으면 ZeroGPU 쿼터가 넉넉해진다 — 없으면 익명으로도 동작한다
-    hf_token = os.getenv("HF_TOKEN", "").strip()
-    if hf_token:
-        headers["Authorization"] = f"Bearer {hf_token}"
-
-    base = f"https://{space['host']}/gradio_api/call/{space['api']}"
-    with httpx.Client(timeout=HF_TIMEOUT, follow_redirects=True, headers=headers) as client:
-        r = client.post(base, json={"data": data})
-        if r.status_code != 200:
-            raise MarketingError(f"{space['host']} 요청 거절 (HTTP {r.status_code})")
-        event_id = (r.json() or {}).get("event_id")
-        if not event_id:
-            raise MarketingError(f"{space['host']} 응답에 event_id가 없습니다")
-
-        # SSE: event 줄로 상태를, 다음 data 줄로 결과를 준다. 쿼터 초과는 event: error에
-        # 본문 없이(data: null) 오는 경우가 많아 메시지를 기대하면 안 된다.
-        url = ""
-        event = ""
-        with client.stream("GET", f"{base}/{event_id}") as stream:
-            for line in stream.iter_lines():
-                if line.startswith("event:"):
-                    event = line[6:].strip()
-                elif line.startswith("data:") and event in ("complete", "error"):
-                    if event == "error":
-                        raise MarketingError(
-                            f"{space['host']} 생성 실패 (GPU 쿼터 소진 추정): {line[5:].strip()[:120]}")
-                    payload = json.loads(line[5:] or "null")
-                    first = (payload or [None])[0]
-                    if isinstance(first, list):     # 갤러리형 출력 Space 방어
-                        first = (first or [None])[0]
-                    url = (first or {}).get("url") or ""
-                    break
-        if not url:
-            raise MarketingError(f"{space['host']}가 이미지 URL을 주지 않았습니다")
-
-        img = client.get(url)
-        img.raise_for_status()
-        ctype = (img.headers.get("content-type") or "").split(";")[0].strip()
-        if not ctype.startswith("image/") or not img.content:
-            raise MarketingError(f"{space['host']} 응답이 이미지가 아닙니다")
-        return img.content, ctype
-
-
-# ZeroGPU 쿼터는 Space별이 아니라 '호출자(익명이면 IP)' 단위로 묶여 있다 — 실측
-# 메시지: "You have exceeded your ZeroGPU quota (60s requested vs. 0s left)".
-# 즉 한 Space가 쿼터로 막히면 나머지도 대개 막혀 있으니, 한동안 HF 자체를 건너뛴다
-# (안 그러면 요청마다 Space 4곳을 헛되이 두드려 응답만 느려진다).
-_hf_blocked_until = 0.0
-_HF_BLOCK_SECONDS = float(os.getenv("MARKETING_HF_BLOCK_SECONDS", "600"))
-
-
-def _hf_generate(prompt: str, aspect_ratio: str, quality: str = "high") -> tuple[bytes, str]:
-    """공개 Space들을 차례로 시도해 첫 성공을 돌려준다."""
-    global _hf_blocked_until
-    import httpx
-
-    if time.monotonic() < _hf_blocked_until:
-        raise MarketingError("HuggingFace 무료 GPU 쿼터가 소진돼 건너뜁니다")
-
-    w, h = _target_size(aspect_ratio, quality)
-    seed = uuid.uuid4().int % 1_000_000_000
-    errors: list[str] = []
-    for space in _HF_SPACES:
-        try:
-            image, mime = _hf_space_call(space, prompt, w, h, seed)
-            logger.info("이미지 생성: HuggingFace %s 성공", space["host"])
-            return image, mime
-        except (MarketingError, httpx.HTTPError, ValueError, KeyError, TypeError) as e:
-            errors.append(f"{space['host']}: {e}")
-            logger.info("HF Space 실패 → 다음 후보: %s", e)
-    _hf_blocked_until = time.monotonic() + _HF_BLOCK_SECONDS
-    raise MarketingError("무료 이미지 생성(HuggingFace)이 모두 실패했습니다: " + " | ".join(errors)[:400])
+    # 실패는 원인별로 갈라 안내한다 — 사장님이 할 수 있는 조치가 완전히 다르기 때문이다.
+    body = (r.text or "")[:400]
+    if r.status_code == 402 or "Insufficient balance" in body or "PAYMENT_REQUIRED" in body:
+        raise MarketingError(
+            "Pollinations API 키가 등록돼 있지 않습니다 (POLLINATIONS_TOKEN)."
+            if not token else
+            "Pollinations 잔액(Pollen)이 떨어졌습니다. 대시보드에서 Quest를 완료하거나 충전해 주세요.")
+    if r.status_code == 429:
+        raise MarketingError("이미지 생성 요청이 몰렸습니다. 잠시 뒤에 다시 눌러 주세요.")
+    if r.status_code in (401, 403):
+        raise MarketingError("Pollinations API 키가 거부됐습니다. 키가 유효한지 확인해 주세요.")
+    raise MarketingError(f"이미지 생성에 실패했습니다 (HTTP {r.status_code}): {body[:150]}")
 
 
 # ---------------------------------------------------------------------------
@@ -617,15 +519,10 @@ def _generate_image_bytes(prompt: str, aspect_ratio: str,
     errors: list[str] = []
     for name in IMAGE_PROVIDERS:
         try:
-            if name == "gemini":
-                image, mime = _gemini_image(prompt, aspect_ratio)
-            elif name == "hf":
-                image, mime = _hf_generate(prompt, aspect_ratio, quality)
-            elif name == "pollinations":
-                # 익명 호출은 2026-08-05부터 잔액을 요구한다 — 토큰이 있을 때만 의미가 있다
-                if not os.getenv("POLLINATIONS_TOKEN", "").strip():
-                    continue
+            if name == "pollinations":
                 image, mime = _pollinations_generate(prompt, aspect_ratio, quality)
+            elif name == "gemini":
+                image, mime = _gemini_image(prompt, aspect_ratio)
             else:
                 continue
             return image, mime, name
