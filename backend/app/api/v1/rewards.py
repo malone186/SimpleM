@@ -85,3 +85,18 @@ def get_progress(current_user: User = Depends(get_current_user)) -> dict:
     일일 도전을 오늘 달성했으면 이 조회 중에 보너스 코인이 지급될 수 있다(하루 한 번).
     """
     return reward_service.get_progress(current_user.email)
+
+
+@router.get("/quests")
+def get_quests(current_user: User = Depends(get_current_user)) -> dict:
+    """주간 퀘스트 — 이번 주(월요일 시작) 할 일 완료 누적으로 진행도를 센다."""
+    return reward_service.get_quests(current_user.email)
+
+
+@router.post("/quests/{quest_id}/claim")
+def claim_quest(quest_id: str, current_user: User = Depends(get_current_user)) -> dict:
+    """달성한 퀘스트 보상 수령 — 갱신된 퀘스트 목록 + 잔액을 돌려준다."""
+    try:
+        return reward_service.claim_quest(current_user.email, quest_id)
+    except reward_service.RewardError as e:
+        raise HTTPException(400, str(e))
