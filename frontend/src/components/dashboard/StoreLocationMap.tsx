@@ -26,14 +26,27 @@ function esc(text: unknown) {
     .replace(/"/g, '&quot;');
 }
 
+/** 지도 이름표용으로 줄인 행사명 — 자르더라도 낱말 한가운데서 끊지 않는다.
+ *  ("어린이메이킹 [행복맘…"처럼 잘리면 무슨 행사인지 알 수 없다) */
+export function shortEventLabel(name: string, max = 26) {
+  const s = String(name ?? '').trim().replace(/\s+/g, ' ');
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max);
+  const space = cut.lastIndexOf(' ');
+  // 공백이 너무 앞쪽이면(글자를 절반도 못 살리면) 그냥 자른다 — 띄어쓰기 없는 이름이 그렇다
+  return `${(space > max * 0.5 ? cut.slice(0, space) : cut).trimEnd()}…`;
+}
+
 /** 행사 핀 — 점 하나로는 카페 점과 구별이 안 돼(둘 다 작은 원, 게다가 500m 원이 주황이다)
  *  이름표를 붙인다. 점은 좌표 정확히 그 자리에, 이름표는 오른쪽에 매단다.
+ *
+ *  이름표는 두 줄까지 접힌다 — 한 줄로 묶어 두면 긴 행사명이 앞부분만 남아 못 알아본다.
+ *  한글은 word-break:keep-all로 낱말 단위로 접는다.
  *
  *  오늘 열리는 행사는 이름표가 천천히 숨을 쉰다 — 목록을 안 봐도 "지금 이거"가 먼저 눈에 든다.
  *  이름표 끝의 › 는 "눌러서 더 볼 수 있다"는 표시다. */
 function eventMarkerHtml(name: string, ongoing = false) {
-  const raw = String(name ?? '');
-  const label = esc(raw.length > 11 ? `${raw.slice(0, 11)}…` : raw);
+  const label = esc(shortEventLabel(name));
   const bg = ongoing ? '#C2410C' : '#D2601A';
   return (
     '<div style="position:relative;width:0;height:0;">' +
@@ -45,12 +58,16 @@ function eventMarkerHtml(name: string, ongoing = false) {
       : '') +
     '<div style="position:absolute;left:-7px;top:-7px;width:14px;height:14px;border-radius:50%;' +
     'background:' + bg + ';border:2.5px solid #FFFFFF;box-shadow:0 2px 6px rgba(0,0,0,0.35);"></div>' +
-    '<div style="position:absolute;left:12px;top:-11px;display:flex;align-items:center;gap:3px;' +
-    'padding:3px 7px 3px 8px;background:' + bg + ';border:1.5px solid #FFFFFF;border-radius:999px;' +
-    'white-space:nowrap;font-size:10.5px;font-weight:800;color:#FFFFFF;cursor:pointer;' +
+    '<div style="position:absolute;left:12px;top:-13px;display:flex;align-items:center;gap:4px;' +
+    'max-width:148px;padding:4px 7px 4px 9px;background:' + bg + ';border:1.5px solid #FFFFFF;' +
+    'border-radius:13px;font-size:10.5px;font-weight:800;color:#FFFFFF;cursor:pointer;' +
     'font-family:-apple-system,sans-serif;box-shadow:0 3px 8px rgba(120,60,20,0.30);' +
     (ongoing ? 'animation:evtBreath 2.4s infinite ease-in-out;transform-origin:left center;' : '') +
-    '">🎪 ' + label + '<span style="opacity:.75;font-weight:700">›</span></div>' +
+    '">' +
+    // 두 줄까지: 한글은 keep-all로 낱말째 넘기고, 넘치면 그때만 말줄임
+    '<span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;' +
+    'white-space:normal;word-break:keep-all;overflow-wrap:anywhere;line-height:1.3;">🎪 ' + label + '</span>' +
+    '<span style="opacity:.75;font-weight:700;flex:none">›</span></div>' +
     '</div>'
   );
 }
