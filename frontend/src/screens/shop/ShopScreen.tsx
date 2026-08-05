@@ -12,13 +12,17 @@ import { confirmDialog, toast } from '../../components/toast';
 import { Badge, Card, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
 import {
   buyItem,
+  claimQuest,
   equipItem,
   getProgress,
+  getQuests,
   getShop,
   getWallet,
   type ItemSlot,
   type PointHistoryItem,
   type Progress,
+  type Quest,
+  type QuestBoard,
   type ShopItem,
   type ShopState,
   type Wallet,
@@ -46,20 +50,42 @@ export default function ShopScreen() {
   const [busyItem, setBusyItem] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [vaultOpen, setVaultOpen] = useState(false); // 보관함(보유 아이템 모음) 시트
+  const [quests, setQuests] = useState<QuestBoard | null>(null);
+  const [claiming, setClaiming] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
     try {
-      const [s, w, p] = await Promise.all([getShop(token), getWallet(token), getProgress(token)]);
+      const [s, w, p, q] = await Promise.all([
+        getShop(token), getWallet(token), getProgress(token), getQuests(token),
+      ]);
       setShop(s);
       setWallet(w);
       setProgress(p);
+      setQuests(q);
     } catch {
       toast('불러오기 실패', '잠시 후 다시 시도해 주세요.');
     } finally {
       setLoading(false);
     }
   }, [token]);
+
+  // 퀘스트 보상 수령 — 잔액이 바뀌므로 상점·지갑도 같이 갱신
+  const handleClaimQuest = async (q: Quest) => {
+    setClaiming(q.id);
+    try {
+      const next = await claimQuest(q.id, token);
+      setQuests(next);
+      const [s, w] = await Promise.all([getShop(token), getWallet(token)]);
+      setShop(s);
+      setWallet(w);
+      toast('보상 수령!', `'${q.title}' 달성 — ${q.reward}코인을 받았어요 🪙`);
+    } catch (e) {
+      toast('수령 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+    } finally {
+      setClaiming(null);
+    }
+  };
 
   useEffect(() => {
     load();
@@ -169,6 +195,21 @@ export default function ShopScreen() {
       {progress && (
         <FadeInUp delay={40}>
           <GrowthCard progress={progress} />
+        </FadeInUp>
+      )}
+
+      {/* ── 주간 퀘스트 — 홈 '오늘의 할 일' 완료가 그대로 진행도가 된다 ── */}
+      {quests && quests.quests.length > 0 && (
+        <FadeInUp delay={50}>
+          <SectionTitle>주간 퀘스트</SectionTitle>
+          <Card style={{ gap: 12 }}>
+            <Text style={styles.questHint}>
+              홈에서 할 일을 완료하면 자동으로 채워져요 · 월요일마다 리셋
+            </Text>
+            {quests.quests.map((q) => (
+              <QuestRow key={q.id} quest={q} claiming={claiming === q.id} onClaim={() => handleClaimQuest(q)} />
+            ))}
+          </Card>
         </FadeInUp>
       )}
 
@@ -316,6 +357,37 @@ function ShopRow({
   );
 }
 
+/** 주간 퀘스트 한 줄 — 진행 바 + (달성 시) 보상 받기 버튼 */
+function QuestRow({ quest, claiming, onClaim }: { quest: Quest; claiming: boolean; onClaim: () => void }) {
+  const pct = Math.max(0, Math.min(1, quest.progress / Math.max(1, quest.goal)));
+  return (
+    <View style={styles.questRow}>
+      <View style={{ flex: 1 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={styles.questTitle}>{quest.title}</Text>
+          {quest.claimed && <Badge label="수령 완료" tone="green" />}
+        </View>
+        <Text style={styles.questDesc}>{quest.desc}</Text>
+        <View style={styles.questTrack}>
+          <View style={[styles.questFill, { width: `${pct * 100}%` }, quest.done && styles.questFillDone]} />
+        </View>
+        <Text style={styles.questProgress}>
+          {quest.progress}/{quest.goal}
+        </Text>
+      </View>
+      {claiming ? (
+        <ActivityIndicator color={colors.mochaBrown} style={{ width: 64 }} />
+      ) : quest.claimable ? (
+        <PressableScale style={styles.questClaimBtn} onPress={onClaim}>
+          <Text style={styles.questClaimText}>+{quest.reward} 받기</Text>
+        </PressableScale>
+      ) : (
+        <Text style={styles.questReward}>🪙 {quest.reward}</Text>
+      )}
+    </View>
+  );
+}
+
 /** 브루 키우기 카드 — 레벨·EXP 바·스트릭 불꽃·오늘의 도전 */
 function GrowthCard({ progress }: { progress: Progress }) {
   const expPct = Math.max(0, Math.min(1, progress.exp_in_level / Math.max(1, progress.exp_to_next)));
@@ -406,6 +478,28 @@ function formatDate(iso: string | null): string {
 
 const styles = StyleSheet.create({
   titleRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  questHint: { ...typography.L5, color: colors.mochaBrown },
+  questRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  questTitle: { ...typography.L4, fontWeight: '800', color: colors.espressoBrown },
+  questDesc: { ...typography.L5, color: colors.mochaBrown, marginTop: 1 },
+  questTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.mutedSand,
+    overflow: 'hidden',
+    marginTop: 6,
+  },
+  questFill: { height: '100%', borderRadius: 3, backgroundColor: colors.pointOrange },
+  questFillDone: { backgroundColor: '#3E9B4F' },
+  questProgress: { ...typography.L5, color: colors.mochaBrown, marginTop: 3 },
+  questReward: { ...typography.L5, fontWeight: '700', color: colors.mochaBrown, width: 64, textAlign: 'right' },
+  questClaimBtn: {
+    backgroundColor: colors.pointOrange,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  questClaimText: { ...typography.L5, fontWeight: '800', color: colors.white },
   vaultBtn: {
     flexDirection: 'row',
     alignItems: 'center',
