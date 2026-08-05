@@ -60,6 +60,14 @@ SHOP_ITEMS: list[dict[str, Any]] = [
      "desc": "정성껏 물줄기를 내리는 중"},
     {"id": "pose_hero", "slot": "pose", "mood": "hero", "name": "스탠딩 바리스타", "emoji": "⭐", "price": 500,
      "desc": "브루노트의 얼굴. 가장 늠름한 자세"},
+    # 전신 애니메이션 포즈 — 정지 그림이 아니라 실제로 움직인다 (프론트 플립북 재생).
+    # 모션캡처 동작을 마스코트에 입혀 스프라이트로 구운 것이라 가장 비싼 최상급 아이템.
+    {"id": "pose_jump", "slot": "pose", "mood": "jump", "name": "폴짝폴짝 브루", "emoji": "🐾", "price": 800,
+     "desc": "신나서 폴짝폴짝 뛰어요 (움직이는 포즈!)"},
+    {"id": "pose_dance", "slot": "pose", "mood": "dance", "name": "댄스 타임 브루", "emoji": "🕺", "price": 1000,
+     "desc": "리듬 타며 춤춰요 (움직이는 포즈!)"},
+    {"id": "pose_hello", "slot": "pose", "mood": "hello", "name": "인사왕 브루", "emoji": "👋", "price": 900,
+     "desc": "손을 들어 반갑게 인사해요 (움직이는 포즈!)"},
     # 배경 효과 — 캐릭터 위가 아니라 뒤에 깔리므로 어떤 포즈와도 겹치지 않는다.
     {"id": "bg_sparkle", "slot": "background", "name": "반짝임", "emoji": "✨", "price": 300,
      "desc": "가만히 있어도 빛나는 중"},
@@ -102,12 +110,35 @@ REASON_LABEL = {
     "todo_done": "할 일 완료",
     "purchase": "상점 구매",
     "daily_bonus": "일일 도전 보너스",
+    "quest": "주간 퀘스트 보상",
+    "admin_grant": "운영자 지급",
     "test_grant": "테스트 지급",  # 개발 중 상점을 확인하려고 수동으로 넣은 코인
 }
 
 # 일일 도전 — 오늘 할 일 N개를 끝내면 보너스 코인 (빈 출석이 아니라 실제 완료 기준)
 DAILY_GOAL = 3
 DAILY_REWARD = 30
+
+# ---------------------------------------------------------------------------
+# 주간 퀘스트 — '오늘의 할 일'과 경쟁하지 않고 그걸 재료로 쓴다.
+#
+# 새 행동을 시키는 게 아니라, 이미 완료한 할 일(원장 todo_done 행)을 주 단위로
+# 세서 누적 목표를 채우면 큰 보상을 준다. 할 일 = 그날의 내용(무엇을),
+# 퀘스트 = 기간의 습관(얼마나 꾸준히)이라는 역할 분담.
+# kind: count = 이번 주 완료 개수 / days = 이번 주에 완료가 있었던 날 수
+# 월요일(KST) 시작으로 리셋되고, 보상 중복 수령은 원장 유니크(reason, ref=주차)로 막는다.
+# ---------------------------------------------------------------------------
+WEEKLY_QUESTS: list[dict[str, Any]] = [
+    {"id": "wq-todo-5", "kind": "count", "goal": 5, "reward": 60,
+     "title": "몸풀기", "desc": "이번 주 할 일 5개 완료"},
+    {"id": "wq-todo-15", "kind": "count", "goal": 15, "reward": 160,
+     "title": "성실한 사장님", "desc": "이번 주 할 일 15개 완료"},
+    {"id": "wq-todo-30", "kind": "count", "goal": 30, "reward": 400,
+     "title": "카페의 심장", "desc": "이번 주 할 일 30개 완료"},
+    {"id": "wq-days-4", "kind": "days", "goal": 4, "reward": 120,
+     "title": "꾸준함이 무기", "desc": "이번 주 4일 이상 할 일 완료"},
+]
+_QUEST_BY_ID = {q["id"]: q for q in WEEKLY_QUESTS}
 
 
 class RewardError(ValueError):
@@ -472,3 +503,74 @@ def set_equipped(store_id: str, item_id: str, equipped: bool) -> dict[str, Any]:
         db.commit()
 
     return get_shop(store_id)
+
+
+# ---------------------------------------------------------------------------
+# 주간 퀘스트
+# ---------------------------------------------------------------------------
+
+def _week_key():
+    """이번 주(월요일 시작, KST)의 식별자와 시작 시각(UTC naive)을 돌려준다."""
+    now_kst = datetime.now(KST)
+    monday = (now_kst - timedelta(days=now_kst.weekday())).date()
+    start_utc = datetime.combine(monday, datetime.min.time(), tzinfo=KST).astimezone(timezone.utc)
+    return monday.isoformat(), start_utc.replace(tzinfo=None), monday
+
+
+def _weekly_todo_stats(db, store_id: str):
+    """이번 주 할 일 완료 (총 개수, 완료가 있었던 날 수). 원장이 진실이라 별도 표가 없다."""
+    _, start_utc, monday = _week_key()
+    from app.models.ai import PointLedger
+
+    rows = db.query(PointLedger.created_at).filter(
+        PointLedger.store_id == store_id,
+        PointLedger.reason == "todo_done",
+        # KST 자정 경계의 UTC 저장 편차를 흡수하도록 하루 여유를 두고 가져와 정확히 거른다
+        PointLedger.created_at >= start_utc - timedelta(days=1),
+    ).all()
+    dates = [d for (created,) in rows if (d := _to_kst_date(created)) and d >= monday]
+    return len(dates), len(set(dates))
+
+
+def get_quests(store_id: str) -> dict[str, Any]:
+    """주간 퀘스트 목록 — 진행도·달성·수령 여부. 월요일(KST)마다 리셋된다."""
+    week, _, _ = _week_key()
+    from app.models.ai import PointLedger
+
+    with _session() as db:
+        count, days = _weekly_todo_stats(db, store_id)
+        claimed_refs = {
+            ref for (ref,) in db.query(PointLedger.ref).filter(
+                PointLedger.store_id == store_id, PointLedger.reason == "quest"
+            ).all()
+        }
+    quests = []
+    for q in WEEKLY_QUESTS:
+        progress = count if q["kind"] == "count" else days
+        claimed = f"{q['id']}:{week}" in claimed_refs
+        quests.append({
+            "id": q["id"], "title": q["title"], "desc": q["desc"],
+            "goal": q["goal"], "progress": min(progress, q["goal"]), "reward": q["reward"],
+            "done": progress >= q["goal"], "claimed": claimed,
+            "claimable": progress >= q["goal"] and not claimed,
+        })
+    return {"week": week, "quests": quests}
+
+
+def claim_quest(store_id: str, quest_id: str) -> dict[str, Any]:
+    """달성한 퀘스트의 보상 수령. 주차별 ref 유니크로 이중 수령은 DB가 막는다."""
+    q = _QUEST_BY_ID.get(quest_id)
+    if not q:
+        raise RewardError("존재하지 않는 퀘스트입니다.")
+    week, _, _ = _week_key()
+    with _session() as db:
+        count, days = _weekly_todo_stats(db, store_id)
+    progress = count if q["kind"] == "count" else days
+    if progress < q["goal"]:
+        raise RewardError("아직 목표를 채우지 못했어요.")
+    awarded = award(store_id, q["reward"], "quest", f"{quest_id}:{week}",
+                    f"주간 퀘스트 '{q['title']}' 달성")
+    result = get_quests(store_id)
+    result["awarded"] = q["reward"] if awarded else 0
+    result["balance"] = get_balance(store_id)
+    return result

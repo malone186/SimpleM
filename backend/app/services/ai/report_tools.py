@@ -16,7 +16,7 @@ def _dump(data) -> str:
 
 
 # 챗봇 화면 카드·LLM에는 보여줄 필요 없는 내부 관리용 키 (조언 캐시 무효화용)
-_INTERNAL_KEYS = ("ai_advice_hash", "ai_advice_at")
+_INTERNAL_KEYS = ("ai_advice_hash", "ai_advice_at", "ai_advice_version")
 
 
 def _strip_internal(doc: dict) -> dict:
