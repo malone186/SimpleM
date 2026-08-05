@@ -76,6 +76,10 @@ export type NearbyEvent = {
   // 지도 마커용 좌표 (수집 소스가 좌표를 준 행사만) — 매장 지도 화면이 오렌지 핀으로 찍는다
   lat?: number | null;
   lon?: number | null;
+  // 오늘 열리는 중인지 — 지도 핀이 이것만 숨 쉬듯 강조한다
+  ongoing?: boolean;
+  // 시작까지 남은 일수 — 지도 말풍선의 D-N 배지
+  d_day?: number;
 };
 
 export type HourlyForecast = {

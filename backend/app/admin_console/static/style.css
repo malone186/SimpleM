@@ -281,6 +281,39 @@ body {
   background-color: var(--coffee-cream);
 }
 
+/* 헤더의 전체 새로고침 — <a>가 아니라 <button>이라 폰트·커서를 맞춰 준다 */
+button.header-btn {
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+button.header-btn:disabled { opacity: 0.6; cursor: default; transform: none; }
+
+.header-btn.spinning svg { animation: header-spin 0.8s linear infinite; }
+
+@keyframes header-spin { to { transform: rotate(360deg); } }
+
+.header-updated {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--stone-300);
+  white-space: nowrap;
+}
+
+/* 사이드바 미답변 문의 배지 */
+.nav-badge {
+  margin-left: auto;
+  background-color: #C62828;
+  color: #FFFFFF;
+  font-size: 11px;
+  font-weight: 800;
+  min-width: 20px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  text-align: center;
+}
+
 /* ━━━ 탭 컨텐츠 ━━━ */
 .tab-content {
   display: none;
@@ -836,20 +869,8 @@ body {
   border-radius: 999px;
 }
 
-/* 🟢 [한글 주석: Drawer 회원 가입 승인 버튼 스타일] */
-.approve-btn {
-  background-color: #2E7D32 !important;
-  color: #FFFFFF !important;
-  border: none !important;
-  width: 100%;
-  justify-content: center;
-  padding: 12px !important;
-  font-weight: 800 !important;
-}
-
-.approve-btn:hover {
-  background-color: #1B5E20 !important;
-}
+/* (삭제됨) 예전 승인 버튼 스타일 — !important로 짙은 초록을 강제해, 아래 드로어 정리에서
+   만든 아웃라인 버튼을 덮어썼다. 지금 스타일은 .approve-btn 정의 한 곳(드로어 섹션)에 있다. */
 
 /* 🎧 [한글 주석: CS 1:1 문의 답변 모달 및 필터 칩 스타일] */
 .cs-filter-pill {
@@ -926,10 +947,42 @@ body {
   font-weight: 800;
 }
 
+/* 회원 관리 상태 필터 — CS 탭의 알약과 같은 모양(.filter-pill)을 쓴다 */
+.user-filter-pill {
+  background: transparent;
+  border: none;
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--stone-300);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.user-filter-pill:hover { color: var(--espresso-brown); }
+
+.user-filter-pill.active {
+  background-color: var(--card-bg);
+  color: var(--espresso-brown);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  font-weight: 800;
+}
+
 .box-actions {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+.box-actions .header-btn {
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 12px;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
 }
 
 .search-input {
@@ -1008,31 +1061,40 @@ body {
   visibility: visible;
 }
 
+/* 회원 상세 — 오른쪽에서 밀려 나오던 패널을 가운데 팝업으로 바꿨다.
+   CS 답변 모달(.cs-modal-panel)과 같은 방식(절대 위치 + 가운데 정렬)이라 콘솔 안에서
+   '창이 뜨는 모양'이 하나로 통일된다. 높이는 화면의 88%까지만 쓰고 내용은 안에서 스크롤한다. */
 .drawer-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 460px;
-  max-width: 90vw;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 560px;
+  max-width: 92vw;
+  max-height: 88vh;
   background-color: var(--body-bg);
-  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--muted-sand);
+  border-radius: 20px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
   z-index: 201;
   display: flex;
   flex-direction: column;
-  transform: translateX(100%);
-  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: translate(-50%, -48%) scale(0.97);
+  opacity: 0;
+  transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
 }
 
 .drawer-overlay.active .drawer-panel {
-  transform: translateX(0);
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
 }
 
 .drawer-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 24px;
+  gap: 12px;
+  padding: 18px 20px;
   background-color: var(--card-bg);
   border-bottom: 1px solid var(--muted-sand);
 }
@@ -1040,7 +1102,36 @@ body {
 .drawer-title-box {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* 매장 첫 글자 — 목록에서 어느 매장을 열었는지 스크롤 중에도 바로 알아본다 */
+.drawer-avatar {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--espresso-brown), var(--mocha-brown));
+  color: #FFFFFF;
+  font-size: 18px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.drawer-title-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.drawer-subtitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .drawer-id-badge {
@@ -1048,14 +1139,17 @@ body {
   color: var(--mocha-brown);
   font-size: 11px;
   font-weight: 800;
-  padding: 4px 8px;
+  padding: 3px 7px;
   border-radius: 6px;
 }
 
 .drawer-title {
-  font-size: 20px;
+  font-size: 19px;
   font-weight: 900;
   color: var(--espresso-brown);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .drawer-close-btn {
@@ -1121,20 +1215,41 @@ body {
   gap: 4px;
 }
 
+/* 라벨은 왼쪽, 값은 오른쪽 — 항목마다 실선을 넣어 눈이 줄을 따라가게 한다 */
+.info-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--stone-100);
+  min-height: 40px;
+}
+
+.info-row:last-child { border-bottom: none; padding-bottom: 2px; }
+
 .info-label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--stone-300);
+  white-space: nowrap;
 }
 
 .info-value {
   font-size: 13px;
   font-weight: 700;
   color: var(--espresso-brown);
+  text-align: right;
+  word-break: break-all;
 }
 
 .status-select {
-  padding: 6px 10px;
+  padding: 7px 10px;
   border-radius: 8px;
   border: 1px solid var(--muted-sand);
   background-color: var(--card-bg);
@@ -1144,6 +1259,71 @@ body {
   outline: none;
   cursor: pointer;
 }
+
+.status-select:focus { border-color: var(--orange-point); }
+
+/* 승인은 자주 쓰는 정상 동작 — 초록 실선 버튼이 아니라 가벼운 아웃라인으로 둔다 */
+.approve-btn {
+  margin-top: 4px;
+  width: 100%;
+  padding: 11px;
+  border-radius: 10px;
+  border: 1px solid var(--green-main);
+  background-color: var(--green-light);
+  color: var(--green-main);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background-color 0.15s;
+}
+
+.approve-btn:hover { background-color: #DDEBD7; }
+.approve-btn svg { width: 15px; height: 15px; }
+
+/* 위험 구역 — 되돌릴 수 없는 삭제만 모아 맨 아래에 둔다 */
+.danger-card {
+  border-color: #F0D6D6;
+  background-color: #FEFAFA;
+}
+
+.card-section-title.danger { color: #B24040; }
+.card-section-title.danger svg { color: #B24040; }
+
+.danger-desc {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mocha-brown);
+  line-height: 1.5;
+}
+
+.danger-btn {
+  width: 100%;
+  padding: 11px;
+  border-radius: 10px;
+  border: 1px solid #E4B4B4;
+  background-color: #FFFFFF;
+  color: #B24040;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.danger-btn:hover {
+  background-color: #B24040;
+  border-color: #B24040;
+  color: #FFFFFF;
+}
+
+.danger-btn svg { width: 15px; height: 15px; }
 
 .sub-status-box {
   background-color: var(--stone-100);
@@ -1219,21 +1399,23 @@ body {
 
 .drawer-stats-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
 }
 
 .stat-box {
   background-color: var(--stone-100);
   border-radius: 12px;
-  padding: 12px;
+  padding: 12px 10px;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  text-align: center;
+  align-items: center;
 }
 
 .stat-num {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 900;
   color: var(--espresso-brown);
 }
@@ -1267,19 +1449,298 @@ body {
   background-color: var(--mocha-brown);
   color: #FFFFFF;
   border: none;
-  padding: 10px;
+  padding: 11px;
   border-radius: 10px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 800;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  align-self: flex-end;
+  /* 다른 카드의 버튼과 폭을 맞춘다 — 예전엔 이 버튼만 오른쪽에 조그맣게 붙어 있었다 */
+  width: 100%;
 }
 
 .save-memo-btn svg { width: 14px; height: 14px; }
+
+/* ━━━ [한글 주석: 코인 지급 카드 — 회원 상세 Drawer] ━━━ */
+.coin-balance-box {
+  background: linear-gradient(135deg, #FBF4E8, #F1E1C6);
+  border: 1px solid #E4D3B6;
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.coin-balance-main,
+.coin-balance-side {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.coin-balance-side { align-items: flex-end; }
+
+.coin-balance-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #9A7B4F;
+  letter-spacing: -0.2px;
+}
+
+.coin-balance-num {
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 1.05;
+  color: var(--espresso-brown);
+}
+
+.coin-balance-num .stat-unit {
+  font-size: 13px;
+  color: #9A7B4F;
+}
+
+.coin-balance-sub {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--mocha-brown);
+}
+
+/* 지급/회수 — 세그먼트 탭. 어느 쪽을 하는 중인지가 항상 보이게 한다 */
+.coin-mode-tabs {
+  display: flex;
+  gap: 4px;
+  background-color: var(--stone-100);
+  border: 1px solid var(--muted-sand);
+  border-radius: 10px;
+  padding: 4px;
+}
+
+.coin-mode-tab {
+  flex: 1;
+  padding: 8px 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--stone-300);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.coin-mode-tab svg { width: 14px; height: 14px; }
+.coin-mode-tab:hover { color: var(--espresso-brown); }
+
+.coin-mode-tab.active {
+  background-color: var(--card-bg);
+  color: var(--espresso-brown);
+  box-shadow: var(--shadow-soft);
+}
+
+.coin-mode-tab.active[data-mode="grant"] { color: var(--green-main); }
+.coin-mode-tab.active[data-mode="revoke"] { color: #B24040; }
+
+.coin-quick-row {
+  display: flex;
+  gap: 6px;
+}
+
+.coin-chip {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 0;
+  border-radius: 8px;
+  border: 1px solid var(--muted-sand);
+  background-color: var(--card-bg);
+  color: var(--mocha-brown);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.coin-chip:hover {
+  border-color: var(--orange-point);
+  color: var(--orange-point);
+}
+
+.coin-chip.active {
+  background-color: var(--espresso-brown);
+  border-color: var(--espresso-brown);
+  color: #FFFFFF;
+}
+
+/* 입력칸 — 라벨을 칸 안에 붙여 두 줄짜리 긴 placeholder를 없앴다 */
+.coin-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--muted-sand);
+  border-radius: 10px;
+  padding: 0 12px;
+  background-color: var(--card-bg);
+  transition: border-color 0.15s;
+}
+
+.coin-field:focus-within { border-color: var(--orange-point); }
+
+.coin-field-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--stone-300);
+  white-space: nowrap;
+  min-width: 44px;
+}
+
+.coin-field-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 11px 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--espresso-brown);
+  text-align: right;
+}
+
+.coin-field-input::placeholder {
+  font-weight: 600;
+  color: #C6BCB1;
+}
+
+/* 사유는 글이라 왼쪽 정렬 — 숫자만 오른쪽으로 붙인다 */
+.coin-field.text .coin-field-input { text-align: left; }
+
+.coin-field-unit {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mocha-brown);
+}
+
+.coin-preview {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mocha-brown);
+  background-color: var(--stone-100);
+  border-radius: 8px;
+  padding: 9px 12px;
+  text-align: center;
+}
+
+.coin-preview.warn {
+  background-color: #FBEDED;
+  color: #B24040;
+}
+
+.coin-grant-btn {
+  background-color: var(--green-main);
+  color: #FFFFFF;
+  border: none;
+  padding: 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background-color 0.15s;
+}
+
+.coin-grant-btn.revoke { background-color: #B24040; }
+.coin-grant-btn:hover { opacity: 0.88; }
+.coin-grant-btn:disabled { opacity: 0.45; cursor: default; }
+.coin-grant-btn svg { width: 15px; height: 15px; }
+
+.coin-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--muted-sand);
+}
+
+.coin-history-title {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--stone-300);
+}
+
+.coin-history-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--stone-300);
+}
+
+.coin-history {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.coin-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background-color: var(--stone-100);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.coin-history-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.coin-history-reason {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--espresso-brown);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.coin-history-date {
+  font-size: 10px;
+  color: var(--stone-300);
+  font-weight: 600;
+}
+
+.coin-history-delta {
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.coin-history-delta.plus { color: var(--green-main); }
+.coin-history-delta.minus { color: #B24040; }
+
+.coin-history-empty {
+  font-size: 12px;
+  color: var(--stone-300);
+  font-weight: 600;
+  padding: 10px 2px;
+}
 
 /* ━━━ [한글 주석: AI 에이전트 오케스트레이션 탭 전용 스타일] ━━━ */
 .orchestra-wrap {
@@ -1549,10 +2010,70 @@ body {
   height: 12px;
 }
 
+/* 실제로 위임을 받은 전문가는 칩을 강조한다 — 편성만 돼 있는 것과 구분된다 */
+.agent-tool-chip.used {
+  background-color: var(--green-light);
+  color: var(--green-main);
+}
+
 .agent-expand-hint {
   font-size: 11px;
   color: var(--stone-300);
   font-weight: 600;
+}
+
+/* ━━━ [한글 주석: 챗봇 실행 현황 — AI 에이전트 탭] ━━━ */
+.agent-tool-calls {
+  margin-left: 6px;
+  background-color: var(--green-light);
+  color: var(--green-main);
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-family: var(--font-main);
+}
+
+.rt-sub {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--stone-300);
+}
+
+.rt-fail {
+  font-size: 11px;
+  font-weight: 700;
+  color: #B24040;
+}
+
+.rt-muted { color: var(--stone-300); }
+
+.rt-question {
+  max-width: 260px;
+  font-size: 12px;
+  color: var(--mocha-brown);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rt-failure-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.rt-failure-row:empty { display: none; }
+
+.rt-failure-chip {
+  background-color: #FBEDED;
+  color: #B24040;
+  border: 1px solid #F0D6D6;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 999px;
 }
 
 /* 도구 목록 (펼침) */

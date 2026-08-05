@@ -32,6 +32,8 @@ from collections import defaultdict
 from datetime import date, datetime, time as dtime, timedelta
 from typing import Any, Callable, Optional
 
+from app.services.ai import warm_cache
+
 logger = logging.getLogger(__name__)
 
 # 규칙 임계값 — 한 곳에 모아 매장 특성에 맞게 조정하기 쉽게 한다
@@ -954,9 +956,23 @@ def _scan_demand_outlook(db, store_id: str, today: date) -> list[dict[str, Any]]
     예측 계산은 대시보드·알림 스케줄러가 이미 돌려 캐시에 넣어 둔다. 여기서 직접
     forecast()를 부르면 10분마다 SARIMAX가 도는 셈이라, 캐시가 없으면 조용히 넘어간다.
     """
+    from app.models.user import User
     from app.services.ai import forecast_service
 
-    hit = forecast_service.peek_forecast_cache(store_id)
+    # 좌표는 캐시 키의 일부다 — 계정에 등록된 매장 위치로 찾아야 대시보드가 만들어 둔
+    # 예측에 걸린다. 예전엔 좌표 없이 찾아 서울시청 기준 키를 뒤졌고, 위치를 등록한
+    # 매장에서는 캐시가 늘 빗나가 이 인사이트가 한 번도 뜨지 않았다.
+    lat = lon = None
+    try:
+        row = db.query(User.store_lat, User.store_lon).filter(User.email == store_id).first()
+        if row:
+            lat, lon = row
+    except Exception:
+        db.rollback()  # 좌표를 못 읽어도 아래 기본 좌표로 한 번 더 시도한다
+
+    hit = forecast_service.peek_forecast_cache(store_id, lat, lon)
+    if not hit and (lat is not None or lon is not None):
+        hit = forecast_service.peek_forecast_cache(store_id)  # 좌표 없이 만든 옛 캐시 폴백
     if not hit:
         return []
     result = hit[0]
@@ -1297,16 +1313,29 @@ def _deep_insights(store_id: str, today: date, block: bool = False) -> list[dict
 # (하루 단위로 바뀌는 정보라 이 정도 지연은 화면에서 보이지 않는다)
 SCAN_TTL_SECONDS = 120
 
+# DB에 남겨 두는 캐시를 얼마나 낡은 것까지 받아들일지.
+#
+# 메모리 캐시(120초)와 역할이 다르다. 이건 '방금 뜬 인스턴스가 사장님을 7초 기다리게
+# 하지 않으려고' 쓰는 것이라, 좀 낡아도 일단 보여 주고 뒤에서 다시 계산하는 편이 낫다.
+# 인사이트는 하루 단위로 바뀌는 정보라 한두 시간 지난 값이 화면에서 틀려 보이지 않는다.
+#
+# 2시간인 이유: 알림 크론이 매시간 돌면서 전 매장 스캔을 여기에 써 넣는다. 1시간으로
+# 잡으면 크론 직전에 앱을 켠 사장님이 아슬아슬하게 만료된 값을 만나 7초를 다시 쓴다.
+WARM_TTL_SECONDS = 2 * 3600
+
 _scan_cache: dict[str, tuple[float, str, list[dict[str, Any]], list[str]]] = {}
 
+_rescan_inflight: set[str] = set()
+_rescan_lock = threading.Lock()
 
-def _fast_insights(store_id: str, today: date,
-                   deep: bool = False) -> tuple[list[dict[str, Any]], list[str]]:
-    """빠른 스캐너 전체 + 캐시된 무거운 스캐너 결과. 반환: (인사이트, 실패한 스캐너)"""
-    hit = _scan_cache.get(store_id)
-    if not deep and hit and hit[1] == today.isoformat() and time.time() - hit[0] < SCAN_TTL_SECONDS:
-        return list(hit[2]), list(hit[3])
 
+def _warm_key(store_id: str, today: date) -> str:
+    # 날짜를 키에 넣어 자정을 넘긴 값이 저절로 안 잡히게 한다
+    return f"insights:{store_id}:{today.isoformat()}"
+
+
+def _run_fast(store_id: str, today: date, deep: bool) -> tuple[list[dict[str, Any]], list[str]]:
+    """빠른 스캐너를 실제로 돌린다 (자체 세션 — 백그라운드 스레드에서도 안전)."""
     found: list[dict[str, Any]] = _deep_insights(store_id, today, block=deep)
     failed: list[str] = []
     with _db() as db:
@@ -1322,7 +1351,50 @@ def _fast_insights(store_id: str, today: date,
                 failed.append(name)
 
     _scan_cache[store_id] = (time.time(), today.isoformat(), list(found), list(failed))
+    warm_cache.save(_warm_key(store_id, today), {"insights": found, "failed": failed})
     return found, failed
+
+
+def _schedule_rescan(store_id: str, today: date) -> None:
+    """백그라운드로 다시 훑어 메모리·DB 캐시를 최신으로 만든다 (같은 매장은 한 번만)."""
+
+    def _refresh() -> None:
+        try:
+            _run_fast(store_id, today, deep=False)
+        except Exception:
+            logger.exception("인사이트 재스캔 실패 (%s)", store_id)
+        finally:
+            with _rescan_lock:
+                _rescan_inflight.discard(store_id)
+
+    with _rescan_lock:
+        if store_id in _rescan_inflight:
+            return
+        _rescan_inflight.add(store_id)
+    threading.Thread(target=_refresh, name=f"insight-rescan-{store_id[:12]}", daemon=True).start()
+
+
+def _fast_insights(store_id: str, today: date,
+                   deep: bool = False) -> tuple[list[dict[str, Any]], list[str]]:
+    """빠른 스캐너 전체 + 캐시된 무거운 스캐너 결과. 반환: (인사이트, 실패한 스캐너)"""
+    hit = _scan_cache.get(store_id)
+    if not deep and hit and hit[1] == today.isoformat() and time.time() - hit[0] < SCAN_TTL_SECONDS:
+        return list(hit[2]), list(hit[3])
+
+    # 이 프로세스 메모리에는 없지만 다른(또는 이전) 인스턴스가 계산해 둔 값이 DB에 있을 수 있다.
+    # 그걸 집어 바로 응답하고 진짜 스캔은 뒤로 미룬다 — 사장님이 7초를 기다리지 않게.
+    # deep=True(스케줄러 배치)는 최신 결과가 목적이므로 이 지름길을 쓰지 않는다.
+    if not deep:
+        warm = warm_cache.load(_warm_key(store_id, today), WARM_TTL_SECONDS)
+        if warm is not None:
+            data, _age = warm
+            found = list(data.get("insights") or [])
+            failed = list(data.get("failed") or [])
+            _scan_cache[store_id] = (time.time(), today.isoformat(), found, failed)
+            _schedule_rescan(store_id, today)
+            return list(found), list(failed)
+
+    return _run_fast(store_id, today, deep=deep)
 
 
 # ---------------------------------------------------------------------------

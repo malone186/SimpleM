@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 WEIGHTS = {"menu": 30, "price": 25, "concept": 20, "atmosphere": 15, "customers": 10}
 
 _SCORE_TTL = 6 * 3600          # 채점 캐시 6시간 — 메뉴·리뷰가 하루 안에 급변하지 않는다
+_FALLBACK_TTL = 5 * 60         # 간이 추정은 5분만 — 쿼터가 풀리면 곧 AI 채점으로 돌아오게
 _score_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
 _AXIS_SCHEMA = {
@@ -194,8 +195,13 @@ def score_nearby(store_id: str, cafes: list[dict[str, Any]], region: str = "") -
     key = hashlib.md5((store_id + json.dumps(profile, ensure_ascii=False, sort_keys=True)
                        + "|".join(sorted(c["name"] for c in cafes))).encode()).hexdigest()
     hit = _score_cache.get(key)
-    if hit and time.time() - hit[0] < _SCORE_TTL:
-        return {**hit[1], "cached": True}
+    if hit:
+        # 간이 추정(heuristic)은 Gemini가 막혔을 때의 임시 결과다. AI 채점과 똑같이
+        # 6시간 들고 있으면, 쿼터가 잠깐 429였던 대가로 반나절 내내 모든 카페가
+        # 같은 점수(예: 전부 53%)로 보인다 — 유사도순 정렬도 무의미해진다.
+        ttl = _SCORE_TTL if hit[1].get("engine") == "ai" else _FALLBACK_TTL
+        if time.time() - hit[0] < ttl:
+            return {**hit[1], "cached": True}
 
     cafe_lines = "\n".join(
         f"- {c['name']} (카테고리: {(c.get('category') or '카페').split('>')[-1]}, "

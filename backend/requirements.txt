@@ -45,3 +45,9 @@ google-auth>=2.35
 # 미설치 환경에서는 정적 수집으로 자동 폴백하므로 서버는 정상 기동된다.
 playwright>=1.55.0
 rembg>=2.0  # 홍보 이미지: 사장님이 올린 실물 메뉴 사진 누끼(배경 제거) — U2-Net, CPU 동작
+
+# 홍보 이미지 영구 보관 (백엔드 B marketing_service).
+# Cloud Run의 로컬 디스크는 인스턴스 메모리라 배포·스케일 때마다 사라진다 —
+# 만든 이미지를 GCS 버킷에 올려 배포와 무관하게 남긴다. MARKETING_GCS_BUCKET이
+# 비어 있으면 예전처럼 로컬 디스크에 저장하므로 로컬 개발은 그대로 동작한다.
+google-cloud-storage>=2.18

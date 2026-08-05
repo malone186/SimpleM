@@ -668,6 +668,14 @@ function TodoItem({
               <Text style={styles.promoLinkText}>홍보할 메뉴 고르기 ›</Text>
             </TouchableOpacity>
           )}
+          {/* 재고 항목 — 카드를 누르면 그 재료로 가지만, 표시가 없으면 누를 수 있는 걸 모른다.
+              (홍보 항목과 달리 링크 자체는 장식이고 실제 이동은 카드 전체가 처리한다) */}
+          {todo.id.startsWith('stock-') && !disabled && (
+            <View style={styles.promoLink} pointerEvents="none">
+              <Ionicons name="file-tray-stacked-outline" size={11} color="#8C6F56" />
+              <Text style={styles.promoLinkText}>재고 보기 ›</Text>
+            </View>
+          )}
         </View>
 
         {/* [3. 우측 액션: 수정·삭제 — 지난 날짜(isPastDate)일 때만 숨김] */}

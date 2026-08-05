@@ -30,6 +30,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
+from app.services.ai import warm_cache
+
 # 매장 시간대 — Neon(timestamptz)은 sold_at을 UTC로 돌려주므로 시간대 집계 전 반드시 KST로 변환한다.
 KST = timezone(timedelta(hours=9))
 
@@ -58,6 +60,9 @@ _EVENT_CACHE_TTL = 6 * 3600
 # 자정을 넘긴 캐시는 '내일' 날짜가 밀려 있으므로 버린다.
 _forecast_cache: dict[tuple, tuple[float, str, dict]] = {}  # key → (ts, 생성일 ISO, result)
 _FORECAST_FRESH_TTL = 5 * 60
+# DB 캐시(ai_warm_cache)에서 집어 올 때 받아들일 최대 나이 — 어차피 '같은 날 만든 것'만
+# 인정하므로 하루면 충분하다. 낡았어도 즉시 보여 준 뒤 백그라운드로 다시 계산한다.
+_FORECAST_WARM_TTL = 24 * 3600
 _forecast_inflight: set[tuple] = set()
 _forecast_lock = threading.Lock()
 
@@ -73,16 +78,43 @@ def _forecast_key(store_id: str, lat: Optional[float], lon: Optional[float], day
     return (store_id, round(lat, 3), round(lon, 3), max(1, min(int(days), 14)))
 
 
+def _warm_key(key: tuple) -> str:
+    """DB 캐시 키 — 메모리 캐시 키(store, lat, lon, days)를 문자열로 편다."""
+    store_id, lat, lon, days = key
+    return f"forecast:{store_id}:{lat}:{lon}:{days}"
+
+
 def peek_forecast_cache(store_id: str, lat: Optional[float] = None, lon: Optional[float] = None,
                         days: int = 7) -> Optional[tuple[dict, bool]]:
-    """(캐시된 예측, 신선 여부)를 돌려준다. 캐시가 없거나 날짜가 지났으면 None."""
-    hit = _forecast_cache.get(_forecast_key(store_id, lat, lon, days))
-    if not hit:
+    """(캐시된 예측, 신선 여부)를 돌려준다. 캐시가 없거나 날짜가 지났으면 None.
+
+    이 프로세스 메모리에 없으면 DB에 남겨 둔 값을 본다. Cloud Run은 트래픽이 없으면
+    인스턴스를 내리기 때문에, 사장님이 아침에 앱을 처음 켤 때는 늘 메모리가 빈 인스턴스에
+    걸려 SARIMAX 적합과 외부 API 왕복을 통째로 기다려야 했다(실측 7.0초).
+    DB에서 집어 온 값은 '신선하지 않음'으로 돌려주므로, 부른 쪽(엔드포인트)이 즉시 응답한 뒤
+    백그라운드 재계산을 걸어 다음 조회부터 최신이 된다.
+    """
+    key = _forecast_key(store_id, lat, lon, days)
+    today_iso = datetime.now(KST).date().isoformat()
+
+    hit = _forecast_cache.get(key)
+    if hit:
+        ts, made_on, result = hit
+        # 자정을 넘긴 캐시는 '내일' 날짜가 밀려 있으므로 버린다
+        if made_on == today_iso:
+            return result, (time.time() - ts) < _FORECAST_FRESH_TTL
         return None
-    ts, made_on, result = hit
-    if made_on != datetime.now(KST).date().isoformat():
+
+    warm = warm_cache.load(_warm_key(key), _FORECAST_WARM_TTL)
+    if warm is None:
         return None
-    return result, (time.time() - ts) < _FORECAST_FRESH_TTL
+    data, _age = warm
+    if not isinstance(data, dict) or data.get("made_on") != today_iso:
+        return None
+    result = data.get("result")
+    if not isinstance(result, dict) or not result:
+        return None
+    return result, False
 
 
 def refresh_forecast_background(store_id: str, lat: Optional[float] = None,
@@ -111,9 +143,14 @@ def refresh_forecast_background(store_id: str, lat: Optional[float] = None,
 
 
 def invalidate_forecast_cache(store_id: str) -> None:
-    """해당 매장의 예측 캐시를 비운다 — 판매 기록처럼 원천 데이터가 바뀐 직후 호출."""
+    """해당 매장의 예측 캐시를 비운다 — 판매 기록처럼 원천 데이터가 바뀐 직후 호출.
+
+    DB에 남긴 값까지 함께 지운다. 여기를 빠뜨리면 새 판매를 넣어도 다음 인스턴스가
+    옛 예측을 집어 와서 "매출을 입력했는데 예측이 그대로"가 된다.
+    """
     for k in [k for k in _forecast_cache if k[0] == store_id]:
         _forecast_cache.pop(k, None)
+    warm_cache.drop_prefix(f"forecast:{store_id}:")
 
 # 대한민국 공휴일 — holidays 라이브러리로 연도 무관 자동 계산 (음력·대체공휴일 포함).
 # 아래 2026 하드코딩은 라이브러리 미설치 환경의 폴백으로만 남긴다.
@@ -1233,6 +1270,8 @@ def _order_recommendations(db, store_id: str, week_cups: float) -> list[dict[str
             continue  # 금주 소요 + 안전재고를 지금 재고로 감당 가능
         suggested = round(shortage, 1)
         recs.append({
+            # 알림을 눌렀을 때 그 재료 화면으로 보내려면 이름만으로는 부족하다 (동명이인 재료·검색 실패)
+            "ingredient_id": ing_id,
             "ingredient": ing.name,
             "unit": ing.unit,
             "current_quantity": current,
@@ -1980,5 +2019,8 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
                 "놓친 행사는 챗봇에 말하면 반영됩니다.",
     }
     if not events:  # 직접 입력 행사가 섞인 결과는 캐시하지 않는다 (대시보드 기본 호출만)
-        _forecast_cache[cache_key] = (time.time(), datetime.now(KST).date().isoformat(), result)
+        made_on = datetime.now(KST).date().isoformat()
+        _forecast_cache[cache_key] = (time.time(), made_on, result)
+        # DB에도 한 벌 — 다음에 뜨는 인스턴스가 이 계산을 처음부터 다시 하지 않게 한다
+        warm_cache.save(_warm_key(cache_key), {"made_on": made_on, "result": result})
     return result

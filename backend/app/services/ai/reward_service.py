@@ -111,8 +111,9 @@ REASON_LABEL = {
     "purchase": "상점 구매",
     "daily_bonus": "일일 도전 보너스",
     "quest": "주간 퀘스트 보상",
-    "admin_grant": "운영자 지급",
     "test_grant": "테스트 지급",  # 개발 중 상점을 확인하려고 수동으로 넣은 코인
+    "admin_grant": "관리자 지급",
+    "admin_revoke": "관리자 회수",
 }
 
 # 일일 도전 — 오늘 할 일 N개를 끝내면 보너스 코인 (빈 출석이 아니라 실제 완료 기준)
@@ -251,6 +252,60 @@ def award_derived_todo(store_id: str, key: str, title: str) -> bool:
 
     memo = title if len(title) <= 40 else title[:39] + "…"
     return award(store_id, POINTS_PER_TODO, "todo_done", _derived_ref(k), memo)
+
+
+# 관리자 콘솔 수동 지급 한도 — 오타 한 번으로 잔액이 터무니없어지는 걸 막는다
+ADMIN_GRANT_MAX = 100_000
+
+
+def admin_grant(store_id: str, amount: int, memo: str = "", admin_email: str = "") -> dict[str, Any]:
+    """[관리자 지급] 관리자 콘솔에서 특정 사장님 계정에 코인을 넣거나 회수한다.
+
+    적립은 원래 '실제로 끝낸 할 일'에만 붙는 게 원칙이다. 이 경로는 그 예외라
+    내역에 '관리자 지급/회수'로 따로 남긴다 — 사장님이 상점 내역을 봤을 때 어디서
+    생긴 코인인지 알 수 있어야 한다.
+
+    멱등 처리는 하지 않는다(같은 금액을 두 번 주고 싶을 수도 있다). 대신 ref에
+    마이크로초 시각을 넣어 유니크 제약에 걸리지 않게 한다.
+
+    회수(음수)는 잔액 밑으로 내려가지 않는다 — 원장 합이 음수가 되면 상점 화면의
+    '부족한 코인' 계산이 이상해진다.
+    """
+    from app.models.ai import PointLedger
+
+    delta = int(amount)
+    if delta == 0:
+        raise RewardError("지급할 코인 수를 입력하세요.")
+    if abs(delta) > ADMIN_GRANT_MAX:
+        raise RewardError(f"한 번에 {ADMIN_GRANT_MAX:,}코인까지만 처리할 수 있어요.")
+
+    sid = (store_id or "").strip()
+    if not sid:
+        raise RewardError("대상 계정이 비어 있습니다.")
+
+    note = (memo or "").strip() or ("관리자 지급" if delta > 0 else "관리자 회수")
+    if len(note) > 60:
+        note = note[:59] + "…"
+
+    with _session() as db:
+        balance = _balance(db, sid)
+        if delta < 0 and balance + delta < 0:
+            raise RewardError(f"보유 코인({balance}개)보다 많이 회수할 수 없어요.")
+
+        stamp = datetime.now(KST).strftime("%Y%m%d%H%M%S%f")
+        db.add(PointLedger(
+            store_id=sid,
+            delta=delta,
+            reason="admin_grant" if delta > 0 else "admin_revoke",
+            ref=f"admin:{stamp}",
+            memo=note,
+        ))
+        db.commit()
+        new_balance = _balance(db, sid)
+
+    logger.info("관리자 코인 %s — 대상 %s, %+d코인 (관리자 %s, 사유: %s)",
+                "지급" if delta > 0 else "회수", sid, delta, admin_email or "-", note)
+    return {"store_id": sid, "delta": delta, "balance": new_balance, "memo": note}
 
 
 def _derived_ref(key: str) -> str:

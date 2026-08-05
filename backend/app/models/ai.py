@@ -749,3 +749,27 @@ class PosSyncedOrder(Base):
     provider: Mapped[str] = mapped_column(String(20), default="square")
     order_id: Mapped[str] = mapped_column(String(100))
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AiWarmCache(Base):
+    """무거운 계산 결과를 DB에 남겨 두는 자리 — 서버 인스턴스가 바뀌어도 살아남는 캐시.
+
+    인사이트 스캔과 판매 예측은 매장 데이터를 통째로 훑어 만든다. 각각 파이썬 프로세스
+    메모리에 캐시를 두고 있었지만, Cloud Run은 트래픽이 없으면 인스턴스를 내려버린다.
+    그래서 사장님이 아침에 앱을 처음 켤 때는 항상 캐시가 빈 인스턴스에 걸렸고,
+    인사이트 7.1초 · 예측 7.0초를 그대로 기다려야 했다(2026-08-05 실측).
+
+    여기에 한 벌 더 써 두면 새 인스턴스도 쿼리 한 번(≈0.2초)으로 지난 결과를 집어
+    바로 응답하고, 진짜 계산은 백그라운드에서 돌려 다음 조회부터 최신이 된다.
+
+    지워도 기능은 멀쩡하다 — 다시 계산할 뿐이다. 그래서 어떤 오류도 조용히 넘긴다.
+    """
+
+    __tablename__ = "ai_warm_cache"
+
+    # 예: "insights:s@gmail.com:2026-08-05", "forecast:s@gmail.com:37.566:126.978:7"
+    key: Mapped[str] = mapped_column(String(200), primary_key=True)
+    payload: Mapped[str] = mapped_column(Text)  # JSON 문자열
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), index=True
+    )

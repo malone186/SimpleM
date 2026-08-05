@@ -5,19 +5,25 @@ AI 생성 이미지는 우리 매장 실물과 다를 수 있다. 그래서 사�
 감성 배경 위에 자연스럽게 합성한다:
 
   ① 누끼: rembg(u2netp) — 첫 호출 때 모델(~5MB)을 내려받아 세션을 재사용
-  ② 배경: Gemini 이미지 모델(결제 켜진 프로젝트면) → Pollinations(무료, 12초 제한)
-          → 둘 다 실패하면 번들 배경(static/promo_bg) → 최후엔 크림 그라데이션.
-          매번 새로 생성해 '항상 똑같은 배경' 문제를 없애되, 실패해도 절대 안 죽는다.
+  ② 배경: 요청 경로에서는 절대 AI를 기다리지 않는다 — 캐시된 AI 배경이 있으면 그걸,
+          없으면 번들 배경(static/promo_bg)을 즉시 쓰고, 다음 사용자를 위한 새 AI
+          배경은 백그라운드 스레드가 미리 만들어 캐시에 넣는다(_refresh_bg_async).
+          '항상 똑같은 배경' 문제는 캐시에 여러 장을 쌓아 무작위로 골라 해결한다.
   ③ 합성: Pillow — 피사체를 중앙 하단에 배치하고 부드러운 그림자를 깔아
           '스티커 붙인 느낌'을 줄인다
   ④ 저장·문서 연결은 기존 marketing_service 경로를 그대로 재사용
 
 키가 전혀 없어도(무료 환경) 전 과정이 동작한다.
+
+[속도] 결과물은 JPEG로 저장한다. PNG는 같은 1472² 합성본이 3.1MB인데 JPEG q92는
+0.5MB로, 모바일에서 체감 지연(실측 37초)의 대부분이 이 다운로드였다. 서버 처리 자체는
+누끼+합성 2~4초다(Cloud Run 실측).
 """
 from __future__ import annotations
 
 import io
 import logging
+import threading
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -56,11 +62,22 @@ _NO_TEXT = (" IMPORTANT: absolutely no text, no letters, no logos, no food, no d
 
 _session = None  # rembg 세션 — 프로세스당 1회 로드해 재사용
 
-# 배경 캐시 — (스타일, 비율)별로 6시간 재사용. 배경 생성(Pollinations)이 수십 초로
-# 가장 느린 구간이라, 실측 프로덕션 첫 합성이 78초까지 갔고 모바일 연결이 그 사이
-# 끊겨 '인터넷 연결 확인' 오류로 보였다. 같은 배경을 재사용하면 합성은 2~3초로 준다.
+# 배경 캐시 — (스타일, 비율)별로 6시간 재사용. AI 배경 생성이 수십 초로 가장 느린
+# 구간이라, 실측 프로덕션 첫 합성이 78초까지 갔고 모바일 연결이 그 사이 끊겨
+# '인터넷 연결 확인' 오류로 보였다. 그래서 요청 경로에서는 캐시/번들만 쓰고, 새 배경은
+# 백그라운드로 채운다 — 합성은 항상 2~3초로 끝난다.
 _BG_TTL = 6 * 3600
-_bg_cache: dict[tuple[str, str], tuple[float, bytes]] = {}
+# 한 (스타일, 비율)당 최대 이만큼 쌓아 두고 무작위로 고른다 — '배경이 늘 똑같다'를
+# 지연 없이 해결하는 방법. 캐시 전체는 _BG_CACHE_MAX장으로 묶어 메모리를 제한한다
+# (Cloud Run 1Gi, 장당 JPEG 0.3~0.6MB).
+_BG_PER_KEY = 3
+_BG_CACHE_MAX = 9
+# 마지막 배경이 이보다 오래됐고 아직 여유가 있으면 새 배경을 한 장 더 받아 둔다
+_BG_REFRESH_AFTER = 20 * 60
+_bg_cache: dict[tuple[str, str], list[tuple[float, bytes]]] = {}
+_bg_inflight: set[tuple[str, str]] = set()
+# 캐시는 요청 스레드(읽기)와 배경 생성 스레드(쓰기)가 함께 만진다 — 항상 이 락 아래에서
+_bg_lock = threading.Lock()
 
 
 class PhotoPromoError(RuntimeError):
@@ -99,80 +116,96 @@ def _cutout(photo_bytes: bytes):
     return cut
 
 
-# Gemini 이미지 모델이 429(쿼터 0·소진)를 주면 이 시각까지 재시도하지 않는다 —
-# 무료 티어는 이미지 모델 한도가 0이라 매 요청 헛손질하게 되는 걸 막는다.
-_gemini_img_dead_until = 0.0
-
-# Gemini 이미지 모델이 지원하는 화면비 — 이 안에 있으면 그대로 넘긴다
-_GEMINI_ARS = {"1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"}
+def _bg_prompt(style: str) -> str:
+    return BACKGROUND_STYLES.get(style, BACKGROUND_STYLES["wood"])["prompt"] + _NO_TEXT
 
 
-def _gemini_background(prompt: str, aspect_ratio: str) -> Optional[bytes]:
-    """Gemini 이미지 모델로 배경 생성. 결제가 안 켜진 프로젝트(무료 티어)는 한도가
-    0이라 즉시 429가 온다 → 10분간 시도 자체를 건너뛴다. 실패는 전부 None."""
-    global _gemini_img_dead_until
+def _cover_crop(raw: bytes, w: int, h: int):
+    """AI/번들 배경 바이트를 요청 비율에 맞춰 확대 후 중앙 크롭 (왜곡 없음)."""
+    import io as _io
+
+    from PIL import Image
+
+    bg = Image.open(_io.BytesIO(raw)).convert("RGB")
+    scale = max(w / bg.width, h / bg.height)
+    bg = bg.resize((round(bg.width * scale), round(bg.height * scale)), Image.LANCZOS)
+    left, top = (bg.width - w) // 2, (bg.height - h) // 2
+    return bg.crop((left, top, left + w, top + h))
+
+
+def _bg_cache_get(key: tuple[str, str]) -> Optional[bytes]:
+    """캐시된 AI 배경 하나를 무작위로 — 같은 스타일이라도 매번 같은 그림이 되지 않게."""
+    import random
+    import time
+
+    with _bg_lock:
+        fresh = [(ts, data) for ts, data in _bg_cache.get(key, []) if time.time() - ts < _BG_TTL]
+        if len(fresh) != len(_bg_cache.get(key, [])):
+            _bg_cache[key] = fresh
+        return random.choice(fresh)[1] if fresh else None
+
+
+def _bg_cache_put(key: tuple[str, str], data: bytes) -> None:
+    """[주의] 호출자가 _bg_lock을 잡은 상태여야 한다."""
+    import time
+
+    entries = _bg_cache.setdefault(key, [])
+    entries.append((time.time(), data))
+    del entries[:-_BG_PER_KEY]
+    # 전체 장수 제한 — 가장 오래된 것부터 버린다
+    while sum(len(v) for v in _bg_cache.values()) > _BG_CACHE_MAX:
+        oldest_key = min(_bg_cache, key=lambda k: _bg_cache[k][0][0] if _bg_cache[k] else 0)
+        _bg_cache[oldest_key].pop(0)
+        if not _bg_cache[oldest_key]:
+            del _bg_cache[oldest_key]
+
+
+def _refresh_bg_async(style: str, aspect_ratio: str) -> None:
+    """다음 사용자를 위한 AI 배경을 백그라운드로 한 장 만들어 캐시에 넣는다.
+
+    요청 응답과 무관하게 돌기 때문에 여기서는 느린 공급자(HF Space, 20초 내외)도
+    쓸 수 있다 — 사장님이 기다리는 시간에는 전혀 영향이 없다. 실패는 조용히 무시.
+    """
     import os
     import time
 
-    key = os.getenv("GEMINI_API_KEY", "") or os.getenv("GOOGLE_API_KEY", "")
-    if not key or time.time() < _gemini_img_dead_until:
-        return None
-    try:
-        import httpx
+    if os.getenv("PHOTO_BG_AI", "1") == "0":
+        return
 
-        body: dict[str, Any] = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"responseModalities": ["IMAGE"]},
-        }
-        if aspect_ratio in _GEMINI_ARS:
-            body["generationConfig"]["imageConfig"] = {"aspectRatio": aspect_ratio}
-        r = httpx.post(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent",
-            params={"key": key}, json=body, timeout=25,
-        )
-        if r.status_code == 429:
-            _gemini_img_dead_until = time.time() + 600
-            logger.info("[사진 합성] Gemini 이미지 쿼터 없음(429) → 10분간 건너뜀")
-            return None
-        r.raise_for_status()
-        parts = r.json()["candidates"][0]["content"]["parts"]
-        data = next((p["inlineData"]["data"] for p in parts if "inlineData" in p), None)
-        if not data:
-            return None
-        import base64
+    key = (style, aspect_ratio)
+    with _bg_lock:
+        entries = _bg_cache.get(key, [])
+        if key in _bg_inflight:
+            return
+        if len(entries) >= _BG_PER_KEY and time.time() - entries[-1][0] < _BG_REFRESH_AFTER:
+            return
+        _bg_inflight.add(key)
 
-        return base64.b64decode(data)
-    except Exception as e:
-        logger.info("[사진 합성] Gemini 배경 생성 실패 → 다음 단계로: %s", e)
-        return None
+    def _run() -> None:
+        try:
+            from app.services.ai import marketing_service as M
 
+            raw, _mime, provider = M._generate_image_bytes(_bg_prompt(style), aspect_ratio, "standard")
+            with _bg_lock:
+                _bg_cache_put(key, raw)
+            logger.info("[사진 합성] 배경 캐시 채움: %s/%s (%s)", style, aspect_ratio, provider)
+        except Exception as e:
+            logger.info("[사진 합성] 배경 미리 생성 실패(무해): %s", e)
+        finally:
+            with _bg_lock:
+                _bg_inflight.discard(key)
 
-def _pollinations_background(prompt: str, w: int, h: int) -> Optional[bytes]:
-    """Pollinations(무료 FLUX)로 배경 생성. 12초 안에 못 주면 포기하고 None —
-    실측상 5~99초로 널뛰는 서비스라, 느린 날엔 기다리지 말고 번들 배경으로 간다."""
-    try:
-        from urllib.parse import quote
-
-        import httpx
-
-        url = (f"https://image.pollinations.ai/prompt/{quote(prompt)}"
-               f"?width={w}&height={h}&nologo=true&enhance=true")
-        r = httpx.get(url, timeout=12, follow_redirects=True)
-        if r.status_code == 200 and r.content[:3] in (b"\xff\xd8\xff", b"\x89PN"):
-            return r.content
-    except Exception as e:
-        logger.info("[사진 합성] Pollinations 배경 실패/지연 → 번들 폴백: %s", e)
-    return None
+    threading.Thread(target=_run, daemon=True, name=f"promo-bg-{style}").start()
 
 
 def _background(style: str, aspect_ratio: str):
-    """배경 이미지(RGB) — AI 생성을 먼저 시도하고, 실패하면 내장 자산으로 폴백.
+    """배경 이미지(RGB) — 절대 네트워크를 기다리지 않는다.
 
-    시도 순서: ① Gemini 이미지 모델(프로젝트에 결제가 켜져 있을 때만 성공, ~10초)
-              ② Pollinations 무료 생성(12초 제한) ③ 번들 배경(static/promo_bg, 즉시)
-              ④ 크림 그라데이션. AI 배경은 매번 새로 생성돼 결과물이 늘 다르다 —
-    '미리 만든 배경이라 다 똑같다'는 피드백 대응. 캐시를 일부러 안 쓰는 이유이기도
-    하다(캐시하면 다양성이 도로 사라진다). 최악의 추가 지연은 25+12초, 그 뒤 폴백.
+    ① 캐시된 AI 배경(있으면 무작위 1장) ② 번들 배경(static/promo_bg) ③ 크림 그라데이션.
+    어느 쪽이든 즉시 끝나고, 다음 요청용 새 AI 배경은 백그라운드가 채운다.
+    (예전에는 여기서 Gemini 25초 + Pollinations 12초를 기다려 최악 37초가 그대로
+     사장님 대기 시간이 됐다 — 두 공급자 모두 무료 한도가 막힌 지금은 그 시간이
+     '기다렸다가 결국 번들 배경'이라 순수 손해였다.)
     """
     import io as _io
     import os
@@ -183,30 +216,21 @@ def _background(style: str, aspect_ratio: str):
 
     w, h = M._AR_SIZES.get(aspect_ratio, (1472, 1472))
 
-    prompt = (BACKGROUND_STYLES.get(style, BACKGROUND_STYLES["wood"])["prompt"] + _NO_TEXT)
-    raw = _gemini_background(prompt, aspect_ratio)
-    provider = "gemini" if raw else ""
-    if not raw:
-        raw = _pollinations_background(prompt, w, h)
-        provider = "pollinations" if raw else ""
-    if raw:
+    if style not in BACKGROUND_STYLES:
+        style = "wood"
+
+    cached = _bg_cache_get((style, aspect_ratio))
+    _refresh_bg_async(style, aspect_ratio)
+    if cached:
         try:
-            bg = Image.open(_io.BytesIO(raw)).convert("RGB")
-            scale = max(w / bg.width, h / bg.height)
-            bg = bg.resize((round(bg.width * scale), round(bg.height * scale)), Image.LANCZOS)
-            left, top = (bg.width - w) // 2, (bg.height - h) // 2
-            return bg.crop((left, top, left + w, top + h)), provider
+            return _cover_crop(cached, w, h), "ai-cached"
         except Exception as e:
-            logger.warning("[사진 합성] AI 배경 디코드 실패 → 번들 폴백: %s", e)
-    asset = os.path.join(os.path.dirname(__file__), "..", "..", "static", "promo_bg",
-                         f"{style if style in BACKGROUND_STYLES else 'wood'}.jpg")
+            logger.warning("[사진 합성] 캐시 배경 디코드 실패 → 번들 폴백: %s", e)
+
+    asset = os.path.join(os.path.dirname(__file__), "..", "..", "static", "promo_bg", f"{style}.jpg")
     try:
-        bg = Image.open(asset).convert("RGB")
-        # 커버-크롭: 비율을 채우도록 확대 후 중앙 크롭 — 왜곡 없이 어떤 비율도 대응
-        scale = max(w / bg.width, h / bg.height)
-        bg = bg.resize((round(bg.width * scale), round(bg.height * scale)), Image.LANCZOS)
-        left, top = (bg.width - w) // 2, (bg.height - h) // 2
-        return bg.crop((left, top, left + w, top + h)), "bundled"
+        with open(asset, "rb") as f:
+            return _cover_crop(f.read(), w, h), "bundled"
     except Exception as e:
         logger.warning("내장 배경 로드 실패 → 그라데이션 폴백: %s", e)
         bg = Image.new("RGB", (w, h))
@@ -361,19 +385,21 @@ def compose_from_photo(store_id: str, photo_bytes: bytes, style: str = "wood",
     bg, bg_provider = _background(style, aspect_ratio)
     final = _composite(cut, bg)
 
+    # JPEG로 저장한다 — 같은 합성본이 PNG 3.1MB vs JPEG q92 0.5MB(실측)로, 사장님이
+    # 체감하는 지연의 대부분이 이 다운로드였다. 사진 합성물이라 화질 차이는 안 보인다.
     buf = io.BytesIO()
-    final.save(buf, format="PNG")
-    image_id, filename = M._save_image(buf.getvalue(), "image/png")
+    final.save(buf, format="JPEG", quality=92, subsampling=0, optimize=True)
+    image_id, filename = M._save_image(buf.getvalue(), "image/jpeg")
 
     entry = {
         "image_id": image_id,
         "filename": filename,
-        "url": f"{M.IMAGE_URL_PREFIX}/{filename}",
+        "url": M.image_url(filename),
         "raw_filename": filename,
-        "raw_url": f"{M.IMAGE_URL_PREFIX}/{filename}",
+        "raw_url": M.image_url(filename),
         "overlay": "none",
         "slogan": "",
-        "mime_type": "image/png",
+        "mime_type": "image/jpeg",
         "aspect_ratio": aspect_ratio,
         "style": f"photo:{style}",
         "quality": "high",
@@ -391,15 +417,18 @@ def compose_from_photo(store_id: str, photo_bytes: bytes, style: str = "wood",
 
 
 def warm_backgrounds_async() -> None:
-    """기동 시 누끼 모델(onnx 세션)을 백그라운드로 미리 초기화한다.
+    """기동 시 누끼 모델(onnx 세션)과 AI 배경 한 장을 백그라운드로 미리 준비한다.
 
-    배경은 내장 자산이라 예열이 필요 없지만, rembg 세션 생성+첫 추론이 새 인스턴스
-    에서 수십 초(실측: 배포 직후 첫 합성 98초)를 잡아먹는다. 부팅 때 작은 더미
-    이미지로 한 번 돌려두면 첫 사용자부터 수 초 합성을 본다.
-    PHOTO_BG_WARM=0 으로 끌 수 있다(테스트·오프라인 환경).
+    rembg 세션 생성+첫 추론이 새 인스턴스에서 수십 초(실측: 배포 직후 첫 합성 98초)를
+    잡아먹는다. 부팅 때 작은 더미 이미지로 한 번 돌려두면 첫 사용자부터 수 초 합성을
+    본다. PHOTO_BG_WARM=0 으로 끌 수 있다(테스트·오프라인 환경).
+
+    AI 배경은 여기서 미리 받지 않는다 — 무료 이미지 생성 할당량이 앱 전체 공유라,
+    아무도 안 쓸 수도 있는 기동 시점에 한 장을 태우면 정작 사장님 요청 때 모자란다.
+    첫 합성은 번들 배경으로 즉시 끝내고, 그때 백그라운드가 다음 장을 채운다.
+    PHOTO_BG_AI=1(기본)일 때만 그 예열이 돈다.
     """
     import os
-    import threading
 
     if os.getenv("PHOTO_BG_WARM", "1") == "0":
         return

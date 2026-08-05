@@ -52,6 +52,8 @@
         <button class="nav-item" data-tab="cs">
           <i data-lucide="headset"></i>
           <span>CS / 문의 관리</span>
+          <!-- 미답변 문의 수 — 탭을 열지 않아도 밀린 문의가 있다는 걸 알 수 있어야 한다 -->
+          <span class="nav-badge" id="nav-cs-badge" style="display:none;">0</span>
         </button>
         <button class="nav-item" data-tab="notifications">
           <i data-lucide="bell"></i>
@@ -89,16 +91,14 @@
           <p class="page-sub">브루노트 카페 통합 플랫폼 전체 운영 현황입니다.</p>
         </div>
         <div class="header-right">
-          <!-- href는 실제로 붙어 있는 백엔드로 JS가 바꾼다 (로컬로 돌려도 링크만 배포본을
-               가리키던 문제). -->
-          <a href="#" id="link-swagger" target="_blank" class="header-btn">
-            <i data-lucide="file-code-2"></i>
-            <span>Swagger API 문서</span>
-          </a>
-          <a href="#" id="link-backend" target="_blank" class="header-btn secondary">
-            <i data-lucide="server"></i>
-            <span>백엔드 서버</span>
-          </a>
+          <!-- (삭제됨) Swagger 문서·백엔드 루트 링크 — 개발자용 링크라 관리 업무에 쓸 일이 없었다.
+               그 자리에 실제로 자주 쓰는 '전체 새로고침'을 둔다. 자동 갱신은 30초 주기지만
+               방금 처리한 결과를 바로 보고 싶을 때가 있다. -->
+          <span class="header-updated" id="header-updated">갱신 중…</span>
+          <button type="button" class="header-btn" id="btn-refresh-all">
+            <i data-lucide="refresh-cw"></i>
+            <span>전체 새로고침</span>
+          </button>
         </div>
       </header>
 
@@ -326,6 +326,80 @@
           </div>
         </div>
 
+        <!-- 실행 현황 — 편성(구성)이 아니라 '실제로 어떻게 돌고 있는지'.
+             수치는 서버 프로세스 메모리에 쌓이므로 재배포·재시작하면 0부터 다시 센다. -->
+        <div class="content-box full-width" style="margin-bottom: 20px;">
+          <div class="box-header">
+            <h3 class="box-title"><i data-lucide="gauge"></i> 챗봇 실행 현황
+              <span class="count-badge" id="rt-since">집계 시작 -</span>
+            </h3>
+            <span class="live-tag" id="agents-runtime-tag">LIVE</span>
+          </div>
+
+          <div class="act-stat-row">
+            <div class="act-stat">
+              <div class="act-stat-label">대화 턴</div>
+              <div class="act-stat-value" id="rt-turns">0<span class="unit">턴</span></div>
+            </div>
+            <div class="act-stat">
+              <div class="act-stat-label">성공률</div>
+              <div class="act-stat-value" id="rt-okrate">-</div>
+            </div>
+            <div class="act-stat">
+              <div class="act-stat-label">평균 응답</div>
+              <div class="act-stat-value" id="rt-avg">-</div>
+            </div>
+            <div class="act-stat">
+              <div class="act-stat-label">가장 느린 편(P95)</div>
+              <div class="act-stat-value" id="rt-p95">-</div>
+            </div>
+            <div class="act-stat danger">
+              <div class="act-stat-label">실패 턴</div>
+              <div class="act-stat-value" id="rt-failed">0<span class="unit">턴</span></div>
+            </div>
+          </div>
+
+          <div class="act-layout">
+            <div class="act-col">
+              <div class="act-col-title"><i data-lucide="git-fork"></i> 전문가 위임 횟수</div>
+              <div class="act-feature-list" id="rt-expert-list"></div>
+            </div>
+            <div class="act-col">
+              <div class="act-col-title"><i data-lucide="wrench"></i> 도구 호출 순위</div>
+              <div class="act-feature-list" id="rt-tool-list"></div>
+            </div>
+          </div>
+
+          <!-- 실패가 있을 때만 나온다 — 사유별로 나눠야 조치가 갈린다(키·한도·DB·코드) -->
+          <div class="rt-failure-row" id="rt-failure-list"></div>
+        </div>
+
+        <!-- 최근 실행 로그 -->
+        <div class="content-box full-width" style="margin-bottom: 20px;">
+          <div class="box-header">
+            <h3 class="box-title"><i data-lucide="scroll-text"></i> 최근 대화 실행 기록</h3>
+            <span class="count-badge" id="rt-recent-count">-</span>
+          </div>
+          <div class="table-container">
+            <table class="desktop-table">
+              <thead>
+                <tr>
+                  <th>시각</th>
+                  <th>매장</th>
+                  <th>질문</th>
+                  <th>위임한 전문가</th>
+                  <th>도구</th>
+                  <th>소요</th>
+                  <th>결과</th>
+                </tr>
+              </thead>
+              <tbody id="rt-recent-body">
+                <!-- JS 동적 생성 -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <!-- 오케스트레이션 트리 -->
         <div class="content-box full-width">
           <div class="box-header">
@@ -350,10 +424,22 @@
         <div class="content-box full-width">
           
           <div class="box-header-row">
-            <h3 class="box-title"><i data-lucide="users"></i> 전체 사장님 회원 관리</h3>
-            
+            <h3 class="box-title"><i data-lucide="users"></i> 전체 사장님 회원 관리 <span class="count-badge" id="user-count-badge">-</span></h3>
+
             <div class="box-actions">
+              <!-- 상태 필터 — 회원이 늘면 '대기'나 '정지'만 보고 싶을 때가 온다 -->
+              <div class="user-filter-pills">
+                <button type="button" class="user-filter-pill active" data-user-filter="all">전체</button>
+                <button type="button" class="user-filter-pill" data-user-filter="활성">활성</button>
+                <button type="button" class="user-filter-pill" data-user-filter="대기">대기</button>
+                <button type="button" class="user-filter-pill" data-user-filter="정지">정지</button>
+              </div>
               <input type="text" id="user-search-input" placeholder="매장명 또는 이메일 검색..." class="search-input">
+              <!-- 이미 받아 둔 목록을 그대로 내보낸다 — 서버 호출 없음 -->
+              <button type="button" class="header-btn secondary" id="btn-export-users" title="현재 목록을 CSV로 저장">
+                <i data-lucide="download"></i>
+                <span>CSV 내보내기</span>
+              </button>
             </div>
           </div>
 
@@ -366,6 +452,7 @@
                   <th>매장명</th>
                   <th>이메일 주소</th>
                   <th>가입 상태</th>
+                  <th>보유 코인</th>
                   <th>관리</th>
                 </tr>
               </thead>
@@ -385,9 +472,8 @@
           <!-- 좌측: 공지사항 및 푸시 알림 발송 폼 -->
           <div class="content-box">
             <div class="box-header">
-              <!-- 이 폼은 공지를 '등록'한다. 앱이 폴링으로 받아 홈 화면에 띄우는 방식이고,
-                   FCM 푸시로 밀어 보내지는 않는다. '즉시 발송/PUSH SYSTEM'이라고 써 두면
-                   앱을 닫아 둔 사장님에게도 간 줄로 오해하게 된다. -->
+              <!-- 이 폼은 공지를 등록하고, 기기를 등록한 사장님에게는 FCM 푸시까지 보낸다
+                   (백엔드 _push_notice). 몇 대에 갔는지는 등록 직후 알림창에 그대로 나온다. -->
               <h3 class="box-title"><i data-lucide="send"></i> 사장님 공지 등록</h3>
               <span class="live-tag">NOTICE</span>
             </div>
@@ -420,8 +506,8 @@
                 <i data-lucide="send"></i> 공지 등록하기
               </button>
               <p class="form-hint" style="margin-top:8px; font-size:12px; color:var(--mocha-brown); line-height:1.5;">
-                등록한 공지는 사장님 앱 홈 화면의 알림함에 표시됩니다. 앱을 닫아 둔 상태로
-                울리는 푸시 알림은 아직 지원하지 않습니다.
+                등록하면 앱 알림 권한을 켠 사장님 기기로 푸시가 바로 나갑니다. 등록 직후 몇 대에
+                갔는지 알려 드리고, 푸시를 못 받은 사장님도 앱 홈 화면 알림함에서 확인할 수 있습니다.
               </p>
             </form>
           </div>
@@ -487,12 +573,17 @@
   <div class="drawer-overlay" id="drawer-overlay">
     <div class="drawer-panel" id="drawer-panel">
       
-      <!-- Drawer Header -->
+      <!-- Drawer Header — 매장 이름·계정 상태를 한눈에. 아래 값들은 openUserDrawer()가 채운다 -->
       <div class="drawer-header">
         <div class="drawer-title-box">
-          <!-- 아래 값들은 openUserDrawer()가 선택한 회원 정보로 덮어쓴다 -->
-          <span class="drawer-id-badge" id="drawer-user-id">#-</span>
-          <h2 class="drawer-title" id="drawer-store-name">-</h2>
+          <div class="drawer-avatar" id="drawer-avatar">-</div>
+          <div class="drawer-title-text">
+            <h2 class="drawer-title" id="drawer-store-name">-</h2>
+            <div class="drawer-subtitle">
+              <span class="drawer-id-badge" id="drawer-user-id">#-</span>
+              <span class="status-badge green-bg" id="drawer-status-chip">활성</span>
+            </div>
+          </div>
         </div>
         <button class="drawer-close-btn" id="drawer-close-btn">
           <i data-lucide="x"></i>
@@ -501,44 +592,38 @@
 
       <!-- Drawer Body (Scrollable) -->
       <div class="drawer-body">
-        
+
         <!-- 1. 계정 및 매장 프로필 카드 -->
         <div class="drawer-card">
           <div class="card-section-title">
             <i data-lucide="user"></i> 계정 및 매장 정보
           </div>
-          <div class="info-grid">
-            <div class="info-item">
+          <!-- 라벨-값을 좌우로 둔 목록. 예전 2열 그리드는 값이 길면 줄이 어긋나 읽기 어려웠다 -->
+          <div class="info-list">
+            <div class="info-row">
               <span class="info-label">사장님 이름</span>
               <span class="info-value" id="drawer-user-name">-</span>
             </div>
-            <div class="info-item">
+            <div class="info-row">
               <span class="info-label">이메일 주소</span>
               <span class="info-value" id="drawer-user-email">-</span>
             </div>
-            <div class="info-item">
+            <div class="info-row">
               <span class="info-label">가입 일자</span>
               <span class="info-value" id="drawer-user-joined">-</span>
             </div>
-            <div class="info-item">
-              <span class="info-label">계정 상태 변경</span>
+            <div class="info-row">
+              <span class="info-label">계정 상태</span>
               <select id="drawer-user-status-select" class="status-select">
                 <option value="활성">활성 (사용 가능)</option>
                 <option value="대기">대기 (승인 대기)</option>
                 <option value="정지">정지 (이용 제한)</option>
               </select>
             </div>
-            <div class="info-item full-width-action" style="grid-column: span 2; margin-top: 8px;">
-              <button class="action-btn approve-btn" id="btn-approve-user">
-                <i data-lucide="check-circle-2"></i> 회원 가입 즉시 승인 및 계정 활성화
-              </button>
-            </div>
-            <div class="info-item full-width-action" style="grid-column: span 2; margin-top: 4px;">
-              <button class="action-btn cancel" id="btn-delete-user" style="background-color: #C62828; color: #FFFFFF; font-weight: bold; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; border: none; border-radius: 8px; padding: 10px;">
-                <i data-lucide="user-x"></i> 이 사장님 계정 강제 차단 및 영구 삭제
-              </button>
-            </div>
           </div>
+          <button class="approve-btn" id="btn-approve-user">
+            <i data-lucide="check-circle-2"></i> 가입 승인 · 계정 활성화
+          </button>
         </div>
 
         <!-- (삭제됨) 멤버십 서비스 현황 — 유료 플랜 폐지 -->
@@ -546,17 +631,85 @@
         <!-- 3. 앱 실시간 사용 통계 카드 -->
         <div class="drawer-card">
           <div class="card-section-title">
-            <i data-lucide="bar-chart-2"></i> 이번 달 서비스 사용 통계
+            <i data-lucide="bar-chart-2"></i> 서비스 사용 통계
           </div>
           <div class="drawer-stats-grid">
             <div class="stat-box">
               <div class="stat-num" id="drawer-stat-ocr">-<span class="stat-unit">건</span></div>
-              <div class="stat-title">OCR 영수증 인식</div>
+              <div class="stat-title">OCR 영수증</div>
             </div>
             <div class="stat-box">
               <div class="stat-num" id="drawer-stat-stocks">-<span class="stat-unit">개</span></div>
-              <div class="stat-title">등록된 재고 품목</div>
+              <div class="stat-title">등록 재고</div>
             </div>
+            <div class="stat-box">
+              <div class="stat-num" id="drawer-stat-docs">-<span class="stat-unit">건</span></div>
+              <div class="stat-title">생성 서류</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3-2. 코인 지급 카드 — 상점(브루 꾸미기) 재화를 관리자가 직접 넣거나 회수한다 -->
+        <div class="drawer-card">
+          <div class="card-section-title">
+            <i data-lucide="coins"></i> 코인 지급 · 회수
+          </div>
+
+          <!-- 잔액 — 지금 얼마 있는지가 이 카드에서 가장 먼저 보여야 한다 -->
+          <div class="coin-balance-box">
+            <div class="coin-balance-main">
+              <span class="coin-balance-label">현재 보유 코인</span>
+              <span class="coin-balance-num" id="drawer-coin-balance">-<span class="stat-unit">코인</span></span>
+            </div>
+            <div class="coin-balance-side">
+              <span class="coin-balance-label">누적 적립</span>
+              <span class="coin-balance-sub" id="drawer-coin-earned">-</span>
+            </div>
+          </div>
+
+          <!-- 지급/회수를 탭으로 나눈다 — 예전엔 회수하려면 '-100'처럼 음수를 직접 쳐야 했다 -->
+          <div class="coin-mode-tabs">
+            <button type="button" class="coin-mode-tab active" data-mode="grant">
+              <i data-lucide="plus-circle"></i> 지급
+            </button>
+            <button type="button" class="coin-mode-tab" data-mode="revoke">
+              <i data-lucide="minus-circle"></i> 회수
+            </button>
+          </div>
+
+          <div class="coin-quick-row">
+            <!-- 자주 쓰는 금액 — 누르면 아래 입력칸에 채워진다 -->
+            <button type="button" class="coin-chip" data-coin="50">50</button>
+            <button type="button" class="coin-chip" data-coin="100">100</button>
+            <button type="button" class="coin-chip" data-coin="300">300</button>
+            <button type="button" class="coin-chip" data-coin="500">500</button>
+            <button type="button" class="coin-chip" data-coin="1000">1000</button>
+          </div>
+
+          <div class="coin-field">
+            <span class="coin-field-label">코인 수</span>
+            <input type="number" id="coin-amount-input" class="coin-field-input" placeholder="0" min="0" step="10" inputmode="numeric">
+            <span class="coin-field-unit">코인</span>
+          </div>
+
+          <div class="coin-field text">
+            <span class="coin-field-label">사유</span>
+            <input type="text" id="coin-memo-input" class="coin-field-input" placeholder="예: CS 보상 (사장님 내역에 표시)" maxlength="60">
+          </div>
+
+          <!-- 누르기 전에 결과를 먼저 보여 준다 — 잘못 눌러도 되돌리려면 다시 회수해야 한다 -->
+          <div class="coin-preview" id="coin-preview">코인 수를 입력하면 지급 후 잔액을 미리 보여 드려요.</div>
+
+          <button class="coin-grant-btn" id="btn-grant-coin">
+            <i data-lucide="gift"></i> <span id="coin-grant-btn-label">코인 지급하기</span>
+          </button>
+
+          <div class="coin-history-head">
+            <span class="coin-history-title">최근 코인 내역</span>
+            <span class="coin-history-count" id="coin-history-count"></span>
+          </div>
+          <div class="coin-history" id="drawer-coin-history">
+            <div class="coin-history-empty">불러오는 중…</div>
           </div>
         </div>
 
@@ -568,6 +721,18 @@
           <textarea id="drawer-user-memo" class="memo-textarea" placeholder="특이사항이나 CS 응대 이력을 메모하세요..."></textarea>
           <button class="save-memo-btn" id="btn-save-memo">
             <i data-lucide="save"></i> 메모 저장하기
+          </button>
+        </div>
+
+        <!-- 5. 위험 구역 — 되돌릴 수 없는 삭제는 맨 아래로 내렸다.
+             예전엔 계정 정보 바로 밑에 새빨간 큰 버튼이 있어서, 상태만 바꾸려다 잘못 누르기 딱 좋았다. -->
+        <div class="drawer-card danger-card">
+          <div class="card-section-title danger">
+            <i data-lucide="alert-triangle"></i> 위험 구역
+          </div>
+          <p class="danger-desc">계정과 관리자 메모가 DB에서 영구 삭제됩니다. 되돌릴 수 없습니다.</p>
+          <button class="danger-btn" id="btn-delete-user">
+            <i data-lucide="user-x"></i> 이 사장님 계정 영구 삭제
           </button>
         </div>
 

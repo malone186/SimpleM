@@ -363,9 +363,9 @@ def test_report_skips_generation_when_already_sent(db, sent, monkeypatch):
 def test_stock_bundles_urgent_items(db, sent, monkeypatch):
     from app.services.ai import forecast_service
     monkeypatch.setattr(forecast_service, "forecast", lambda sid: {"order_recommendations": [
-        {"ingredient": "원두", "days_until_stockout": 1.0},
-        {"ingredient": "우유", "days_until_stockout": 2.0},
-        {"ingredient": "시럽", "days_until_stockout": 10.0},   # 리드타임 밖 — 제외
+        {"ingredient": "원두", "ingredient_id": 7, "days_until_stockout": 1.0},
+        {"ingredient": "우유", "ingredient_id": 9, "days_until_stockout": 2.0},
+        {"ingredient": "시럽", "ingredient_id": 3, "days_until_stockout": 10.0},  # 리드타임 밖 — 제외
     ]})
 
     settings = ns.get_settings(db, STORE)
@@ -375,6 +375,10 @@ def test_stock_bundles_urgent_items(db, sent, monkeypatch):
     assert "원두" in sent[0]["title"]             # 가장 급한 품목이 제목
     assert "시럽" not in sent[0]["body"]
     assert sent[0]["data"]["screen"] == "Inventory"   # 발주 화면은 앱에서 빠졌다
+    # 재료 id까지 실려야 재고 화면이 그 카드로 스크롤·강조할 수 있다 (id 없으면 목록만 뜬다).
+    # 푸시 data는 값을 문자열로 직렬화한다 — 받는 화면(InventoryScreen)이 숫자로 되돌린다.
+    # 여기서 문자열임을 못 박아 둬야, 프론트에서 변환을 빼면 이 테스트가 먼저 알려준다.
+    assert sent[0]["data"]["focusIngredientId"] == "7"   # 가장 급한 품목(원두)
 
 
 def test_stock_skips_forecast_when_already_sent(db, sent, monkeypatch):

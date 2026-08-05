@@ -10,7 +10,7 @@
 // 그리고 '주변 행사'(축제·팝업·문화행사)를 같은 지도 위에 오렌지 핀으로 얹는다. 수집 소스는
 // 판매 예측이 쓰는 것과 같아서(관광공사·서울 문화행사·네이버 검색+AI) 예측의 매출 부스팅과
 // 화면에 보이는 행사가 어긋나지 않는다. 카페는 반경 선택(500m~2km), 행사는 예측과 같은 3km 고정.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -64,6 +64,10 @@ const RADIUS_OPTIONS = [500, 1000, 2000] as const;
 // 행사 조회 기간 — 예측(1주)보다 넉넉히 잡아 "다음 주말 축제"까지 미리 보이게 한다
 const EVENT_DAYS = 14;
 
+// 상권 변화를 되돌아볼 기간 — 알림은 그때그때 한 번 울리고 끝이지만, 화면에서는
+// "요즘 우리 동네가 어떻게 바뀌었나"를 한눈에 보려면 지난 기록까지 넘겨볼 수 있어야 한다.
+const CHANGE_DAY_OPTIONS = [30, 90] as const;
+
 export default function StoreMapScreen() {
   // [한글 주석] 뷰포트 비례 계산 — 지도가 화면을 다 먹지 않게 높이를 조정한다
   const { vh } = useResponsive();
@@ -88,12 +92,44 @@ export default function StoreMapScreen() {
   const [showAllEvents, setShowAllEvents] = useState(false);
 
   // 상권 변화 — 서버가 매일 훑어 쌓아 둔 '새로 생긴 / 없어진 카페'. 순수 DB 조회라 즉시 온다.
+  // 알림으로도 같은 내용이 나가지만, 알림을 놓쳤거나 꺼 둔 사장님도 여기서 그대로 볼 수 있어야 한다.
   const [changes, setChanges] = useState<CafeChangesResult | null>(null);
+  const [changeDays, setChangeDays] = useState<number>(CHANGE_DAY_OPTIONS[0]);
+  const [changesLoading, setChangesLoading] = useState(true);
+  const [rescanning, setRescanning] = useState(false);
+
+  // 행사 상세 — 카드나 지도 핀을 누르면 먼저 이게 열린다. 여기서 'AI 준비 플랜'으로 이어진다.
+  // (예전엔 카드에 달린 버튼 하나뿐이라, 행사 자체가 궁금해도 볼 곳이 없었다.)
+  const [detailEvent, setDetailEvent] = useState<NearbyEventItem | null>(null);
 
   // 행사 하나에 대한 AI 이벤트·준비 플랜 (행사 카드에서 눌러 연다)
   const [planEvent, setPlanEvent] = useState<NearbyEventItem | null>(null);
   const [plan, setPlan] = useState<EventPlan | null>(null);
   const [planError, setPlanError] = useState('');
+
+  // 요청 순번 — 이 화면의 조회는 죄다 네이버 수집·Gemini라 몇 초씩 걸린다. 그동안 사장님이
+  // 다른 카페를 누르거나 반경을 바꾸면 늦게 도착한 옛 응답이 새 화면을 덮어썼다.
+  // (실제로 카페 A의 '우리 대응'이 카페 B 이름 아래 붙는다 — 잘못된 경쟁 분석을 보고 움직이게 된다.)
+  // 각 조회는 자기 순번을 들고 나갔다가, 돌아왔을 때 그 사이 더 최근 요청이 나갔으면 조용히 버린다.
+  const seq = useRef({ nearby: 0, cafe: 0, plan: 0, changes: 0, events: 0, myCafe: 0 });
+  const alive = useRef(true);
+  useEffect(() => {
+    // 마운트마다 되살린다. 정리 함수만 두면 StrictMode·Fast Refresh가 한 번 정리한 뒤로
+    // alive가 영영 false로 남아 모든 응답이 버려진다(스피너가 끝나지 않는다).
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
+
+  // '주변 소식' 바로가기 — 지도 아래로 카드가 길게 이어져 행사·변화 섹션이 접힌 화면 밖에 있다.
+  // 알림으로만 보던 두 가지를 화면 맨 위에서 곧장 찾아갈 수 있게 스크롤 위치를 기억해 둔다.
+  const scrollRef = useRef<ScrollView | null>(null);
+  const bodyY = useRef(0);
+  const changesY = useRef(0);
+  const eventsY = useRef(0);
+  const jumpTo = useCallback((target: 'changes' | 'events') => {
+    const y = bodyY.current + (target === 'changes' ? changesY.current : eventsY.current);
+    scrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true });
+  }, []);
 
   const [selected, setSelected] = useState<NearbyCafe | null>(null);
   const [analysis, setAnalysis] = useState<CafeAnalysisResult | null>(null);
@@ -148,10 +184,14 @@ export default function StoreMapScreen() {
   const loadNearby = useCallback(
     async (radiusM: number) => {
       if (!token || !store) return;
+      const my = ++seq.current.nearby;
       setLoadingNearby(true);
       setNearbyError('');
+      // 반경을 바꾸면 옛 배지가 잠깐 남아 새 목록에 엉뚱하게 붙는다 — 먼저 비운다
+      setSimMap({});
       try {
         const data = await getNeighborhoodInsight(token, radiusM);
+        if (seq.current.nearby !== my || !alive.current) return; // 더 최근 반경 요청이 있다
         setNearby(data);
         // 유사도 채점은 뒤이어 비동기로 — 배지가 준비되는 대로 목록에 나타난다
         if (data.cafes.length > 0) {
@@ -161,19 +201,22 @@ export default function StoreMapScreen() {
             data.cafes.map((c) => ({ name: c.name, category: c.category, distance_m: c.distance_m })),
           )
             .then((sim) => {
+              if (seq.current.nearby !== my || !alive.current) return;
               const map: Record<string, CafeSimilarity> = {};
               sim.results.forEach((r) => { map[r.name] = r; });
               setSimMap(map);
             })
-            .catch(() => setSimMap({})); // 채점 실패해도 목록은 그대로 (배지만 생략)
-        } else {
-          setSimMap({});
+            .catch(() => { // 채점 실패해도 목록은 그대로 (배지만 생략)
+              if (seq.current.nearby === my && alive.current) setSimMap({});
+            });
         }
       } catch (e) {
+        if (seq.current.nearby !== my || !alive.current) return;
         const msg = e instanceof Error ? e.message : String(e);
         setNearbyError(msg.replace(/^\d+\s·\s/, ''));
       } finally {
-        setLoadingNearby(false);
+        // 늦게 온 옛 응답이 새 요청의 로딩 표시를 꺼 버리지 않게
+        if (seq.current.nearby === my && alive.current) setLoadingNearby(false);
       }
     },
     [token, store],
@@ -189,14 +232,18 @@ export default function StoreMapScreen() {
   // 2-b) 주변 행사 — 반경 칩과 무관하게 한 번만. 카페 조회와 병렬로 돈다.
   const loadEvents = useCallback(async () => {
     if (!token || !store) return;
+    const my = ++seq.current.events;
     setLoadingEvents(true);
     setEventsError(null);
     try {
-      setEvents(await getNearbyEvents(token, EVENT_DAYS));
+      const data = await getNearbyEvents(token, EVENT_DAYS);
+      if (seq.current.events !== my || !alive.current) return;
+      setEvents(data);
     } catch (e) {
+      if (seq.current.events !== my || !alive.current) return;
       setEventsError(describeApiFailure(e, '주변 행사'));
     } finally {
-      setLoadingEvents(false);
+      if (seq.current.events === my && alive.current) setLoadingEvents(false);
     }
   }, [token, store]);
 
@@ -206,30 +253,62 @@ export default function StoreMapScreen() {
 
   // 2-b') 상권 변화 — 실패해도 조용히 넘어간다(다른 카드가 다 뜨는데 이것만 에러 상자를
   // 세울 이유가 없다. 관측 전이면 애초에 빈 결과가 정상이다).
+  const loadChanges = useCallback(
+    async (days: number, refresh = false) => {
+      if (!token || !store) return;
+      const my = ++seq.current.changes;
+      if (refresh) setRescanning(true);
+      else setChangesLoading(true);
+      try {
+        const data = await getNearbyCafeChanges(token, days, refresh);
+        // '지금 확인'은 서버가 반경을 훑는 몇 초짜리다. 그 사이 기간 칩을 바꾸면
+        // 늦게 온 30일 결과가 90일 화면을 덮어썼다 — 칩과 목록이 어긋난다.
+        if (seq.current.changes !== my || !alive.current) return;
+        setChanges(data);
+      } catch {
+        // 조용히 — 카드는 '아직 확인 전' 상태로 남는다
+      } finally {
+        if (seq.current.changes === my && alive.current) {
+          setRescanning(false);
+          setChangesLoading(false);
+        }
+      }
+    },
+    [token, store],
+  );
+
   useEffect(() => {
-    if (!token || !store) return;
-    let cancelled = false;
-    getNearbyCafeChanges(token)
-      .then((r) => {
-        if (!cancelled) setChanges(r);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [token, store]);
+    loadChanges(changeDays);
+  }, [loadChanges, changeDays]);
+
+  // 지도 핀 탭 → 행사 상세. 핀은 이름만 알려 주므로 목록에서 같은 행사를 찾는다.
+  const openEventByName = useCallback(
+    (name: string) => {
+      const hit = (events?.events ?? []).find((e) => e.name === name);
+      if (hit) setDetailEvent(hit);
+    },
+    [events],
+  );
 
   // 행사 카드 → AI 이벤트·준비 플랜 (Gemini 1회, 서버에서 12시간 캐시)
   const openPlan = useCallback(
     async (event: NearbyEventItem) => {
+      const my = ++seq.current.plan;
       setPlanEvent(event);
       setPlan(null);
+      // 토큰이 없으면 시트를 열지 않는다 — 열어 두면 영영 도는 스피너만 남는다
+      if (!token) {
+        setPlanError('로그인이 풀렸어요. 다시 로그인한 뒤 열어 주세요.');
+        return;
+      }
       setPlanError('');
-      if (!token) return;
       try {
-        const res = await getEventPlan(token, event.name, event.start_date);
+        const res = await getEventPlan(token, event);
+        // 다른 행사를 여는 사이 옛 응답이 도착하면 버린다 — 안 그러면 B 제목 아래 A의 플랜이 붙는다
+        if (seq.current.plan !== my || !alive.current) return;
         setPlan(res.plan);
       } catch (e) {
+        if (seq.current.plan !== my || !alive.current) return;
         const msg = e instanceof Error ? e.message : String(e);
         setPlanError(msg.replace(/^\d+\s·\s/, ''));
       }
@@ -240,15 +319,19 @@ export default function StoreMapScreen() {
   // 2-c) 내 카페 리뷰 — 상호만 있으면 조회된다(매장 위치 등록과 무관). 한 번만 부른다.
   const loadMyCafe = useCallback(async () => {
     if (!token) return;
+    const my = ++seq.current.myCafe;
     setLoadingMyCafe(true);
     setMyCafeError('');
     try {
-      setMyCafe(await getMyCafeReviews(token));
+      const data = await getMyCafeReviews(token);
+      if (seq.current.myCafe !== my || !alive.current) return;
+      setMyCafe(data);
     } catch (e) {
+      if (seq.current.myCafe !== my || !alive.current) return;
       const msg = e instanceof Error ? e.message : String(e);
       setMyCafeError(msg.replace(/^\d+\s·\s/, ''));
     } finally {
-      setLoadingMyCafe(false);
+      if (seq.current.myCafe === my && alive.current) setLoadingMyCafe(false);
     }
   }, [token]);
 
@@ -296,6 +379,13 @@ export default function StoreMapScreen() {
   // 지도 마커용 변환 — 지도는 '행사 한 건 = 핀 하나'로 날짜 문자열만 보여 주면 된다.
   // (좌표를 못 구한 행사는 핀을 찍을 수 없으니 목록에만 남긴다.)
   // 훅 순서를 지키기 위해 매장 미등록 early return보다 위에 둔다.
+  // 좌표가 있어 핀을 찍을 수 있는 행사 수 — 범례의 '위치를 못 찾은 N건'이 이 값을 쓴다.
+  // (mapEvents는 15건에서 잘리므로, 그 차이를 '좌표 없음'이라고 말하면 거짓말이 된다)
+  const geoEventCount = useMemo(
+    () => (events?.events ?? []).filter((e) => !!e.lat && !!e.lon).length,
+    [events],
+  );
+
   const mapEvents = useMemo(
     () =>
       (events?.events ?? [])
@@ -304,12 +394,15 @@ export default function StoreMapScreen() {
         .map((e) => ({
           name: e.name,
           place: e.place || '장소 미상',
-          date: e.start_date === e.end_date ? e.start_date : `${e.start_date} ~ ${e.end_date}`,
+          // 지도 말풍선에 그대로 찍히는 값이라 여기서 사람이 읽는 형태로 만든다 (8/16(일))
+          date: formatEventRange(e.start_date, e.end_date),
           distance_km: e.distance_km ?? 0,
           boost_pct: e.boost_pct,
           source: e.source,
           lat: e.lat,
           lon: e.lon,
+          ongoing: e.ongoing,
+          d_day: e.d_day,
         })),
     [events],
   );
@@ -317,14 +410,23 @@ export default function StoreMapScreen() {
   // 3) 카페 하나를 고르면 그 집의 네이버 후기 분석을 불러온다
   const openCafe = useCallback(
     async (cafe: NearbyCafe) => {
+      const my = ++seq.current.cafe;
       setSelected(cafe);
       setAnalysis(null);
-      setAnalysisError('');
       setReviewsOpen(false); // 다른 카페를 열 때마다 후기는 다시 접힌 상태로
-      if (!token) return;
+      if (!token) {
+        setAnalysisError('로그인이 풀렸어요. 다시 로그인한 뒤 열어 주세요.');
+        return;
+      }
+      setAnalysisError('');
       try {
-        setAnalysis(await getCafeAnalysis(token, cafe, nearby?.region ?? ''));
+        const data = await getCafeAnalysis(token, cafe, nearby?.region ?? '');
+        // 후기 수집 + AI 분석이라 몇 초 걸린다. 그 사이 다른 카페를 열었으면 버린다 —
+        // 안 그러면 B의 이름·거리 아래에 A의 강점/약점·'우리 대응'이 붙는다.
+        if (seq.current.cafe !== my || !alive.current) return;
+        setAnalysis(data);
       } catch (e) {
+        if (seq.current.cafe !== my || !alive.current) return;
         const msg = e instanceof Error ? e.message : String(e);
         setAnalysisError(msg.replace(/^\d+\s·\s/, ''));
       }
@@ -339,7 +441,15 @@ export default function StoreMapScreen() {
       await saveStoreLocation(token, { lat: picked.lat, lon: picked.lon, address: picked.address });
       await cacheRegisteredStore({ lat: picked.lat, lon: picked.lon, region: picked.address });
       setStore({ lat: picked.lat, lon: picked.lon, region: picked.address, registered: true });
+      // 매장을 옮기면 이전 동네의 결과는 전부 버린다 — 유사도 배지가 이름만 보고 새 동네
+      // 카페에 다시 붙거나, 펼쳐 둔 목록이 그대로 남아 새 동네를 다 본 것처럼 보였다
       setNearby(null);
+      setSimMap({});
+      setEvents(null);
+      setChanges(null);
+      setShowAllCafes(false);
+      setShowAllEvents(false);
+      setDetailOpen(false);
       setPickerOpen(false);
     } catch (e) {
       console.error('매장 위치 저장 실패:', e);
@@ -406,8 +516,13 @@ export default function StoreMapScreen() {
     <View style={styles.root}>
       {/* 지도와 본문이 하나로 스크롤된다 — 지도를 스크롤뷰 밖에 고정하면 아래 내용을 볼 때
           지도만 덩그러니 남아 어색하다. 지도를 스크롤뷰 첫 요소로 넣어 함께 위로 밀려 올라가게 한다.
-          핀 색: 브라운=내 매장(고정), 초록=주변 카페, 오렌지=인근 행사 */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 28 }} showsVerticalScrollIndicator={false}>
+          핀: 진한 브라운 점=내 매장(고정), 작은 갈색 점=주변 카페, 🎪 이름표=주변 행사 */}
+      <ScrollView
+        ref={scrollRef}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: 28 }}
+        showsVerticalScrollIndicator={false}
+      >
         {/* [한글 주석] 지도 높이는 뷰포트 비례 — 가로모드/작은 기기에서 화면을 다 먹지 않게 */}
         <View style={[styles.mapBox, { height: Math.min(vh(40), 360) }]}>
           <StoreLocationMap
@@ -418,12 +533,35 @@ export default function StoreMapScreen() {
             nearbyCafes={nearby?.cafes ?? []}
             nearbyEvents={mapEvents}
             onCafePress={openCafe}
+            onEventPress={openEventByName}
             containerId="standalone-store-map"
             radius={radius}
           />
         </View>
 
-        <View style={styles.body}>
+        <View style={styles.body} onLayout={(e) => { bodyY.current = e.nativeEvent.layout.y; }}>
+          {/* 지도 범례 — 점이 세 종류나 찍히는데 무엇이 무엇인지 알 길이 없었다.
+              좌표를 못 구한 행사는 핀을 찍을 수 없으므로 그 사실도 함께 밝힌다. */}
+          <View style={styles.legendRow}>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, styles.legendDotStore]} />
+              <Text style={styles.legendText}>내 매장</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, styles.legendDotCafe]} />
+              <Text style={styles.legendText}>주변 카페 {nearby?.cafes.length ?? 0}</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, styles.legendDotEvent]} />
+              <Text style={styles.legendText}>🎪 행사 {mapEvents.length}</Text>
+            </View>
+            {eventList.length > geoEventCount && (
+              <Text style={styles.legendNote}>
+                (위치를 못 찾은 행사 {eventList.length - geoEventCount}건은 아래 목록에만)
+              </Text>
+            )}
+          </View>
+
           {/* 등록된 매장 위치 + 변경 버튼 */}
           <View style={styles.storeRow}>
             <View style={{ flex: 1 }}>
@@ -435,6 +573,24 @@ export default function StoreMapScreen() {
             <TouchableOpacity style={styles.ghostBtn} onPress={() => setPickerOpen(true)}>
               <Ionicons name="create-outline" size={14} color={colors.espressoBrown} />
               <Text style={styles.ghostBtnText}>위치 변경</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* 주변 소식 바로가기 — 알림으로 오던 두 가지(행사 준비, 카페 개업·폐업)가
+              화면 어디에 있는지 맨 위에서 알려 준다. 눌러서 해당 섹션으로 바로 내려간다. */}
+          <View style={styles.newsBar}>
+            <Text style={styles.newsBarLabel}>주변 소식</Text>
+            <TouchableOpacity style={styles.newsChip} onPress={() => jumpTo('events')}>
+              <Text style={styles.newsChipText}>
+                🎪 행사 {loadingEvents ? '확인 중' : `${eventList.length}건`}
+              </Text>
+              <Ionicons name="chevron-down" size={12} color={colors.espressoBrown} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.newsChip} onPress={() => jumpTo('changes')}>
+              <Text style={styles.newsChipText}>
+                ☕ 카페 변화 {changesLoading && !changes ? '확인 중' : `${changes?.count ?? 0}건`}
+              </Text>
+              <Ionicons name="chevron-down" size={12} color={colors.espressoBrown} />
             </TouchableOpacity>
           </View>
 
@@ -518,9 +674,11 @@ export default function StoreMapScreen() {
                       />
                     </TouchableOpacity>
                     {myReviewsOpen &&
-                      myCafe.reviews.map((r) => (
+                      // 링크가 빈 후기가 섞여 있어 key={r.link}면 키가 겹친다 — 접었다 펴면
+                      // 제목 아래 엉뚱한 발췌가 붙거나 줄이 사라졌다
+                      myCafe.reviews.map((r, ri) => (
                         <TouchableOpacity
-                          key={r.link}
+                          key={`my-review-${ri}-${r.link || r.title}`}
                           style={styles.reviewItem}
                           onPress={() => r.link && Linking.openURL(r.link)}
                         >
@@ -704,65 +862,119 @@ export default function StoreMapScreen() {
           )}
 
           {/* ③-b 상권 변화 — 새로 생긴 카페 / 문 닫은 것으로 보이는 카페.
-              매일 훑은 결과를 어제와 비교해 서버가 찾아낸다(같은 내용이 알림으로도 나간다). */}
-          {!!changes && changes.count > 0 && (
-            <View style={styles.changeCard}>
-              <View style={styles.changeHead}>
-                <Ionicons name="pulse-outline" size={16} color={colors.pointOrange} />
-                <Text style={styles.changeTitle}>최근 상권 변화</Text>
-                <Text style={styles.changeNote}>최근 {changes.days}일</Text>
-              </View>
+              매일 훑은 결과를 어제와 비교해 서버가 찾아낸다(같은 내용이 알림으로도 나간다).
 
-              {changes.opened.map((c) => (
-                <View key={`open-${c.place_key}`} style={styles.changeRow}>
-                  <View style={[styles.changeBadge, styles.changeBadgeNew]}>
-                    <Text style={styles.changeBadgeText}>신규</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.changeName} numberOfLines={1}>{c.name}</Text>
-                    <Text style={styles.changeMeta} numberOfLines={1}>
-                      {c.distance_m}m · {c.first_seen}부터 확인됨
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.changeLookBtn}
-                    onPress={() =>
-                      openCafe({
-                        name: c.name, category: c.category, address: c.address, telephone: '',
-                        link: '', lat: c.lat ?? store.lat, lon: c.lon ?? store.lon,
-                        distance_m: c.distance_m,
-                      })
-                    }
-                  >
-                    <Text style={styles.changeLookText}>분석</Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
-
-              {changes.closed.map((c) => (
-                <View key={`close-${c.place_key}`} style={styles.changeRow}>
-                  <View style={[styles.changeBadge, styles.changeBadgeGone]}>
-                    <Text style={styles.changeBadgeText}>폐업?</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.changeName, styles.changeNameGone]} numberOfLines={1}>
-                      {c.name}
-                    </Text>
-                    <Text style={styles.changeMeta} numberOfLines={1}>
-                      {c.distance_m}m · {c.closed_on || c.last_seen}부터 검색에서 사라짐
-                    </Text>
-                  </View>
-                </View>
-              ))}
-
-              <Text style={styles.aiNote}>
-                네이버 지역검색에 잡히는지로 판단해요. 폐업은 추정이라 실제로는 영업 중일 수 있어요.
-              </Text>
+              변화가 없어도 카드는 남긴다. 알림은 '변화가 있을 때'만 울리므로, 조용한 날에
+              카드까지 사라지면 사장님은 이 기능이 알림으로만 존재한다고 느낀다. 여기서는
+              '지금 몇 곳을 지켜보고 있고 언제 확인했는지'를 늘 보여 주고, 직접 다시 확인도 한다. */}
+          <View style={styles.changeCard} onLayout={(e) => { changesY.current = e.nativeEvent.layout.y; }}>
+            <View style={styles.changeHead}>
+              <Ionicons name="pulse-outline" size={16} color={colors.pointOrange} />
+              <Text style={styles.changeTitle}>주변 카페 변화</Text>
+              <TouchableOpacity
+                style={styles.rescanBtn}
+                onPress={() => loadChanges(changeDays, true)}
+                disabled={rescanning}
+              >
+                {rescanning ? (
+                  <ActivityIndicator size="small" color={colors.espressoBrown} />
+                ) : (
+                  <>
+                    <Ionicons name="refresh" size={13} color={colors.espressoBrown} />
+                    <Text style={styles.rescanText}>지금 확인</Text>
+                  </>
+                )}
+              </TouchableOpacity>
             </View>
-          )}
+
+            {/* 기간 넘겨보기 — 알림은 그 순간 한 번뿐이라, 지난 변화는 여기서만 다시 볼 수 있다 */}
+            <View style={styles.changeChipRow}>
+              {CHANGE_DAY_OPTIONS.map((d) => (
+                <TouchableOpacity
+                  key={`chg-${d}`}
+                  style={[styles.changeChip, changeDays === d && styles.changeChipOn]}
+                  onPress={() => setChangeDays(d)}
+                >
+                  <Text style={[styles.changeChipText, changeDays === d && styles.changeChipTextOn]}>
+                    최근 {d}일
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              <View style={{ flex: 1 }} />
+              {!!changes && (
+                <Text style={styles.changeNote}>
+                  {changes.tracked > 0 ? `${changes.tracked}곳 관측 중` : '관측 준비 중'}
+                  {changes.last_scan ? ` · ${formatWatchDay(changes.last_scan)} 확인` : ''}
+                </Text>
+              )}
+            </View>
+
+            {changesLoading && !changes ? (
+              <View style={styles.inlineLoading}>
+                <ActivityIndicator size="small" color={colors.mochaBrown} />
+                <Text style={styles.inlineLoadingText}>주변 카페 변화를 확인하는 중...</Text>
+              </View>
+            ) : !changes || changes.count === 0 ? (
+              <Text style={styles.changeEmpty}>
+                {!changes || !changes.last_scan
+                  ? '아직 주변 카페를 훑기 전이에요. ‘지금 확인’을 누르면 반경 1km를 한 번 살펴봅니다.'
+                  : changes.baseline_only
+                    ? `지금 있는 카페 ${changes.tracked}곳을 기준으로 지켜보기 시작했어요. 새로 생기거나 없어지는 곳은 내일부터 여기에 쌓입니다.`
+                    : `최근 ${changes.days}일 동안 새로 생기거나 문을 닫은 카페는 없었어요.`}
+              </Text>
+            ) : null}
+
+            {(changes?.opened ?? []).map((c) => (
+              <View key={`open-${c.place_key}`} style={styles.changeRow}>
+                <View style={[styles.changeBadge, styles.changeBadgeNew]}>
+                  <Text style={styles.changeBadgeText}>신규</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.changeName} numberOfLines={1}>{c.name}</Text>
+                  <Text style={styles.changeMeta} numberOfLines={1}>
+                    {c.distance_m}m · {formatWatchDay(c.first_seen)}부터 보이기 시작
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.changeLookBtn}
+                  onPress={() =>
+                    openCafe({
+                      name: c.name, category: c.category, address: c.address, telephone: '',
+                      link: '', lat: c.lat ?? store.lat, lon: c.lon ?? store.lon,
+                      distance_m: c.distance_m,
+                    })
+                  }
+                >
+                  <Text style={styles.changeLookText}>분석</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+
+            {(changes?.closed ?? []).map((c) => (
+              <View key={`close-${c.place_key}`} style={styles.changeRow}>
+                <View style={[styles.changeBadge, styles.changeBadgeGone]}>
+                  <Text style={styles.changeBadgeText}>폐업?</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.changeName, styles.changeNameGone]} numberOfLines={1}>
+                    {c.name}
+                  </Text>
+                  <Text style={styles.changeMeta} numberOfLines={1}>
+                    {c.distance_m}m · {formatWatchDay(c.closed_on || c.last_seen)}부터 검색에서 사라짐
+                  </Text>
+                </View>
+              </View>
+            ))}
+
+            <Text style={styles.aiNote}>
+              반경 1km를 매일 훑어 네이버 지역검색에 잡히는지로 판단해요.
+              같은 내용이 알림으로도 가지만, 알림을 놓쳐도 여기서 다시 볼 수 있어요.
+              폐업은 추정이라 실제로는 영업 중일 수 있어요.
+            </Text>
+          </View>
 
           {/* ④ 주변 행사 — 지도의 오렌지 핀과 같은 데이터. 반경은 예측과 맞춰 3km 고정 */}
-          <View style={styles.radiusRow}>
+          <View style={styles.radiusRow} onLayout={(e) => { eventsY.current = e.nativeEvent.layout.y; }}>
             <Text style={styles.sectionTitle}>주변 행사</Text>
             <Text style={styles.sectionNote}>
               반경 {events?.radius_km ?? 3}km · 앞으로 {events?.days ?? EVENT_DAYS}일
@@ -832,12 +1044,19 @@ export default function StoreMapScreen() {
                 </View>
               )}
 
+              {/* 카드 전체가 눌린다 — 행사 자체가 궁금할 때 볼 곳이 없어 버튼만 덩그러니 있었다.
+                  카드 → 상세 시트 → (원하면) AI 준비 플랜 순으로 이어진다. */}
               {visibleEvents.map((e) => (
-                <View key={`${e.name}-${e.start_date}`} style={styles.eventCard}>
+                <TouchableOpacity
+                  key={`${e.name}-${e.start_date}`}
+                  style={[styles.eventCard, e.ongoing && styles.eventCardNow]}
+                  activeOpacity={0.85}
+                  onPress={() => setDetailEvent(e)}
+                >
                   <View style={styles.eventHead}>
                     <View style={[styles.ddayBadge, e.ongoing && styles.ddayBadgeNow]}>
                       <Text style={[styles.ddayText, e.ongoing && styles.ddayTextNow]}>
-                        {e.ongoing ? '진행 중' : `D-${e.d_day}`}
+                        {e.ongoing ? '오늘' : `D-${e.d_day}`}
                       </Text>
                     </View>
                     <View style={{ flex: 1 }}>
@@ -851,21 +1070,19 @@ export default function StoreMapScreen() {
                         {e.distance_km != null ? ` · ${e.distance_km}km` : ''}
                       </Text>
                     </View>
+                    <Ionicons name="chevron-forward" size={16} color={colors.mochaBrown} />
                   </View>
 
                   {!!e.tip && <Text style={styles.eventTip}>💡 {e.tip}</Text>}
 
-                  {/* 이 행사에 무슨 이벤트를 하고 뭘 준비할지 — 누를 때만 AI를 부른다 */}
-                  <TouchableOpacity style={styles.planBtn} onPress={() => openPlan(e)}>
-                    <Ionicons name="sparkles-outline" size={13} color={colors.white} />
-                    <Text style={styles.planBtnText}>이 행사, 뭘 준비할까?</Text>
-                  </TouchableOpacity>
-
-                  <Text style={styles.eventSource}>
-                    {e.source}
-                    {e.boost_pct ? ` · 예측 매출 +${e.boost_pct}% 반영 중` : ''}
-                  </Text>
-                </View>
+                  <View style={styles.eventFootRow}>
+                    <Text style={styles.eventSource} numberOfLines={1}>
+                      {e.source}
+                      {e.boost_pct ? ` · 예측 +${e.boost_pct}%` : ''}
+                    </Text>
+                    <Text style={styles.eventMore}>자세히 보기</Text>
+                  </View>
+                </TouchableOpacity>
               ))}
 
               {eventList.length > visibleEvents.length && (
@@ -880,6 +1097,8 @@ export default function StoreMapScreen() {
               <Text style={styles.aiNote}>
                 공공데이터와 뉴스·블로그 검색으로 모은 일정이라 변동될 수 있어요.
                 같은 행사가 판매 예측의 매출 보정에도 함께 반영됩니다.
+                ‘뭘 준비할까?’는 알림으로 보내드리는 준비 플랜과 같은 내용이라,
+                알림을 못 봤어도 여기서 언제든 다시 볼 수 있어요.
               </Text>
             </>
           )}
@@ -981,9 +1200,9 @@ export default function StoreMapScreen() {
                         />
                       </TouchableOpacity>
                       {reviewsOpen &&
-                        analysis.reviews.map((r) => (
+                        analysis.reviews.map((r, ri) => (
                           <TouchableOpacity
-                            key={r.link}
+                            key={`cafe-review-${ri}-${r.link || r.title}`}
                             style={styles.reviewItem}
                             onPress={() => r.link && Linking.openURL(r.link)}
                           >
@@ -1061,6 +1280,99 @@ export default function StoreMapScreen() {
         </View>
       </Modal>
 
+      {/* 행사 상세 — 카드나 지도 핀을 누르면 먼저 이게 열린다.
+          "언제·어디서·얼마나 가까이·우리 매출에 얼마나" 를 한 화면에 놓고,
+          그 끝에서 AI 준비 플랜으로 넘어간다. */}
+      <Modal visible={!!detailEvent} animationType="slide" transparent onRequestClose={() => setDetailEvent(null)}>
+        <View style={styles.modalRoot}>
+          <Pressable style={styles.backdrop} onPress={() => setDetailEvent(null)} />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHead}>
+              <View style={{ flex: 1, gap: 8 }}>
+                <View style={styles.detailChipRow}>
+                  <View style={[styles.ddayBadge, detailEvent?.ongoing && styles.ddayBadgeNow]}>
+                    <Text style={[styles.ddayText, detailEvent?.ongoing && styles.ddayTextNow]}>
+                      {detailEvent?.ongoing ? '오늘 열려요' : `D-${detailEvent?.d_day ?? 0}`}
+                    </Text>
+                  </View>
+                  {!!detailEvent?.boost_pct && (
+                    <View style={styles.impactBadge}>
+                      <Text style={styles.impactText}>{impactWord(detailEvent.boost_pct)}</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.sheetTitle}>{detailEvent?.name}</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setDetailEvent(null)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={22} color={colors.espressoBrown} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
+              {!!detailEvent && (
+                <>
+                  <View style={styles.factCard}>
+                    <FactRow icon="calendar-outline" label="언제"
+                      value={`${formatEventRange(detailEvent.start_date, detailEvent.end_date)}${
+                        detailEvent.day_count > 1 ? ` · ${detailEvent.day_count}일간` : ''}`} />
+                    <FactRow icon="location-outline" label="어디서"
+                      value={detailEvent.place || detailEvent.host || '장소 미상'} />
+                    {!!detailEvent.host && !!detailEvent.place && (
+                      <FactRow icon="business-outline" label="주최" value={detailEvent.host} />
+                    )}
+                    <FactRow icon="walk-outline" label="매장에서"
+                      value={detailEvent.distance_km != null ? `${detailEvent.distance_km}km` : '거리 정보 없음'} />
+                    <FactRow icon="trending-up-outline" label="매출 영향"
+                      value={detailEvent.boost_pct
+                        ? `예측에 +${detailEvent.boost_pct}% 반영 중`
+                        : '예측에는 반영하지 않음'} />
+                    <FactRow icon="document-text-outline" label="출처" value={detailEvent.source || '미상'} />
+                  </View>
+
+                  {!!detailEvent.tip && (
+                    <View style={styles.detailTipBox}>
+                      <Text style={styles.detailTipLabel}>이 행사엔 이렇게</Text>
+                      <Text style={styles.detailTipText}>{detailEvent.tip}</Text>
+                    </View>
+                  )}
+
+                  {/* 상세에서 곧장 준비로 — 여기가 이 시트의 목적지다 */}
+                  <TouchableOpacity
+                    style={styles.detailPlanBtn}
+                    onPress={() => {
+                      const target = detailEvent;
+                      setDetailEvent(null);
+                      openPlan(target);
+                    }}
+                  >
+                    <Ionicons name="sparkles" size={15} color={colors.white} />
+                    <Text style={styles.detailPlanBtnText}>이 행사, 뭘 준비할까?</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.detailPlanHint}>
+                    이벤트 아이디어 · 한정 메뉴 · 미리 해 둘 일 · 재료와 인력까지 AI가 짜 드려요.
+                  </Text>
+
+                  <TouchableOpacity
+                    style={styles.detailSearchBtn}
+                    onPress={() =>
+                      Linking.openURL(
+                        `https://search.naver.com/search.naver?query=${encodeURIComponent(detailEvent.name)}`,
+                      )
+                    }
+                  >
+                    <Ionicons name="open-outline" size={14} color={colors.espressoBrown} />
+                    <Text style={styles.detailSearchText}>네이버에서 이 행사 검색</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {/* 행사 대비 AI 플랜 — "이 행사에 무슨 이벤트를 걸고, 뭘 미리 해 둘까" */}
       <Modal visible={!!planEvent} animationType="slide" transparent onRequestClose={() => setPlanEvent(null)}>
         <View style={styles.modalRoot}>
@@ -1082,8 +1394,30 @@ export default function StoreMapScreen() {
 
             <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
               {planError ? (
+                // AI 플랜을 못 만들어도 시트를 빈손으로 닫게 두지 않는다 — 이미 알고 있는
+                // 행사 정보(기간·장소·거리·예측 반영·대응 팁)는 그대로 보여 준다.
                 <>
                   <Text style={styles.errorText}>{planError}</Text>
+                  {!!planEvent && (
+                    <View style={styles.planFactBox}>
+                      <Text style={styles.listTitle}>지금 알고 있는 것</Text>
+                      <Text style={styles.promoDetail}>
+                        {formatEventRange(planEvent.start_date, planEvent.end_date)}
+                        {planEvent.day_count > 1 ? ` (${planEvent.day_count}일간)` : ''}
+                        {planEvent.ongoing ? ' · 진행 중' : ` · D-${planEvent.d_day}`}
+                      </Text>
+                      <Text style={styles.promoDetail}>
+                        {planEvent.place || planEvent.host || '장소 미상'}
+                        {planEvent.distance_km != null ? ` · 매장에서 ${planEvent.distance_km}km` : ''}
+                      </Text>
+                      {!!planEvent.boost_pct && (
+                        <Text style={styles.promoDetail}>
+                          판매 예측에 매출 +{planEvent.boost_pct}%로 이미 반영 중이에요.
+                        </Text>
+                      )}
+                      {!!planEvent.tip && <Text style={styles.promoWhy}>💡 {planEvent.tip}</Text>}
+                    </View>
+                  )}
                   {!!planEvent && (
                     <TouchableOpacity style={styles.retryBtn} onPress={() => openPlan(planEvent)}>
                       <Text style={styles.retryText}>다시 시도</Text>
@@ -1176,13 +1510,38 @@ const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
 // 행사 기간 표기 — 사장님이 보는 건 '몇 월 며칠 무슨 요일'이지 ISO 날짜가 아니다.
 // 하루짜리면 한 날짜만, 여러 날이면 시작~종료로 묶는다.
+// 관측 날짜 표기 — 사장님이 읽는 건 "2026-08-01"이 아니라 "어제"다.
+// 이번 주 안이면 상대 표현, 그보다 오래되면 8/1 형태로 줄인다.
+function formatWatchDay(iso: string) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-').map(Number);
+  if (!y || !m || !d) return iso;
+  const target = new Date(y, m - 1, d);
+  const today = new Date();
+  const diff = Math.round(
+    (new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() - target.getTime()) /
+      86400000,
+  );
+  if (diff === 0) return '오늘';
+  if (diff === 1) return '어제';
+  if (diff > 1 && diff <= 6) return `${diff}일 전`;
+  return `${m}/${d}`;
+}
+
 function formatEventRange(start: string, end: string) {
+  // 날짜가 비어 오면 "undefined/undefined(월)"이 그대로 화면에 찍혔다 —
+  // 행사 카드·상세·플랜 제목·지도 말풍선 네 곳에서. 값이 없으면 없다고 말한다.
   const label = (iso: string) => {
-    const [y, m, d] = iso.split('-').map(Number);
-    const weekday = WEEKDAYS[new Date(y, (m ?? 1) - 1, d ?? 1).getDay()] ?? '';
+    const [y, m, d] = (iso || '').split('-').map(Number);
+    if (!y || !m || !d) return '';
+    const weekday = WEEKDAYS[new Date(y, m - 1, d).getDay()] ?? '';
     return `${m}/${d}(${weekday})`;
   };
-  return start === end ? label(start) : `${label(start)} ~ ${label(end)}`;
+  const s = label(start);
+  const e = label(end);
+  if (!s && !e) return '날짜 미정';
+  if (!s || !e || s === e) return s || e;
+  return `${s} ~ ${e}`;
 }
 
 // 한눈 요약 숫자 한 칸 (주변 카페 수 · 최근접 거리 · 경쟁 강도)
@@ -1251,6 +1610,32 @@ function Tag({ label }: { label: string }) {
   );
 }
 
+// 행사 상세의 한 줄 — 아이콘 + 라벨 + 값. 줄글로 늘어놓는 것보다 훑기 쉽다.
+function FactRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+}) {
+  return (
+    <View style={styles.factRow}>
+      <Ionicons name={icon} size={15} color={colors.pointOrange} />
+      <Text style={styles.factLabel}>{label}</Text>
+      <Text style={styles.factValue}>{value}</Text>
+    </View>
+  );
+}
+
+/** 부스팅(%)을 사장님 말로 — 숫자만 보면 3%가 큰지 작은지 알 수 없다 */
+function impactWord(boostPct: number) {
+  if (boostPct >= 10) return '손님 많이 늘 듯';
+  if (boostPct >= 5) return '손님 조금 늘 듯';
+  return '영향은 작을 듯';
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.creamSand },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
@@ -1276,7 +1661,14 @@ const styles = StyleSheet.create({
   primaryBtnText: { ...typography.L4, color: colors.white },
 
   // [한글 주석] 높이는 화면에서 뷰포트 비례로 덮어쓴다 (고정 320 은 가로모드에서 화면을 다 먹었다)
-  mapBox: { backgroundColor: colors.coffeeCream },
+  // 지도 아래 모서리를 둥글려 본문과 부드럽게 이어지게 (직각으로 잘리면 화면이 딱딱해 보인다)
+  mapBox: {
+    backgroundColor: colors.coffeeCream,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    overflow: 'hidden',
+    ...shadows.soft,
+  },
   body: { paddingHorizontal: spacing.globalPadding, paddingTop: 14, gap: 10 },
 
   storeRow: {
@@ -1561,7 +1953,68 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
-  eventSource: { ...typography.L5, color: '#A99C90' },
+  // 오늘 열리는 행사는 카드도 살짝 물든다 — 지도 핀이 숨 쉬는 것과 같은 신호
+  eventCardNow: { borderColor: 'rgba(226, 130, 87, 0.55)', backgroundColor: '#FFFAF6' },
+  eventFootRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  eventSource: { ...typography.L5, color: '#A99C90', flex: 1 },
+  eventMore: { ...typography.L5, color: '#B4542C', fontWeight: '800' },
+
+  // --- 행사 상세 시트 ---
+  detailChipRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  factCard: {
+    backgroundColor: colors.white,
+    borderRadius: 14,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+  },
+  factRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(140, 121, 104, 0.12)',
+  },
+  factLabel: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700', width: 54 },
+  factValue: { ...typography.L5, color: colors.espressoBrown, fontWeight: '700', flex: 1, lineHeight: 17 },
+  detailTipBox: {
+    marginTop: 12,
+    backgroundColor: colors.creamSand,
+    borderRadius: 12,
+    padding: 12,
+    gap: 4,
+  },
+  detailTipLabel: { ...typography.L5, color: '#B4542C', fontWeight: '800' },
+  detailTipText: { ...typography.L4, color: colors.espressoBrown, lineHeight: 19 },
+  detailPlanBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    marginTop: 16,
+    backgroundColor: colors.pointOrange,
+    borderRadius: 14,
+    paddingVertical: 13,
+    ...shadows.soft,
+  },
+  detailPlanBtnText: { ...typography.L4, color: colors.white, fontWeight: '800' },
+  detailPlanHint: { ...typography.L5, color: colors.mochaBrown, textAlign: 'center', marginTop: 7, lineHeight: 16 },
+  detailSearchBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    marginTop: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    backgroundColor: colors.white,
+  },
+  detailSearchText: { ...typography.L5, color: colors.espressoBrown, fontWeight: '700' },
   // 행사 카드의 'AI 준비 플랜' — 누를 때만 AI를 부르므로 카드 안에서 확실히 눌리게 보여 준다
   planBtn: {
     flexDirection: 'row',
@@ -1589,6 +2042,60 @@ const styles = StyleSheet.create({
   changeHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   changeTitle: { ...typography.L3, color: colors.espressoBrown, flex: 1 },
   changeNote: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700' },
+  // '지금 확인' — 서버가 반경을 다시 훑는 동안 자리를 지키도록 최소 너비를 준다
+  rescanBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    minWidth: 78,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    backgroundColor: colors.creamSand,
+  },
+  rescanText: { ...typography.L5, color: colors.espressoBrown, fontWeight: '700' },
+  changeChipRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  changeChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+  },
+  changeChipOn: { backgroundColor: colors.espressoBrown, borderColor: colors.espressoBrown },
+  changeChipText: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700' },
+  changeChipTextOn: { color: colors.white },
+  // 변화가 없는 날에도 카드는 남는다 — 그 자리를 채우는 설명문
+  changeEmpty: { ...typography.L5, color: colors.mochaBrown, lineHeight: 18 },
+
+  // 지도 범례 — 지도 바로 아래 한 줄
+  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10, flexWrap: 'wrap' },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  legendDot: { width: 9, height: 9, borderRadius: 5, borderWidth: 1.5, borderColor: colors.white },
+  legendDotStore: { backgroundColor: '#3B2314', width: 11, height: 11, borderRadius: 6 },
+  legendDotCafe: { backgroundColor: '#7A6250' },
+  legendDotEvent: { backgroundColor: '#D2601A', width: 11, height: 11, borderRadius: 6 },
+  legendText: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700' },
+  legendNote: { ...typography.L5, color: '#A99C90' },
+
+  // 주변 소식 바로가기 바 — 지도 바로 아래, 스크롤 없이 두 기능의 존재가 보이게
+  newsBar: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12, flexWrap: 'wrap' },
+  newsBarLabel: { ...typography.L5, color: colors.mochaBrown, fontWeight: '800' },
+  newsChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+  },
+  newsChipText: { ...typography.L5, color: colors.espressoBrown, fontWeight: '700' },
   changeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   changeBadge: {
     minWidth: 46,
@@ -1614,6 +2121,16 @@ const styles = StyleSheet.create({
 
   // 행사 플랜 시트
   planHeadline: { ...typography.L3, color: colors.espressoBrown, marginTop: 10, lineHeight: 21 },
+  // AI 플랜이 안 나온 날에도 남는 '이미 아는 사실' 상자
+  planFactBox: {
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    gap: 4,
+  },
   promoBox: {
     backgroundColor: colors.white,
     borderRadius: 12,

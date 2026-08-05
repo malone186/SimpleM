@@ -8,6 +8,7 @@ import {
   View,
   type StyleProp,
   type TextStyle,
+  type ViewProps,
   type ViewStyle,
 } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
@@ -117,13 +118,16 @@ export function Card({
   children,
   style,
   tone = 'white',
+  onLayout,
 }: {
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
   tone?: 'white' | 'cream';
+  /** 목록에서 이 카드의 위치를 알아야 할 때 (예: 알림에서 넘어와 해당 항목으로 스크롤) */
+  onLayout?: ViewProps['onLayout'];
 }) {
   return (
-    <View style={[styles.card, tone === 'cream' ? styles.cardCream : styles.cardWhite, style]}>
+    <View onLayout={onLayout} style={[styles.card, tone === 'cream' ? styles.cardCream : styles.cardWhite, style]}>
       {children}
     </View>
   );

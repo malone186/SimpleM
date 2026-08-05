@@ -111,35 +111,146 @@ function initNaver() {
 
     var eventWindows = [];
 
-    D.events.forEach(function (e) {
+    // 행사 이름·장소는 뉴스·공공데이터에서 온 남의 글이다 — 말풍선에 그대로 넣지 않는다
+    function esc(t) {
+      return String(t == null ? '' : t)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // 지도 이름표용으로 줄인 행사명 — 자르더라도 낱말 한가운데서 끊지 않는다
+    // ("어린이메이킹 [행복맘…"처럼 잘리면 무슨 행사인지 알 수 없다)
+    function shortEventLabel(name, max) {
+      max = max || 26;
+      var s = String(name == null ? '' : name).trim().replace(/\s+/g, ' ');
+      if (s.length <= max) return s;
+      var cut = s.slice(0, max);
+      var space = cut.lastIndexOf(' ');
+      return (space > max * 0.5 ? cut.slice(0, space) : cut).replace(/\s+$/, '') + '…';
+    }
+
+    // 지도 말풍선 속 행사 요약 — 핀을 누르면 이만큼만 먼저 보여 준다.
+    // 전체 시트를 바로 띄우면 "저게 뭐지?" 하고 한 번 눌러 본 것치고 너무 무겁다.
+    function eventInfoHtml(e, index) {
+      var when = e.ongoing ? '오늘' : ('D-' + (e.d_day == null ? 0 : e.d_day));
+      var tone = e.ongoing ? '#C2410C' : '#E28257';
+      return '<div style="padding:12px 13px 11px;min-width:172px;max-width:224px;' +
+        'font-family:-apple-system,BlinkMacSystemFont,sans-serif;">' +
+        '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">' +
+        '<span style="background:' + tone + ';color:#FFF;font-size:9.5px;font-weight:800;' +
+        'padding:2.5px 8px;border-radius:999px;letter-spacing:-.2px">' + esc(when) + '</span>' +
+        (e.boost_pct
+          ? '<span style="font-size:9.5px;font-weight:800;color:#B4542C">예측 +' + e.boost_pct + '%</span>'
+          : '') +
+        '</div>' +
+        '<div style="font-size:12.5px;font-weight:800;color:#3B2314;line-height:1.35;' +
+        'word-break:keep-all">' + esc(e.name) + '</div>' +
+        '<div style="font-size:10.5px;color:#8C7968;margin-top:5px;line-height:1.45;' +
+        'word-break:keep-all">' + esc(e.date) + '<br/>' + esc(e.place || '장소 미상') +
+        (e.distance_km != null ? ' · ' + e.distance_km + 'km' : '') + '</div>' +
+        '<div onclick="window.__brewMapEvt&&window.__brewMapEvt(' + index + ')" ' +
+        'style="margin-top:10px;text-align:center;background:' + tone + ';color:#FFF;font-size:10.5px;' +
+        'font-weight:800;padding:8px;border-radius:10px;cursor:pointer;">자세히 보기 ›</div>' +
+        '</div>';
+    }
+
+    // 말풍선의 '자세히 보기'만 앱 시트를 연다. 이름을 onclick 문자열에 넣으면 따옴표가
+    // 섞인 행사명에서 깨지므로 목록 인덱스만 넘긴다.
+    window.__brewMapEvt = function (i) {
+      var target = D.events[i];
+      if (target && target.name && window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'event', name: target.name }));
+      }
+    };
+
+    D.events.forEach(function (e, idx) {
       if (e.lat && e.lon) {
+        // 점 하나로는 카페 점과 구별이 안 된다(둘 다 작은 원인데 500m 원까지 주황이다).
+        // 점은 좌표 그 자리에 찍고 이름표를 오른쪽에 매단다.
+        var raw = String(e.name == null ? '' : e.name);
+        var label = esc(shortEventLabel(raw));
+        // 오늘 열리는 행사는 이름표가 천천히 숨을 쉰다 — "지금 이거"가 먼저 눈에 들게.
+        // 끝의 › 는 눌러서 더 볼 수 있다는 표시다.
+        var bg = e.ongoing ? '#C2410C' : '#D2601A';
         var eventMarker = new naver.maps.Marker({
           position: new naver.maps.LatLng(e.lat, e.lon),
           map: gMap,
-          zIndex: 300,
+          zIndex: 450,
           icon: {
-            content: '<div style="width:10px;height:10px;background:#E28257;border-radius:50%;border:1.5px solid #FFFFFF;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></div>',
-            anchor: new naver.maps.Point(5, 5),
+            content:
+              '<div style="position:relative;width:0;height:0;">' +
+              '<style>@keyframes evtBreath{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}' +
+              '@keyframes evtRing{0%{transform:scale(0.7);opacity:.7}100%{transform:scale(2.1);opacity:0}}</style>' +
+              (e.ongoing
+                ? '<div style="position:absolute;left:-9px;top:-9px;width:18px;height:18px;border-radius:50%;' +
+                  'background:rgba(194,65,12,0.45);animation:evtRing 2s infinite ease-out;"></div>'
+                : '') +
+              '<div style="position:absolute;left:-7px;top:-7px;width:14px;height:14px;border-radius:50%;' +
+              'background:' + bg + ';border:2.5px solid #FFFFFF;box-shadow:0 2px 6px rgba(0,0,0,0.35);"></div>' +
+              '<div style="position:absolute;left:12px;top:-13px;display:flex;align-items:center;gap:4px;' +
+              // width:max-content가 없으면 안 된다 — 마커는 폭 0짜리 상자 안에 절대배치라,
+              // 줄바꿈을 허용한 순간 상자가 min-content(글자 한 칸)까지 쪼그라든다.
+              'box-sizing:border-box;width:-webkit-max-content;width:max-content;max-width:156px;' +
+              'padding:4px 7px 4px 9px;background:' + bg + ';border:1.5px solid #FFFFFF;' +
+              'border-radius:13px;font-size:10.5px;font-weight:800;color:#FFFFFF;cursor:pointer;' +
+              'font-family:-apple-system,sans-serif;box-shadow:0 3px 8px rgba(120,60,20,0.30);' +
+              (e.ongoing ? 'animation:evtBreath 2.4s infinite ease-in-out;transform-origin:left center;' : '') +
+              '">' +
+              // 두 줄까지: 한글은 keep-all로 낱말째 넘기고, 넘치면 그때만 말줄임
+              '<span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;' +
+              'white-space:normal;word-break:keep-all;overflow-wrap:anywhere;line-height:1.3;">🎪 ' + label + '</span>' +
+              '<span style="opacity:.75;font-weight:700;flex:none">›</span></div></div>',
+            anchor: new naver.maps.Point(0, 0),
           },
         });
         var eWindow = new naver.maps.InfoWindow({
-          content: '<div style="padding:10px;min-width:160px;line-height:140%;font-size:11px;font-family:-apple-system,sans-serif"><b>🎉 ' + e.name + '</b><br/>장소: ' + e.place + '<br/>거리: ' + e.distance_km + 'km<br/>날짜: ' + e.date + '</div>',
+          content: eventInfoHtml(e, idx),
           borderWidth: 1,
-          borderColor: '#E28257',
-          borderRadius: 8,
+          borderColor: 'rgba(226, 130, 87, 0.40)',
+          borderRadius: 14,
           backgroundColor: '#FFFFFF',
+          anchorColor: '#FFFFFF',
+          anchorSize: new naver.maps.Size(12, 8),
         });
         eventWindows.push(eWindow);
+
+        // 누르면 가벼운 요약부터. 전체 시트는 말풍선의 '자세히 보기'로만 열린다.
         naver.maps.Event.addListener(eventMarker, 'click', function () {
-          if (eWindow.getMap()) { eWindow.close(); } else { eWindow.open(gMap, eventMarker); }
+          var wasOpen = !!eWindow.getMap();
+          eventWindows.forEach(function (w) { if (w.getMap()) w.close(); });
+          if (!wasOpen) eWindow.open(gMap, eventMarker);
         });
       }
     });
 
-    D.cafes.forEach(function (c) {
+    // 말풍선 속 카페 요약 — 행사 말풍선과 같은 결. '리뷰 분석 보기'는 진짜 버튼이다.
+    function cafeInfoHtml(c, index) {
+      return '<div style="padding:12px 13px 11px;min-width:164px;max-width:220px;' +
+        'font-family:-apple-system,BlinkMacSystemFont,sans-serif;">' +
+        '<div style="font-size:12.5px;font-weight:800;color:#3B2314;line-height:1.35;' +
+        'word-break:keep-all">☕ ' + esc(c.name) + '</div>' +
+        '<div style="font-size:10.5px;color:#8C7968;margin-top:5px;line-height:1.45">' +
+        esc(c.category || '카페') + '<br/>내 매장에서 ' + (c.distance_m || 0) + 'm</div>' +
+        '<div onclick="window.__brewMapCafe&&window.__brewMapCafe(' + index + ')" ' +
+        'style="margin-top:10px;text-align:center;background:#7A6250;color:#FFF;font-size:10.5px;' +
+        'font-weight:800;padding:8px;border-radius:10px;cursor:pointer;">리뷰 분석 보기 ›</div>' +
+        '</div>';
+    }
+
+    // 인덱스를 함께 보낸다 — 이름만 보내면 같은 상호가 반경 안에 둘일 때 앱이 엉뚱한
+    // 쪽(먼저 나오는 지점)을 연다
+    window.__brewMapCafe = function (i) {
+      var target = D.cafes[i];
+      if (target && target.name && window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(
+          JSON.stringify({ type: 'cafe', name: target.name, index: i }));
+      }
+    };
+
+    D.cafes.forEach(function (c, cIdx) {
       if (!c.lat || !c.lon) return;
       var cafeMarkerContent = `
-        <div title="${c.name}" style="width:9px;height:9px;background:#7A6250;border-radius:50%;border:1.5px solid #FFFFFF;cursor:pointer;box-shadow:0 1.5px 3.5px rgba(0,0,0,0.3);"></div>
+        <div title="${esc(c.name)}" style="width:9px;height:9px;background:#7A6250;border-radius:50%;border:1.5px solid #FFFFFF;cursor:pointer;box-shadow:0 1.5px 3.5px rgba(0,0,0,0.3);"></div>
       `;
       var cafeMarker = new naver.maps.Marker({
         position: new naver.maps.LatLng(c.lat, c.lon),
@@ -152,20 +263,22 @@ function initNaver() {
       });
 
       var cWindow = new naver.maps.InfoWindow({
-        content: '<div style="padding:9px 11px;min-width:150px;line-height:150%;font-size:11px;font-family:-apple-system,sans-serif">'
-          + '<b>☕ ' + c.name + '</b><br/>' + (c.category || '카페') + '<br/>내 매장에서 ' + (c.distance_m || 0) + 'm</div>',
+        content: cafeInfoHtml(c, cIdx),
         borderWidth: 1,
-        borderColor: '#10B981',
-        borderRadius: 8,
+        borderColor: 'rgba(140, 121, 104, 0.40)',
+        borderRadius: 14,
         backgroundColor: '#FFFFFF',
+        anchorColor: '#FFFFFF',
+        anchorSize: new naver.maps.Size(12, 8),
       });
       eventWindows.push(cWindow);
 
+      // 말풍선만 연다 — 분석 시트는 말풍선의 버튼으로만. 예전엔 둘이 동시에 떠서
+      // 지도를 한 번 눌렀을 뿐인데 창이 두 개 겹쳤다.
       naver.maps.Event.addListener(cafeMarker, 'click', function () {
-        if (cWindow.getMap()) { cWindow.close(); } else { cWindow.open(gMap, cafeMarker); }
-        if (window.ReactNativeWebView) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'cafe', name: c.name }));
-        }
+        var wasOpen = !!cWindow.getMap();
+        eventWindows.forEach(function (w) { if (w.getMap()) w.close(); });
+        if (!wasOpen) cWindow.open(gMap, cafeMarker);
       });
     });
 

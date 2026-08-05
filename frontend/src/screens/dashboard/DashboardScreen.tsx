@@ -19,6 +19,7 @@ import { listCompliance } from '../../lib/api/documents';
 import { listStocks } from '../../lib/api/inventory';
 import { createTodo, deleteTodo, getAiTodoSuggestions, listTodos, updateTodo, type AiSuggestedTodo } from '../../lib/api/todo';
 import { fetchInsights } from '../../lib/api/insights';
+import { loadCache, markAllStale, peekCache, saveCache } from '../../lib/cache';
 import { awardDerivedTodo } from '../../lib/api/rewards';
 import AlertCenterCard, { type AlertItem } from '../../components/dashboard/AlertCenterCard';
 import { navigateToTarget } from '../../notifications/navigationTarget';
@@ -84,6 +85,276 @@ function sendStockPushNotification(item: { name: string; current_quantity: numbe
   }
 }
 
+// 홈을 채우는 다섯 갈래 응답. 캐시로 먼저 채워지고, 서버 응답이 오는 대로 갈아 끼워진다.
+type DashboardSources = {
+  stocks?: Awaited<ReturnType<typeof listStocks>>;
+  compliance?: Awaited<ReturnType<typeof listCompliance>>;
+  serverTodos?: Awaited<ReturnType<typeof listTodos>>;
+  insights?: Awaited<ReturnType<typeof fetchInsights>>;
+  aiSuggest?: Awaited<ReturnType<typeof getAiTodoSuggestions>>;
+};
+
+// 사장님이 지우거나 완료 표시한 항목 — 기기에만 남는 기록
+type DashboardPrefs = {
+  dismissed: Set<string>;
+  completed: Set<string>;
+  dismissedAlerts: Set<string>;
+};
+
+// 이 시간 안에 받아 둔 값이면 탭을 다시 열어도 서버를 다시 부르지 않는다
+const FRESH_ENOUGH_MS = 60_000;
+
+// 지난번 응답을 담아 두는 칸 이름 (lib/cache.ts가 앞에 접두어를 붙인다)
+const CACHE_KEYS = {
+  stocks: 'dash:stocks',
+  compliance: 'dash:compliance',
+  serverTodos: 'dash:todos',
+  insights: 'dash:insights',
+  aiSuggest: 'dash:ai-suggestions',
+} as const;
+
+/**
+ * 받은 응답들로 할 일·알림 목록을 만든다.
+ *
+ * 순수 함수로 빼 둔 이유: 캐시로 한 번, 서버 응답이 도착할 때마다 또 한 번 —
+ * 같은 조립을 여러 번 돌려야 하기 때문이다. (예전에는 다섯 응답을 모두 기다린 뒤
+ * 딱 한 번만 조립해서, 가장 느린 인사이트 7초 동안 홈이 통째로 비어 있었다)
+ */
+function buildDashboard(
+  sources: DashboardSources,
+  prefs: DashboardPrefs,
+): { todos: Todo[]; alerts: AlertItem[] } {
+  const { dismissed: dismissedSet, completed: completedSet, dismissedAlerts: dismissedAlertSet } = prefs;
+  const next: Todo[] = [];
+  const nextAlerts: AlertItem[] = [];
+
+  // [개발 전용] 어제 날짜 샘플 업무 3종 — 화면 확인용 목업이라 프로덕션엔 넣지 않는다.
+  if (__DEV__) {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+
+    const mockItems: Todo[] = [
+      {
+        id: 'mock-yesterday-1',
+        title: '[일일업무] 에스프레소 머신 스팀 노즐 소독 및 마감',
+        subtitle: '마감 전 스팀 소독 완결 · 정기 점검 완료',
+        done: true,
+        source: 'owner',
+        dateKey: yesterdayKey,
+      },
+      {
+        id: 'mock-yesterday-2',
+        title: '[발주·재고] 서울우유 20L 입고 및 검수 완료',
+        subtitle: '잔여 20L 채움 완료 · 입고 검수 완료',
+        done: true,
+        source: 'ai',
+        dateKey: yesterdayKey,
+      },
+      {
+        id: 'mock-yesterday-3',
+        title: '[서류·행정] 7월 매장 지출 명세서 입고 점검',
+        subtitle: '명세서 OCR 3건 정산 반영 완료',
+        done: true,
+        source: 'owner',
+        dateKey: yesterdayKey,
+      },
+    ];
+
+    mockItems.forEach((item) => {
+      if (!dismissedSet.has(item.id)) {
+        next.push({ ...item, done: completedSet.has(item.id) || item.done });
+      }
+    });
+  }
+
+  // [브루 제안] 재고·판매 데이터로 만든 투두 — 제목은 "에티오피아 원두 발주"처럼
+  // 짧은 라벨로, 숫자 근거("다 떨어짐 · 최소 5kg 필요")는 meta 줄로 나뉘어 온다.
+  // 여기에 '홍보할 메뉴 고르기' 링크가 붙는 promo 항목이 하나 따라온다.
+  // id는 stock-<재료id>/promo-main 으로 안정적이라 숨김(X)·완료 기록이 유지된다.
+  const aiSuggested: AiSuggestedTodo[] = sources.aiSuggest?.todos ?? [];
+  const aiStockIds = new Set(
+    aiSuggested.filter((s) => s.kind === 'stock').map((s) => s.id_hint),
+  );
+  // 서류 갱신은 인사이트도 만들고 아래 compliance 블록도 만든다 → 한 서류가 두 줄로 뜬다.
+  // 인사이트 키가 `insight-renewal:<서류id>:<만료일>`이라 여기서 서류 id만 뽑아 막는다.
+  const aiRenewalDocIds = new Set(
+    aiSuggested
+      .filter((s) => s.kind === 'insight' && s.id_hint.startsWith('insight-renewal:'))
+      .map((s) => s.id_hint.split(':')[1]),
+  );
+
+  aiSuggested.forEach((s) => {
+    if (dismissedSet.has(s.id_hint)) return;
+    next.push({
+      id: s.id_hint,
+      title: s.title,
+      subtitle: s.subtitle,
+      // 홍보 항목만 근거 줄을 뺀다 — 아래에 '메뉴 고르기' 링크가 있어 중복이라서
+      meta: s.kind === 'promo' ? undefined : s.subtitle,
+      urgentLabel: s.urgent ? '급함' : undefined,
+      actionable: s.kind === 'stock',
+      done: completedSet.has(s.id_hint),
+      source: 'ai',
+      ...(s.kind === 'promo' ? { action: 'marketing' as const, menu: s.menu ?? '' } : null),
+    });
+  });
+
+  const lowStocks = (sources.stocks ?? []).filter(
+    (s) => s.current_quantity <= (s.safety_quantity > 0 ? s.safety_quantity : 3),
+  );
+
+  lowStocks.forEach((s) => {
+    // [한글 주석: 투두 아래 알림 센터에 들어갈 재고 부족 알림 수집]
+    const alertId = `alert-stock-${s.ingredient_id}`;
+    if (!dismissedAlertSet.has(alertId)) {
+      const soldOut = s.current_quantity <= 0;
+      // 투두·푸시와 같은 쉬운 말로 ('안전재고'·'재고 소진' 같은 용어는 쓰지 않는다)
+      const need = s.safety_quantity > 0 ? s.safety_quantity : 3;
+      nextAlerts.push({
+        id: alertId,
+        type: 'stock',
+        severity: soldOut ? 'urgent' : 'high',
+        title: soldOut ? `${s.name} 다 떨어졌어요` : `${s.name} 얼마 안 남았어요`,
+        body: soldOut
+          ? `지금 0${s.unit} · 최소 ${need}${s.unit} 필요`
+          : `${s.current_quantity}${s.unit} 남음 · 최소 ${need}${s.unit} 필요`,
+        timeText: getFormattedTimeText(),
+        actionText: '재고 보기',
+        target: { screen: 'Inventory' },
+      });
+    }
+  });
+
+  lowStocks
+    .slice()
+    .sort(
+      (a, b) =>
+        a.current_quantity / (a.safety_quantity || 1) -
+        b.current_quantity / (b.safety_quantity || 1),
+    )
+    .slice(0, 4)
+    .forEach((s) => {
+      const stockId = `stock-${s.ingredient_id}`;
+      // 브루 제안에 이미 들어간 재료는 중복으로 넣지 않는다
+      if (aiStockIds.has(stockId)) return;
+      if (!dismissedSet.has(stockId)) {
+        const soldOut = s.current_quantity <= 0;
+        // 브루 제안과 같은 형식·같은 쉬운 말로 ('안전재고' 같은 용어는 쓰지 않는다)
+        const need = `최소 ${s.safety_quantity > 0 ? s.safety_quantity : 3}${s.unit} 필요`;
+        const meta = soldOut
+          ? `다 떨어짐 · ${need}`
+          : `${s.current_quantity}${s.unit} 남음 · ${need}`;
+        next.push({
+          id: stockId,
+          title: `${s.name} 발주`,
+          subtitle: meta,
+          meta,
+          urgentLabel: soldOut ? '급함' : undefined,
+          actionable: true,
+          done: completedSet.has(stockId), // [한글 주석] 기존 완료 기록이 있으면 체크 상태 유지
+          source: 'ai',
+        });
+      }
+    });
+
+  (sources.compliance ?? [])
+    .filter((c) => c.status !== 'ok')
+    .forEach((c) => {
+      const alertId = `alert-comp-${c.id}`;
+      if (!dismissedAlertSet.has(alertId)) {
+        const expired = c.status === 'expired';
+        nextAlerts.push({
+          id: alertId,
+          type: 'document',
+          severity: expired ? 'high' : 'medium',
+          title: expired ? `${c.name} 기한 지남` : `${c.name} 갱신 준비`,
+          body: expired
+            ? `${formatKoreanDate(c.expiry_date)}까지였어요`
+            : `${c.days_left}일 남음 · ${formatKoreanDate(c.expiry_date)}까지`,
+          actionText: '서류 보기',
+          target: { screen: 'Document' },
+        });
+      }
+
+      const compId = `comp-${c.id}`;
+      // 브루 인사이트가 이미 같은 서류의 갱신 할 일을 만들었으면 두 줄로 만들지 않는다
+      if (!dismissedSet.has(compId) && !aiRenewalDocIds.has(String(c.id))) {
+        const expired = c.status === 'expired';
+        const compMeta = expired
+          ? `기한 지남 · ${c.expiry_date}까지였어요`
+          : `${c.days_left}일 남음 · ${c.expiry_date}까지`;
+        next.push({
+          id: compId,
+          title: expired ? `${c.name} 갱신` : `${c.name} 갱신 준비`,
+          subtitle: compMeta,
+          meta: compMeta,
+          urgentLabel: expired ? '급함' : undefined,
+          actionable: false,
+          done: completedSet.has(compId), // [한글 주석] 기존 완료 기록이 있으면 체크 상태 유지
+          source: 'ai',
+        });
+      }
+    });
+
+  // [한글 주석: 과거 테스트용 더미 번호 항목(M1~M56 등)을 깔끔하게 필터링하여 카페 실무 투두만 노출]
+  (sources.serverTodos ?? [])
+    .filter((t: any) => !/^(미션|M)\d+/i.test((t.title || '').trim()))
+    .forEach((t: any) => {
+      const serverIdStr = `server-${t.id}`;
+      if (!dismissedSet.has(serverIdStr)) {
+        const parsedKey = t.date_key || (t.created_at ? t.created_at.split('T')[0] : undefined);
+        next.push({
+          id: serverIdStr,
+          title: t.title,
+          subtitle:
+            t.note && t.note !== '브루가 추가함'
+              ? t.note
+              : t.source === 'ai'
+                ? '대화 중 추가됨'
+                : '사장님 직접 추가',
+          // 메모가 있을 때만 회색 줄로 — '사장님 직접 추가' 같은 안내는 줄만 늘린다.
+          // (브루 추천을 고쳐서 내 업무로 가져온 경우 "다 떨어짐 · 최소 5kg 필요"가 여기 남는다)
+          meta: t.note && t.note !== '브루가 추가함' ? t.note : undefined,
+          actionable: false,
+          done: completedSet.has(serverIdStr) || t.done,
+          source: t.source,
+          dateKey: parsedKey,
+        });
+      }
+    });
+
+  (sources.insights?.insights ?? []).slice(0, 3).forEach((ins) => {
+    const alertId = `alert-ins-${ins.key}`;
+    if (!dismissedAlertSet.has(alertId)) {
+      nextAlerts.push({
+        id: alertId,
+        type: 'insight',
+        severity: ins.severity === 'high' ? 'high' : ins.severity === 'medium' ? 'medium' : 'low',
+        title: ins.title,
+        body: ins.body,
+        timeText: ins.due_date ? `${formatKoreanDate(ins.due_date)}까지` : undefined,
+        actionText: '브루에게 물어보기',
+        target: { screen: 'Chatbot' },
+      });
+    }
+  });
+
+  // 알림은 실제 재고·서류·인사이트에서만 만든다.
+  // (예전에는 '서울우유 2팩 남음' 같은 고정 문구 5장을 항상 끼워 넣어서,
+  //  매장에 없는 재료·없는 서류가 알림 센터에 그대로 떴다.)
+  // 접힌 알림 센터는 맨 위 한 장만 보이므로 급한 것부터 정렬한다.
+  const SEVERITY_ORDER: Record<AlertItem['severity'], number> = {
+    urgent: 0,
+    high: 1,
+    medium: 2,
+    low: 3,
+  };
+  nextAlerts.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+
+  return { todos: next, alerts: nextAlerts };
+}
+
 export default function DashboardScreen() {
   // [한글 주석] 하단 제스처 바 실측 높이 — 마지막 카드가 시스템 바에 물리지 않게
   const bottomInset = useBottomInset();
@@ -107,294 +378,110 @@ export default function DashboardScreen() {
     setPushModalOpen(true);
   };
 
+  // 홈 데이터 불러오기 — 기기에 남은 지난번 응답으로 먼저 그리고, 서버 응답이 오는 대로 갈아 끼운다.
+  //
+  // 예전에는 다섯 요청을 Promise.allSettled로 한꺼번에 기다렸다. 그중 인사이트는 매장 데이터를
+  // 통째로 훑는 계산이라 서버 캐시가 식으면 7초가 걸리는데, 그동안 나머지 네 응답(0.6초)이
+  // 이미 도착해 있어도 할 일과 알림이 통째로 비어 있었다. 지금은 도착 순서대로 채운다.
   useEffect(() => {
     if (!token || !isFocused) return;
     let cancelled = false;
-    (async () => {
-      // [한글 주석: 사장님이 이미 삭제한 투두 ID 목록 및 완료한 투두 ID 목록, 알림 지움 목록을 AsyncStorage에서 불러옵니다]
-      let dismissedSet = new Set<string>();
-      let completedSet = new Set<string>();
-      let dismissedAlertSet = new Set<string>();
-      try {
-        const [rawDismissed, rawCompleted, rawDismissedAlerts] = await Promise.all([
-          AsyncStorage.getItem(DISMISSED_TODOS_KEY),
-          AsyncStorage.getItem(COMPLETED_TODOS_KEY),
-          AsyncStorage.getItem(DISMISSED_ALERTS_KEY),
-        ]);
-        if (rawDismissed) dismissedSet = new Set(JSON.parse(rawDismissed));
-        if (rawCompleted) completedSet = new Set(JSON.parse(rawCompleted));
-        if (rawDismissedAlerts) dismissedAlertSet = new Set(JSON.parse(rawDismissedAlerts));
-      } catch (e) {
-        console.error('보관소 읽기 실패:', e);
-      }
 
-      const next: Todo[] = [];
-      const nextAlerts: AlertItem[] = [];
+    const sources: DashboardSources = {};
+    let prefs: DashboardPrefs | null = null;
 
-      // [개발 전용] 어제 날짜 샘플 업무 3종 — 화면 확인용 목업이라 프로덕션엔 넣지 않는다.
-      if (__DEV__) {
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+    // 숨김·완료 기록을 읽기 전에는 그리지 않는다 — 먼저 그리면 지운 항목이 잠깐 되살아난다
+    const paint = () => {
+      if (cancelled || !prefs) return;
+      const built = buildDashboard(sources, prefs);
+      setTodos((prev) => {
+        const localItems = prev.filter((p) => p.id.startsWith('local-'));
+        return [...localItems, ...built.todos];
+      });
+      setAlerts(built.alerts);
+    };
 
-        const mockItems: Todo[] = [
-          {
-            id: 'mock-yesterday-1',
-            title: '[일일업무] 에스프레소 머신 스팀 노즐 소독 및 마감',
-            subtitle: '마감 전 스팀 소독 완결 · 정기 점검 완료',
-            done: true,
-            source: 'owner',
-            dateKey: yesterdayKey,
-          },
-          {
-            id: 'mock-yesterday-2',
-            title: '[발주·재고] 서울우유 20L 입고 및 검수 완료',
-            subtitle: '잔여 20L 채움 완료 · 입고 검수 완료',
-            done: true,
-            source: 'ai',
-            dateKey: yesterdayKey,
-          },
-          {
-            id: 'mock-yesterday-3',
-            title: '[서류·행정] 7월 매장 지출 명세서 입고 점검',
-            subtitle: '명세서 OCR 3건 정산 반영 완료',
-            done: true,
-            source: 'owner',
-            dateKey: yesterdayKey,
-          },
-        ];
+    // 1) 네트워크부터 발사한다 (저장소 읽기를 기다리지 않게).
+    //    단, 이번 세션에서 방금 받아 둔 값이면 건너뛴다 — 탭을 오갈 때마다 홈 이펙트가 다시 도는데,
+    //    그때마다 7초짜리 인사이트를 새로 부르면 서버만 두드리고 화면은 어차피 같은 숫자다.
+    //    당겨서 새로고침은 markAllStale()로 나이를 0으로 만들어 이 관문을 통과시킨다.
+    const fetchers: Record<keyof DashboardSources, () => Promise<any>> = {
+      stocks: () => listStocks(token),
+      compliance: () => listCompliance(token),
+      serverTodos: () => listTodos(token),
+      insights: () => fetchInsights(token),
+      aiSuggest: () => getAiTodoSuggestions(token),
+    };
 
-        mockItems.forEach((item) => {
-          if (!dismissedSet.has(item.id)) {
-            next.push({ ...item, done: completedSet.has(item.id) || item.done });
+    const jobs = (Object.keys(fetchers) as (keyof DashboardSources)[])
+      .filter((name) => {
+        const hit = peekCache(CACHE_KEYS[name]);
+        return !hit || Date.now() - hit.at >= FRESH_ENOUGH_MS;
+      })
+      .map((name) => [name, fetchers[name]()] as [keyof DashboardSources, Promise<any>]);
+
+    jobs.forEach(([name, promise]) => {
+      promise
+        .then((value) => {
+          sources[name] = value;
+          void saveCache(CACHE_KEYS[name], value);
+          // 재고 부족 푸시는 '방금 받은' 재고에서만 — 캐시로 그린 화면이 지난 알림을 다시 쏘면 안 된다
+          if (name === 'stocks' && !cancelled) {
+            (value as Awaited<ReturnType<typeof listStocks>>)
+              .filter((s) => s.current_quantity <= (s.safety_quantity > 0 ? s.safety_quantity : 3))
+              .forEach((s) => {
+                const idStr = String(s.ingredient_id);
+                if (!notifiedStocksRef.current.has(idStr)) {
+                  notifiedStocksRef.current.add(idStr);
+                  sendStockPushNotification(s);
+                }
+              });
           }
+          paint();
+        })
+        .catch((e) => {
+          console.error(`홈 데이터 조회 실패 (${name}):`, e);
         });
-      }
+    });
 
-      const [stocksResult, complianceResult, serverTodosResult, insightsResult, aiSuggestResult] = await Promise.allSettled([
-        listStocks(token),
-        listCompliance(token),
-        listTodos(token),
-        fetchInsights(token),
-        getAiTodoSuggestions(token),
-      ]);
-
-      // [브루 제안] 재고·판매 데이터로 만든 투두 — 제목은 "에티오피아 원두 발주"처럼
-      // 짧은 라벨로, 숫자 근거("다 떨어짐 · 최소 5kg 필요")는 meta 줄로 나뉘어 온다.
-      // 여기에 '홍보할 메뉴 고르기' 링크가 붙는 promo 항목이 하나 따라온다.
-      // id는 stock-<재료id>/promo-main 으로 안정적이라 숨김(X)·완료 기록이 유지된다.
-      const aiSuggested: AiSuggestedTodo[] =
-        aiSuggestResult.status === 'fulfilled' ? aiSuggestResult.value.todos : [];
-      const aiStockIds = new Set(
-        aiSuggested.filter((s) => s.kind === 'stock').map((s) => s.id_hint),
-      );
-      // 서류 갱신은 인사이트도 만들고 아래 compliance 블록도 만든다 → 한 서류가 두 줄로 뜬다.
-      // 인사이트 키가 `insight-renewal:<서류id>:<만료일>`이라 여기서 서류 id만 뽑아 막는다.
-      const aiRenewalDocIds = new Set(
-        aiSuggested
-          .filter((s) => s.kind === 'insight' && s.id_hint.startsWith('insight-renewal:'))
-          .map((s) => s.id_hint.split(':')[1]),
-      );
-
-      aiSuggested.forEach((s) => {
-        if (dismissedSet.has(s.id_hint)) return;
-        next.push({
-          id: s.id_hint,
-          title: s.title,
-          subtitle: s.subtitle,
-          // 홍보 항목만 근거 줄을 뺀다 — 아래에 '메뉴 고르기' 링크가 있어 중복이라서
-          meta: s.kind === 'promo' ? undefined : s.subtitle,
-          urgentLabel: s.urgent ? '급함' : undefined,
-          actionable: s.kind === 'stock',
-          done: completedSet.has(s.id_hint),
-          source: 'ai',
-          ...(s.kind === 'promo' ? { action: 'marketing' as const, menu: s.menu ?? '' } : null),
-        });
+    // 2) 기기 저장소(숨김·완료 기록 + 지난번 응답)를 읽어 즉시 한 번 그린다
+    (async () => {
+      const [rawDismissed, rawCompleted, rawDismissedAlerts] = await Promise.all([
+        AsyncStorage.getItem(DISMISSED_TODOS_KEY),
+        AsyncStorage.getItem(COMPLETED_TODOS_KEY),
+        AsyncStorage.getItem(DISMISSED_ALERTS_KEY),
+      ]).catch((e) => {
+        console.error('보관소 읽기 실패:', e);
+        return [null, null, null];
       });
 
-      try {
-        if (stocksResult.status === 'rejected') throw stocksResult.reason;
-        const stocks = stocksResult.value;
-        const lowStocks = stocks.filter((s) => s.current_quantity <= (s.safety_quantity > 0 ? s.safety_quantity : 3));
-
-        lowStocks.forEach((s) => {
-          const idStr = String(s.ingredient_id);
-          if (!notifiedStocksRef.current.has(idStr)) {
-            notifiedStocksRef.current.add(idStr);
-            sendStockPushNotification(s);
-          }
-
-          // [한글 주석: 투두 아래 알림 센터에 들어갈 재고 부족 알림 수집]
-          const alertId = `alert-stock-${s.ingredient_id}`;
-          if (!dismissedAlertSet.has(alertId)) {
-            const soldOut = s.current_quantity <= 0;
-            // 투두·푸시와 같은 쉬운 말로 ('안전재고'·'재고 소진' 같은 용어는 쓰지 않는다)
-            const need = s.safety_quantity > 0 ? s.safety_quantity : 3;
-            nextAlerts.push({
-              id: alertId,
-              type: 'stock',
-              severity: soldOut ? 'urgent' : 'high',
-              title: soldOut ? `${s.name} 다 떨어졌어요` : `${s.name} 얼마 안 남았어요`,
-              body: soldOut
-                ? `지금 0${s.unit} · 최소 ${need}${s.unit} 필요`
-                : `${s.current_quantity}${s.unit} 남음 · 최소 ${need}${s.unit} 필요`,
-              timeText: getFormattedTimeText(),
-              actionText: '재고 보기',
-              target: { screen: 'Inventory' },
-            });
-          }
-        });
-
-        lowStocks
-          .sort(
-            (a, b) =>
-              a.current_quantity / (a.safety_quantity || 1) -
-              b.current_quantity / (b.safety_quantity || 1),
-          )
-          .slice(0, 4)
-          .forEach((s) => {
-            const stockId = `stock-${s.ingredient_id}`;
-            // 브루 제안에 이미 들어간 재료는 중복으로 넣지 않는다
-            if (aiStockIds.has(stockId)) return;
-            if (!dismissedSet.has(stockId)) {
-              const soldOut = s.current_quantity <= 0;
-              // 브루 제안과 같은 형식·같은 쉬운 말로 ('안전재고' 같은 용어는 쓰지 않는다)
-              const need = `최소 ${s.safety_quantity > 0 ? s.safety_quantity : 3}${s.unit} 필요`;
-              const meta = soldOut
-                ? `다 떨어짐 · ${need}`
-                : `${s.current_quantity}${s.unit} 남음 · ${need}`;
-              next.push({
-                id: stockId,
-                title: `${s.name} 발주`,
-                subtitle: meta,
-                meta,
-                urgentLabel: soldOut ? '급함' : undefined,
-                actionable: true,
-                done: completedSet.has(stockId), // [한글 주석] 기존 완료 기록이 있으면 체크 상태 유지
-                source: 'ai',
-              });
-            }
-          });
-      } catch (e) {
-        console.error('재고 할 일 조회 실패:', e);
-      }
-      try {
-        if (complianceResult.status === 'rejected') throw complianceResult.reason;
-        const items = complianceResult.value;
-        items
-          .filter((c) => c.status !== 'ok')
-          .forEach((c) => {
-            const alertId = `alert-comp-${c.id}`;
-            if (!dismissedAlertSet.has(alertId)) {
-              const expired = c.status === 'expired';
-              nextAlerts.push({
-                id: alertId,
-                type: 'document',
-                severity: expired ? 'high' : 'medium',
-                title: expired ? `${c.name} 기한 지남` : `${c.name} 갱신 준비`,
-                body: expired
-                  ? `${formatKoreanDate(c.expiry_date)}까지였어요`
-                  : `${c.days_left}일 남음 · ${formatKoreanDate(c.expiry_date)}까지`,
-                actionText: '서류 보기',
-                target: { screen: 'Document' },
-              });
-            }
-
-            const compId = `comp-${c.id}`;
-            // 브루 인사이트가 이미 같은 서류의 갱신 할 일을 만들었으면 두 줄로 만들지 않는다
-            if (!dismissedSet.has(compId) && !aiRenewalDocIds.has(String(c.id))) {
-              const expired = c.status === 'expired';
-              const compMeta = expired
-                ? `기한 지남 · ${c.expiry_date}까지였어요`
-                : `${c.days_left}일 남음 · ${c.expiry_date}까지`;
-              next.push({
-                id: compId,
-                title: expired ? `${c.name} 갱신` : `${c.name} 갱신 준비`,
-                subtitle: compMeta,
-                meta: compMeta,
-                urgentLabel: expired ? '급함' : undefined,
-                actionable: false,
-                done: completedSet.has(compId), // [한글 주석] 기존 완료 기록이 있으면 체크 상태 유지
-                source: 'ai',
-              });
-            }
-          });
-      } catch (e) {
-        console.error('서류 갱신 할 일 조회 실패:', e);
-      }
-      try {
-        if (serverTodosResult.status === 'rejected') throw serverTodosResult.reason;
-        // [한글 주석: 과거 테스트용 더미 번호 항목(M1~M56 등)을 깔끔하게 필터링하여 카페 실무 투두만 노출]
-        serverTodosResult.value
-          .filter((t: any) => !/^(미션|M)\d+/i.test((t.title || '').trim()))
-          .forEach((t: any) => {
-            const serverIdStr = `server-${t.id}`;
-            if (!dismissedSet.has(serverIdStr)) {
-              const parsedKey = t.date_key || (t.created_at ? t.created_at.split('T')[0] : undefined);
-              next.push({
-                id: serverIdStr,
-                title: t.title,
-                subtitle:
-                  t.note && t.note !== '브루가 추가함'
-                    ? t.note
-                    : t.source === 'ai'
-                      ? '대화 중 추가됨'
-                      : '사장님 직접 추가',
-                // 메모가 있을 때만 회색 줄로 — '사장님 직접 추가' 같은 안내는 줄만 늘린다.
-                // (브루 추천을 고쳐서 내 업무로 가져온 경우 "다 떨어짐 · 최소 5kg 필요"가 여기 남는다)
-                meta: t.note && t.note !== '브루가 추가함' ? t.note : undefined,
-                actionable: false,
-                done: completedSet.has(serverIdStr) || t.done,
-                source: t.source,
-                dateKey: parsedKey,
-              });
-            }
-          });
-      } catch (e) {
-        console.error('할 일 조회 실패:', e);
-      }
-      try {
-        if (insightsResult.status === 'fulfilled' && insightsResult.value?.insights) {
-          insightsResult.value.insights.slice(0, 3).forEach((ins) => {
-            const alertId = `alert-ins-${ins.key}`;
-            if (!dismissedAlertSet.has(alertId)) {
-              nextAlerts.push({
-                id: alertId,
-                type: 'insight',
-                severity: ins.severity === 'high' ? 'high' : ins.severity === 'medium' ? 'medium' : 'low',
-                title: ins.title,
-                body: ins.body,
-                timeText: ins.due_date ? `${formatKoreanDate(ins.due_date)}까지` : undefined,
-                actionText: '브루에게 물어보기',
-                target: { screen: 'Chatbot' },
-              });
-            }
-          });
+      const parseSet = (raw: string | null) => {
+        try {
+          return new Set<string>(raw ? JSON.parse(raw) : []);
+        } catch {
+          return new Set<string>();
         }
-      } catch (e) {
-        console.error('AI 인사이트 조회 실패:', e);
-      }
-
-      // 알림은 실제 재고·서류·인사이트에서만 만든다.
-      // (예전에는 '서울우유 2팩 남음' 같은 고정 문구 5장을 항상 끼워 넣어서,
-      //  매장에 없는 재료·없는 서류가 알림 센터에 그대로 떴다.)
-      // 접힌 알림 센터는 맨 위 한 장만 보이므로 급한 것부터 정렬한다.
-      const SEVERITY_ORDER: Record<AlertItem['severity'], number> = {
-        urgent: 0,
-        high: 1,
-        medium: 2,
-        low: 3,
       };
-      nextAlerts.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
 
-      if (!cancelled) {
-        setTodos((prev) => {
-          const localItems = prev.filter((p) => p.id.startsWith('local-'));
-          return [...localItems, ...next];
-        });
-        setAlerts(nextAlerts);
-      }
+      const cached = await Promise.all(
+        (Object.keys(CACHE_KEYS) as (keyof DashboardSources)[]).map((name) =>
+          loadCache<any>(CACHE_KEYS[name]).then((hit) => [name, hit?.data] as const),
+        ),
+      );
+      if (cancelled) return;
+
+      prefs = {
+        dismissed: parseSet(rawDismissed),
+        completed: parseSet(rawCompleted),
+        dismissedAlerts: parseSet(rawDismissedAlerts),
+      };
+      // 이미 서버 응답이 온 항목은 캐시로 덮지 않는다
+      cached.forEach(([name, data]) => {
+        if (data !== undefined && sources[name] === undefined) sources[name] = data;
+      });
+      paint();
     })();
+
     return () => {
       cancelled = true;
     };
@@ -455,6 +542,9 @@ export default function DashboardScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
+    // 캐시를 지우지 않고 '낡음'으로만 표시한다 — 카드는 지난 값을 계속 보여 주면서
+    // 서버를 반드시 다시 부른다. (지워 버리면 새로고침할 때마다 카드가 빈 채로 깜빡인다)
+    markAllStale();
     setTimeout(() => {
       setRunId((x) => x + 1);
       setRefreshing(false);
@@ -594,6 +684,22 @@ export default function DashboardScreen() {
     toast(`🪙 +${awarded}코인`, '상점에서 브루를 꾸며보세요.');
   };
 
+  /**
+   * 할 일 카드를 누르면 그 일을 처리할 수 있는 화면으로 보낸다.
+   *
+   * 재고 항목의 id는 'stock-<재료id>' 형식이라(ai_todo_service) 여기서 바로 꺼내
+   * 재고 화면의 그 재료로 보낸다 — 목록에서 다시 찾게 하지 않는다.
+   * ts를 함께 넘겨야 같은 재료를 연달아 눌러도 받는 화면이 새 요청으로 인식한다.
+   */
+  const openTodoTarget = (todo: { id: string }) => {
+    const m = /^stock-(\d+)$/.exec(todo.id);
+    if (!m) return; // 재고가 아닌 항목(홍보 등)은 각자 링크로 처리한다
+    navigation.navigate('Tabs', {
+      screen: 'Inventory',
+      params: { focusIngredientId: Number(m[1]), ts: Date.now() },
+    });
+  };
+
   const toggleDone = async (id: string) => {
     // 다음 상태를 지금 값에서 직접 계산한다 — setTodos 콜백 안에서 읽으면
     // 서버로 보낼 값과 화면 값이 어긋날 수 있다
@@ -705,7 +811,7 @@ export default function DashboardScreen() {
             mood={brewMood}
             onOpenMap={() => navigation.navigate('StoreMap')}
             onOpenPushModal={handleOpenPushModal}
-            onOpenShop={() => navigation.navigate('Shop')}
+            onOpenShop={() => navigation.navigate('BrewRoom')}
             hasUnreadPush={alerts.length > 0 && !pushBadgeSeen}
             refreshTrigger={runId}
           />
@@ -729,7 +835,7 @@ export default function DashboardScreen() {
             <SalesCard
               key={`salescard-${runId}`}
               todos={todos}
-              onPressTodo={() => {}}
+              onPressTodo={openTodoTarget}
               onToggleDone={toggleDone}
               onAddTodo={handleAddTodo}
               onEditTodo={handleEditTodo}

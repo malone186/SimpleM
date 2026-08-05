@@ -8,7 +8,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 
 import { useAuth } from '../../auth/AuthContext';
 import { useTranslation } from '../../i18n/translations';
@@ -445,6 +445,51 @@ export default function InventoryScreen() {
     return stocks.filter((s) => getCategory(s.name) === selectedCategory);
   }, [stocks, selectedCategory]);
 
+  // ── 알림에서 넘어온 품목으로 자동 이동 ─────────────────────────────
+  // "재고 부족" 알림을 눌러 들어왔는데 그 재료가 목록 어딘가에 묻혀 있으면
+  // 알림을 누른 의미가 없다. 카테고리 필터에 가려 있으면 필터부터 풀고,
+  // 해당 카드로 스크롤한 뒤 잠깐 강조해 눈에 띄게 한다.
+  const route = useRoute<any>();
+  const scrollRef = useRef<any>(null);
+  const cardY = useRef<Record<number, number>>({});
+  const [focusId, setFocusId] = useState<number | null>(null);
+  // 같은 요청을 두 번 처리하지 않도록 표시해 둔다 (필터를 풀면 이 효과가 다시 돈다)
+  const handledFocus = useRef<string>('');
+
+  // 푸시 알림으로 들어오면 값이 문자열("12")이고, 앱 안에서 넘기면 숫자(12)다.
+  // 숫자로 통일하지 않으면 아래 === 비교가 조용히 어긋나 아무 카드도 못 찾는다.
+  const rawFocus = route.params?.focusIngredientId as number | string | undefined;
+  const focusParam = Number(rawFocus) || undefined;
+  const focusTs = route.params?.ts as number | undefined;
+
+  useEffect(() => {
+    if (!focusParam || stocks.length === 0) return;
+    const key = `${focusParam}:${focusTs ?? ''}`;
+    if (handledFocus.current === key) return;
+
+    const target = stocks.find((s) => s.ingredient_id === focusParam);
+    if (!target) return; // 그 사이 지워진 재료 — 목록만 보여주고 끝낸다
+    handledFocus.current = key;
+
+    // 필터에 가려져 있으면 먼저 푼다. 풀지 않으면 스크롤할 카드가 아예 없다.
+    setSelectedCategory((prev) =>
+      prev !== 'all' && getCategory(target.name) !== prev ? 'all' : prev
+    );
+    setFocusId(focusParam);
+
+    // 목록이 다시 그려져 위치가 잡힌 뒤에 좌표를 읽어야 한다
+    const scrollTimer = setTimeout(() => {
+      const y = cardY.current[focusParam];
+      if (y != null) scrollRef.current?.scrollTo({ y: Math.max(0, y - 90), animated: true });
+    }, 380);
+    // 강조는 잠깐만 — 계속 켜 두면 그냥 다른 색 카드로 보인다
+    const clearTimer = setTimeout(() => setFocusId(null), 3200);
+    return () => {
+      clearTimeout(scrollTimer);
+      clearTimeout(clearTimer);
+    };
+  }, [focusParam, focusTs, stocks]);
+
   // 스크롤에 따라 브라운 헤더가 천천히 올라가며 투명해지는 패럴럭스+페이드 (홈 화면과 동일)
   const scrollY = useRef(new Animated.Value(0)).current;
   const headerTranslate = scrollY.interpolate({ inputRange: [0, 300], outputRange: [0, 140], extrapolateLeft: 'clamp' });
@@ -475,6 +520,7 @@ export default function InventoryScreen() {
 
       {/* 헤더를 스크롤 안에 두고, 스크롤 시 천천히 위로+페이드 (홈 화면과 동일) */}
       <Animated.ScrollView
+        ref={scrollRef}
         style={{ flex: 1 }}
         contentContainerStyle={{ flexGrow: 1 }}
         showsVerticalScrollIndicator={false}
@@ -864,7 +910,12 @@ export default function InventoryScreen() {
             const low = s.safety_quantity > 0 && s.current_quantity < s.safety_quantity;
             const denominator = Math.max(s.current_quantity, s.safety_quantity * 2, 1);
             return (
-              <Card key={s.ingredient_id}>
+              <Card
+                key={s.ingredient_id}
+                style={focusId === s.ingredient_id ? styles.focusedCard : undefined}
+                // 알림에서 넘어왔을 때 스크롤할 좌표를 기억해 둔다
+                onLayout={(e) => { cardY.current[s.ingredient_id] = e.nativeEvent.layout.y; }}
+              >
                 <View style={styles.rowBetween}>
                   <Text style={styles.stockName}>{s.name}</Text>
                   <View style={styles.headRight}>
@@ -1004,6 +1055,17 @@ function OcrSourceRow({
 }
 
 const styles = StyleSheet.create({
+  // 알림에서 넘어온 재료 — 스크롤만 하면 어느 카드였는지 모르니 잠깐 테두리를 준다.
+  // colors.pointOrange는 이름과 달리 지금 값이 #2E2521(거의 검정)이라 강조가 안 된다.
+  // 디자인 스펙의 테라코타를 여기서만 직접 쓴다 (초록=정상, 빨강=위험과도 겹치지 않는다).
+  focusedCard: {
+    borderWidth: 2,
+    borderColor: '#C07030',
+    shadowColor: '#C07030',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+  },
   // [관리 탭과 동일] 딥브라운 오로라 루트 + 고정 브라운 헤더 + 둥근 크림 시트
   brownRoot: { flex: 1, backgroundColor: '#1E1612' },
   // [세 탭 헤더 통일] 좌측 세로열 + 우측 마스코트, 마스코트 높이가 헤더 높이를 정한다

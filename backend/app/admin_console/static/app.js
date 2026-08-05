@@ -117,11 +117,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) {
       /* 토큰 모양이 예상과 다르면 기본 표시 그대로 둔다 */
     }
-    const origin = ADMIN_API.replace('/api/v1', '');
-    const swagger = document.getElementById('link-swagger');
-    const backend = document.getElementById('link-backend');
-    if (swagger) swagger.href = `${origin}/docs`;
-    if (backend) backend.href = origin;
+    // (삭제됨) Swagger·백엔드 루트 링크 주소 주입 — 링크 자체를 없앴다(개발자용)
   })();
 
   // 비밀번호 변경 — 백엔드에 POST /admin/password가 있는데 화면에 들어올 입구가 없어서,
@@ -374,22 +370,39 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 5. [회원 관리] 탭 통합 사장님 테이블 렌더링
   const userTableBody = document.getElementById('user-table-body');
+  let currentUserFilter = 'all';   // all | 활성 | 대기 | 정지
+
+  // 검색·상태 필터를 통과한 목록 — 표와 CSV 내보내기가 같은 결과를 쓴다
+  function filteredUsers() {
+    let items = mockUsers;
+    if (currentUserFilter !== 'all') {
+      items = items.filter((u) => (u.status || '활성') === currentUserFilter);
+    }
+    const q = document.getElementById('user-search-input')?.value.toLowerCase().trim();
+    if (q) {
+      items = items.filter(
+        (u) => u.name.toLowerCase().includes(q) || u.store.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
+      );
+    }
+    return items;
+  }
+
   function renderUserTable() {
     if (!userTableBody) return;
 
-    if (mockUsers.length === 0) {
-      // 열 개수(6)와 맞춰야 안내 문구가 표 전체 폭에 걸린다 — 구독 유형 열이 빠지며 7→6이 됐다
-      userTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 30px; color: #8A7A71;">가입된 사장님 회원 데이터가 없습니다.</td></tr>';
-      return;
+    const items = filteredUsers();
+    const countBadge = document.getElementById('user-count-badge');
+    if (countBadge) {
+      countBadge.textContent = items.length === mockUsers.length
+        ? `${mockUsers.length}명`
+        : `${items.length} / ${mockUsers.length}명`;
     }
 
-    let items = mockUsers;
-
-    const searchQuery = document.getElementById('user-search-input')?.value.toLowerCase().trim();
-    if (searchQuery) {
-      items = items.filter(
-        (u) => u.name.toLowerCase().includes(searchQuery) || u.store.toLowerCase().includes(searchQuery) || u.email.toLowerCase().includes(searchQuery)
-      );
+    if (items.length === 0) {
+      // 열 개수(7)와 맞춰야 안내 문구가 표 전체 폭에 걸린다 — 구독 유형이 빠지고 보유 코인이 들어왔다
+      const msg = mockUsers.length === 0 ? '가입된 사장님 회원 데이터가 없습니다.' : '조건에 맞는 회원이 없습니다.';
+      userTableBody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 30px; color: #8A7A71;">${msg}</td></tr>`;
+      return;
     }
 
     userTableBody.innerHTML = items
@@ -401,6 +414,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <td>${u.store}</td>
         <td>${u.email}</td>
         <td><span class="status-badge ${u.status === '활성' ? 'green-bg' : u.status === '정지' ? 'cancel' : 'brown-bg'}">${u.status}</span></td>
+        <td><strong>${(u.coins ?? 0).toLocaleString()}</strong> 코인</td>
         <td><button class="link-btn" onclick="event.stopPropagation(); openUserDrawer(${u.id})">상세보기</button></td>
       </tr>
     `
@@ -409,6 +423,44 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // (삭제됨) 상단 등급 필터 탭 — 버튼 자체가 HTML에서 빠졌다 (유료 플랜 폐지)
+
+  // 계정 상태 필터
+  document.querySelectorAll('.user-filter-pill').forEach((pill) => {
+    pill.addEventListener('click', () => {
+      document.querySelectorAll('.user-filter-pill').forEach((p) => p.classList.remove('active'));
+      pill.classList.add('active');
+      currentUserFilter = pill.dataset.userFilter;
+      renderUserTable();
+    });
+  });
+
+  // CSV 내보내기 — 화면에 보이는 목록 그대로. 엑셀이 한글을 깨뜨리지 않게 BOM을 붙인다.
+  const btnExportUsers = document.getElementById('btn-export-users');
+  if (btnExportUsers) {
+    btnExportUsers.addEventListener('click', () => {
+      const items = filteredUsers();
+      if (items.length === 0) {
+        alert('내보낼 회원이 없습니다.');
+        return;
+      }
+      const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const header = ['ID', '사장님 이름', '매장명', '이메일', '계정 상태', '가입 일자', 'OCR 건수', '재고 품목', '생성 서류', '보유 코인', '관리자 메모'];
+      const rows = items.map((u) => [
+        u.id, u.name, u.store, u.email, u.status, u.joined,
+        u.ocrCount ?? 0, u.stockCount ?? 0, u.docCount ?? 0, u.coins ?? 0, u.memo || '',
+      ].map(cell).join(','));
+      const csv = '﻿' + [header.map(cell).join(','), ...rows].join('\r\n');
+
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+      const a = document.createElement('a');
+      const d = new Date();
+      const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+      a.href = url;
+      a.download = `브루노트_회원목록_${stamp}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  }
 
   // 검색어 입력 이벤트
   const searchInput = document.getElementById('user-search-input');
@@ -430,9 +482,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // 데이터 채우기
     document.getElementById('drawer-user-id').textContent = `#${user.id}`;
     document.getElementById('drawer-store-name').textContent = user.store;
+    document.getElementById('drawer-avatar').textContent = (user.store || user.name || '?').trim().charAt(0);
     document.getElementById('drawer-user-name').textContent = user.name;
     document.getElementById('drawer-user-email').textContent = user.email;
     document.getElementById('drawer-user-joined').textContent = user.joined;
+    paintDrawerStatusChip(user.status);
 
     // 계정 상태 드롭다운
     const statusSelect = document.getElementById('drawer-user-status-select');
@@ -443,14 +497,210 @@ document.addEventListener('DOMContentLoaded', () => {
     // 실시간 사용 통계 — 백엔드가 센 실제 건수 (예전엔 화면에 14건·28개가 박혀 있었다)
     document.getElementById('drawer-stat-ocr').innerHTML = `${user.ocrCount ?? 0}<span class="stat-unit">건</span>`;
     document.getElementById('drawer-stat-stocks').innerHTML = `${user.stockCount ?? 0}<span class="stat-unit">개</span>`;
+    document.getElementById('drawer-stat-docs').innerHTML = `${user.docCount ?? 0}<span class="stat-unit">건</span>`;
 
     // 관리자 메모 — DB(admin_user_notes)에 저장된 값
     document.getElementById('drawer-user-memo').value = user.memo || '';
+
+    // 코인 — 목록에 실린 잔액을 먼저 보여 주고(깜빡임 방지), 내역은 열면서 새로 읽는다
+    paintCoinBalance({ balance: user.coins ?? 0, total_earned: null });
+    resetCoinInputs();
+    loadUserCoins(user.id);
 
     if (window.lucide) lucide.createIcons();
 
     drawerOverlay.classList.add('active');
   };
+
+  // 6-1. 코인 지급 — 상점 재화를 관리자가 직접 넣거나 회수한다.
+  //      적립의 정상 경로는 '할 일 완료'다. 여기는 CS 보상·이벤트·오지급 회수용 예외 창구라
+  //      내역에 '관리자 지급/회수'로 남아 사장님 상점 화면에서도 출처가 보인다.
+  // 헤더의 상태 배지 — 목록의 배지와 같은 색 규칙을 쓴다(활성=초록, 정지=빨강, 대기=갈색)
+  function paintDrawerStatusChip(status) {
+    const chip = document.getElementById('drawer-status-chip');
+    if (!chip) return;
+    const tone = status === '활성' ? 'green-bg' : status === '정지' ? 'cancel' : 'brown-bg';
+    chip.className = `status-badge ${tone}`;
+    chip.textContent = status;
+  }
+
+  let coinMode = 'grant';   // grant(지급) | revoke(회수)
+  let coinBalance = 0;      // 미리보기 계산에 쓰는 현재 잔액
+
+  function paintCoinBalance(wallet) {
+    const balEl = document.getElementById('drawer-coin-balance');
+    const earnEl = document.getElementById('drawer-coin-earned');
+    coinBalance = Number(wallet.balance || 0);
+    if (balEl) {
+      balEl.innerHTML = `${coinBalance.toLocaleString()}<span class="stat-unit">코인</span>`;
+    }
+    if (earnEl) {
+      earnEl.textContent = wallet.total_earned === null || wallet.total_earned === undefined
+        ? '확인 중…'
+        : `${Number(wallet.total_earned).toLocaleString()}코인`;
+    }
+    updateCoinPreview();
+  }
+
+  // 누르기 전에 결과를 보여 준다 — 잘못 지급하면 되돌리려고 다시 회수해야 하니
+  // '지급 후 잔액'과 '잔액보다 많은 회수'를 버튼 위에서 미리 알려 준다.
+  function updateCoinPreview() {
+    const preview = document.getElementById('coin-preview');
+    const btn = document.getElementById('btn-grant-coin');
+    if (!preview || !btn) return;
+
+    const raw = parseInt(document.getElementById('coin-amount-input')?.value, 10);
+    const amount = Number.isFinite(raw) ? Math.abs(raw) : 0;
+    const verb = coinMode === 'grant' ? '지급' : '회수';
+
+    // 칩 선택 표시 — 입력값과 같은 금액만 켠다
+    document.querySelectorAll('.coin-chip').forEach((chip) => {
+      chip.classList.toggle('active', amount > 0 && Number(chip.dataset.coin) === amount);
+    });
+
+    if (!amount) {
+      preview.className = 'coin-preview';
+      preview.textContent = `코인 수를 입력하면 ${verb} 후 잔액을 미리 보여 드려요.`;
+      btn.disabled = false;
+      return;
+    }
+    if (coinMode === 'revoke' && amount > coinBalance) {
+      preview.className = 'coin-preview warn';
+      preview.textContent = `보유 코인(${coinBalance.toLocaleString()}개)보다 많이 회수할 수 없어요.`;
+      btn.disabled = true;
+      return;
+    }
+    const next = coinMode === 'grant' ? coinBalance + amount : coinBalance - amount;
+    preview.className = 'coin-preview';
+    preview.textContent = `${verb} 후 잔액 ${next.toLocaleString()}코인 (${coinMode === 'grant' ? '+' : '-'}${amount.toLocaleString()})`;
+    btn.disabled = false;
+  }
+
+  function setCoinMode(mode) {
+    coinMode = mode;
+    document.querySelectorAll('.coin-mode-tab').forEach((tab) => {
+      tab.classList.toggle('active', tab.dataset.mode === mode);
+    });
+    const btn = document.getElementById('btn-grant-coin');
+    const label = document.getElementById('coin-grant-btn-label');
+    if (btn) btn.classList.toggle('revoke', mode === 'revoke');
+    if (label) label.textContent = mode === 'grant' ? '코인 지급하기' : '코인 회수하기';
+    updateCoinPreview();
+  }
+
+  function paintCoinHistory(history) {
+    const box = document.getElementById('drawer-coin-history');
+    const countEl = document.getElementById('coin-history-count');
+    if (!box) return;
+    if (countEl) countEl.textContent = history && history.length ? `최근 ${history.length}건` : '';
+    if (!history || history.length === 0) {
+      box.innerHTML = '<div class="coin-history-empty">아직 코인 내역이 없습니다.</div>';
+      return;
+    }
+    box.innerHTML = history
+      .map((h) => {
+        const plus = h.delta > 0;
+        const when = h.created_at ? new Date(h.created_at).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' }) : '-';
+        const label = h.memo ? `${h.reason_label} · ${h.memo}` : h.reason_label;
+        return `
+        <div class="coin-history-row">
+          <div class="coin-history-main">
+            <span class="coin-history-reason">${label}</span>
+            <span class="coin-history-date">${when}</span>
+          </div>
+          <span class="coin-history-delta ${plus ? 'plus' : 'minus'}">${plus ? '+' : ''}${Number(h.delta).toLocaleString()}</span>
+        </div>`;
+      })
+      .join('');
+  }
+
+  function resetCoinInputs() {
+    const amount = document.getElementById('coin-amount-input');
+    const memo = document.getElementById('coin-memo-input');
+    if (amount) amount.value = '';
+    if (memo) memo.value = '';
+    setCoinMode('grant');  // 회원을 새로 열 때는 늘 '지급'에서 시작한다
+  }
+
+  async function loadUserCoins(userId) {
+    const box = document.getElementById('drawer-coin-history');
+    if (box) box.innerHTML = '<div class="coin-history-empty">불러오는 중…</div>';
+    try {
+      const res = await fetch(`${API_BASE}/admin/users/${userId}/coins`);
+      if (!res.ok) throw new Error(await describeError(res));
+      const wallet = await res.json();
+      // 응답이 늦게 와도 그 사이 다른 회원을 열었으면 덮어쓰지 않는다
+      if (!selectedUser || selectedUser.id !== userId) return;
+      selectedUser.coins = wallet.balance;
+      paintCoinBalance(wallet);
+      paintCoinHistory(wallet.history);
+    } catch (err) {
+      console.error('코인 조회 실패:', err);
+      if (box) box.innerHTML = `<div class="coin-history-empty">코인 내역을 불러오지 못했습니다 (${err.message}).</div>`;
+    }
+  }
+
+  document.querySelectorAll('.coin-mode-tab').forEach((tab) => {
+    tab.addEventListener('click', () => setCoinMode(tab.dataset.mode));
+  });
+
+  document.querySelectorAll('.coin-chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      const input = document.getElementById('coin-amount-input');
+      if (!input) return;
+      // 같은 칩을 다시 누르면 해제 — 잘못 고른 금액을 지우려고 입력칸을 비울 필요가 없다
+      input.value = Number(input.value) === Number(chip.dataset.coin) ? '' : chip.dataset.coin;
+      updateCoinPreview();
+    });
+  });
+
+  const coinAmountInput = document.getElementById('coin-amount-input');
+  if (coinAmountInput) coinAmountInput.addEventListener('input', updateCoinPreview);
+
+  const btnGrantCoin = document.getElementById('btn-grant-coin');
+  if (btnGrantCoin) {
+    btnGrantCoin.addEventListener('click', async () => {
+      if (!selectedUser) return;
+      const amountInput = document.getElementById('coin-amount-input');
+      const memoInput = document.getElementById('coin-memo-input');
+      const typed = parseInt(amountInput?.value, 10);
+      const action = coinMode === 'grant' ? '지급' : '회수';
+
+      if (!Number.isFinite(typed) || typed === 0) {
+        alert(`${action}할 코인 수를 입력해 주세요.`);
+        amountInput?.focus();
+        return;
+      }
+      // 부호는 탭이 정한다 — 사용자가 음수를 쳐도 회수 탭에서 이중으로 뒤집히지 않게 절댓값을 쓴다
+      const amount = coinMode === 'grant' ? Math.abs(typed) : -Math.abs(typed);
+      const target = `'${selectedUser.store}' (${selectedUser.name} 사장님) 계정${coinMode === 'grant' ? '에' : '에서'}`;
+      if (!confirm(`${target} ${Math.abs(amount).toLocaleString()}코인을 ${action}합니다.\n계속할까요?`)) return;
+
+      btnGrantCoin.disabled = true;
+      try {
+        const res = await fetch(`${API_BASE}/admin/users/${selectedUser.id}/coins`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount, memo: memoInput?.value || '' }),
+        });
+        if (!res.ok) throw new Error(await describeError(res));
+        const wallet = await res.json();
+        selectedUser.coins = wallet.balance;
+        paintCoinBalance(wallet);
+        paintCoinHistory(wallet.history);
+        resetCoinInputs();
+        renderUserTable();  // 목록의 '보유 코인' 열도 즉시 맞춘다
+        alert(`${Math.abs(amount).toLocaleString()}코인을 ${action}했습니다. 현재 잔액 ${Number(wallet.balance).toLocaleString()}코인.`);
+      } catch (err) {
+        console.error('코인 지급 실패:', err);
+        alert(`코인을 ${action}하지 못했습니다 — ${err.message}`);
+      } finally {
+        // 잠금 해제는 미리보기에 맡긴다 — 잔액을 넘는 회수가 입력된 채로 다시 열리면 안 된다
+        btnGrantCoin.disabled = false;
+        updateCoinPreview();
+      }
+    });
+  }
 
   function closeUserDrawer() {
     drawerOverlay.classList.remove('active');
@@ -478,6 +728,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       selectedUser.status = nextStatus;
+      paintDrawerStatusChip(nextStatus);
       renderUserTable();
       renderTimelineFeed();
       alert(`${selectedUser.name} 사장님의 계정 상태를 '${nextStatus}'(으)로 저장했습니다.`);
@@ -717,6 +968,13 @@ document.addEventListener('DOMContentLoaded', () => {
       pills[0].textContent = `전체 문의 (${totalCount}건)`;
       pills[1].textContent = `⏳ 답변 대기 (${waitingCount}건)`;
       pills[2].textContent = `✅ 처리 완료 (${doneCount}건)`;
+    }
+
+    // 사이드바 배지 — 다른 탭을 보고 있어도 밀린 문의가 눈에 띈다
+    const navBadge = document.getElementById('nav-cs-badge');
+    if (navBadge) {
+      navBadge.textContent = waitingCount;
+      navBadge.style.display = waitingCount > 0 ? '' : 'none';
     }
 
     if (list.length === 0) {
@@ -1106,6 +1364,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       agentOverview = await res.json();
       renderAgentMetrics();
+      renderAgentRuntime();
       renderAgentTree();
     } catch (err) {
       console.error('에이전트 편성 조회 실패:', err);
@@ -1140,6 +1399,88 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const liveTag = document.getElementById('agents-live-tag');
     if (liveTag) { liveTag.textContent = 'LIVE'; liveTag.style.background = ''; }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 16-b. [챗봇 실행 현황] 편성표가 아니라 '실제로 돌아간 결과'.
+  //       숫자는 백엔드 프로세스 메모리에 쌓인다 — 재시작하면 0부터라 집계 시작 시각을 함께 보여 준다.
+  // ---------------------------------------------------------------------------
+  function fmtDuration(ms) {
+    if (!ms) return '-';
+    return ms >= 1000 ? `${(ms / 1000).toFixed(1)}<span class="unit">초</span>` : `${Math.round(ms)}<span class="unit">ms</span>`;
+  }
+
+  function renderAgentRuntime() {
+    const rt = agentOverview && agentOverview.runtime;
+    if (!rt) return;
+    const $ = (id) => document.getElementById(id);
+
+    if ($('rt-since')) $('rt-since').textContent = `집계 시작 ${rt.since_label || '-'}`;
+    if ($('rt-turns')) $('rt-turns').innerHTML = `${(rt.turns || 0).toLocaleString()}<span class="unit">턴</span>`;
+    if ($('rt-okrate')) $('rt-okrate').innerHTML = rt.ok_rate === null || rt.ok_rate === undefined
+      ? '-' : `${rt.ok_rate}<span class="unit">%</span>`;
+    if ($('rt-avg')) $('rt-avg').innerHTML = fmtDuration(rt.avg_ms);
+    if ($('rt-p95')) $('rt-p95').innerHTML = fmtDuration(rt.p95_ms);
+    if ($('rt-failed')) $('rt-failed').innerHTML = `${rt.failed || 0}<span class="unit">턴</span>`;
+
+    // 막대 목록 — 유입 경로·기능별 사용량과 같은 모양(act-feature-row)을 재사용한다
+    const bars = (rows, nameOf, valOf, empty) => {
+      const max = Math.max(...rows.map(valOf), 1);
+      return rows.map((r) => `
+        <div class="act-feature-row">
+          <span class="act-feature-name">${nameOf(r)}</span>
+          <span class="act-feature-track"><span class="act-feature-fill" style="width:${(valOf(r) / max * 100).toFixed(1)}%"></span></span>
+          <span class="act-feature-val">${valOf(r).toLocaleString()}회</span>
+        </div>`).join('') || `<div class="act-empty">${empty}</div>`;
+    };
+
+    if ($('rt-expert-list')) {
+      const experts = (rt.experts || []).filter((e) => e.calls > 0);
+      $('rt-expert-list').innerHTML = bars(
+        experts,
+        (e) => `${e.name}${e.avg_ms ? ` <span class="rt-sub">평균 ${(e.avg_ms / 1000).toFixed(1)}초</span>` : ''}${e.failures ? ` <span class="rt-fail">실패 ${e.failures}</span>` : ''}`,
+        (e) => e.calls,
+        '아직 위임된 작업이 없습니다. 챗봇에서 질문이 오면 여기에 쌓입니다.',
+      );
+    }
+
+    if ($('rt-tool-list')) {
+      $('rt-tool-list').innerHTML = bars(
+        (rt.tools || []).filter((t) => t.calls > 0),
+        (t) => `${t.name}${t.failures ? ` <span class="rt-fail">실패 ${t.failures}</span>` : ''}`,
+        (t) => t.calls,
+        '아직 호출된 도구가 없습니다.',
+      );
+    }
+
+    // 실패 사유 — 조치가 갈리므로(키/한도/DB/코드) 뭉뚱그리지 않는다
+    if ($('rt-failure-list')) {
+      const reasons = rt.failure_reasons || [];
+      $('rt-failure-list').innerHTML = reasons.length
+        ? reasons.map((r) => `<span class="rt-failure-chip">${r.label} <b>${r.count}</b></span>`).join('')
+        : '';
+    }
+
+    // 최근 실행 기록
+    const body = $('rt-recent-body');
+    const count = $('rt-recent-count');
+    const recent = rt.recent || [];
+    if (count) count.textContent = recent.length ? `최근 ${recent.length}턴` : '기록 없음';
+    if (body) {
+      body.innerHTML = recent.length
+        ? recent.map((r) => `
+          <tr>
+            <td>${r.at}</td>
+            <td>${r.store_id}</td>
+            <td class="rt-question">${(r.question || '').replace(/</g, '&lt;') || '-'}</td>
+            <td>${r.experts && r.experts.length ? r.experts.join(', ') : '<span class="rt-muted">위임 없음</span>'}</td>
+            <td>${r.tool_calls ? `${r.tool_calls}회` : '<span class="rt-muted">-</span>'}</td>
+            <td>${(r.ms / 1000).toFixed(1)}초</td>
+            <td><span class="status-badge ${r.ok ? 'green-bg' : 'cancel'}">${r.ok ? '정상' : r.reason_label}</span></td>
+          </tr>`).join('')
+        : `<tr><td colspan="7" style="text-align:center;padding:26px;color:#8A7A71;">
+             아직 오간 대화가 없습니다. 앱 챗봇에서 질문이 들어오면 여기에 실시간으로 쌓입니다.</td></tr>`;
+    }
   }
 
   function renderAgentTree() {
@@ -1182,7 +1523,7 @@ document.addEventListener('DOMContentLoaded', () => {
           .map(
             (t) => `
             <div class="agent-tool-row">
-              <span class="agent-tool-name"><i data-lucide="wrench"></i>${t.name}</span>
+              <span class="agent-tool-name"><i data-lucide="wrench"></i>${t.name}${t.calls ? `<span class="agent-tool-calls">${t.calls}회</span>` : ''}</span>
               <span class="agent-tool-desc">${t.description || ''}</span>
             </div>`
           )
@@ -1201,6 +1542,8 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="agent-card-desc">${e.description}</div>
           <div class="agent-card-foot">
             <span class="agent-tool-chip"><i data-lucide="wrench"></i> 도구 ${e.tool_count}개</span>
+            <!-- 편성돼 있다고 실제로 쓰이는 건 아니다 — 서버 시작 이후 위임 횟수를 함께 보여 준다 -->
+            <span class="agent-tool-chip ${e.calls ? 'used' : ''}"><i data-lucide="git-fork"></i> 위임 ${e.calls || 0}회</span>
             <span class="agent-expand-hint">${isOpen ? '▲ 접기' : '▼ 도구 목록 보기'}</span>
           </div>
           <div class="agent-tool-list" style="display: ${isOpen ? 'flex' : 'none'};">
@@ -1223,8 +1566,8 @@ document.addEventListener('DOMContentLoaded', () => {
     renderAgentTree();
   };
 
-  // [한글 주석: 초기 구동 시 실시간 데이터 전면 동기화 + 주기적 자동 갱신]
-  async function initDashboard() {
+  // 전체 새로고침 — 헤더 버튼과 초기 구동이 같은 함수를 쓴다
+  async function refreshAll() {
     // 서로 의존하지 않는 조회라 동시에 보낸다 (하나씩 await하면 Neon RTT가 그대로 쌓인다)
     await Promise.all([
       checkBackendHealth(),
@@ -1236,6 +1579,27 @@ document.addEventListener('DOMContentLoaded', () => {
       loadActivity(),
       loadAgents(),
     ]);
+    const updated = document.getElementById('header-updated');
+    if (updated) updated.textContent = `${nowLabel()} 갱신됨`;
+  }
+
+  const btnRefreshAll = document.getElementById('btn-refresh-all');
+  if (btnRefreshAll) {
+    btnRefreshAll.addEventListener('click', async () => {
+      btnRefreshAll.disabled = true;
+      btnRefreshAll.classList.add('spinning');
+      try {
+        await refreshAll();
+      } finally {
+        btnRefreshAll.disabled = false;
+        btnRefreshAll.classList.remove('spinning');
+      }
+    });
+  }
+
+  // [한글 주석: 초기 구동 시 실시간 데이터 전면 동기화 + 주기적 자동 갱신]
+  async function initDashboard() {
+    await refreshAll();
 
     // 4초 주기 — 사장님이 문의를 접수하면 새로고침 없이 바로 뜬다
     setInterval(loadCSList, 4000);
@@ -1243,11 +1607,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // 나머지 패널도 주기적으로 다시 읽는다.
     // 예전엔 initDashboard가 딱 한 번만 돌아서, 화면에 'LIVE'와 '실시간'이라고 써 있는데
     // 실제로는 페이지를 연 순간의 스냅샷이 몇 시간이고 그대로 남아 있었다.
-    setInterval(() => {
-      checkBackendHealth();
-      loadDashboardStats();
-      loadUsers();
-      loadNotifications();
+    setInterval(async () => {
+      // loadAgents도 함께 — 실행 현황(대화 턴·응답시간)은 계속 변한다. DB를 안 타는 조회라 가볍다.
+      await Promise.all([checkBackendHealth(), loadDashboardStats(), loadUsers(), loadNotifications(), loadAgents()]);
+      const updated = document.getElementById('header-updated');
+      if (updated) updated.textContent = `${nowLabel()} 갱신됨`;
     }, 30000);
 
     setInterval(() => {

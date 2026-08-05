@@ -28,6 +28,7 @@ import OrderScreen from '../screens/order/OrderScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 import SalesInputScreen from '../screens/sales/SalesInputScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
+import BrewRoomScreen from '../screens/shop/BrewRoomScreen';
 import ShopScreen from '../screens/shop/ShopScreen';
 import StaffScreen from '../screens/staff/StaffScreen';
 import TaxDraftDetailScreen from '../screens/document/TaxDraftDetailScreen';
@@ -36,7 +37,9 @@ import type { TaxEstimate } from '../lib/api/operation';
 
 export type RootTabParamList = {
   Dashboard: undefined;
-  Inventory: undefined;
+  // focusIngredientId: 재고 부족 알림에서 넘어올 때 강조·스크롤할 재료
+  //   ts: 같은 재료 알림을 다시 눌러도 파라미터가 바뀌어 재실행되도록 하는 클릭 시각
+  Inventory: { focusIngredientId?: number; ts?: number } | undefined;
   // prefill: 다른 화면(경영 리포트 등)에서 버튼으로 넘어올 때 입력창에 미리 채울 질문
   //   ts: 같은 질문을 다시 눌러도 파라미터가 바뀌어 재입력되도록 하는 클릭 시각
   Chatbot: { prefill?: string; ts?: number } | undefined;
@@ -74,7 +77,9 @@ export type RootStackParamList = {
   // section: 특정 설정 하위 화면으로 바로 진입 (예: 카드 정산 설정)
   Settings: { section?: 'account' | 'notification' | 'appearance' | 'inquiry' | 'legal' | 'settlement' } | undefined;
   StoreMap: undefined;
-  Shop: undefined;
+  // openVault: 게임 룸에서 '보관함' 버튼으로 들어올 때 보관함 시트를 바로 연다
+  Shop: { openVault?: boolean } | undefined;
+  BrewRoom: undefined; // 브루의 카페 (게임 룸) — 홈 우상단 버튼
 };
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -198,6 +203,8 @@ export default function RootNavigator() {
         <Stack.Screen name="Settings" component={SettingsScreen} options={({ navigation }) => erpHeader('설정', navigation)} />
         <Stack.Screen name="StoreMap" component={StoreMapScreen} options={({ navigation }) => erpHeader('매장 위치', navigation)} />
         <Stack.Screen name="Shop" component={ShopScreen} options={({ navigation }) => erpHeader('포인트 상점', navigation)} />
+        {/* 게임 룸 — 배경 그림에 몰입하도록 기본 헤더 없이 자체 상단 바를 쓴다 */}
+        <Stack.Screen name="BrewRoom" component={BrewRoomScreen} options={{ headerShown: false }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

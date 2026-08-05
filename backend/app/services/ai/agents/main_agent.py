@@ -26,10 +26,12 @@ import importlib
 import json
 import logging
 import os
+import time
 from datetime import date
 from pathlib import Path
 from typing import Any, Optional
 
+from app.services.ai.agents import runtime_stats
 from app.services.ai.untrusted import UNTRUSTED_PROMPT_RULE
 
 logger = logging.getLogger(__name__)
@@ -516,8 +518,15 @@ def _is_rate_limit(e: Exception) -> bool:
     무료 티어는 분당 15요청이라, 멀티에이전트가 한 턴에 메인+전문가로 여러 번 호출하면
     질문을 연달아 던질 때 쉽게 걸린다. 이건 잠시 뒤 저절로 풀리므로 '오늘 다 썼다'고
     안내하면 안 된다.
+
+    일일 소진을 먼저 걸러낸다 — 구글은 하루치를 다 써도 RetryInfo("Please retry in 21s")를
+    같이 준다. retryDelay만 보고 판단하면 하루 종일 "1분 뒤에 다시 해보세요"라고 안내하게
+    되고(사장님은 계속 재시도), 관리자 콘솔 실패 사유도 '분당 제한'으로 잘못 찍힌다.
+    실측(2026-08-05): quotaId=GenerateRequestsPerDayPerProjectPerModel-FreeTier + retryDelay 동봉.
     """
     s = f"{e}"
+    if "PerDay" in s or "per day" in s.lower():
+        return False
     return "PerMinute" in s or "RetryInfo" in s or "retryDelay" in s
 
 
@@ -549,7 +558,7 @@ def _extract_document(result: Any) -> Optional[dict[str, Any]]:
     return None
 
 
-def _bind_store(t, store_id: str, created_docs: list[dict[str, Any]]):
+def _bind_store(t, store_id: str, created_docs: list[dict[str, Any]], recorder=None):
     """모든 도구를 공통 래퍼로 감싼다 — 예외 안전망 + 문서 수집, 그리고 store_id 강제.
 
     · store_id 인자를 받는 도구는 모델이 뭐라 넣든 로그인 사용자 값으로 덮어쓴다 (보안).
@@ -558,6 +567,8 @@ def _bind_store(t, store_id: str, created_docs: list[dict[str, Any]]):
       사장님은 "앗! 문제가 생겼어요"만 받았다. 이제는 어느 도구가 터져도 문자열로
       돌려줘 모델이 그 도구만 포기하고 대화를 이어갈 수 있다.
     · 결과가 문서 전문이면 created_docs에 모아 — 최종 응답에 카드로 실어 보낸다.
+    · recorder가 있으면 어느 도구가 몇 번 불렸고 몇 번 실패했는지 계측한다
+      (관리자 콘솔 AI 에이전트 탭. 없으면 계측만 건너뛴다).
     """
     from langchain_core.tools import StructuredTool
 
@@ -565,6 +576,10 @@ def _bind_store(t, store_id: str, created_docs: list[dict[str, Any]]):
     if getattr(t, "args_schema", None) is None:
         return t
     has_store = bool(getattr(t, "args", None) and "store_id" in t.args)
+
+    def _note(ok: bool):
+        if recorder is not None:
+            recorder.tool_called(t.name, ok)
 
     def _collect(result):
         doc = _extract_document(result)
@@ -581,7 +596,9 @@ def _bind_store(t, store_id: str, created_docs: list[dict[str, Any]]):
             # 도구 하나의 예상 밖 예외(의존성 누락·외부 API 죽음 등)가 턴 전체를 죽이지
             # 않도록 문자열로 돌려준다. (각 도구의 자체 except가 1차 방어, 여기가 마지막 그물)
             logger.exception("도구 실행 실패: %s", t.name)
+            _note(False)
             return f"도구 '{t.name}' 실행 실패: {type(e).__name__}: {e}"
+        _note(True)
         return _collect(result)
 
     async def _arun(**kwargs):
@@ -594,7 +611,9 @@ def _bind_store(t, store_id: str, created_docs: list[dict[str, Any]]):
             result = await t.ainvoke(kwargs)
         except Exception as e:
             logger.exception("도구 실행 실패: %s", t.name)
+            _note(False)
             return f"도구 '{t.name}' 실행 실패: {type(e).__name__}: {e}"
+        _note(True)
         return _collect(result)
 
     return StructuredTool(
@@ -641,11 +660,12 @@ def render_sub_prompt(domain: dict[str, Any], store_id: str) -> str:
     )
 
 
-def _build_subagent(domain: dict[str, Any], store_id: str, created_docs: list[dict[str, Any]], model_name: str = ""):
+def _build_subagent(domain: dict[str, Any], store_id: str, created_docs: list[dict[str, Any]],
+                    model_name: str = "", recorder=None):
     """도메인 하나의 서브에이전트를 만든다. 도구가 하나도 없으면 None (비활성 도메인)."""
     from langchain.agents import create_agent
 
-    tools = [_bind_store(t, store_id, created_docs) for m in domain["modules"] for t in _module_tools(m)]
+    tools = [_bind_store(t, store_id, created_docs, recorder) for m in domain["modules"] for t in _module_tools(m)]
     if not tools:
         return None
     # today: 메인 프롬프트에만 있던 오늘 날짜를 서브에도 넣는다 — 서브가 날짜를 모르면
@@ -662,17 +682,29 @@ def _last_text(result: dict[str, Any]) -> str:
     return str(content)
 
 
-def _make_delegate_tool(domain: dict[str, Any], subagent):
-    """서브에이전트를 메인 에이전트의 도구 하나로 감싼다 (agent-as-tool)."""
+def _make_delegate_tool(domain: dict[str, Any], subagent, recorder=None):
+    """서브에이전트를 메인 에이전트의 도구 하나로 감싼다 (agent-as-tool).
+
+    위임 한 번이 곧 '전문가 호출 한 번'이라, 여기가 전문가별 호출 횟수·소요 시간을
+    재는 유일하게 정확한 지점이다 (관리자 콘솔 AI 에이전트 탭).
+    """
     from langchain_core.tools import StructuredTool
 
     async def _delegate(task: str) -> str:
         logger.info("메인 → %s 위임: %s", domain["name"], task[:80])
-        result = await subagent.ainvoke(
-            {"messages": [{"role": "user", "content": task}]},
-            # run_name: LangSmith 트레이스 트리에서 어느 전문가의 실행인지 바로 보이게
-            config={"recursion_limit": SUB_RECURSION_LIMIT, "run_name": domain["name"]},
-        )
+        started = time.perf_counter()
+        try:
+            result = await subagent.ainvoke(
+                {"messages": [{"role": "user", "content": task}]},
+                # run_name: LangSmith 트레이스 트리에서 어느 전문가의 실행인지 바로 보이게
+                config={"recursion_limit": SUB_RECURSION_LIMIT, "run_name": domain["name"]},
+            )
+        except Exception:
+            if recorder is not None:
+                recorder.expert_called(domain["name"], (time.perf_counter() - started) * 1000, ok=False)
+            raise
+        if recorder is not None:
+            recorder.expert_called(domain["name"], (time.perf_counter() - started) * 1000, ok=True)
         return _last_text(result)
 
     return StructuredTool.from_function(
@@ -695,6 +727,11 @@ def get_agent_overview() -> dict[str, Any]:
     실제 대화 때와 같은 규칙(_module_tools)으로 도구를 로드해 보기 때문에,
     여기서 '활성'으로 나오면 챗봇에서도 그 전문가가 실제로 활성화된다.
     """
+    runtime = runtime_stats.snapshot()
+    # 전문가별 실행 실적을 편성표에 얹는다 — '있다'와 '실제로 쓰인다'는 다른 이야기다
+    usage = {e["name"]: e for e in runtime.get("experts", [])}
+    tool_usage = {t["name"]: t for t in runtime.get("tools", [])}
+
     experts: list[dict[str, Any]] = []
     total_tools = 0
     for domain in _DOMAINS:
@@ -702,12 +739,15 @@ def get_agent_overview() -> dict[str, Any]:
         for module_path in domain["modules"]:
             for t in _module_tools(module_path):
                 desc = (t.description or "").strip().splitlines()
+                used = tool_usage.get(t.name)
                 tools.append({
                     "name": t.name,
                     "description": desc[0][:120] if desc else "",
                     "module": module_path,
+                    "calls": used["calls"] if used else 0,
                 })
         total_tools += len(tools)
+        stat = usage.get(domain["name"])
         experts.append({
             "name": domain["name"],
             "title": domain["title"],
@@ -716,6 +756,9 @@ def get_agent_overview() -> dict[str, Any]:
             "active": bool(tools),
             "tool_count": len(tools),
             "tools": tools,
+            "calls": stat["calls"] if stat else 0,
+            "avg_ms": stat["avg_ms"] if stat else 0,
+            "failures": stat["failures"] if stat else 0,
         })
 
     return {
@@ -731,6 +774,8 @@ def get_agent_overview() -> dict[str, Any]:
         "total_experts": len(experts),
         "total_tools": total_tools,
         "experts": experts,
+        # 서버 시작 이후의 실제 실행 현황 (프로세스 메모리 기준 — 재시작하면 0부터)
+        "runtime": runtime,
     }
 
 
@@ -751,7 +796,15 @@ async def generate_response(
 
     from langchain.agents import create_agent
 
+    # 실행 계측 — 이 턴에서 어느 전문가·도구가 불렸는지 모아 두었다가 끝에 한 번 기록한다
+    started = time.perf_counter()
+    recorder = runtime_stats.TurnRecorder()
+
+    def _elapsed_ms() -> float:
+        return (time.perf_counter() - started) * 1000
+
     if not GEMINI_API_KEY:
+        runtime_stats.record_turn(store_id, _elapsed_ms(), "no_api_key", recorder, user_message)
         return {"text": "죄송합니다. 챗봇의 핵심 API 키(GEMINI_API_KEY)가 설정되어 있지 않아 대화가 불가능합니다. 시스템 관리자에게 문의해 주세요.", "documents": [], "ok": False}
 
     # created_docs: 이번 요청에서 문서 도구가 만든/수정한 문서 전문이 여기 모인다
@@ -772,10 +825,10 @@ async def generate_response(
         delegate_tools = []
         expert_lines = []
         for domain in _DOMAINS:
-            subagent = _build_subagent(domain, store_id, created_docs, model_name)
+            subagent = _build_subagent(domain, store_id, created_docs, model_name, recorder)
             if subagent is None:
                 continue
-            delegate_tools.append(_make_delegate_tool(domain, subagent))
+            delegate_tools.append(_make_delegate_tool(domain, subagent, recorder))
             expert_lines.append(f"- {domain['name']} ({domain['title']}): {domain['description']}")
 
         if not delegate_tools:
@@ -806,9 +859,11 @@ async def generate_response(
         answer = await _run_turn(GEMINI_MODEL)
 
         if answer is None:
+            runtime_stats.record_turn(store_id, _elapsed_ms(), "no_expert", recorder, user_message)
             return {"text": "지금은 연결된 기능이 없어 일반 대화만 가능해요. 무엇이 궁금하신가요?",
                     "documents": [], "ok": False}
         # 모델이 빈 답을 준 경우(answer == "")도 실패로 본다 — 사장님은 실질 답변을 못 받았다
+        runtime_stats.record_turn(store_id, _elapsed_ms(), "ok" if answer else "empty", recorder, user_message)
         return {"text": answer or "죄송해요, 답변을 만들지 못했어요. 조금 다르게 질문해 주시겠어요?",
                 "documents": created_docs, "ok": bool(answer)}
     except Exception as e:
@@ -816,17 +871,21 @@ async def generate_response(
         # 429 — 분당 제한(잠시 뒤 풀림)과 일일 할당량 소진(내일까지 못 씀)은 안내가 달라야 한다
         if _is_quota_error(e):
             if _is_rate_limit(e):
+                runtime_stats.record_turn(store_id, _elapsed_ms(), "rate_limit", recorder, user_message)
                 return {"text": ("질문이 잠깐 몰려서 AI 응답이 잠시 제한됐어요. "
                                  "1분쯤 뒤에 다시 물어봐 주시면 정상적으로 답변드릴 수 있어요."),
                         "documents": created_docs, "ok": False}
+            runtime_stats.record_turn(store_id, _elapsed_ms(), "quota", recorder, user_message)
             return {"text": ("오늘 사용할 수 있는 AI 응답 무료 사용량을 모두 써서 지금은 답변을 만들 수 없어요. "
                              "내일 다시 시도해 주시거나, 관리자에게 API 사용량 확인을 요청해 주세요."),
                     "documents": created_docs, "ok": False}
         # DB 연결 실패는 원인을 알려줘야 사용자가 조치할 수 있다 (공유 DB 호스트 꺼짐 등)
         if "OperationalError" in type(e).__name__ or "connection" in str(e).lower():
+            runtime_stats.record_turn(store_id, _elapsed_ms(), "db", recorder, user_message)
             return {"text": ("지금 매장 데이터베이스에 연결할 수 없어서 데이터 조회를 못 하고 있어요. "
                              "DB 서버가 켜져 있는지 확인해 주세요. (일반 대화는 계속 가능해요)"),
                     "documents": created_docs, "ok": False}
         # 실패 전에 이미 만들어진 문서가 있으면 함께 보여준다 (문서는 DB에 저장된 상태)
+        runtime_stats.record_turn(store_id, _elapsed_ms(), "error", recorder, user_message)
         return {"text": "앗! 답변을 준비하다가 문제가 생겼어요. 잠시 후 다시 물어봐 주세요.",
                 "documents": created_docs, "ok": False}
