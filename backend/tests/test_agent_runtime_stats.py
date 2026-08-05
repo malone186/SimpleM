@@ -126,6 +126,30 @@ def test_long_question_is_truncated():
     assert len(runtime_stats.snapshot()["recent"][0]["question"]) <= 61
 
 
+def test_daily_quota_is_not_reported_as_rate_limit():
+    """일일 한도 소진을 '분당 제한'으로 찍으면 안 된다.
+
+    구글은 하루치를 다 써도 RetryInfo("Please retry in 21s")를 같이 준다. retryDelay만 보면
+    사장님에게는 "1분 뒤 다시"라고 안내하고(하루 종일 재시도), 콘솔 실패 사유도 '분당 제한'으로
+    잘못 찍힌다 — 조치(내일까지 대기 vs 잠깐 쉬기)가 완전히 달라진다.
+    실측 메시지(2026-08-05, gemini-3.1-flash-lite 500회 소진)를 그대로 넣어 회귀를 막는다.
+    """
+    daily = Exception(
+        "429 RESOURCE_EXHAUSTED: You exceeded your current quota. "
+        "Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, "
+        "limit: 500 * quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier "
+        "* retryDelay: 21s. Please retry in 21.743155917s."
+    )
+    per_minute = Exception(
+        "429 RESOURCE_EXHAUSTED: quotaId: GenerateRequestsPerMinutePerProjectPerModel-FreeTier "
+        "* retryDelay: 8s"
+    )
+
+    assert main_agent._is_quota_error(daily) and main_agent._is_quota_error(per_minute)
+    assert main_agent._is_rate_limit(daily) is False   # 오늘은 안 풀린다
+    assert main_agent._is_rate_limit(per_minute) is True
+
+
 def test_overview_carries_runtime():
     """/chatbot/agents 응답에 실행 현황이 실려야 콘솔이 그린다."""
     runtime_stats.record_turn("shop@test.com", 500.0, "ok")

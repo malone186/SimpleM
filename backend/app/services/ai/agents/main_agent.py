@@ -518,8 +518,15 @@ def _is_rate_limit(e: Exception) -> bool:
     무료 티어는 분당 15요청이라, 멀티에이전트가 한 턴에 메인+전문가로 여러 번 호출하면
     질문을 연달아 던질 때 쉽게 걸린다. 이건 잠시 뒤 저절로 풀리므로 '오늘 다 썼다'고
     안내하면 안 된다.
+
+    일일 소진을 먼저 걸러낸다 — 구글은 하루치를 다 써도 RetryInfo("Please retry in 21s")를
+    같이 준다. retryDelay만 보고 판단하면 하루 종일 "1분 뒤에 다시 해보세요"라고 안내하게
+    되고(사장님은 계속 재시도), 관리자 콘솔 실패 사유도 '분당 제한'으로 잘못 찍힌다.
+    실측(2026-08-05): quotaId=GenerateRequestsPerDayPerProjectPerModel-FreeTier + retryDelay 동봉.
     """
     s = f"{e}"
+    if "PerDay" in s or "per day" in s.lower():
+        return False
     return "PerMinute" in s or "RetryInfo" in s or "retryDelay" in s
 
 
