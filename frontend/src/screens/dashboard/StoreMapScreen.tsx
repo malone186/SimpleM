@@ -254,7 +254,7 @@ export default function StoreMapScreen() {
       setPlanError('');
       if (!token) return;
       try {
-        const res = await getEventPlan(token, event.name, event.start_date);
+        const res = await getEventPlan(token, event);
         setPlan(res.plan);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -1188,8 +1188,30 @@ export default function StoreMapScreen() {
 
             <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
               {planError ? (
+                // AI 플랜을 못 만들어도 시트를 빈손으로 닫게 두지 않는다 — 이미 알고 있는
+                // 행사 정보(기간·장소·거리·예측 반영·대응 팁)는 그대로 보여 준다.
                 <>
                   <Text style={styles.errorText}>{planError}</Text>
+                  {!!planEvent && (
+                    <View style={styles.planFactBox}>
+                      <Text style={styles.listTitle}>지금 알고 있는 것</Text>
+                      <Text style={styles.promoDetail}>
+                        {formatEventRange(planEvent.start_date, planEvent.end_date)}
+                        {planEvent.day_count > 1 ? ` (${planEvent.day_count}일간)` : ''}
+                        {planEvent.ongoing ? ' · 진행 중' : ` · D-${planEvent.d_day}`}
+                      </Text>
+                      <Text style={styles.promoDetail}>
+                        {planEvent.place || planEvent.host || '장소 미상'}
+                        {planEvent.distance_km != null ? ` · 매장에서 ${planEvent.distance_km}km` : ''}
+                      </Text>
+                      {!!planEvent.boost_pct && (
+                        <Text style={styles.promoDetail}>
+                          판매 예측에 매출 +{planEvent.boost_pct}%로 이미 반영 중이에요.
+                        </Text>
+                      )}
+                      {!!planEvent.tip && <Text style={styles.promoWhy}>💡 {planEvent.tip}</Text>}
+                    </View>
+                  )}
                   {!!planEvent && (
                     <TouchableOpacity style={styles.retryBtn} onPress={() => openPlan(planEvent)}>
                       <Text style={styles.retryText}>다시 시도</Text>
@@ -1782,6 +1804,16 @@ const styles = StyleSheet.create({
 
   // 행사 플랜 시트
   planHeadline: { ...typography.L3, color: colors.espressoBrown, marginTop: 10, lineHeight: 21 },
+  // AI 플랜이 안 나온 날에도 남는 '이미 아는 사실' 상자
+  planFactBox: {
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    gap: 4,
+  },
   promoBox: {
     backgroundColor: colors.white,
     borderRadius: 12,

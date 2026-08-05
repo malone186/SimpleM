@@ -763,6 +763,131 @@ def get_nearby_events_api(
     )
 
 
+class NearbyEventEcho(BaseModel):
+    """화면이 지금 보고 있는 행사 카드 그대로 (POST /nearby-events/plan 본문).
+
+    서버가 같은 행사를 자기 목록에서 찾으면 그쪽 값을 쓰고, 못 찾으면 이 값으로 플랜을 만든다.
+    """
+
+    name: str
+    place: str = ""
+    host: str = ""
+    source: str = ""
+    start_date: str = ""
+    end_date: str = ""
+    day_count: int = 1
+    distance_km: Optional[float] = None
+    boost_pct: int = 0
+    d_day: int = 0
+    ongoing: bool = False
+
+
+def _match_event(events: list[dict], name: str, start_date: str = "") -> Optional[dict]:
+    """수집 목록에서 같은 행사를 찾는다 — 이름 → 같은 날 이름 겹침 → 같은 날 순으로 느슨하게.
+
+    소스가 뉴스·블로그 검색이라 같은 행사의 이름이 조회마다 조금씩 달라진다
+    ("청년 Book Cx클래스" ↔ "청년 북 클래스"). 완전 일치만 보면 화면에 떠 있는 행사인데도
+    못 찾는다.
+    """
+    from app.services.ai.nearby_event_service import _norm
+
+    target = _norm(name)
+    if not target:
+        return None
+
+    hit = next((e for e in events if _norm(e.get("name", "")) == target), None)
+    if hit:
+        return hit
+
+    # 한쪽이 다른 쪽을 품고 있으면 같은 행사로 본다 (주최기관·부제가 붙었다 떨어졌다 한다)
+    hit = next((e for e in events
+                if target in _norm(e.get("name", "")) or _norm(e.get("name", "")) in target), None)
+    if hit:
+        return hit
+
+    if start_date:
+        # 같은 날 열리는 행사 중 이름 글자가 가장 많이 겹치는 것 (3글자 이상 겹쳐야 인정)
+        same_day = [e for e in events if e.get("start_date") == start_date]
+        best, best_score = None, 0
+        for e in same_day:
+            score = len(set(target) & set(_norm(e.get("name", ""))))
+            if score > best_score:
+                best, best_score = e, score
+        if best is not None and best_score >= 3:
+            return best
+    return None
+
+
+def _echo_to_event(echo: NearbyEventEcho) -> dict:
+    """화면이 보내 준 행사 카드를 플랜 생성이 쓰는 형태로 (길이·범위만 다듬는다).
+
+    이 값은 뉴스·블로그에서 나온 남의 글이므로 프롬프트에서는 quote_untrusted로 감싸 쓴다
+    (plan_event_promotion이 이미 그렇게 한다).
+    """
+    return {
+        "name": echo.name.strip()[:120],
+        "place": echo.place.strip()[:120],
+        "host": echo.host.strip()[:80],
+        "source": echo.source.strip()[:60],
+        "start_date": echo.start_date[:10],
+        "end_date": (echo.end_date or echo.start_date)[:10],
+        "day_count": max(1, min(echo.day_count, 60)),
+        "distance_km": echo.distance_km,
+        "boost_pct": max(0, min(echo.boost_pct, 100)),
+        "d_day": max(0, min(echo.d_day, 365)),
+        "ongoing": echo.ongoing,
+    }
+
+
+def _build_event_plan(db, current_user: User, name: str, start_date: str,
+                      echo: Optional[NearbyEventEcho] = None) -> dict:
+    """행사 하나에 맞춘 AI 이벤트·준비 플랜 (GET·POST 공통).
+
+    서버가 수집한 목록에서 같은 행사를 먼저 찾는다 — 찾으면 거리·부스팅까지 서버 값이 맞다.
+    못 찾으면 화면이 보내 준 카드로 만든다. 수집 파이프라인(네이버 검색 + Gemini 정리)은
+    호출마다 결과가 조금씩 달라지고 캐시도 인스턴스별이라, 방금 화면에 뜬 행사인데
+    플랜 요청은 못 찾는 일이 실제로 난다. 그때 404를 주면 사장님에게는 기능이 고장 난 것이다.
+    """
+    p_lat, p_lon = _store_point(current_user, None, None)
+    try:
+        events = nearby_event_service.find_nearby_events(p_lat, p_lon).get("events", [])
+    except Exception:
+        logger.exception("행사 플랜용 목록 조회 실패 — 화면이 보낸 행사로 계속")
+        events = []
+
+    event = _match_event(events, name, start_date)
+    if event is None and echo is not None and echo.name.strip():
+        logger.info("행사 플랜: 목록에서 못 찾아 화면 값으로 생성 (%s / %s)", name, start_date)
+        event = _echo_to_event(echo)
+    if event is None:
+        raise HTTPException(404, f"'{name}' 행사를 주변 행사 목록에서 찾지 못했습니다.")
+
+    plan = nearby_watch_service.plan_for_store(db, current_user.email, event)
+    if plan is None:
+        # 왜 안 되는지를 말해 준다 — "잠시 후 다시"만 보이면 쿼터가 찬 날엔 계속 다시 누르게 된다
+        reason = nearby_cafe_service.gemini_last_error()
+        if reason == "quota":
+            raise HTTPException(503, "오늘 AI 사용량을 다 썼어요. 한도가 초기화되는 오후 늦게 다시 눌러 주세요.")
+        if reason == "no_key":
+            raise HTTPException(503, "AI 설정이 아직 안 되어 있어요. 행사 일정과 대응 팁은 그대로 보실 수 있어요.")
+        raise HTTPException(503, "지금은 AI 준비 플랜을 만들지 못했어요. 잠시 후 다시 시도해 주세요.")
+    return {"event": event, "plan": plan}
+
+
+@router.post("/nearby-events/plan")
+def post_nearby_event_plan_api(
+    body: NearbyEventEcho,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """행사 하나에 맞춘 AI 이벤트·준비 플랜 (지도 화면 행사 카드의 '뭘 준비할까?' 버튼).
+
+    이벤트 아이디어·한정 메뉴·미리 할 일·재료 준비·인력 배치·홍보 문구를 한 번에 만든다.
+    화면이 보고 있는 행사 카드를 그대로 실어 보내므로, 서버 목록이 흔들려도 플랜이 나온다.
+    """
+    return _build_event_plan(db, current_user, body.name, body.start_date, echo=body)
+
+
 @router.get("/nearby-events/plan")
 def get_nearby_event_plan_api(
     name: str,
@@ -770,28 +895,8 @@ def get_nearby_event_plan_api(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """행사 하나에 맞춘 AI 이벤트·준비 플랜 (지도 화면 행사 카드의 'AI 준비 플랜' 버튼).
-
-    이벤트 아이디어·한정 메뉴·미리 할 일·재료 준비·인력 배치·홍보 문구를 한 번에 만든다.
-    행사 정보는 클라이언트가 준 이름을 그대로 믿지 않고, 서버가 수집한 목록에서 다시 찾는다 —
-    그래야 없는 행사에 대한 플랜을 지어내지 않는다.
-    """
-    p_lat, p_lon = _store_point(current_user, None, None)
-    events = nearby_event_service.find_nearby_events(p_lat, p_lon).get("events", [])
-
-    from app.services.ai.nearby_event_service import _norm
-
-    target = _norm(name)
-    event = next((e for e in events if _norm(e["name"]) == target), None)
-    if event is None and start_date:
-        event = next((e for e in events if e.get("start_date") == start_date), None)
-    if event is None:
-        raise HTTPException(404, f"'{name}' 행사를 주변 행사 목록에서 찾지 못했습니다.")
-
-    plan = nearby_watch_service.plan_for_store(db, current_user.email, event)
-    if plan is None:
-        raise HTTPException(503, "지금은 AI 플랜을 만들지 못했어요. 잠시 후 다시 시도해 주세요.")
-    return {"event": event, "plan": plan}
+    """이름만으로 부르는 옛 경로 (OTA 전 앱·챗봇용). 새 앱은 POST를 쓴다."""
+    return _build_event_plan(db, current_user, name, start_date)
 
 
 class SaleItemIn(BaseModel):

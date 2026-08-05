@@ -72,12 +72,28 @@ export const getNearbyEvents = (token: string, days = 14) =>
 
 /** 행사 하나에 맞춘 이벤트·준비 플랜을 AI가 짜 준다 (Gemini 1회, 12시간 캐시).
  *
- * 서버는 이름을 그대로 믿지 않고 수집된 행사 목록에서 다시 찾는다 —
- * 목록에 없는 행사면 404로 돌아온다(없는 행사에 대한 계획을 지어내지 않는다).
+ * 화면에 떠 있는 행사 카드를 그대로 실어 보낸다. 서버는 먼저 자기 수집 목록에서 같은 행사를
+ * 찾아 그 값을 쓰고(거리·부스팅이 정확해진다), 못 찾으면 보낸 값으로 만든다.
+ *
+ * 이름만 보내던 시절엔 "목록에서 찾지 못했습니다"가 났다 — 행사 수집이 네이버 검색 + AI 정리라
+ * 호출마다 이름이 조금씩 달라지고, 캐시도 서버 인스턴스별이라 방금 화면에 뜬 행사인데도
+ * 플랜 요청은 빈손으로 돌아오는 일이 있었다.
  */
-export const getEventPlan = (token: string, name: string, startDate = '') =>
-  apiFetch<EventPlanResult>(
-    `/api/v1/chatbot/nearby-events/plan?name=${encodeURIComponent(name)}` +
-      (startDate ? `&start_date=${startDate}` : ''),
-    auth(token),
-  );
+export const getEventPlan = (token: string, event: NearbyEventItem) =>
+  apiFetch<EventPlanResult>('/api/v1/chatbot/nearby-events/plan', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: event.name,
+      place: event.place ?? '',
+      host: event.host ?? '',
+      source: event.source ?? '',
+      start_date: event.start_date ?? '',
+      end_date: event.end_date ?? '',
+      day_count: event.day_count ?? 1,
+      distance_km: event.distance_km,
+      boost_pct: event.boost_pct ?? 0,
+      d_day: event.d_day ?? 0,
+      ongoing: !!event.ongoing,
+    }),
+  });

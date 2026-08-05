@@ -24,11 +24,23 @@ import logging
 import math
 import os
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+# _gemini_json이 실패한 이유를 부른 쪽이 읽을 수 있게 남겨 둔다. 지금까지는 None만 돌려줘서
+# 화면이 "지금은 만들지 못했어요"라고만 말했는데, 원인이 무료 쿼터 소진이면 사장님은
+# 몇 번을 더 눌러 보게 된다. 동기 엔드포인트는 요청마다 스레드가 다르므로 thread-local이면
+# 다른 요청의 원인이 섞이지 않는다.
+_gemini_state = threading.local()
+
+
+def gemini_last_error() -> str:
+    """직전 _gemini_json 호출의 실패 원인: 'quota' | 'no_key' | 'error' | '' (성공)."""
+    return getattr(_gemini_state, "last_error", "")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
@@ -332,9 +344,14 @@ def search_cafe_candidates(query: str, lat: Optional[float] = None, lon: Optiona
 # ---------------------------------------------------------------------------
 
 def _gemini_json(prompt: str, schema: dict[str, Any], timeout: float = 25.0) -> Optional[dict[str, Any]]:
-    """Gemini를 JSON 모드로 호출한다. 실패하면 None (수집 데이터만으로 화면은 그대로 뜬다)."""
+    """Gemini를 JSON 모드로 호출한다. 실패하면 None (수집 데이터만으로 화면은 그대로 뜬다).
+
+    실패 원인은 gemini_last_error()로 읽는다 — 쿼터인지 아닌지에 따라 화면 문구가 달라진다.
+    """
+    _gemini_state.last_error = ""
     if not GEMINI_API_KEY:
         logger.info("GEMINI_API_KEY 없음 — 주변 카페 AI 분석 생략")
+        _gemini_state.last_error = "no_key"
         return None
 
     generation_config: dict[str, Any] = {
@@ -370,10 +387,13 @@ def _gemini_json(prompt: str, schema: dict[str, Any], timeout: float = 25.0) -> 
                 time.sleep(2.0)
                 continue
             logger.warning("AI 분석 실패 (수집 데이터만 반환): %s", e)
+            _gemini_state.last_error = "quota" if e.response.status_code == 429 else "error"
             return None
         except Exception as e:
             logger.warning("AI 분석 실패 (수집 데이터만 반환): %s", e)
+            _gemini_state.last_error = "error"
             return None
+    _gemini_state.last_error = "error"
     return None
 
 
