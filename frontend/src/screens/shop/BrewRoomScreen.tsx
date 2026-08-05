@@ -8,7 +8,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { useAuth } from '../../auth/AuthContext';
-import Brew, { type BrewMood } from '../../components/brew/Brew';
+import MascotEasterEgg from '../../components/dashboard/MascotEasterEgg';
 import { FadeInUp, PressableScale } from '../../components/motion';
 import { toast } from '../../components/toast';
 import { Badge } from '../../components/ui';
@@ -22,7 +22,6 @@ import {
   type QuestBoard,
 } from '../../lib/api/rewards';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import { useEquipped } from '../../rewards/EquippedContext';
 import { colors, typography } from '../../theme';
 import { s, useBottomInset, useTopInset } from '../../theme/responsive';
 
@@ -33,8 +32,6 @@ export default function BrewRoomScreen() {
   const { token } = useAuth();
   const topInset = useTopInset();
   const bottomInset = useBottomInset();
-  // 사용자가 커스터마이징한 모습 그대로 — 착용 포즈·앞치마 색·배경 효과
-  const { accessories, poseMood, apronColor } = useEquipped();
   const [progress, setProgress] = useState<Progress | null>(null);
   const [quests, setQuests] = useState<QuestBoard | null>(null);
   const [coins, setCoins] = useState<number | null>(null);
@@ -102,14 +99,11 @@ export default function BrewRoomScreen() {
         contentContainerStyle={{ paddingBottom: bottomInset + s(24), paddingHorizontal: 16 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── 카페 한가운데의 브루 — 내가 꾸민 모습 그대로, 이 화면의 주인공이라 크게 ── */}
+        {/* ── 카페 한가운데의 브루 — 내가 꾸민 모습 그대로, 이 화면의 주인공이라 크게.
+            홈과 같은 이스터에그(탭=쓰다듬기/간식, 더블탭=시크릿, 롱프레스=풍선 펑)를
+            그대로 쓰되, 여기서는 정지 포즈여도 잔동작을 켜서 살아 있게 한다. ── */}
         <View style={styles.stage}>
-          <Brew
-            mood={(poseMood as BrewMood | undefined) ?? 'top'}
-            size={s(270)}
-            accessories={accessories}
-            apronColor={apronColor}
-          />
+          <MascotEasterEgg size={s(270)} motion />
         </View>
 
         {/* ── 레벨 카드 ── */}

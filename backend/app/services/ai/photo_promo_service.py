@@ -207,6 +207,7 @@ def _background(style: str, aspect_ratio: str):
      사장님 대기 시간이 됐다 — 두 공급자 모두 무료 한도가 막힌 지금은 그 시간이
      '기다렸다가 결국 번들 배경'이라 순수 손해였다.)
     """
+    import io as _io
     import os
 
     from PIL import Image
@@ -214,6 +215,7 @@ def _background(style: str, aspect_ratio: str):
     from app.services.ai import marketing_service as M
 
     w, h = M._AR_SIZES.get(aspect_ratio, (1472, 1472))
+
     if style not in BACKGROUND_STYLES:
         style = "wood"
 
