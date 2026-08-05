@@ -79,21 +79,34 @@ export const getNearbyEvents = (token: string, days = 14) =>
  * 호출마다 이름이 조금씩 달라지고, 캐시도 서버 인스턴스별이라 방금 화면에 뜬 행사인데도
  * 플랜 요청은 빈손으로 돌아오는 일이 있었다.
  */
-export const getEventPlan = (token: string, event: NearbyEventItem) =>
-  apiFetch<EventPlanResult>('/api/v1/chatbot/nearby-events/plan', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      name: event.name,
-      place: event.place ?? '',
-      host: event.host ?? '',
-      source: event.source ?? '',
-      start_date: event.start_date ?? '',
-      end_date: event.end_date ?? '',
-      day_count: event.day_count ?? 1,
-      distance_km: event.distance_km,
-      boost_pct: event.boost_pct ?? 0,
-      d_day: event.d_day ?? 0,
-      ongoing: !!event.ongoing,
-    }),
-  });
+export const getEventPlan = async (token: string, event: NearbyEventItem) => {
+  try {
+    return await apiFetch<EventPlanResult>('/api/v1/chatbot/nearby-events/plan', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: event.name,
+        place: event.place ?? '',
+        host: event.host ?? '',
+        source: event.source ?? '',
+        start_date: event.start_date ?? '',
+        end_date: event.end_date ?? '',
+        day_count: event.day_count ?? 1,
+        distance_km: event.distance_km,
+        boost_pct: event.boost_pct ?? 0,
+        d_day: event.d_day ?? 0,
+        ongoing: !!event.ongoing,
+      }),
+    });
+  } catch (e) {
+    // 405 = 아직 POST가 없는 서버(앱이 먼저 갱신된 배포 틈). 옛 경로로 한 번 더 시도한다 —
+    // 이 창에서 "Method Not Allowed"만 뜨고 준비 플랜을 아예 못 보는 일을 막는다.
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!/\b405\b/.test(msg)) throw e;
+    return apiFetch<EventPlanResult>(
+      `/api/v1/chatbot/nearby-events/plan?name=${encodeURIComponent(event.name)}` +
+        (event.start_date ? `&start_date=${event.start_date}` : ''),
+      auth(token),
+    );
+  }
+};
