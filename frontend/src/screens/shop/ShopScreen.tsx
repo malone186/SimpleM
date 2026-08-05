@@ -38,7 +38,7 @@ const SLOT_ORDER: ItemSlot[] = ['pose', 'apron', 'background'];
 // 코인 내역 기본 노출 줄 수 — 이보다 많으면 '더보기'로 접는다
 const HISTORY_PREVIEW_COUNT = 5;
 
-export default function ShopScreen() {
+export default function ShopScreen({ route }: { route?: { params?: { openVault?: boolean } } }) {
   const { token } = useAuth();
   // [한글 주석] 기기 안전영역 실측 — 탭 직속 화면이라 위·아래를 직접 비워 줘야 한다
   const topInset = useTopInset();
@@ -53,6 +53,10 @@ export default function ShopScreen() {
   const [busyItem, setBusyItem] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [vaultOpen, setVaultOpen] = useState(false); // 보관함(보유 아이템 모음) 시트
+  // 게임 룸의 '보관함' 버튼으로 들어오면 시트를 바로 연다
+  useEffect(() => {
+    if (route?.params?.openVault) setVaultOpen(true);
+  }, [route?.params?.openVault]);
   const [quests, setQuests] = useState<QuestBoard | null>(null);
   const [claiming, setClaiming] = useState<string | null>(null);
   const [historyExpanded, setHistoryExpanded] = useState(false); // 코인 내역 — 기본 5줄, 더보기로 전체 펼침

@@ -311,7 +311,7 @@ export default function WelcomeHeader({
         {/* [한글 주석: 사장님 요청 — 상점 버튼 🛍️ (상단 맨 우측 독립 배치)] */}
         <TouchableOpacity
           style={styles.iconBtn}
-          onPress={onOpenShop || (() => navigation.navigate('Shop'))}
+          onPress={onOpenShop || (() => navigation.navigate('BrewRoom'))}
           hitSlop={10}
           activeOpacity={0.85}
         >
