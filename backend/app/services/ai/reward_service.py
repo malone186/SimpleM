@@ -60,6 +60,12 @@ SHOP_ITEMS: list[dict[str, Any]] = [
      "desc": "정성껏 물줄기를 내리는 중"},
     {"id": "pose_hero", "slot": "pose", "mood": "hero", "name": "스탠딩 바리스타", "emoji": "⭐", "price": 500,
      "desc": "브루노트의 얼굴. 가장 늠름한 자세"},
+    # 전신 애니메이션 포즈 — 정지 그림이 아니라 실제로 움직인다 (프론트 플립북 재생).
+    # 모션캡처 동작을 마스코트에 입혀 스프라이트로 구운 것이라 가장 비싼 최상급 아이템.
+    {"id": "pose_jump", "slot": "pose", "mood": "jump", "name": "폴짝폴짝 브루", "emoji": "🐾", "price": 800,
+     "desc": "신나서 폴짝폴짝 뛰어요 (움직이는 포즈!)"},
+    {"id": "pose_dance", "slot": "pose", "mood": "dance", "name": "댄스 타임 브루", "emoji": "🕺", "price": 1000,
+     "desc": "리듬 타며 춤춰요 (움직이는 포즈!)"},
     # 배경 효과 — 캐릭터 위가 아니라 뒤에 깔리므로 어떤 포즈와도 겹치지 않는다.
     {"id": "bg_sparkle", "slot": "background", "name": "반짝임", "emoji": "✨", "price": 300,
      "desc": "가만히 있어도 빛나는 중"},

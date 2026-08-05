@@ -1,11 +1,12 @@
 // 브루(BREW) 마스코트 — 표정 = 가게 상태. "브루 등장 지도" 기반.
 // 원칙: 감정의 순간엔 브루, 판단(정확한 숫자)의 순간엔 브루를 비운다. 한 화면에 하나.
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Image, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { ACCESSORY_ART } from './accessories';
 import { APRON_VARIANTS, type ApronColor } from './apronVariants';
 import { BLINK_OVERLAY } from './blinkOverlays';
+import { DANCE_FRAMES, JUMP_FRAMES } from './flipbookFrames';
 
 // 캐릭터 시트에서 잘라낸 포즈들 (표정 매칭 표)
 const POSES = {
@@ -20,9 +21,24 @@ const POSES = {
   top: require('../../../assets/mascot/brew_top.png'), // 모자 쓰고 커피 든 바리스타 — 홈 헤더용
   greet: require('../../../assets/mascot/brew_greet.png'), // 발 흔들며 인사하는 브루 — 인사·안내 (현재 미사용)
   coffee: require('../../../assets/mascot/brew_coffee.png'), // 커피잔 든 브루 (현재 미사용)
+  // 전신 애니메이션 포즈 — 정지 시엔 첫 프레임, 모션이 켜지면 플립북으로 재생된다
+  jump: require('../../../assets/mascot/anim/jump/f00.png'), // 폴짝 뛰는 브루 (상점 판매)
+  dance: require('../../../assets/mascot/anim/dance/f00.png'), // 춤추는 브루 (상점 판매)
 } as const;
 
 export type BrewMood = keyof typeof POSES;
+
+// ── 전신 플립북 ─────────────────────────────────────────────────────────────
+// 전신 기본 자세 일러스트를 AnimatedDrawings(오픈소스)로 리깅해 모션캡처 동작을 입히고,
+// 20프레임 스프라이트로 구운 것. 부위 애니메이션과 달리 몸 전체가 움직인다.
+const FLIPBOOK: Partial<Record<BrewMood, any[]>> = {
+  jump: JUMP_FRAMES,
+  dance: DANCE_FRAMES,
+};
+
+// 홈 마스코트(이스터에그 래퍼)처럼 자체 모션을 끄는 곳에서도, 플립북 포즈만은
+// 재생을 허용할지 판단할 수 있게 공개한다 — 이 포즈들은 '움직임 자체가 상품'이라서.
+export const FLIPBOOK_MOODS = new Set<BrewMood>(['jump', 'dance']);
 
 // ── 부위 애니메이션 (레이어 분리) ──────────────────────────────────────────
 // 기존 포즈 그림에서 '들고 있는 물건+발'만 레이어로 분리하고, 가려졌던 몸통은
@@ -74,7 +90,7 @@ const SLOT_SCALE: Record<BrewAccessory['slot'], number> = {
 };
 
 // idle 움직임 종류
-type Motion = 'bounce' | 'wave' | 'pour' | 'part' | 'none';
+type Motion = 'bounce' | 'wave' | 'pour' | 'part' | 'flip' | 'none';
 
 const MOTION_BY_MOOD: Record<BrewMood, Motion> = {
   welcome: 'wave',
@@ -87,6 +103,8 @@ const MOTION_BY_MOOD: Record<BrewMood, Motion> = {
   top: 'bounce',
   greet: 'wave',
   coffee: 'bounce',
+  jump: 'flip', // 20프레임 플립북 재생
+  dance: 'flip',
 };
 
 export default function Brew({
@@ -131,9 +149,19 @@ export default function Brew({
       ? 'bounce' // 분리 레이어를 못 쓰는 상황(앞치마 변형)이면 예전처럼 통짜 들썩임
       : moodMotion;
 
+  // 플립북 — 90ms마다 다음 프레임 (전신이 통째로 움직인다)
+  const flipFrames = FLIPBOOK[mood];
+  const [flipIdx, setFlipIdx] = useState(0);
   useEffect(() => {
-    // 'part'는 몸통이 아니라 분리 레이어가 움직인다 — 몸통 루프는 돌리지 않는다
-    if (motion === 'none' || motion === 'part') return;
+    if (motion !== 'flip' || !flipFrames) return;
+    setFlipIdx(0);
+    const t = setInterval(() => setFlipIdx((i) => (i + 1) % flipFrames.length), 90);
+    return () => clearInterval(t);
+  }, [motion, flipFrames]);
+
+  useEffect(() => {
+    // 'part'는 분리 레이어가, 'flip'은 프레임 교체가 움직임을 담당 — 몸통 루프는 돌리지 않는다
+    if (motion === 'none' || motion === 'part' || motion === 'flip') return;
     const cfg =
       motion === 'wave'
         ? { dur: 620 }
@@ -248,12 +276,35 @@ export default function Brew({
     );
   };
 
-  // 부위 애니메이션 중엔 몸통을 '물건 빠진 base'로 바꿔야 레이어가 이중으로 안 겹친다
+  // 플립북 — 프레임 20장을 모두 겹쳐 두고 현재 프레임만 opacity 1로 보여준다.
+  // (source를 90ms마다 갈아끼우면 웹에서 첫 사이클에 로딩 깜빡임이 생긴다)
+  const flipLayer = (dim: number) =>
+    motion === 'flip' && flipFrames
+      ? flipFrames.map((src, i) => (
+          <Image
+            key={i}
+            source={src}
+            resizeMode="contain"
+            style={{
+              position: 'absolute', top: 0, left: 0, width: dim, height: dim,
+              opacity: flipIdx === i ? 1 : 0,
+            }}
+          />
+        ))
+      : null;
+
+  // 부위 애니메이션 중엔 몸통을 '물건 빠진 base'로 바꿔야 레이어가 이중으로 안 겹친다.
+  // 플립북 재생 중엔 몸통을 숨긴다(첫 프레임이 움직이는 프레임 뒤로 비쳐 보이지 않게).
   const bodySource = usePart && partCfg ? partCfg.base : poseSource;
 
   const img = (
     <Animated.View style={{ width: charSize, height: charSize, transform }}>
-      <Image source={bodySource} resizeMode="contain" style={{ width: charSize, height: charSize }} />
+      <Image
+        source={bodySource}
+        resizeMode="contain"
+        style={{ width: charSize, height: charSize, opacity: motion === 'flip' ? 0 : 1 }}
+      />
+      {flipLayer(charSize)}
       {partLayer(charSize)}
       {blinkLayer(charSize)}
     </Animated.View>

@@ -1,0 +1,48 @@
+// [자동 생성] 전신 플립북 프레임 — AnimatedDrawings로 구운 스프라이트 (jump·dance)
+// 재생성: 스크래치패드 brew_std 리깅 + 모션 렌더 파이프라인. 손으로 고치지 말 것.
+
+export const JUMP_FRAMES = [
+  require('../../../assets/mascot/anim/jump/f00.png'),
+  require('../../../assets/mascot/anim/jump/f01.png'),
+  require('../../../assets/mascot/anim/jump/f02.png'),
+  require('../../../assets/mascot/anim/jump/f03.png'),
+  require('../../../assets/mascot/anim/jump/f04.png'),
+  require('../../../assets/mascot/anim/jump/f05.png'),
+  require('../../../assets/mascot/anim/jump/f06.png'),
+  require('../../../assets/mascot/anim/jump/f07.png'),
+  require('../../../assets/mascot/anim/jump/f08.png'),
+  require('../../../assets/mascot/anim/jump/f09.png'),
+  require('../../../assets/mascot/anim/jump/f10.png'),
+  require('../../../assets/mascot/anim/jump/f11.png'),
+  require('../../../assets/mascot/anim/jump/f12.png'),
+  require('../../../assets/mascot/anim/jump/f13.png'),
+  require('../../../assets/mascot/anim/jump/f14.png'),
+  require('../../../assets/mascot/anim/jump/f15.png'),
+  require('../../../assets/mascot/anim/jump/f16.png'),
+  require('../../../assets/mascot/anim/jump/f17.png'),
+  require('../../../assets/mascot/anim/jump/f18.png'),
+  require('../../../assets/mascot/anim/jump/f19.png'),
+];
+
+export const DANCE_FRAMES = [
+  require('../../../assets/mascot/anim/dance/f00.png'),
+  require('../../../assets/mascot/anim/dance/f01.png'),
+  require('../../../assets/mascot/anim/dance/f02.png'),
+  require('../../../assets/mascot/anim/dance/f03.png'),
+  require('../../../assets/mascot/anim/dance/f04.png'),
+  require('../../../assets/mascot/anim/dance/f05.png'),
+  require('../../../assets/mascot/anim/dance/f06.png'),
+  require('../../../assets/mascot/anim/dance/f07.png'),
+  require('../../../assets/mascot/anim/dance/f08.png'),
+  require('../../../assets/mascot/anim/dance/f09.png'),
+  require('../../../assets/mascot/anim/dance/f10.png'),
+  require('../../../assets/mascot/anim/dance/f11.png'),
+  require('../../../assets/mascot/anim/dance/f12.png'),
+  require('../../../assets/mascot/anim/dance/f13.png'),
+  require('../../../assets/mascot/anim/dance/f14.png'),
+  require('../../../assets/mascot/anim/dance/f15.png'),
+  require('../../../assets/mascot/anim/dance/f16.png'),
+  require('../../../assets/mascot/anim/dance/f17.png'),
+  require('../../../assets/mascot/anim/dance/f18.png'),
+  require('../../../assets/mascot/anim/dance/f19.png'),
+];
