@@ -5,7 +5,7 @@
 // 스크롤도 되지 않았다. 이제 창 크기에 맞춰 프레임을 줄이고, 창이 폰만큼 좁아지면
 // (모바일 브라우저·PWA) 목업을 걷어내고 화면을 꽉 채운다 — 실기기와 같은 조건으로 보이게.
 import type { ReactNode } from 'react';
-import { Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Platform, StyleSheet, useWindowDimensions, View, type ViewStyle } from 'react-native';
 
 import { colors } from '../theme';
 import { ViewportProvider } from '../theme/responsive';
@@ -15,6 +15,34 @@ const FRAME_WIDTH = 420;
 const FRAME_HEIGHT = 850;
 const STAGE_PADDING = 24;
 const BORDER = 8; // 목업 테두리 두께 — 앱이 실제로 쓰는 폭은 FRAME_WIDTH - BORDER*2 다
+
+// [한글 주석] 바텀시트를 목업 폰에 맞추는 훅
+// RN Modal은 웹에서 document.body로 포털되어 DeviceFrame '밖'에 그려진다. 그래서 앱 본문은
+// scale로 축소된 목업 안에 있는데 시트만 420px 원본 크기로 브라우저 한가운데·맨 바닥까지
+// 내려와 폰 프레임 밖으로 삐져나온다(주변 행사 플랜·카페 분석 시트에서 처음 눈에 띈 문제).
+// 시트 View에 이 스타일을 겹치면: 폭은 프레임 내부(404)로 두고 transform scale로 목업과
+// 같은 배율로 줄인 뒤, 목업 화면의 바닥 선에 맞춰 올려붙인다. 실기기·모바일 웹에서는 null.
+export function useFrameSheetStyle(): ViewStyle | null {
+  const { width: winW, height: winH } = useWindowDimensions();
+  if (Platform.OS !== 'web') return null;
+  const fillsScreen = winW < FRAME_WIDTH + STAGE_PADDING * 2;
+  if (fillsScreen) return null;
+  const scale = Math.min(
+    1,
+    (winW - STAGE_PADDING * 2) / FRAME_WIDTH,
+    (winH - STAGE_PADDING * 2) / FRAME_HEIGHT,
+  );
+  return {
+    width: FRAME_WIDTH - BORDER * 2,
+    alignSelf: 'center',
+    transform: [{ scale }],
+    transformOrigin: 'center bottom',
+    // maxHeight '85%'는 브라우저 높이 기준이라 축소된 목업에선 과하다 — 프레임 내부 기준으로 환산
+    maxHeight: Math.round((FRAME_HEIGHT - BORDER * 2) * 0.85),
+    // 목업은 창 세로 중앙에 놓이므로, 창 바닥과 목업 바닥 사이의 여백만큼 올린다
+    marginBottom: Math.round((winH - FRAME_HEIGHT * scale) / 2 + BORDER * scale),
+  };
+}
 
 export default function DeviceFrame({ children }: { children: ReactNode }) {
   const { width: winW, height: winH } = useWindowDimensions();

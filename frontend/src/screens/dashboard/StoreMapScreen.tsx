@@ -25,6 +25,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../../auth/AuthContext';
+import { useFrameSheetStyle } from '../../components/DeviceFrame';
 import StoreLocationMap from '../../components/dashboard/StoreLocationMap';
 import StoreLocationPicker from '../../components/dashboard/StoreLocationPicker';
 import {
@@ -71,6 +72,8 @@ const CHANGE_DAY_OPTIONS = [30, 90] as const;
 export default function StoreMapScreen() {
   // [한글 주석] 뷰포트 비례 계산 — 지도가 화면을 다 먹지 않게 높이를 조정한다
   const { vh } = useResponsive();
+  // 웹 목업 모드에서 바텀시트를 폰 프레임 크기·위치에 맞춘다 (실기기에서는 null)
+  const frameSheet = useFrameSheetStyle();
   const { token, user } = useAuth();
 
   const [store, setStore] = useState<ResolvedStoreLocation | null>(null);
@@ -107,6 +110,17 @@ export default function StoreMapScreen() {
   const [plan, setPlan] = useState<EventPlan | null>(null);
   const [planError, setPlanError] = useState('');
 
+  // [닫힘 애니메이션 유지용] 시트를 닫으면 state는 그 즉시 null인데 Modal은 슬라이드-아웃이
+  // 끝날 때까지 계속 그린다. 그 사이 제목·본문이 다 비고 'D-0' 배지만 남은 빈 시트가
+  // 내려가는 게 실제로 보였다(상세→플랜 전환 때마다). 마지막으로 열었던 값을 들고 있다가
+  // 닫히는 동안에는 그걸로 그린다 — 열림/닫힘 판정은 여전히 원래 state가 한다.
+  const lastDetailEvent = useRef<NearbyEventItem | null>(null);
+  if (detailEvent) lastDetailEvent.current = detailEvent;
+  const shownDetail = detailEvent ?? lastDetailEvent.current;
+  const lastPlanEvent = useRef<NearbyEventItem | null>(null);
+  if (planEvent) lastPlanEvent.current = planEvent;
+  const shownPlanEvent = planEvent ?? lastPlanEvent.current;
+
   // 요청 순번 — 이 화면의 조회는 죄다 네이버 수집·Gemini라 몇 초씩 걸린다. 그동안 사장님이
   // 다른 카페를 누르거나 반경을 바꾸면 늦게 도착한 옛 응답이 새 화면을 덮어썼다.
   // (실제로 카페 A의 '우리 대응'이 카페 B 이름 아래 붙는다 — 잘못된 경쟁 분석을 보고 움직이게 된다.)
@@ -134,6 +148,10 @@ export default function StoreMapScreen() {
   const [selected, setSelected] = useState<NearbyCafe | null>(null);
   const [analysis, setAnalysis] = useState<CafeAnalysisResult | null>(null);
   const [analysisError, setAnalysisError] = useState('');
+  // 카페 분석 시트도 닫힘 애니메이션 동안 마지막 카페로 그린다 (행사 시트와 같은 이유)
+  const lastSelected = useRef<NearbyCafe | null>(null);
+  if (selected) lastSelected.current = selected;
+  const shownCafe = selected ?? lastSelected.current;
 
   // 내 카페와의 유사도 — 카페 이름 → {total, tier, axes, reason}. 목록 배지·정렬·상세 비교에 쓴다.
   const [simMap, setSimMap] = useState<Record<string, CafeSimilarity>>({});
@@ -1110,12 +1128,12 @@ export default function StoreMapScreen() {
         {/* [FormSheet 패턴] 웹에서 Modal이 뷰포트 전체를 덮으므로 폰 프레임(maxWidth 420)에 가둔다 */}
         <View style={styles.modalRoot}>
           <Pressable style={styles.backdrop} onPress={() => setSelected(null)} />
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, frameSheet]}>
             <View style={styles.sheetHead}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.sheetTitle}>{selected?.name}</Text>
+                <Text style={styles.sheetTitle}>{shownCafe?.name}</Text>
                 <Text style={styles.sheetMeta}>
-                  {selected?.category} · 내 매장에서 {selected?.distance_m}m
+                  {shownCafe?.category} · 내 매장에서 {shownCafe?.distance_m}m
                 </Text>
               </View>
               <TouchableOpacity onPress={() => setSelected(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
@@ -1125,13 +1143,13 @@ export default function StoreMapScreen() {
 
             <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
               {/* 내 카페와의 유사도 — 총점 + 5축 비교 (메뉴30·가격25·컨셉20·분위기15·고객층10 가중) */}
-              {selected && simMap[selected.name] && (
+              {shownCafe && simMap[shownCafe.name] && (
                 <View style={styles.simBox}>
                   <View style={styles.simBoxHead}>
-                    <Text style={styles.simBoxTitle}>우리 가게와 유사도 {simMap[selected.name].total}%</Text>
-                    <View style={[styles.simBadge, simBadgeTone(simMap[selected.name].total).bg]}>
-                      <Text style={[styles.simBadgeText, simBadgeTone(simMap[selected.name].total).fg]}>
-                        {simMap[selected.name].tier}
+                    <Text style={styles.simBoxTitle}>우리 가게와 유사도 {simMap[shownCafe.name].total}%</Text>
+                    <View style={[styles.simBadge, simBadgeTone(simMap[shownCafe.name].total).bg]}>
+                      <Text style={[styles.simBadgeText, simBadgeTone(simMap[shownCafe.name].total).fg]}>
+                        {simMap[shownCafe.name].tier}
                       </Text>
                     </View>
                   </View>
@@ -1140,13 +1158,13 @@ export default function StoreMapScreen() {
                     <View key={k} style={styles.axisRow}>
                       <Text style={styles.axisLabel}>{label}</Text>
                       <View style={styles.axisTrack}>
-                        <View style={[styles.axisFill, { width: `${simMap[selected.name].axes[k]}%` }]} />
+                        <View style={[styles.axisFill, { width: `${simMap[shownCafe.name].axes[k]}%` }]} />
                       </View>
-                      <Text style={styles.axisValue}>{simMap[selected.name].axes[k]}</Text>
+                      <Text style={styles.axisValue}>{simMap[shownCafe.name].axes[k]}</Text>
                     </View>
                   ))}
-                  {!!simMap[selected.name].reason && (
-                    <Text style={styles.simReason}>{simMap[selected.name].reason}</Text>
+                  {!!simMap[shownCafe.name].reason && (
+                    <Text style={styles.simReason}>{simMap[shownCafe.name].reason}</Text>
                   )}
                 </View>
               )}
@@ -1230,7 +1248,7 @@ export default function StoreMapScreen() {
       <Modal visible={cafePickerOpen} animationType="slide" transparent onRequestClose={() => setCafePickerOpen(false)}>
         <View style={styles.modalRoot}>
           <Pressable style={styles.backdrop} onPress={() => setCafePickerOpen(false)} />
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, frameSheet]}>
             <View style={styles.sheetHead}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.sheetTitle}>내 카페 지정</Text>
@@ -1286,22 +1304,22 @@ export default function StoreMapScreen() {
       <Modal visible={!!detailEvent} animationType="slide" transparent onRequestClose={() => setDetailEvent(null)}>
         <View style={styles.modalRoot}>
           <Pressable style={styles.backdrop} onPress={() => setDetailEvent(null)} />
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, frameSheet]}>
             <View style={styles.sheetHead}>
               <View style={{ flex: 1, gap: 8 }}>
                 <View style={styles.detailChipRow}>
-                  <View style={[styles.ddayBadge, detailEvent?.ongoing && styles.ddayBadgeNow]}>
-                    <Text style={[styles.ddayText, detailEvent?.ongoing && styles.ddayTextNow]}>
-                      {detailEvent?.ongoing ? '오늘 열려요' : `D-${detailEvent?.d_day ?? 0}`}
+                  <View style={[styles.ddayBadge, shownDetail?.ongoing && styles.ddayBadgeNow]}>
+                    <Text style={[styles.ddayText, shownDetail?.ongoing && styles.ddayTextNow]}>
+                      {shownDetail?.ongoing ? '오늘 열려요' : `D-${shownDetail?.d_day ?? 0}`}
                     </Text>
                   </View>
-                  {!!detailEvent?.boost_pct && (
+                  {!!shownDetail?.boost_pct && (
                     <View style={styles.impactBadge}>
-                      <Text style={styles.impactText}>{impactWord(detailEvent.boost_pct)}</Text>
+                      <Text style={styles.impactText}>{impactWord(shownDetail.boost_pct)}</Text>
                     </View>
                   )}
                 </View>
-                <Text style={styles.sheetTitle}>{detailEvent?.name}</Text>
+                <Text style={styles.sheetTitle}>{shownDetail?.name}</Text>
               </View>
               <TouchableOpacity
                 onPress={() => setDetailEvent(null)}
@@ -1312,30 +1330,30 @@ export default function StoreMapScreen() {
             </View>
 
             <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
-              {!!detailEvent && (
+              {!!shownDetail && (
                 <>
                   <View style={styles.factCard}>
                     <FactRow icon="calendar-outline" label="언제"
-                      value={`${formatEventRange(detailEvent.start_date, detailEvent.end_date)}${
-                        detailEvent.day_count > 1 ? ` · ${detailEvent.day_count}일간` : ''}`} />
+                      value={`${formatEventRange(shownDetail.start_date, shownDetail.end_date)}${
+                        shownDetail.day_count > 1 ? ` · ${shownDetail.day_count}일간` : ''}`} />
                     <FactRow icon="location-outline" label="어디서"
-                      value={detailEvent.place || detailEvent.host || '장소 미상'} />
-                    {!!detailEvent.host && !!detailEvent.place && (
-                      <FactRow icon="business-outline" label="주최" value={detailEvent.host} />
+                      value={shownDetail.place || shownDetail.host || '장소 미상'} />
+                    {!!shownDetail.host && !!shownDetail.place && (
+                      <FactRow icon="business-outline" label="주최" value={shownDetail.host} />
                     )}
                     <FactRow icon="walk-outline" label="매장에서"
-                      value={detailEvent.distance_km != null ? `${detailEvent.distance_km}km` : '거리 정보 없음'} />
+                      value={shownDetail.distance_km != null ? `${shownDetail.distance_km}km` : '거리 정보 없음'} />
                     <FactRow icon="trending-up-outline" label="매출 영향"
-                      value={detailEvent.boost_pct
-                        ? `예측에 +${detailEvent.boost_pct}% 반영 중`
+                      value={shownDetail.boost_pct
+                        ? `예측에 +${shownDetail.boost_pct}% 반영 중`
                         : '예측에는 반영하지 않음'} />
-                    <FactRow icon="document-text-outline" label="출처" value={detailEvent.source || '미상'} />
+                    <FactRow icon="document-text-outline" label="출처" value={shownDetail.source || '미상'} />
                   </View>
 
-                  {!!detailEvent.tip && (
+                  {!!shownDetail.tip && (
                     <View style={styles.detailTipBox}>
                       <Text style={styles.detailTipLabel}>이 행사엔 이렇게</Text>
-                      <Text style={styles.detailTipText}>{detailEvent.tip}</Text>
+                      <Text style={styles.detailTipText}>{shownDetail.tip}</Text>
                     </View>
                   )}
 
@@ -1343,7 +1361,7 @@ export default function StoreMapScreen() {
                   <TouchableOpacity
                     style={styles.detailPlanBtn}
                     onPress={() => {
-                      const target = detailEvent;
+                      const target = shownDetail;
                       setDetailEvent(null);
                       openPlan(target);
                     }}
@@ -1359,7 +1377,7 @@ export default function StoreMapScreen() {
                     style={styles.detailSearchBtn}
                     onPress={() =>
                       Linking.openURL(
-                        `https://search.naver.com/search.naver?query=${encodeURIComponent(detailEvent.name)}`,
+                        `https://search.naver.com/search.naver?query=${encodeURIComponent(shownDetail.name)}`,
                       )
                     }
                   >
@@ -1377,13 +1395,13 @@ export default function StoreMapScreen() {
       <Modal visible={!!planEvent} animationType="slide" transparent onRequestClose={() => setPlanEvent(null)}>
         <View style={styles.modalRoot}>
           <Pressable style={styles.backdrop} onPress={() => setPlanEvent(null)} />
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, frameSheet]}>
             <View style={styles.sheetHead}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.sheetTitle}>{planEvent?.name}</Text>
+                <Text style={styles.sheetTitle}>{shownPlanEvent?.name}</Text>
                 <Text style={styles.sheetMeta}>
-                  {planEvent
-                    ? `${formatEventRange(planEvent.start_date, planEvent.end_date)} · ${planEvent.place || '장소 미상'}`
+                  {shownPlanEvent
+                    ? `${formatEventRange(shownPlanEvent.start_date, shownPlanEvent.end_date)} · ${shownPlanEvent.place || '장소 미상'}`
                     : ''}
                 </Text>
               </View>
@@ -1398,28 +1416,28 @@ export default function StoreMapScreen() {
                 // 행사 정보(기간·장소·거리·예측 반영·대응 팁)는 그대로 보여 준다.
                 <>
                   <Text style={styles.errorText}>{planError}</Text>
-                  {!!planEvent && (
+                  {!!shownPlanEvent && (
                     <View style={styles.planFactBox}>
                       <Text style={styles.listTitle}>지금 알고 있는 것</Text>
                       <Text style={styles.promoDetail}>
-                        {formatEventRange(planEvent.start_date, planEvent.end_date)}
-                        {planEvent.day_count > 1 ? ` (${planEvent.day_count}일간)` : ''}
-                        {planEvent.ongoing ? ' · 진행 중' : ` · D-${planEvent.d_day}`}
+                        {formatEventRange(shownPlanEvent.start_date, shownPlanEvent.end_date)}
+                        {shownPlanEvent.day_count > 1 ? ` (${shownPlanEvent.day_count}일간)` : ''}
+                        {shownPlanEvent.ongoing ? ' · 진행 중' : ` · D-${shownPlanEvent.d_day}`}
                       </Text>
                       <Text style={styles.promoDetail}>
-                        {planEvent.place || planEvent.host || '장소 미상'}
-                        {planEvent.distance_km != null ? ` · 매장에서 ${planEvent.distance_km}km` : ''}
+                        {shownPlanEvent.place || shownPlanEvent.host || '장소 미상'}
+                        {shownPlanEvent.distance_km != null ? ` · 매장에서 ${shownPlanEvent.distance_km}km` : ''}
                       </Text>
-                      {!!planEvent.boost_pct && (
+                      {!!shownPlanEvent.boost_pct && (
                         <Text style={styles.promoDetail}>
-                          판매 예측에 매출 +{planEvent.boost_pct}%로 이미 반영 중이에요.
+                          판매 예측에 매출 +{shownPlanEvent.boost_pct}%로 이미 반영 중이에요.
                         </Text>
                       )}
-                      {!!planEvent.tip && <Text style={styles.promoWhy}>💡 {planEvent.tip}</Text>}
+                      {!!shownPlanEvent.tip && <Text style={styles.promoWhy}>💡 {shownPlanEvent.tip}</Text>}
                     </View>
                   )}
-                  {!!planEvent && (
-                    <TouchableOpacity style={styles.retryBtn} onPress={() => openPlan(planEvent)}>
+                  {!!shownPlanEvent && (
+                    <TouchableOpacity style={styles.retryBtn} onPress={() => openPlan(shownPlanEvent)}>
                       <Text style={styles.retryText}>다시 시도</Text>
                     </TouchableOpacity>
                   )}
