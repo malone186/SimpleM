@@ -326,6 +326,80 @@
           </div>
         </div>
 
+        <!-- 실행 현황 — 편성(구성)이 아니라 '실제로 어떻게 돌고 있는지'.
+             수치는 서버 프로세스 메모리에 쌓이므로 재배포·재시작하면 0부터 다시 센다. -->
+        <div class="content-box full-width" style="margin-bottom: 20px;">
+          <div class="box-header">
+            <h3 class="box-title"><i data-lucide="gauge"></i> 챗봇 실행 현황
+              <span class="count-badge" id="rt-since">집계 시작 -</span>
+            </h3>
+            <span class="live-tag" id="agents-runtime-tag">LIVE</span>
+          </div>
+
+          <div class="act-stat-row">
+            <div class="act-stat">
+              <div class="act-stat-label">대화 턴</div>
+              <div class="act-stat-value" id="rt-turns">0<span class="unit">턴</span></div>
+            </div>
+            <div class="act-stat">
+              <div class="act-stat-label">성공률</div>
+              <div class="act-stat-value" id="rt-okrate">-</div>
+            </div>
+            <div class="act-stat">
+              <div class="act-stat-label">평균 응답</div>
+              <div class="act-stat-value" id="rt-avg">-</div>
+            </div>
+            <div class="act-stat">
+              <div class="act-stat-label">가장 느린 편(P95)</div>
+              <div class="act-stat-value" id="rt-p95">-</div>
+            </div>
+            <div class="act-stat danger">
+              <div class="act-stat-label">실패 턴</div>
+              <div class="act-stat-value" id="rt-failed">0<span class="unit">턴</span></div>
+            </div>
+          </div>
+
+          <div class="act-layout">
+            <div class="act-col">
+              <div class="act-col-title"><i data-lucide="git-fork"></i> 전문가 위임 횟수</div>
+              <div class="act-feature-list" id="rt-expert-list"></div>
+            </div>
+            <div class="act-col">
+              <div class="act-col-title"><i data-lucide="wrench"></i> 도구 호출 순위</div>
+              <div class="act-feature-list" id="rt-tool-list"></div>
+            </div>
+          </div>
+
+          <!-- 실패가 있을 때만 나온다 — 사유별로 나눠야 조치가 갈린다(키·한도·DB·코드) -->
+          <div class="rt-failure-row" id="rt-failure-list"></div>
+        </div>
+
+        <!-- 최근 실행 로그 -->
+        <div class="content-box full-width" style="margin-bottom: 20px;">
+          <div class="box-header">
+            <h3 class="box-title"><i data-lucide="scroll-text"></i> 최근 대화 실행 기록</h3>
+            <span class="count-badge" id="rt-recent-count">-</span>
+          </div>
+          <div class="table-container">
+            <table class="desktop-table">
+              <thead>
+                <tr>
+                  <th>시각</th>
+                  <th>매장</th>
+                  <th>질문</th>
+                  <th>위임한 전문가</th>
+                  <th>도구</th>
+                  <th>소요</th>
+                  <th>결과</th>
+                </tr>
+              </thead>
+              <tbody id="rt-recent-body">
+                <!-- JS 동적 생성 -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <!-- 오케스트레이션 트리 -->
         <div class="content-box full-width">
           <div class="box-header">

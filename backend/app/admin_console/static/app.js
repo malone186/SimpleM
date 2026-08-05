@@ -1364,6 +1364,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       agentOverview = await res.json();
       renderAgentMetrics();
+      renderAgentRuntime();
       renderAgentTree();
     } catch (err) {
       console.error('에이전트 편성 조회 실패:', err);
@@ -1398,6 +1399,88 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const liveTag = document.getElementById('agents-live-tag');
     if (liveTag) { liveTag.textContent = 'LIVE'; liveTag.style.background = ''; }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 16-b. [챗봇 실행 현황] 편성표가 아니라 '실제로 돌아간 결과'.
+  //       숫자는 백엔드 프로세스 메모리에 쌓인다 — 재시작하면 0부터라 집계 시작 시각을 함께 보여 준다.
+  // ---------------------------------------------------------------------------
+  function fmtDuration(ms) {
+    if (!ms) return '-';
+    return ms >= 1000 ? `${(ms / 1000).toFixed(1)}<span class="unit">초</span>` : `${Math.round(ms)}<span class="unit">ms</span>`;
+  }
+
+  function renderAgentRuntime() {
+    const rt = agentOverview && agentOverview.runtime;
+    if (!rt) return;
+    const $ = (id) => document.getElementById(id);
+
+    if ($('rt-since')) $('rt-since').textContent = `집계 시작 ${rt.since_label || '-'}`;
+    if ($('rt-turns')) $('rt-turns').innerHTML = `${(rt.turns || 0).toLocaleString()}<span class="unit">턴</span>`;
+    if ($('rt-okrate')) $('rt-okrate').innerHTML = rt.ok_rate === null || rt.ok_rate === undefined
+      ? '-' : `${rt.ok_rate}<span class="unit">%</span>`;
+    if ($('rt-avg')) $('rt-avg').innerHTML = fmtDuration(rt.avg_ms);
+    if ($('rt-p95')) $('rt-p95').innerHTML = fmtDuration(rt.p95_ms);
+    if ($('rt-failed')) $('rt-failed').innerHTML = `${rt.failed || 0}<span class="unit">턴</span>`;
+
+    // 막대 목록 — 유입 경로·기능별 사용량과 같은 모양(act-feature-row)을 재사용한다
+    const bars = (rows, nameOf, valOf, empty) => {
+      const max = Math.max(...rows.map(valOf), 1);
+      return rows.map((r) => `
+        <div class="act-feature-row">
+          <span class="act-feature-name">${nameOf(r)}</span>
+          <span class="act-feature-track"><span class="act-feature-fill" style="width:${(valOf(r) / max * 100).toFixed(1)}%"></span></span>
+          <span class="act-feature-val">${valOf(r).toLocaleString()}회</span>
+        </div>`).join('') || `<div class="act-empty">${empty}</div>`;
+    };
+
+    if ($('rt-expert-list')) {
+      const experts = (rt.experts || []).filter((e) => e.calls > 0);
+      $('rt-expert-list').innerHTML = bars(
+        experts,
+        (e) => `${e.name}${e.avg_ms ? ` <span class="rt-sub">평균 ${(e.avg_ms / 1000).toFixed(1)}초</span>` : ''}${e.failures ? ` <span class="rt-fail">실패 ${e.failures}</span>` : ''}`,
+        (e) => e.calls,
+        '아직 위임된 작업이 없습니다. 챗봇에서 질문이 오면 여기에 쌓입니다.',
+      );
+    }
+
+    if ($('rt-tool-list')) {
+      $('rt-tool-list').innerHTML = bars(
+        (rt.tools || []).filter((t) => t.calls > 0),
+        (t) => `${t.name}${t.failures ? ` <span class="rt-fail">실패 ${t.failures}</span>` : ''}`,
+        (t) => t.calls,
+        '아직 호출된 도구가 없습니다.',
+      );
+    }
+
+    // 실패 사유 — 조치가 갈리므로(키/한도/DB/코드) 뭉뚱그리지 않는다
+    if ($('rt-failure-list')) {
+      const reasons = rt.failure_reasons || [];
+      $('rt-failure-list').innerHTML = reasons.length
+        ? reasons.map((r) => `<span class="rt-failure-chip">${r.label} <b>${r.count}</b></span>`).join('')
+        : '';
+    }
+
+    // 최근 실행 기록
+    const body = $('rt-recent-body');
+    const count = $('rt-recent-count');
+    const recent = rt.recent || [];
+    if (count) count.textContent = recent.length ? `최근 ${recent.length}턴` : '기록 없음';
+    if (body) {
+      body.innerHTML = recent.length
+        ? recent.map((r) => `
+          <tr>
+            <td>${r.at}</td>
+            <td>${r.store_id}</td>
+            <td class="rt-question">${(r.question || '').replace(/</g, '&lt;') || '-'}</td>
+            <td>${r.experts && r.experts.length ? r.experts.join(', ') : '<span class="rt-muted">위임 없음</span>'}</td>
+            <td>${r.tool_calls ? `${r.tool_calls}회` : '<span class="rt-muted">-</span>'}</td>
+            <td>${(r.ms / 1000).toFixed(1)}초</td>
+            <td><span class="status-badge ${r.ok ? 'green-bg' : 'cancel'}">${r.ok ? '정상' : r.reason_label}</span></td>
+          </tr>`).join('')
+        : `<tr><td colspan="7" style="text-align:center;padding:26px;color:#8A7A71;">
+             아직 오간 대화가 없습니다. 앱 챗봇에서 질문이 들어오면 여기에 실시간으로 쌓입니다.</td></tr>`;
+    }
   }
 
   function renderAgentTree() {
@@ -1440,7 +1523,7 @@ document.addEventListener('DOMContentLoaded', () => {
           .map(
             (t) => `
             <div class="agent-tool-row">
-              <span class="agent-tool-name"><i data-lucide="wrench"></i>${t.name}</span>
+              <span class="agent-tool-name"><i data-lucide="wrench"></i>${t.name}${t.calls ? `<span class="agent-tool-calls">${t.calls}회</span>` : ''}</span>
               <span class="agent-tool-desc">${t.description || ''}</span>
             </div>`
           )
@@ -1459,6 +1542,8 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="agent-card-desc">${e.description}</div>
           <div class="agent-card-foot">
             <span class="agent-tool-chip"><i data-lucide="wrench"></i> 도구 ${e.tool_count}개</span>
+            <!-- 편성돼 있다고 실제로 쓰이는 건 아니다 — 서버 시작 이후 위임 횟수를 함께 보여 준다 -->
+            <span class="agent-tool-chip ${e.calls ? 'used' : ''}"><i data-lucide="git-fork"></i> 위임 ${e.calls || 0}회</span>
             <span class="agent-expand-hint">${isOpen ? '▲ 접기' : '▼ 도구 목록 보기'}</span>
           </div>
           <div class="agent-tool-list" style="display: ${isOpen ? 'flex' : 'none'};">
@@ -1523,7 +1608,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // 예전엔 initDashboard가 딱 한 번만 돌아서, 화면에 'LIVE'와 '실시간'이라고 써 있는데
     // 실제로는 페이지를 연 순간의 스냅샷이 몇 시간이고 그대로 남아 있었다.
     setInterval(async () => {
-      await Promise.all([checkBackendHealth(), loadDashboardStats(), loadUsers(), loadNotifications()]);
+      // loadAgents도 함께 — 실행 현황(대화 턴·응답시간)은 계속 변한다. DB를 안 타는 조회라 가볍다.
+      await Promise.all([checkBackendHealth(), loadDashboardStats(), loadUsers(), loadNotifications(), loadAgents()]);
       const updated = document.getElementById('header-updated');
       if (updated) updated.textContent = `${nowLabel()} 갱신됨`;
     }, 30000);

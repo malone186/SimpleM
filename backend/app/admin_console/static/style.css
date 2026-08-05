@@ -2010,10 +2010,70 @@ button.header-btn:disabled { opacity: 0.6; cursor: default; transform: none; }
   height: 12px;
 }
 
+/* 실제로 위임을 받은 전문가는 칩을 강조한다 — 편성만 돼 있는 것과 구분된다 */
+.agent-tool-chip.used {
+  background-color: var(--green-light);
+  color: var(--green-main);
+}
+
 .agent-expand-hint {
   font-size: 11px;
   color: var(--stone-300);
   font-weight: 600;
+}
+
+/* ━━━ [한글 주석: 챗봇 실행 현황 — AI 에이전트 탭] ━━━ */
+.agent-tool-calls {
+  margin-left: 6px;
+  background-color: var(--green-light);
+  color: var(--green-main);
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-family: var(--font-main);
+}
+
+.rt-sub {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--stone-300);
+}
+
+.rt-fail {
+  font-size: 11px;
+  font-weight: 700;
+  color: #B24040;
+}
+
+.rt-muted { color: var(--stone-300); }
+
+.rt-question {
+  max-width: 260px;
+  font-size: 12px;
+  color: var(--mocha-brown);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rt-failure-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.rt-failure-row:empty { display: none; }
+
+.rt-failure-chip {
+  background-color: #FBEDED;
+  color: #B24040;
+  border: 1px solid #F0D6D6;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 999px;
 }
 
 /* 도구 목록 (펼침) */
