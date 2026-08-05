@@ -27,6 +27,7 @@ from app.models.ai import (
     AdminUserNote,
     GeneratedDocument,
     OcrDocument,
+    PointLedger,
 )
 from app.models.tracking import TrackingEvent
 # 관리자 화면에 찍히는 일시는 전부 KST로 통일한다 — DB에는 UTC로 쌓인다.
@@ -203,6 +204,12 @@ def get_admin_users(db: Session = Depends(get_db), _admin: User = Depends(get_cu
             .all()
         )
         notes = {n.user_email: n for n in db.query(AdminUserNote).all()}
+        # 코인 잔액 — 원장(point_ledgers) delta 합. 매장 수만큼 조회가 늘지 않게 한 번에 묶는다.
+        coin_balances = dict(
+            db.query(PointLedger.store_id, func.coalesce(func.sum(PointLedger.delta), 0))
+            .group_by(PointLedger.store_id)
+            .all()
+        )
 
         result = []
         for user in users:
@@ -218,6 +225,7 @@ def get_admin_users(db: Session = Depends(get_db), _admin: User = Depends(get_cu
                 "ocrCount": int(ocr_counts.get(user.email, 0)),
                 "docCount": int(doc_counts.get(user.email, 0)),
                 "stockCount": int(stock_counts.get(user.email, 0)),
+                "coins": int(coin_balances.get(user.email, 0)),
                 "memo": note.memo if note else "",
             })
 
@@ -301,6 +309,63 @@ def update_admin_user_memo(
     note.memo = payload.memo
     db.commit()
     return {"success": True, "id": user.id, "email": user.email, "memo": payload.memo}
+
+
+# ---------------------------------------------------------------------------
+# 1-2. 코인 지급 — 상점(브루 꾸미기) 재화를 관리자가 직접 넣거나 회수한다
+#
+# 원래 코인은 '할 일을 실제로 끝냈을 때'만 쌓인다(reward_service 주석 참고).
+# 이 창구는 그 예외다 — CS 보상, 이벤트 당첨, 오지급 회수처럼 사람이 판단해야 하는
+# 경우가 있어서다. 대신 내역에 '관리자 지급/회수'로 남아 사장님 상점 화면에서도
+# 출처가 보인다.
+# ---------------------------------------------------------------------------
+
+class AdminCoinGrant(BaseModel):
+    amount: int          # 양수=지급, 음수=회수
+    memo: str = ""       # 사장님 상점 내역에 그대로 보이는 문구
+
+
+def _find_user(db: Session, user_id: int) -> User:
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail=f"아이디가 {user_id}인 사장님을 찾을 수 없습니다.")
+    return user
+
+
+@router.get("/users/{user_id}/coins")
+def get_user_coins(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+):
+    """[코인 현황] 잔액·누적 적립·최근 내역. 지급 창을 열 때 한 번에 읽는다."""
+    from app.services.ai import reward_service
+
+    user = _find_user(db, user_id)
+    wallet = reward_service.get_wallet(user.email, history_limit=15)
+    return {"id": user.id, "email": user.email, "name": user.name, "store": user.store_name, **wallet}
+
+
+@router.post("/users/{user_id}/coins")
+def grant_user_coins(
+    user_id: int,
+    payload: AdminCoinGrant,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """[코인 지급/회수] 해당 사장님 계정의 코인을 조정하고 갱신된 잔액·내역을 돌려준다."""
+    from app.services.ai import reward_service
+
+    user = _find_user(db, user_id)
+    try:
+        result = reward_service.admin_grant(
+            user.email, payload.amount, payload.memo, admin_email=current_admin.email
+        )
+    except reward_service.RewardError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    wallet = reward_service.get_wallet(user.email, history_limit=15)
+    return {"success": True, "id": user.id, "email": user.email, "granted": result["delta"], **wallet}
 
 
 # ---------------------------------------------------------------------------

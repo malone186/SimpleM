@@ -1281,6 +1281,161 @@ body {
 
 .save-memo-btn svg { width: 14px; height: 14px; }
 
+/* ━━━ [한글 주석: 코인 지급 카드 — 회원 상세 Drawer] ━━━ */
+.coin-balance-box {
+  background: linear-gradient(135deg, #F7EFE2, #F2E3CB);
+  border: 1px solid var(--muted-sand);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.coin-balance-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--mocha-brown);
+}
+
+.coin-balance-num {
+  font-size: 24px;
+  font-weight: 900;
+  color: var(--espresso-brown);
+}
+
+.coin-balance-sub {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--stone-300);
+}
+
+.coin-quick-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.coin-chip {
+  flex: 1;
+  min-width: 52px;
+  padding: 7px 0;
+  border-radius: 8px;
+  border: 1px solid var(--muted-sand);
+  background-color: var(--stone-100);
+  color: var(--espresso-brown);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.coin-chip:hover {
+  background-color: var(--espresso-brown);
+  color: #FFFFFF;
+}
+
+.coin-input-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.coin-input {
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--muted-sand);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--espresso-brown);
+  outline: none;
+}
+
+.coin-input:focus { border-color: var(--orange-point); }
+
+.coin-grant-btn {
+  background-color: var(--orange-point);
+  color: #FFFFFF;
+  border: none;
+  padding: 11px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.coin-grant-btn:hover { opacity: 0.88; }
+.coin-grant-btn:disabled { opacity: 0.55; cursor: default; }
+.coin-grant-btn svg { width: 15px; height: 15px; }
+
+.coin-history-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--stone-300);
+  margin-top: 2px;
+}
+
+.coin-history {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.coin-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background-color: var(--stone-100);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.coin-history-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.coin-history-reason {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--espresso-brown);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.coin-history-date {
+  font-size: 10px;
+  color: var(--stone-300);
+  font-weight: 600;
+}
+
+.coin-history-delta {
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.coin-history-delta.plus { color: var(--green-main); }
+.coin-history-delta.minus { color: #B24040; }
+
+.coin-history-empty {
+  font-size: 12px;
+  color: var(--stone-300);
+  font-weight: 600;
+  padding: 10px 2px;
+}
+
 /* ━━━ [한글 주석: AI 에이전트 오케스트레이션 탭 전용 스타일] ━━━ */
 .orchestra-wrap {
   display: flex;

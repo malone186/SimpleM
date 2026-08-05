@@ -378,8 +378,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!userTableBody) return;
 
     if (mockUsers.length === 0) {
-      // 열 개수(6)와 맞춰야 안내 문구가 표 전체 폭에 걸린다 — 구독 유형 열이 빠지며 7→6이 됐다
-      userTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 30px; color: #8A7A71;">가입된 사장님 회원 데이터가 없습니다.</td></tr>';
+      // 열 개수(7)와 맞춰야 안내 문구가 표 전체 폭에 걸린다 — 구독 유형이 빠지고 보유 코인이 들어왔다
+      userTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 30px; color: #8A7A71;">가입된 사장님 회원 데이터가 없습니다.</td></tr>';
       return;
     }
 
@@ -401,6 +401,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <td>${u.store}</td>
         <td>${u.email}</td>
         <td><span class="status-badge ${u.status === '활성' ? 'green-bg' : u.status === '정지' ? 'cancel' : 'brown-bg'}">${u.status}</span></td>
+        <td><strong>${(u.coins ?? 0).toLocaleString()}</strong> 코인</td>
         <td><button class="link-btn" onclick="event.stopPropagation(); openUserDrawer(${u.id})">상세보기</button></td>
       </tr>
     `
@@ -447,10 +448,130 @@ document.addEventListener('DOMContentLoaded', () => {
     // 관리자 메모 — DB(admin_user_notes)에 저장된 값
     document.getElementById('drawer-user-memo').value = user.memo || '';
 
+    // 코인 — 목록에 실린 잔액을 먼저 보여 주고(깜빡임 방지), 내역은 열면서 새로 읽는다
+    paintCoinBalance({ balance: user.coins ?? 0, total_earned: null });
+    resetCoinInputs();
+    loadUserCoins(user.id);
+
     if (window.lucide) lucide.createIcons();
 
     drawerOverlay.classList.add('active');
   };
+
+  // 6-1. 코인 지급 — 상점 재화를 관리자가 직접 넣거나 회수한다.
+  //      적립의 정상 경로는 '할 일 완료'다. 여기는 CS 보상·이벤트·오지급 회수용 예외 창구라
+  //      내역에 '관리자 지급/회수'로 남아 사장님 상점 화면에서도 출처가 보인다.
+  function paintCoinBalance(wallet) {
+    const balEl = document.getElementById('drawer-coin-balance');
+    const earnEl = document.getElementById('drawer-coin-earned');
+    if (balEl) {
+      balEl.innerHTML = `${Number(wallet.balance || 0).toLocaleString()}<span class="stat-unit">코인</span>`;
+    }
+    if (earnEl) {
+      earnEl.textContent = wallet.total_earned === null || wallet.total_earned === undefined
+        ? '누적 적립 확인 중…'
+        : `누적 적립 ${Number(wallet.total_earned).toLocaleString()}코인`;
+    }
+  }
+
+  function paintCoinHistory(history) {
+    const box = document.getElementById('drawer-coin-history');
+    if (!box) return;
+    if (!history || history.length === 0) {
+      box.innerHTML = '<div class="coin-history-empty">아직 코인 내역이 없습니다.</div>';
+      return;
+    }
+    box.innerHTML = history
+      .map((h) => {
+        const plus = h.delta > 0;
+        const when = h.created_at ? new Date(h.created_at).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' }) : '-';
+        const label = h.memo ? `${h.reason_label} · ${h.memo}` : h.reason_label;
+        return `
+        <div class="coin-history-row">
+          <div class="coin-history-main">
+            <span class="coin-history-reason">${label}</span>
+            <span class="coin-history-date">${when}</span>
+          </div>
+          <span class="coin-history-delta ${plus ? 'plus' : 'minus'}">${plus ? '+' : ''}${Number(h.delta).toLocaleString()}</span>
+        </div>`;
+      })
+      .join('');
+  }
+
+  function resetCoinInputs() {
+    const amount = document.getElementById('coin-amount-input');
+    const memo = document.getElementById('coin-memo-input');
+    if (amount) amount.value = '';
+    if (memo) memo.value = '';
+  }
+
+  async function loadUserCoins(userId) {
+    const box = document.getElementById('drawer-coin-history');
+    if (box) box.innerHTML = '<div class="coin-history-empty">불러오는 중…</div>';
+    try {
+      const res = await fetch(`${API_BASE}/admin/users/${userId}/coins`);
+      if (!res.ok) throw new Error(await describeError(res));
+      const wallet = await res.json();
+      // 응답이 늦게 와도 그 사이 다른 회원을 열었으면 덮어쓰지 않는다
+      if (!selectedUser || selectedUser.id !== userId) return;
+      selectedUser.coins = wallet.balance;
+      paintCoinBalance(wallet);
+      paintCoinHistory(wallet.history);
+    } catch (err) {
+      console.error('코인 조회 실패:', err);
+      if (box) box.innerHTML = `<div class="coin-history-empty">코인 내역을 불러오지 못했습니다 (${err.message}).</div>`;
+    }
+  }
+
+  document.querySelectorAll('.coin-chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      const input = document.getElementById('coin-amount-input');
+      if (input) {
+        input.value = chip.dataset.coin;
+        input.focus();
+      }
+    });
+  });
+
+  const btnGrantCoin = document.getElementById('btn-grant-coin');
+  if (btnGrantCoin) {
+    btnGrantCoin.addEventListener('click', async () => {
+      if (!selectedUser) return;
+      const amountInput = document.getElementById('coin-amount-input');
+      const memoInput = document.getElementById('coin-memo-input');
+      const amount = parseInt(amountInput?.value, 10);
+
+      if (!Number.isFinite(amount) || amount === 0) {
+        alert('지급할 코인 수를 입력해 주세요. 회수하려면 -100처럼 음수를 넣습니다.');
+        amountInput?.focus();
+        return;
+      }
+      const action = amount > 0 ? '지급' : '회수';
+      if (!confirm(`'${selectedUser.store}' (${selectedUser.name} 사장님) 계정에 ${Math.abs(amount).toLocaleString()}코인을 ${action}합니다.\n계속할까요?`)) return;
+
+      btnGrantCoin.disabled = true;
+      try {
+        const res = await fetch(`${API_BASE}/admin/users/${selectedUser.id}/coins`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount, memo: memoInput?.value || '' }),
+        });
+        if (!res.ok) throw new Error(await describeError(res));
+        const wallet = await res.json();
+        selectedUser.coins = wallet.balance;
+        paintCoinBalance(wallet);
+        paintCoinHistory(wallet.history);
+        resetCoinInputs();
+        renderUserTable();  // 목록의 '보유 코인' 열도 즉시 맞춘다
+        alert(`${Math.abs(amount).toLocaleString()}코인을 ${action}했습니다. 현재 잔액 ${Number(wallet.balance).toLocaleString()}코인.`);
+      } catch (err) {
+        console.error('코인 지급 실패:', err);
+        alert(`코인을 ${action}하지 못했습니다 — ${err.message}`);
+      } finally {
+        btnGrantCoin.disabled = false;
+      }
+    });
+  }
 
   function closeUserDrawer() {
     drawerOverlay.classList.remove('active');
