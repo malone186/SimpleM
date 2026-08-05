@@ -163,8 +163,8 @@ def _bg_cache_put(key: tuple[str, str], data: bytes) -> None:
 def _refresh_bg_async(style: str, aspect_ratio: str) -> None:
     """다음 사용자를 위한 AI 배경을 백그라운드로 한 장 만들어 캐시에 넣는다.
 
-    요청 응답과 무관하게 돌기 때문에 여기서는 느린 공급자(HF Space, 20초 내외)도
-    쓸 수 있다 — 사장님이 기다리는 시간에는 전혀 영향이 없다. 실패는 조용히 무시.
+    요청 응답과 무관하게 돌기 때문에 생성이 수십 초 걸려도 사장님이 기다리는 시간에는
+    전혀 영향이 없다. 공급자가 막혀 있으면 그냥 번들 배경이 계속 쓰인다 — 실패는 무시.
     """
     import os
     import time
@@ -207,7 +207,6 @@ def _background(style: str, aspect_ratio: str):
      사장님 대기 시간이 됐다 — 두 공급자 모두 무료 한도가 막힌 지금은 그 시간이
      '기다렸다가 결국 번들 배경'이라 순수 손해였다.)
     """
-    import io as _io
     import os
 
     from PIL import Image
