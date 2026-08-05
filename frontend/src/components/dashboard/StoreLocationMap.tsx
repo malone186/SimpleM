@@ -27,18 +27,30 @@ function esc(text: unknown) {
 }
 
 /** 행사 핀 — 점 하나로는 카페 점과 구별이 안 돼(둘 다 작은 원, 게다가 500m 원이 주황이다)
- *  이름표를 붙인다. 점은 좌표 정확히 그 자리에, 이름표는 오른쪽에 매단다. */
-function eventMarkerHtml(name: string) {
+ *  이름표를 붙인다. 점은 좌표 정확히 그 자리에, 이름표는 오른쪽에 매단다.
+ *
+ *  오늘 열리는 행사는 이름표가 천천히 숨을 쉰다 — 목록을 안 봐도 "지금 이거"가 먼저 눈에 든다.
+ *  이름표 끝의 › 는 "눌러서 더 볼 수 있다"는 표시다. */
+function eventMarkerHtml(name: string, ongoing = false) {
   const raw = String(name ?? '');
   const label = esc(raw.length > 11 ? `${raw.slice(0, 11)}…` : raw);
+  const bg = ongoing ? '#C2410C' : '#D2601A';
   return (
     '<div style="position:relative;width:0;height:0;">' +
+    '<style>@keyframes evtBreath{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}' +
+    '@keyframes evtRing{0%{transform:scale(0.7);opacity:.7}100%{transform:scale(2.1);opacity:0}}</style>' +
+    (ongoing
+      ? '<div style="position:absolute;left:-9px;top:-9px;width:18px;height:18px;border-radius:50%;' +
+        'background:rgba(194,65,12,0.45);animation:evtRing 2s infinite ease-out;"></div>'
+      : '') +
     '<div style="position:absolute;left:-7px;top:-7px;width:14px;height:14px;border-radius:50%;' +
-    'background:#D2601A;border:2.5px solid #FFFFFF;box-shadow:0 2px 5px rgba(0,0,0,0.45);"></div>' +
-    '<div style="position:absolute;left:11px;top:-10px;padding:2px 8px;background:#D2601A;' +
-    'border:1.5px solid #FFFFFF;border-radius:999px;white-space:nowrap;font-size:10px;font-weight:800;' +
-    'color:#FFFFFF;font-family:-apple-system,sans-serif;box-shadow:0 2px 5px rgba(0,0,0,0.35);">' +
-    '🎪 ' + label + '</div>' +
+    'background:' + bg + ';border:2.5px solid #FFFFFF;box-shadow:0 2px 6px rgba(0,0,0,0.35);"></div>' +
+    '<div style="position:absolute;left:12px;top:-11px;display:flex;align-items:center;gap:3px;' +
+    'padding:3px 7px 3px 8px;background:' + bg + ';border:1.5px solid #FFFFFF;border-radius:999px;' +
+    'white-space:nowrap;font-size:10.5px;font-weight:800;color:#FFFFFF;cursor:pointer;' +
+    'font-family:-apple-system,sans-serif;box-shadow:0 3px 8px rgba(120,60,20,0.30);' +
+    (ongoing ? 'animation:evtBreath 2.4s infinite ease-in-out;transform-origin:left center;' : '') +
+    '">🎪 ' + label + '<span style="opacity:.75;font-weight:700">›</span></div>' +
     '</div>'
   );
 }
@@ -51,6 +63,7 @@ export default function StoreLocationMap({
   nearbyEvents = [],
   nearbyCafes = [],
   onCafePress,
+  onEventPress,
   containerId = 'naver-map-container',
   radius = 1000,
 }: {
@@ -59,9 +72,12 @@ export default function StoreLocationMap({
   regionName: string;
   shopLabel: string;
   nearbyEvents?: NearbyEvent[];
-  // 주변 경쟁 카페 (네이버 지역정보 수집분) — 초록 마커로 표시하고 탭하면 상세 분석으로 연결
+  // 주변 경쟁 카페 (네이버 지역정보 수집분) — 갈색 점으로 표시하고 탭하면 상세 분석으로 연결
   nearbyCafes?: NearbyCafe[];
   onCafePress?: (cafe: NearbyCafe) => void;
+  // 행사 핀 탭 — 지도 안 말풍선 대신 앱의 행사 상세 시트를 연다.
+  // 말풍선은 글자가 작고 잘려서, 정작 "그래서 뭘 하면 되나"까지 이어지지 않았다.
+  onEventPress?: (eventName: string) => void;
   // 같은 페이지에 지도가 2개 이상 뜰 수 있으므로 DOM id를 호출부마다 다르게 지정
   containerId?: string;
   radius?: number;
@@ -317,27 +333,17 @@ export default function StoreLocationMap({
             // 카페(400)보다 위, 내 매장(500)보다 아래 — 행사가 카페 점에 가려지지 않게
             zIndex: 450,
             icon: {
-              content: eventMarkerHtml(e.name),
+              content: eventMarkerHtml(e.name, !!e.ongoing),
               anchor: new naverObj.maps.Point(0, 0),
             },
           });
           eventMarkersRef.current.push(eventMarker);
 
-          const eWindow = new naverObj.maps.InfoWindow({
-            content: '<div style="padding:10px;min-width:160px;line-height:140%;font-size:11px;font-family:-apple-system,sans-serif"><b>🎪 ' + esc(e.name) + '</b><br/>장소: ' + esc(e.place) + '<br/>거리: ' + e.distance_km + 'km<br/>날짜: ' + esc(e.date) + '</div>',
-            borderWidth: 1,
-            borderColor: '#E28257',
-            borderRadius: 8,
-            backgroundColor: '#FFFFFF',
-          });
-          openWindowsRef.current.push(eWindow);
-
+          // 말풍선 대신 앱 시트를 연다 — 기간·거리·예측 반영·대응 팁까지 제대로 읽히고,
+          // 거기서 바로 'AI 준비 플랜'으로 이어진다.
           naverObj.maps.Event.addListener(eventMarker, 'click', () => {
-            if (eWindow.getMap()) {
-              eWindow.close();
-            } else {
-              eWindow.open(map, eventMarker);
-            }
+            openWindowsRef.current.forEach((w) => { if (w.getMap()) w.close(); });
+            onEventPress?.(e.name);
           });
         });
       })
@@ -367,7 +373,7 @@ export default function StoreLocationMap({
           javaScriptEnabled
           domStorageEnabled
           scrollEnabled={false}
-          // 지도 페이지가 카페 마커 탭을 알려 준다 → 앱이 리뷰 분석 카드를 연다
+          // 지도 페이지가 마커 탭을 알려 준다 → 앱이 카페 리뷰 분석 / 행사 상세 시트를 연다
           onMessage={(event) => {
             try {
               const msg = JSON.parse(event.nativeEvent.data);
@@ -375,6 +381,7 @@ export default function StoreLocationMap({
                 const hit = nearbyCafes.find((c) => c.name === msg.name);
                 if (hit) onCafePress?.(hit);
               }
+              if (msg?.type === 'event' && msg.name) onEventPress?.(String(msg.name));
             } catch {
               // 지도 엔진 알림('naver') 등 JSON이 아닌 메시지는 무시
             }

@@ -124,6 +124,9 @@ function initNaver() {
         // 점은 좌표 그 자리에 찍고 이름표를 오른쪽에 매단다.
         var raw = String(e.name == null ? '' : e.name);
         var label = esc(raw.length > 11 ? raw.slice(0, 11) + '…' : raw);
+        // 오늘 열리는 행사는 이름표가 천천히 숨을 쉰다 — "지금 이거"가 먼저 눈에 들게.
+        // 끝의 › 는 눌러서 더 볼 수 있다는 표시다.
+        var bg = e.ongoing ? '#C2410C' : '#D2601A';
         var eventMarker = new naver.maps.Marker({
           position: new naver.maps.LatLng(e.lat, e.lon),
           map: gMap,
@@ -131,25 +134,30 @@ function initNaver() {
           icon: {
             content:
               '<div style="position:relative;width:0;height:0;">' +
+              '<style>@keyframes evtBreath{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}' +
+              '@keyframes evtRing{0%{transform:scale(0.7);opacity:.7}100%{transform:scale(2.1);opacity:0}}</style>' +
+              (e.ongoing
+                ? '<div style="position:absolute;left:-9px;top:-9px;width:18px;height:18px;border-radius:50%;' +
+                  'background:rgba(194,65,12,0.45);animation:evtRing 2s infinite ease-out;"></div>'
+                : '') +
               '<div style="position:absolute;left:-7px;top:-7px;width:14px;height:14px;border-radius:50%;' +
-              'background:#D2601A;border:2.5px solid #FFFFFF;box-shadow:0 2px 5px rgba(0,0,0,0.45);"></div>' +
-              '<div style="position:absolute;left:11px;top:-10px;padding:2px 8px;background:#D2601A;' +
-              'border:1.5px solid #FFFFFF;border-radius:999px;white-space:nowrap;font-size:10px;font-weight:800;' +
-              'color:#FFFFFF;font-family:-apple-system,sans-serif;box-shadow:0 2px 5px rgba(0,0,0,0.35);">' +
-              '🎪 ' + label + '</div></div>',
+              'background:' + bg + ';border:2.5px solid #FFFFFF;box-shadow:0 2px 6px rgba(0,0,0,0.35);"></div>' +
+              '<div style="position:absolute;left:12px;top:-11px;display:flex;align-items:center;gap:3px;' +
+              'padding:3px 7px 3px 8px;background:' + bg + ';border:1.5px solid #FFFFFF;border-radius:999px;' +
+              'white-space:nowrap;font-size:10.5px;font-weight:800;color:#FFFFFF;cursor:pointer;' +
+              'font-family:-apple-system,sans-serif;box-shadow:0 3px 8px rgba(120,60,20,0.30);' +
+              (e.ongoing ? 'animation:evtBreath 2.4s infinite ease-in-out;transform-origin:left center;' : '') +
+              '">🎪 ' + label + '<span style="opacity:.75;font-weight:700">›</span></div></div>',
             anchor: new naver.maps.Point(0, 0),
           },
         });
-        var eWindow = new naver.maps.InfoWindow({
-          content: '<div style="padding:10px;min-width:160px;line-height:140%;font-size:11px;font-family:-apple-system,sans-serif"><b>🎪 ' + esc(e.name) + '</b><br/>장소: ' + esc(e.place) + '<br/>거리: ' + e.distance_km + 'km<br/>날짜: ' + esc(e.date) + '</div>',
-          borderWidth: 1,
-          borderColor: '#E28257',
-          borderRadius: 8,
-          backgroundColor: '#FFFFFF',
-        });
-        eventWindows.push(eWindow);
+        // 지도 안 말풍선 대신 앱의 행사 상세 시트를 연다 — 글자가 작고 잘려서
+        // "그래서 뭘 하면 되나"까지 이어지지 않았다.
         naver.maps.Event.addListener(eventMarker, 'click', function () {
-          if (eWindow.getMap()) { eWindow.close(); } else { eWindow.open(gMap, eventMarker); }
+          eventWindows.forEach(function (w) { if (w.getMap()) w.close(); });
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'event', name: raw }));
+          }
         });
       }
     });

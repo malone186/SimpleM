@@ -98,6 +98,10 @@ export default function StoreMapScreen() {
   const [changesLoading, setChangesLoading] = useState(true);
   const [rescanning, setRescanning] = useState(false);
 
+  // 행사 상세 — 카드나 지도 핀을 누르면 먼저 이게 열린다. 여기서 'AI 준비 플랜'으로 이어진다.
+  // (예전엔 카드에 달린 버튼 하나뿐이라, 행사 자체가 궁금해도 볼 곳이 없었다.)
+  const [detailEvent, setDetailEvent] = useState<NearbyEventItem | null>(null);
+
   // 행사 하나에 대한 AI 이벤트·준비 플랜 (행사 카드에서 눌러 연다)
   const [planEvent, setPlanEvent] = useState<NearbyEventItem | null>(null);
   const [plan, setPlan] = useState<EventPlan | null>(null);
@@ -246,6 +250,15 @@ export default function StoreMapScreen() {
     loadChanges(changeDays);
   }, [loadChanges, changeDays]);
 
+  // 지도 핀 탭 → 행사 상세. 핀은 이름만 알려 주므로 목록에서 같은 행사를 찾는다.
+  const openEventByName = useCallback(
+    (name: string) => {
+      const hit = (events?.events ?? []).find((e) => e.name === name);
+      if (hit) setDetailEvent(hit);
+    },
+    [events],
+  );
+
   // 행사 카드 → AI 이벤트·준비 플랜 (Gemini 1회, 서버에서 12시간 캐시)
   const openPlan = useCallback(
     async (event: NearbyEventItem) => {
@@ -337,6 +350,7 @@ export default function StoreMapScreen() {
           source: e.source,
           lat: e.lat,
           lon: e.lon,
+          ongoing: e.ongoing,
         })),
     [events],
   );
@@ -450,6 +464,7 @@ export default function StoreMapScreen() {
             nearbyCafes={nearby?.cafes ?? []}
             nearbyEvents={mapEvents}
             onCafePress={openCafe}
+            onEventPress={openEventByName}
             containerId="standalone-store-map"
             radius={radius}
           />
@@ -958,12 +973,19 @@ export default function StoreMapScreen() {
                 </View>
               )}
 
+              {/* 카드 전체가 눌린다 — 행사 자체가 궁금할 때 볼 곳이 없어 버튼만 덩그러니 있었다.
+                  카드 → 상세 시트 → (원하면) AI 준비 플랜 순으로 이어진다. */}
               {visibleEvents.map((e) => (
-                <View key={`${e.name}-${e.start_date}`} style={styles.eventCard}>
+                <TouchableOpacity
+                  key={`${e.name}-${e.start_date}`}
+                  style={[styles.eventCard, e.ongoing && styles.eventCardNow]}
+                  activeOpacity={0.85}
+                  onPress={() => setDetailEvent(e)}
+                >
                   <View style={styles.eventHead}>
                     <View style={[styles.ddayBadge, e.ongoing && styles.ddayBadgeNow]}>
                       <Text style={[styles.ddayText, e.ongoing && styles.ddayTextNow]}>
-                        {e.ongoing ? '진행 중' : `D-${e.d_day}`}
+                        {e.ongoing ? '오늘' : `D-${e.d_day}`}
                       </Text>
                     </View>
                     <View style={{ flex: 1 }}>
@@ -977,21 +999,19 @@ export default function StoreMapScreen() {
                         {e.distance_km != null ? ` · ${e.distance_km}km` : ''}
                       </Text>
                     </View>
+                    <Ionicons name="chevron-forward" size={16} color={colors.mochaBrown} />
                   </View>
 
                   {!!e.tip && <Text style={styles.eventTip}>💡 {e.tip}</Text>}
 
-                  {/* 이 행사에 무슨 이벤트를 하고 뭘 준비할지 — 누를 때만 AI를 부른다 */}
-                  <TouchableOpacity style={styles.planBtn} onPress={() => openPlan(e)}>
-                    <Ionicons name="sparkles-outline" size={13} color={colors.white} />
-                    <Text style={styles.planBtnText}>이 행사, 뭘 준비할까?</Text>
-                  </TouchableOpacity>
-
-                  <Text style={styles.eventSource}>
-                    {e.source}
-                    {e.boost_pct ? ` · 예측 매출 +${e.boost_pct}% 반영 중` : ''}
-                  </Text>
-                </View>
+                  <View style={styles.eventFootRow}>
+                    <Text style={styles.eventSource} numberOfLines={1}>
+                      {e.source}
+                      {e.boost_pct ? ` · 예측 +${e.boost_pct}%` : ''}
+                    </Text>
+                    <Text style={styles.eventMore}>자세히 보기</Text>
+                  </View>
+                </TouchableOpacity>
               ))}
 
               {eventList.length > visibleEvents.length && (
@@ -1183,6 +1203,99 @@ export default function StoreMapScreen() {
                     <Ionicons name="chevron-forward" size={16} color={colors.mochaBrown} />
                   </TouchableOpacity>
                 ))
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 행사 상세 — 카드나 지도 핀을 누르면 먼저 이게 열린다.
+          "언제·어디서·얼마나 가까이·우리 매출에 얼마나" 를 한 화면에 놓고,
+          그 끝에서 AI 준비 플랜으로 넘어간다. */}
+      <Modal visible={!!detailEvent} animationType="slide" transparent onRequestClose={() => setDetailEvent(null)}>
+        <View style={styles.modalRoot}>
+          <Pressable style={styles.backdrop} onPress={() => setDetailEvent(null)} />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHead}>
+              <View style={{ flex: 1, gap: 8 }}>
+                <View style={styles.detailChipRow}>
+                  <View style={[styles.ddayBadge, detailEvent?.ongoing && styles.ddayBadgeNow]}>
+                    <Text style={[styles.ddayText, detailEvent?.ongoing && styles.ddayTextNow]}>
+                      {detailEvent?.ongoing ? '오늘 열려요' : `D-${detailEvent?.d_day ?? 0}`}
+                    </Text>
+                  </View>
+                  {!!detailEvent?.boost_pct && (
+                    <View style={styles.impactBadge}>
+                      <Text style={styles.impactText}>{impactWord(detailEvent.boost_pct)}</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.sheetTitle}>{detailEvent?.name}</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setDetailEvent(null)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={22} color={colors.espressoBrown} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
+              {!!detailEvent && (
+                <>
+                  <View style={styles.factCard}>
+                    <FactRow icon="calendar-outline" label="언제"
+                      value={`${formatEventRange(detailEvent.start_date, detailEvent.end_date)}${
+                        detailEvent.day_count > 1 ? ` · ${detailEvent.day_count}일간` : ''}`} />
+                    <FactRow icon="location-outline" label="어디서"
+                      value={detailEvent.place || detailEvent.host || '장소 미상'} />
+                    {!!detailEvent.host && !!detailEvent.place && (
+                      <FactRow icon="business-outline" label="주최" value={detailEvent.host} />
+                    )}
+                    <FactRow icon="walk-outline" label="매장에서"
+                      value={detailEvent.distance_km != null ? `${detailEvent.distance_km}km` : '거리 정보 없음'} />
+                    <FactRow icon="trending-up-outline" label="매출 영향"
+                      value={detailEvent.boost_pct
+                        ? `예측에 +${detailEvent.boost_pct}% 반영 중`
+                        : '예측에는 반영하지 않음'} />
+                    <FactRow icon="document-text-outline" label="출처" value={detailEvent.source || '미상'} />
+                  </View>
+
+                  {!!detailEvent.tip && (
+                    <View style={styles.detailTipBox}>
+                      <Text style={styles.detailTipLabel}>이 행사엔 이렇게</Text>
+                      <Text style={styles.detailTipText}>{detailEvent.tip}</Text>
+                    </View>
+                  )}
+
+                  {/* 상세에서 곧장 준비로 — 여기가 이 시트의 목적지다 */}
+                  <TouchableOpacity
+                    style={styles.detailPlanBtn}
+                    onPress={() => {
+                      const target = detailEvent;
+                      setDetailEvent(null);
+                      openPlan(target);
+                    }}
+                  >
+                    <Ionicons name="sparkles" size={15} color={colors.white} />
+                    <Text style={styles.detailPlanBtnText}>이 행사, 뭘 준비할까?</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.detailPlanHint}>
+                    이벤트 아이디어 · 한정 메뉴 · 미리 해 둘 일 · 재료와 인력까지 AI가 짜 드려요.
+                  </Text>
+
+                  <TouchableOpacity
+                    style={styles.detailSearchBtn}
+                    onPress={() =>
+                      Linking.openURL(
+                        `https://search.naver.com/search.naver?query=${encodeURIComponent(detailEvent.name)}`,
+                      )
+                    }
+                  >
+                    <Ionicons name="open-outline" size={14} color={colors.espressoBrown} />
+                    <Text style={styles.detailSearchText}>네이버에서 이 행사 검색</Text>
+                  </TouchableOpacity>
+                </>
               )}
             </ScrollView>
           </View>
@@ -1419,6 +1532,32 @@ function Tag({ label }: { label: string }) {
   );
 }
 
+// 행사 상세의 한 줄 — 아이콘 + 라벨 + 값. 줄글로 늘어놓는 것보다 훑기 쉽다.
+function FactRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+}) {
+  return (
+    <View style={styles.factRow}>
+      <Ionicons name={icon} size={15} color={colors.pointOrange} />
+      <Text style={styles.factLabel}>{label}</Text>
+      <Text style={styles.factValue}>{value}</Text>
+    </View>
+  );
+}
+
+/** 부스팅(%)을 사장님 말로 — 숫자만 보면 3%가 큰지 작은지 알 수 없다 */
+function impactWord(boostPct: number) {
+  if (boostPct >= 10) return '손님 많이 늘 듯';
+  if (boostPct >= 5) return '손님 조금 늘 듯';
+  return '영향은 작을 듯';
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.creamSand },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
@@ -1444,7 +1583,14 @@ const styles = StyleSheet.create({
   primaryBtnText: { ...typography.L4, color: colors.white },
 
   // [한글 주석] 높이는 화면에서 뷰포트 비례로 덮어쓴다 (고정 320 은 가로모드에서 화면을 다 먹었다)
-  mapBox: { backgroundColor: colors.coffeeCream },
+  // 지도 아래 모서리를 둥글려 본문과 부드럽게 이어지게 (직각으로 잘리면 화면이 딱딱해 보인다)
+  mapBox: {
+    backgroundColor: colors.coffeeCream,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    overflow: 'hidden',
+    ...shadows.soft,
+  },
   body: { paddingHorizontal: spacing.globalPadding, paddingTop: 14, gap: 10 },
 
   storeRow: {
@@ -1729,7 +1875,68 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
-  eventSource: { ...typography.L5, color: '#A99C90' },
+  // 오늘 열리는 행사는 카드도 살짝 물든다 — 지도 핀이 숨 쉬는 것과 같은 신호
+  eventCardNow: { borderColor: 'rgba(226, 130, 87, 0.55)', backgroundColor: '#FFFAF6' },
+  eventFootRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  eventSource: { ...typography.L5, color: '#A99C90', flex: 1 },
+  eventMore: { ...typography.L5, color: '#B4542C', fontWeight: '800' },
+
+  // --- 행사 상세 시트 ---
+  detailChipRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  factCard: {
+    backgroundColor: colors.white,
+    borderRadius: 14,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+  },
+  factRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(140, 121, 104, 0.12)',
+  },
+  factLabel: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700', width: 54 },
+  factValue: { ...typography.L5, color: colors.espressoBrown, fontWeight: '700', flex: 1, lineHeight: 17 },
+  detailTipBox: {
+    marginTop: 12,
+    backgroundColor: colors.creamSand,
+    borderRadius: 12,
+    padding: 12,
+    gap: 4,
+  },
+  detailTipLabel: { ...typography.L5, color: '#B4542C', fontWeight: '800' },
+  detailTipText: { ...typography.L4, color: colors.espressoBrown, lineHeight: 19 },
+  detailPlanBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    marginTop: 16,
+    backgroundColor: colors.pointOrange,
+    borderRadius: 14,
+    paddingVertical: 13,
+    ...shadows.soft,
+  },
+  detailPlanBtnText: { ...typography.L4, color: colors.white, fontWeight: '800' },
+  detailPlanHint: { ...typography.L5, color: colors.mochaBrown, textAlign: 'center', marginTop: 7, lineHeight: 16 },
+  detailSearchBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    marginTop: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    backgroundColor: colors.white,
+  },
+  detailSearchText: { ...typography.L5, color: colors.espressoBrown, fontWeight: '700' },
   // 행사 카드의 'AI 준비 플랜' — 누를 때만 AI를 부르므로 카드 안에서 확실히 눌리게 보여 준다
   planBtn: {
     flexDirection: 'row',
