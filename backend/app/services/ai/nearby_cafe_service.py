@@ -45,9 +45,10 @@ def gemini_last_error() -> str:
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 # 전역 GEMINI_MODEL(flash-lite)과 쿼터 풀을 일부러 분리한다. 무료 한도는 '키+모델' 단위라
 # 챗봇·OCR이 flash-lite 하루 한도를 다 쓰면 주변 행사 플랜·카페 분석·개업/폐업 분석까지
-# "사용량을 다 썼어요"로 죽었다(8/5 실측: flash-lite 429, 2.5-flash는 여유). _gemini_json을
-# 쓰는 주변 계열은 2.5-flash 고정 — 같은 키의 별도 쿼터 풀이라 서로를 굶기지 않는다.
-GEMINI_MODEL = os.getenv("NEARBY_GEMINI_MODEL", "gemini-2.5-flash")
+# "사용량을 다 썼어요"로 죽었다(8/5 실측). 처음엔 2.5-flash로 옮겼는데 그쪽은 분당 한도가
+# 빠듯해 배포 직후에도 플랜 생성이 간헐적으로 429였다. 아무 기능도 안 쓰는 전용 풀인
+# 2.5-flash-lite 고정 — 같은 키의 별도 쿼터라 서로를 굶기지 않고, 실측 연속 호출도 전부 200.
+GEMINI_MODEL = os.getenv("NEARBY_GEMINI_MODEL", "gemini-2.5-flash-lite")
 
 _TIMEOUT = 6.0            # 검색 API 하나가 느려도 지도 화면이 오래 멈추지 않게
 _CAFE_TTL = 6 * 3600      # 주변 카페 목록 — 상권은 하루 단위로도 잘 안 바뀐다
