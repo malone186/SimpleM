@@ -264,10 +264,15 @@ def recent_changes(db, store_id: str, days: int = 30) -> dict[str, Any]:
     closed.sort(key=lambda c: (c["closed_on"] or "", -c["distance_m"]), reverse=True)
 
     last_scan = max((r.last_seen or "" for r in rows), default="")
+    first_scan = min((r.first_seen or "" for r in rows if r.first_seen), default="")
     return {
         "days": days,
         "tracked": sum(1 for r in rows if r.status == "open"),
         "last_scan": last_scan,
+        "first_scan": first_scan,
+        # 아직 기준선만 있는 상태 — '변화 없음'이 아니라 '이제 막 보기 시작했다'는 뜻이다.
+        # 화면이 이 둘을 같은 문구로 말하면, 관측 첫날 사장님은 기능이 죽은 줄 안다.
+        "baseline_only": bool(rows) and all(r.is_baseline for r in rows),
         "opened": opened,
         "closed": closed,
         "count": len(opened) + len(closed),

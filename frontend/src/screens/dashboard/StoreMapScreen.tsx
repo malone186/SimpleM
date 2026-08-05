@@ -10,7 +10,7 @@
 // 그리고 '주변 행사'(축제·팝업·문화행사)를 같은 지도 위에 오렌지 핀으로 얹는다. 수집 소스는
 // 판매 예측이 쓰는 것과 같아서(관광공사·서울 문화행사·네이버 검색+AI) 예측의 매출 부스팅과
 // 화면에 보이는 행사가 어긋나지 않는다. 카페는 반경 선택(500m~2km), 행사는 예측과 같은 3km 고정.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -64,6 +64,10 @@ const RADIUS_OPTIONS = [500, 1000, 2000] as const;
 // 행사 조회 기간 — 예측(1주)보다 넉넉히 잡아 "다음 주말 축제"까지 미리 보이게 한다
 const EVENT_DAYS = 14;
 
+// 상권 변화를 되돌아볼 기간 — 알림은 그때그때 한 번 울리고 끝이지만, 화면에서는
+// "요즘 우리 동네가 어떻게 바뀌었나"를 한눈에 보려면 지난 기록까지 넘겨볼 수 있어야 한다.
+const CHANGE_DAY_OPTIONS = [30, 90] as const;
+
 export default function StoreMapScreen() {
   // [한글 주석] 뷰포트 비례 계산 — 지도가 화면을 다 먹지 않게 높이를 조정한다
   const { vh } = useResponsive();
@@ -88,12 +92,27 @@ export default function StoreMapScreen() {
   const [showAllEvents, setShowAllEvents] = useState(false);
 
   // 상권 변화 — 서버가 매일 훑어 쌓아 둔 '새로 생긴 / 없어진 카페'. 순수 DB 조회라 즉시 온다.
+  // 알림으로도 같은 내용이 나가지만, 알림을 놓쳤거나 꺼 둔 사장님도 여기서 그대로 볼 수 있어야 한다.
   const [changes, setChanges] = useState<CafeChangesResult | null>(null);
+  const [changeDays, setChangeDays] = useState<number>(CHANGE_DAY_OPTIONS[0]);
+  const [changesLoading, setChangesLoading] = useState(true);
+  const [rescanning, setRescanning] = useState(false);
 
   // 행사 하나에 대한 AI 이벤트·준비 플랜 (행사 카드에서 눌러 연다)
   const [planEvent, setPlanEvent] = useState<NearbyEventItem | null>(null);
   const [plan, setPlan] = useState<EventPlan | null>(null);
   const [planError, setPlanError] = useState('');
+
+  // '주변 소식' 바로가기 — 지도 아래로 카드가 길게 이어져 행사·변화 섹션이 접힌 화면 밖에 있다.
+  // 알림으로만 보던 두 가지를 화면 맨 위에서 곧장 찾아갈 수 있게 스크롤 위치를 기억해 둔다.
+  const scrollRef = useRef<ScrollView | null>(null);
+  const bodyY = useRef(0);
+  const changesY = useRef(0);
+  const eventsY = useRef(0);
+  const jumpTo = useCallback((target: 'changes' | 'events') => {
+    const y = bodyY.current + (target === 'changes' ? changesY.current : eventsY.current);
+    scrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true });
+  }, []);
 
   const [selected, setSelected] = useState<NearbyCafe | null>(null);
   const [analysis, setAnalysis] = useState<CafeAnalysisResult | null>(null);
@@ -206,18 +225,26 @@ export default function StoreMapScreen() {
 
   // 2-b') 상권 변화 — 실패해도 조용히 넘어간다(다른 카드가 다 뜨는데 이것만 에러 상자를
   // 세울 이유가 없다. 관측 전이면 애초에 빈 결과가 정상이다).
+  const loadChanges = useCallback(
+    async (days: number, refresh = false) => {
+      if (!token || !store) return;
+      if (refresh) setRescanning(true);
+      else setChangesLoading(true);
+      try {
+        setChanges(await getNearbyCafeChanges(token, days, refresh));
+      } catch {
+        // 조용히 — 카드는 '아직 확인 전' 상태로 남는다
+      } finally {
+        setRescanning(false);
+        setChangesLoading(false);
+      }
+    },
+    [token, store],
+  );
+
   useEffect(() => {
-    if (!token || !store) return;
-    let cancelled = false;
-    getNearbyCafeChanges(token)
-      .then((r) => {
-        if (!cancelled) setChanges(r);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [token, store]);
+    loadChanges(changeDays);
+  }, [loadChanges, changeDays]);
 
   // 행사 카드 → AI 이벤트·준비 플랜 (Gemini 1회, 서버에서 12시간 캐시)
   const openPlan = useCallback(
@@ -407,7 +434,12 @@ export default function StoreMapScreen() {
       {/* 지도와 본문이 하나로 스크롤된다 — 지도를 스크롤뷰 밖에 고정하면 아래 내용을 볼 때
           지도만 덩그러니 남아 어색하다. 지도를 스크롤뷰 첫 요소로 넣어 함께 위로 밀려 올라가게 한다.
           핀 색: 브라운=내 매장(고정), 초록=주변 카페, 오렌지=인근 행사 */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 28 }} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        ref={scrollRef}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: 28 }}
+        showsVerticalScrollIndicator={false}
+      >
         {/* [한글 주석] 지도 높이는 뷰포트 비례 — 가로모드/작은 기기에서 화면을 다 먹지 않게 */}
         <View style={[styles.mapBox, { height: Math.min(vh(40), 360) }]}>
           <StoreLocationMap
@@ -423,7 +455,7 @@ export default function StoreMapScreen() {
           />
         </View>
 
-        <View style={styles.body}>
+        <View style={styles.body} onLayout={(e) => { bodyY.current = e.nativeEvent.layout.y; }}>
           {/* 등록된 매장 위치 + 변경 버튼 */}
           <View style={styles.storeRow}>
             <View style={{ flex: 1 }}>
@@ -435,6 +467,24 @@ export default function StoreMapScreen() {
             <TouchableOpacity style={styles.ghostBtn} onPress={() => setPickerOpen(true)}>
               <Ionicons name="create-outline" size={14} color={colors.espressoBrown} />
               <Text style={styles.ghostBtnText}>위치 변경</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* 주변 소식 바로가기 — 알림으로 오던 두 가지(행사 준비, 카페 개업·폐업)가
+              화면 어디에 있는지 맨 위에서 알려 준다. 눌러서 해당 섹션으로 바로 내려간다. */}
+          <View style={styles.newsBar}>
+            <Text style={styles.newsBarLabel}>주변 소식</Text>
+            <TouchableOpacity style={styles.newsChip} onPress={() => jumpTo('events')}>
+              <Text style={styles.newsChipText}>
+                🎪 행사 {loadingEvents ? '확인 중' : `${eventList.length}건`}
+              </Text>
+              <Ionicons name="chevron-down" size={12} color={colors.espressoBrown} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.newsChip} onPress={() => jumpTo('changes')}>
+              <Text style={styles.newsChipText}>
+                ☕ 카페 변화 {changesLoading && !changes ? '확인 중' : `${changes?.count ?? 0}건`}
+              </Text>
+              <Ionicons name="chevron-down" size={12} color={colors.espressoBrown} />
             </TouchableOpacity>
           </View>
 
@@ -704,65 +754,119 @@ export default function StoreMapScreen() {
           )}
 
           {/* ③-b 상권 변화 — 새로 생긴 카페 / 문 닫은 것으로 보이는 카페.
-              매일 훑은 결과를 어제와 비교해 서버가 찾아낸다(같은 내용이 알림으로도 나간다). */}
-          {!!changes && changes.count > 0 && (
-            <View style={styles.changeCard}>
-              <View style={styles.changeHead}>
-                <Ionicons name="pulse-outline" size={16} color={colors.pointOrange} />
-                <Text style={styles.changeTitle}>최근 상권 변화</Text>
-                <Text style={styles.changeNote}>최근 {changes.days}일</Text>
-              </View>
+              매일 훑은 결과를 어제와 비교해 서버가 찾아낸다(같은 내용이 알림으로도 나간다).
 
-              {changes.opened.map((c) => (
-                <View key={`open-${c.place_key}`} style={styles.changeRow}>
-                  <View style={[styles.changeBadge, styles.changeBadgeNew]}>
-                    <Text style={styles.changeBadgeText}>신규</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.changeName} numberOfLines={1}>{c.name}</Text>
-                    <Text style={styles.changeMeta} numberOfLines={1}>
-                      {c.distance_m}m · {c.first_seen}부터 확인됨
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.changeLookBtn}
-                    onPress={() =>
-                      openCafe({
-                        name: c.name, category: c.category, address: c.address, telephone: '',
-                        link: '', lat: c.lat ?? store.lat, lon: c.lon ?? store.lon,
-                        distance_m: c.distance_m,
-                      })
-                    }
-                  >
-                    <Text style={styles.changeLookText}>분석</Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
-
-              {changes.closed.map((c) => (
-                <View key={`close-${c.place_key}`} style={styles.changeRow}>
-                  <View style={[styles.changeBadge, styles.changeBadgeGone]}>
-                    <Text style={styles.changeBadgeText}>폐업?</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.changeName, styles.changeNameGone]} numberOfLines={1}>
-                      {c.name}
-                    </Text>
-                    <Text style={styles.changeMeta} numberOfLines={1}>
-                      {c.distance_m}m · {c.closed_on || c.last_seen}부터 검색에서 사라짐
-                    </Text>
-                  </View>
-                </View>
-              ))}
-
-              <Text style={styles.aiNote}>
-                네이버 지역검색에 잡히는지로 판단해요. 폐업은 추정이라 실제로는 영업 중일 수 있어요.
-              </Text>
+              변화가 없어도 카드는 남긴다. 알림은 '변화가 있을 때'만 울리므로, 조용한 날에
+              카드까지 사라지면 사장님은 이 기능이 알림으로만 존재한다고 느낀다. 여기서는
+              '지금 몇 곳을 지켜보고 있고 언제 확인했는지'를 늘 보여 주고, 직접 다시 확인도 한다. */}
+          <View style={styles.changeCard} onLayout={(e) => { changesY.current = e.nativeEvent.layout.y; }}>
+            <View style={styles.changeHead}>
+              <Ionicons name="pulse-outline" size={16} color={colors.pointOrange} />
+              <Text style={styles.changeTitle}>주변 카페 변화</Text>
+              <TouchableOpacity
+                style={styles.rescanBtn}
+                onPress={() => loadChanges(changeDays, true)}
+                disabled={rescanning}
+              >
+                {rescanning ? (
+                  <ActivityIndicator size="small" color={colors.espressoBrown} />
+                ) : (
+                  <>
+                    <Ionicons name="refresh" size={13} color={colors.espressoBrown} />
+                    <Text style={styles.rescanText}>지금 확인</Text>
+                  </>
+                )}
+              </TouchableOpacity>
             </View>
-          )}
+
+            {/* 기간 넘겨보기 — 알림은 그 순간 한 번뿐이라, 지난 변화는 여기서만 다시 볼 수 있다 */}
+            <View style={styles.changeChipRow}>
+              {CHANGE_DAY_OPTIONS.map((d) => (
+                <TouchableOpacity
+                  key={`chg-${d}`}
+                  style={[styles.changeChip, changeDays === d && styles.changeChipOn]}
+                  onPress={() => setChangeDays(d)}
+                >
+                  <Text style={[styles.changeChipText, changeDays === d && styles.changeChipTextOn]}>
+                    최근 {d}일
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              <View style={{ flex: 1 }} />
+              {!!changes && (
+                <Text style={styles.changeNote}>
+                  {changes.tracked > 0 ? `${changes.tracked}곳 관측 중` : '관측 준비 중'}
+                  {changes.last_scan ? ` · ${formatWatchDay(changes.last_scan)} 확인` : ''}
+                </Text>
+              )}
+            </View>
+
+            {changesLoading && !changes ? (
+              <View style={styles.inlineLoading}>
+                <ActivityIndicator size="small" color={colors.mochaBrown} />
+                <Text style={styles.inlineLoadingText}>주변 카페 변화를 확인하는 중...</Text>
+              </View>
+            ) : !changes || changes.count === 0 ? (
+              <Text style={styles.changeEmpty}>
+                {!changes || !changes.last_scan
+                  ? '아직 주변 카페를 훑기 전이에요. ‘지금 확인’을 누르면 반경 1km를 한 번 살펴봅니다.'
+                  : changes.baseline_only
+                    ? `지금 있는 카페 ${changes.tracked}곳을 기준으로 지켜보기 시작했어요. 새로 생기거나 없어지는 곳은 내일부터 여기에 쌓입니다.`
+                    : `최근 ${changes.days}일 동안 새로 생기거나 문을 닫은 카페는 없었어요.`}
+              </Text>
+            ) : null}
+
+            {(changes?.opened ?? []).map((c) => (
+              <View key={`open-${c.place_key}`} style={styles.changeRow}>
+                <View style={[styles.changeBadge, styles.changeBadgeNew]}>
+                  <Text style={styles.changeBadgeText}>신규</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.changeName} numberOfLines={1}>{c.name}</Text>
+                  <Text style={styles.changeMeta} numberOfLines={1}>
+                    {c.distance_m}m · {formatWatchDay(c.first_seen)}부터 보이기 시작
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.changeLookBtn}
+                  onPress={() =>
+                    openCafe({
+                      name: c.name, category: c.category, address: c.address, telephone: '',
+                      link: '', lat: c.lat ?? store.lat, lon: c.lon ?? store.lon,
+                      distance_m: c.distance_m,
+                    })
+                  }
+                >
+                  <Text style={styles.changeLookText}>분석</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+
+            {(changes?.closed ?? []).map((c) => (
+              <View key={`close-${c.place_key}`} style={styles.changeRow}>
+                <View style={[styles.changeBadge, styles.changeBadgeGone]}>
+                  <Text style={styles.changeBadgeText}>폐업?</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.changeName, styles.changeNameGone]} numberOfLines={1}>
+                    {c.name}
+                  </Text>
+                  <Text style={styles.changeMeta} numberOfLines={1}>
+                    {c.distance_m}m · {formatWatchDay(c.closed_on || c.last_seen)}부터 검색에서 사라짐
+                  </Text>
+                </View>
+              </View>
+            ))}
+
+            <Text style={styles.aiNote}>
+              반경 1km를 매일 훑어 네이버 지역검색에 잡히는지로 판단해요.
+              같은 내용이 알림으로도 가지만, 알림을 놓쳐도 여기서 다시 볼 수 있어요.
+              폐업은 추정이라 실제로는 영업 중일 수 있어요.
+            </Text>
+          </View>
 
           {/* ④ 주변 행사 — 지도의 오렌지 핀과 같은 데이터. 반경은 예측과 맞춰 3km 고정 */}
-          <View style={styles.radiusRow}>
+          <View style={styles.radiusRow} onLayout={(e) => { eventsY.current = e.nativeEvent.layout.y; }}>
             <Text style={styles.sectionTitle}>주변 행사</Text>
             <Text style={styles.sectionNote}>
               반경 {events?.radius_km ?? 3}km · 앞으로 {events?.days ?? EVENT_DAYS}일
@@ -880,6 +984,8 @@ export default function StoreMapScreen() {
               <Text style={styles.aiNote}>
                 공공데이터와 뉴스·블로그 검색으로 모은 일정이라 변동될 수 있어요.
                 같은 행사가 판매 예측의 매출 보정에도 함께 반영됩니다.
+                ‘뭘 준비할까?’는 알림으로 보내드리는 준비 플랜과 같은 내용이라,
+                알림을 못 봤어도 여기서 언제든 다시 볼 수 있어요.
               </Text>
             </>
           )}
@@ -1176,6 +1282,24 @@ const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
 // 행사 기간 표기 — 사장님이 보는 건 '몇 월 며칠 무슨 요일'이지 ISO 날짜가 아니다.
 // 하루짜리면 한 날짜만, 여러 날이면 시작~종료로 묶는다.
+// 관측 날짜 표기 — 사장님이 읽는 건 "2026-08-01"이 아니라 "어제"다.
+// 이번 주 안이면 상대 표현, 그보다 오래되면 8/1 형태로 줄인다.
+function formatWatchDay(iso: string) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-').map(Number);
+  if (!y || !m || !d) return iso;
+  const target = new Date(y, m - 1, d);
+  const today = new Date();
+  const diff = Math.round(
+    (new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() - target.getTime()) /
+      86400000,
+  );
+  if (diff === 0) return '오늘';
+  if (diff === 1) return '어제';
+  if (diff > 1 && diff <= 6) return `${diff}일 전`;
+  return `${m}/${d}`;
+}
+
 function formatEventRange(start: string, end: string) {
   const label = (iso: string) => {
     const [y, m, d] = iso.split('-').map(Number);
@@ -1589,6 +1713,50 @@ const styles = StyleSheet.create({
   changeHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   changeTitle: { ...typography.L3, color: colors.espressoBrown, flex: 1 },
   changeNote: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700' },
+  // '지금 확인' — 서버가 반경을 다시 훑는 동안 자리를 지키도록 최소 너비를 준다
+  rescanBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    minWidth: 78,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    backgroundColor: colors.creamSand,
+  },
+  rescanText: { ...typography.L5, color: colors.espressoBrown, fontWeight: '700' },
+  changeChipRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  changeChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+  },
+  changeChipOn: { backgroundColor: colors.espressoBrown, borderColor: colors.espressoBrown },
+  changeChipText: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700' },
+  changeChipTextOn: { color: colors.white },
+  // 변화가 없는 날에도 카드는 남는다 — 그 자리를 채우는 설명문
+  changeEmpty: { ...typography.L5, color: colors.mochaBrown, lineHeight: 18 },
+
+  // 주변 소식 바로가기 바 — 지도 바로 아래, 스크롤 없이 두 기능의 존재가 보이게
+  newsBar: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12, flexWrap: 'wrap' },
+  newsBarLabel: { ...typography.L5, color: colors.mochaBrown, fontWeight: '800' },
+  newsChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+  },
+  newsChipText: { ...typography.L5, color: colors.espressoBrown, fontWeight: '700' },
   changeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   changeBadge: {
     minWidth: 46,

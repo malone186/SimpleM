@@ -574,6 +574,7 @@ def get_cafe_analysis_api(
 def get_nearby_cafe_changes_api(
     background: BackgroundTasks,
     days: int = 30,
+    refresh: bool = False,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -582,12 +583,32 @@ def get_nearby_cafe_changes_api(
     응답은 관측 대장(nearby_cafe_watch)만 읽어 즉시 돌려주고, 오늘 아직 훑지 않았으면
     백그라운드로 한 번 스캔한다(다음 조회부터 반영). 화면이 네이버 검색을 기다리지 않는다.
 
+    refresh=true는 사장님이 화면에서 '지금 다시 확인'을 누른 경우다. 이때만 스캔을 앞에서
+    끝내고(쿨다운·하루 한 번 제한 무시) 그 결과를 돌려준다 — 눌렀는데 아무것도 안 바뀌면
+    버튼이 고장 난 것처럼 보이기 때문이다. 하루 카운트는 날짜로 잠겨 있어 여러 번 눌러도
+    개업·폐업 판정이 앞당겨지지는 않는다.
+
     첫 조회는 비어 있는 게 정상이다 — 첫 스캔은 '지금 있는 가게'를 기준선으로 삼을 뿐,
     그것을 신규 개업이라고 말하지 않는다. 변화는 하루 뒤부터 잡힌다.
     """
-    result = nearby_watch_service.recent_changes(db, current_user.email, days=max(1, min(days, 180)))
+    days = max(1, min(days, 180))
+    has_point = current_user.store_lat is not None and current_user.store_lon is not None
 
-    if current_user.store_lat is not None and current_user.store_lon is not None:
+    if refresh and has_point:
+        # 앞에서 훑는다 — 네이버 목록은 6시간 캐시라 대개 재검색 없이 대장만 다시 판정한다
+        try:
+            nearby_watch_service.scan_if_stale(
+                db, current_user.email,
+                float(current_user.store_lat), float(current_user.store_lon),
+                exclude_name=current_user.store_name or "", force=True)
+        except Exception:
+            logger.exception("주변 카페 변화 즉시 스캔 실패: %s", current_user.email)
+            db.rollback()
+        return nearby_watch_service.recent_changes(db, current_user.email, days=days)
+
+    result = nearby_watch_service.recent_changes(db, current_user.email, days=days)
+
+    if has_point:
         background.add_task(
             _scan_nearby_cafes_bg, current_user.email,
             float(current_user.store_lat), float(current_user.store_lon),
@@ -1010,8 +1031,10 @@ def create_marketing_image(
             current_user.email, doc_id=body.doc_id, request=body.request,
             style=body.style, aspect_ratio=body.aspect_ratio,
             include_text=body.include_text, overlay=body.overlay, quality=body.quality)
+    except marketing_service.ImageCapacityError as e:
+        # 공급자 한도 소진은 서버 고장이 아니다 — 429로 구분해 앱이 이유를 그대로 보여준다
+        raise HTTPException(429, str(e))
     except marketing_service.MarketingError as e:
-        # 쿼터 소진은 서버 고장이 아니다 — 429로 구분해 앱이 이유를 그대로 보여주게 한다
         raise HTTPException(429 if "사용량" in str(e) else 502, str(e))
 
 

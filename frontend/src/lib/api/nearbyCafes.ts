@@ -102,6 +102,9 @@ export type CafeChangesResult = {
   days: number;
   tracked: number;    // 지금 관측 중인 카페 수
   last_scan: string;  // 마지막으로 훑은 날 (빈 문자열이면 아직 관측 전)
+  first_scan?: string; // 관측을 시작한 날
+  /** 아직 기준선만 있음 = '변화 없음'이 아니라 '이제 막 보기 시작함' */
+  baseline_only?: boolean;
   opened: CafeChange[];
   closed: CafeChange[];
   count: number;
@@ -159,9 +162,15 @@ export const getNeighborhoodInsight = (token: string, radiusM = 1000, limit = 20
  * 서버가 매일 한 번 반경 1km를 훑어 쌓아 둔 관측 기록을 그대로 읽는다(즉시 응답).
  * 오늘 아직 안 훑었으면 서버가 백그라운드로 훑어 다음 조회부터 반영된다.
  * 관측을 막 시작한 매장은 비어 있는 게 정상 — 변화는 하루 뒤부터 잡힌다.
+ *
+ * refresh=true는 사장님이 '지금 다시 확인'을 누른 경우다. 서버가 스캔을 끝낸 뒤 응답하므로
+ * 몇 초 걸릴 수 있지만, 누른 그 자리에서 결과가 바뀐다.
  */
-export const getNearbyCafeChanges = (token: string, days = 30) =>
-  apiFetch<CafeChangesResult>(`/api/v1/chatbot/nearby-cafes/changes?days=${days}`, auth(token));
+export const getNearbyCafeChanges = (token: string, days = 30, refresh = false) =>
+  apiFetch<CafeChangesResult>(
+    `/api/v1/chatbot/nearby-cafes/changes?days=${days}${refresh ? '&refresh=true' : ''}`,
+    auth(token),
+  );
 
 /** 지정한 '내 카페'의 네이버 후기 + 분석. 아직 지정 안 했으면 linked=false로 온다. */
 export const getMyCafeReviews = (token: string) =>
