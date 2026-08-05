@@ -584,10 +584,38 @@ _COMPOSITION_HINTS = {
 }
 
 
+def _pollinations_text(prompt: str) -> str:
+    """Pollinations 텍스트 모델로 짧은 완성을 받는다 (프롬프트 정교화 폴백용).
+
+    Gemini 무료 쿼터가 마르면 정교화가 통째로 건너뛰어지는데, 그러면 한국어 아이디어가
+    번역도 안 된 채 이미지 모델로 넘어가 결과가 크게 망가진다(실측: '라떼 클로즈업'을
+    넣었는데 가짜 간판 가득한 실내 전경이 나옴). 이미지와 같은 계정의 텍스트 모델을
+    쓰면 비용이 사실상 0(장당 0.00001 Pollen 수준)이라 폴백으로 적합하다.
+    """
+    import httpx
+
+    token = os.getenv("POLLINATIONS_TOKEN", "").strip()
+    if not token:
+        raise MarketingError("POLLINATIONS_TOKEN이 없어 텍스트 폴백을 쓸 수 없습니다")
+    r = httpx.post(
+        "https://gen.pollinations.ai/v1/chat/completions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"model": os.getenv("POLLINATIONS_TEXT_MODEL", "nova-fast"),
+              "messages": [{"role": "user", "content": prompt}],
+              "max_tokens": 300, "temperature": 0.85},
+        timeout=REFINE_TIMEOUT,
+    )
+    if r.status_code != 200:
+        raise MarketingError(f"Pollinations 텍스트 HTTP {r.status_code}: {r.text[:120]}")
+    return (r.json()["choices"][0]["message"]["content"] or "").strip()
+
+
 def _refine_image_prompt(idea: str, style: str, aspect_ratio: str, layout: str) -> str:
     """짧은 이미지 아이디어를 상세 아트 디렉션 프롬프트로 확장한다.
 
-    실패(쿼터·타임아웃)해도 홍보물 생성 자체는 막지 않는다 — 원본 아이디어를 그대로 쓴다.
+    이 단계는 '있으면 좋은 것'이 아니라 사실상 필수다 — 사장님 입력은 한국어인데
+    이미지 모델은 영어 프롬프트를 기대하기 때문이다. 그래서 Gemini가 쿼터로 막히면
+    Pollinations 텍스트 모델로 폴백한다. 둘 다 실패할 때만 원본을 그대로 쓴다.
     """
     if not PROMPT_REFINE or not idea.strip():
         return idea
@@ -608,8 +636,12 @@ def _refine_image_prompt(idea: str, style: str, aspect_ratio: str, layout: str) 
         }, REFINE_TIMEOUT)
         text = raw["candidates"][0]["content"]["parts"][0]["text"].strip()
     except (MarketingError, KeyError, IndexError) as e:
-        logger.info("이미지 프롬프트 정교화 건너뜀 (%s) — 원본 프롬프트 사용", e)
-        return idea
+        logger.info("Gemini 프롬프트 정교화 실패 (%s) — Pollinations 텍스트로 폴백", e)
+        try:
+            text = _pollinations_text(prompt)
+        except Exception as e2:
+            logger.info("프롬프트 정교화 폴백도 실패 (%s) — 원본 프롬프트 사용", e2)
+            return idea
     text = " ".join(text.replace("\n", " ").split())
     # 모델이 가끔 따옴표로 감싸 돌려준다 — 그대로 두면 프롬프트에 그대로 실린다
     text = text.strip('"').strip("'").strip()
