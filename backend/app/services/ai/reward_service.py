@@ -111,7 +111,6 @@ REASON_LABEL = {
     "purchase": "상점 구매",
     "daily_bonus": "일일 도전 보너스",
     "quest": "주간 퀘스트 보상",
-    "admin_grant": "운영자 지급",
     "test_grant": "테스트 지급",  # 개발 중 상점을 확인하려고 수동으로 넣은 코인
     "admin_grant": "관리자 지급",
     "admin_revoke": "관리자 회수",
