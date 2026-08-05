@@ -17,6 +17,32 @@ import type { NearbyCafe } from '../../lib/api/nearbyCafes';
 import { NAVER_CLIENT_ID, NAVER_MAP_ERROR, loadNaverMaps } from '../../lib/naverMap';
 import { colors } from '../../theme';
 
+/** 행사 이름·장소는 뉴스·공공데이터에서 온 남의 글이다 — 지도 말풍선에 그대로 넣지 않는다 */
+function esc(text: unknown) {
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** 행사 핀 — 점 하나로는 카페 점과 구별이 안 돼(둘 다 작은 원, 게다가 500m 원이 주황이다)
+ *  이름표를 붙인다. 점은 좌표 정확히 그 자리에, 이름표는 오른쪽에 매단다. */
+function eventMarkerHtml(name: string) {
+  const raw = String(name ?? '');
+  const label = esc(raw.length > 11 ? `${raw.slice(0, 11)}…` : raw);
+  return (
+    '<div style="position:relative;width:0;height:0;">' +
+    '<div style="position:absolute;left:-7px;top:-7px;width:14px;height:14px;border-radius:50%;' +
+    'background:#D2601A;border:2.5px solid #FFFFFF;box-shadow:0 2px 5px rgba(0,0,0,0.45);"></div>' +
+    '<div style="position:absolute;left:11px;top:-10px;padding:2px 8px;background:#D2601A;' +
+    'border:1.5px solid #FFFFFF;border-radius:999px;white-space:nowrap;font-size:10px;font-weight:800;' +
+    'color:#FFFFFF;font-family:-apple-system,sans-serif;box-shadow:0 2px 5px rgba(0,0,0,0.35);">' +
+    '🎪 ' + label + '</div>' +
+    '</div>'
+  );
+}
+
 export default function StoreLocationMap({
   lat,
   lon,
@@ -112,8 +138,11 @@ export default function StoreLocationMap({
       }),
     );
     return `${API_BASE_URL}/map/?key=${encodeURIComponent(NAVER_CLIENT_ID)}&d=${payload}`;
+    // serializedEvents·serializedCafes가 빠져 있었다 — 그래서 네이티브에서는 행사 핀이
+    // 영영 안 떴다. 카페는 지역명(regionName)과 같은 응답으로 함께 와서 URL이 다시 만들어졌지만,
+    // 행사는 별도 호출이라 그 뒤에 도착하고, URL이 안 바뀌니 WebView는 옛 payload를 계속 썼다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lat, lon, regionName, shopLabel, NAVER_CLIENT_ID]);
+  }, [lat, lon, regionName, shopLabel, radius, serializedEvents, serializedCafes, NAVER_CLIENT_ID]);
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -241,7 +270,7 @@ export default function StoreLocationMap({
         nearbyCafes.forEach((cafe) => {
           if (!cafe.lat || !cafe.lon) return;
           const cafeMarkerContent = `
-            <div title="${cafe.name}" style="width:9px;height:9px;background:#7A6250;border-radius:50%;border:1.5px solid #FFFFFF;cursor:pointer;box-shadow:0 1.5px 3.5px rgba(0,0,0,0.3);transition:transform 0.15s ease;"></div>
+            <div title="${esc(cafe.name)}" style="width:9px;height:9px;background:#7A6250;border-radius:50%;border:1.5px solid #FFFFFF;cursor:pointer;box-shadow:0 1.5px 3.5px rgba(0,0,0,0.3);transition:transform 0.15s ease;"></div>
           `;
           const cafeMarker = new naverObj.maps.Marker({
             position: new naverObj.maps.LatLng(cafe.lat, cafe.lon),
@@ -257,7 +286,7 @@ export default function StoreLocationMap({
           const cWindow = new naverObj.maps.InfoWindow({
             content:
               '<div style="padding:9px 11px;min-width:150px;line-height:150%;font-size:11px;font-family:-apple-system,sans-serif">' +
-              '<b>☕ ' + cafe.name + '</b><br/>' + cafe.category + '<br/>내 매장에서 ' + cafe.distance_m + 'm' +
+              '<b>☕ ' + esc(cafe.name) + '</b><br/>' + esc(cafe.category) + '<br/>내 매장에서 ' + cafe.distance_m + 'm' +
               (onCafePress ? '<br/><span style="color:#10B981;font-weight:700">눌러서 리뷰 분석 보기</span>' : '') +
               '</div>',
             borderWidth: 1,
@@ -285,16 +314,17 @@ export default function StoreLocationMap({
           const eventMarker = new naverObj.maps.Marker({
             position: new naverObj.maps.LatLng(e.lat, e.lon),
             map,
-            zIndex: 300,
+            // 카페(400)보다 위, 내 매장(500)보다 아래 — 행사가 카페 점에 가려지지 않게
+            zIndex: 450,
             icon: {
-              content: '<div style="width:10px;height:10px;background:#E28257;border-radius:50%;border:1.5px solid #FFFFFF;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></div>',
-              anchor: new naverObj.maps.Point(5, 5),
+              content: eventMarkerHtml(e.name),
+              anchor: new naverObj.maps.Point(0, 0),
             },
           });
           eventMarkersRef.current.push(eventMarker);
 
           const eWindow = new naverObj.maps.InfoWindow({
-            content: '<div style="padding:10px;min-width:160px;line-height:140%;font-size:11px;font-family:-apple-system,sans-serif"><b>🎉 ' + e.name + '</b><br/>장소: ' + e.place + '<br/>거리: ' + e.distance_km + 'km<br/>날짜: ' + e.date + '</div>',
+            content: '<div style="padding:10px;min-width:160px;line-height:140%;font-size:11px;font-family:-apple-system,sans-serif"><b>🎪 ' + esc(e.name) + '</b><br/>장소: ' + esc(e.place) + '<br/>거리: ' + e.distance_km + 'km<br/>날짜: ' + esc(e.date) + '</div>',
             borderWidth: 1,
             borderColor: '#E28257',
             borderRadius: 8,

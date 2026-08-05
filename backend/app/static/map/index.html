@@ -111,19 +111,37 @@ function initNaver() {
 
     var eventWindows = [];
 
+    // 행사 이름·장소는 뉴스·공공데이터에서 온 남의 글이다 — 말풍선에 그대로 넣지 않는다
+    function esc(t) {
+      return String(t == null ? '' : t)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
     D.events.forEach(function (e) {
       if (e.lat && e.lon) {
+        // 점 하나로는 카페 점과 구별이 안 된다(둘 다 작은 원인데 500m 원까지 주황이다).
+        // 점은 좌표 그 자리에 찍고 이름표를 오른쪽에 매단다.
+        var raw = String(e.name == null ? '' : e.name);
+        var label = esc(raw.length > 11 ? raw.slice(0, 11) + '…' : raw);
         var eventMarker = new naver.maps.Marker({
           position: new naver.maps.LatLng(e.lat, e.lon),
           map: gMap,
-          zIndex: 300,
+          zIndex: 450,
           icon: {
-            content: '<div style="width:10px;height:10px;background:#E28257;border-radius:50%;border:1.5px solid #FFFFFF;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></div>',
-            anchor: new naver.maps.Point(5, 5),
+            content:
+              '<div style="position:relative;width:0;height:0;">' +
+              '<div style="position:absolute;left:-7px;top:-7px;width:14px;height:14px;border-radius:50%;' +
+              'background:#D2601A;border:2.5px solid #FFFFFF;box-shadow:0 2px 5px rgba(0,0,0,0.45);"></div>' +
+              '<div style="position:absolute;left:11px;top:-10px;padding:2px 8px;background:#D2601A;' +
+              'border:1.5px solid #FFFFFF;border-radius:999px;white-space:nowrap;font-size:10px;font-weight:800;' +
+              'color:#FFFFFF;font-family:-apple-system,sans-serif;box-shadow:0 2px 5px rgba(0,0,0,0.35);">' +
+              '🎪 ' + label + '</div></div>',
+            anchor: new naver.maps.Point(0, 0),
           },
         });
         var eWindow = new naver.maps.InfoWindow({
-          content: '<div style="padding:10px;min-width:160px;line-height:140%;font-size:11px;font-family:-apple-system,sans-serif"><b>🎉 ' + e.name + '</b><br/>장소: ' + e.place + '<br/>거리: ' + e.distance_km + 'km<br/>날짜: ' + e.date + '</div>',
+          content: '<div style="padding:10px;min-width:160px;line-height:140%;font-size:11px;font-family:-apple-system,sans-serif"><b>🎪 ' + esc(e.name) + '</b><br/>장소: ' + esc(e.place) + '<br/>거리: ' + e.distance_km + 'km<br/>날짜: ' + esc(e.date) + '</div>',
           borderWidth: 1,
           borderColor: '#E28257',
           borderRadius: 8,

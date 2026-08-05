@@ -433,7 +433,7 @@ export default function StoreMapScreen() {
     <View style={styles.root}>
       {/* 지도와 본문이 하나로 스크롤된다 — 지도를 스크롤뷰 밖에 고정하면 아래 내용을 볼 때
           지도만 덩그러니 남아 어색하다. 지도를 스크롤뷰 첫 요소로 넣어 함께 위로 밀려 올라가게 한다.
-          핀 색: 브라운=내 매장(고정), 초록=주변 카페, 오렌지=인근 행사 */}
+          핀: 진한 브라운 점=내 매장(고정), 작은 갈색 점=주변 카페, 🎪 이름표=주변 행사 */}
       <ScrollView
         ref={scrollRef}
         style={{ flex: 1 }}
@@ -456,6 +456,28 @@ export default function StoreMapScreen() {
         </View>
 
         <View style={styles.body} onLayout={(e) => { bodyY.current = e.nativeEvent.layout.y; }}>
+          {/* 지도 범례 — 점이 세 종류나 찍히는데 무엇이 무엇인지 알 길이 없었다.
+              좌표를 못 구한 행사는 핀을 찍을 수 없으므로 그 사실도 함께 밝힌다. */}
+          <View style={styles.legendRow}>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, styles.legendDotStore]} />
+              <Text style={styles.legendText}>내 매장</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, styles.legendDotCafe]} />
+              <Text style={styles.legendText}>주변 카페 {nearby?.cafes.length ?? 0}</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, styles.legendDotEvent]} />
+              <Text style={styles.legendText}>🎪 행사 {mapEvents.length}</Text>
+            </View>
+            {eventList.length > mapEvents.length && (
+              <Text style={styles.legendNote}>
+                (위치를 못 찾은 행사 {eventList.length - mapEvents.length}건은 아래 목록에만)
+              </Text>
+            )}
+          </View>
+
           {/* 등록된 매장 위치 + 변경 버튼 */}
           <View style={styles.storeRow}>
             <View style={{ flex: 1 }}>
@@ -1763,6 +1785,16 @@ const styles = StyleSheet.create({
   changeChipTextOn: { color: colors.white },
   // 변화가 없는 날에도 카드는 남는다 — 그 자리를 채우는 설명문
   changeEmpty: { ...typography.L5, color: colors.mochaBrown, lineHeight: 18 },
+
+  // 지도 범례 — 지도 바로 아래 한 줄
+  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10, flexWrap: 'wrap' },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  legendDot: { width: 9, height: 9, borderRadius: 5, borderWidth: 1.5, borderColor: colors.white },
+  legendDotStore: { backgroundColor: '#3B2314', width: 11, height: 11, borderRadius: 6 },
+  legendDotCafe: { backgroundColor: '#7A6250' },
+  legendDotEvent: { backgroundColor: '#D2601A', width: 11, height: 11, borderRadius: 6 },
+  legendText: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700' },
+  legendNote: { ...typography.L5, color: '#A99C90' },
 
   // 주변 소식 바로가기 바 — 지도 바로 아래, 스크롤 없이 두 기능의 존재가 보이게
   newsBar: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12, flexWrap: 'wrap' },
