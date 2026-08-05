@@ -315,7 +315,8 @@ export default function WelcomeHeader({
           hitSlop={10}
           activeOpacity={0.85}
         >
-          <Ionicons name="storefront-outline" size={19} color={colors.creamSand} />
+          {/* 게임 허브(브루의 카페) 진입 — 상점이 아니라 게임 룸이므로 컨트롤러 아이콘 */}
+          <Ionicons name="game-controller-outline" size={19} color={colors.creamSand} />
         </TouchableOpacity>
       </View>
 
