@@ -117,11 +117,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) {
       /* 토큰 모양이 예상과 다르면 기본 표시 그대로 둔다 */
     }
-    const origin = ADMIN_API.replace('/api/v1', '');
-    const swagger = document.getElementById('link-swagger');
-    const backend = document.getElementById('link-backend');
-    if (swagger) swagger.href = `${origin}/docs`;
-    if (backend) backend.href = origin;
+    // (삭제됨) Swagger·백엔드 루트 링크 주소 주입 — 링크 자체를 없앴다(개발자용)
   })();
 
   // 비밀번호 변경 — 백엔드에 POST /admin/password가 있는데 화면에 들어올 입구가 없어서,
@@ -374,22 +370,39 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 5. [회원 관리] 탭 통합 사장님 테이블 렌더링
   const userTableBody = document.getElementById('user-table-body');
+  let currentUserFilter = 'all';   // all | 활성 | 대기 | 정지
+
+  // 검색·상태 필터를 통과한 목록 — 표와 CSV 내보내기가 같은 결과를 쓴다
+  function filteredUsers() {
+    let items = mockUsers;
+    if (currentUserFilter !== 'all') {
+      items = items.filter((u) => (u.status || '활성') === currentUserFilter);
+    }
+    const q = document.getElementById('user-search-input')?.value.toLowerCase().trim();
+    if (q) {
+      items = items.filter(
+        (u) => u.name.toLowerCase().includes(q) || u.store.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
+      );
+    }
+    return items;
+  }
+
   function renderUserTable() {
     if (!userTableBody) return;
 
-    if (mockUsers.length === 0) {
-      // 열 개수(7)와 맞춰야 안내 문구가 표 전체 폭에 걸린다 — 구독 유형이 빠지고 보유 코인이 들어왔다
-      userTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 30px; color: #8A7A71;">가입된 사장님 회원 데이터가 없습니다.</td></tr>';
-      return;
+    const items = filteredUsers();
+    const countBadge = document.getElementById('user-count-badge');
+    if (countBadge) {
+      countBadge.textContent = items.length === mockUsers.length
+        ? `${mockUsers.length}명`
+        : `${items.length} / ${mockUsers.length}명`;
     }
 
-    let items = mockUsers;
-
-    const searchQuery = document.getElementById('user-search-input')?.value.toLowerCase().trim();
-    if (searchQuery) {
-      items = items.filter(
-        (u) => u.name.toLowerCase().includes(searchQuery) || u.store.toLowerCase().includes(searchQuery) || u.email.toLowerCase().includes(searchQuery)
-      );
+    if (items.length === 0) {
+      // 열 개수(7)와 맞춰야 안내 문구가 표 전체 폭에 걸린다 — 구독 유형이 빠지고 보유 코인이 들어왔다
+      const msg = mockUsers.length === 0 ? '가입된 사장님 회원 데이터가 없습니다.' : '조건에 맞는 회원이 없습니다.';
+      userTableBody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 30px; color: #8A7A71;">${msg}</td></tr>`;
+      return;
     }
 
     userTableBody.innerHTML = items
@@ -410,6 +423,44 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // (삭제됨) 상단 등급 필터 탭 — 버튼 자체가 HTML에서 빠졌다 (유료 플랜 폐지)
+
+  // 계정 상태 필터
+  document.querySelectorAll('.user-filter-pill').forEach((pill) => {
+    pill.addEventListener('click', () => {
+      document.querySelectorAll('.user-filter-pill').forEach((p) => p.classList.remove('active'));
+      pill.classList.add('active');
+      currentUserFilter = pill.dataset.userFilter;
+      renderUserTable();
+    });
+  });
+
+  // CSV 내보내기 — 화면에 보이는 목록 그대로. 엑셀이 한글을 깨뜨리지 않게 BOM을 붙인다.
+  const btnExportUsers = document.getElementById('btn-export-users');
+  if (btnExportUsers) {
+    btnExportUsers.addEventListener('click', () => {
+      const items = filteredUsers();
+      if (items.length === 0) {
+        alert('내보낼 회원이 없습니다.');
+        return;
+      }
+      const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const header = ['ID', '사장님 이름', '매장명', '이메일', '계정 상태', '가입 일자', 'OCR 건수', '재고 품목', '생성 서류', '보유 코인', '관리자 메모'];
+      const rows = items.map((u) => [
+        u.id, u.name, u.store, u.email, u.status, u.joined,
+        u.ocrCount ?? 0, u.stockCount ?? 0, u.docCount ?? 0, u.coins ?? 0, u.memo || '',
+      ].map(cell).join(','));
+      const csv = '﻿' + [header.map(cell).join(','), ...rows].join('\r\n');
+
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+      const a = document.createElement('a');
+      const d = new Date();
+      const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+      a.href = url;
+      a.download = `브루노트_회원목록_${stamp}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  }
 
   // 검색어 입력 이벤트
   const searchInput = document.getElementById('user-search-input');
@@ -919,6 +970,13 @@ document.addEventListener('DOMContentLoaded', () => {
       pills[2].textContent = `✅ 처리 완료 (${doneCount}건)`;
     }
 
+    // 사이드바 배지 — 다른 탭을 보고 있어도 밀린 문의가 눈에 띈다
+    const navBadge = document.getElementById('nav-cs-badge');
+    if (navBadge) {
+      navBadge.textContent = waitingCount;
+      navBadge.style.display = waitingCount > 0 ? '' : 'none';
+    }
+
     if (list.length === 0) {
       // 조회에 실패한 것과 정말 0건인 것은 완전히 다른 상황이다 — 구분해서 말한다
       const msg = csLoadError
@@ -1423,8 +1481,8 @@ document.addEventListener('DOMContentLoaded', () => {
     renderAgentTree();
   };
 
-  // [한글 주석: 초기 구동 시 실시간 데이터 전면 동기화 + 주기적 자동 갱신]
-  async function initDashboard() {
+  // 전체 새로고침 — 헤더 버튼과 초기 구동이 같은 함수를 쓴다
+  async function refreshAll() {
     // 서로 의존하지 않는 조회라 동시에 보낸다 (하나씩 await하면 Neon RTT가 그대로 쌓인다)
     await Promise.all([
       checkBackendHealth(),
@@ -1436,6 +1494,27 @@ document.addEventListener('DOMContentLoaded', () => {
       loadActivity(),
       loadAgents(),
     ]);
+    const updated = document.getElementById('header-updated');
+    if (updated) updated.textContent = `${nowLabel()} 갱신됨`;
+  }
+
+  const btnRefreshAll = document.getElementById('btn-refresh-all');
+  if (btnRefreshAll) {
+    btnRefreshAll.addEventListener('click', async () => {
+      btnRefreshAll.disabled = true;
+      btnRefreshAll.classList.add('spinning');
+      try {
+        await refreshAll();
+      } finally {
+        btnRefreshAll.disabled = false;
+        btnRefreshAll.classList.remove('spinning');
+      }
+    });
+  }
+
+  // [한글 주석: 초기 구동 시 실시간 데이터 전면 동기화 + 주기적 자동 갱신]
+  async function initDashboard() {
+    await refreshAll();
 
     // 4초 주기 — 사장님이 문의를 접수하면 새로고침 없이 바로 뜬다
     setInterval(loadCSList, 4000);
@@ -1443,11 +1522,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // 나머지 패널도 주기적으로 다시 읽는다.
     // 예전엔 initDashboard가 딱 한 번만 돌아서, 화면에 'LIVE'와 '실시간'이라고 써 있는데
     // 실제로는 페이지를 연 순간의 스냅샷이 몇 시간이고 그대로 남아 있었다.
-    setInterval(() => {
-      checkBackendHealth();
-      loadDashboardStats();
-      loadUsers();
-      loadNotifications();
+    setInterval(async () => {
+      await Promise.all([checkBackendHealth(), loadDashboardStats(), loadUsers(), loadNotifications()]);
+      const updated = document.getElementById('header-updated');
+      if (updated) updated.textContent = `${nowLabel()} 갱신됨`;
     }, 30000);
 
     setInterval(() => {

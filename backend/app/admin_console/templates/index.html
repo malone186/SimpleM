@@ -52,6 +52,8 @@
         <button class="nav-item" data-tab="cs">
           <i data-lucide="headset"></i>
           <span>CS / 문의 관리</span>
+          <!-- 미답변 문의 수 — 탭을 열지 않아도 밀린 문의가 있다는 걸 알 수 있어야 한다 -->
+          <span class="nav-badge" id="nav-cs-badge" style="display:none;">0</span>
         </button>
         <button class="nav-item" data-tab="notifications">
           <i data-lucide="bell"></i>
@@ -89,16 +91,14 @@
           <p class="page-sub">브루노트 카페 통합 플랫폼 전체 운영 현황입니다.</p>
         </div>
         <div class="header-right">
-          <!-- href는 실제로 붙어 있는 백엔드로 JS가 바꾼다 (로컬로 돌려도 링크만 배포본을
-               가리키던 문제). -->
-          <a href="#" id="link-swagger" target="_blank" class="header-btn">
-            <i data-lucide="file-code-2"></i>
-            <span>Swagger API 문서</span>
-          </a>
-          <a href="#" id="link-backend" target="_blank" class="header-btn secondary">
-            <i data-lucide="server"></i>
-            <span>백엔드 서버</span>
-          </a>
+          <!-- (삭제됨) Swagger 문서·백엔드 루트 링크 — 개발자용 링크라 관리 업무에 쓸 일이 없었다.
+               그 자리에 실제로 자주 쓰는 '전체 새로고침'을 둔다. 자동 갱신은 30초 주기지만
+               방금 처리한 결과를 바로 보고 싶을 때가 있다. -->
+          <span class="header-updated" id="header-updated">갱신 중…</span>
+          <button type="button" class="header-btn" id="btn-refresh-all">
+            <i data-lucide="refresh-cw"></i>
+            <span>전체 새로고침</span>
+          </button>
         </div>
       </header>
 
@@ -350,10 +350,22 @@
         <div class="content-box full-width">
           
           <div class="box-header-row">
-            <h3 class="box-title"><i data-lucide="users"></i> 전체 사장님 회원 관리</h3>
-            
+            <h3 class="box-title"><i data-lucide="users"></i> 전체 사장님 회원 관리 <span class="count-badge" id="user-count-badge">-</span></h3>
+
             <div class="box-actions">
+              <!-- 상태 필터 — 회원이 늘면 '대기'나 '정지'만 보고 싶을 때가 온다 -->
+              <div class="user-filter-pills">
+                <button type="button" class="user-filter-pill active" data-user-filter="all">전체</button>
+                <button type="button" class="user-filter-pill" data-user-filter="활성">활성</button>
+                <button type="button" class="user-filter-pill" data-user-filter="대기">대기</button>
+                <button type="button" class="user-filter-pill" data-user-filter="정지">정지</button>
+              </div>
               <input type="text" id="user-search-input" placeholder="매장명 또는 이메일 검색..." class="search-input">
+              <!-- 이미 받아 둔 목록을 그대로 내보낸다 — 서버 호출 없음 -->
+              <button type="button" class="header-btn secondary" id="btn-export-users" title="현재 목록을 CSV로 저장">
+                <i data-lucide="download"></i>
+                <span>CSV 내보내기</span>
+              </button>
             </div>
           </div>
 
@@ -386,9 +398,8 @@
           <!-- 좌측: 공지사항 및 푸시 알림 발송 폼 -->
           <div class="content-box">
             <div class="box-header">
-              <!-- 이 폼은 공지를 '등록'한다. 앱이 폴링으로 받아 홈 화면에 띄우는 방식이고,
-                   FCM 푸시로 밀어 보내지는 않는다. '즉시 발송/PUSH SYSTEM'이라고 써 두면
-                   앱을 닫아 둔 사장님에게도 간 줄로 오해하게 된다. -->
+              <!-- 이 폼은 공지를 등록하고, 기기를 등록한 사장님에게는 FCM 푸시까지 보낸다
+                   (백엔드 _push_notice). 몇 대에 갔는지는 등록 직후 알림창에 그대로 나온다. -->
               <h3 class="box-title"><i data-lucide="send"></i> 사장님 공지 등록</h3>
               <span class="live-tag">NOTICE</span>
             </div>
@@ -421,8 +432,8 @@
                 <i data-lucide="send"></i> 공지 등록하기
               </button>
               <p class="form-hint" style="margin-top:8px; font-size:12px; color:var(--mocha-brown); line-height:1.5;">
-                등록한 공지는 사장님 앱 홈 화면의 알림함에 표시됩니다. 앱을 닫아 둔 상태로
-                울리는 푸시 알림은 아직 지원하지 않습니다.
+                등록하면 앱 알림 권한을 켠 사장님 기기로 푸시가 바로 나갑니다. 등록 직후 몇 대에
+                갔는지 알려 드리고, 푸시를 못 받은 사장님도 앱 홈 화면 알림함에서 확인할 수 있습니다.
               </p>
             </form>
           </div>

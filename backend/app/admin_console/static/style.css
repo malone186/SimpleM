@@ -281,6 +281,39 @@ body {
   background-color: var(--coffee-cream);
 }
 
+/* 헤더의 전체 새로고침 — <a>가 아니라 <button>이라 폰트·커서를 맞춰 준다 */
+button.header-btn {
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+button.header-btn:disabled { opacity: 0.6; cursor: default; transform: none; }
+
+.header-btn.spinning svg { animation: header-spin 0.8s linear infinite; }
+
+@keyframes header-spin { to { transform: rotate(360deg); } }
+
+.header-updated {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--stone-300);
+  white-space: nowrap;
+}
+
+/* 사이드바 미답변 문의 배지 */
+.nav-badge {
+  margin-left: auto;
+  background-color: #C62828;
+  color: #FFFFFF;
+  font-size: 11px;
+  font-weight: 800;
+  min-width: 20px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  text-align: center;
+}
+
 /* ━━━ 탭 컨텐츠 ━━━ */
 .tab-content {
   display: none;
@@ -836,20 +869,8 @@ body {
   border-radius: 999px;
 }
 
-/* 🟢 [한글 주석: Drawer 회원 가입 승인 버튼 스타일] */
-.approve-btn {
-  background-color: #2E7D32 !important;
-  color: #FFFFFF !important;
-  border: none !important;
-  width: 100%;
-  justify-content: center;
-  padding: 12px !important;
-  font-weight: 800 !important;
-}
-
-.approve-btn:hover {
-  background-color: #1B5E20 !important;
-}
+/* (삭제됨) 예전 승인 버튼 스타일 — !important로 짙은 초록을 강제해, 아래 드로어 정리에서
+   만든 아웃라인 버튼을 덮어썼다. 지금 스타일은 .approve-btn 정의 한 곳(드로어 섹션)에 있다. */
 
 /* 🎧 [한글 주석: CS 1:1 문의 답변 모달 및 필터 칩 스타일] */
 .cs-filter-pill {
@@ -926,10 +947,42 @@ body {
   font-weight: 800;
 }
 
+/* 회원 관리 상태 필터 — CS 탭의 알약과 같은 모양(.filter-pill)을 쓴다 */
+.user-filter-pill {
+  background: transparent;
+  border: none;
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--stone-300);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.user-filter-pill:hover { color: var(--espresso-brown); }
+
+.user-filter-pill.active {
+  background-color: var(--card-bg);
+  color: var(--espresso-brown);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  font-weight: 800;
+}
+
 .box-actions {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+.box-actions .header-btn {
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 12px;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
 }
 
 .search-input {
