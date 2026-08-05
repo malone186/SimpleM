@@ -178,7 +178,7 @@ export default function MascotEasterEgg({
   // 게임 룸 탭 반응 — 전신 모션 1회 재생 (token이 바뀔 때마다 Brew가 새로 재생한다)
   const [oneShot, setOneShot] = useState<BrewOneShot | null>(null);
   const playRandomMotion = () => {
-    const key = pick<BrewOneShot['key']>(['wave', 'jump', 'dance']);
+    const key = pick<BrewOneShot['key']>(['wave', 'jump', 'dance', 'dab', 'jacks']);
     setOneShot({ key, token: Date.now() });
   };
 

@@ -68,6 +68,10 @@ SHOP_ITEMS: list[dict[str, Any]] = [
      "desc": "리듬 타며 춤춰요 (움직이는 포즈!)"},
     {"id": "pose_hello", "slot": "pose", "mood": "hello", "name": "인사왕 브루", "emoji": "👋", "price": 900,
      "desc": "손을 들어 반갑게 인사해요 (움직이는 포즈!)"},
+    {"id": "pose_dab", "slot": "pose", "mood": "dab", "name": "스웩 브루", "emoji": "😎", "price": 850,
+     "desc": "요즘 유행하는 댑 포즈 (움직이는 포즈!)"},
+    {"id": "pose_workout", "slot": "pose", "mood": "workout", "name": "운동왕 브루", "emoji": "💪", "price": 850,
+     "desc": "팔벌려뛰기로 몸 풀어요 (움직이는 포즈!)"},
     # 배경 효과 — 캐릭터 위가 아니라 뒤에 깔리므로 어떤 포즈와도 겹치지 않는다.
     {"id": "bg_sparkle", "slot": "background", "name": "반짝임", "emoji": "✨", "price": 300,
      "desc": "가만히 있어도 빛나는 중"},
