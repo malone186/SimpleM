@@ -13,7 +13,7 @@ try {
   // 모듈 로드 불가 시 예외를 내지 않고 넘어갑니다.
 }
 
-import Brew, { FLIPBOOK_MOODS, type BrewMood } from '../brew/Brew';
+import Brew, { FLIPBOOK_MOODS, type BrewMood, type BrewOneShot } from '../brew/Brew';
 import { useEquipped } from '../../rewards/EquippedContext';
 import { colors } from '../../theme';
 
@@ -92,6 +92,7 @@ export default function MascotEasterEgg({
   size = 150,
   style,
   motion = false,
+  interactiveMotions = false,
 }: {
   mood?: BrewMood;
   size?: number;
@@ -99,6 +100,9 @@ export default function MascotEasterEgg({
   // 게임 룸처럼 브루가 주인공인 화면에서는 정지 포즈여도 잔동작(숨쉬기 등)을 켠다.
   // 홈에서는 기존대로 플립북 포즈만 움직인다(기본값 false).
   motion?: boolean;
+  // 게임 룸 전용: 탭할 때마다 전신 모션(손인사·점프·댄스) 중 하나를 1회 재생한다.
+  // 어떤 포즈를 입고 있어도 끼어들고, 끝나면 원래 모습으로 돌아온다.
+  interactiveMotions?: boolean;
 }) {
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
@@ -171,8 +175,16 @@ export default function MascotEasterEgg({
   const singleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const DOUBLE_MS = 280;
 
+  // 게임 룸 탭 반응 — 전신 모션 1회 재생 (token이 바뀔 때마다 Brew가 새로 재생한다)
+  const [oneShot, setOneShot] = useState<BrewOneShot | null>(null);
+  const playRandomMotion = () => {
+    const key = pick<BrewOneShot['key']>(['wave', 'jump', 'dance']);
+    setOneShot({ key, token: Date.now() });
+  };
+
   const triggerSingle = () => {
-    wiggle();
+    if (interactiveMotions) playRandomMotion(); // 쓰다듬으면 폴짝 뛰거나 춤추거나 인사한다
+    else wiggle(); // 전신 모션 중엔 통짜 흔들기를 겹치지 않는다 (움직임이 이중으로 보임)
     if (Math.random() < 0.5) {
       buzz(Haptics.ImpactFeedbackStyle.Light);
       showBubble(pick(PAT_LINES), '#C05A24');
@@ -182,7 +194,8 @@ export default function MascotEasterEgg({
     }
   };
   const triggerSecret = () => {
-    wiggle();
+    if (interactiveMotions) setOneShot({ key: 'dance', token: Date.now() }); // 시크릿은 항상 댄스!
+    else wiggle();
     buzzSuccess();
     setHeartKey((k) => k + 1);
     showBubble(secretLine(), '#B8860B', 2000);
@@ -274,7 +287,7 @@ export default function MascotEasterEgg({
         <Animated.View style={{ transform: [{ scale: combinedScale }, { rotate }] }}>
           {/* 상점에서 산 포즈·배경을 홈 마스코트에 그대로 반영한다 */}
           {/* 플립북 포즈(점프·댄스)는 움직임 자체가 상품이라 홈에서도 재생을 허용한다 */}
-          <Brew mood={shownMood} size={size} disableMotion={!motion && !FLIPBOOK_MOODS.has(shownMood)} accessories={accessories} apronColor={apronColor} />
+          <Brew mood={shownMood} size={size} disableMotion={!motion && !FLIPBOOK_MOODS.has(shownMood)} accessories={accessories} apronColor={apronColor} oneShot={oneShot} />
         </Animated.View>
       </Pressable>
 
