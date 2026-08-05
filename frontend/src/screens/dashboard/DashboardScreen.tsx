@@ -811,7 +811,7 @@ export default function DashboardScreen() {
             mood={brewMood}
             onOpenMap={() => navigation.navigate('StoreMap')}
             onOpenPushModal={handleOpenPushModal}
-            onOpenShop={() => navigation.navigate('Shop')}
+            onOpenShop={() => navigation.navigate('BrewRoom')}
             hasUnreadPush={alerts.length > 0 && !pushBadgeSeen}
             refreshTrigger={runId}
           />

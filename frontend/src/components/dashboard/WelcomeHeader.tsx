@@ -311,11 +311,12 @@ export default function WelcomeHeader({
         {/* [한글 주석: 사장님 요청 — 상점 버튼 🛍️ (상단 맨 우측 독립 배치)] */}
         <TouchableOpacity
           style={styles.iconBtn}
-          onPress={onOpenShop || (() => navigation.navigate('Shop'))}
+          onPress={onOpenShop || (() => navigation.navigate('BrewRoom'))}
           hitSlop={10}
           activeOpacity={0.85}
         >
-          <Ionicons name="storefront-outline" size={19} color={colors.creamSand} />
+          {/* 게임 허브(브루의 카페) 진입 — 상점이 아니라 게임 룸이므로 컨트롤러 아이콘 */}
+          <Ionicons name="game-controller-outline" size={19} color={colors.creamSand} />
         </TouchableOpacity>
       </View>
 

@@ -35,7 +35,10 @@ import { s as sc, useBottomInset, useResponsive, useTopInset } from '../../theme
 // 화면에 보여줄 부위 순서 — 위에서부터 눈에 띄는 것 순
 const SLOT_ORDER: ItemSlot[] = ['pose', 'apron', 'background'];
 
-export default function ShopScreen() {
+// 코인 내역 기본 노출 줄 수 — 이보다 많으면 '더보기'로 접는다
+const HISTORY_PREVIEW_COUNT = 5;
+
+export default function ShopScreen({ route }: { route?: { params?: { openVault?: boolean } } }) {
   const { token } = useAuth();
   // [한글 주석] 기기 안전영역 실측 — 탭 직속 화면이라 위·아래를 직접 비워 줘야 한다
   const topInset = useTopInset();
@@ -50,8 +53,13 @@ export default function ShopScreen() {
   const [busyItem, setBusyItem] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [vaultOpen, setVaultOpen] = useState(false); // 보관함(보유 아이템 모음) 시트
+  // 게임 룸의 '보관함' 버튼으로 들어오면 시트를 바로 연다
+  useEffect(() => {
+    if (route?.params?.openVault) setVaultOpen(true);
+  }, [route?.params?.openVault]);
   const [quests, setQuests] = useState<QuestBoard | null>(null);
   const [claiming, setClaiming] = useState<string | null>(null);
+  const [historyExpanded, setHistoryExpanded] = useState(false); // 코인 내역 — 기본 5줄, 더보기로 전체 펼침
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -281,7 +289,7 @@ export default function ShopScreen() {
         </View>
       </Modal>
 
-      {/* ── 적립·사용 내역 ── */}
+      {/* ── 적립·사용 내역 — 기본 5줄만, 나머지는 '더보기'로 펼친다 ── */}
       <FadeInUp delay={300}>
         <SectionTitle>코인 내역</SectionTitle>
         <Card>
@@ -290,9 +298,34 @@ export default function ShopScreen() {
               아직 내역이 없어요. 대시보드에서 할 일을 완료하면 코인이 쌓여요!
             </Text>
           ) : (
-            wallet.history.map((h, i) => (
-              <HistoryRow key={h.id} item={h} last={i === wallet.history.length - 1} />
-            ))
+            (() => {
+              const total = wallet.history.length;
+              const shownCount = historyExpanded ? total : Math.min(HISTORY_PREVIEW_COUNT, total);
+              const shown = wallet.history.slice(0, shownCount);
+              const hiddenCount = total - shownCount;
+              return (
+                <>
+                  {shown.map((h, i) => (
+                    <HistoryRow key={h.id} item={h} last={i === shownCount - 1} />
+                  ))}
+                  {total > HISTORY_PREVIEW_COUNT && (
+                    <PressableScale
+                      style={styles.moreBtn}
+                      onPress={() => setHistoryExpanded((v) => !v)}
+                    >
+                      <Text style={styles.moreBtnText}>
+                        {historyExpanded ? '접기' : `${hiddenCount}개 더보기`}
+                      </Text>
+                      <Ionicons
+                        name={historyExpanded ? 'chevron-up' : 'chevron-down'}
+                        size={14}
+                        color={colors.mochaBrown}
+                      />
+                    </PressableScale>
+                  )}
+                </>
+              );
+            })()
           )}
         </Card>
       </FadeInUp>
@@ -616,6 +649,19 @@ const styles = StyleSheet.create({
   deltaPlus: { color: colors.trendGreenText },
   deltaMinus: { color: colors.mochaBrown },
   historyDate: { ...typography.L5, color: colors.mochaBrown, marginTop: 2 },
+
+  // 코인 내역 '더보기 / 접기' 버튼 — 마지막 줄 아래, 살짝 구분선을 두고 가운데 정렬
+  moreBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 12,
+    marginTop: 2,
+    borderTopWidth: 1,
+    borderTopColor: colors.mutedSand,
+  },
+  moreBtnText: { ...typography.L5, fontWeight: '700', color: colors.mochaBrown },
 
   emptyText: { ...typography.L5, color: colors.mochaBrown, textAlign: 'center', paddingVertical: 18, lineHeight: 17 },
 });
