@@ -6,7 +6,7 @@ import { Animated, Easing, Image, StyleSheet, Text, View, type StyleProp, type V
 import { ACCESSORY_ART } from './accessories';
 import { APRON_VARIANTS, type ApronColor } from './apronVariants';
 import { BLINK_OVERLAY } from './blinkOverlays';
-import { DANCE_FRAMES, JUMP_FRAMES } from './flipbookFrames';
+import { DANCE_FRAMES, JUMP_FRAMES, WAVE_FRAMES } from './flipbookFrames';
 
 // 캐릭터 시트에서 잘라낸 포즈들 (표정 매칭 표)
 const POSES = {
@@ -24,6 +24,7 @@ const POSES = {
   // 전신 애니메이션 포즈 — 정지 시엔 첫 프레임, 모션이 켜지면 플립북으로 재생된다
   jump: require('../../../assets/mascot/anim/jump/f00.png'), // 폴짝 뛰는 브루 (상점 판매)
   dance: require('../../../assets/mascot/anim/dance/f00.png'), // 춤추는 브루 (상점 판매)
+  hello: require('../../../assets/mascot/anim/wave/f00.png'), // 손 흔들며 인사하는 브루 (상점 판매)
 } as const;
 
 export type BrewMood = keyof typeof POSES;
@@ -34,11 +35,12 @@ export type BrewMood = keyof typeof POSES;
 const FLIPBOOK: Partial<Record<BrewMood, any[]>> = {
   jump: JUMP_FRAMES,
   dance: DANCE_FRAMES,
+  hello: WAVE_FRAMES,
 };
 
 // 홈 마스코트(이스터에그 래퍼)처럼 자체 모션을 끄는 곳에서도, 플립북 포즈만은
 // 재생을 허용할지 판단할 수 있게 공개한다 — 이 포즈들은 '움직임 자체가 상품'이라서.
-export const FLIPBOOK_MOODS = new Set<BrewMood>(['jump', 'dance']);
+export const FLIPBOOK_MOODS = new Set<BrewMood>(['jump', 'dance', 'hello']);
 
 // ── 부위 애니메이션 (레이어 분리) ──────────────────────────────────────────
 // 기존 포즈 그림에서 '들고 있는 물건+발'만 레이어로 분리하고, 가려졌던 몸통은
@@ -105,6 +107,7 @@ const MOTION_BY_MOOD: Record<BrewMood, Motion> = {
   coffee: 'bounce',
   jump: 'flip', // 20프레임 플립북 재생
   dance: 'flip',
+  hello: 'flip',
 };
 
 export default function Brew({

@@ -1,5 +1,28 @@
-// [자동 생성] 전신 플립북 프레임 — AnimatedDrawings로 구운 스프라이트 (jump·dance)
-// 재생성: 스크래치패드 brew_std 리깅 + 모션 렌더 파이프라인. 손으로 고치지 말 것.
+// [자동 생성] 전신 플립북 프레임 — AnimatedDrawings로 구운 스프라이트 (wave·jump·dance)
+// 원본: 브루 전신 T포즈 일러스트 + 모션캡처 BVH. 재생성은 스크래치패드 파이프라인. 손대지 말 것.
+
+export const WAVE_FRAMES = [
+  require('../../../assets/mascot/anim/wave/f00.png'),
+  require('../../../assets/mascot/anim/wave/f01.png'),
+  require('../../../assets/mascot/anim/wave/f02.png'),
+  require('../../../assets/mascot/anim/wave/f03.png'),
+  require('../../../assets/mascot/anim/wave/f04.png'),
+  require('../../../assets/mascot/anim/wave/f05.png'),
+  require('../../../assets/mascot/anim/wave/f06.png'),
+  require('../../../assets/mascot/anim/wave/f07.png'),
+  require('../../../assets/mascot/anim/wave/f08.png'),
+  require('../../../assets/mascot/anim/wave/f09.png'),
+  require('../../../assets/mascot/anim/wave/f10.png'),
+  require('../../../assets/mascot/anim/wave/f11.png'),
+  require('../../../assets/mascot/anim/wave/f12.png'),
+  require('../../../assets/mascot/anim/wave/f13.png'),
+  require('../../../assets/mascot/anim/wave/f14.png'),
+  require('../../../assets/mascot/anim/wave/f15.png'),
+  require('../../../assets/mascot/anim/wave/f16.png'),
+  require('../../../assets/mascot/anim/wave/f17.png'),
+  require('../../../assets/mascot/anim/wave/f18.png'),
+  require('../../../assets/mascot/anim/wave/f19.png'),
+];
 
 export const JUMP_FRAMES = [
   require('../../../assets/mascot/anim/jump/f00.png'),
