@@ -1,7 +1,7 @@
 // 상점 — 할 일을 끝내 모은 코인으로 브루를 꾸민다 (게임화 보상)
 // 상단: 브루 미리보기 + 코인 잔액 / 중단: 부위별 아이템 / 하단: 적립·사용 내역
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image as RNImage, Modal, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../../auth/AuthContext';
@@ -27,13 +27,18 @@ import {
   type ShopState,
   type Wallet,
 } from '../../lib/api/rewards';
+import { ROOM_BGS } from '../../components/brew/roomBackgrounds';
 import { useEquipped } from '../../rewards/EquippedContext';
 import { colors, typography } from '../../theme';
 // [한글 주석] load() 안의 지역변수 s(shop 응답)와 겹치지 않게 스케일 함수는 sc 로 별칭 처리
 import { s as sc, useBottomInset, useResponsive, useTopInset } from '../../theme/responsive';
 
 // 화면에 보여줄 부위 순서 — 위에서부터 눈에 띄는 것 순
-const SLOT_ORDER: ItemSlot[] = ['pose', 'apron', 'background'];
+const SLOT_ORDER: ItemSlot[] = ['pose', 'apron', 'background', 'room'];
+
+// 카페 배경(room) 아이템은 프론트에 사진이 등록된 것만 보여준다 — 백엔드 카탈로그에
+// 미리 올라가 있어도 사진이 없으면 사고 나서 아무 변화가 없기 때문. (roomBackgrounds.ts)
+const itemVisible = (item: ShopItem) => item.slot !== 'room' || !!ROOM_BGS[item.id];
 
 // 코인 내역 기본 노출 줄 수 — 이보다 많으면 '더보기'로 접는다
 const HISTORY_PREVIEW_COUNT = 5;
@@ -223,7 +228,7 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
 
       {/* ── 부위별 아이템 ── */}
       {SLOT_ORDER.map((slot, si) => {
-        const items = (shop?.items ?? []).filter((i) => i.slot === slot);
+        const items = (shop?.items ?? []).filter((i) => i.slot === slot && itemVisible(i));
         if (!items.length) return null;
         return (
           <FadeInUp key={slot} delay={60 + si * 50}>
@@ -259,7 +264,7 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
             <ScrollView style={{ maxHeight: '100%' }} showsVerticalScrollIndicator={false}>
               {(shop?.items ?? []).some((i) => i.owned) ? (
                 SLOT_ORDER.map((slot) => {
-                  const owned = (shop?.items ?? []).filter((i) => i.slot === slot && i.owned);
+                  const owned = (shop?.items ?? []).filter((i) => i.slot === slot && i.owned && itemVisible(i));
                   if (!owned.length) return null;
                   return (
                     <View key={slot} style={{ marginBottom: 6 }}>
@@ -473,6 +478,16 @@ function ItemArt({ item, apronColor }: { item: ShopItem; apronColor?: string }) 
   // 앞치마 색: 기본 포즈에 그 색을 입힌 미니 브루로 미리보기 (실제 착용 모습 그대로)
   if (item.slot === 'apron' && item.color) {
     return <Brew mood="top" apronColor={item.color} size={42} disableMotion />;
+  }
+  // 카페 배경: 실제 배경 사진을 작게 보여준다 (등록된 것만 목록에 오므로 항상 존재)
+  if (item.slot === 'room' && ROOM_BGS[item.id]) {
+    return (
+      <RNImage
+        source={ROOM_BGS[item.id]}
+        style={{ width: 42, height: 42, borderRadius: 8 }}
+        resizeMode="cover"
+      />
+    );
   }
   const Art = ACCESSORY_ART[item.id];
   return Art ? <Art size={30} /> : <Text style={{ fontSize: 24 }}>{item.emoji}</Text>;

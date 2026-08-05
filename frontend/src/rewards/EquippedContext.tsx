@@ -17,7 +17,7 @@ import { getEquipped } from '../lib/api/rewards';
 
 const CACHE_KEY = 'equipped_cache_v1';
 
-type Cached = { accessories: BrewAccessory[]; poseMood?: BrewMood; apronColor?: string };
+type Cached = { accessories: BrewAccessory[]; poseMood?: BrewMood; apronColor?: string; roomBgId?: string };
 
 type EquippedValue = {
   /** 배경 효과 등 브루 위/뒤에 겹쳐 그릴 것들 */
@@ -26,6 +26,8 @@ type EquippedValue = {
   poseMood?: BrewMood;
   /** 착용한 앞치마 색(navy·forest 등). 없으면 undefined → 기본 갈색 앞치마 */
   apronColor?: string;
+  /** 착용한 게임 룸 카페 배경 아이템 id. 없으면 undefined → 기본 배경 */
+  roomBgId?: string;
   /** 구매·착용 후 호출 — 브루를 그리는 모든 화면이 함께 갱신된다 */
   refresh: () => Promise<void>;
 };
@@ -34,6 +36,7 @@ const EquippedContext = createContext<EquippedValue>({
   accessories: [],
   poseMood: undefined,
   apronColor: undefined,
+  roomBgId: undefined,
   refresh: async () => {},
 });
 
@@ -42,6 +45,7 @@ export function EquippedProvider({ children }: { children: ReactNode }) {
   const [accessories, setAccessories] = useState<BrewAccessory[]>([]);
   const [poseMood, setPoseMood] = useState<BrewMood | undefined>(undefined);
   const [apronColor, setApronColor] = useState<string | undefined>(undefined);
+  const [roomBgId, setRoomBgId] = useState<string | undefined>(undefined);
   const prevToken = useRef<string | null | undefined>(undefined);
 
   // ① 앱 시작 시 캐시된 모습으로 즉시 그린다 (깜빡임 제거).
@@ -53,6 +57,7 @@ export function EquippedProvider({ children }: { children: ReactNode }) {
         setAccessories(c.accessories ?? []);
         setPoseMood(c.poseMood);
         setApronColor(c.apronColor);
+        setRoomBgId(c.roomBgId);
       })
       .catch(() => {}); // 캐시가 없거나 깨졌으면 기본 모습으로
   }, []);
@@ -63,19 +68,27 @@ export function EquippedProvider({ children }: { children: ReactNode }) {
     if (!token) return;
     try {
       const equipped = await getEquipped(token);
-      // 포즈는 브루 그림 자체를 갈아끼우고, 앞치마는 색만 바꾸고, 나머지는 겹쳐 그린다
+      // 포즈는 브루 그림 자체를 갈아끼우고, 앞치마는 색만, 카페 배경은 게임 룸 배경을,
+      // 나머지(배경 효과)는 캐릭터 뒤에 겹쳐 그린다
       const pose = equipped.find((e) => e.slot === 'pose');
       const apron = equipped.find((e) => e.slot === 'apron');
-      const acc = equipped.filter((e) => e.slot !== 'pose' && e.slot !== 'apron') as BrewAccessory[];
+      const room = equipped.find((e) => e.slot === 'room');
+      const acc = equipped.filter(
+        (e) => e.slot !== 'pose' && e.slot !== 'apron' && e.slot !== 'room',
+      ) as BrewAccessory[];
       const nextPose = pose?.mood as BrewMood | undefined;
       const nextApron = apron?.color;
+      const nextRoom = room?.id;
       setPoseMood(nextPose);
       setApronColor(nextApron);
+      setRoomBgId(nextRoom);
       setAccessories(acc);
       // 다음 실행 때 처음부터 이 모습으로 뜨도록 캐시 갱신
       AsyncStorage.setItem(
         CACHE_KEY,
-        JSON.stringify({ accessories: acc, poseMood: nextPose, apronColor: nextApron } satisfies Cached),
+        JSON.stringify({
+          accessories: acc, poseMood: nextPose, apronColor: nextApron, roomBgId: nextRoom,
+        } satisfies Cached),
       ).catch(() => {});
     } catch {
       // 꾸미기는 부가 기능이다 — 실패해도 캐시/기본 모습으로 그리고 넘어간다.
@@ -94,13 +107,14 @@ export function EquippedProvider({ children }: { children: ReactNode }) {
       setAccessories([]);
       setPoseMood(undefined);
       setApronColor(undefined);
+      setRoomBgId(undefined);
       AsyncStorage.removeItem(CACHE_KEY).catch(() => {});
     }
     prevToken.current = token;
   }, [token]);
 
   return (
-    <EquippedContext.Provider value={{ accessories, poseMood, apronColor, refresh }}>{children}</EquippedContext.Provider>
+    <EquippedContext.Provider value={{ accessories, poseMood, apronColor, roomBgId, refresh }}>{children}</EquippedContext.Provider>
   );
 }
 

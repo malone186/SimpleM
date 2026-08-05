@@ -21,11 +21,11 @@ import {
   type Quest,
   type QuestBoard,
 } from '../../lib/api/rewards';
+import { getRoomBg } from '../../components/brew/roomBackgrounds';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { useEquipped } from '../../rewards/EquippedContext';
 import { colors, typography } from '../../theme';
 import { s, useBottomInset, useTopInset } from '../../theme/responsive';
-
-const ROOM_BG = require('../../../assets/game/room_bg.jpg');
 
 export default function BrewRoomScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -36,6 +36,9 @@ export default function BrewRoomScreen() {
   const [quests, setQuests] = useState<QuestBoard | null>(null);
   const [coins, setCoins] = useState<number | null>(null);
   const [claiming, setClaiming] = useState<string | null>(null);
+  // 상점에서 산 '카페 배경'을 착용했으면 그 사진으로 방이 바뀐다 (미착용 시 기본 카운터)
+  const { roomBgId } = useEquipped();
+  const ROOM_BG = getRoomBg(roomBgId);
 
   const load = useCallback(async () => {
     if (!token) return;

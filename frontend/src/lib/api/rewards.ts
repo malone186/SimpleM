@@ -2,7 +2,7 @@
 import { apiFetch } from './client';
 
 /** 꾸미기 부위 — 같은 부위에는 하나만 착용된다 (부위가 다르면 함께 착용된다) */
-export type ItemSlot = 'pose' | 'background' | 'apron';
+export type ItemSlot = 'pose' | 'background' | 'apron' | 'room';
 
 export type ShopItem = {
   id: string;
