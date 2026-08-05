@@ -91,10 +91,14 @@ export default function MascotEasterEgg({
   mood = 'top',
   size = 150,
   style,
+  motion = false,
 }: {
   mood?: BrewMood;
   size?: number;
   style?: StyleProp<ViewStyle>;
+  // 게임 룸처럼 브루가 주인공인 화면에서는 정지 포즈여도 잔동작(숨쉬기 등)을 켠다.
+  // 홈에서는 기존대로 플립북 포즈만 움직인다(기본값 false).
+  motion?: boolean;
 }) {
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
@@ -270,7 +274,7 @@ export default function MascotEasterEgg({
         <Animated.View style={{ transform: [{ scale: combinedScale }, { rotate }] }}>
           {/* 상점에서 산 포즈·배경을 홈 마스코트에 그대로 반영한다 */}
           {/* 플립북 포즈(점프·댄스)는 움직임 자체가 상품이라 홈에서도 재생을 허용한다 */}
-          <Brew mood={shownMood} size={size} disableMotion={!FLIPBOOK_MOODS.has(shownMood)} accessories={accessories} apronColor={apronColor} />
+          <Brew mood={shownMood} size={size} disableMotion={!motion && !FLIPBOOK_MOODS.has(shownMood)} accessories={accessories} apronColor={apronColor} />
         </Animated.View>
       </Pressable>
 
