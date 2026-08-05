@@ -2,7 +2,7 @@
 // 카페 배경 한가운데에 '내가 꾸민 브루'가 살아 움직이고, 그 아래로 레벨·주간 퀘스트가
 // 붙는다. 상점·보관함은 여기서 갈라져 들어간다 — 꾸미기 경제의 관문 역할.
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ImageBackground, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, ImageBackground, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -78,8 +78,12 @@ export default function BrewRoomScreen() {
     : 0;
 
   return (
-    <ImageBackground source={ROOM_BG} style={{ flex: 1 }} resizeMode="cover">
-      {/* 글자가 얹히는 하단만 살짝 어둡게 — 배경 그림은 최대한 살린다 */}
+    <View style={{ flex: 1, backgroundColor: '#241A14' }}>
+      {/* 배경을 자르지 않고 통째로 보여준다(contain). 화면 비율과 안 맞아 생기는
+          여백은 같은 그림을 크게 흐려 깐 것으로 채워 빈 띠처럼 안 보이게 한다. */}
+      <ImageBackground source={ROOM_BG} style={StyleSheet.absoluteFill} resizeMode="cover" blurRadius={18} />
+      <Image source={ROOM_BG} style={styles.fullBg} resizeMode="contain" />
+      {/* 글자가 얹히는 부분만 살짝 어둡게 — 배경 그림은 최대한 살린다 */}
       <View style={styles.dim} />
 
       {/* 상단 바: 닫기 · 코인 */}
@@ -98,11 +102,11 @@ export default function BrewRoomScreen() {
         contentContainerStyle={{ paddingBottom: bottomInset + s(24), paddingHorizontal: 16 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── 카페 한가운데의 브루 — 내가 꾸민 모습 그대로 (움직이는 포즈면 여기서도 논다) ── */}
+        {/* ── 카페 한가운데의 브루 — 내가 꾸민 모습 그대로, 이 화면의 주인공이라 크게 ── */}
         <View style={styles.stage}>
           <Brew
             mood={(poseMood as BrewMood | undefined) ?? 'top'}
-            size={s(190)}
+            size={s(270)}
             accessories={accessories}
             apronColor={apronColor}
           />
@@ -185,7 +189,7 @@ export default function BrewRoomScreen() {
           </View>
         </FadeInUp>
       </ScrollView>
-    </ImageBackground>
+    </View>
   );
 }
 
@@ -220,11 +224,16 @@ const styles = StyleSheet.create({
   },
   coinEmoji: { fontSize: 13 },
   coinText: { ...typography.L4, fontWeight: '800', color: colors.espressoBrown },
+  fullBg: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+  },
   stage: {
     alignItems: 'center',
     justifyContent: 'flex-end',
-    minHeight: s(230),
-    marginTop: s(6),
+    minHeight: s(300),
+    marginTop: s(4),
     marginBottom: 12,
   },
   card: {
