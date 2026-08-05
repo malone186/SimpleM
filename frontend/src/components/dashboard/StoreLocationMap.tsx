@@ -37,6 +37,26 @@ export function shortEventLabel(name: string, max = 26) {
   return `${(space > max * 0.5 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }
 
+/** 지도 말풍선 속 카페 요약 — 행사 말풍선과 같은 결.
+ *  '리뷰 분석 보기'는 진짜 버튼이다. 예전엔 그냥 글자여서 눌러도 아무 일도 안 났고,
+ *  대신 핀을 누르는 순간 분석 시트가 저절로 함께 떠 있었다. */
+function cafeInfoHtml(cafe: NearbyCafe, index: number, pressable: boolean) {
+  return (
+    '<div style="padding:12px 13px 11px;min-width:164px;max-width:220px;' +
+    'font-family:-apple-system,BlinkMacSystemFont,sans-serif;">' +
+    '<div style="font-size:12.5px;font-weight:800;color:#3B2314;line-height:1.35;' +
+    'word-break:keep-all">☕ ' + esc(cafe.name) + '</div>' +
+    '<div style="font-size:10.5px;color:#8C7968;margin-top:5px;line-height:1.45">' +
+    esc(cafe.category || '카페') + '<br/>내 매장에서 ' + (cafe.distance_m || 0) + 'm</div>' +
+    (pressable
+      ? '<div onclick="window.__brewMapCafe&&window.__brewMapCafe(' + index + ')" ' +
+        'style="margin-top:10px;text-align:center;background:#7A6250;color:#FFF;font-size:10.5px;' +
+        'font-weight:800;padding:8px;border-radius:10px;cursor:pointer;">리뷰 분석 보기 ›</div>'
+      : '') +
+    '</div>'
+  );
+}
+
 /** 지도 말풍선 속 행사 요약 — 핀을 누르면 이만큼만 먼저 보여 준다.
  *  전체 시트를 바로 띄우면 "저게 뭐지?" 하고 한 번 눌러 본 것치고 너무 무겁다.
  *  여기서 언제·어디서·얼마나 가까운지까지 훑고, 더 볼 사람만 '자세히 보기'로 넘어간다. */
@@ -331,8 +351,14 @@ export default function StoreLocationMap({
         cafeMarkersRef.current = [];
         openWindowsRef.current = [];
 
+        // 말풍선 속 '리뷰 분석 보기'가 앱 시트를 부르는 통로 (행사 핀과 같은 방식)
+        (window as any).__brewMapCafe = (i: number) => {
+          const target = nearbyCafes[i];
+          if (target) onCafePress?.(target);
+        };
+
         // [한글 주석: 주변 카페 마커 — 점 크기 9px + 명확한 시인성의 선명한 웜 브라운 #7A6250]
-        nearbyCafes.forEach((cafe) => {
+        nearbyCafes.forEach((cafe, idx) => {
           if (!cafe.lat || !cafe.lon) return;
           const cafeMarkerContent = `
             <div title="${esc(cafe.name)}" style="width:9px;height:9px;background:#7A6250;border-radius:50%;border:1.5px solid #FFFFFF;cursor:pointer;box-shadow:0 1.5px 3.5px rgba(0,0,0,0.3);transition:transform 0.15s ease;"></div>
@@ -349,25 +375,22 @@ export default function StoreLocationMap({
           cafeMarkersRef.current.push(cafeMarker);
 
           const cWindow = new naverObj.maps.InfoWindow({
-            content:
-              '<div style="padding:9px 11px;min-width:150px;line-height:150%;font-size:11px;font-family:-apple-system,sans-serif">' +
-              '<b>☕ ' + esc(cafe.name) + '</b><br/>' + esc(cafe.category) + '<br/>내 매장에서 ' + cafe.distance_m + 'm' +
-              (onCafePress ? '<br/><span style="color:#10B981;font-weight:700">눌러서 리뷰 분석 보기</span>' : '') +
-              '</div>',
+            content: cafeInfoHtml(cafe, idx, !!onCafePress),
             borderWidth: 1,
-            borderColor: '#10B981',
-            borderRadius: 8,
+            borderColor: 'rgba(140, 121, 104, 0.40)',
+            borderRadius: 14,
             backgroundColor: '#FFFFFF',
+            anchorColor: '#FFFFFF',
+            anchorSize: new naverObj.maps.Size(12, 8),
           });
           openWindowsRef.current.push(cWindow);
 
+          // 말풍선만 연다 — 분석 시트는 말풍선의 버튼으로만. 예전엔 둘이 동시에 떠서
+          // 지도를 한 번 눌렀을 뿐인데 창이 두 개 겹쳤다.
           naverObj.maps.Event.addListener(cafeMarker, 'click', () => {
-            if (cWindow.getMap()) {
-              cWindow.close();
-            } else {
-              cWindow.open(map, cafeMarker);
-            }
-            onCafePress?.(cafe);
+            const wasOpen = !!cWindow.getMap();
+            openWindowsRef.current.forEach((w) => { if (w.getMap()) w.close(); });
+            if (!wasOpen) cWindow.open(map, cafeMarker);
           });
         });
 
