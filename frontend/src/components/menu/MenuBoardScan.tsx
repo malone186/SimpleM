@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../auth/AuthContext';
 import { analyzeMenuBoard, confirmMenuBoard, type MenuBoardCandidate, type MenuBoardDraft, type MenuBoardMenu, type MenuBoardRecipe } from '../../lib/api/ocr';
 import { showAlert } from '../../lib/ui/alert';
-import { applyCandidate, buildPayload, countNeedQty, countPending, parseQty } from './menuBoardDraft';
+import { applyCandidate, applyPresetQuantity, buildPayload, countNeedQty, countPending, parseQty } from './menuBoardDraft';
 import { colors, spacing, typography } from '../../theme';
 import { Button, Card } from '../ui';
 import { PressableScale } from '../motion';
@@ -87,6 +87,25 @@ export default function MenuBoardScan({ onDone }: { onDone: () => void }) {
               m.name !== menuName
                 ? m
                 : { ...m, recipes: m.recipes.map((r, i) => (i === idx ? applyCandidate(r, c) : r)) },
+            ),
+          }
+        : prev,
+    );
+
+  /** 사장님이 표준값을 고쳤다 (원두 18g → 20g).
+   *  화면은 g·ml로 받고, 저장할 양은 매장 단위로 다시 환산한다. */
+  const changePresetQty = (menuName: string, idx: number, q: number | null) =>
+    setDraft((prev) =>
+      prev
+        ? {
+            ...prev,
+            menus: prev.menus.map((m) =>
+              m.name !== menuName
+                ? m
+                : {
+                    ...m,
+                    recipes: m.recipes.map((r, i) => (i === idx ? applyPresetQuantity(r, q) : r)),
+                  },
             ),
           }
         : prev,
@@ -176,6 +195,7 @@ export default function MenuBoardScan({ onDone }: { onDone: () => void }) {
                   onToggle={() => toggleSkip(m.name)}
                   onChoose={(idx, c) => chooseIngredient(m.name, idx, c)}
                   onQuantity={(idx, q) => patchRecipe(m.name, idx, { quantity: q })}
+                  onPresetQty={(idx, q) => changePresetQty(m.name, idx, q)}
                 />
               ))}
               {!!draft?.unknown_ingredients.length && (
@@ -236,12 +256,14 @@ function MenuRow({
   onToggle,
   onChoose,
   onQuantity,
+  onPresetQty,
 }: {
   menu: MenuBoardMenu;
   skipped: boolean;
   onToggle: () => void;
   onChoose: (idx: number, c: MenuBoardCandidate) => void;
   onQuantity: (idx: number, q: number | null) => void;
+  onPresetQty: (idx: number, q: number | null) => void;
 }) {
   // 고를 게 남았는지 / 양을 넣어야 하는지 — 둘 다 원가에 안 들어가는 줄이다
   const pending = countPending(menu);
@@ -264,14 +286,16 @@ function MenuRow({
       {!skipped &&
         menu.recipes.map((r, idx) => (
           <View key={`${r.ingredient}-${idx}`} style={styles.recipe}>
-            {/* 표준 레시피가 말하는 원래 양 — 고친 값과 비교할 근거로 남겨 둔다 */}
-            <Text style={styles.recipeName}>
-              {r.ingredient}
-              <Text style={styles.presetHint}>
-                {'  '}표준 {r.preset_quantity}
-                {r.preset_unit}
-              </Text>
-            </Text>
+            {/* 양은 사장님이 아는 단위(g·ml)로 바로 고친다.
+                재료를 고르기 전에도 고칠 수 있어야 한다 — '우리는 20g 써요'가 먼저 떠오른다. */}
+            <View style={styles.recipeHead}>
+              <Text style={styles.recipeName}>{r.ingredient}</Text>
+              <QtyInput
+                value={r.preset_quantity}
+                unit={r.preset_unit}
+                onChange={(q) => onPresetQty(idx, q)}
+              />
+            </View>
 
             {r.candidates.length ? (
               <>
@@ -293,10 +317,19 @@ function MenuRow({
                     );
                   })}
                 </View>
+                {/* 매장 단위로 얼마가 되는지 — 확인용으로만 보여준다.
+                    '0.018kg'을 직접 치게 하면 자릿수를 틀리기 쉽다 */}
                 {r.ingredient_id != null && (
+                  <Text style={styles.converted}>
+                    {r.quantity != null
+                      ? `저장될 양 ${Number(r.quantity.toFixed(4))}${r.unit}`
+                      : `이 재료는 1${r.unit}이 몇 ${r.preset_unit}인지 알 수 없어요 · 아래에 직접 넣어 주세요`}
+                  </Text>
+                )}
+                {/* 환산이 안 되는 재료(팩·개인데 이름에 용량이 없음)만 매장 단위로 직접 입력 */}
+                {r.ingredient_id != null && r.quantity == null && (
                   <View style={styles.qtyRow}>
                     <QtyInput
-                      // 재료를 바꾸면 단위·환산값이 달라진다 — 입력칸을 새로 띄워 새 값을 싣는다
                       key={r.ingredient_id}
                       value={r.quantity}
                       unit={r.unit}
@@ -353,9 +386,12 @@ const styles = StyleSheet.create({
   tagExists: { ...typography.L5, color: colors.mochaBrown, backgroundColor: '#EFE9E1', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   tagAi: { ...typography.L5, color: ACCENT, backgroundColor: '#F7E9DC', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
 
-  recipe: { marginTop: 8, paddingLeft: 26 },
-  recipeName: { ...typography.L5, color: colors.espressoBrown },
+  recipe: { marginTop: 10, paddingLeft: 26 },
+  recipeHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  recipeName: { ...typography.L5, color: colors.espressoBrown, fontWeight: '700' },
   presetHint: { color: '#A2917F' },
+  // 매장 단위로 얼마가 되는지 — 확인용 (직접 치는 칸이 아니다)
+  converted: { ...typography.L5, color: '#4E7D3A', marginTop: 3 },
   qtyRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
   qtyBox: {
     flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 'auto',

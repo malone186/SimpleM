@@ -103,7 +103,8 @@ export default function BrewRoomScreen() {
             홈과 같은 이스터에그(탭=쓰다듬기/간식, 더블탭=시크릿, 롱프레스=풍선 펑)를
             그대로 쓰되, 여기서는 정지 포즈여도 잔동작을 켜서 살아 있게 한다. ── */}
         <View style={styles.stage}>
-          <MascotEasterEgg size={s(270)} motion />
+          {/* 탭하면 랜덤 전신 모션(손인사·점프·댄스) 1회 재생 — 게임 룸 전용 반응 */}
+          <MascotEasterEgg size={s(270)} motion interactiveMotions />
         </View>
 
         {/* ── 레벨 카드 ── */}

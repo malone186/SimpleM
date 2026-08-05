@@ -330,16 +330,21 @@ async def analyze_menu_board(db, store_id: str, image_bytes: bytes,
             # 화면에서 사장님이 직접 넣는다. 지어낸 숫자를 채우지 않는다.
             # 이름이 같은 재료가 둘 이상일 수 있으므로 이름 집합으로 걸러 전부 후보에 담는다
             matched = set(cands)
-            cand_list = [
-                {
+            cand_list = []
+            for s in store_ings:
+                if s["name"] not in matched:
+                    continue
+                conv = recipe_presets.convert_quantity(qty, unit, s["unit"], s["name"])
+                cand_list.append({
                     "id": s["id"],
                     "name": s["name"],
                     "unit": s["unit"],
-                    "quantity": recipe_presets.convert_quantity(qty, unit, s["unit"], s["name"]),
-                }
-                for s in store_ings
-                if s["name"] in matched
-            ]
+                    "quantity": conv,
+                    # 표준 1단위(1g·1ml)당 매장 단위 값.
+                    # 사장님이 화면에서 '18g'을 '20g'으로 고치면 화면이 이 값을 곱해
+                    # 저장할 양을 다시 계산한다 — 환산 규칙을 프론트에 복사하지 않기 위해서다.
+                    "ratio": (conv / qty) if (conv is not None and qty) else None,
+                })
 
             auto = cand_list[0] if len(cand_list) == 1 else None
             rs.append({

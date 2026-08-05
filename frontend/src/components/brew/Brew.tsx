@@ -106,6 +106,9 @@ const MOTION_BY_MOOD: Record<BrewMood, Motion> = {
   hello: 'flip',
 };
 
+/** 한 번 재생 요청 — token이 바뀔 때마다 해당 모션을 처음부터 1회 재생한다 (게임 허브 탭 반응) */
+export type BrewOneShot = { key: 'wave' | 'jump' | 'dance'; token: number };
+
 export default function Brew({
   mood = 'welcome',
   size = 84,
@@ -115,6 +118,7 @@ export default function Brew({
   disableMotion = false, // [한글 주석: 말풍선 등과 애니메이션을 통합하기 위해 자체 모션을 끌 수 있는 제어 장치 추가]
   accessories = [],
   apronColor,
+  oneShot = null,
 }: {
   mood?: BrewMood;
   size?: number;
@@ -124,6 +128,7 @@ export default function Brew({
   disableMotion?: boolean;
   accessories?: BrewAccessory[]; // 상점에서 산 꾸미기 아이템 (착용 중인 것만)
   apronColor?: string; // 상점에서 산 앞치마 색 (navy·forest 등). 없으면 기본 갈색.
+  oneShot?: BrewOneShot | null; // 탭 반응 등으로 전신 모션을 1회만 재생 (끝나면 원래 모습 복귀)
 }) {
   const a = useRef(new Animated.Value(0)).current;
   const blink = useRef(new Animated.Value(0)).current;
@@ -154,6 +159,30 @@ export default function Brew({
   const flipFrames = flipKey
     ? (apronColor && FLIP_FRAMES[`${flipKey}__${apronColor}`]) || FLIP_FRAMES[flipKey]
     : undefined;
+
+  // 한 번 재생 — oneShot.token이 바뀌면 그 모션을 0→끝 프레임까지 1회 돌리고 원래 모습으로.
+  // 루프 플립북과 별개 상태라, 어떤 포즈(정지 포즈 포함)를 입고 있어도 끼어들 수 있다.
+  const shotFrames = oneShot
+    ? (apronColor && FLIP_FRAMES[`${oneShot.key}__${apronColor}`]) || FLIP_FRAMES[oneShot.key]
+    : undefined;
+  const [shotFrame, setShotFrame] = useState(-1);
+  useEffect(() => {
+    if (!oneShot || !shotFrames) return;
+    setShotFrame(0);
+    let i = 0;
+    const t = setInterval(() => {
+      i += 1;
+      if (i >= shotFrames.length) {
+        clearInterval(t);
+        setShotFrame(-1); // 끝 — 원래 모습으로 복귀
+      } else {
+        setShotFrame(i);
+      }
+    }, 90);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [oneShot?.token]);
+  const shotActive = shotFrame >= 0 && !!shotFrames;
   const [flipIdx, setFlipIdx] = useState(0);
   useEffect(() => {
     if (motion !== 'flip' || !flipFrames) return;
@@ -282,7 +311,7 @@ export default function Brew({
   // 플립북 — 프레임 20장을 모두 겹쳐 두고 현재 프레임만 opacity 1로 보여준다.
   // (source를 90ms마다 갈아끼우면 웹에서 첫 사이클에 로딩 깜빡임이 생긴다)
   const flipLayer = (dim: number) =>
-    motion === 'flip' && flipFrames
+    motion === 'flip' && flipFrames && !shotActive
       ? flipFrames.map((src, i) => (
           <Image
             key={i}
@@ -291,6 +320,22 @@ export default function Brew({
             style={{
               position: 'absolute', top: 0, left: 0, width: dim, height: dim,
               opacity: flipIdx === i ? 1 : 0,
+            }}
+          />
+        ))
+      : null;
+
+  // 한 번 재생 레이어 — 재생 중엔 몸통·루프 플립북 대신 이 프레임들이 보인다
+  const shotLayer = (dim: number) =>
+    shotActive && shotFrames
+      ? shotFrames.map((src, i) => (
+          <Image
+            key={i}
+            source={src}
+            resizeMode="contain"
+            style={{
+              position: 'absolute', top: 0, left: 0, width: dim, height: dim,
+              opacity: shotFrame === i ? 1 : 0,
             }}
           />
         ))
@@ -305,11 +350,13 @@ export default function Brew({
       <Image
         source={bodySource}
         resizeMode="contain"
-        style={{ width: charSize, height: charSize, opacity: motion === 'flip' ? 0 : 1 }}
+        style={{ width: charSize, height: charSize, opacity: motion === 'flip' || shotActive ? 0 : 1 }}
       />
       {flipLayer(charSize)}
-      {partLayer(charSize)}
-      {blinkLayer(charSize)}
+      {shotLayer(charSize)}
+      {/* 부위·눈 깜빡임 오버레이는 정지 포즈 좌표 기준이라 전신 모션 재생 중엔 숨긴다 */}
+      {!shotActive && partLayer(charSize)}
+      {!shotActive && blinkLayer(charSize)}
     </Animated.View>
   );
 

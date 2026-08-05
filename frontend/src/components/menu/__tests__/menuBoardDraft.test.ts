@@ -7,6 +7,7 @@
  */
 import {
   applyCandidate,
+  applyPresetQuantity,
   buildPayload,
   countNeedQty,
   countPending,
@@ -21,7 +22,7 @@ const recipe = (over: Partial<MenuBoardRecipe> = {}): MenuBoardRecipe => ({
   quantity: 0.018,
   unit: 'kg',
   ingredient_id: 1,
-  candidates: [{ id: 1, name: '에티오피아 원두', unit: 'kg', quantity: 0.018 }],
+  candidates: [{ id: 1, name: '에티오피아 원두', unit: 'kg', quantity: 0.018, ratio: 0.001 }],
   ...over,
 });
 
@@ -67,8 +68,8 @@ describe('parseQty', () => {
 // ─── 재료 선택 ────────────────────────────────────────────────────────────
 
 describe('applyCandidate', () => {
-  const kg: MenuBoardCandidate = { id: 7, name: '콜롬비아 원두', unit: 'kg', quantity: 0.018 };
-  const g: MenuBoardCandidate = { id: 8, name: '원두(소분)', unit: 'g', quantity: 18 };
+  const kg: MenuBoardCandidate = { id: 7, name: '콜롬비아 원두', unit: 'kg', quantity: 0.018, ratio: 0.001 };
+  const g: MenuBoardCandidate = { id: 8, name: '원두(소분)', unit: 'g', quantity: 18, ratio: 1 };
 
   it('고른 재료의 단위와 양으로 함께 바뀐다', () => {
     const r = applyCandidate(recipe({ ingredient_id: null, quantity: null, unit: 'g' }), kg);
@@ -87,14 +88,50 @@ describe('applyCandidate', () => {
   });
 
   it('환산이 안 되는 재료를 고르면 양은 비워 둔다', () => {
-    const noConv: MenuBoardCandidate = { id: 9, name: '우유', unit: '개', quantity: null };
+    const noConv: MenuBoardCandidate = { id: 9, name: '우유', unit: '개', quantity: null, ratio: null };
     expect(applyCandidate(recipe(), noConv).quantity).toBeNull();
   });
 
-  it('표준값은 건드리지 않는다 (근거로 계속 보여줘야 한다)', () => {
+  it('표준값은 건드리지 않는다 (사장님이 고친 값을 덮어쓰면 안 된다)', () => {
     const r = applyCandidate(recipe(), kg);
     expect(r.preset_quantity).toBe(18);
     expect(r.preset_unit).toBe('g');
+  });
+
+  it('사장님이 이미 고쳐 둔 값으로 환산한다', () => {
+    // 20g으로 고쳐 둔 뒤 kg 단위 원두를 고르면 0.020kg이어야 한다 (0.018이 아니라)
+    const edited = recipe({ preset_quantity: 20, ingredient_id: null, quantity: null });
+    expect(applyCandidate(edited, kg).quantity).toBeCloseTo(0.02);
+  });
+});
+
+// ─── 표준값 직접 수정 ─────────────────────────────────────────────────────
+
+describe('applyPresetQuantity', () => {
+  it('g으로 고치면 매장 단위(kg)로 환산된다', () => {
+    // 사장님은 그램으로 생각한다. '0.020kg'을 직접 치게 하면 자릿수를 틀린다.
+    const r = applyPresetQuantity(recipe(), 20);
+    expect(r.preset_quantity).toBe(20);
+    expect(r.quantity).toBeCloseTo(0.02);
+  });
+
+  it('비우면 저장할 양도 비운다 (0으로 저장하면 원가가 0원이 된다)', () => {
+    expect(applyPresetQuantity(recipe(), null).quantity).toBeNull();
+  });
+
+  it('재료를 아직 안 골랐어도 표준값은 고칠 수 있다', () => {
+    // 화면에서 재료를 고르기 전에도 '우리는 20g 써요'가 먼저 떠오른다
+    const r = applyPresetQuantity(recipe({ ingredient_id: null, quantity: null }), 20);
+    expect(r.preset_quantity).toBe(20);
+  });
+
+  it('환산 근거가 없는 재료면 사장님이 넣은 값을 건드리지 않는다', () => {
+    const noConv = recipe({
+      ingredient_id: 9,
+      quantity: 0.25,
+      candidates: [{ id: 9, name: '우유', unit: '개', quantity: null, ratio: null }],
+    });
+    expect(applyPresetQuantity(noConv, 300).quantity).toBe(0.25);
   });
 });
 
@@ -107,8 +144,8 @@ describe('countPending / countNeedQty', () => {
         recipe({
           ingredient_id: null,
           candidates: [
-            { id: 1, name: '에티오피아 원두', unit: 'kg', quantity: 0.018 },
-            { id: 2, name: '콜롬비아 원두', unit: 'kg', quantity: 0.018 },
+            { id: 1, name: '에티오피아 원두', unit: 'kg', quantity: 0.018, ratio: 0.001 },
+            { id: 2, name: '콜롬비아 원두', unit: 'kg', quantity: 0.018, ratio: 0.001 },
           ],
         }),
       ],
