@@ -16,6 +16,7 @@ import {
   type ReportPeriodType,
 } from '../../lib/api/documents';
 import { describeApiFailure, type ApiFailure } from '../../lib/api/errors';
+import { useCachedResource } from '../../lib/cache';
 import { colors, spacing, typography } from '../../theme';
 import { PressableScale } from '../motion';
 import { Segmented } from '../ui/Segmented';
@@ -106,39 +107,27 @@ export default function ManagementReportCard() {
       ]).start();
     }
   }, [period]);
-  // 기간별 응답 캐시 — 탭을 오가도 다시 로딩하지 않는다 (카드 리마운트 시 초기화 = 당겨서 새로고침)
-  const [reports, setReports] = useState<Partial<Record<ReportPeriodType, GeneratedDocument>>>({});
-  const [loading, setLoading] = useState(false);
-  // 실패 사유를 분류해 들고 있는다 — 신규 계정에서 "로그인과 서버를 확인해 주세요"만 띄우면
-  // 확인할 게 없는 걸 붙잡게 된다 (실제 원인은 '아직 쌓인 데이터가 없음').
-  const [failure, setFailure] = useState<ApiFailure | null>(null);
-  const [retryKey, setRetryKey] = useState(0);
-
   // [한글 주석: 스탯 타일 클릭 시 추가 부가정보를 토글 표시하기 위한 선택 상태 관리]
   const [selectedTile, setSelectedTile] = useState<'profit' | 'cost' | 'sales' | null>(null);
 
-  const report = reports[period];
+  // 기간별 응답을 기기에 남긴다 — 앱을 다시 켜도 지난번 리포트가 바로 떠 있고,
+  // 새 리포트는 뒤에서 받아 조용히 갈아 끼운다. (탭을 오갈 때도 다시 로딩하지 않는다)
+  const {
+    data: report,
+    loading,
+    error,
+    refresh,
+  } = useCachedResource<GeneratedDocument>(
+    token ? `dash:report:${period}` : null,
+    () => getManagementReport(token!, period),
+    { maxAgeMs: 10 * 60_000 },
+  );
 
-  useEffect(() => {
-    if (!token || reports[period]) return;
-    let cancelled = false;
-    setLoading(true);
-    setFailure(null);
-    getManagementReport(token, period)
-      .then((doc) => {
-        if (!cancelled) setReports((prev) => ({ ...prev, [period]: doc }));
-      })
-      .catch((e) => {
-        console.error('경영 리포트 조회 실패:', e);
-        if (!cancelled) setFailure(describeApiFailure(e, language === 'en' ? 'report' : '리포트', language));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [token, period, reports, retryKey, language]);
+  // 실패 사유를 분류해 들고 있는다 — 신규 계정에서 "로그인과 서버를 확인해 주세요"만 띄우면
+  // 확인할 게 없는 걸 붙잡게 된다 (실제 원인은 '아직 쌓인 데이터가 없음').
+  const failure: ApiFailure | null = error
+    ? describeApiFailure(error, language === 'en' ? 'report' : '리포트', language)
+    : null;
 
   // content 스키마: backend report_service.py의 management_report 구조
   const c = (report?.content ?? {}) as any;
@@ -188,7 +177,7 @@ export default function ManagementReportCard() {
             )}
             <Text style={styles.stateText}>{failure.message}</Text>
             {failure.retryable && (
-              <PressableScale style={styles.retryBtn} onPress={() => setRetryKey((k) => k + 1)}>
+              <PressableScale style={styles.retryBtn} onPress={refresh}>
                 <Text style={styles.retryText}>{language === 'en' ? 'Retry' : '다시 시도'}</Text>
               </PressableScale>
             )}

@@ -20,6 +20,7 @@ import {
   type SalesForecast,
 } from '../../lib/api/forecast';
 import { describeApiFailure, type ApiFailure } from '../../lib/api/errors';
+import { useCachedResource } from '../../lib/cache';
 import Brew from '../brew/Brew';
 import TodoList, { type Todo } from './TodoList';
 import AlertCenterCard, { type AlertItem } from './AlertCenterCard';
@@ -279,16 +280,35 @@ export default function SalesCard({
   // [한글 주석] 뷰포트 비례 계산 — 분석 모달이 작은 화면에서 넘치지 않게
   const { vh } = useResponsive();
   const { token } = useAuth();
-  const [forecast, setForecast] = useState<SalesForecast | null>(null);
-  const [calendar, setCalendar] = useState<SalesCalendar | null>(null); // 이번 달 일별 실판매 집계
-  const [loadingForecast, setLoadingForecast] = useState(false);
   // [한글 주석: 월간 달력 넘김을 위한 선택 연도/월 상태 관리]
   const [selectedYear, setSelectedYear] = useState<number>(() => new Date().getFullYear());
   const [selectedMonth0, setSelectedMonth0] = useState<number>(() => new Date().getMonth());
 
-  // 예측을 못 받은 이유 — 신규 계정은 판매 기록이 14일 미만이라 백엔드가 409로 조건을 알려준다.
-  // 예전엔 콘솔에만 남겨서 화면에는 예측이 조용히 사라졌고, 미래 날짜를 누르면 '불러오는 중'만 돌았다.
-  const [forecastFailure, setForecastFailure] = useState<ApiFailure | null>(null);
+  // 판매 예측 — 매장 데이터를 통째로 훑어 만드는 계산이라 서버 캐시가 식어 있으면 한 번에 7초가 걸린다.
+  // 그래서 지난번 예측을 기기에 남겨 두고 먼저 그린 뒤, 새 예측이 오면 조용히 갈아 끼운다.
+  //
+  // 예측 기준 좌표는 '등록된 매장 위치'다 — 기기 GPS를 기다리지 않는다.
+  // (사장님이 집에서 앱을 켜도 매장 날씨로 예측해야 하고, 측위 대기도 사라진다.
+  //  기기 캐시가 없으면 좌표 없이 부르고 백엔드가 계정의 매장 좌표를 쓴다.)
+  const {
+    data: forecast,
+    loading: loadingForecast,
+    error: forecastError,
+  } = useCachedResource<SalesForecast>(
+    token ? 'sales:forecast' : null,
+    async () => {
+      const pos = await getStoredStoreLocation();
+      return getSalesForecast(token!, pos?.lat, pos?.lon);
+    },
+    { maxAgeMs: 5 * 60_000 },
+  );
+
+  // 이번 달 일별 실판매 집계 — 달을 넘기면 그 달 값을 따로 캐시한다
+  const { data: calendar } = useCachedResource<SalesCalendar>(
+    token ? `sales:calendar:${selectedYear}-${String(selectedMonth0 + 1).padStart(2, '0')}` : null,
+    () => getSalesCalendar(token!, selectedYear, selectedMonth0 + 1),
+    { maxAgeMs: 5 * 60_000 },
+  );
 
   const weekDays = useMemo(() => getWeekDays(), []);
   const todayKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
@@ -353,53 +373,14 @@ export default function SalesCard({
     outputRange: [5, 0],
   });
 
-  useEffect(() => {
-    if (!token) return;
-    let cancelled = false;
-    (async () => {
-      setLoadingForecast(true);
-      try {
-        // 예측 기준 좌표는 '등록된 매장 위치'다 — 기기 GPS를 기다리지 않는다.
-        // (사장님이 집에서 앱을 켜도 매장 날씨로 예측해야 하고, 측위 대기도 사라진다.
-        //  기기 캐시가 없으면 좌표 없이 부르고 백엔드가 계정의 매장 좌표를 쓴다.)
-        const pos = await getStoredStoreLocation();
-        const data = await getSalesForecast(token, pos?.lat, pos?.lon);
-        if (!cancelled) {
-          setForecast(data);
-          setForecastFailure(null);
-        }
-      } catch (e) {
-        console.error('대시보드 판매 예측 조회 실패:', e);
-        if (!cancelled) {
-          setForecastFailure(describeApiFailure(e, language === 'en' ? 'forecast' : '예측', language));
-        }
-      } finally {
-        if (!cancelled) setLoadingForecast(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
-
-  // [한글 주석: 선택한 연도/월이 변경될 때마다 월간 캘린더 데이터를 백엔드에서 다시 가져온다]
-  useEffect(() => {
-    if (!token) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const cal = await getSalesCalendar(token, selectedYear, selectedMonth0 + 1);
-        if (!cancelled) setCalendar(cal);
-      } catch (e) {
-        console.error('월간 판매 캘린더 조회 실패:', e);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [token, selectedYear, selectedMonth0]);
   // [한글 주석: 전역 다국어 번역 훅 연동]
   const { t, language } = useTranslation();
+
+  // 예측을 못 받은 이유 — 신규 계정은 판매 기록이 14일 미만이라 백엔드가 409로 조건을 알려준다.
+  // 예전엔 콘솔에만 남겨서 화면에는 예측이 조용히 사라졌고, 미래 날짜를 누르면 '불러오는 중'만 돌았다.
+  const forecastFailure: ApiFailure | null = forecastError
+    ? describeApiFailure(forecastError, language === 'en' ? 'forecast' : '예측', language)
+    : null;
 
   // [실시간 시계] 매분 확인 — 정시가 바뀌면 X축 시간대와 '내일 같은 시각' 예측 기준이 따라 움직인다
   const [now, setNow] = useState(() => new Date());

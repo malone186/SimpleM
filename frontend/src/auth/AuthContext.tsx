@@ -28,6 +28,7 @@ import * as AuthSession from 'expo-auth-session';
 import { auth } from '../lib/firebase';
 import { shouldRetryWithBackendLogin } from './loginFallback';
 import { API_BASE_URL } from '../lib/api/client';
+import { clearMemoryCache } from '../lib/cache';
 import { unregisterFromPush } from '../notifications/pushRegistration';
 
 // [한글 주석] 모바일 환경에서 로그인 후 브라우저 창을 닫기 위해 초기화합니다.
@@ -615,6 +616,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setToken(null);
     // [한글 주석: 다른 계정으로 로그인할 때 영수증, 임시 노트, 캐시 등 이전 사용자의 로컬 데이터가 남아있지 않도록 전체 삭제]
+    // 화면 데이터 캐시는 디스크(AsyncStorage.clear)와 메모리 사본을 함께 비워야
+    // 다른 사장님 계정으로 바꿔 로그인했을 때 이전 매장 숫자가 잠깐 스치지 않는다.
+    clearMemoryCache();
     await AsyncStorage.clear();
   }, [token]);
 
