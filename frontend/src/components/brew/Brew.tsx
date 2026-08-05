@@ -6,7 +6,7 @@ import { Animated, Easing, Image, StyleSheet, Text, View, type StyleProp, type V
 import { ACCESSORY_ART } from './accessories';
 import { APRON_VARIANTS, type ApronColor } from './apronVariants';
 import { BLINK_OVERLAY } from './blinkOverlays';
-import { DANCE_FRAMES, JUMP_FRAMES, WAVE_FRAMES } from './flipbookFrames';
+import { FLIP_FRAMES } from './flipbookFrames';
 
 // 캐릭터 시트에서 잘라낸 포즈들 (표정 매칭 표)
 const POSES = {
@@ -22,9 +22,9 @@ const POSES = {
   greet: require('../../../assets/mascot/brew_greet.png'), // 발 흔들며 인사하는 브루 — 인사·안내 (현재 미사용)
   coffee: require('../../../assets/mascot/brew_coffee.png'), // 커피잔 든 브루 (현재 미사용)
   // 전신 애니메이션 포즈 — 정지 시엔 첫 프레임, 모션이 켜지면 플립북으로 재생된다
-  jump: require('../../../assets/mascot/anim/jump/f00.png'), // 폴짝 뛰는 브루 (상점 판매)
-  dance: require('../../../assets/mascot/anim/dance/f00.png'), // 춤추는 브루 (상점 판매)
-  hello: require('../../../assets/mascot/anim/wave/f00.png'), // 손 흔들며 인사하는 브루 (상점 판매)
+  jump: require('../../../assets/mascot/anim/jump/f00.webp'), // 폴짝 뛰는 브루 (상점 판매)
+  dance: require('../../../assets/mascot/anim/dance/f00.webp'), // 춤추는 브루 (상점 판매)
+  hello: require('../../../assets/mascot/anim/wave/f00.webp'), // 손 흔들며 인사하는 브루 (상점 판매)
 } as const;
 
 export type BrewMood = keyof typeof POSES;
@@ -32,10 +32,11 @@ export type BrewMood = keyof typeof POSES;
 // ── 전신 플립북 ─────────────────────────────────────────────────────────────
 // 전신 기본 자세 일러스트를 AnimatedDrawings(오픈소스)로 리깅해 모션캡처 동작을 입히고,
 // 20프레임 스프라이트로 구운 것. 부위 애니메이션과 달리 몸 전체가 움직인다.
-const FLIPBOOK: Partial<Record<BrewMood, any[]>> = {
-  jump: JUMP_FRAMES,
-  dance: DANCE_FRAMES,
-  hello: WAVE_FRAMES,
+// 앞치마 색을 착용하면 그 색으로 미리 구운 세트('wave__navy' 등)를 골라 쓴다.
+const FLIP_KEY: Partial<Record<BrewMood, string>> = {
+  hello: 'wave',
+  jump: 'jump',
+  dance: 'dance',
 };
 
 // 홈 마스코트(이스터에그 래퍼)처럼 자체 모션을 끄는 곳에서도, 플립북 포즈만은
@@ -147,8 +148,12 @@ export default function Brew({
       ? 'bounce' // 분리 레이어를 못 쓰는 상황(앞치마 변형)이면 예전처럼 통짜 들썩임
       : moodMotion;
 
-  // 플립북 — 90ms마다 다음 프레임 (전신이 통째로 움직인다)
-  const flipFrames = FLIPBOOK[mood];
+  // 플립북 — 90ms마다 다음 프레임 (전신이 통째로 움직인다).
+  // 앞치마 색을 착용했으면 그 색으로 구운 세트를, 없으면 기본(갈색) 세트를 쓴다.
+  const flipKey = FLIP_KEY[mood];
+  const flipFrames = flipKey
+    ? (apronColor && FLIP_FRAMES[`${flipKey}__${apronColor}`]) || FLIP_FRAMES[flipKey]
+    : undefined;
   const [flipIdx, setFlipIdx] = useState(0);
   useEffect(() => {
     if (motion !== 'flip' || !flipFrames) return;
