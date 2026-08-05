@@ -5,8 +5,9 @@ AI 생성 이미지는 우리 매장 실물과 다를 수 있다. 그래서 사�
 감성 배경 위에 자연스럽게 합성한다:
 
   ① 누끼: rembg(u2netp) — 첫 호출 때 모델(~5MB)을 내려받아 세션을 재사용
-  ② 배경: Pollinations(무료)로 '빈' 카페 배경 생성 → 실패 시 크림 그라데이션 폴백
-          (유료 Gemini 이미지 모델은 비용 때문에 쓰지 않는다)
+  ② 배경: Gemini 이미지 모델(결제 켜진 프로젝트면) → Pollinations(무료, 12초 제한)
+          → 둘 다 실패하면 번들 배경(static/promo_bg) → 최후엔 크림 그라데이션.
+          매번 새로 생성해 '항상 똑같은 배경' 문제를 없애되, 실패해도 절대 안 죽는다.
   ③ 합성: Pillow — 피사체를 중앙 하단에 배치하고 부드러운 그림자를 깔아
           '스티커 붙인 느낌'을 줄인다
   ④ 저장·문서 연결은 기존 marketing_service 경로를 그대로 재사용
@@ -98,14 +99,82 @@ def _cutout(photo_bytes: bytes):
     return cut
 
 
-def _background(style: str, aspect_ratio: str):
-    """배경 이미지(RGB) — 서버에 내장된 자산(static/promo_bg)을 목표 비율로 커버-크롭.
+# Gemini 이미지 모델이 429(쿼터 0·소진)를 주면 이 시각까지 재시도하지 않는다 —
+# 무료 티어는 이미지 모델 한도가 0이라 매 요청 헛손질하게 되는 걸 막는다.
+_gemini_img_dead_until = 0.0
 
-    [왜 내장인가] 요청 시점에 외부 무료 생성(Pollinations)을 부르던 시절, 소요가
-    5초~99초로 널뛰고 아예 실패하는 시간대도 있었다(실측). 사용자에겐 전부
-    '서버에 오류'로 보였다. 배경을 빌드에 포함하면 외부 의존이 0이라 항상 즉시 성공.
-    배경 교체는 static/promo_bg/<style>.jpg 파일만 갈아끼우면 된다.
+# Gemini 이미지 모델이 지원하는 화면비 — 이 안에 있으면 그대로 넘긴다
+_GEMINI_ARS = {"1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"}
+
+
+def _gemini_background(prompt: str, aspect_ratio: str) -> Optional[bytes]:
+    """Gemini 이미지 모델로 배경 생성. 결제가 안 켜진 프로젝트(무료 티어)는 한도가
+    0이라 즉시 429가 온다 → 10분간 시도 자체를 건너뛴다. 실패는 전부 None."""
+    global _gemini_img_dead_until
+    import os
+    import time
+
+    key = os.getenv("GEMINI_API_KEY", "") or os.getenv("GOOGLE_API_KEY", "")
+    if not key or time.time() < _gemini_img_dead_until:
+        return None
+    try:
+        import httpx
+
+        body: dict[str, Any] = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"responseModalities": ["IMAGE"]},
+        }
+        if aspect_ratio in _GEMINI_ARS:
+            body["generationConfig"]["imageConfig"] = {"aspectRatio": aspect_ratio}
+        r = httpx.post(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent",
+            params={"key": key}, json=body, timeout=25,
+        )
+        if r.status_code == 429:
+            _gemini_img_dead_until = time.time() + 600
+            logger.info("[사진 합성] Gemini 이미지 쿼터 없음(429) → 10분간 건너뜀")
+            return None
+        r.raise_for_status()
+        parts = r.json()["candidates"][0]["content"]["parts"]
+        data = next((p["inlineData"]["data"] for p in parts if "inlineData" in p), None)
+        if not data:
+            return None
+        import base64
+
+        return base64.b64decode(data)
+    except Exception as e:
+        logger.info("[사진 합성] Gemini 배경 생성 실패 → 다음 단계로: %s", e)
+        return None
+
+
+def _pollinations_background(prompt: str, w: int, h: int) -> Optional[bytes]:
+    """Pollinations(무료 FLUX)로 배경 생성. 12초 안에 못 주면 포기하고 None —
+    실측상 5~99초로 널뛰는 서비스라, 느린 날엔 기다리지 말고 번들 배경으로 간다."""
+    try:
+        from urllib.parse import quote
+
+        import httpx
+
+        url = (f"https://image.pollinations.ai/prompt/{quote(prompt)}"
+               f"?width={w}&height={h}&nologo=true&enhance=true")
+        r = httpx.get(url, timeout=12, follow_redirects=True)
+        if r.status_code == 200 and r.content[:3] in (b"\xff\xd8\xff", b"\x89PN"):
+            return r.content
+    except Exception as e:
+        logger.info("[사진 합성] Pollinations 배경 실패/지연 → 번들 폴백: %s", e)
+    return None
+
+
+def _background(style: str, aspect_ratio: str):
+    """배경 이미지(RGB) — AI 생성을 먼저 시도하고, 실패하면 내장 자산으로 폴백.
+
+    시도 순서: ① Gemini 이미지 모델(프로젝트에 결제가 켜져 있을 때만 성공, ~10초)
+              ② Pollinations 무료 생성(12초 제한) ③ 번들 배경(static/promo_bg, 즉시)
+              ④ 크림 그라데이션. AI 배경은 매번 새로 생성돼 결과물이 늘 다르다 —
+    '미리 만든 배경이라 다 똑같다'는 피드백 대응. 캐시를 일부러 안 쓰는 이유이기도
+    하다(캐시하면 다양성이 도로 사라진다). 최악의 추가 지연은 25+12초, 그 뒤 폴백.
     """
+    import io as _io
     import os
 
     from PIL import Image
@@ -113,6 +182,22 @@ def _background(style: str, aspect_ratio: str):
     from app.services.ai import marketing_service as M
 
     w, h = M._AR_SIZES.get(aspect_ratio, (1472, 1472))
+
+    prompt = (BACKGROUND_STYLES.get(style, BACKGROUND_STYLES["wood"])["prompt"] + _NO_TEXT)
+    raw = _gemini_background(prompt, aspect_ratio)
+    provider = "gemini" if raw else ""
+    if not raw:
+        raw = _pollinations_background(prompt, w, h)
+        provider = "pollinations" if raw else ""
+    if raw:
+        try:
+            bg = Image.open(_io.BytesIO(raw)).convert("RGB")
+            scale = max(w / bg.width, h / bg.height)
+            bg = bg.resize((round(bg.width * scale), round(bg.height * scale)), Image.LANCZOS)
+            left, top = (bg.width - w) // 2, (bg.height - h) // 2
+            return bg.crop((left, top, left + w, top + h)), provider
+        except Exception as e:
+            logger.warning("[사진 합성] AI 배경 디코드 실패 → 번들 폴백: %s", e)
     asset = os.path.join(os.path.dirname(__file__), "..", "..", "static", "promo_bg",
                          f"{style if style in BACKGROUND_STYLES else 'wood'}.jpg")
     try:

@@ -128,3 +128,36 @@ export type Progress = {
 export function getProgress(token?: string | null): Promise<Progress> {
   return apiFetch<Progress>('/api/v1/rewards/progress', { headers: authHeader(token) });
 }
+
+/** 주간 퀘스트 한 건 — 이번 주 할 일 완료 누적으로 진행된다 */
+export type Quest = {
+  id: string;
+  title: string;
+  desc: string;
+  goal: number;
+  progress: number;
+  reward: number;
+  done: boolean;
+  claimed: boolean;
+  claimable: boolean;
+};
+
+export type QuestBoard = {
+  week: string; // 이번 주 월요일 (YYYY-MM-DD) — 월요일마다 리셋
+  quests: Quest[];
+  awarded?: number; // claim 응답에만: 이번에 받은 코인
+  balance?: number; // claim 응답에만: 수령 후 잔액
+};
+
+/** 주간 퀘스트 목록 (진행도·수령 여부 포함) */
+export function getQuests(token?: string | null): Promise<QuestBoard> {
+  return apiFetch<QuestBoard>('/api/v1/rewards/quests', { headers: authHeader(token) });
+}
+
+/** 달성한 퀘스트 보상 수령 */
+export function claimQuest(questId: string, token?: string | null): Promise<QuestBoard> {
+  return apiFetch<QuestBoard>(`/api/v1/rewards/quests/${questId}/claim`, {
+    method: 'POST',
+    headers: authHeader(token),
+  });
+}

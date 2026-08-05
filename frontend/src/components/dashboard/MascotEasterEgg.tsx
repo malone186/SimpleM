@@ -13,7 +13,7 @@ try {
   // 모듈 로드 불가 시 예외를 내지 않고 넘어갑니다.
 }
 
-import Brew, { type BrewMood } from '../brew/Brew';
+import Brew, { FLIPBOOK_MOODS, type BrewMood } from '../brew/Brew';
 import { useEquipped } from '../../rewards/EquippedContext';
 import { colors } from '../../theme';
 
@@ -269,7 +269,8 @@ export default function MascotEasterEgg({
       <Pressable onPress={onPress} onPressIn={onPressIn} onPressOut={onPressOut} hitSlop={6}>
         <Animated.View style={{ transform: [{ scale: combinedScale }, { rotate }] }}>
           {/* 상점에서 산 포즈·배경을 홈 마스코트에 그대로 반영한다 */}
-          <Brew mood={shownMood} size={size} disableMotion accessories={accessories} apronColor={apronColor} />
+          {/* 플립북 포즈(점프·댄스)는 움직임 자체가 상품이라 홈에서도 재생을 허용한다 */}
+          <Brew mood={shownMood} size={size} disableMotion={!FLIPBOOK_MOODS.has(shownMood)} accessories={accessories} apronColor={apronColor} />
         </Animated.View>
       </Pressable>
 

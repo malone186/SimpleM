@@ -1,7 +1,7 @@
 // 상점 — 할 일을 끝내 모은 코인으로 브루를 꾸민다 (게임화 보상)
 // 상단: 브루 미리보기 + 코인 잔액 / 중단: 부위별 아이템 / 하단: 적립·사용 내역
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../../auth/AuthContext';
@@ -12,13 +12,17 @@ import { confirmDialog, toast } from '../../components/toast';
 import { Badge, Card, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
 import {
   buyItem,
+  claimQuest,
   equipItem,
   getProgress,
+  getQuests,
   getShop,
   getWallet,
   type ItemSlot,
   type PointHistoryItem,
   type Progress,
+  type Quest,
+  type QuestBoard,
   type ShopItem,
   type ShopState,
   type Wallet,
@@ -45,20 +49,43 @@ export default function ShopScreen() {
   const [loading, setLoading] = useState(true);
   const [busyItem, setBusyItem] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [vaultOpen, setVaultOpen] = useState(false); // 보관함(보유 아이템 모음) 시트
+  const [quests, setQuests] = useState<QuestBoard | null>(null);
+  const [claiming, setClaiming] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
     try {
-      const [s, w, p] = await Promise.all([getShop(token), getWallet(token), getProgress(token)]);
+      const [s, w, p, q] = await Promise.all([
+        getShop(token), getWallet(token), getProgress(token), getQuests(token),
+      ]);
       setShop(s);
       setWallet(w);
       setProgress(p);
+      setQuests(q);
     } catch {
       toast('불러오기 실패', '잠시 후 다시 시도해 주세요.');
     } finally {
       setLoading(false);
     }
   }, [token]);
+
+  // 퀘스트 보상 수령 — 잔액이 바뀌므로 상점·지갑도 같이 갱신
+  const handleClaimQuest = async (q: Quest) => {
+    setClaiming(q.id);
+    try {
+      const next = await claimQuest(q.id, token);
+      setQuests(next);
+      const [s, w] = await Promise.all([getShop(token), getWallet(token)]);
+      setShop(s);
+      setWallet(w);
+      toast('보상 수령!', `'${q.title}' 달성 — ${q.reward}코인을 받았어요 🪙`);
+    } catch (e) {
+      toast('수령 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+    } finally {
+      setClaiming(null);
+    }
+  };
 
   useEffect(() => {
     load();
@@ -138,7 +165,16 @@ export default function ShopScreen() {
       }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.mochaBrown} />}
     >
-      <ScreenTitle title="상점" subtitle="할 일을 끝내면 코인이 쌓여요" />
+      {/* 제목 오른쪽에 보관함 링크 — 산 것만 따로 모아 본다 */}
+      <View style={styles.titleRow}>
+        <View style={{ flex: 1 }}>
+          <ScreenTitle title="상점" subtitle="할 일을 끝내면 코인이 쌓여요" />
+        </View>
+        <PressableScale style={styles.vaultBtn} onPress={() => setVaultOpen(true)}>
+          <Ionicons name="albums-outline" size={14} color={colors.espressoBrown} />
+          <Text style={styles.vaultBtnText}>보관함</Text>
+        </PressableScale>
+      </View>
 
       {/* ── 브루 미리보기 + 잔액 ── */}
       <FadeInUp>
@@ -159,6 +195,21 @@ export default function ShopScreen() {
       {progress && (
         <FadeInUp delay={40}>
           <GrowthCard progress={progress} />
+        </FadeInUp>
+      )}
+
+      {/* ── 주간 퀘스트 — 홈 '오늘의 할 일' 완료가 그대로 진행도가 된다 ── */}
+      {quests && quests.quests.length > 0 && (
+        <FadeInUp delay={50}>
+          <SectionTitle>주간 퀘스트</SectionTitle>
+          <Card style={{ gap: 12 }}>
+            <Text style={styles.questHint}>
+              홈에서 할 일을 완료하면 자동으로 채워져요 · 월요일마다 리셋
+            </Text>
+            {quests.quests.map((q) => (
+              <QuestRow key={q.id} quest={q} claiming={claiming === q.id} onClaim={() => handleClaimQuest(q)} />
+            ))}
+          </Card>
         </FadeInUp>
       )}
 
@@ -184,6 +235,51 @@ export default function ShopScreen() {
           </FadeInUp>
         );
       })}
+
+      {/* ── 보관함 — 내가 산 꾸미기 아이템만 모아 보는 시트 ── */}
+      <Modal visible={vaultOpen} animationType="slide" transparent onRequestClose={() => setVaultOpen(false)}>
+        <View style={styles.vaultBackdrop}>
+          <View style={[styles.vaultSheet, { paddingBottom: bottomInset + sc(16) }]}>
+            <View style={styles.vaultHeader}>
+              <Text style={styles.vaultTitle}>
+                보관함 <Text style={styles.vaultCount}>{(shop?.items ?? []).filter((i) => i.owned).length}개 보유</Text>
+              </Text>
+              <PressableScale onPress={() => setVaultOpen(false)} style={styles.vaultClose}>
+                <Ionicons name="close" size={20} color={colors.mochaBrown} />
+              </PressableScale>
+            </View>
+            <ScrollView style={{ maxHeight: '100%' }} showsVerticalScrollIndicator={false}>
+              {(shop?.items ?? []).some((i) => i.owned) ? (
+                SLOT_ORDER.map((slot) => {
+                  const owned = (shop?.items ?? []).filter((i) => i.slot === slot && i.owned);
+                  if (!owned.length) return null;
+                  return (
+                    <View key={slot} style={{ marginBottom: 6 }}>
+                      <SectionTitle>{owned[0].slot_label}</SectionTitle>
+                      <View style={{ gap: 10, marginBottom: 6 }}>
+                        {owned.map((item) => (
+                          <ShopRow
+                            key={item.id}
+                            item={item}
+                            apronColor={previewApron}
+                            busy={busyItem === item.id}
+                            onBuy={() => {}}
+                            onToggle={() => handleToggleEquip(item)}
+                          />
+                        ))}
+                      </View>
+                    </View>
+                  );
+                })
+              ) : (
+                <Text style={styles.emptyText}>
+                  아직 산 아이템이 없어요. 코인을 모아 브루를 꾸며 보세요!
+                </Text>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* ── 적립·사용 내역 ── */}
       <FadeInUp delay={300}>
@@ -258,6 +354,37 @@ function ShopRow({
         </PressableScale>
       )}
     </Card>
+  );
+}
+
+/** 주간 퀘스트 한 줄 — 진행 바 + (달성 시) 보상 받기 버튼 */
+function QuestRow({ quest, claiming, onClaim }: { quest: Quest; claiming: boolean; onClaim: () => void }) {
+  const pct = Math.max(0, Math.min(1, quest.progress / Math.max(1, quest.goal)));
+  return (
+    <View style={styles.questRow}>
+      <View style={{ flex: 1 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={styles.questTitle}>{quest.title}</Text>
+          {quest.claimed && <Badge label="수령 완료" tone="green" />}
+        </View>
+        <Text style={styles.questDesc}>{quest.desc}</Text>
+        <View style={styles.questTrack}>
+          <View style={[styles.questFill, { width: `${pct * 100}%` }, quest.done && styles.questFillDone]} />
+        </View>
+        <Text style={styles.questProgress}>
+          {quest.progress}/{quest.goal}
+        </Text>
+      </View>
+      {claiming ? (
+        <ActivityIndicator color={colors.mochaBrown} style={{ width: 64 }} />
+      ) : quest.claimable ? (
+        <PressableScale style={styles.questClaimBtn} onPress={onClaim}>
+          <Text style={styles.questClaimText}>+{quest.reward} 받기</Text>
+        </PressableScale>
+      ) : (
+        <Text style={styles.questReward}>🪙 {quest.reward}</Text>
+      )}
+    </View>
   );
 }
 
@@ -350,6 +477,62 @@ function formatDate(iso: string | null): string {
 }
 
 const styles = StyleSheet.create({
+  titleRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  questHint: { ...typography.L5, color: colors.mochaBrown },
+  questRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  questTitle: { ...typography.L4, fontWeight: '800', color: colors.espressoBrown },
+  questDesc: { ...typography.L5, color: colors.mochaBrown, marginTop: 1 },
+  questTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.mutedSand,
+    overflow: 'hidden',
+    marginTop: 6,
+  },
+  questFill: { height: '100%', borderRadius: 3, backgroundColor: colors.pointOrange },
+  questFillDone: { backgroundColor: '#3E9B4F' },
+  questProgress: { ...typography.L5, color: colors.mochaBrown, marginTop: 3 },
+  questReward: { ...typography.L5, fontWeight: '700', color: colors.mochaBrown, width: 64, textAlign: 'right' },
+  questClaimBtn: {
+    backgroundColor: colors.pointOrange,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  questClaimText: { ...typography.L5, fontWeight: '800', color: colors.white },
+  vaultBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    backgroundColor: colors.white,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    marginTop: 4, // 제목 첫 줄과 눈높이를 맞춘다
+  },
+  vaultBtnText: { ...typography.L5, fontWeight: '700', color: colors.espressoBrown },
+  vaultBackdrop: { flex: 1, backgroundColor: 'rgba(30,22,18,0.45)', justifyContent: 'flex-end' },
+  vaultSheet: {
+    backgroundColor: colors.creamSand,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    maxHeight: '82%',
+  },
+  vaultHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  vaultTitle: { ...typography.L3, fontSize: 18, fontWeight: '800', color: colors.espressoBrown, flex: 1 },
+  vaultCount: { ...typography.L5, fontWeight: '600', color: colors.mochaBrown },
+  vaultClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
 
   heroCard: { alignItems: 'center', paddingVertical: 22, marginBottom: 6 },
