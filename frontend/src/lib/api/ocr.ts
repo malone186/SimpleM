@@ -105,6 +105,95 @@ export async function uploadOcrImage(
   return res.json();
 }
 
+// ── 메뉴판 OCR ──────────────────────────────────────────────────────────
+// 메뉴판 사진 한 장으로 메뉴·가격·레시피 초안을 만든다.
+// 원가를 보려면 레시피가 있어야 하는데 손으로 넣으면 30분이 걸려 그 전에 앱을 닫는다.
+
+/** 재료 후보. 고르는 순간 쓸 수 있게 매장 단위로 환산한 양까지 딸려 온다. */
+export type MenuBoardCandidate = {
+  id: number;
+  name: string;
+  /** 매장이 이 재료를 세는 단위 (kg·팩·개…) */
+  unit: string;
+  /** 매장 단위로 환산한 양. 환산 근거가 없으면 null → 사장님이 직접 넣는다 */
+  quantity: number | null;
+};
+
+/** 레시피 한 줄. 매장 재료와 연결돼야(ingredient_id) 원가 계산에 들어간다. */
+export type MenuBoardRecipe = {
+  ingredient: string;          // 표준 레시피가 말하는 재료명 ("원두")
+  /** 표준 레시피 원래 값 — "원두 18g"처럼 근거로 보여준다 */
+  preset_quantity: number;
+  preset_unit: string;
+  /** 실제로 저장될 양 (매장 단위). 정할 수 없으면 null */
+  quantity: number | null;
+  /** 저장될 양의 단위 (매장 재료 단위) */
+  unit: string;
+  /** 매장 재료와 연결된 id. 후보가 여럿이면 null — 사장님이 골라야 한다 */
+  ingredient_id: number | null;
+  /** 이 재료일 수 있는 매장 재료들 (원두를 두 종류 쓰는 매장이 있다) */
+  candidates: MenuBoardCandidate[];
+};
+
+export type MenuBoardMenu = {
+  name: string;
+  price: number | null;
+  /** 이미 등록된 메뉴인가 — 두 번 찍어도 중복 등록되지 않는다 */
+  exists: boolean;
+  /** preset=표준 사전, ai=사전에 없어 AI가 추정, none=레시피 없음 */
+  recipe_source: 'preset' | 'ai' | 'none';
+  recipes: MenuBoardRecipe[];
+};
+
+export type MenuBoardDraft = {
+  menus: MenuBoardMenu[];
+  /** 매장에 없어 새로 만들어야 하는 재료 이름들 */
+  unknown_ingredients: string[];
+  /** 레시피는 업계 통상치 추정이다 — 화면에서 '추정'임을 밝혀야 한다 */
+  estimated: boolean;
+};
+
+/** 메뉴판 사진 → 등록 초안. 저장하지 않는다 (confirm에서 저장). */
+export async function analyzeMenuBoard(
+  asset: UploadAsset,
+  token?: string | null,
+): Promise<MenuBoardDraft> {
+  const form = new FormData();
+  const type = resolveMime(asset);
+  const name = asset.fileName ?? 'menuboard.jpg';
+
+  if (Platform.OS === 'web') {
+    const blob = await (await fetch(asset.uri)).blob();
+    form.append('file', new File([blob], name, { type: blob.type || type }));
+  } else {
+    form.append('file', { uri: asset.uri, name, type } as unknown as Blob);
+  }
+
+  const res = await fetch(`${API_BASE_URL}/api/v1/chatbot/ocr/menu-board`, {
+    method: 'POST',
+    headers: authHeader(token),
+    body: form,
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `메뉴판 인식 실패 (${res.status})`);
+  }
+  return res.json();
+}
+
+/** 확인·수정을 마친 메뉴를 실제로 등록한다. */
+export function confirmMenuBoard(
+  menus: { name: string; price: number | null; recipes: { ingredient_id: number | null; quantity: number }[] }[],
+  token?: string | null,
+  // warnings: 저장은 됐지만 확인이 필요한 것 (레시피 없음 · 재료비가 판매가보다 큼)
+): Promise<{ created: string[]; skipped: string[]; warnings: string[] }> {
+  return apiFetch('/api/v1/chatbot/ocr/menu-board/confirm', {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify({ menus }),
+  });
+}
+
 export function listOcrDocuments(status?: OcrDocument['status'], token?: string | null): Promise<OcrDocument[]> {
   const query = status ? `?status=${status}` : '';
   return apiFetch(`/api/v1/chatbot/ocr/documents${query}`, { headers: authHeader(token) });
