@@ -1596,6 +1596,12 @@ async def chat_message(
         # detail을 dict로 넘겨 프론트가 '할당량 소진'과 다른 429를 구분할 수 있게 한다
         raise HTTPException(429, {"quota_exhausted": True, "quota": e.args[0]})
 
+    # [자동 감사] 이번 발화가 "아니 그게 아니라" 같은 부정이면 직전 턴을 사고 후보로 남긴다.
+    # 숫자가 그럴듯하게 틀린 오답은 감시 규칙이 못 잡고, 그걸 아는 사람은 사장님뿐이다.
+    # 정규식 판정이라 LLM 호출도, 정상 대화에서는 DB 접근도 없다.
+    from app.services.ai import answer_audit
+    answer_audit.check_followup(store_key, body.message, body.history)
+
     try:
         # [한글 주석] 챗봇 에이전트의 대화 처리 루프 실행 — 답변 텍스트 + 이번 턴에 만든 문서 전문
         result = await main_agent.generate_response(
@@ -1692,3 +1698,54 @@ def delete_todo(todo_id: int, current_user: User = Depends(get_current_user)):
         todo_service.delete_todo(current_user.email, todo_id)
     except todo_service.TodoError as e:
         raise HTTPException(404, str(e))
+
+
+# ---------------------------------------------------------------------------
+# 챗봇 사고 후보 — 운영 대화에서 자동으로 잡힌 오답 (관리자용)
+# ---------------------------------------------------------------------------
+
+@router.get("/incidents")
+def list_chat_incidents_api(
+    status: str = "pending",
+    mine_only: bool = False,
+    limit: int = 100,
+    current_user: User = Depends(get_current_user),
+):
+    """감시 규칙·사장님 부정 반응으로 잡힌 사고 후보 목록.
+
+    evals/harvest.py가 이 후보들을 재현 검증해 골든 세트에 자동 등록한다. 이 API는
+    사람이 '지금 무엇이 걸려 있는지' 눈으로 보고, 기계가 판단 못 한 건을 직접
+    확정/기각하기 위한 창구다.
+
+    status: pending(미검증) / confirmed / registered / rejected. 빈 문자열이면 전부.
+    mine_only=true면 내 매장에서 난 것만 본다.
+    """
+    from app.services.ai import answer_audit
+
+    return {
+        "incidents": answer_audit.list_incidents(
+            status=status, store_id=current_user.email if mine_only else "", limit=limit),
+    }
+
+
+class IncidentStatusUpdate(BaseModel):
+    status: str = Field(..., description="confirmed / rejected / pending / registered")
+    note: str = Field("", max_length=300)
+
+
+@router.patch("/incidents/{incident_id}")
+def update_chat_incident_api(
+    incident_id: int,
+    body: IncidentStatusUpdate,
+    current_user: User = Depends(get_current_user),
+):
+    """사고 후보 상태를 사람이 바꾼다 — 기계가 재현하지 못한 건을 직접 확정하거나 기각한다."""
+    from app.services.ai import answer_audit
+
+    try:
+        found = answer_audit.set_status(incident_id, body.status, body.note)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not found:
+        raise HTTPException(404, f"{incident_id}번 사고 후보를 찾을 수 없습니다.")
+    return {"id": incident_id, "status": body.status}

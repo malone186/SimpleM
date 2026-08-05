@@ -453,6 +453,11 @@ _MAIN_PROMPT = """당신은 카페 사장님들을 위한 AI 비서 '{agent_name
    숫자 하나를 확인하는 질문("매출 얼마야", "지출 얼마 썼어", "몇 시간 일했어")은 data_expert에게
    보내세요. report_expert는 여러 영역을 묶은 진단·해석이 필요할 때만 부릅니다 — 리포트 생성은
    무거워서 단순 조회에 쓰면 답이 느려지고 엉뚱한 항목까지 섞여 나옵니다.
+   '만들어줘·써줘' 류의 콘텐츠 생성 요청(홍보 문구·홍보 이미지·발주서·명세서·계약서·리포트)은
+   데이터 조회가 아니어도 반드시 담당 전문가에게 위임하세요. 당신이 직접 글을 지어 답하면
+   그럴듯해 보여도 도구를 거치지 않은 것이라 아무 데도 저장되지 않고, 홍보물·문서 목록에도
+   남지 않으며 카드로도 표시되지 않습니다 — 사장님은 나중에 "만들어 줬다던 게 어디에도
+   없다"는 걸 발견하게 됩니다. (예: "인스타에 올릴 홍보 문구 써줘" → marketing_expert)
 2. 여러 영역에 걸친 질문이면 전문가를 차례로 호출해 결과를 종합하세요.
 3. 전문가의 보고를 그대로 복사하지 말고, 사장님이 듣기 편한 말로 요약·정리해 전하세요.
    숫자는 지어내지 말고 전문가가 보고한 값만 쓰세요.
@@ -461,7 +466,8 @@ _MAIN_PROMPT = """당신은 카페 사장님들을 위한 AI 비서 '{agent_name
 4. "놓친 거 있어?", "오늘 뭐 챙겨야 해?", "문제 있는 거 알려줘"처럼 범위가 넓은 점검 요청은
    data_expert에게 맡기세요. 그 보고에는 심각한 것부터 정리해 전하고, 항목마다 사장님이
    바로 이어서 시키실 수 있는 말을 한 줄로 곁들이세요.
-5. 인사말이나 일상 대화는 전문가 호출 없이 바로 답하세요.
+5. 인사말이나 일상 대화는 전문가 호출 없이 바로 답하세요. 다만 무언가를 만들어 달라는
+   요청은 일상 대화가 아닙니다 — 규칙 1에 따라 담당 전문가에게 맡기세요.
    웹 검색(search_expert) 결과를 전할 때는 내용을 요약하되, 근거가 된 출처 링크를
    한두 개 골라 답변 끝에 "참고:" 줄로 남기세요. 링크를 전부 지우면 안 됩니다.
 6. 삭제·확정(재고 반영·반려) 같은 되돌릴 수 없는 요청도 수행할 수 있습니다.
@@ -779,6 +785,27 @@ def get_agent_overview() -> dict[str, Any]:
     }
 
 
+def _audit_turn_safely(store_id: str, question: str, answer: str, recorder, ms: float) -> None:
+    """대화 한 턴을 감시 규칙으로 훑는다 (실패해도 대화에는 영향 없음).
+
+    별도 함수로 뺀 이유: generate_response의 정상 반환 경로를 한 줄로 유지하려고.
+    실패 경로(한도 소진·DB 다운)는 감사하지 않는다 — 그때 나가는 안내 문구는 챗봇의
+    답변 품질과 무관해서, 감사하면 사고 후보가 안내 문구로 뒤덮인다.
+    """
+    try:
+        from app.services.ai import answer_audit
+
+        answer_audit.audit_turn(
+            store_id, question, answer,
+            tools=list(dict.fromkeys(recorder.tools)),
+            experts=list(dict.fromkeys(recorder.experts)),
+            expects_data=answer_audit.looks_like_store_question(question),
+            ms=ms,
+        )
+    except Exception:
+        logger.debug("턴 자동 감사 실패", exc_info=True)
+
+
 async def generate_response(
     user_message: str,
     store_id: str,
@@ -864,6 +891,9 @@ async def generate_response(
                     "documents": [], "ok": False}
         # 모델이 빈 답을 준 경우(answer == "")도 실패로 본다 — 사장님은 실질 답변을 못 받았다
         runtime_stats.record_turn(store_id, _elapsed_ms(), "ok" if answer else "empty", recorder, user_message)
+        # [자동 감사] 감시 규칙으로 이 턴을 훑어, 어긴 게 있으면 사고 후보로 남긴다.
+        # 정상 턴이면 정규식만 돌고 끝나므로 응답 시간에 영향이 없다(DB·LLM 접근 없음).
+        _audit_turn_safely(store_id, user_message, answer or "", recorder, _elapsed_ms())
         return {"text": answer or "죄송해요, 답변을 만들지 못했어요. 조금 다르게 질문해 주시겠어요?",
                 "documents": created_docs, "ok": bool(answer)}
     except Exception as e:
