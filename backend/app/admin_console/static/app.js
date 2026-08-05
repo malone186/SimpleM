@@ -431,9 +431,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // 데이터 채우기
     document.getElementById('drawer-user-id').textContent = `#${user.id}`;
     document.getElementById('drawer-store-name').textContent = user.store;
+    document.getElementById('drawer-avatar').textContent = (user.store || user.name || '?').trim().charAt(0);
     document.getElementById('drawer-user-name').textContent = user.name;
     document.getElementById('drawer-user-email').textContent = user.email;
     document.getElementById('drawer-user-joined').textContent = user.joined;
+    paintDrawerStatusChip(user.status);
 
     // 계정 상태 드롭다운
     const statusSelect = document.getElementById('drawer-user-status-select');
@@ -444,6 +446,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 실시간 사용 통계 — 백엔드가 센 실제 건수 (예전엔 화면에 14건·28개가 박혀 있었다)
     document.getElementById('drawer-stat-ocr').innerHTML = `${user.ocrCount ?? 0}<span class="stat-unit">건</span>`;
     document.getElementById('drawer-stat-stocks').innerHTML = `${user.stockCount ?? 0}<span class="stat-unit">개</span>`;
+    document.getElementById('drawer-stat-docs').innerHTML = `${user.docCount ?? 0}<span class="stat-unit">건</span>`;
 
     // 관리자 메모 — DB(admin_user_notes)에 저장된 값
     document.getElementById('drawer-user-memo').value = user.memo || '';
@@ -461,6 +464,15 @@ document.addEventListener('DOMContentLoaded', () => {
   // 6-1. 코인 지급 — 상점 재화를 관리자가 직접 넣거나 회수한다.
   //      적립의 정상 경로는 '할 일 완료'다. 여기는 CS 보상·이벤트·오지급 회수용 예외 창구라
   //      내역에 '관리자 지급/회수'로 남아 사장님 상점 화면에서도 출처가 보인다.
+  // 헤더의 상태 배지 — 목록의 배지와 같은 색 규칙을 쓴다(활성=초록, 정지=빨강, 대기=갈색)
+  function paintDrawerStatusChip(status) {
+    const chip = document.getElementById('drawer-status-chip');
+    if (!chip) return;
+    const tone = status === '활성' ? 'green-bg' : status === '정지' ? 'cancel' : 'brown-bg';
+    chip.className = `status-badge ${tone}`;
+    chip.textContent = status;
+  }
+
   let coinMode = 'grant';   // grant(지급) | revoke(회수)
   let coinBalance = 0;      // 미리보기 계산에 쓰는 현재 잔액
 
@@ -665,6 +677,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       selectedUser.status = nextStatus;
+      paintDrawerStatusChip(nextStatus);
       renderUserTable();
       renderTimelineFeed();
       alert(`${selectedUser.name} 사장님의 계정 상태를 '${nextStatus}'(으)로 저장했습니다.`);

@@ -488,12 +488,17 @@
   <div class="drawer-overlay" id="drawer-overlay">
     <div class="drawer-panel" id="drawer-panel">
       
-      <!-- Drawer Header -->
+      <!-- Drawer Header — 매장 이름·계정 상태를 한눈에. 아래 값들은 openUserDrawer()가 채운다 -->
       <div class="drawer-header">
         <div class="drawer-title-box">
-          <!-- 아래 값들은 openUserDrawer()가 선택한 회원 정보로 덮어쓴다 -->
-          <span class="drawer-id-badge" id="drawer-user-id">#-</span>
-          <h2 class="drawer-title" id="drawer-store-name">-</h2>
+          <div class="drawer-avatar" id="drawer-avatar">-</div>
+          <div class="drawer-title-text">
+            <h2 class="drawer-title" id="drawer-store-name">-</h2>
+            <div class="drawer-subtitle">
+              <span class="drawer-id-badge" id="drawer-user-id">#-</span>
+              <span class="status-badge green-bg" id="drawer-status-chip">활성</span>
+            </div>
+          </div>
         </div>
         <button class="drawer-close-btn" id="drawer-close-btn">
           <i data-lucide="x"></i>
@@ -502,44 +507,38 @@
 
       <!-- Drawer Body (Scrollable) -->
       <div class="drawer-body">
-        
+
         <!-- 1. 계정 및 매장 프로필 카드 -->
         <div class="drawer-card">
           <div class="card-section-title">
             <i data-lucide="user"></i> 계정 및 매장 정보
           </div>
-          <div class="info-grid">
-            <div class="info-item">
+          <!-- 라벨-값을 좌우로 둔 목록. 예전 2열 그리드는 값이 길면 줄이 어긋나 읽기 어려웠다 -->
+          <div class="info-list">
+            <div class="info-row">
               <span class="info-label">사장님 이름</span>
               <span class="info-value" id="drawer-user-name">-</span>
             </div>
-            <div class="info-item">
+            <div class="info-row">
               <span class="info-label">이메일 주소</span>
               <span class="info-value" id="drawer-user-email">-</span>
             </div>
-            <div class="info-item">
+            <div class="info-row">
               <span class="info-label">가입 일자</span>
               <span class="info-value" id="drawer-user-joined">-</span>
             </div>
-            <div class="info-item">
-              <span class="info-label">계정 상태 변경</span>
+            <div class="info-row">
+              <span class="info-label">계정 상태</span>
               <select id="drawer-user-status-select" class="status-select">
                 <option value="활성">활성 (사용 가능)</option>
                 <option value="대기">대기 (승인 대기)</option>
                 <option value="정지">정지 (이용 제한)</option>
               </select>
             </div>
-            <div class="info-item full-width-action" style="grid-column: span 2; margin-top: 8px;">
-              <button class="action-btn approve-btn" id="btn-approve-user">
-                <i data-lucide="check-circle-2"></i> 회원 가입 즉시 승인 및 계정 활성화
-              </button>
-            </div>
-            <div class="info-item full-width-action" style="grid-column: span 2; margin-top: 4px;">
-              <button class="action-btn cancel" id="btn-delete-user" style="background-color: #C62828; color: #FFFFFF; font-weight: bold; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; border: none; border-radius: 8px; padding: 10px;">
-                <i data-lucide="user-x"></i> 이 사장님 계정 강제 차단 및 영구 삭제
-              </button>
-            </div>
           </div>
+          <button class="approve-btn" id="btn-approve-user">
+            <i data-lucide="check-circle-2"></i> 가입 승인 · 계정 활성화
+          </button>
         </div>
 
         <!-- (삭제됨) 멤버십 서비스 현황 — 유료 플랜 폐지 -->
@@ -547,16 +546,20 @@
         <!-- 3. 앱 실시간 사용 통계 카드 -->
         <div class="drawer-card">
           <div class="card-section-title">
-            <i data-lucide="bar-chart-2"></i> 이번 달 서비스 사용 통계
+            <i data-lucide="bar-chart-2"></i> 서비스 사용 통계
           </div>
           <div class="drawer-stats-grid">
             <div class="stat-box">
               <div class="stat-num" id="drawer-stat-ocr">-<span class="stat-unit">건</span></div>
-              <div class="stat-title">OCR 영수증 인식</div>
+              <div class="stat-title">OCR 영수증</div>
             </div>
             <div class="stat-box">
               <div class="stat-num" id="drawer-stat-stocks">-<span class="stat-unit">개</span></div>
-              <div class="stat-title">등록된 재고 품목</div>
+              <div class="stat-title">등록 재고</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-num" id="drawer-stat-docs">-<span class="stat-unit">건</span></div>
+              <div class="stat-title">생성 서류</div>
             </div>
           </div>
         </div>
@@ -633,6 +636,18 @@
           <textarea id="drawer-user-memo" class="memo-textarea" placeholder="특이사항이나 CS 응대 이력을 메모하세요..."></textarea>
           <button class="save-memo-btn" id="btn-save-memo">
             <i data-lucide="save"></i> 메모 저장하기
+          </button>
+        </div>
+
+        <!-- 5. 위험 구역 — 되돌릴 수 없는 삭제는 맨 아래로 내렸다.
+             예전엔 계정 정보 바로 밑에 새빨간 큰 버튼이 있어서, 상태만 바꾸려다 잘못 누르기 딱 좋았다. -->
+        <div class="drawer-card danger-card">
+          <div class="card-section-title danger">
+            <i data-lucide="alert-triangle"></i> 위험 구역
+          </div>
+          <p class="danger-desc">계정과 관리자 메모가 DB에서 영구 삭제됩니다. 되돌릴 수 없습니다.</p>
+          <button class="danger-btn" id="btn-delete-user">
+            <i data-lucide="user-x"></i> 이 사장님 계정 영구 삭제
           </button>
         </div>
 

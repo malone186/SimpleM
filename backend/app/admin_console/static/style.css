@@ -1032,7 +1032,8 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 24px;
+  gap: 12px;
+  padding: 18px 20px;
   background-color: var(--card-bg);
   border-bottom: 1px solid var(--muted-sand);
 }
@@ -1040,7 +1041,36 @@ body {
 .drawer-title-box {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* 매장 첫 글자 — 목록에서 어느 매장을 열었는지 스크롤 중에도 바로 알아본다 */
+.drawer-avatar {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--espresso-brown), var(--mocha-brown));
+  color: #FFFFFF;
+  font-size: 18px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.drawer-title-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.drawer-subtitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .drawer-id-badge {
@@ -1048,14 +1078,17 @@ body {
   color: var(--mocha-brown);
   font-size: 11px;
   font-weight: 800;
-  padding: 4px 8px;
+  padding: 3px 7px;
   border-radius: 6px;
 }
 
 .drawer-title {
-  font-size: 20px;
+  font-size: 19px;
   font-weight: 900;
   color: var(--espresso-brown);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .drawer-close-btn {
@@ -1121,20 +1154,41 @@ body {
   gap: 4px;
 }
 
+/* 라벨은 왼쪽, 값은 오른쪽 — 항목마다 실선을 넣어 눈이 줄을 따라가게 한다 */
+.info-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--stone-100);
+  min-height: 40px;
+}
+
+.info-row:last-child { border-bottom: none; padding-bottom: 2px; }
+
 .info-label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--stone-300);
+  white-space: nowrap;
 }
 
 .info-value {
   font-size: 13px;
   font-weight: 700;
   color: var(--espresso-brown);
+  text-align: right;
+  word-break: break-all;
 }
 
 .status-select {
-  padding: 6px 10px;
+  padding: 7px 10px;
   border-radius: 8px;
   border: 1px solid var(--muted-sand);
   background-color: var(--card-bg);
@@ -1144,6 +1198,71 @@ body {
   outline: none;
   cursor: pointer;
 }
+
+.status-select:focus { border-color: var(--orange-point); }
+
+/* 승인은 자주 쓰는 정상 동작 — 초록 실선 버튼이 아니라 가벼운 아웃라인으로 둔다 */
+.approve-btn {
+  margin-top: 4px;
+  width: 100%;
+  padding: 11px;
+  border-radius: 10px;
+  border: 1px solid var(--green-main);
+  background-color: var(--green-light);
+  color: var(--green-main);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background-color 0.15s;
+}
+
+.approve-btn:hover { background-color: #DDEBD7; }
+.approve-btn svg { width: 15px; height: 15px; }
+
+/* 위험 구역 — 되돌릴 수 없는 삭제만 모아 맨 아래에 둔다 */
+.danger-card {
+  border-color: #F0D6D6;
+  background-color: #FEFAFA;
+}
+
+.card-section-title.danger { color: #B24040; }
+.card-section-title.danger svg { color: #B24040; }
+
+.danger-desc {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mocha-brown);
+  line-height: 1.5;
+}
+
+.danger-btn {
+  width: 100%;
+  padding: 11px;
+  border-radius: 10px;
+  border: 1px solid #E4B4B4;
+  background-color: #FFFFFF;
+  color: #B24040;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.danger-btn:hover {
+  background-color: #B24040;
+  border-color: #B24040;
+  color: #FFFFFF;
+}
+
+.danger-btn svg { width: 15px; height: 15px; }
 
 .sub-status-box {
   background-color: var(--stone-100);
@@ -1219,21 +1338,23 @@ body {
 
 .drawer-stats-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
 }
 
 .stat-box {
   background-color: var(--stone-100);
   border-radius: 12px;
-  padding: 12px;
+  padding: 12px 10px;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  text-align: center;
+  align-items: center;
 }
 
 .stat-num {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 900;
   color: var(--espresso-brown);
 }
@@ -1267,16 +1388,17 @@ body {
   background-color: var(--mocha-brown);
   color: #FFFFFF;
   border: none;
-  padding: 10px;
+  padding: 11px;
   border-radius: 10px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 800;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  align-self: flex-end;
+  /* 다른 카드의 버튼과 폭을 맞춘다 — 예전엔 이 버튼만 오른쪽에 조그맣게 붙어 있었다 */
+  width: 100%;
 }
 
 .save-memo-btn svg { width: 14px; height: 14px; }
