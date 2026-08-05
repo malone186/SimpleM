@@ -174,6 +174,7 @@ export default function ShopScreen() {
                 <ShopRow
                   key={item.id}
                   item={item}
+                  apronColor={previewApron}
                   busy={busyItem === item.id}
                   onBuy={() => handleBuy(item)}
                   onToggle={() => handleToggleEquip(item)}
@@ -205,11 +206,13 @@ export default function ShopScreen() {
 
 function ShopRow({
   item,
+  apronColor,
   busy,
   onBuy,
   onToggle,
 }: {
   item: ShopItem;
+  apronColor?: string; // 지금 착용 중인 앞치마 색 — 포즈 썸네일에도 입혀서 보여준다
   busy: boolean;
   onBuy: () => void;
   onToggle: () => void;
@@ -218,7 +221,7 @@ function ShopRow({
     <Card style={[styles.itemCard, item.equipped && styles.itemCardOn]}>
       {/* 사기 전 미리보기와 산 뒤 모습이 정확히 같아야 한다 */}
       <View style={styles.itemEmojiWrap}>
-        <ItemArt item={item} />
+        <ItemArt item={item} apronColor={apronColor} />
       </View>
 
       <View style={{ flex: 1 }}>
@@ -302,9 +305,10 @@ function GrowthCard({ progress }: { progress: Progress }) {
 }
 
 /** 목록 썸네일 — 사면 실제로 보게 될 그림을 그대로 작게 보여준다 (포즈는 브루 자신) */
-function ItemArt({ item }: { item: ShopItem }) {
+function ItemArt({ item, apronColor }: { item: ShopItem; apronColor?: string }) {
   if (item.slot === 'pose' && item.mood) {
-    return <Brew mood={item.mood as BrewMood} size={42} disableMotion />;
+    // 착용 중인 앞치마 색을 입혀서 '이 포즈를 고르면 실제로 보일 모습' 그대로 미리 보여준다
+    return <Brew mood={item.mood as BrewMood} apronColor={apronColor} size={42} disableMotion />;
   }
   // 앞치마 색: 기본 포즈에 그 색을 입힌 미니 브루로 미리보기 (실제 착용 모습 그대로)
   if (item.slot === 'apron' && item.color) {
