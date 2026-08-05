@@ -26,9 +26,40 @@ export function parseQty(text: string): number | null {
  *
  * 재료만 바꾸고 양을 그대로 두면 안 된다 — 매장마다 세는 단위가 달라서
  * (kg으로 세는 원두 vs g으로 세는 원두) 같은 18이 1000배 차이가 난다.
+ * 사장님이 이미 표준값을 고쳐 뒀다면(18g → 20g) 그 값으로 다시 환산한다.
  */
 export function applyCandidate(recipe: MenuBoardRecipe, c: MenuBoardCandidate): MenuBoardRecipe {
-  return { ...recipe, ingredient_id: c.id, unit: c.unit, quantity: c.quantity };
+  return {
+    ...recipe,
+    ingredient_id: c.id,
+    unit: c.unit,
+    quantity: c.ratio != null ? recipe.preset_quantity * c.ratio : c.quantity,
+  };
+}
+
+/**
+ * 사장님이 표준값을 고쳤을 때 (예: 원두 18g → 20g).
+ *
+ * 화면에서는 사장님이 아는 단위(g·ml)로 고치게 하고, 저장할 양은 매장 단위로 환산한다.
+ * '0.018kg'을 직접 입력하게 하면 자릿수를 틀리기 쉽고, 애초에 사장님은 그램으로 생각한다.
+ * 환산 비율(ratio)은 서버가 재료마다 계산해 내려 준다.
+ */
+export function applyPresetQuantity(
+  recipe: MenuBoardRecipe,
+  presetQty: number | null,
+): MenuBoardRecipe {
+  const picked = recipe.candidates.find((c) => c.id === recipe.ingredient_id);
+  const next = presetQty ?? 0;
+  return {
+    ...recipe,
+    preset_quantity: next,
+    quantity:
+      presetQty == null || presetQty <= 0
+        ? null
+        : picked?.ratio != null
+          ? presetQty * picked.ratio
+          : recipe.quantity,   // 환산 근거가 없는 재료는 사장님이 넣은 값을 그대로 둔다
+  };
 }
 
 /** 아직 재료를 고르지 않은 줄 수 (고르기 전에는 원가에 안 들어간다) */

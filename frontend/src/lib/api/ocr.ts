@@ -117,6 +117,9 @@ export type MenuBoardCandidate = {
   unit: string;
   /** 매장 단위로 환산한 양. 환산 근거가 없으면 null → 사장님이 직접 넣는다 */
   quantity: number | null;
+  /** 표준 1단위(1g·1ml)당 매장 단위 값. 사장님이 '18g'을 '20g'으로 고치면 여기에 곱해
+   *  저장할 양을 다시 낸다 (환산 규칙을 프론트에 복사하지 않으려고 서버가 준다) */
+  ratio: number | null;
 };
 
 /** 레시피 한 줄. 매장 재료와 연결돼야(ingredient_id) 원가 계산에 들어간다. */
