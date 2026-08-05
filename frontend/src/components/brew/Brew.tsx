@@ -54,11 +54,6 @@ const PART_ANIM: Partial<Record<BrewMood, { base: any; layer: any; kind: PartKin
     layer: require('../../../assets/mascot/parts/clipboard_layer.png'),
     kind: 'tilt', // 클립보드를 살짝 갸웃 — 체크리스트 확인하는 느낌
   },
-  serving: {
-    base: require('../../../assets/mascot/parts/serving_base.png'),
-    layer: require('../../../assets/mascot/parts/serving_layer.png'),
-    kind: 'bob', // 케이크 접시를 살짝 들썩 — '이거 드세요' 권하는 느낌
-  },
 };
 
 // ── 배경 효과 ──────────────────────────────────────────────────────────────
@@ -100,7 +95,7 @@ const MOTION_BY_MOOD: Record<BrewMood, Motion> = {
   resting: 'none',
   pouring: 'pour',
   clipboard: 'part', // 몸 고정, 클립보드만 갸웃 (PART_ANIM)
-  serving: 'part', // 몸 고정, 케이크 접시만 들썩 (PART_ANIM)
+  serving: 'bounce',
   hero: 'bounce',
   top: 'bounce',
   greet: 'wave',
