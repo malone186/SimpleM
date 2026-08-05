@@ -59,7 +59,10 @@ function eventMarkerHtml(name: string, ongoing = false) {
     '<div style="position:absolute;left:-7px;top:-7px;width:14px;height:14px;border-radius:50%;' +
     'background:' + bg + ';border:2.5px solid #FFFFFF;box-shadow:0 2px 6px rgba(0,0,0,0.35);"></div>' +
     '<div style="position:absolute;left:12px;top:-13px;display:flex;align-items:center;gap:4px;' +
-    'max-width:148px;padding:4px 7px 4px 9px;background:' + bg + ';border:1.5px solid #FFFFFF;' +
+    // width:max-content가 없으면 안 된다 — 지도 마커는 폭 0짜리 상자 안에 절대배치라,
+    // 줄바꿈을 허용한 순간 상자가 min-content(글자 한 칸)까지 쪼그라든다.
+    'box-sizing:border-box;width:-webkit-max-content;width:max-content;max-width:156px;' +
+    'padding:4px 7px 4px 9px;background:' + bg + ';border:1.5px solid #FFFFFF;' +
     'border-radius:13px;font-size:10.5px;font-weight:800;color:#FFFFFF;cursor:pointer;' +
     'font-family:-apple-system,sans-serif;box-shadow:0 3px 8px rgba(120,60,20,0.30);' +
     (ongoing ? 'animation:evtBreath 2.4s infinite ease-in-out;transform-origin:left center;' : '') +
