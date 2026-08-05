@@ -175,9 +175,9 @@ export default function BrewRoomScreen() {
         {/* ── 상점 · 보관함 ── */}
         <FadeInUp delay={120}>
           <View style={styles.btnRow}>
-            <PressableScale style={styles.bigBtn} onPress={() => navigation.navigate('Shop')}>
-              <Ionicons name="cart" size={18} color={colors.white} />
-              <Text style={styles.bigBtnText}>상점</Text>
+            <PressableScale style={[styles.bigBtn, styles.bigBtnAlt]} onPress={() => navigation.navigate('Shop')}>
+              <Ionicons name="cart" size={18} color={colors.espressoBrown} />
+              <Text style={[styles.bigBtnText, { color: colors.espressoBrown }]}>상점</Text>
             </PressableScale>
             <PressableScale
               style={[styles.bigBtn, styles.bigBtnAlt]}
