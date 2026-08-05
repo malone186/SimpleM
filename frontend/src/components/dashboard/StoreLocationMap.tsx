@@ -37,6 +37,35 @@ export function shortEventLabel(name: string, max = 26) {
   return `${(space > max * 0.5 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }
 
+/** 지도 말풍선 속 행사 요약 — 핀을 누르면 이만큼만 먼저 보여 준다.
+ *  전체 시트를 바로 띄우면 "저게 뭐지?" 하고 한 번 눌러 본 것치고 너무 무겁다.
+ *  여기서 언제·어디서·얼마나 가까운지까지 훑고, 더 볼 사람만 '자세히 보기'로 넘어간다. */
+function eventInfoHtml(e: any, index: number) {
+  const when = e.ongoing ? '오늘' : `D-${e.d_day ?? 0}`;
+  const tone = e.ongoing ? '#C2410C' : '#E28257';
+  return (
+    '<div style="padding:12px 13px 11px;min-width:172px;max-width:224px;' +
+    'font-family:-apple-system,BlinkMacSystemFont,sans-serif;">' +
+    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">' +
+    '<span style="background:' + tone + ';color:#FFF;font-size:9.5px;font-weight:800;' +
+    'padding:2.5px 8px;border-radius:999px;letter-spacing:-.2px">' + esc(when) + '</span>' +
+    (e.boost_pct
+      ? '<span style="font-size:9.5px;font-weight:800;color:#B4542C">예측 +' + e.boost_pct + '%</span>'
+      : '') +
+    '</div>' +
+    '<div style="font-size:12.5px;font-weight:800;color:#3B2314;line-height:1.35;' +
+    'word-break:keep-all">' + esc(e.name) + '</div>' +
+    '<div style="font-size:10.5px;color:#8C7968;margin-top:5px;line-height:1.45;' +
+    'word-break:keep-all">' + esc(e.date) + '<br/>' + esc(e.place || '장소 미상') +
+    (e.distance_km != null ? ' · ' + e.distance_km + 'km' : '') + '</div>' +
+    // 더 볼 사람만 넘어간다 — 여기가 무거운 시트로 가는 유일한 문이다
+    '<div onclick="window.__brewMapEvt&&window.__brewMapEvt(' + index + ')" ' +
+    'style="margin-top:10px;text-align:center;background:' + tone + ';color:#FFF;font-size:10.5px;' +
+    'font-weight:800;padding:8px;border-radius:10px;cursor:pointer;">자세히 보기 ›</div>' +
+    '</div>'
+  );
+}
+
 /** 행사 핀 — 점 하나로는 카페 점과 구별이 안 돼(둘 다 작은 원, 게다가 500m 원이 주황이다)
  *  이름표를 붙인다. 점은 좌표 정확히 그 자리에, 이름표는 오른쪽에 매단다.
  *
@@ -345,7 +374,14 @@ export default function StoreLocationMap({
         // 4) 행사 마커 갱신
         eventMarkersRef.current.forEach((m) => m.setMap(null));
         eventMarkersRef.current = [];
-        nearbyEvents.forEach((e: any) => {
+        // 말풍선 안의 '자세히 보기'가 앱 시트를 부르는 통로. 이름을 onclick 문자열에 넣으면
+        // 따옴표가 섞인 행사명에서 깨지므로 목록 인덱스만 넘긴다.
+        (window as any).__brewMapEvt = (i: number) => {
+          const target = nearbyEvents[i] as any;
+          if (target?.name) onEventPress?.(target.name);
+        };
+
+        nearbyEvents.forEach((e: any, idx: number) => {
           if (!e.lat || !e.lon) return;
           const eventMarker = new naverObj.maps.Marker({
             position: new naverObj.maps.LatLng(e.lat, e.lon),
@@ -359,11 +395,22 @@ export default function StoreLocationMap({
           });
           eventMarkersRef.current.push(eventMarker);
 
-          // 말풍선 대신 앱 시트를 연다 — 기간·거리·예측 반영·대응 팁까지 제대로 읽히고,
-          // 거기서 바로 'AI 준비 플랜'으로 이어진다.
+          const eWindow = new naverObj.maps.InfoWindow({
+            content: eventInfoHtml(e, idx),
+            borderWidth: 1,
+            borderColor: 'rgba(226, 130, 87, 0.40)',
+            borderRadius: 14,
+            backgroundColor: '#FFFFFF',
+            anchorColor: '#FFFFFF',
+            anchorSize: new naverObj.maps.Size(12, 8),
+          });
+          openWindowsRef.current.push(eWindow);
+
+          // 누르면 가벼운 요약부터. 전체 시트는 말풍선의 '자세히 보기'로만 열린다.
           naverObj.maps.Event.addListener(eventMarker, 'click', () => {
+            const wasOpen = !!eWindow.getMap();
             openWindowsRef.current.forEach((w) => { if (w.getMap()) w.close(); });
-            onEventPress?.(e.name);
+            if (!wasOpen) eWindow.open(map, eventMarker);
           });
         });
       })

@@ -78,6 +78,8 @@ export type NearbyEvent = {
   lon?: number | null;
   // 오늘 열리는 중인지 — 지도 핀이 이것만 숨 쉬듯 강조한다
   ongoing?: boolean;
+  // 시작까지 남은 일수 — 지도 말풍선의 D-N 배지
+  d_day?: number;
 };
 
 export type HourlyForecast = {

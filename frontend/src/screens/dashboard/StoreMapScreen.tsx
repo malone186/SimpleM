@@ -344,13 +344,15 @@ export default function StoreMapScreen() {
         .map((e) => ({
           name: e.name,
           place: e.place || '장소 미상',
-          date: e.start_date === e.end_date ? e.start_date : `${e.start_date} ~ ${e.end_date}`,
+          // 지도 말풍선에 그대로 찍히는 값이라 여기서 사람이 읽는 형태로 만든다 (8/16(일))
+          date: formatEventRange(e.start_date, e.end_date),
           distance_km: e.distance_km ?? 0,
           boost_pct: e.boost_pct,
           source: e.source,
           lat: e.lat,
           lon: e.lon,
           ongoing: e.ongoing,
+          d_day: e.d_day,
         })),
     [events],
   );
