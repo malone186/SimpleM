@@ -14,6 +14,7 @@ Gemini에게 "이 행사들에 우리 카페가 뭘 준비해야 하나"를 한 
 키가 없거나 수집이 실패해도 화면은 뜬다 — 행사 0건, 조언 없음으로 내려간다.
 """
 
+import hashlib
 import logging
 import re
 import time
@@ -273,7 +274,12 @@ def analyze_nearby_events(lat: float, lon: float, store_name: str = "내 매장"
     if not events:
         return {**found, "insight": None}
 
-    cache_key = f"{round(lat, 3)},{round(lon, 3)}|{found['days']}|{found['today']}|{store_name}"
+    # 캐시 키에 '지금 목록에 든 행사'를 함께 넣는다. 위치·날짜만으로 잠그면 목록이 바뀐 뒤에도
+    # 옛 조언이 그대로 붙어 나온다 — 실제로 화면에 없는 행사를 두고 "8/5(수)가 붐빈다"고
+    # 말하는 일이 있었다(수집이 네이버 검색+AI라 호출마다 건수가 흔들린다).
+    fingerprint = "~".join(sorted(f"{_norm(e['name'])}:{e['start_date']}" for e in events))
+    cache_key = (f"{round(lat, 3)},{round(lon, 3)}|{found['days']}|{found['today']}|{store_name}"
+                 f"|{hashlib.md5(fingerprint.encode('utf-8')).hexdigest()[:12]}")
     hit = _insight_cache.get(cache_key)
     if hit and time.time() - hit[0] < _INSIGHT_TTL:
         return {**found, "events": _attach_tips(events, hit[1]), "insight": hit[1], "cached": True}
@@ -296,6 +302,11 @@ def analyze_nearby_events(lat: float, lon: float, store_name: str = "내 매장"
     )
     if not insight:
         return {**found, "insight": None}
+
+    # 키에 행사 지문이 들어가면서 매장당 키가 여러 개 생길 수 있다 — 오래된 것부터 버린다
+    if len(_insight_cache) > 500:
+        for stale in sorted(_insight_cache, key=lambda k: _insight_cache[k][0])[:100]:
+            _insight_cache.pop(stale, None)
 
     _insight_cache[cache_key] = (time.time(), insight)
     return {**found, "events": _attach_tips(events, insight), "insight": insight}

@@ -40,7 +40,8 @@ export function shortEventLabel(name: string, max = 26) {
 /** 지도 말풍선 속 카페 요약 — 행사 말풍선과 같은 결.
  *  '리뷰 분석 보기'는 진짜 버튼이다. 예전엔 그냥 글자여서 눌러도 아무 일도 안 났고,
  *  대신 핀을 누르는 순간 분석 시트가 저절로 함께 떠 있었다. */
-function cafeInfoHtml(cafe: NearbyCafe, index: number, pressable: boolean) {
+function cafeInfoHtml(cafe: NearbyCafe, index: number, pressable: boolean, mapId: string) {
+  const call = `window.__brewMap&&window.__brewMap['${mapId}']&&window.__brewMap['${mapId}'].cafe(${index})`;
   return (
     '<div style="padding:12px 13px 11px;min-width:164px;max-width:220px;' +
     'font-family:-apple-system,BlinkMacSystemFont,sans-serif;">' +
@@ -49,7 +50,7 @@ function cafeInfoHtml(cafe: NearbyCafe, index: number, pressable: boolean) {
     '<div style="font-size:10.5px;color:#8C7968;margin-top:5px;line-height:1.45">' +
     esc(cafe.category || '카페') + '<br/>내 매장에서 ' + (cafe.distance_m || 0) + 'm</div>' +
     (pressable
-      ? '<div onclick="window.__brewMapCafe&&window.__brewMapCafe(' + index + ')" ' +
+      ? '<div onclick="' + call + '" ' +
         'style="margin-top:10px;text-align:center;background:#7A6250;color:#FFF;font-size:10.5px;' +
         'font-weight:800;padding:8px;border-radius:10px;cursor:pointer;">리뷰 분석 보기 ›</div>'
       : '') +
@@ -60,9 +61,10 @@ function cafeInfoHtml(cafe: NearbyCafe, index: number, pressable: boolean) {
 /** 지도 말풍선 속 행사 요약 — 핀을 누르면 이만큼만 먼저 보여 준다.
  *  전체 시트를 바로 띄우면 "저게 뭐지?" 하고 한 번 눌러 본 것치고 너무 무겁다.
  *  여기서 언제·어디서·얼마나 가까운지까지 훑고, 더 볼 사람만 '자세히 보기'로 넘어간다. */
-function eventInfoHtml(e: any, index: number) {
+function eventInfoHtml(e: any, index: number, mapId: string) {
   const when = e.ongoing ? '오늘' : `D-${e.d_day ?? 0}`;
   const tone = e.ongoing ? '#C2410C' : '#E28257';
+  const call = `window.__brewMap&&window.__brewMap['${mapId}']&&window.__brewMap['${mapId}'].evt(${index})`;
   return (
     '<div style="padding:12px 13px 11px;min-width:172px;max-width:224px;' +
     'font-family:-apple-system,BlinkMacSystemFont,sans-serif;">' +
@@ -79,7 +81,7 @@ function eventInfoHtml(e: any, index: number) {
     'word-break:keep-all">' + esc(e.date) + '<br/>' + esc(e.place || '장소 미상') +
     (e.distance_km != null ? ' · ' + e.distance_km + 'km' : '') + '</div>' +
     // 더 볼 사람만 넘어간다 — 여기가 무거운 시트로 가는 유일한 문이다
-    '<div onclick="window.__brewMapEvt&&window.__brewMapEvt(' + index + ')" ' +
+    '<div onclick="' + call + '" ' +
     'style="margin-top:10px;text-align:center;background:' + tone + ';color:#FFF;font-size:10.5px;' +
     'font-weight:800;padding:8px;border-radius:10px;cursor:pointer;">자세히 보기 ›</div>' +
     '</div>'
@@ -160,6 +162,9 @@ export default function StoreLocationMap({
   const webviewRef = useRef<WebView>(null);
   const circlesRef = useRef<any[]>([]);
   const shopMarkerRef = useRef<any>(null);
+  const shopWindowRef = useRef<any>(null);
+  // 마지막으로 적용한 반경 — 반경이 그대로면 지도를 다시 매장으로 끌어오지 않는다
+  const appliedRadiusRef = useRef<number | null>(null);
   const eventMarkersRef = useRef<any[]>([]);
   const cafeMarkersRef = useRef<any[]>([]);
   const openWindowsRef = useRef<any[]>([]);
@@ -310,12 +315,15 @@ export default function StoreLocationMap({
             anchorSize: new naverObj.maps.Size(10, 10),
           });
 
+          // 내 매장 말풍선도 '열린 말풍선' 목록에 넣는다 — 빠져 있어서 매장 핀을 누른 뒤
+          // 카페 핀을 누르면 말풍선 두 개가 동시에 떠 있었다.
+          openWindowsRef.current.push(infoWindow);
+          shopWindowRef.current = infoWindow;
+
           naverObj.maps.Event.addListener(shopMarker, 'click', () => {
-            if (infoWindow.getMap()) {
-              infoWindow.close();
-            } else {
-              infoWindow.open(map, shopMarker);
-            }
+            const wasOpen = !!infoWindow.getMap();
+            openWindowsRef.current.forEach((w) => { if (w.getMap()) w.close(); });
+            if (!wasOpen) infoWindow.open(map, shopMarker);
           });
 
           naverObj.maps.Event.addListener(map, 'click', () => {
@@ -324,9 +332,11 @@ export default function StoreLocationMap({
             });
           });
         } else {
-          // 2) 지도가 이미 존재할 때: 부드러운 Zoom 모핑(morph) 적용!
+          // 2) 지도가 이미 존재할 때: 반경이 바뀐 경우에만 부드러운 Zoom 모핑(morph)
+          //    이 효과는 카페·행사 응답이 도착할 때마다 다시 돈다. 조건 없이 morph하면
+          //    사장님이 특정 골목을 확대해 보던 중에 지도가 매장으로 도로 끌려갔다.
           const map = mapRef.current;
-          if (map.getZoom() !== targetZoom) {
+          if (appliedRadiusRef.current !== radius && map.getZoom() !== targetZoom) {
             map.morph(centerLatLng, targetZoom, { duration: 400 });
           }
 
@@ -345,16 +355,30 @@ export default function StoreLocationMap({
         }
 
         const map = mapRef.current;
+        appliedRadiusRef.current = radius;
 
         // 3) 카페 마커 갱신
         cafeMarkersRef.current.forEach((m) => m.setMap(null));
         cafeMarkersRef.current = [];
-        openWindowsRef.current = [];
+        // 목록을 비우기 전에 먼저 닫는다. 그냥 비우면 열려 있던 말풍선이 지도에 남는데,
+        // 참조가 사라져 어떤 핸들러도 다시 못 닫는다 — 화면을 나갔다 와야 없어졌다.
+        // (이 효과는 행사 응답이 늦게 도착할 때 다시 도므로 실제로 일어난다)
+        openWindowsRef.current.forEach((w) => { if (w.getMap()) w.close(); });
+        openWindowsRef.current = shopWindowRef.current ? [shopWindowRef.current] : [];
 
-        // 말풍선 속 '리뷰 분석 보기'가 앱 시트를 부르는 통로 (행사 핀과 같은 방식)
-        (window as any).__brewMapCafe = (i: number) => {
-          const target = nearbyCafes[i];
-          if (target) onCafePress?.(target);
+        // 말풍선 버튼 → 앱 시트로 가는 통로. 지도가 한 페이지에 둘 이상 뜰 수 있어
+        // (프로필 화면에도 같은 컴포넌트가 있다) containerId로 칸을 나눈다 —
+        // 전역 하나만 쓰면 나중에 뜬 지도가 앞 지도의 버튼을 가로챈다.
+        const bridge = ((window as any).__brewMap = (window as any).__brewMap || {});
+        bridge[containerId] = {
+          cafe: (i: number) => {
+            const target = nearbyCafes[i];
+            if (target) onCafePress?.(target);
+          },
+          evt: (i: number) => {
+            const target = nearbyEvents[i] as any;
+            if (target?.name) onEventPress?.(target.name);
+          },
         };
 
         // [한글 주석: 주변 카페 마커 — 점 크기 9px + 명확한 시인성의 선명한 웜 브라운 #7A6250]
@@ -375,7 +399,7 @@ export default function StoreLocationMap({
           cafeMarkersRef.current.push(cafeMarker);
 
           const cWindow = new naverObj.maps.InfoWindow({
-            content: cafeInfoHtml(cafe, idx, !!onCafePress),
+            content: cafeInfoHtml(cafe, idx, !!onCafePress, containerId),
             borderWidth: 1,
             borderColor: 'rgba(140, 121, 104, 0.40)',
             borderRadius: 14,
@@ -397,13 +421,6 @@ export default function StoreLocationMap({
         // 4) 행사 마커 갱신
         eventMarkersRef.current.forEach((m) => m.setMap(null));
         eventMarkersRef.current = [];
-        // 말풍선 안의 '자세히 보기'가 앱 시트를 부르는 통로. 이름을 onclick 문자열에 넣으면
-        // 따옴표가 섞인 행사명에서 깨지므로 목록 인덱스만 넘긴다.
-        (window as any).__brewMapEvt = (i: number) => {
-          const target = nearbyEvents[i] as any;
-          if (target?.name) onEventPress?.(target.name);
-        };
-
         nearbyEvents.forEach((e: any, idx: number) => {
           if (!e.lat || !e.lon) return;
           const eventMarker = new naverObj.maps.Marker({
@@ -419,7 +436,7 @@ export default function StoreLocationMap({
           eventMarkersRef.current.push(eventMarker);
 
           const eWindow = new naverObj.maps.InfoWindow({
-            content: eventInfoHtml(e, idx),
+            content: eventInfoHtml(e, idx, containerId),
             borderWidth: 1,
             borderColor: 'rgba(226, 130, 87, 0.40)',
             borderRadius: 14,
@@ -449,6 +466,15 @@ export default function StoreLocationMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lat, lon, regionName, shopLabel, radius, serializedEvents, serializedCafes, containerId]);
 
+  // 화면을 떠나면 말풍선 버튼의 통로도 걷는다 (전역에 남겨 두면 죽은 콜백이 쌓인다)
+  useEffect(
+    () => () => {
+      const bridge = (window as any)?.__brewMap;
+      if (bridge) delete bridge[containerId];
+    },
+    [containerId],
+  );
+
   if (Platform.OS !== 'web') {
     return (
       <View style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
@@ -467,8 +493,12 @@ export default function StoreLocationMap({
           onMessage={(event) => {
             try {
               const msg = JSON.parse(event.nativeEvent.data);
-              if (msg?.type === 'cafe' && msg.name) {
-                const hit = nearbyCafes.find((c) => c.name === msg.name);
+              if (msg?.type === 'cafe') {
+                // 인덱스를 먼저 쓴다 — 이름으로 찾으면 '메가커피'가 반경 안에 둘일 때
+                // 먼 쪽 핀을 눌러도 가까운 쪽이 열린다 (웹은 이미 인덱스를 쓴다)
+                const hit = typeof msg.index === 'number'
+                  ? nearbyCafes[msg.index]
+                  : nearbyCafes.find((c) => c.name === msg.name);
                 if (hit) onCafePress?.(hit);
               }
               if (msg?.type === 'event' && msg.name) onEventPress?.(String(msg.name));

@@ -237,10 +237,13 @@ function initNaver() {
         '</div>';
     }
 
+    // 인덱스를 함께 보낸다 — 이름만 보내면 같은 상호가 반경 안에 둘일 때 앱이 엉뚱한
+    // 쪽(먼저 나오는 지점)을 연다
     window.__brewMapCafe = function (i) {
       var target = D.cafes[i];
       if (target && target.name && window.ReactNativeWebView) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'cafe', name: target.name }));
+        window.ReactNativeWebView.postMessage(
+          JSON.stringify({ type: 'cafe', name: target.name, index: i }));
       }
     };
 

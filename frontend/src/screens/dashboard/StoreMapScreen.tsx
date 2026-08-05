@@ -107,6 +107,19 @@ export default function StoreMapScreen() {
   const [plan, setPlan] = useState<EventPlan | null>(null);
   const [planError, setPlanError] = useState('');
 
+  // 요청 순번 — 이 화면의 조회는 죄다 네이버 수집·Gemini라 몇 초씩 걸린다. 그동안 사장님이
+  // 다른 카페를 누르거나 반경을 바꾸면 늦게 도착한 옛 응답이 새 화면을 덮어썼다.
+  // (실제로 카페 A의 '우리 대응'이 카페 B 이름 아래 붙는다 — 잘못된 경쟁 분석을 보고 움직이게 된다.)
+  // 각 조회는 자기 순번을 들고 나갔다가, 돌아왔을 때 그 사이 더 최근 요청이 나갔으면 조용히 버린다.
+  const seq = useRef({ nearby: 0, cafe: 0, plan: 0, changes: 0, events: 0, myCafe: 0 });
+  const alive = useRef(true);
+  useEffect(() => {
+    // 마운트마다 되살린다. 정리 함수만 두면 StrictMode·Fast Refresh가 한 번 정리한 뒤로
+    // alive가 영영 false로 남아 모든 응답이 버려진다(스피너가 끝나지 않는다).
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
+
   // '주변 소식' 바로가기 — 지도 아래로 카드가 길게 이어져 행사·변화 섹션이 접힌 화면 밖에 있다.
   // 알림으로만 보던 두 가지를 화면 맨 위에서 곧장 찾아갈 수 있게 스크롤 위치를 기억해 둔다.
   const scrollRef = useRef<ScrollView | null>(null);
@@ -171,10 +184,14 @@ export default function StoreMapScreen() {
   const loadNearby = useCallback(
     async (radiusM: number) => {
       if (!token || !store) return;
+      const my = ++seq.current.nearby;
       setLoadingNearby(true);
       setNearbyError('');
+      // 반경을 바꾸면 옛 배지가 잠깐 남아 새 목록에 엉뚱하게 붙는다 — 먼저 비운다
+      setSimMap({});
       try {
         const data = await getNeighborhoodInsight(token, radiusM);
+        if (seq.current.nearby !== my || !alive.current) return; // 더 최근 반경 요청이 있다
         setNearby(data);
         // 유사도 채점은 뒤이어 비동기로 — 배지가 준비되는 대로 목록에 나타난다
         if (data.cafes.length > 0) {
@@ -184,19 +201,22 @@ export default function StoreMapScreen() {
             data.cafes.map((c) => ({ name: c.name, category: c.category, distance_m: c.distance_m })),
           )
             .then((sim) => {
+              if (seq.current.nearby !== my || !alive.current) return;
               const map: Record<string, CafeSimilarity> = {};
               sim.results.forEach((r) => { map[r.name] = r; });
               setSimMap(map);
             })
-            .catch(() => setSimMap({})); // 채점 실패해도 목록은 그대로 (배지만 생략)
-        } else {
-          setSimMap({});
+            .catch(() => { // 채점 실패해도 목록은 그대로 (배지만 생략)
+              if (seq.current.nearby === my && alive.current) setSimMap({});
+            });
         }
       } catch (e) {
+        if (seq.current.nearby !== my || !alive.current) return;
         const msg = e instanceof Error ? e.message : String(e);
         setNearbyError(msg.replace(/^\d+\s·\s/, ''));
       } finally {
-        setLoadingNearby(false);
+        // 늦게 온 옛 응답이 새 요청의 로딩 표시를 꺼 버리지 않게
+        if (seq.current.nearby === my && alive.current) setLoadingNearby(false);
       }
     },
     [token, store],
@@ -212,14 +232,18 @@ export default function StoreMapScreen() {
   // 2-b) 주변 행사 — 반경 칩과 무관하게 한 번만. 카페 조회와 병렬로 돈다.
   const loadEvents = useCallback(async () => {
     if (!token || !store) return;
+    const my = ++seq.current.events;
     setLoadingEvents(true);
     setEventsError(null);
     try {
-      setEvents(await getNearbyEvents(token, EVENT_DAYS));
+      const data = await getNearbyEvents(token, EVENT_DAYS);
+      if (seq.current.events !== my || !alive.current) return;
+      setEvents(data);
     } catch (e) {
+      if (seq.current.events !== my || !alive.current) return;
       setEventsError(describeApiFailure(e, '주변 행사'));
     } finally {
-      setLoadingEvents(false);
+      if (seq.current.events === my && alive.current) setLoadingEvents(false);
     }
   }, [token, store]);
 
@@ -232,15 +256,22 @@ export default function StoreMapScreen() {
   const loadChanges = useCallback(
     async (days: number, refresh = false) => {
       if (!token || !store) return;
+      const my = ++seq.current.changes;
       if (refresh) setRescanning(true);
       else setChangesLoading(true);
       try {
-        setChanges(await getNearbyCafeChanges(token, days, refresh));
+        const data = await getNearbyCafeChanges(token, days, refresh);
+        // '지금 확인'은 서버가 반경을 훑는 몇 초짜리다. 그 사이 기간 칩을 바꾸면
+        // 늦게 온 30일 결과가 90일 화면을 덮어썼다 — 칩과 목록이 어긋난다.
+        if (seq.current.changes !== my || !alive.current) return;
+        setChanges(data);
       } catch {
         // 조용히 — 카드는 '아직 확인 전' 상태로 남는다
       } finally {
-        setRescanning(false);
-        setChangesLoading(false);
+        if (seq.current.changes === my && alive.current) {
+          setRescanning(false);
+          setChangesLoading(false);
+        }
       }
     },
     [token, store],
@@ -262,14 +293,22 @@ export default function StoreMapScreen() {
   // 행사 카드 → AI 이벤트·준비 플랜 (Gemini 1회, 서버에서 12시간 캐시)
   const openPlan = useCallback(
     async (event: NearbyEventItem) => {
+      const my = ++seq.current.plan;
       setPlanEvent(event);
       setPlan(null);
+      // 토큰이 없으면 시트를 열지 않는다 — 열어 두면 영영 도는 스피너만 남는다
+      if (!token) {
+        setPlanError('로그인이 풀렸어요. 다시 로그인한 뒤 열어 주세요.');
+        return;
+      }
       setPlanError('');
-      if (!token) return;
       try {
         const res = await getEventPlan(token, event);
+        // 다른 행사를 여는 사이 옛 응답이 도착하면 버린다 — 안 그러면 B 제목 아래 A의 플랜이 붙는다
+        if (seq.current.plan !== my || !alive.current) return;
         setPlan(res.plan);
       } catch (e) {
+        if (seq.current.plan !== my || !alive.current) return;
         const msg = e instanceof Error ? e.message : String(e);
         setPlanError(msg.replace(/^\d+\s·\s/, ''));
       }
@@ -280,15 +319,19 @@ export default function StoreMapScreen() {
   // 2-c) 내 카페 리뷰 — 상호만 있으면 조회된다(매장 위치 등록과 무관). 한 번만 부른다.
   const loadMyCafe = useCallback(async () => {
     if (!token) return;
+    const my = ++seq.current.myCafe;
     setLoadingMyCafe(true);
     setMyCafeError('');
     try {
-      setMyCafe(await getMyCafeReviews(token));
+      const data = await getMyCafeReviews(token);
+      if (seq.current.myCafe !== my || !alive.current) return;
+      setMyCafe(data);
     } catch (e) {
+      if (seq.current.myCafe !== my || !alive.current) return;
       const msg = e instanceof Error ? e.message : String(e);
       setMyCafeError(msg.replace(/^\d+\s·\s/, ''));
     } finally {
-      setLoadingMyCafe(false);
+      if (seq.current.myCafe === my && alive.current) setLoadingMyCafe(false);
     }
   }, [token]);
 
@@ -336,6 +379,13 @@ export default function StoreMapScreen() {
   // 지도 마커용 변환 — 지도는 '행사 한 건 = 핀 하나'로 날짜 문자열만 보여 주면 된다.
   // (좌표를 못 구한 행사는 핀을 찍을 수 없으니 목록에만 남긴다.)
   // 훅 순서를 지키기 위해 매장 미등록 early return보다 위에 둔다.
+  // 좌표가 있어 핀을 찍을 수 있는 행사 수 — 범례의 '위치를 못 찾은 N건'이 이 값을 쓴다.
+  // (mapEvents는 15건에서 잘리므로, 그 차이를 '좌표 없음'이라고 말하면 거짓말이 된다)
+  const geoEventCount = useMemo(
+    () => (events?.events ?? []).filter((e) => !!e.lat && !!e.lon).length,
+    [events],
+  );
+
   const mapEvents = useMemo(
     () =>
       (events?.events ?? [])
@@ -360,14 +410,23 @@ export default function StoreMapScreen() {
   // 3) 카페 하나를 고르면 그 집의 네이버 후기 분석을 불러온다
   const openCafe = useCallback(
     async (cafe: NearbyCafe) => {
+      const my = ++seq.current.cafe;
       setSelected(cafe);
       setAnalysis(null);
-      setAnalysisError('');
       setReviewsOpen(false); // 다른 카페를 열 때마다 후기는 다시 접힌 상태로
-      if (!token) return;
+      if (!token) {
+        setAnalysisError('로그인이 풀렸어요. 다시 로그인한 뒤 열어 주세요.');
+        return;
+      }
+      setAnalysisError('');
       try {
-        setAnalysis(await getCafeAnalysis(token, cafe, nearby?.region ?? ''));
+        const data = await getCafeAnalysis(token, cafe, nearby?.region ?? '');
+        // 후기 수집 + AI 분석이라 몇 초 걸린다. 그 사이 다른 카페를 열었으면 버린다 —
+        // 안 그러면 B의 이름·거리 아래에 A의 강점/약점·'우리 대응'이 붙는다.
+        if (seq.current.cafe !== my || !alive.current) return;
+        setAnalysis(data);
       } catch (e) {
+        if (seq.current.cafe !== my || !alive.current) return;
         const msg = e instanceof Error ? e.message : String(e);
         setAnalysisError(msg.replace(/^\d+\s·\s/, ''));
       }
@@ -382,7 +441,15 @@ export default function StoreMapScreen() {
       await saveStoreLocation(token, { lat: picked.lat, lon: picked.lon, address: picked.address });
       await cacheRegisteredStore({ lat: picked.lat, lon: picked.lon, region: picked.address });
       setStore({ lat: picked.lat, lon: picked.lon, region: picked.address, registered: true });
+      // 매장을 옮기면 이전 동네의 결과는 전부 버린다 — 유사도 배지가 이름만 보고 새 동네
+      // 카페에 다시 붙거나, 펼쳐 둔 목록이 그대로 남아 새 동네를 다 본 것처럼 보였다
       setNearby(null);
+      setSimMap({});
+      setEvents(null);
+      setChanges(null);
+      setShowAllCafes(false);
+      setShowAllEvents(false);
+      setDetailOpen(false);
       setPickerOpen(false);
     } catch (e) {
       console.error('매장 위치 저장 실패:', e);
@@ -488,9 +555,9 @@ export default function StoreMapScreen() {
               <View style={[styles.legendDot, styles.legendDotEvent]} />
               <Text style={styles.legendText}>🎪 행사 {mapEvents.length}</Text>
             </View>
-            {eventList.length > mapEvents.length && (
+            {eventList.length > geoEventCount && (
               <Text style={styles.legendNote}>
-                (위치를 못 찾은 행사 {eventList.length - mapEvents.length}건은 아래 목록에만)
+                (위치를 못 찾은 행사 {eventList.length - geoEventCount}건은 아래 목록에만)
               </Text>
             )}
           </View>
@@ -607,9 +674,11 @@ export default function StoreMapScreen() {
                       />
                     </TouchableOpacity>
                     {myReviewsOpen &&
-                      myCafe.reviews.map((r) => (
+                      // 링크가 빈 후기가 섞여 있어 key={r.link}면 키가 겹친다 — 접었다 펴면
+                      // 제목 아래 엉뚱한 발췌가 붙거나 줄이 사라졌다
+                      myCafe.reviews.map((r, ri) => (
                         <TouchableOpacity
-                          key={r.link}
+                          key={`my-review-${ri}-${r.link || r.title}`}
                           style={styles.reviewItem}
                           onPress={() => r.link && Linking.openURL(r.link)}
                         >
@@ -1131,9 +1200,9 @@ export default function StoreMapScreen() {
                         />
                       </TouchableOpacity>
                       {reviewsOpen &&
-                        analysis.reviews.map((r) => (
+                        analysis.reviews.map((r, ri) => (
                           <TouchableOpacity
-                            key={r.link}
+                            key={`cafe-review-${ri}-${r.link || r.title}`}
                             style={styles.reviewItem}
                             onPress={() => r.link && Linking.openURL(r.link)}
                           >
@@ -1460,12 +1529,19 @@ function formatWatchDay(iso: string) {
 }
 
 function formatEventRange(start: string, end: string) {
+  // 날짜가 비어 오면 "undefined/undefined(월)"이 그대로 화면에 찍혔다 —
+  // 행사 카드·상세·플랜 제목·지도 말풍선 네 곳에서. 값이 없으면 없다고 말한다.
   const label = (iso: string) => {
-    const [y, m, d] = iso.split('-').map(Number);
-    const weekday = WEEKDAYS[new Date(y, (m ?? 1) - 1, d ?? 1).getDay()] ?? '';
+    const [y, m, d] = (iso || '').split('-').map(Number);
+    if (!y || !m || !d) return '';
+    const weekday = WEEKDAYS[new Date(y, m - 1, d).getDay()] ?? '';
     return `${m}/${d}(${weekday})`;
   };
-  return start === end ? label(start) : `${label(start)} ~ ${label(end)}`;
+  const s = label(start);
+  const e = label(end);
+  if (!s && !e) return '날짜 미정';
+  if (!s || !e || s === e) return s || e;
+  return `${s} ~ ${e}`;
 }
 
 // 한눈 요약 숫자 한 칸 (주변 카페 수 · 최근접 거리 · 경쟁 강도)
