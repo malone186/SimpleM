@@ -39,6 +39,11 @@ try:
     from app.models.operation import ensure_employee_store_column
     ensure_employee_store_column(engine)
 
+    # [자가치유] menus에 (store_id, name) 유니크 제약을 보강한다.
+    # 없으면 메뉴판을 두 기기에서 동시에 올릴 때 같은 메뉴가 두 번 등록된다.
+    from app.models.inventory import ensure_menu_unique_constraint
+    ensure_menu_unique_constraint(engine)
+
     # [자가치유] 기존 ocr_documents 테이블에 store_id 컬럼이 없으면 보강한다 (매장별 OCR 조회용).
     from app.models.ai import ensure_ocr_store_column
     ensure_ocr_store_column(engine)

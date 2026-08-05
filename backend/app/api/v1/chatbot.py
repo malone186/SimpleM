@@ -63,6 +63,7 @@ from app.services.ai import (
     forecast_service,
     insight_service,
     marketing_service,
+    menu_ocr_service,
     nearby_cafe_service,
     nearby_event_service,
     nearby_watch_service,
@@ -173,6 +174,47 @@ async def analyze_document(
     except ocr_service.OcrError as e:
         raise HTTPException(502, str(e))
     return _to_response(draft)
+
+
+@router.post("/ocr/menu-board")
+async def analyze_menu_board(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """메뉴판 사진 → 메뉴·가격·표준 레시피 초안. 아직 아무것도 저장하지 않는다.
+
+    원가를 보려면 메뉴와 레시피가 있어야 하는데 손으로 넣으면 30분이 든다.
+    메뉴판은 어느 매장에나 붙어 있으니 찍기만 하면 되게 했다.
+    반환된 초안을 화면에서 확인·수정한 뒤 /ocr/menu-board/confirm 으로 확정한다.
+    """
+    content_type = _resolve_content_type(file)
+    image_bytes = await file.read()
+    if len(image_bytes) > MAX_IMAGE_BYTES:
+        raise HTTPException(413, "파일이 15MB를 초과합니다")
+    if not image_bytes:
+        raise HTTPException(400, "빈 파일입니다")
+    try:
+        return await menu_ocr_service.analyze_menu_board(
+            db, current_user.email, image_bytes, mime_type=content_type)
+    except menu_ocr_service.MenuOcrError as e:
+        raise HTTPException(502, str(e))
+
+
+@router.post("/ocr/menu-board/confirm")
+async def confirm_menu_board(
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """확인·수정을 마친 메뉴를 실제로 등록한다 (사람 승인 없이는 저장하지 않는다).
+
+    body: {"menus": [{"name","price","recipes":[{"ingredient_id","quantity"}]}]}
+    """
+    menus = body.get("menus")
+    if not isinstance(menus, list) or not menus:
+        raise HTTPException(400, "등록할 메뉴가 없습니다")
+    return menu_ocr_service.confirm_menu_board(db, current_user.email, menus)
 
 
 @router.get("/ocr/documents", response_model=list[OcrDocumentResponse])

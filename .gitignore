@@ -4,6 +4,10 @@ __pycache__/
 .venv/
 venv/
 .env
+# .env를 손볼 때 만들어지는 사본들(.env.bak, .env.local …)도 키가 그대로 들어 있다.
+# '.env'만 막아 두면 이런 파일이 그대로 올라간다.
+.env.*
+!.env.example
 *.sqlite3
 .pytest_cache/
 .mypy_cache/

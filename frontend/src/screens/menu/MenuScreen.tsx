@@ -12,6 +12,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { useTranslation } from '../../i18n/translations';
 import { PressableScale } from '../../components/motion';
 import FormSheet, { LabeledInput } from '../../components/FormSheet';
+import MenuBoardScan from '../../components/menu/MenuBoardScan';
 import { Badge, Button, Card, Divider, Screen, ScreenTitle } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
 import { colors, typography } from '../../theme';
@@ -572,6 +573,10 @@ export default function MenuScreen() {
             setOpen(null);
           }}
         />
+
+        {/* 메뉴판 사진으로 일괄 등록 — 메뉴 탭에서만.
+            한 개씩 손으로 넣기 전에 이 방법이 있다는 걸 먼저 보여준다 */}
+        {!isDessertTab && <MenuBoardScan onDone={fetchData} />}
 
         <Button label={addLabel} variant="secondary" onPress={() => setAdding(true)} />
 

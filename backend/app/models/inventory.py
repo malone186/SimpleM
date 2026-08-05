@@ -1,5 +1,5 @@
 # c:\STUDY\SimpleM\backend\app\models\inventory.py
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Float, Boolean, Numeric
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Float, Boolean, Numeric, UniqueConstraint
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -48,6 +48,11 @@ class IngredientPriceHistory(Base):
 class Menu(Base):
     """카페에서 판매하는 메뉴(상품) 정보 테이블 모델"""
     __tablename__ = "menus"
+    # 한 매장에 같은 이름의 메뉴는 하나뿐이다.
+    # 코드에서 '있는지 확인 → 없으면 넣기'로 막고 있었는데, 그 두 단계 사이에 다른 요청이
+    # 끼어들면 둘 다 '없다'고 판단해 같은 메뉴가 두 번 들어간다(메뉴판을 두 기기에서
+    # 동시에 올리는 경우). 확인이 아니라 DB가 막아야 틈이 없다.
+    __table_args__ = (UniqueConstraint("store_id", "name", name="uq_menu_store_name"),)
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)                        # 메뉴명 (예: 아이스 아메리카노)
@@ -165,3 +170,50 @@ class OrderItem(Base):
     order = relationship("Order", back_populates="items")
     # [한글 주석] 이 발주 항목에 기재된 식자재(Ingredient) 정보를 즉시 매핑해서 가져올 수 있게 릴레이션십 관계선을 구축합니다.
     ingredient = relationship("Ingredient")
+
+
+def ensure_menu_unique_constraint(engine) -> None:
+    """[자가치유 스키마] menus에 (store_id, name) 유니크 제약을 보강한다.
+
+    없으면 같은 메뉴가 두 번 등록될 수 있다. 코드에서 '있는지 확인 → 없으면 넣기'로
+    막고 있었지만, 그 두 단계 사이에 다른 요청이 끼어들면 둘 다 '없다'고 판단한다
+    (메뉴판을 두 기기에서 동시에 올리는 경우). 확인이 아니라 DB가 막아야 틈이 없다.
+
+    create_all은 기존 테이블에 제약을 추가하지 않으므로 기동 시 여기서 보강한다.
+    이미 중복 데이터가 있으면 제약 추가가 실패하는데, 그때는 경고만 남기고 넘어간다 —
+    서버가 못 뜨는 것보다 낫고, 로그를 보고 중복을 정리한 뒤 다시 뜨면 걸린다.
+
+    ※ menus는 백엔드 A 담당 테이블이다. 이 보강은 팀에 공유할 것.
+    """
+    import logging
+
+    from sqlalchemy import inspect, text
+
+    log = logging.getLogger(__name__)
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("menus"):
+            return
+        names = {u.get("name") for u in insp.get_unique_constraints("menus")}
+        if "uq_menu_store_name" in names:
+            return
+    except Exception as e:
+        log.warning("[메뉴 스키마] menus 점검 실패 — 건너뜁니다: %s", e)
+        return
+
+    # SQLite는 기존 테이블에 제약을 붙일 수 없다(테이블 재작성이 필요).
+    # 운영 DB는 Postgres이고, 로컬 SQLite는 create_all로 처음부터 제약을 갖고 만들어진다.
+    if engine.dialect.name == "sqlite":
+        return
+
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE menus ADD CONSTRAINT uq_menu_store_name UNIQUE (store_id, name)"
+            ))
+        log.info("[메뉴 스키마] menus에 (store_id, name) 유니크 제약을 추가했습니다")
+    except Exception as e:
+        log.warning(
+            "[메뉴 스키마] 유니크 제약 추가 실패 — 같은 매장에 이름이 같은 메뉴가 "
+            "이미 있는지 확인하세요: %s", e
+        )
