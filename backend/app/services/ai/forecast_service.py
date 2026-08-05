@@ -1270,6 +1270,8 @@ def _order_recommendations(db, store_id: str, week_cups: float) -> list[dict[str
             continue  # 금주 소요 + 안전재고를 지금 재고로 감당 가능
         suggested = round(shortage, 1)
         recs.append({
+            # 알림을 눌렀을 때 그 재료 화면으로 보내려면 이름만으로는 부족하다 (동명이인 재료·검색 실패)
+            "ingredient_id": ing_id,
             "ingredient": ing.name,
             "unit": ing.unit,
             "current_quantity": current,
