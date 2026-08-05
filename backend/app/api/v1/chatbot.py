@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -1189,14 +1189,23 @@ def restyle_marketing_image(
 
 
 @router.get("/marketing/images/{filename}")
-def get_marketing_image(filename: str) -> FileResponse:
+def get_marketing_image(filename: str):
     """생성된 홍보 이미지 서빙 — 파일명이 12자리 랜덤 hex라 URL 추측이 사실상 불가능하고,
-    홍보 이미지는 어차피 공개가 목적이라 인증 없이 서빙한다 (앱 <Image>가 헤더 없이 로드)."""
+    홍보 이미지는 어차피 공개가 목적이라 인증 없이 서빙한다 (앱 <Image>가 헤더 없이 로드).
+
+    GCS를 쓰기 시작한 뒤로 새 이미지는 버킷 공개 URL을 직접 받으므로 이 경로로 오지
+    않는다. 다만 예전에 만들어 문서에 상대 경로로 저장된 이미지가 있어, 로컬에 없으면
+    버킷으로 리다이렉트해 옛 홍보물도 계속 보이게 한다.
+    """
     try:
         path = marketing_service.image_file(filename)
     except marketing_service.MarketingError as e:
         raise HTTPException(404, str(e))
-    return FileResponse(path, headers={"Cache-Control": "public, max-age=86400"})
+    if path.is_file():
+        return FileResponse(path, headers={"Cache-Control": "public, max-age=86400"})
+    if marketing_service._gcs_bucket() is not None:
+        return RedirectResponse(marketing_service.image_url(filename), status_code=302)
+    raise HTTPException(404, "이미지를 찾을 수 없습니다")
 
 
 # ---------------------------------------------------------------------------

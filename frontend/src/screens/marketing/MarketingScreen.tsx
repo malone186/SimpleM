@@ -204,8 +204,12 @@ export default function MarketingScreen() {
       return;
     }
     const picked = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.92,
+      mediaTypes: ['images'],
+      // 최신 폰 사진은 원본이 4~8MB라 업로드만 수십 초 걸린다(실측 체감 지연 37초의
+      // 큰 축). 서버가 어차피 1280px로 줄여 누끼를 따므로 0.6으로 재압축해 올린다 —
+      // 합성 결과 화질은 눈에 띄게 달라지지 않는다. (expo-image-picker에는 해상도
+      // 축소 옵션이 없고, expo-image-manipulator는 네이티브 모듈이라 OTA가 끊긴다)
+      quality: 0.6,
     });
     if (picked.canceled || !picked.assets?.length) return;
     const a = picked.assets[0];

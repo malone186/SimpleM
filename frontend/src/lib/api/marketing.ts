@@ -37,7 +37,7 @@ export type PromotionImage = {
   mime_type: string;
   aspect_ratio: string;
   style: string;
-  provider?: 'gemini' | 'pollinations'; // pollinations = 무료 생성
+  provider?: 'gemini' | 'hf' | 'pollinations'; // hf·pollinations = 무료 생성
   // --- 아래는 슬로건 합성이 들어간 뒤 생긴 필드 (옛 이미지에는 없다)
   raw_filename?: string;
   raw_url?: string; // 글자 없는 원본 — overlay가 none이면 url과 같다

@@ -11,7 +11,8 @@
      4단계 파이프라인으로 '팔리는 홍보물'을 만든다:
        ① 프롬프트 정교화 — 무료 텍스트 모델이 짧은 아이디어를 구도·조명·렌즈·색감까지
           지정된 영어 아트 디렉션으로 확장한다 (_refine_image_prompt).
-       ② 이미지 생성 — Gemini(유료 키) → Pollinations(무료) 자동 폴백. 글자는 넣지 않는다.
+       ② 이미지 생성 — 여러 공급자를 순서대로 시도한다 (_generate_image_bytes).
+          글자는 넣지 않는다.
        ③ 마감 보정 — 언샤프 마스크·미세 채도/대비로 화면에서 또렷하게 (_polish).
        ④ 한글 슬로건 합성 — Pillow로 그라데이션 스크림 + 슬로건/보조문구/상호를 얹는다
           (_compose_overlay). 모델이 한글을 못 그리는 문제를 우회하면서, 오히려
@@ -25,13 +26,22 @@
 없는 메뉴·지어낸 수상 경력·근거 없는 '전국 1위' 류 문구는 만들지 않는다.
 
 필요 키 (backend/.env):
-  GEMINI_API_KEY — 문구·이미지 모두 여기 하나로 (팀 공유 키, 쿼터 주의)
-  이미지 경로: Gemini 이미지 모델은 무료 티어 한도가 0이라(실측 2026-07-31, 전 계열
-  limit: 0) 유료 키가 없으면 실패한다 → 그 경우 Pollinations.ai(키 불필요, 무료,
-  FLUX 기반)로 자동 폴백해 이미지 생성은 항상 동작한다.
+  GEMINI_API_KEY — 문구 생성용 (팀 공유 무료 키, 쿼터 주의)
+
+이미지 생성 공급자 (순서대로 시도, 하나라도 되면 성공):
+  1) gemini      — 최고 품질이지만 무료 티어 한도가 0이라(실측 2026-07-31/08-05,
+                   전 계열 limit: 0) 유료 키(MARKETING_IMAGE_API_KEY)가 있을 때만 동작.
+                   한도 0으로 막히면 1시간 동안 이 공급자를 건너뛴다(왕복 낭비 방지).
+  2) hf          — HuggingFace 공개 Space(FLUX.1-schnell 등)를 키 없이 호출. 무료이고
+                   품질도 충분하지만 Space별 GPU 쿼터가 있어 여러 곳을 차례로 시도한다.
+                   HF_TOKEN을 넣으면 쿼터가 넉넉해진다.
+  3) pollinations — 예전 무료 폴백. 2026-08-05 실측으로 익명 호출이 잔액(pollen) 요구로
+                   막혔다 → POLLINATIONS_TOKEN이 있을 때만 시도한다.
+  MARKETING_IMAGE_PROVIDERS 로 순서·사용 여부를 바꾼다 (기본 "gemini,hf,pollinations").
 모델 교체 (env):
   MARKETING_GEMINI_MODEL — 문구 생성 (기본: GEMINI_MODEL과 동일)
   MARKETING_IMAGE_MODEL  — 이미지 생성 (기본: gemini-2.5-flash-image)
+  MARKETING_IMAGE_API_KEY — 이미지 전용 유료 키 (없으면 GEMINI_API_KEY를 쓴다)
 한글 폰트 (슬로건 합성용):
   MARKETING_FONT_BOLD / MARKETING_FONT_REGULAR — 없으면 시스템 한글 폰트를 자동 탐색
   (리눅스 나눔고딕·노토, 윈도우 맑은고딕, macOS 애플고딕). 하나도 없으면 슬로건 합성만
@@ -56,11 +66,28 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "") or os.getenv("GOOGLE_API_KEY", 
 COPY_MODEL = os.getenv("MARKETING_GEMINI_MODEL", "") or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 # 이미지 생성은 전용 모델만 가능하다 — 텍스트 모델에 responseModalities=IMAGE를 줘도 400이 난다
 IMAGE_MODEL = os.getenv("MARKETING_IMAGE_MODEL", "gemini-2.5-flash-image")
+# 이미지 전용 키 — 유료 키를 문구용 무료 키와 분리해 둘 수 있다 (없으면 GEMINI_API_KEY)
+IMAGE_API_KEY = os.getenv("MARKETING_IMAGE_API_KEY", "")
+IMAGE_PROVIDERS = [p.strip() for p in
+                   os.getenv("MARKETING_IMAGE_PROVIDERS", "gemini,hf,pollinations").split(",")
+                   if p.strip()]
 
 UPLOAD_DIR = Path(os.getenv("MARKETING_UPLOAD_DIR",
                             Path(__file__).resolve().parents[3] / "uploads" / "marketing"))
 # 챗봇 라우터(/api/v1/chatbot)의 이미지 서빙 엔드포인트와 짝 — 여기 바꾸면 chatbot.py도 같이
 IMAGE_URL_PREFIX = "/api/v1/chatbot/marketing/images"
+
+# 영구 보관용 GCS 버킷 — 비우면 예전처럼 로컬 디스크만 쓴다(로컬 개발 기본값).
+#
+# [왜 필요한가] Cloud Run의 파일시스템은 인스턴스 메모리 위의 임시 공간이다. 배포할
+# 때마다, 그리고 인스턴스가 늘거나 재생성될 때마다 uploads/marketing이 통째로 사라져
+# 사장님 보관함의 홍보 이미지가 전부 깨진다(문서에는 URL이 남아 있는데 파일이 없음).
+# 인스턴스가 2개 이상이면 A에서 만든 이미지를 B가 서빙하다 404가 나기도 한다.
+#
+# [비용] 버킷을 us-central1에 두면 GCP 상시 무료 한도(월 5GB 저장·쓰기 5천·읽기 5만·
+# 북미발 전송 100GB)에 들어가 사실상 0원이다. 장당 0.5MB 기준 1만 장까지 무료.
+GCS_BUCKET = os.getenv("MARKETING_GCS_BUCKET", "")
+GCS_PREFIX = os.getenv("MARKETING_GCS_PREFIX", "marketing")
 
 COPY_TIMEOUT = float(os.getenv("MARKETING_COPY_TIMEOUT", "30"))
 IMAGE_TIMEOUT = float(os.getenv("MARKETING_IMAGE_TIMEOUT", "90"))
@@ -86,6 +113,14 @@ class MarketingError(RuntimeError):
     """홍보 콘텐츠 생성 실패 (키 미설정·쿼터 소진·이미지 생성 실패)"""
 
 
+class _FreeTierZero(MarketingError):
+    """이 키의 요금제에 해당 모델 한도가 아예 없다(limit: 0) — 기다려도 안 풀린다."""
+
+
+class ImageCapacityError(MarketingError):
+    """이미지 생성 공급자가 전부 한도에 걸렸다 — 서버 고장이 아니라 '지금은 불가'."""
+
+
 def _thinking_config(model: str) -> Optional[dict[str, Any]]:
     """모델 세대별 thinking 설정 — 2.5 계열은 기본 thinking이 출력 예산을 잠식한다."""
     if model.startswith("gemini-2.5") and "image" not in model:
@@ -95,13 +130,16 @@ def _thinking_config(model: str) -> Optional[dict[str, Any]]:
     return None
 
 
-def _gemini_call(model: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+def _gemini_call(model: str, payload: dict[str, Any], timeout: float,
+                 api_key: str = "") -> dict[str, Any]:
     """Gemini generateContent 공통 호출 — 5xx는 재시도, 429는 쿼터 안내로 즉시 실패.
 
     쿼터(429)는 팀 공유 무료 키라 재시도로 안 풀리는 경우가 대부분이다 — 짧게 한 번만
     더 시도하고, 사장님이 이해할 수 있는 문구로 실패를 알린다.
+    api_key: 비우면 공용 GEMINI_API_KEY (이미지처럼 유료 키를 따로 쓸 때만 넘긴다)
     """
-    key = GEMINI_API_KEY or os.getenv("GEMINI_API_KEY", "") or os.getenv("GOOGLE_API_KEY", "")
+    key = (api_key or GEMINI_API_KEY or os.getenv("GEMINI_API_KEY", "")
+           or os.getenv("GOOGLE_API_KEY", ""))
     if not key:
         raise MarketingError("GEMINI_API_KEY가 설정되어 있지 않아 홍보 콘텐츠를 만들 수 없습니다")
 
@@ -122,7 +160,7 @@ def _gemini_call(model: str, payload: dict[str, Any], timeout: float) -> dict[st
                 # (실측 2026-07-31: 이미지 생성 모델 전 계열이 무료 티어 limit 0.
                 #  텍스트 모델은 무료 한도가 있어 문구 생성은 정상 동작한다.)
                 if "limit: 0" in resp.text:
-                    raise MarketingError(
+                    raise _FreeTierZero(
                         "지금 서버의 AI 키 요금제에서는 이미지 생성이 지원되지 않습니다. "
                         "홍보 문구는 정상 이용 가능하며, 이미지는 유료 API 키 등록 후 열립니다.")
                 if attempt == 1:
@@ -429,6 +467,177 @@ def _pollinations_generate(prompt: str, aspect_ratio: str, quality: str = "high"
     if not ctype.startswith("image/") or not r.content:
         raise MarketingError("무료 이미지 생성 응답이 이미지가 아닙니다. 잠시 후 다시 시도해 주세요.")
     return r.content, ctype
+
+
+# ---------------------------------------------------------------------------
+# 무료 폴백 2) HuggingFace 공개 Space — 키 없이 FLUX로 생성
+# ---------------------------------------------------------------------------
+#
+# Pollinations가 익명 무료를 닫으면서(2026-08-05 실측: "Insufficient balance … pollen")
+# 키 없이 쓸 수 있는 실질적 대안이 여기밖에 남지 않았다. 공개 Space는 gradio REST
+# (POST /gradio_api/call/<api> → SSE로 결과 수신)로 그대로 부를 수 있다.
+#
+# Space 하나는 GPU 쿼터에 걸리면 몇 분간 event: error만 돌려주므로(실측: 2장 뽑고 막힘)
+# 여러 Space를 차례로 시도한다 — 한 곳이 막혀도 다음 곳에서 나온다(실측 확인).
+# args는 각 Space의 /gradio_api/info에서 확인한 실제 파라미터 순서다.
+_HF_SPACES: tuple[dict[str, Any], ...] = (
+    {"host": "black-forest-labs-flux-1-schnell.hf.space", "api": "infer", "max_side": 2048,
+     "args": lambda w, h, seed: [None, seed, False, w, h, 4]},              # 4스텝, 실측 ~13초
+    {"host": "multimodalart-flux-1-merged.hf.space", "api": "infer", "max_side": 2048,
+     "args": lambda w, h, seed: [None, seed, False, w, h, 3.5, 8]},
+    {"host": "black-forest-labs-flux-1-dev.hf.space", "api": "infer", "max_side": 2048,
+     "args": lambda w, h, seed: [None, seed, False, w, h, 3.5, 28]},        # 느리지만 품질 최상
+    {"host": "stabilityai-stable-diffusion-3-medium.hf.space", "api": "infer", "max_side": 1344,
+     "args": lambda w, h, seed: [None, "text, letters, watermark", seed, False, w, h, 5.0, 28]},
+)
+HF_TIMEOUT = float(os.getenv("MARKETING_HF_TIMEOUT", "120"))
+
+
+def _hf_space_call(space: dict[str, Any], prompt: str, w: int, h: int, seed: int) -> tuple[bytes, str]:
+    """Space 한 곳에 이미지를 요청한다. 실패는 MarketingError."""
+    import httpx
+
+    side = int(space["max_side"])
+    if max(w, h) > side:  # Space가 받는 최대 해상도로 비율 유지 축소
+        scale = side / max(w, h)
+        w, h = max(512, int(w * scale) // 8 * 8), max(512, int(h * scale) // 8 * 8)
+
+    data = space["args"](w, h, seed)
+    data[0] = prompt[:1800]
+    headers = {}
+    # 토큰이 있으면 ZeroGPU 쿼터가 넉넉해진다 — 없으면 익명으로도 동작한다
+    hf_token = os.getenv("HF_TOKEN", "").strip()
+    if hf_token:
+        headers["Authorization"] = f"Bearer {hf_token}"
+
+    base = f"https://{space['host']}/gradio_api/call/{space['api']}"
+    with httpx.Client(timeout=HF_TIMEOUT, follow_redirects=True, headers=headers) as client:
+        r = client.post(base, json={"data": data})
+        if r.status_code != 200:
+            raise MarketingError(f"{space['host']} 요청 거절 (HTTP {r.status_code})")
+        event_id = (r.json() or {}).get("event_id")
+        if not event_id:
+            raise MarketingError(f"{space['host']} 응답에 event_id가 없습니다")
+
+        # SSE: event 줄로 상태를, 다음 data 줄로 결과를 준다. 쿼터 초과는 event: error에
+        # 본문 없이(data: null) 오는 경우가 많아 메시지를 기대하면 안 된다.
+        url = ""
+        event = ""
+        with client.stream("GET", f"{base}/{event_id}") as stream:
+            for line in stream.iter_lines():
+                if line.startswith("event:"):
+                    event = line[6:].strip()
+                elif line.startswith("data:") and event in ("complete", "error"):
+                    if event == "error":
+                        raise MarketingError(
+                            f"{space['host']} 생성 실패 (GPU 쿼터 소진 추정): {line[5:].strip()[:120]}")
+                    payload = json.loads(line[5:] or "null")
+                    first = (payload or [None])[0]
+                    if isinstance(first, list):     # 갤러리형 출력 Space 방어
+                        first = (first or [None])[0]
+                    url = (first or {}).get("url") or ""
+                    break
+        if not url:
+            raise MarketingError(f"{space['host']}가 이미지 URL을 주지 않았습니다")
+
+        img = client.get(url)
+        img.raise_for_status()
+        ctype = (img.headers.get("content-type") or "").split(";")[0].strip()
+        if not ctype.startswith("image/") or not img.content:
+            raise MarketingError(f"{space['host']} 응답이 이미지가 아닙니다")
+        return img.content, ctype
+
+
+# ZeroGPU 쿼터는 Space별이 아니라 '호출자(익명이면 IP)' 단위로 묶여 있다 — 실측
+# 메시지: "You have exceeded your ZeroGPU quota (60s requested vs. 0s left)".
+# 즉 한 Space가 쿼터로 막히면 나머지도 대개 막혀 있으니, 한동안 HF 자체를 건너뛴다
+# (안 그러면 요청마다 Space 4곳을 헛되이 두드려 응답만 느려진다).
+_hf_blocked_until = 0.0
+_HF_BLOCK_SECONDS = float(os.getenv("MARKETING_HF_BLOCK_SECONDS", "600"))
+
+
+def _hf_generate(prompt: str, aspect_ratio: str, quality: str = "high") -> tuple[bytes, str]:
+    """공개 Space들을 차례로 시도해 첫 성공을 돌려준다."""
+    global _hf_blocked_until
+    import httpx
+
+    if time.monotonic() < _hf_blocked_until:
+        raise MarketingError("HuggingFace 무료 GPU 쿼터가 소진돼 건너뜁니다")
+
+    w, h = _target_size(aspect_ratio, quality)
+    seed = uuid.uuid4().int % 1_000_000_000
+    errors: list[str] = []
+    for space in _HF_SPACES:
+        try:
+            image, mime = _hf_space_call(space, prompt, w, h, seed)
+            logger.info("이미지 생성: HuggingFace %s 성공", space["host"])
+            return image, mime
+        except (MarketingError, httpx.HTTPError, ValueError, KeyError, TypeError) as e:
+            errors.append(f"{space['host']}: {e}")
+            logger.info("HF Space 실패 → 다음 후보: %s", e)
+    _hf_blocked_until = time.monotonic() + _HF_BLOCK_SECONDS
+    raise MarketingError("무료 이미지 생성(HuggingFace)이 모두 실패했습니다: " + " | ".join(errors)[:400])
+
+
+# ---------------------------------------------------------------------------
+# 공급자 체인 — 하나라도 성공하면 이미지가 나온다
+# ---------------------------------------------------------------------------
+
+# Gemini 이미지가 "limit: 0"으로 막히면 그 사실을 기억해 한동안 건너뛴다.
+# (매 요청마다 확실히 실패할 왕복을 한 번씩 더 하는 게 체감 지연으로 이어졌다)
+_gemini_image_blocked_until = 0.0
+_GEMINI_BLOCK_SECONDS = float(os.getenv("MARKETING_GEMINI_BLOCK_SECONDS", "3600"))
+
+
+def _gemini_image(prompt: str, aspect_ratio: str) -> tuple[bytes, str]:
+    global _gemini_image_blocked_until
+
+    if time.monotonic() < _gemini_image_blocked_until:
+        raise MarketingError(f"{IMAGE_MODEL}는 이 키 요금제에서 막혀 있어 건너뜁니다")
+    try:
+        raw = _gemini_call(IMAGE_MODEL, {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "responseModalities": ["TEXT", "IMAGE"],
+                "imageConfig": {"aspectRatio": aspect_ratio},
+            },
+        }, IMAGE_TIMEOUT, api_key=IMAGE_API_KEY)
+    except _FreeTierZero:
+        _gemini_image_blocked_until = time.monotonic() + _GEMINI_BLOCK_SECONDS
+        raise
+    return _extract_image(raw)
+
+
+def _generate_image_bytes(prompt: str, aspect_ratio: str,
+                          quality: str) -> tuple[bytes, str, str]:
+    """설정된 공급자를 순서대로 시도해 (바이트, mime, 공급자명)을 돌려준다.
+
+    전부 실패했을 때만 MarketingError — 이유를 공급자별로 모아서 알린다.
+    """
+    errors: list[str] = []
+    for name in IMAGE_PROVIDERS:
+        try:
+            if name == "gemini":
+                image, mime = _gemini_image(prompt, aspect_ratio)
+            elif name == "hf":
+                image, mime = _hf_generate(prompt, aspect_ratio, quality)
+            elif name == "pollinations":
+                # 익명 호출은 2026-08-05부터 잔액을 요구한다 — 토큰이 있을 때만 의미가 있다
+                if not os.getenv("POLLINATIONS_TOKEN", "").strip():
+                    continue
+                image, mime = _pollinations_generate(prompt, aspect_ratio, quality)
+            else:
+                continue
+            return image, mime, name
+        except Exception as e:  # 어떤 공급자가 어떻게 죽든 다음 공급자로 넘어간다
+            errors.append(f"[{name}] {e}")
+            logger.info("이미지 공급자 %s 실패 → 다음 공급자: %s", name, e)
+
+    detail = " / ".join(errors)[:500]
+    logger.error("이미지 생성 전 공급자 실패: %s", detail)
+    raise ImageCapacityError(
+        "지금은 무료 이미지 생성 한도가 모두 차 있어요. 10분쯤 뒤에 다시 시도해 주세요. "
+        "(홍보 문구와 '내 사진으로 만들기'는 지금도 됩니다)")
 
 
 # ---------------------------------------------------------------------------
@@ -758,14 +967,81 @@ def _auto_layout(aspect_ratio: str) -> str:
     return "center" if aspect_ratio in ("1:1", "16:9", "21:9") else "bottom"
 
 
+@lru_cache(maxsize=1)
+def _gcs_bucket():
+    """GCS 버킷 핸들 (미설정·라이브러리 없음·권한 없음이면 None → 로컬 디스크로 동작)."""
+    if not GCS_BUCKET:
+        return None
+    try:
+        from google.cloud import storage
+
+        return storage.Client().bucket(GCS_BUCKET)
+    except Exception as e:
+        logger.warning("GCS 버킷(%s) 연결 실패 — 로컬 디스크로 저장합니다: %s", GCS_BUCKET, e)
+        return None
+
+
+def image_url(filename: str) -> str:
+    """표시용 URL. GCS를 쓰면 공개 URL을 직접 준다 — 앱이 Cloud Run을 거치지 않고
+    버킷에서 바로 받아 서버 부하도, 아시아 리전 전송 비용도 들지 않는다.
+    (프론트 promoImageUrl()이 http로 시작하면 그대로 쓰고, 아니면 API 주소를 붙인다)"""
+    if _gcs_bucket() is not None:
+        return f"https://storage.googleapis.com/{GCS_BUCKET}/{GCS_PREFIX}/{filename}"
+    return f"{IMAGE_URL_PREFIX}/{filename}"
+
+
 def _save_image(image_bytes: bytes, mime: str) -> tuple[str, str]:
-    """uploads/marketing에 저장하고 (image_id, filename)을 돌려준다."""
+    """이미지를 저장하고 (image_id, filename)을 돌려준다.
+
+    GCS 버킷이 설정돼 있으면 버킷에, 아니면 uploads/marketing에 쓴다. 버킷 업로드가
+    실패해도 로컬에 남겨 이번 요청은 살린다 (이후 서빙 엔드포인트가 로컬을 먼저 본다).
+    """
     ext = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}.get(mime, ".png")
     image_id = uuid.uuid4().hex[:12]
     filename = f"{image_id}{ext}"
+
+    bucket = _gcs_bucket()
+    if bucket is not None:
+        try:
+            blob = bucket.blob(f"{GCS_PREFIX}/{filename}")
+            blob.cache_control = "public, max-age=86400"
+            blob.upload_from_string(image_bytes, content_type=mime)
+            return image_id, filename
+        except Exception as e:
+            logger.warning("GCS 업로드 실패 → 로컬 디스크로 폴백: %s", e)
+
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     (UPLOAD_DIR / filename).write_bytes(image_bytes)
     return image_id, filename
+
+
+def _read_image(filename: str) -> bytes:
+    """저장된 이미지를 다시 읽는다 (슬로건 위치 변경 시 원본 재사용). 로컬 → GCS 순."""
+    path = image_file(filename)  # 파일명 검증 겸용 — 잘못된 이름은 여기서 걸린다
+    if path.is_file():
+        return path.read_bytes()
+
+    bucket = _gcs_bucket()
+    if bucket is not None:
+        try:
+            return bucket.blob(f"{GCS_PREFIX}/{filename}").download_as_bytes()
+        except Exception as e:
+            raise MarketingError(f"저장된 이미지를 찾을 수 없습니다: {e}")
+    raise MarketingError("저장된 이미지를 찾을 수 없습니다")
+
+
+def _delete_image(filename: str) -> None:
+    """저장본 삭제 (실패는 무시 — 지우기 실패로 기능이 멈추면 안 된다)."""
+    try:
+        (UPLOAD_DIR / filename).unlink(missing_ok=True)
+    except OSError:
+        pass
+    bucket = _gcs_bucket()
+    if bucket is not None:
+        try:
+            bucket.blob(f"{GCS_PREFIX}/{filename}").delete()
+        except Exception:
+            logger.debug("GCS 이미지 삭제 실패(무해): %s", filename, exc_info=True)
 
 
 def generate_promotion_image(store_id: str, doc_id: str = "", request: str = "",
@@ -774,7 +1050,7 @@ def generate_promotion_image(store_id: str, doc_id: str = "", request: str = "",
                              quality: str = "high") -> dict[str, Any]:
     """홍보 이미지를 생성해 저장하고 표시용 URL을 돌려준다.
 
-    파이프라인: 프롬프트 정교화 → 생성(Gemini→Pollinations 폴백) → 마감 보정 →
+    파이프라인: 프롬프트 정교화 → 생성(gemini→hf→pollinations 폴백) → 마감 보정 →
     한글 슬로건 합성. 이미지 모델에는 항상 '글자 없는' 프롬프트만 보내고 한글은
     우리가 직접 얹는다 — 어떤 모델이든 한글을 제대로 못 그리기 때문이다.
 
@@ -854,22 +1130,8 @@ def generate_promotion_image(store_id: str, doc_id: str = "", request: str = "",
         parts.append(f"Leave {hint} of the frame visually calm and uncluttered.")
     final_prompt = "\n".join(parts)
 
-    # ② 생성 — Gemini(유료 키) 우선, 실패 시 무료 폴백
-    provider = "gemini"
-    try:
-        raw = _gemini_call(IMAGE_MODEL, {
-            "contents": [{"parts": [{"text": final_prompt}]}],
-            "generationConfig": {
-                "responseModalities": ["TEXT", "IMAGE"],
-                "imageConfig": {"aspectRatio": aspect_ratio},
-            },
-        }, IMAGE_TIMEOUT)
-        image_bytes, mime = _extract_image(raw)
-    except MarketingError as e:
-        # 무료 티어 한도 0·쿼터 소진 — 키 없이 되는 무료 생성으로 폴백해 기능을 살린다
-        logger.info("Gemini 이미지 생성 실패 → Pollinations 무료 폴백: %s", e)
-        provider = "pollinations"
-        image_bytes, mime = _pollinations_generate(final_prompt, aspect_ratio, quality)
+    # ② 생성 — 공급자 체인 (gemini → hf → pollinations), 하나라도 되면 성공
+    image_bytes, mime, provider = _generate_image_bytes(final_prompt, aspect_ratio, quality)
 
     # ③ 마감 보정 후 '글자 없는 원본'으로 저장 — 슬로건 위치를 바꿀 때 재사용한다
     image_bytes, mime = _polish(image_bytes, mime)
@@ -889,16 +1151,16 @@ def generate_promotion_image(store_id: str, doc_id: str = "", request: str = "",
     entry = {
         "image_id": image_id,
         "filename": filename,
-        "url": f"{IMAGE_URL_PREFIX}/{filename}",
+        "url": image_url(filename),
         "raw_filename": raw_filename,
-        "raw_url": f"{IMAGE_URL_PREFIX}/{raw_filename}",  # 글자 없는 버전
+        "raw_url": image_url(raw_filename),  # 글자 없는 버전
         "overlay": layout,          # none이면 url == raw_url
         "slogan": slogan if layout != "none" else "",
         "mime_type": mime,
         "aspect_ratio": aspect_ratio,
         "style": style,
         "quality": quality,
-        "provider": provider,  # gemini(유료 키) | pollinations(무료)
+        "provider": provider,  # gemini(유료 키) | hf(무료 Space) | pollinations
         "prompt": final_prompt[:2000],  # 재현·디버깅용
     }
 
@@ -942,7 +1204,7 @@ def recompose_promotion_image(store_id: str, doc_id: str, image_id: str = "",
 
     raw_name = entry.get("raw_filename") or entry.get("filename") or ""
     try:
-        raw_bytes = image_file(raw_name).read_bytes()
+        raw_bytes = _read_image(raw_name)
     except MarketingError:
         raise MarketingError(
             "원본 이미지를 찾을 수 없어 위치를 바꿀 수 없습니다. 이미지를 다시 만들어 주세요.")
@@ -964,18 +1226,15 @@ def recompose_promotion_image(store_id: str, doc_id: str, image_id: str = "",
         filename = raw_name
         entry["mime_type"] = "image/jpeg"
     entry["filename"] = filename
-    entry["url"] = f"{IMAGE_URL_PREFIX}/{filename}"
+    entry["url"] = image_url(filename)
     entry["raw_filename"] = raw_name
-    entry["raw_url"] = f"{IMAGE_URL_PREFIX}/{raw_name}"
+    entry["raw_url"] = image_url(raw_name)
     entry["overlay"] = new_layout
     entry["slogan"] = slogan if new_layout != "none" else ""
 
-    # 이전 합성본은 지운다 (원본은 남긴다) — 레이아웃을 여러 번 바꿔도 디스크가 안 샌다
+    # 이전 합성본은 지운다 (원본은 남긴다) — 레이아웃을 여러 번 바꿔도 저장소가 안 샌다
     if old_filename and old_filename not in (filename, raw_name):
-        try:
-            (UPLOAD_DIR / old_filename).unlink(missing_ok=True)
-        except OSError:
-            pass
+        _delete_image(old_filename)
 
     images[idx] = entry
     content["images"] = images
@@ -984,14 +1243,13 @@ def recompose_promotion_image(store_id: str, doc_id: str, image_id: str = "",
 
 
 def image_file(filename: str) -> Path:
-    """서빙 엔드포인트용 — 파일명 검증 후 실제 경로를 돌려준다.
+    """파일명 검증 후 로컬 경로를 돌려준다 (존재 여부는 호출자가 판단한다).
 
     파일명은 우리가 만든 '12자리 hex + 확장자'만 통과시킨다 — 경로 조작(../) 차단이
     목적이라 정규식 밖 이름은 존재 여부와 무관하게 거절한다.
+    존재 확인을 여기서 하지 않는 이유: GCS를 쓰면 로컬에 파일이 없는 게 정상이고,
+    그때는 버킷을 봐야 한다 (_read_image / 서빙 엔드포인트가 이어서 처리).
     """
     if not re.fullmatch(r"[0-9a-f]{12}\.(png|jpg|webp)", filename):
         raise MarketingError("잘못된 이미지 파일명입니다")
-    path = UPLOAD_DIR / filename
-    if not path.is_file():
-        raise MarketingError("이미지를 찾을 수 없습니다 (삭제됐거나 다른 서버에서 생성됨)")
-    return path
+    return UPLOAD_DIR / filename
