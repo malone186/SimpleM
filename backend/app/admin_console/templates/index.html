@@ -567,31 +567,59 @@
             <i data-lucide="coins"></i> 코인 지급 · 회수
           </div>
 
+          <!-- 잔액 — 지금 얼마 있는지가 이 카드에서 가장 먼저 보여야 한다 -->
           <div class="coin-balance-box">
-            <div class="coin-balance-label">현재 보유 코인</div>
-            <div class="coin-balance-num" id="drawer-coin-balance">-<span class="stat-unit">코인</span></div>
-            <div class="coin-balance-sub" id="drawer-coin-earned">누적 적립 -코인</div>
+            <div class="coin-balance-main">
+              <span class="coin-balance-label">현재 보유 코인</span>
+              <span class="coin-balance-num" id="drawer-coin-balance">-<span class="stat-unit">코인</span></span>
+            </div>
+            <div class="coin-balance-side">
+              <span class="coin-balance-label">누적 적립</span>
+              <span class="coin-balance-sub" id="drawer-coin-earned">-</span>
+            </div>
+          </div>
+
+          <!-- 지급/회수를 탭으로 나눈다 — 예전엔 회수하려면 '-100'처럼 음수를 직접 쳐야 했다 -->
+          <div class="coin-mode-tabs">
+            <button type="button" class="coin-mode-tab active" data-mode="grant">
+              <i data-lucide="plus-circle"></i> 지급
+            </button>
+            <button type="button" class="coin-mode-tab" data-mode="revoke">
+              <i data-lucide="minus-circle"></i> 회수
+            </button>
           </div>
 
           <div class="coin-quick-row">
             <!-- 자주 쓰는 금액 — 누르면 아래 입력칸에 채워진다 -->
-            <button type="button" class="coin-chip" data-coin="50">+50</button>
-            <button type="button" class="coin-chip" data-coin="100">+100</button>
-            <button type="button" class="coin-chip" data-coin="300">+300</button>
-            <button type="button" class="coin-chip" data-coin="500">+500</button>
-            <button type="button" class="coin-chip" data-coin="1000">+1000</button>
+            <button type="button" class="coin-chip" data-coin="50">50</button>
+            <button type="button" class="coin-chip" data-coin="100">100</button>
+            <button type="button" class="coin-chip" data-coin="300">300</button>
+            <button type="button" class="coin-chip" data-coin="500">500</button>
+            <button type="button" class="coin-chip" data-coin="1000">1000</button>
           </div>
 
-          <div class="coin-input-row">
-            <input type="number" id="coin-amount-input" class="coin-input" placeholder="지급할 코인 수 (회수는 -100처럼 음수)" step="10">
-            <input type="text" id="coin-memo-input" class="coin-input" placeholder="사유 (사장님 내역에 표시)" maxlength="60">
+          <div class="coin-field">
+            <span class="coin-field-label">코인 수</span>
+            <input type="number" id="coin-amount-input" class="coin-field-input" placeholder="0" min="0" step="10" inputmode="numeric">
+            <span class="coin-field-unit">코인</span>
           </div>
+
+          <div class="coin-field text">
+            <span class="coin-field-label">사유</span>
+            <input type="text" id="coin-memo-input" class="coin-field-input" placeholder="예: CS 보상 (사장님 내역에 표시)" maxlength="60">
+          </div>
+
+          <!-- 누르기 전에 결과를 먼저 보여 준다 — 잘못 눌러도 되돌리려면 다시 회수해야 한다 -->
+          <div class="coin-preview" id="coin-preview">코인 수를 입력하면 지급 후 잔액을 미리 보여 드려요.</div>
 
           <button class="coin-grant-btn" id="btn-grant-coin">
-            <i data-lucide="gift"></i> 이 사장님 계정에 코인 지급
+            <i data-lucide="gift"></i> <span id="coin-grant-btn-label">코인 지급하기</span>
           </button>
 
-          <div class="coin-history-title">최근 코인 내역</div>
+          <div class="coin-history-head">
+            <span class="coin-history-title">최근 코인 내역</span>
+            <span class="coin-history-count" id="coin-history-count"></span>
+          </div>
           <div class="coin-history" id="drawer-coin-history">
             <div class="coin-history-empty">불러오는 중…</div>
           </div>

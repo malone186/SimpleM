@@ -461,22 +461,75 @@ document.addEventListener('DOMContentLoaded', () => {
   // 6-1. 코인 지급 — 상점 재화를 관리자가 직접 넣거나 회수한다.
   //      적립의 정상 경로는 '할 일 완료'다. 여기는 CS 보상·이벤트·오지급 회수용 예외 창구라
   //      내역에 '관리자 지급/회수'로 남아 사장님 상점 화면에서도 출처가 보인다.
+  let coinMode = 'grant';   // grant(지급) | revoke(회수)
+  let coinBalance = 0;      // 미리보기 계산에 쓰는 현재 잔액
+
   function paintCoinBalance(wallet) {
     const balEl = document.getElementById('drawer-coin-balance');
     const earnEl = document.getElementById('drawer-coin-earned');
+    coinBalance = Number(wallet.balance || 0);
     if (balEl) {
-      balEl.innerHTML = `${Number(wallet.balance || 0).toLocaleString()}<span class="stat-unit">코인</span>`;
+      balEl.innerHTML = `${coinBalance.toLocaleString()}<span class="stat-unit">코인</span>`;
     }
     if (earnEl) {
       earnEl.textContent = wallet.total_earned === null || wallet.total_earned === undefined
-        ? '누적 적립 확인 중…'
-        : `누적 적립 ${Number(wallet.total_earned).toLocaleString()}코인`;
+        ? '확인 중…'
+        : `${Number(wallet.total_earned).toLocaleString()}코인`;
     }
+    updateCoinPreview();
+  }
+
+  // 누르기 전에 결과를 보여 준다 — 잘못 지급하면 되돌리려고 다시 회수해야 하니
+  // '지급 후 잔액'과 '잔액보다 많은 회수'를 버튼 위에서 미리 알려 준다.
+  function updateCoinPreview() {
+    const preview = document.getElementById('coin-preview');
+    const btn = document.getElementById('btn-grant-coin');
+    if (!preview || !btn) return;
+
+    const raw = parseInt(document.getElementById('coin-amount-input')?.value, 10);
+    const amount = Number.isFinite(raw) ? Math.abs(raw) : 0;
+    const verb = coinMode === 'grant' ? '지급' : '회수';
+
+    // 칩 선택 표시 — 입력값과 같은 금액만 켠다
+    document.querySelectorAll('.coin-chip').forEach((chip) => {
+      chip.classList.toggle('active', amount > 0 && Number(chip.dataset.coin) === amount);
+    });
+
+    if (!amount) {
+      preview.className = 'coin-preview';
+      preview.textContent = `코인 수를 입력하면 ${verb} 후 잔액을 미리 보여 드려요.`;
+      btn.disabled = false;
+      return;
+    }
+    if (coinMode === 'revoke' && amount > coinBalance) {
+      preview.className = 'coin-preview warn';
+      preview.textContent = `보유 코인(${coinBalance.toLocaleString()}개)보다 많이 회수할 수 없어요.`;
+      btn.disabled = true;
+      return;
+    }
+    const next = coinMode === 'grant' ? coinBalance + amount : coinBalance - amount;
+    preview.className = 'coin-preview';
+    preview.textContent = `${verb} 후 잔액 ${next.toLocaleString()}코인 (${coinMode === 'grant' ? '+' : '-'}${amount.toLocaleString()})`;
+    btn.disabled = false;
+  }
+
+  function setCoinMode(mode) {
+    coinMode = mode;
+    document.querySelectorAll('.coin-mode-tab').forEach((tab) => {
+      tab.classList.toggle('active', tab.dataset.mode === mode);
+    });
+    const btn = document.getElementById('btn-grant-coin');
+    const label = document.getElementById('coin-grant-btn-label');
+    if (btn) btn.classList.toggle('revoke', mode === 'revoke');
+    if (label) label.textContent = mode === 'grant' ? '코인 지급하기' : '코인 회수하기';
+    updateCoinPreview();
   }
 
   function paintCoinHistory(history) {
     const box = document.getElementById('drawer-coin-history');
+    const countEl = document.getElementById('coin-history-count');
     if (!box) return;
+    if (countEl) countEl.textContent = history && history.length ? `최근 ${history.length}건` : '';
     if (!history || history.length === 0) {
       box.innerHTML = '<div class="coin-history-empty">아직 코인 내역이 없습니다.</div>';
       return;
@@ -503,6 +556,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const memo = document.getElementById('coin-memo-input');
     if (amount) amount.value = '';
     if (memo) memo.value = '';
+    setCoinMode('grant');  // 회원을 새로 열 때는 늘 '지급'에서 시작한다
   }
 
   async function loadUserCoins(userId) {
@@ -523,15 +577,22 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  document.querySelectorAll('.coin-mode-tab').forEach((tab) => {
+    tab.addEventListener('click', () => setCoinMode(tab.dataset.mode));
+  });
+
   document.querySelectorAll('.coin-chip').forEach((chip) => {
     chip.addEventListener('click', () => {
       const input = document.getElementById('coin-amount-input');
-      if (input) {
-        input.value = chip.dataset.coin;
-        input.focus();
-      }
+      if (!input) return;
+      // 같은 칩을 다시 누르면 해제 — 잘못 고른 금액을 지우려고 입력칸을 비울 필요가 없다
+      input.value = Number(input.value) === Number(chip.dataset.coin) ? '' : chip.dataset.coin;
+      updateCoinPreview();
     });
   });
+
+  const coinAmountInput = document.getElementById('coin-amount-input');
+  if (coinAmountInput) coinAmountInput.addEventListener('input', updateCoinPreview);
 
   const btnGrantCoin = document.getElementById('btn-grant-coin');
   if (btnGrantCoin) {
@@ -539,15 +600,18 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!selectedUser) return;
       const amountInput = document.getElementById('coin-amount-input');
       const memoInput = document.getElementById('coin-memo-input');
-      const amount = parseInt(amountInput?.value, 10);
+      const typed = parseInt(amountInput?.value, 10);
+      const action = coinMode === 'grant' ? '지급' : '회수';
 
-      if (!Number.isFinite(amount) || amount === 0) {
-        alert('지급할 코인 수를 입력해 주세요. 회수하려면 -100처럼 음수를 넣습니다.');
+      if (!Number.isFinite(typed) || typed === 0) {
+        alert(`${action}할 코인 수를 입력해 주세요.`);
         amountInput?.focus();
         return;
       }
-      const action = amount > 0 ? '지급' : '회수';
-      if (!confirm(`'${selectedUser.store}' (${selectedUser.name} 사장님) 계정에 ${Math.abs(amount).toLocaleString()}코인을 ${action}합니다.\n계속할까요?`)) return;
+      // 부호는 탭이 정한다 — 사용자가 음수를 쳐도 회수 탭에서 이중으로 뒤집히지 않게 절댓값을 쓴다
+      const amount = coinMode === 'grant' ? Math.abs(typed) : -Math.abs(typed);
+      const target = `'${selectedUser.store}' (${selectedUser.name} 사장님) 계정${coinMode === 'grant' ? '에' : '에서'}`;
+      if (!confirm(`${target} ${Math.abs(amount).toLocaleString()}코인을 ${action}합니다.\n계속할까요?`)) return;
 
       btnGrantCoin.disabled = true;
       try {
@@ -568,7 +632,9 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error('코인 지급 실패:', err);
         alert(`코인을 ${action}하지 못했습니다 — ${err.message}`);
       } finally {
+        // 잠금 해제는 미리보기에 맡긴다 — 잔액을 넘는 회수가 입력된 채로 다시 열리면 안 된다
         btnGrantCoin.disabled = false;
+        updateCoinPreview();
       }
     });
   }

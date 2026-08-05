@@ -1283,82 +1283,189 @@ body {
 
 /* ━━━ [한글 주석: 코인 지급 카드 — 회원 상세 Drawer] ━━━ */
 .coin-balance-box {
-  background: linear-gradient(135deg, #F7EFE2, #F2E3CB);
-  border: 1px solid var(--muted-sand);
-  border-radius: 12px;
-  padding: 12px 14px;
+  background: linear-gradient(135deg, #FBF4E8, #F1E1C6);
+  border: 1px solid #E4D3B6;
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.coin-balance-main,
+.coin-balance-side {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
+  min-width: 0;
 }
+
+.coin-balance-side { align-items: flex-end; }
 
 .coin-balance-label {
   font-size: 11px;
   font-weight: 700;
-  color: var(--mocha-brown);
+  color: #9A7B4F;
+  letter-spacing: -0.2px;
 }
 
 .coin-balance-num {
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 900;
+  line-height: 1.05;
   color: var(--espresso-brown);
 }
 
-.coin-balance-sub {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--stone-300);
+.coin-balance-num .stat-unit {
+  font-size: 13px;
+  color: #9A7B4F;
 }
+
+.coin-balance-sub {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--mocha-brown);
+}
+
+/* 지급/회수 — 세그먼트 탭. 어느 쪽을 하는 중인지가 항상 보이게 한다 */
+.coin-mode-tabs {
+  display: flex;
+  gap: 4px;
+  background-color: var(--stone-100);
+  border: 1px solid var(--muted-sand);
+  border-radius: 10px;
+  padding: 4px;
+}
+
+.coin-mode-tab {
+  flex: 1;
+  padding: 8px 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--stone-300);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.coin-mode-tab svg { width: 14px; height: 14px; }
+.coin-mode-tab:hover { color: var(--espresso-brown); }
+
+.coin-mode-tab.active {
+  background-color: var(--card-bg);
+  color: var(--espresso-brown);
+  box-shadow: var(--shadow-soft);
+}
+
+.coin-mode-tab.active[data-mode="grant"] { color: var(--green-main); }
+.coin-mode-tab.active[data-mode="revoke"] { color: #B24040; }
 
 .coin-quick-row {
   display: flex;
   gap: 6px;
-  flex-wrap: wrap;
 }
 
 .coin-chip {
   flex: 1;
-  min-width: 52px;
-  padding: 7px 0;
+  min-width: 0;
+  padding: 8px 0;
   border-radius: 8px;
   border: 1px solid var(--muted-sand);
-  background-color: var(--stone-100);
-  color: var(--espresso-brown);
+  background-color: var(--card-bg);
+  color: var(--mocha-brown);
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
-  transition: background-color 0.15s, color 0.15s;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
 }
 
 .coin-chip:hover {
+  border-color: var(--orange-point);
+  color: var(--orange-point);
+}
+
+.coin-chip.active {
   background-color: var(--espresso-brown);
+  border-color: var(--espresso-brown);
   color: #FFFFFF;
 }
 
-.coin-input-row {
+/* 입력칸 — 라벨을 칸 안에 붙여 두 줄짜리 긴 placeholder를 없앴다 */
+.coin-field {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 8px;
-}
-
-.coin-input {
-  width: 100%;
-  padding: 9px 10px;
-  border-radius: 10px;
   border: 1px solid var(--muted-sand);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--espresso-brown);
-  outline: none;
+  border-radius: 10px;
+  padding: 0 12px;
+  background-color: var(--card-bg);
+  transition: border-color 0.15s;
 }
 
-.coin-input:focus { border-color: var(--orange-point); }
+.coin-field:focus-within { border-color: var(--orange-point); }
+
+.coin-field-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--stone-300);
+  white-space: nowrap;
+  min-width: 44px;
+}
+
+.coin-field-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 11px 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--espresso-brown);
+  text-align: right;
+}
+
+.coin-field-input::placeholder {
+  font-weight: 600;
+  color: #C6BCB1;
+}
+
+/* 사유는 글이라 왼쪽 정렬 — 숫자만 오른쪽으로 붙인다 */
+.coin-field.text .coin-field-input { text-align: left; }
+
+.coin-field-unit {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mocha-brown);
+}
+
+.coin-preview {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mocha-brown);
+  background-color: var(--stone-100);
+  border-radius: 8px;
+  padding: 9px 12px;
+  text-align: center;
+}
+
+.coin-preview.warn {
+  background-color: #FBEDED;
+  color: #B24040;
+}
 
 .coin-grant-btn {
-  background-color: var(--orange-point);
+  background-color: var(--green-main);
   color: #FFFFFF;
   border: none;
-  padding: 11px;
+  padding: 12px;
   border-radius: 10px;
   font-size: 13px;
   font-weight: 800;
@@ -1367,17 +1474,33 @@ body {
   align-items: center;
   justify-content: center;
   gap: 6px;
+  transition: background-color 0.15s;
 }
 
+.coin-grant-btn.revoke { background-color: #B24040; }
 .coin-grant-btn:hover { opacity: 0.88; }
-.coin-grant-btn:disabled { opacity: 0.55; cursor: default; }
+.coin-grant-btn:disabled { opacity: 0.45; cursor: default; }
 .coin-grant-btn svg { width: 15px; height: 15px; }
+
+.coin-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--muted-sand);
+}
 
 .coin-history-title {
   font-size: 11px;
+  font-weight: 800;
+  color: var(--stone-300);
+}
+
+.coin-history-count {
+  font-size: 11px;
   font-weight: 700;
   color: var(--stone-300);
-  margin-top: 2px;
 }
 
 .coin-history {
