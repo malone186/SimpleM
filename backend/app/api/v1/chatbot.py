@@ -58,6 +58,7 @@ from app.services.ai import (
     briefing_service,
     cafe_similarity_service,
     chat_quota_service,
+    demo_seed_service,
     document_service,
     forecast_service,
     insight_service,
@@ -1219,7 +1220,13 @@ def run_notifications(x_cron_secret: str = Header(default="")):
         raise HTTPException(404, "Not Found")  # 미설정이면 존재 자체를 숨긴다
     if not secrets.compare_digest(x_cron_secret, CRON_SECRET):
         raise HTTPException(403, "invalid cron secret")
-    return notification_service.run_all()
+    # 데모 매장 더미 데이터 갱신도 이 크론에 얹는다(백그라운드·멱등) — 매시간 불리므로
+    # '오늘 실시간' 그래프가 하루 종일 차오르고, 별도 스케줄러 작업이 필요 없다.
+    seed_started = demo_seed_service.run_async()
+    result = notification_service.run_all()
+    if isinstance(result, dict):
+        result["demo_seed"] = "started" if seed_started else "already_running"
+    return result
 
 
 # ---------------------------------------------------------------------------
