@@ -48,6 +48,8 @@ import {
 } from '../../lib/chatSessions';
 import { colors, spacing, typography } from '../../theme';
 import { fs, s, useBottomInset, useResponsive, useTopInset } from '../../theme/responsive';
+import { getRoomTint } from '../../components/brew/roomBackgrounds';
+import { useEquipped } from '../../rewards/EquippedContext';
 
 // [한글 주석] 상태바 여백은 useTopInset() 훅이 기기 실측값으로 계산한다 (고정값은 기기마다 어긋났다).
 
@@ -87,6 +89,9 @@ function confirmAsk(title: string, message: string, okLabel: string, onOk: () =>
 }
 
 export default function ChatbotScreen() {
+  // 착용한 카페 배경의 분위기 색으로 상단 오로라를 물들인다 (홈과 통일 — roomBackgrounds.ts)
+  const { roomBgId } = useEquipped();
+  const tint = getRoomTint(roomBgId);
   // [한글 주석: 전역 다국어 번역 훅 연동]
   const { t, language } = useTranslation();
   const { token } = useAuth();
@@ -291,8 +296,8 @@ export default function ChatbotScreen() {
         <Svg width="100%" height="100%" preserveAspectRatio="none">
           <Defs>
             <LinearGradient id="chatAurora" x1="0%" y1="0%" x2="0%" y2="100%">
-              <Stop offset="0%" stopColor="#1E1612" />
-              <Stop offset="35%" stopColor="#251C17" />
+              <Stop offset="0%" stopColor={tint.top[0]} />
+              <Stop offset="35%" stopColor={tint.top[1]} />
               <Stop offset="70%" stopColor="#6E5544" stopOpacity="0.35" />
               <Stop offset="100%" stopColor={colors.creamSand} />
             </LinearGradient>
@@ -301,9 +306,9 @@ export default function ChatbotScreen() {
             </Filter>
           </Defs>
           <Path d="M0 0 H2000 V2000 H0 Z" fill="url(#chatAurora)" />
-          <Circle cx="85%" cy="12%" r="140" fill="#E28257" filter="url(#chatGlow)" opacity="0.25" />
-          <Circle cx="15%" cy="22%" r="130" fill="#C29D7A" filter="url(#chatGlow)" opacity="0.2" />
-          <Circle cx="60%" cy="4%" r="120" fill="#88BCB5" filter="url(#chatGlow)" opacity="0.16" />
+          <Circle cx="85%" cy="12%" r="140" fill={tint.glow[0]} filter="url(#chatGlow)" opacity="0.25" />
+          <Circle cx="15%" cy="22%" r="130" fill={tint.glow[1]} filter="url(#chatGlow)" opacity="0.2" />
+          <Circle cx="60%" cy="4%" r="120" fill={tint.glow[2]} filter="url(#chatGlow)" opacity="0.16" />
         </Svg>
       </View>
 

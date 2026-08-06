@@ -25,6 +25,8 @@ import { adjustStock, createIngredient, listStocks, StockItem } from '../../lib/
 import { confirmOcrDocument, listOcrDocuments, rejectOcrDocument, uploadOcrImage, OcrDocument, updateOcrDocument, OcrItem, type UploadAsset } from '../../lib/api/ocr';
 import { colors, typography } from '../../theme';
 import { s, useResponsive, useTopInset } from '../../theme/responsive';
+import { getRoomTint } from '../../components/brew/roomBackgrounds';
+import { useEquipped } from '../../rewards/EquippedContext';
 
 const TARGET_LABEL: Record<string, string> = {
   inventory_inbound: '재고 입고',
@@ -60,6 +62,9 @@ function getCategory(name: string): string {
 type EditRow = { name: string; qty: string; unit: string; price: string };
 
 export default function InventoryScreen() {
+  // 착용한 카페 배경의 분위기 색으로 상단 오로라를 물들인다 (홈과 통일 — roomBackgrounds.ts)
+  const { roomBgId } = useEquipped();
+  const tint = getRoomTint(roomBgId);
   // [한글 주석: 다국어 번역 훅 연동 — 영문/한글 화면 가공]
   const { t, language } = useTranslation();
   const { token } = useAuth();
@@ -501,8 +506,8 @@ export default function InventoryScreen() {
         <Svg width="100%" height="100%" preserveAspectRatio="none">
           <Defs>
             <LinearGradient id="invAurora" x1="0%" y1="0%" x2="0%" y2="100%">
-              <Stop offset="0%" stopColor="#1E1612" />
-              <Stop offset="35%" stopColor="#251C17" />
+              <Stop offset="0%" stopColor={tint.top[0]} />
+              <Stop offset="35%" stopColor={tint.top[1]} />
               <Stop offset="70%" stopColor="#6E5544" stopOpacity="0.35" />
               <Stop offset="100%" stopColor={colors.creamSand} />
             </LinearGradient>
@@ -511,9 +516,9 @@ export default function InventoryScreen() {
             </Filter>
           </Defs>
           <Path d="M0 0 H2000 V2000 H0 Z" fill="url(#invAurora)" />
-          <Circle cx="85%" cy="12%" r="140" fill="#E28257" filter="url(#invGlow)" opacity="0.25" />
-          <Circle cx="15%" cy="22%" r="130" fill="#C29D7A" filter="url(#invGlow)" opacity="0.2" />
-          <Circle cx="60%" cy="4%" r="120" fill="#88BCB5" filter="url(#invGlow)" opacity="0.16" />
+          <Circle cx="85%" cy="12%" r="140" fill={tint.glow[0]} filter="url(#invGlow)" opacity="0.25" />
+          <Circle cx="15%" cy="22%" r="130" fill={tint.glow[1]} filter="url(#invGlow)" opacity="0.2" />
+          <Circle cx="60%" cy="4%" r="120" fill={tint.glow[2]} filter="url(#invGlow)" opacity="0.16" />
         </Svg>
       </View>
 
