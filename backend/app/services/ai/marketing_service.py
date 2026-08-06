@@ -425,6 +425,42 @@ POLLINATIONS_URL = os.getenv("POLLINATIONS_URL", "https://gen.pollinations.ai/im
 # 떨어진다 — 홍보물은 화질이 곧 설득력이라 flux를 기본으로 둔다.
 POLLINATIONS_MODEL = os.getenv("POLLINATIONS_MODEL", "flux")
 
+# Pollen 잔액이 이 값 아래로 내려가면 경고 로그 — 지갑이 비면 이미지 생성이 402로
+# 조용히 죽는다(자동 충전 없음). 0.1 Pollen ≈ flux 50~100장, 충전할 시간은 충분하다.
+_POLLEN_WARN_BELOW = float(os.getenv("POLLINATIONS_BALANCE_WARN", "0.1"))
+_pollen_next_check = 0.0  # 성공할 때마다 매번 확인할 필요는 없다 — 10분에 한 번
+
+
+def _check_pollen_balance() -> None:
+    """잔액을 확인해 임박 소진을 로그로 미리 알린다 (백그라운드 전용, 실패 무해).
+
+    Pollinations는 잔액 부족을 402 시점에야 알려줘, 그때는 이미 사장님이 실패를 겪은
+    뒤다. 생성 성공 직후 가끔(10분 1회) 잔액을 조회해 Cloud Run 로그로 경고를 남기면
+    소진 전에 enter.pollinations.ai에서 Quest/충전으로 대응할 수 있다.
+    """
+    global _pollen_next_check
+    if time.monotonic() < _pollen_next_check:
+        return
+    _pollen_next_check = time.monotonic() + 600
+    token = os.getenv("POLLINATIONS_TOKEN", "").strip()
+    if not token:
+        return
+    try:
+        import httpx
+
+        r = httpx.get("https://gen.pollinations.ai/account/balance",
+                      headers={"Authorization": f"Bearer {token}"}, timeout=8)
+        balance = float(r.json().get("balance"))
+    except Exception:
+        logger.debug("Pollen 잔액 조회 실패(무해)", exc_info=True)
+        return
+    if balance < _POLLEN_WARN_BELOW:
+        logger.warning(
+            "Pollinations Pollen 잔액 %.3f — 곧 소진되어 홍보 이미지 생성이 멈춥니다. "
+            "enter.pollinations.ai에서 Quest 보상 수령 또는 충전이 필요합니다.", balance)
+    else:
+        logger.info("Pollinations Pollen 잔액 %.3f", balance)
+
 
 def _pollinations_generate(prompt: str, aspect_ratio: str, quality: str = "high") -> tuple[bytes, str]:
     """주 공급자 — Pollinations.ai (기본 모델 flux).
@@ -465,6 +501,10 @@ def _pollinations_generate(prompt: str, aspect_ratio: str, quality: str = "high"
 
     ctype = (r.headers.get("content-type") or "").split(";")[0].strip()
     if r.status_code == 200 and ctype.startswith("image/") and r.content:
+        # 잔액 확인은 응답을 붙잡지 않게 백그라운드로 — 실패해도 이번 생성과 무관
+        import threading
+
+        threading.Thread(target=_check_pollen_balance, daemon=True).start()
         return r.content, ctype
 
     # 실패는 원인별로 갈라 안내한다 — 사장님이 할 수 있는 조치가 완전히 다르기 때문이다.
@@ -983,7 +1023,7 @@ def generate_promotion_image(store_id: str, doc_id: str = "", request: str = "",
                              quality: str = "high") -> dict[str, Any]:
     """홍보 이미지를 생성해 저장하고 표시용 URL을 돌려준다.
 
-    파이프라인: 프롬프트 정교화 → 생성(gemini→hf→pollinations 폴백) → 마감 보정 →
+    파이프라인: 프롬프트 정교화 → 생성(pollinations→gemini 폴백) → 마감 보정 →
     한글 슬로건 합성. 이미지 모델에는 항상 '글자 없는' 프롬프트만 보내고 한글은
     우리가 직접 얹는다 — 어떤 모델이든 한글을 제대로 못 그리기 때문이다.
 
@@ -1102,7 +1142,7 @@ def generate_promotion_image(store_id: str, doc_id: str = "", request: str = "",
         "aspect_ratio": aspect_ratio,
         "style": style,
         "quality": quality,
-        "provider": provider,  # gemini(유료 키) | hf(무료 Space) | pollinations
+        "provider": provider,  # pollinations(주 공급자) | gemini(유료 키가 있을 때만)
         "prompt": final_prompt[:2000],  # 재현·디버깅용
     }
 
