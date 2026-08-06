@@ -41,7 +41,7 @@ export const recordSales = (token: string, items: { menu_id: number; quantity: n
 export const listRecentSales = (token: string, limit = 10) =>
   apiFetch<RecentSale[]>(`/api/v1/chatbot/sales/recent?limit=${limit}`, { headers: auth(token) });
 
-/** 메뉴별 기여이익 — 잔당 마진 × 실제 판매 잔 수 (원가율만으로는 안 보이는 '실제로 번 돈') */
+/** 메뉴별 기여이익 — 잔당 마진 × 실제 판매 잔 수 (원가율만으로는 안 보이는 '재료비 뺀 총액' — 고정비 차감 전) */
 export type MenuContribution = {
   menu_id: number;
   name: string;

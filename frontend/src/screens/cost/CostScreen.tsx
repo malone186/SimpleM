@@ -121,7 +121,7 @@ export default function CostScreen() {
   // [한글 주석: 슬라이드 모션을 위한 애니메이션 Y축 오프셋 상태 정의]
   const slideAnim = useRef(new Animated.Value(800)).current;
 
-  // 메뉴별 기여이익(잔당 마진 × 실제 판매량) — 원가율만으로는 안 보이는 '실제로 번 돈'
+  // 메뉴별 기여이익(잔당 마진 × 실제 판매량) — 원가율만으로는 안 보이는 '재료비 뺀 총액'
   const [contribution, setContribution] = useState<ContributionResult | null>(null);
   // 원가율 기준 설명 카드 펼침 여부 (원가율 개념이 없는 사장님·예비 창업자용)
   const [showGuide, setShowGuide] = useState(false);
@@ -258,6 +258,12 @@ export default function CostScreen() {
           )}
           <Text style={styles.summaryHint}>{COST_STANDARDS.drink.note}</Text>
 
+          {/* 접힌 안내에만 있던 문장을 밖으로 꺼낸다. 원가율 11%를 '많이 남는다'로 읽는 게
+              이 화면에서 가장 위험한 오해인데, 그걸 막는 문장이 아무도 안 여는 토글 안에 있었다. */}
+          <Text style={styles.summaryCaveat}>
+            재료비만 계산한 값이에요. 임대료·인건비·카드수수료는 아직 안 빠졌습니다.
+          </Text>
+
           <PressableScale style={styles.guideToggle} onPress={() => {
             LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
             setShowGuide((v) => !v);
@@ -300,15 +306,18 @@ export default function CostScreen() {
           )}
         </Card>
 
-        {/* 실제로 번 돈 — 원가율이 낮아도 안 팔리면 의미가 없다 */}
+        {/* 재료비 빼고 남은 돈 — 원가율이 낮아도 안 팔리면 의미가 없다.
+            '실제로 번 돈'이라 부르던 자리다. 고정비를 빼기 전 금액이라 '번 돈'이 아니고,
+            그렇게 읽으면 임대료·인건비만큼을 이익으로 착각하게 된다. */}
         {contribution && contribution.total_qty > 0 && (
           <Card tone="cream">
             <View style={styles.head}>
-              <Text style={styles.contribTitle}>최근 30일, 실제로 번 돈</Text>
+              <Text style={styles.contribTitle}>최근 30일, 재료비 빼고 남은 돈</Text>
               <Text style={styles.contribTotal}>₩{contribution.total_margin.toLocaleString()}</Text>
             </View>
             <Text style={styles.contribHint}>
               잔당 마진 × 실제 판매 잔 수. 원가율이 낮아도 안 팔리면 남는 돈은 적어요.
+              {'\n'}여기서 임대료·인건비를 더 빼야 진짜 이익입니다.
             </Text>
             {contribution.menus
               .filter((m) => m.sold_qty > 0)
@@ -348,7 +357,7 @@ export default function CostScreen() {
             사장님이 등록한 적 없는 '아몬드 크림라떼 원가율 38.1%', '월 1,420잔' 같은 숫자와
             '월 +₩480,000 추가 순이익' 같은 단정이 본인 매장 분석인 것처럼 떠 있었다.
             그 카드가 흉내 내던 건 이 화면에 이미 진짜로 있다:
-              · 위 '최근 30일, 실제로 번 돈' — 실제 판매 잔수·마진 (/chatbot/sales/contribution)
+              · 위 '최근 30일, 재료비 빼고 남은 돈' — 실제 판매 잔수·마진 (/chatbot/sales/contribution)
               · 아래 '메뉴별 원가율' — 실제 등록 메뉴의 원가율, 탭하면 실제 대체재 추천
                 (/inventory/menus/{id}/cost-reduction-recommendations) */}
 
@@ -511,13 +520,15 @@ export default function CostScreen() {
                 </View>
               )}
 
-              {/* [한글 주석: 판매가/원가/잔당 마진 정돈된 금융 지표 카운터 그리드] */}
+              {/* [한글 주석: 판매가/재료비/잔당 마진 정돈된 금융 지표 카운터 그리드]
+                  '원가'가 아니라 '재료비'다 — 원가라고 쓰면 이 금액만 빼면 나머지가
+                  다 남는 줄로 읽힌다. 실제로는 여기에 임대료·인건비가 더 붙는다. */}
               <View style={styles.detailBoxGrid}>
                 <Detail label="판매가" value={`₩${m.selling_price.toLocaleString()}`} />
                 <View style={styles.detailGridDivider} />
-                <Detail label="원가" value={`₩${cost.toLocaleString()}`} />
+                <Detail label="재료비" value={`₩${cost.toLocaleString()}`} />
                 <View style={styles.detailGridDivider} />
-                <Detail label="잔당 마진" value={`₩${margin.toLocaleString()}`} accent />
+                <Detail label="재료비 뺀 값" value={`₩${margin.toLocaleString()}`} accent />
               </View>
 
               {/* [한글 주석: 재료 구성 목록] */}
@@ -540,12 +551,12 @@ export default function CostScreen() {
                 </View>
               )}
 
-              {/* [한글 주석: 최근 30일 실제 번 돈 현황] */}
+              {/* [한글 주석: 최근 30일 재료비 뺀 금액 현황] — 고정비 차감 전이라 '번 돈'이 아니다 */}
               {sold && sold.sold_qty > 0 && (
                 <View style={styles.soldRow}>
                   <Text style={styles.soldLabel}>최근 30일 {sold.sold_qty}잔 판매</Text>
                   <Text style={styles.soldValue}>
-                    실제로 번 돈 <Text style={styles.soldValueHighlight}>₩{sold.total_margin.toLocaleString()}</Text>
+                    재료비 뺀 값 <Text style={styles.soldValueHighlight}>₩{sold.total_margin.toLocaleString()}</Text>
                   </Text>
                 </View>
               )}
@@ -664,6 +675,7 @@ const styles = StyleSheet.create({
   summaryLabel: { ...typography.L5, color: colors.mochaBrown },
   summaryValue: { fontSize: 34, fontWeight: '900', color: colors.espressoBrown, marginTop: 4 },
   summaryHint: { ...typography.L5, color: colors.mochaBrown, marginTop: 4 },
+  summaryCaveat: { ...typography.L5, color: '#C07030', marginTop: 6, lineHeight: 16, fontWeight: '600' },
   stateWrap: { alignItems: 'center', gap: 8, paddingVertical: 8 },
   stateText: { ...typography.L5, color: colors.mochaBrown, textAlign: 'center', lineHeight: 18 },
   head: {
@@ -863,7 +875,7 @@ const styles = StyleSheet.create({
   guideChipText: { fontSize: 10, fontWeight: '800' },
   guideFoot: { ...typography.L5, color: colors.mochaBrown, fontStyle: 'italic' },
 
-  // 실제로 번 돈 (기여이익) 랭킹 리뉴얼
+  // 재료비 뺀 값 (기여이익) 랭킹 리뉴얼
   contribTitle: { ...typography.L3, color: colors.espressoBrown },
   contribTotal: { fontSize: 18, fontWeight: '900', color: colors.trendGreenText },
   contribHint: { ...typography.L5, color: colors.mochaBrown, marginTop: -4, marginBottom: 12, lineHeight: 16 },

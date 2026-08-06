@@ -279,7 +279,12 @@ def _report_body(content: dict[str, Any]) -> str:
         head += f" ({'▲' if change >= 0 else '▼'}{abs(change)}%)"
     if profit.get("estimated_profit") is not None:
         p = profit["estimated_profit"]
-        head += f" · {'순이익' if p >= 0 else '적자'} {abs(p):,}원"
+        if profit.get("fixed_cost_missing"):
+            # 임대료가 안 빠진 금액이라 '순이익'이라 쓰면 안 된다. 알림은 본문을 안 열고
+            # 잠금화면에서만 보는 사람이 많아서, 여기서 잘못 부르면 정정할 기회가 없다.
+            head += f" · 고정비 전 {abs(p):,}원" if p >= 0 else f" · 고정비 전에 이미 {abs(p):,}원 부족"
+        else:
+            head += f" · {'순이익' if p >= 0 else '적자'} {abs(p):,}원"
 
     advice = (content.get("ai_advice") or "").strip()
     if advice:

@@ -507,18 +507,23 @@ def _fmt_qty(v: float) -> str:
     return str(int(v)) if float(v).is_integer() else str(v)
 
 
-def _build_note(use_recipe: bool, cogs: dict) -> str:
+def _build_note(use_recipe: bool, cogs: dict, fixed_cost_missing: bool = False) -> str:
     """리포트 숫자를 어디까지 믿어야 하는지 밝히는 안내문 — 계산 기준이 바뀌면 문구도 바뀐다."""
     if use_recipe:
         note = ("재료비는 팔린 메뉴의 레시피로 계산한 추정치입니다(재료 현재 단가 기준). "
                 "인건비는 지금까지 일한 시간×시급으로 잡았고, 주휴수당·보험료는 빠져 있어요.")
         if cogs["uncovered_count"]:
             note += f" 레시피가 없는 메뉴 {cogs['uncovered_count']}종은 재료비에서 빠졌습니다."
-        return note
-    # 레시피가 덜 등록돼 매입 기준으로 계산한 경우 — 왜 숫자가 튈 수 있는지 먼저 알린다
-    return ("재료비는 스캔해서 확정한 영수증·거래명세서 기준이라, 명세서를 몰아서 찍거나 "
-            "한 장도 안 찍은 기간에는 손익이 크게 튈 수 있어요. "
-            "메뉴에 레시피를 등록하면 팔린 만큼으로 재료비를 계산해 훨씬 안정적으로 나옵니다.")
+    else:
+        # 레시피가 덜 등록돼 매입 기준으로 계산한 경우 — 왜 숫자가 튈 수 있는지 먼저 알린다
+        note = ("재료비는 스캔해서 확정한 영수증·거래명세서 기준이라, 명세서를 몰아서 찍거나 "
+                "한 장도 안 찍은 기간에는 손익이 크게 튈 수 있어요. "
+                "메뉴에 레시피를 등록하면 팔린 만큼으로 재료비를 계산해 훨씬 안정적으로 나옵니다.")
+    # 가장 크게 틀리는 원인이라 맨 뒤가 아니라 반드시 붙여서 내보낸다
+    if fixed_cost_missing:
+        note += (" ⚠️ 임대료·공과금·카드수수료 같은 고정비가 등록되지 않아, 여기 남은 금액은 "
+                 "실제 순이익보다 그만큼 높게 나옵니다. 지출에 월 고정비를 넣으면 정확해져요.")
+    return note
 
 
 # 카드에 실을 하이라이트 상한 — 항목을 늘릴수록 읽히지 않는다. 매출 한 줄은 항상 맨 위에 고정.
@@ -550,8 +555,17 @@ def _build_highlights(sales: dict, cogs: dict, labor: dict, rhythm: dict, outloo
     else:
         headline = f"매출 {sales['total']:,}원 (이전 비교 데이터 없음)"
 
-    # [순수익 계산] 모든 비용을 제하고 남은 순수익 혹은 지출 초과(적자) 표시
-    if profit["estimated_profit"] >= 0:
+    # [순수익 계산] 모든 비용을 제하고 남은 순수익 혹은 지출 초과(적자) 표시.
+    # 고정비가 안 들어온 매장에선 '순이익'이라 부르지 않는다 — 임대료가 빠진 숫자를
+    # 순이익이라 읽으면 실제보다 월세만큼 잘 벌고 있다고 믿게 된다.
+    if profit.get("fixed_cost_missing"):
+        if sales["total"] and profit["estimated_profit"] >= 0:
+            add(3, f"재료비·인건비 빼고 {profit['estimated_profit']:,}원 "
+                   f"— 임대료·공과금은 아직 안 빠졌어요")
+        elif profit["estimated_profit"] < 0:
+            add(1, f"재료비·인건비만으로 {abs(profit['estimated_profit']):,}원 모자라요 "
+                   f"— 임대료까지 넣으면 더 벌어집니다")
+    elif profit["estimated_profit"] >= 0:
         if sales["total"]:
             add(3, f"순이익 {profit['estimated_profit']:,}원")
     else:
@@ -857,6 +871,11 @@ def generate_management_report(store_id: str, period_type: str = "weekly",
     # 현금 관점 — 실제로 나간 돈(매입·지출·인건비) 기준. 손익과 나란히 두면
     # '이익은 나는데 통장이 빈' 상황(대량 매입한 주)을 구분해 볼 수 있다.
     cash_cost = purchases["total"] + expenses["total"] + labor["estimated_cost"]
+    # 지출(Expense)은 사장님이 손으로 넣는 표라 대개 비어 있다. 그러면 임대료·공과금·
+    # 카드수수료가 통째로 빠진 채 '순이익'이 계산된다 — 월세 200만원 매장이면 200만원이
+    # 그대로 이익으로 둔갑한다. 재료비만 보고 '많이 남는다'고 믿게 만드는 바로 그 착각이라,
+    # 비어 있으면 숫자를 감추지는 않되 '순이익'이라고 부르지는 않는다.
+    fixed_cost_missing = expenses["total"] <= 0
     profit = {
         "basis": "recipe" if use_recipe else "purchase",
         "material_cost": material_cost,
@@ -865,6 +884,8 @@ def generate_management_report(store_id: str, period_type: str = "weekly",
         "margin_pct": round(estimated_profit / sales["total"] * 100, 1) if sales["total"] else None,
         "cash_total_cost": cash_cost,
         "cash_balance": sales["total"] - cash_cost,
+        # 고정비가 등록되면(팀 손익분기 기능 포함) 자동으로 꺼진다 — 별도 해제가 필요 없다
+        "fixed_cost_missing": fixed_cost_missing,
     }
 
     content = {
@@ -883,7 +904,7 @@ def generate_management_report(store_id: str, period_type: str = "weekly",
         "compliance_alerts": compliance,
         "highlights": _build_highlights(sales, cogs, labor, rhythm, outlook, inventory,
                                         compliance, profit, period_type),
-        "note": _build_note(use_recipe, cogs),
+        "note": _build_note(use_recipe, cogs, fixed_cost_missing),
     }
     # AI 조언 — 근거 숫자가 지난 리포트와 같으면 Gemini를 부르지 않고 이전 조언을 재사용하고,
     # 숫자가 바뀌었어도 마지막 생성 후 30분 안에는 재생성하지 않는다

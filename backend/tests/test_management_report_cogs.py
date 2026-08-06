@@ -239,3 +239,79 @@ def test_loss_making_hour_outranks_background_facts(db):
     best_line = next((i for h, i in ranked.items() if h.startswith("베스트 메뉴")), None)
 
     assert best_line is None or loss_line < best_line
+
+
+# ---------------------------------------------------------------------------
+# 고정비 누락 — 임대료를 안 넣으면 '순이익'이라 부르면 안 된다
+#
+# 지출(Expense)은 사장님이 손으로 넣는 표라 대개 비어 있다. 그 상태에서
+# 매출 − 재료비 − 인건비를 '순이익'이라 부르면, 월세 200만원 매장은 200만원을
+# 벌고 있다고 믿게 된다. 재료비만 보고 '많이 남는다'고 착각하는 바로 그 문제다.
+# ---------------------------------------------------------------------------
+
+def _expense(db, amount, category="임대료", day=REF, store=STORE):
+    from datetime import date as _date
+
+    from app.models.operation import Expense
+    db.add(Expense(store_id=store, amount=amount, category=category,
+                   expense_date=_date.fromisoformat(day)))
+    db.commit()
+
+
+def test_missing_fixed_cost_is_flagged(db):
+    """지출이 비면 플래그가 선다 — 화면·알림이 '순이익'이라 부르지 않는 근거."""
+    latte = _menu_with_recipe(db, "라떼", price=5_000, unit_cost=1_500)
+    _sell(db, latte, qty=10, hour=10)
+
+    c = _report()
+
+    assert c["expenses"]["total"] == 0
+    assert c["profit"]["fixed_cost_missing"] is True
+
+
+def test_registered_fixed_cost_clears_the_flag(db):
+    """지출이 한 건이라도 들어오면 플래그가 꺼진다 — 팀 손익분기 기능이 붙으면 자동 해제된다."""
+    latte = _menu_with_recipe(db, "라떼", price=5_000, unit_cost=1_500)
+    _sell(db, latte, qty=10, hour=10)
+    _expense(db, 20_000)
+
+    c = _report()
+
+    assert c["profit"]["fixed_cost_missing"] is False
+    assert c["profit"]["estimated_profit"] == 15_000   # 50,000 − 15,000 재료비 − 20,000 임대료
+
+
+def test_note_warns_when_fixed_cost_is_missing(db):
+    """안내문에 경고가 붙는다 — 숫자를 감추지는 않되 무엇이 빠졌는지 밝힌다."""
+    latte = _menu_with_recipe(db, "라떼", price=5_000, unit_cost=1_500)
+    _sell(db, latte, qty=10, hour=10)
+
+    assert "고정비" in _report()["note"]
+
+    _expense(db, 20_000)
+    # generate_management_report는 force_refresh 기본값이 True라 매번 다시 계산한다
+    assert "고정비" not in _report()["note"]
+
+
+def test_highlight_does_not_say_net_profit_without_fixed_cost(db):
+    """하이라이트가 '순이익'이라는 단어를 쓰지 않는다 — 잠금화면에서 그대로 읽히는 문구다."""
+    latte = _menu_with_recipe(db, "라떼", price=5_000, unit_cost=1_500)
+    _sell(db, latte, qty=10, hour=10)
+
+    lines = _report()["highlights"]
+    assert not any("순이익" in ln for ln in lines), lines
+    assert any("임대료" in ln for ln in lines), lines
+
+
+def test_push_body_avoids_net_profit_label_without_fixed_cost():
+    """알림 본문도 같은 기준을 쓴다 — 리포트만 고치면 알림이 계속 거짓말한다."""
+    from app.services.ai import notification_service as ns
+
+    missing = ns._report_body({"sales": {"total": 500_000},
+                               "profit": {"estimated_profit": 350_000, "fixed_cost_missing": True}})
+    assert "순이익" not in missing
+    assert "고정비 전" in missing
+
+    known = ns._report_body({"sales": {"total": 500_000},
+                             "profit": {"estimated_profit": 350_000, "fixed_cost_missing": False}})
+    assert "순이익 350,000원" in known

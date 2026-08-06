@@ -302,14 +302,22 @@ export default function ManagementReportCard() {
                           </Text>
                         </View>
                         <View style={styles.detailInfoRow}>
-                          <Text style={styles.detailInfoLabel}>순 추정 수익</Text>
+                          <Text style={styles.detailInfoLabel}>
+                            {c.profit?.fixed_cost_missing ? '고정비 빼기 전' : '순 추정 수익'}
+                          </Text>
                           <Text style={[styles.detailInfoValue, { color: colors.trendGreenText }]}>
                             {won(c.profit?.estimated_profit ?? 0)}
                           </Text>
                         </View>
                         <View style={styles.popupDivider} />
-                        {/* 수치와 무관하게 항상 '안정적'이라 찍던 문구를 실제 마진율 기준으로 바꾼다 */}
-                        {c.profit?.margin_pct != null && (
+                        {/* 지출에 임대료가 없으면 이 숫자는 월세만큼 부풀어 있다.
+                            '안정적'이라고 칭찬하면 그 착각을 앱이 거들게 된다. */}
+                        {c.profit?.fixed_cost_missing ? (
+                          <Text style={styles.totalCupsText}>
+                            임대료·공과금이 등록되지 않아 실제보다 높게 나온 값이에요.
+                            지출에 월 고정비를 넣으면 정확해집니다.
+                          </Text>
+                        ) : c.profit?.margin_pct != null ? (
                           <Text style={styles.totalCupsText}>
                             {c.profit.margin_pct >= 20
                               ? '매출 대비 수익 구조가 안정적인 편이에요 ☕'
@@ -317,7 +325,7 @@ export default function ManagementReportCard() {
                               ? '수익은 나고 있지만 마진이 얇은 편이에요.'
                               : '지금은 비용이 매출을 넘어 적자 상태예요.'}
                           </Text>
-                        )}
+                        ) : null}
                       </View>
                     </>
                   )}
