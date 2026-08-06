@@ -32,6 +32,7 @@ import {
   type Wallet,
 } from '../../lib/api/rewards';
 import { ROOM_BGS } from '../../components/brew/roomBackgrounds';
+import { loadCache, peekCache, saveCache } from '../../lib/cache';
 import { useEquipped } from '../../rewards/EquippedContext';
 import { colors, typography } from '../../theme';
 // [한글 주석] load() 안의 지역변수 s(shop 응답)와 겹치지 않게 스케일 함수는 sc 로 별칭 처리
@@ -55,10 +56,11 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
   const { gutter, isWide, contentMaxWidth } = useResponsive();
   // 구매·착용하면 홈 화면 마스코트도 같이 바뀌어야 한다
   const { refresh: refreshEquipped } = useEquipped();
-  const [shop, setShop] = useState<ShopState | null>(null);
-  const [wallet, setWallet] = useState<Wallet | null>(null);
-  const [progress, setProgress] = useState<Progress | null>(null);
-  const [loading, setLoading] = useState(true);
+  // 지난 방문 값으로 먼저 그린다 — 매번 풀스크린 스피너를 보이지 않게 (서버 응답이 오면 조용히 갱신)
+  const [shop, setShop] = useState<ShopState | null>(() => peekCache<ShopState>('shop:shop')?.data ?? null);
+  const [wallet, setWallet] = useState<Wallet | null>(() => peekCache<Wallet>('shop:wallet')?.data ?? null);
+  const [progress, setProgress] = useState<Progress | null>(() => peekCache<Progress>('shop:progress')?.data ?? null);
+  const [loading, setLoading] = useState(() => !peekCache<ShopState>('shop:shop'));
   const [busyItem, setBusyItem] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [vaultOpen, setVaultOpen] = useState(false); // 보관함(보유 아이템 모음) 시트
@@ -66,7 +68,7 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
   useEffect(() => {
     if (route?.params?.openVault) setVaultOpen(true);
   }, [route?.params?.openVault]);
-  const [quests, setQuests] = useState<QuestBoard | null>(null);
+  const [quests, setQuests] = useState<QuestBoard | null>(() => peekCache<QuestBoard>('shop:quests')?.data ?? null);
   const [claiming, setClaiming] = useState<string | null>(null);
   const [historyExpanded, setHistoryExpanded] = useState(false); // 코인 내역 — 기본 5줄, 더보기로 전체 펼침
   // 브루 캡슐 뽑기 — 모달이 열리고 캡슐이 흔들리다 결과가 공개된다
@@ -107,6 +109,12 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
 
   const load = useCallback(async () => {
     if (!token) return;
+    // 앱을 새로 켠 직후에는 메모리 캐시가 비어 있다 — 디스크에 남은 지난 값으로 먼저 그린다
+    const cached = await loadCache<ShopState>('shop:shop');
+    if (cached) {
+      setShop((prev) => prev ?? cached.data);
+      setLoading(false);
+    }
     try {
       const [s, w, p, q] = await Promise.all([
         getShop(token), getWallet(token), getProgress(token), getQuests(token),
@@ -121,6 +129,12 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
       setLoading(false);
     }
   }, [token]);
+
+  // 최신 상태를 기기에 남긴다 — 구매·착용·뽑기 등 어떤 경로로 바뀌어도 다음 방문이 즉시 뜬다
+  useEffect(() => { if (shop) void saveCache('shop:shop', shop); }, [shop]);
+  useEffect(() => { if (wallet) void saveCache('shop:wallet', wallet); }, [wallet]);
+  useEffect(() => { if (progress) void saveCache('shop:progress', progress); }, [progress]);
+  useEffect(() => { if (quests) void saveCache('shop:quests', quests); }, [quests]);
 
   // 퀘스트 보상 수령 — 잔액이 바뀌므로 상점·지갑도 같이 갱신
   const handleClaimQuest = async (q: Quest) => {
@@ -285,7 +299,9 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
       )}
 
       {/* ── 부위별 아이템 — 아직 안 산 것만 (산 것은 보관함으로) ── */}
-      {!(shop?.items ?? []).some(inShopList) && (
+      {/* shop이 아직 없으면(첫 로드 실패 등) 축하 배너를 띄우지 않는다 —
+          아무것도 못 불러온 상태를 '다 모았다'로 읽으면 안 된다 */}
+      {!!shop && !shop.items.some(inShopList) && (
         <FadeInUp delay={60}>
           <SectionTitle>꾸미기 아이템</SectionTitle>
           <Card>

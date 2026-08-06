@@ -1,5 +1,5 @@
 // [상단 웰컴 블록 - 미니멀 말풍선 카드 적용 (투데이스 브루 뱃지 제거 및 1줄 피트 정렬)]
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -47,51 +47,40 @@ const DISMISSED_KEY = 'simplem:announce:dismissed';
 const announceSig = (n: { id: number; title?: string; date?: string }) =>
   `${n.id}|${n.title ?? ''}|${n.date ?? ''}`;
 
-// 관리자 공지를 폴링해 아직 닫지 않은 가장 최근 공지를 반환. 닫으면(dismiss) 다음부턴 숨긴다.
-// 소스는 로그인 매장 몫만 골라 주는 타겟 피드(/admin/notifications/feed) — 다른 매장 공지는 안 온다.
-function useAdminAnnouncement(refreshTrigger = 0) {
-  const { token } = useAuth();
-  const [announce, setAnnounce] = useState<{ id: number; sig: string; title: string } | null>(null);
+// 아직 닫지 않은 가장 최근 공지를 고른다. 닫으면(dismiss) 다음부턴 숨긴다.
+// 같은 컴포넌트의 알림함(useNoticeInbox)이 이미 같은 피드를 폴링하고 있으므로
+// 여기서 또 서버를 부르지 않고 그 목록을 받아 계산만 한다 — 예전엔 두 훅이 각각
+// 20초마다 같은 엔드포인트를 때려 홈에 가만히 있어도 분당 6회 요청이 나갔다.
+function useAdminAnnouncement(notices: AdminNotice[]) {
+  const [seenSigs, setSeenSigs] = useState<string[]>([]);
+  const [sessionDismissed, setSessionDismissed] = useState<string[]>([]);
 
   useEffect(() => {
-    if (!token) {
-      setAnnounce(null);
-      return;
-    }
-    let alive = true;
-    const check = async () => {
-      try {
-        // after_id=0 → 내 매장에 온 공지 전체를 받아 아직 안 닫은 최신 것을 고른다
-        const list = await fetchNoticeFeed(token, 0);
-        const raw = await AsyncStorage.getItem(DISMISSED_KEY);
-        const seen: string[] = raw ? JSON.parse(raw) : [];
-        const fresh = (list || [])
-          .filter((n) => typeof n?.id === 'number' && !seen.includes(announceSig(n)))
-          .sort((a, b) => b.id - a.id);
-        if (alive) setAnnounce(fresh[0] ? { id: fresh[0].id, sig: announceSig(fresh[0]), title: fresh[0].title } : null);
-      } catch {
-        // 서버 오프라인/미로그인 — 다음 주기에 재시도, 말풍선은 시간대 인사말로 유지
-      }
-    };
-    check();
-    const timer = setInterval(check, 20_000);
-    return () => {
-      alive = false;
-      clearInterval(timer);
-    };
-    // refreshTrigger: 홈 당겨서 새로고침 시 공지도 즉시 재확인
-  }, [token, refreshTrigger]);
+    AsyncStorage.getItem(DISMISSED_KEY)
+      .then((raw) => setSeenSigs(raw ? JSON.parse(raw) : []))
+      .catch(() => {});
+  }, []);
+
+  const dismissed = useMemo(() => new Set([...seenSigs, ...sessionDismissed]), [seenSigs, sessionDismissed]);
+  const announce = useMemo(() => {
+    const fresh = (notices || [])
+      .filter((n) => typeof n?.id === 'number' && !dismissed.has(announceSig(n)))
+      .sort((a, b) => b.id - a.id);
+    return fresh[0] ? { id: fresh[0].id, sig: announceSig(fresh[0]), title: fresh[0].title } : null;
+  }, [notices, dismissed]);
 
   const dismiss = async () => {
     if (!announce) return;
+    setSessionDismissed((prev) => [...prev, announce.sig]); // 저장 실패해도 이번 세션에선 숨긴다
     try {
       const raw = await AsyncStorage.getItem(DISMISSED_KEY);
       const seen: string[] = raw ? JSON.parse(raw) : [];
-      await AsyncStorage.setItem(DISMISSED_KEY, JSON.stringify([...new Set([...seen, announce.sig])]));
+      const next = [...new Set([...seen, announce.sig])];
+      await AsyncStorage.setItem(DISMISSED_KEY, JSON.stringify(next));
+      setSeenSigs(next);
     } catch {
-      // 저장 실패해도 이번 세션에선 숨긴다
+      // 세션 상태로 이미 숨겨졌다
     }
-    setAnnounce(null);
   };
 
   return { announce, dismiss };
@@ -154,7 +143,9 @@ function useNoticeInbox(refreshTrigger = 0) {
       }
     };
     load();
-    const timer = setInterval(load, 20_000);
+    // 공지는 분 단위로 급한 정보가 아니다 — 20초 폴링은 홈에 가만히 있어도
+    // 배터리·Neon 왕복을 계속 태웠다 (이 훅이 헤더 말풍선의 공급원까지 겸한다).
+    const timer = setInterval(load, 60_000);
     return () => {
       alive = false;
       clearInterval(timer);
@@ -198,10 +189,10 @@ export default function WelcomeHeader({
   const greeting = useTimeGreeting();
   // [한글 주석] 상태바(노치·펀치홀·다이나믹 아일랜드) 실측 높이
   const topInset = useTopInset();
-  const { announce, dismiss } = useAdminAnnouncement(refreshTrigger);
-
-  // 알림함 (지도 아이콘 옆 벨) — 지난 공지를 스택형으로 모아 본다
+  // 알림함 (지도 아이콘 옆 벨) — 지난 공지를 스택형으로 모아 본다.
+  // 헤더 말풍선(useAdminAnnouncement)도 이 목록을 그대로 쓴다 (폴링은 여기 한 곳만).
   const { notices, unreadCount, readMaxId, markAllRead } = useNoticeInbox(refreshTrigger);
+  const { announce, dismiss } = useAdminAnnouncement(notices);
   const [inboxOpen, setInboxOpen] = useState(false);
   // 모달을 열 때의 읽음 기준선을 스냅샷 — 그 이후 id는 목록에서 'NEW'로 표시
   const [newBaseline, setNewBaseline] = useState(0);

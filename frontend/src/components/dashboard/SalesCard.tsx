@@ -262,6 +262,7 @@ export default function SalesCard({
   onDismissAlert,
   onClearAllAlerts,
   onRestoreAlerts,
+  refreshToken = 0,
 }: {
   onPressReport?: () => void;
   todos?: Todo[];
@@ -276,6 +277,10 @@ export default function SalesCard({
   onDismissAlert?: (id: string) => void;
   onClearAllAlerts?: () => void;
   onRestoreAlerts?: () => void;
+  /** 당겨서 새로고침 카운터 — 값이 바뀌면 캐시 나이와 무관하게 다시 받는다.
+   *  예전엔 카드 key에 runId를 섞어 통째로 재마운트했는데, 그러면 캐시 훅·카운트업·
+   *  투두 내부 상태까지 전부 버려져 새로고침마다 화면이 처음부터 다시 그려졌다. */
+  refreshToken?: number;
 }) {
   // [한글 주석] 뷰포트 비례 계산 — 분석 모달이 작은 화면에서 넘치지 않게
   const { vh } = useResponsive();
@@ -300,14 +305,14 @@ export default function SalesCard({
       const pos = await getStoredStoreLocation();
       return getSalesForecast(token!, pos?.lat, pos?.lon);
     },
-    { maxAgeMs: 5 * 60_000 },
+    { maxAgeMs: 5 * 60_000, refreshToken },
   );
 
   // 이번 달 일별 실판매 집계 — 달을 넘기면 그 달 값을 따로 캐시한다
   const { data: calendar } = useCachedResource<SalesCalendar>(
     token ? `sales:calendar:${selectedYear}-${String(selectedMonth0 + 1).padStart(2, '0')}` : null,
     () => getSalesCalendar(token!, selectedYear, selectedMonth0 + 1),
-    { maxAgeMs: 5 * 60_000 },
+    { maxAgeMs: 5 * 60_000, refreshToken },
   );
 
   const weekDays = useMemo(() => getWeekDays(), []);
@@ -547,6 +552,13 @@ export default function SalesCard({
   const [pulseVal, setPulseVal] = useState(0);
 
   useEffect(() => {
+    // 펄스 링은 분석 모달의 DAY 탭에서만 보인다 — 그때만 돌린다.
+    // 조건 없이 돌리면 setPulseVal이 초당 ~60번 카드 전체(투두 목록 포함)를 재렌더해,
+    // 홈 화면이 항상 램프를 켜 둔 것처럼 무거워진다 (스크롤 버벅임·배터리 소모의 주범이었다).
+    if (!showAnalyticsModal || analyticsTab !== 'day') {
+      setPulseVal(0);
+      return;
+    }
     // [한글 주석] Web 환경의 Svg 렌더링 호환성 결함을 피하기 위해, Animated.Value의 변화량을
     // addListener로 직접 감지하여 React 상태(pulseVal)로 반영합니다.
     const listenerId = pulse.addListener(({ value }) => {
@@ -565,7 +577,7 @@ export default function SalesCard({
       loop.stop();
       pulse.removeListener(listenerId);
     };
-  }, [pulse]);
+  }, [pulse, showAnalyticsModal, analyticsTab]);
 
   // [한글 주석] Svg 내부 펄스 링의 크기 및 투명도를 일반 숫자 값으로 실시간 계산합니다.
   const pulseRadius = 4 + pulseVal * 8; // [0, 1] -> [4, 12]

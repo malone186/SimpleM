@@ -2,7 +2,7 @@
 // 리포트 조회 · 원두 비교 · 문서 생성 · 발주 초안 등 전용 화면 없는 모든 기능
 // 대화 세션 관리: 새 채팅 열기 + 과거 채팅 복원/삭제
 // (로그인 시 서버 DB에 계정별 보관 — 비로그인·서버 장애 시 기기 로컬 폴백)
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -356,7 +356,10 @@ export default function ChatbotScreen() {
         showsVerticalScrollIndicator={false}
         onContentSizeChange={scrollDown}
       >
-        {messages.map((m) => (
+        {/* 말풍선 목록은 messages·언어가 바뀔 때만 다시 만든다 — 입력창 키 한 번마다
+            화면 전체가 재렌더되면서 모든 봇 말풍선의 plainText(정규식 3회)가 다시 돌아
+            대화가 길어질수록 타이핑이 무거워졌다 */}
+        {useMemo(() => messages.map((m) => (
           <View key={m.id} style={styles.msgBlock}>
             <FadeInUp
               distance={10}
@@ -381,7 +384,7 @@ export default function ChatbotScreen() {
               </FadeInUp>
             ))}
           </View>
-        ))}
+        )), [messages, language])}
 
         {/* 두뇌가 도구를 호출하며 답을 준비하는 동안 표시 */}
         {sending && (

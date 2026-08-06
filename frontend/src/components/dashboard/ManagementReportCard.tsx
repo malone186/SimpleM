@@ -46,7 +46,7 @@ const formatFriendlyText = (text: string) => {
 
 const won = (n: number) => `${n < 0 ? '-' : ''}₩${Math.abs(n).toLocaleString('ko-KR')}`;
 
-export default function ManagementReportCard() {
+export default function ManagementReportCard({ refreshToken = 0 }: { refreshToken?: number }) {
   // [한글 주석: 전역 다국어 훅 연동 — AI 경영 리포트 카드 영문/한글 텍스트 제공]
   const { t, language } = useTranslation();
   const { token } = useAuth();
@@ -120,7 +120,7 @@ export default function ManagementReportCard() {
   } = useCachedResource<GeneratedDocument>(
     token ? `dash:report:${period}` : null,
     () => getManagementReport(token!, period),
-    { maxAgeMs: 10 * 60_000 },
+    { maxAgeMs: 10 * 60_000, refreshToken },
   );
 
   // 실패 사유를 분류해 들고 있는다 — 신규 계정에서 "로그인과 서버를 확인해 주세요"만 띄우면

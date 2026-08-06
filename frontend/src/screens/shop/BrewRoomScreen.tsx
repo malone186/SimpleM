@@ -23,6 +23,7 @@ import {
   type QuestBoard,
 } from '../../lib/api/rewards';
 import { getRoomBg } from '../../components/brew/roomBackgrounds';
+import { loadCache, peekCache, saveCache } from '../../lib/cache';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useEquipped } from '../../rewards/EquippedContext';
 import { colors, typography } from '../../theme';
@@ -33,8 +34,9 @@ export default function BrewRoomScreen() {
   const { token } = useAuth();
   const topInset = useTopInset();
   const bottomInset = useBottomInset();
-  const [progress, setProgress] = useState<Progress | null>(null);
-  const [quests, setQuests] = useState<QuestBoard | null>(null);
+  // 지난 방문 값으로 먼저 그린다 — 매번 빈 카드에서 시작하지 않게 (서버 응답이 오면 조용히 갱신)
+  const [progress, setProgress] = useState<Progress | null>(() => peekCache<Progress>('shop:progress')?.data ?? null);
+  const [quests, setQuests] = useState<QuestBoard | null>(() => peekCache<QuestBoard>('shop:quests')?.data ?? null);
   const [coins, setCoins] = useState<number | null>(null);
   const [claiming, setClaiming] = useState<string | null>(null);
   // 보관함은 이 화면 위에 시트로 뜬다 — 꾸민 브루를 보면서 갈아입히는 게 목적이라
@@ -46,11 +48,17 @@ export default function BrewRoomScreen() {
 
   const load = useCallback(async () => {
     if (!token) return;
+    // 앱을 새로 켠 직후에는 메모리 캐시가 비어 있다 — 디스크의 지난 값으로 먼저 그린다
+    const cached = await loadCache<Progress>('shop:progress');
+    if (cached) setProgress((prev) => prev ?? cached.data);
     try {
       const [p, q, w] = await Promise.all([getProgress(token), getQuests(token), getWallet(token)]);
       setProgress(p);
       setQuests(q);
       setCoins(w.balance);
+      // 상점 화면과 같은 칸에 남긴다 — 두 화면 어느 쪽을 먼저 열어도 즉시 뜨게
+      void saveCache('shop:progress', p);
+      void saveCache('shop:quests', q);
     } catch {
       toast('불러오기 실패', '잠시 후 다시 시도해 주세요.');
     }
