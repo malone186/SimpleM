@@ -11,14 +11,14 @@
 import type { ImageSourcePropType } from 'react-native';
 
 export const ROOM_BGS: Record<string, ImageSourcePropType> = {
-  // room_window: require('../../../assets/game/rooms/room_window.jpg'),
-  // room_terrace: require('../../../assets/game/rooms/room_terrace.jpg'),
-  // room_night: require('../../../assets/game/rooms/room_night.jpg'),
-  // room_blossom: require('../../../assets/game/rooms/room_blossom.jpg'),
-  // room_rainy: require('../../../assets/game/rooms/room_rainy.jpg'),
-  // room_winter: require('../../../assets/game/rooms/room_winter.jpg'),
-  // room_sunset: require('../../../assets/game/rooms/room_sunset.jpg'),
-  // room_plant: require('../../../assets/game/rooms/room_plant.jpg'),
+  room_window: require('../../../assets/game/rooms/room_window.jpg'),
+  room_terrace: require('../../../assets/game/rooms/room_terrace.jpg'),
+  room_night: require('../../../assets/game/rooms/room_night.jpg'),
+  room_blossom: require('../../../assets/game/rooms/room_blossom.jpg'),
+  room_rainy: require('../../../assets/game/rooms/room_rainy.jpg'),
+  room_winter: require('../../../assets/game/rooms/room_winter.jpg'),
+  room_sunset: require('../../../assets/game/rooms/room_sunset.jpg'),
+  room_plant: require('../../../assets/game/rooms/room_plant.jpg'),
 };
 
 /** 기본 배경 (아무것도 착용 안 했을 때의 카페 카운터) */

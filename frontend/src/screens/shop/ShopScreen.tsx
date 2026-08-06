@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Image as RNImage, Modal, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 
 import { useAuth } from '../../auth/AuthContext';
 import Brew, { type BrewMood } from '../../components/brew/Brew';
@@ -66,6 +67,16 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
   const [claiming, setClaiming] = useState<string | null>(null);
   const [historyExpanded, setHistoryExpanded] = useState(false); // 코인 내역 — 기본 5줄, 더보기로 전체 펼침
 
+  // 이미 산 아이템은 상점 목록에서 빼고 보관함에만 둔다 — 상점은 '아직 없는 것'만 보이게.
+  // 다만 방금 산 것은 바로 착용해 볼 수 있게 이번 방문 동안만 목록에 남겨 둔다.
+  // 화면을 벗어나면(탭 이동 등) 비워서, 다시 들어오면 보관함에만 남는다.
+  const isFocused = useIsFocused();
+  const [justBought, setJustBought] = useState<string[]>([]);
+  useEffect(() => {
+    if (!isFocused) setJustBought([]);
+  }, [isFocused]);
+  const inShopList = (i: ShopItem) => itemVisible(i) && (!i.owned || justBought.includes(i.id));
+
   const load = useCallback(async () => {
     if (!token) return;
     try {
@@ -121,6 +132,7 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
         try {
           const next = await buyItem(item.id, token);
           setShop(next);
+          setJustBought((v) => (v.includes(item.id) ? v : [...v, item.id])); // 방금 산 건 착용까지 하고 갈 수 있게 남긴다
           setWallet(await getWallet(token));
           await refreshEquipped(); // 홈 화면 마스코트에도 즉시 반영
           toast('구매 완료', `${item.name} 적용! 홈 화면 브루도 같이 바뀌었어요.`);
@@ -226,9 +238,19 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
         </FadeInUp>
       )}
 
-      {/* ── 부위별 아이템 ── */}
+      {/* ── 부위별 아이템 — 아직 안 산 것만 (산 것은 보관함으로) ── */}
+      {!(shop?.items ?? []).some(inShopList) && (
+        <FadeInUp delay={60}>
+          <SectionTitle>꾸미기 아이템</SectionTitle>
+          <Card>
+            <Text style={styles.emptyText}>
+              살 수 있는 아이템을 다 모았어요! 보관함에서 갈아입혀 보세요 🎉
+            </Text>
+          </Card>
+        </FadeInUp>
+      )}
       {SLOT_ORDER.map((slot, si) => {
-        const items = (shop?.items ?? []).filter((i) => i.slot === slot && itemVisible(i));
+        const items = (shop?.items ?? []).filter((i) => i.slot === slot && inShopList(i));
         if (!items.length) return null;
         return (
           <FadeInUp key={slot} delay={60 + si * 50}>
