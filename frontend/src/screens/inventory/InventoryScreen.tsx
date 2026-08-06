@@ -24,7 +24,7 @@ import { API_BASE_URL } from '../../lib/api/client';
 import { adjustStock, createIngredient, listStocks, StockItem } from '../../lib/api/inventory';
 import { confirmOcrDocument, listOcrDocuments, rejectOcrDocument, uploadOcrImage, OcrDocument, updateOcrDocument, OcrItem, type UploadAsset } from '../../lib/api/ocr';
 import { colors, typography } from '../../theme';
-import { s, useBottomInset, useResponsive, useTopInset } from '../../theme/responsive';
+import { s, useResponsive, useTopInset } from '../../theme/responsive';
 
 const TARGET_LABEL: Record<string, string> = {
   inventory_inbound: '재고 입고',
@@ -66,7 +66,6 @@ export default function InventoryScreen() {
   const navigation = useNavigation<any>();
   // [한글 주석] 기기 상태바 높이 실측 + 화면 급수 판정 (플립 커버 화면에서는 마스코트를 줄인다)
   const topInset = useTopInset();
-  const bottomInset = useBottomInset();
   const { isCompact, isXS, isWide, contentMaxWidth } = useResponsive();
   const [stocks, setStocks] = useState<StockItem[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all'); // [한글 주석] 카테고리 필터 상태
@@ -556,11 +555,10 @@ export default function InventoryScreen() {
         </Animated.View>
 
         {/* 둥근 크림 시트 — 콘텐츠가 위로 올라오며 헤더를 덮는다 */}
-        {/* [한글 주석] 하단 탭 바 + 제스처 바 실측 여백 — 마지막 카드가 잘리지 않게 */}
+        {/* [한글 주석] 탭 바는 화면 아래 별도 영역이라 겹치지 않는다 — 하단은 시트 기본 여백(24)만 사용 */}
         <View
           style={[
             styles.brownSheet,
-            { paddingBottom: s(72) + bottomInset + s(24) },
             // [한글 주석] 폴드 펼침에서 카드가 가로로 늘어지지 않게 폭 제한 + 가운데 정렬
             isWide && { maxWidth: contentMaxWidth, width: '100%', alignSelf: 'center' },
           ]}
@@ -919,7 +917,7 @@ export default function InventoryScreen() {
                 <View style={styles.rowBetween}>
                   <Text style={styles.stockName}>{s.name}</Text>
                   <View style={styles.headRight}>
-                    {low ? <Badge label="안전재고 미달" tone="danger" /> : <Badge label="정상" tone="green" />}
+                    {low ? <Badge label="재고 부족" tone="danger" /> : <Badge label="정상" tone="green" />}
                     <PressableScale style={styles.delBtn} onPress={() => removeStock(s)} to={0.88}>
                       <Ionicons name="trash-outline" size={16} color="#B23B2E" />
                     </PressableScale>
@@ -932,7 +930,7 @@ export default function InventoryScreen() {
                   </Text>
                   <Text style={styles.safetyText}>
                     {s.current_price > 0 ? `단가 ₩${s.current_price.toLocaleString()} · ` : ''}
-                    안전재고 {s.safety_quantity}{s.unit}
+                    최소 {s.safety_quantity}{s.unit} 필요
                   </Text>
                 </View>
                 <ProgressBar ratio={s.current_quantity / denominator} tone={low ? 'danger' : 'mocha'} />

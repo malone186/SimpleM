@@ -63,13 +63,13 @@ export const translations = {
 
     // 5. 재고 화면 (InventoryScreen)
     inventoryTitle: '재고',
-    inventorySubtitle: '현재 재고와 안전재고 상태',
+    inventorySubtitle: '남은 재고와 부족한 재료',
     searchIngredientPlaceholder: '재료명 검색...',
-    statusLowStock: '안전재고 부족',
+    statusLowStock: '재고 부족',
     statusNormal: '정상',
     statusOutOfStock: '품절',
     currentStockLabel: '현재 재고',
-    safetyStockLabel: '안전 재고',
+    safetyStockLabel: '최소 보유량',
     unitLabel: '단위',
 
     // 6. 발주 화면 & BeanNotepad & 모달
@@ -216,13 +216,13 @@ export const translations = {
 
     // 5. Inventory Screen
     inventoryTitle: 'Inventory',
-    inventorySubtitle: 'Current inventory & safety stock status',
+    inventorySubtitle: 'Current stock & what needs restocking',
     searchIngredientPlaceholder: 'Search ingredient...',
     statusLowStock: 'Low Stock',
     statusNormal: 'Normal',
     statusOutOfStock: 'Out of Stock',
     currentStockLabel: 'Current Stock',
-    safetyStockLabel: 'Safety Stock',
+    safetyStockLabel: 'Minimum Stock',
     unitLabel: 'Unit',
 
     // 6. Order Screen & BeanNotepad & Modals
