@@ -166,18 +166,21 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
-# [CORS 설정] 
-# 로컬 개발 및 기기 간 IP 접속(Failed to fetch) 시의 브라우저 CORS 차단을 방지하기 위해 
-# 모든 http/https 오리진 주소 접속을 허용하되, 인증 토큰 전달(credentials)도 안전하게 성립시킵니다.
+# [CORS 설정]
+# 로컬 개발·기기 간 IP 접속(192.168.x.x, localhost, 브리지 웹) 때문에 오리진은 넓게 열되,
+# credentials는 끈다 — '아무 오리진 + credentials 허용' 조합은 악성 사이트가 로그인된
+# 브라우저의 쿠키를 실어 우리 API를 부르고 응답까지 읽게 만든다 (2026-08-06 감사).
+# 이 앱의 인증은 전부 Authorization: Bearer 헤더(코드 전역에 쿠키 사용처 없음 확인)라
+# credentials 없이도 모든 정상 흐름이 그대로 동작한다.
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex="https?://.*",  # 192.168.x.x 또는 localhost 등 모든 오리진 주소를 정규식 허용
-    allow_credentials=True,             # 인증 정보(토큰/쿠키) 전송을 허용
+    allow_credentials=False,            # 쿠키·HTTP 인증 동봉 금지 (Bearer 헤더는 영향 없음)
     allow_methods=["*"],                # 모든 HTTP 메소드 허용
-    allow_headers=["*"],                # 모든 커스텀 헤더 허용
+    allow_headers=["*"],                # 모든 커스텀 헤더 허용 (Authorization 포함)
     # [응답 헤더 노출] 브라우저는 안전 목록 밖 응답 헤더를 JS에 숨긴다. TTS가 분당 한도로
     # 기기 목소리로 전환될 때 프론트가 "언제 돌아오는지(Retry-After)"와 "캐시 응답인지
-    # (X-Tts-Cache)"를 읽어야 해서 명시적으로 노출한다. (credentials=True라 "*"는 불가)
+    # (X-Tts-Cache)"를 읽어야 해서 명시적으로 노출한다.
     expose_headers=["Retry-After", "X-Tts-Cache", "X-Tts-Fallback"],
 )
 
@@ -356,8 +359,12 @@ def _db_identity() -> dict:
 
 
 @app.get("/health")
-async def health() -> dict:
+def health() -> dict:
     """구성요소별 상태 — 관리자 콘솔의 '시스템 상태'가 읽는다.
+
+    async가 아니라 일반 def다 — 동기 DB 접속을 async 핸들러에서 그대로 하면 Neon이
+    안 붙는 동안 connect_timeout(10초) 내내 이벤트 루프 전체가 멈춰, 헬스체크가
+    가장 바쁘게 도는 장애 상황에 멀쩡한 요청까지 같이 죽는다. def면 스레드풀에서 돈다.
 
     예전엔 {"status":"ok"}만 돌려줘서 화면이 볼 게 없었고, 그래서 DB는 API 상태를 그대로
     베껴 쓰고 OCR은 아예 '대기'로 하드코딩돼 있었다. 실제로 확인해서 알려준다.
