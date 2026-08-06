@@ -17,6 +17,10 @@ api_router.include_router(assistant_router)
 api_router.include_router(admin_router)
 api_router.include_router(auth_router)
 
+# B (breakeven)
+from app.api.v1.breakeven import router as breakeven_router
+api_router.include_router(breakeven_router)
+
 # C (chatbot)
 api_router.include_router(chatbot.router)
 

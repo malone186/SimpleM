@@ -15,6 +15,7 @@ import Brew from '../brew/Brew';
 import { ROOM_BGS } from '../brew/roomBackgrounds';
 import { FadeInUp, PressableScale } from '../motion';
 import { toast } from '../toast';
+import { Segmented } from '../ui/Segmented';
 import { SwipeDownModal } from '../ui/SwipeDownModal';
 import ItemArt from './ItemArt';
 import { equipItem, getShop, type ItemSlot, type ShopItem, type ShopState } from '../../lib/api/rewards';
@@ -27,6 +28,15 @@ const SLOT_ORDER: ItemSlot[] = ['pose', 'apron', 'background', 'room'];
 
 // 카페 배경은 프론트에 사진이 등록된 것만 — 사진이 없으면 착용해도 아무 변화가 없다
 const itemVisible = (item: ShopItem) => item.slot !== 'room' || !!ROOM_BGS[item.id];
+
+// 세그먼트는 폭을 똑같이 나누므로 서버가 주는 이름("브루 모습"·"배경 효과")은 길어서 잘린다.
+// 아래 목록에 같은 이름이 제목으로 다시 나오니, 칸에서는 짧은 말로 충분하다.
+const SHORT_SLOT_LABEL: Record<ItemSlot, string> = {
+  pose: '모습',
+  apron: '앞치마',
+  background: '효과',
+  room: '배경',
+};
 
 export default function VaultSheet({
   visible,
@@ -109,23 +119,23 @@ export default function VaultSheet({
         </PressableScale>
       </View>
 
-      {/* ── 부위 필터 ── 종류가 늘어나도 원하는 칸만 골라 볼 수 있게 */}
+      {/* ── 부위 필터 ── 앱의 다른 화면과 같은 세그먼트 컨트롤을 쓴다.
+             칸마다 폭이 제각각이던 알약 칩은 '전체'만 짧아서 줄이 들쭉날쭉했다. */}
       {availableSlots.length > 1 && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chipRow}
-        >
-          <FilterChip label="전체" active={slotFilter === null} onPress={() => setSlotFilter(null)} />
-          {availableSlots.map((slot) => (
-            <FilterChip
-              key={slot}
-              label={owned.find((i) => i.slot === slot)?.slot_label ?? slot}
-              active={slotFilter === slot}
-              onPress={() => setSlotFilter(slot)}
-            />
-          ))}
-        </ScrollView>
+        <View style={styles.filterRow}>
+          <Segmented
+            value={slotFilter ?? 'all'}
+            onChange={(v) => setSlotFilter(v === 'all' ? null : (v as ItemSlot))}
+            options={[
+              { value: 'all', label: '전체' },
+              ...availableSlots.map((slot) => ({
+                value: slot,
+                // 세그먼트는 폭이 똑같이 나뉘어 긴 이름이 잘린다 — 짧은 말로 줄인다
+                label: SHORT_SLOT_LABEL[slot] ?? slot,
+              })),
+            ]}
+          />
+        </View>
       )}
 
       {loading && !shop ? (
@@ -188,15 +198,6 @@ export default function VaultSheet({
   );
 }
 
-/** 부위 필터 칩 */
-function FilterChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
-  return (
-    <PressableScale style={[styles.chip, active && styles.chipOn]} onPress={onPress} to={0.94}>
-      <Text style={[styles.chipText, active && styles.chipTextOn]}>{label}</Text>
-    </PressableScale>
-  );
-}
-
 /** 아이템 한 칸 — 누르면 바로 착용/해제. 착용 중이면 테두리와 체크 배지로 표시 */
 function VaultTile({
   item,
@@ -219,7 +220,8 @@ function VaultTile({
       <View style={[styles.tileArt, item.equipped && styles.tileArtOn]}>
         {busy ? <ActivityIndicator color={colors.mochaBrown} /> : <ItemArt item={item} apronColor={apronColor} size={46} />}
       </View>
-      <Text style={[styles.tileName, item.equipped && styles.tileNameOn]} numberOfLines={1}>
+      {/* 칸이 좁아 한 줄로 두면 '포근한 니트 앞치마'가 '포근한 니…'로 잘린다 — 두 줄까지 준다 */}
+      <Text style={[styles.tileName, item.equipped && styles.tileNameOn]} numberOfLines={2}>
         {item.name}
       </Text>
       <Text style={styles.tileAction}>{item.equipped ? '벗기' : '착용'}</Text>
@@ -260,18 +262,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  chipRow: { gap: 6, paddingBottom: 12, paddingRight: 4 },
-  chip: {
-    borderRadius: 999,
-    paddingHorizontal: 13,
-    paddingVertical: 7,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.mutedSand,
-  },
-  chipOn: { backgroundColor: colors.espressoBrown, borderColor: colors.espressoBrown },
-  chipText: { ...typography.L5, fontWeight: '700', color: colors.mochaBrown },
-  chipTextOn: { color: colors.white },
+  filterRow: { paddingBottom: 12 },
 
   center: { alignItems: 'center', justifyContent: 'center', paddingVertical: 34, gap: 6 },
   emptyTitle: { ...typography.L3, color: colors.espressoBrown, marginTop: 8 },
@@ -304,8 +295,9 @@ const styles = StyleSheet.create({
 
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: sc(8) },
   tile: {
-    // 한 줄에 3칸 — gap 두 번을 뺀 나머지를 나눠 갖는다
-    width: `${(100 - 7) / 3}%`,
+    // 한 줄에 3칸 — gap 두 번(sc(8)×2)이 들어갈 자리를 넉넉히 비워 둔다.
+    // 딱 맞게 잡으면 반올림 1px 차이로 세 번째 칸이 다음 줄로 떨어진다.
+    width: `${(100 - 10) / 3}%`,
     alignItems: 'center',
     paddingVertical: 10,
     paddingHorizontal: 4,
@@ -322,7 +314,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.coffeeCream,
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
+    // overflow: 'hidden'을 걸지 않는다 — 전신 포즈(댑·팔벌려뛰기)의 팔다리가 박스를
+    // 살짝 넘어가는데 잘라내면 팔이 사라진 그림이 된다. 카페 배경 사진은 ItemArt에서
+    // 자기 borderRadius를 직접 갖고 있어 여기서 자를 필요가 없다.
   },
   tileArtOn: { backgroundColor: '#F7E4D6' },
   tileName: {

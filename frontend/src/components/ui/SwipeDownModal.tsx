@@ -10,6 +10,7 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
+import { useFrameSheetStyle } from '../DeviceFrame';
 import { colors } from '../../theme';
 import { useBottomInset } from '../../theme/responsive';
 
@@ -29,6 +30,10 @@ export const SwipeDownModal: React.FC<SwipeDownModalProps> = ({
   // [한글 주석] 기기 하단 시스템 바 실측값 + 현재 화면 높이 (회전·폴더블 전개 시 즉시 반영)
   const bottomInset = useBottomInset();
   const { height: windowHeight } = useWindowDimensions();
+  // [한글 주석] 웹 목업 정렬 — Modal은 웹에서 document.body로 포털돼 DeviceFrame 밖에 그려진다.
+  // 그대로 두면 앱 본문은 축소된 폰 목업 안에 있는데 시트만 원본 크기로 브라우저 바닥까지
+  // 내려와 프레임을 뚫고 나가 잘려 보인다. 실기기·모바일 웹에서는 null이라 영향이 없다.
+  const frameSheet = useFrameSheetStyle();
   // 모달 수직 이동 애니메이션 값 (0: 원래 위치, >0: 아래로 이동)
   const translateY = useRef(new Animated.Value(0)).current;
 
@@ -91,12 +96,16 @@ export const SwipeDownModal: React.FC<SwipeDownModalProps> = ({
           style={[
             styles.sheet,
             sheetStyle,
+            frameSheet,
             {
-              transform: [{ translateY }],
+              // 드래그를 먼저 걸고 목업 축소를 나중에 겹친다 — 순서를 바꾸면 손가락은 100px
+              // 내렸는데 시트는 축소 배율만큼만 따라와 드래그가 굼떠 보인다.
+              transform: [{ translateY }, ...((frameSheet?.transform as any[]) ?? [])],
               // [한글 주석] 하단 제스처 바/홈 인디케이터 실측 여백 — 마지막 버튼이 시스템 바에 물리지 않게
               paddingBottom: 20 + bottomInset,
-              // 세로가 짧은 기기(가로모드·플립 커버)에서 시트가 화면을 넘지 않게 상한을 둔다
-              maxHeight: windowHeight * 0.9,
+              // 세로가 짧은 기기(가로모드·플립 커버)에서 시트가 화면을 넘지 않게 상한을 둔다.
+              // 웹 목업에서는 브라우저 높이가 아니라 프레임 내부 높이가 기준이다.
+              maxHeight: frameSheet?.maxHeight ?? windowHeight * 0.9,
             },
           ]}
         >

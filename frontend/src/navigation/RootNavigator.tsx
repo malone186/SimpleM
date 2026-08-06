@@ -12,6 +12,7 @@ import { navigationRef, navigateToTarget } from '../notifications/navigationTarg
 import { takePendingTarget } from '../notifications/pushRegistration';
 import AdminScreen from '../screens/admin/AdminScreen';
 import AuthScreen from '../screens/auth/AuthScreen';
+import BreakEvenScreen from '../screens/cost/BreakEvenScreen';
 import ChatbotScreen from '../screens/chatbot/ChatbotScreen';
 import CostScreen from '../screens/cost/CostScreen';
 import DashboardScreen from '../screens/dashboard/DashboardScreen';
@@ -67,6 +68,7 @@ export type RootStackParamList = {
   // prefillMenu: 투두의 '홍보하러 가기'로 진입 시 홍보할 메뉴명 자동 입력 (ts: 재진입 갱신용)
   Marketing: { prefillMenu?: string; ts?: number } | undefined;
   Cost: undefined;
+  BreakEven: undefined;
   Legal: { doc?: 'privacy' | 'terms' } | undefined;
   Document: undefined;
   TaxDraftDetail: { tax: TaxEstimate };
@@ -195,6 +197,7 @@ export default function RootNavigator() {
         <Stack.Screen name="ManualSales" component={ManualSalesScreen} options={({ navigation }) => erpHeader('직접 입력', navigation)} />
         <Stack.Screen name="Marketing" component={MarketingScreen} options={({ navigation }) => erpHeader('홍보 스튜디오', navigation)} />
         <Stack.Screen name="Cost" component={CostScreen} options={({ navigation }) => erpHeader('원가 분석', navigation)} />
+        <Stack.Screen name="BreakEven" component={BreakEvenScreen} options={({ navigation }) => erpHeader('손익분기점', navigation)} />
         <Stack.Screen name="Legal" component={LegalScreen} options={({ navigation }) => erpHeader('약관 및 정책', navigation)} />
         <Stack.Screen name="Document" component={DocumentScreen} options={({ navigation }) => erpHeader('서류 자동화', navigation)} />
         <Stack.Screen name="TaxDraftDetail" component={TaxDraftDetailScreen} options={({ navigation }) => erpHeader('세금 신고 초안', navigation)} />
