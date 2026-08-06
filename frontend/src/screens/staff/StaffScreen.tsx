@@ -433,7 +433,7 @@ export default function StaffScreen() {
       destructive: true,
       onConfirm: async () => {
         try {
-          await deleteEmployee(emp.id);
+          await deleteEmployee(emp.id, token ?? undefined);
           setData((cur) => (cur ? withTotals(cur, cur.staff.filter((s) => s.id !== emp.id)) : cur));
           refreshWeekly();
           toast('삭제 완료', `${emp.name} 직원을 삭제했어요.`);

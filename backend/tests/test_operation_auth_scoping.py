@@ -2,7 +2,8 @@
 
 공유 DB에서 employee_id·schedule_id가 연번이라, 확인 없이 두면 옆 매장의 직원·근무를
 연번만 알고 수정·삭제할 수 있었다. 로그인 시 소유권 검사(_assert_*_owned)로 막고,
-비로그인(데모)은 기존 동작(무검사)을 유지한다 — 그 규칙을 잠근다.
+비로그인 변경은 401로 거부한다(2026-08-06 보안 수정 — 예전의 '무검사 통과'는
+토큰 없이 아무 매장 데이터든 지울 수 있다는 뜻이었다). 그 규칙을 잠근다.
 """
 from datetime import datetime
 
@@ -51,8 +52,10 @@ def test_employee_ownership(db):
     with pytest.raises(HTTPException) as ei:
         _assert_employee_owned(db, e.id, _user(OTHER))
     assert ei.value.status_code == 404
-    # 비로그인(데모) → 무검사 통과 (기존 동작 유지)
-    _assert_employee_owned(db, e.id, None)
+    # 비로그인 → 401 거부 (2026-08-06 보안 수정)
+    with pytest.raises(HTTPException) as ei:
+        _assert_employee_owned(db, e.id, None)
+    assert ei.value.status_code == 401
 
 
 def test_schedule_ownership(db):
@@ -70,4 +73,7 @@ def test_schedule_ownership(db):
     with pytest.raises(HTTPException) as ei:
         _assert_schedule_owned(db, sch.id, _user(OTHER))
     assert ei.value.status_code == 404
-    _assert_schedule_owned(db, sch.id, None)
+    # 비로그인 → 401 거부 (2026-08-06 보안 수정)
+    with pytest.raises(HTTPException) as ei:
+        _assert_schedule_owned(db, sch.id, None)
+    assert ei.value.status_code == 401

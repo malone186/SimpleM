@@ -15,8 +15,14 @@ import logging
 # 백엔드 루트 경로 추가
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# 유지보수 엔드포인트(reindex 등)는 크론 시크릿이 필요하다 — app 임포트 전에 넣어야
+# operation.py가 이 값을 읽는다 (미설정이면 그 엔드포인트가 404로 숨는다).
+os.environ.setdefault("NOTIFICATION_CRON_SECRET", "local-dev-secret")
+
 from fastapi.testclient import TestClient
 from app.main import app
+
+MAINT_HEADERS = {"x-cron-secret": os.environ["NOTIFICATION_CRON_SECRET"]}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("TestBeanRAGPipeline")
@@ -106,7 +112,7 @@ def test_bean_rag_pipeline():
     print("\n\n[시나리오 4] 증분 색인 트리거 API 테스트 (POST /api/v1/operation/rag/reindex)")
     print("-" * 75)
 
-    response4 = client.post("/api/v1/operation/rag/reindex?full_reindex=false")
+    response4 = client.post("/api/v1/operation/rag/reindex?full_reindex=false", headers=MAINT_HEADERS)
     assert response4.status_code == 200
     res_data4 = response4.json()
     reindex_data = res_data4["data"]
