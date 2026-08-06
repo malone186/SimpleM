@@ -8,7 +8,7 @@ import Svg, { Circle, Defs, FeGaussianBlur, Filter, LinearGradient, Path, Stop }
 
 import { FadeInUp, PressableScale } from '../../components/motion';
 import { colors } from '../../theme';
-import { s, useBottomInset, useResponsive, useTopInset } from '../../theme/responsive';
+import { s, useResponsive, useTopInset } from '../../theme/responsive';
 import { useTranslation } from '../../i18n/translations';
 import { useAuth } from '../../auth/AuthContext';
 import Brew from '../../components/brew/Brew';
@@ -86,7 +86,6 @@ export default function ManagementScreen() {
   const { user } = useAuth();
   // [한글 주석] 노치/펀치홀 실측 여백 + 화면 급수 (좁은 기기에서 마스코트 축소)
   const topInset = useTopInset();
-  const bottomInset = useBottomInset();
   const { isCompact, isXS, isWide, contentMaxWidth } = useResponsive();
 
   // [한글 주석] 직원 계정에는 단골 화면만 보여준다.
@@ -181,10 +180,9 @@ export default function ManagementScreen() {
       <View style={styles.body}>
         <Animated.ScrollView
           style={styles.scroll}
-          // [한글 주석] 하단 탭 바 + 제스처 바 실측 여백을 더해 마지막 카드가 가리지 않게 한다
+          // [한글 주석] 탭 바는 시트 아래 별도 영역이라 겹치지 않는다 — 하단은 deck 기본 여백(24)만 사용
           contentContainerStyle={[
             styles.deck,
-            { paddingBottom: s(72) + bottomInset + s(24) },
             // [한글 주석] 폴드 펼침에서 카드가 가로로 늘어지지 않게 폭 제한 + 가운데 정렬
             isWide && { maxWidth: contentMaxWidth, width: '100%', alignSelf: 'center' },
           ]}

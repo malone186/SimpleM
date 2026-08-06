@@ -34,7 +34,7 @@ def test_whole_chain_stops_at_the_deadline(monkeypatch):
     monkeypatch.setattr(M, "_gemini_image", slow)
 
     started = time.monotonic()
-    _image, _mime, provider = M._generate_image_bytes("prompt", "1:1", "standard")
+    _image, _mime, provider, _meta = M._generate_image_bytes("prompt", "1:1", "standard")
     elapsed = time.monotonic() - started
 
     # 예전처럼 공급자마다 2초씩이면 4초가 걸린다 — 합계 상한이라 2초 안에서 끝나야 한다
@@ -55,12 +55,12 @@ def test_remaining_budget_is_passed_down(monkeypatch):
 
     def second(*a, **kw):
         seen.append(kw["timeout"])
-        return b"img", "image/png"
+        return b"img", "image/png", {"model": "x"}
 
     monkeypatch.setattr(M, "_pollinations_generate", first)
     monkeypatch.setattr(M, "_gemini_image", second)
 
-    image, mime, provider = M._generate_image_bytes("prompt", "1:1", "standard")
+    image, mime, provider, meta = M._generate_image_bytes("prompt", "1:1", "standard")
 
     assert provider == "gemini" and image == b"img"
     # 로컬 폴백 몫(_LOCAL_FALLBACK_RESERVE)을 뺀 나머지가 첫 공급자에게 간다
@@ -80,12 +80,12 @@ def test_provider_is_skipped_when_no_time_left(monkeypatch):
 
     def should_not_run(*a, **kw):
         called.append(True)
-        return b"x", "image/png"
+        return b"x", "image/png", {"model": "x"}
 
     monkeypatch.setattr(M, "_pollinations_generate", burn)
     monkeypatch.setattr(M, "_gemini_image", should_not_run)
 
-    _image, _mime, provider = M._generate_image_bytes("prompt", "1:1", "standard")
+    _image, _mime, provider, _meta = M._generate_image_bytes("prompt", "1:1", "standard")
 
     assert not called, "남은 시간이 1초 미만인데 다음 공급자를 불렀다"
     assert provider == "local-bundled"
@@ -111,7 +111,7 @@ def test_image_always_returned_within_the_cap(monkeypatch, aspect_ratio):
     monkeypatch.setattr(M, "_pollinations_generate", _hangs)
 
     started = time.monotonic()
-    image, mime, provider = M._generate_image_bytes("prompt", aspect_ratio, "high")
+    image, mime, provider, meta = M._generate_image_bytes("prompt", aspect_ratio, "high")
     elapsed = time.monotonic() - started
 
     assert image and len(image) > 1000        # 진짜 이미지 바이트다
@@ -127,7 +127,7 @@ def test_provider_crash_also_yields_an_image(monkeypatch):
 
     monkeypatch.setattr(M, "_pollinations_generate", boom)
 
-    image, _mime, provider = M._generate_image_bytes("prompt", "1:1", "standard")
+    image, _mime, provider, _meta = M._generate_image_bytes("prompt", "1:1", "standard")
 
     assert image and provider == "local-bundled"
 
@@ -153,8 +153,73 @@ def test_local_background_survives_missing_assets(monkeypatch):
 
 def test_successful_provider_is_not_replaced_by_fallback(monkeypatch):
     """공급자가 성공하면 그 이미지를 그대로 쓴다 — 폴백이 끼어들면 안 된다."""
-    monkeypatch.setattr(M, "_pollinations_generate", lambda *a, **kw: (b"real-ai-bytes", "image/png"))
+    monkeypatch.setattr(M, "_pollinations_generate", lambda *a, **kw: (b"real-ai-bytes", "image/png", {"model": "zimage", "seed": 1}))
 
-    image, mime, provider = M._generate_image_bytes("prompt", "1:1", "standard")
+    image, mime, provider, meta = M._generate_image_bytes("prompt", "1:1", "standard")
 
     assert (image, mime, provider) == (b"real-ai-bytes", "image/png", "pollinations")
+    assert meta["model"] == "zimage"   # 팀원이 넣은 모델·seed 추적이 그대로 흐른다
+
+
+# ---------------------------------------------------------------------------
+# 모델 폴백(zimage → klein)도 같은 예산 안에서 돈다
+#
+# 팀원이 넣은 모델 교체가 실질적인 폴백이다(gemini는 유료 키가 없으면 안 돈다).
+# 모델마다 상한을 새로 주면 15초가 30초가 되므로, 남은 예산을 나눠 쓰는지 잠근다.
+# ---------------------------------------------------------------------------
+
+def test_model_fallback_shares_one_budget(monkeypatch):
+    monkeypatch.setattr(M, "POLLINATIONS_MODEL", "zimage")
+    monkeypatch.setattr(M, "POLLINATIONS_FALLBACK_MODEL", "klein")
+    seen = []
+
+    def once(prompt, model, w, h, token, budget=None):
+        seen.append((model, budget))
+        time.sleep(0.3)
+        raise M.MarketingError(f"{model} 실패")
+
+    monkeypatch.setattr(M, "_pollinations_once", once)
+
+    with pytest.raises(M.MarketingError):
+        M._pollinations_generate("prompt", "1:1", "standard", timeout=5.0)
+
+    assert [m for m, _ in seen] == ["zimage", "klein"]
+    assert seen[0][1] == pytest.approx(5.0, abs=0.2)
+    assert seen[1][1] < seen[0][1], "두 번째 모델이 남은 예산이 아니라 상한을 새로 받았다"
+
+
+def test_model_fallback_stops_when_budget_is_gone(monkeypatch):
+    """예산이 바닥나면 대체 모델을 아예 부르지 않는다."""
+    monkeypatch.setattr(M, "POLLINATIONS_MODEL", "zimage")
+    monkeypatch.setattr(M, "POLLINATIONS_FALLBACK_MODEL", "klein")
+    seen = []
+
+    def once(prompt, model, w, h, token, budget=None):
+        seen.append(model)
+        time.sleep(1.3)
+        raise M.MarketingError("느림")
+
+    monkeypatch.setattr(M, "_pollinations_once", once)
+
+    with pytest.raises(M.MarketingError):
+        M._pollinations_generate("prompt", "1:1", "standard", timeout=1.6)
+
+    assert seen == ["zimage"], f"예산이 없는데 대체 모델을 불렀다: {seen}"
+
+
+def test_hard_fail_skips_model_fallback(monkeypatch):
+    """잔액·키 문제는 모델을 바꿔도 똑같다 — 팀원이 넣은 즉시 실패가 유지된다."""
+    monkeypatch.setattr(M, "POLLINATIONS_MODEL", "zimage")
+    monkeypatch.setattr(M, "POLLINATIONS_FALLBACK_MODEL", "klein")
+    seen = []
+
+    def once(prompt, model, w, h, token, budget=None):
+        seen.append(model)
+        raise M._PollinationsHardFail("키가 거부됐습니다")
+
+    monkeypatch.setattr(M, "_pollinations_once", once)
+
+    with pytest.raises(M._PollinationsHardFail):
+        M._pollinations_generate("prompt", "1:1", "standard", timeout=10.0)
+
+    assert seen == ["zimage"]

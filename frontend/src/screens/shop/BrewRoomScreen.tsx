@@ -10,6 +10,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../../auth/AuthContext';
 import MascotEasterEgg from '../../components/dashboard/MascotEasterEgg';
 import { FadeInUp, PressableScale } from '../../components/motion';
+import VaultSheet from '../../components/shop/VaultSheet';
 import { toast } from '../../components/toast';
 import { Badge } from '../../components/ui';
 import {
@@ -21,11 +22,11 @@ import {
   type Quest,
   type QuestBoard,
 } from '../../lib/api/rewards';
+import { getRoomBg } from '../../components/brew/roomBackgrounds';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { useEquipped } from '../../rewards/EquippedContext';
 import { colors, typography } from '../../theme';
 import { s, useBottomInset, useTopInset } from '../../theme/responsive';
-
-const ROOM_BG = require('../../../assets/game/room_bg.jpg');
 
 export default function BrewRoomScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -36,6 +37,12 @@ export default function BrewRoomScreen() {
   const [quests, setQuests] = useState<QuestBoard | null>(null);
   const [coins, setCoins] = useState<number | null>(null);
   const [claiming, setClaiming] = useState<string | null>(null);
+  // 보관함은 이 화면 위에 시트로 뜬다 — 꾸민 브루를 보면서 갈아입히는 게 목적이라
+  // 상점으로 화면을 넘겨 버리면 정작 브루가 안 보인다
+  const [vaultOpen, setVaultOpen] = useState(false);
+  // 상점에서 산 '카페 배경'을 착용했으면 그 사진으로 방이 바뀐다 (미착용 시 기본 카운터)
+  const { roomBgId } = useEquipped();
+  const ROOM_BG = getRoomBg(roomBgId);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -176,7 +183,7 @@ export default function BrewRoomScreen() {
             </PressableScale>
             <PressableScale
               style={[styles.bigBtn, styles.bigBtnAlt]}
-              onPress={() => navigation.navigate('Shop', { openVault: true })}
+              onPress={() => setVaultOpen(true)}
             >
               <Ionicons name="albums" size={18} color={colors.espressoBrown} />
               <Text style={[styles.bigBtnText, { color: colors.espressoBrown }]}>보관함</Text>
@@ -184,6 +191,17 @@ export default function BrewRoomScreen() {
           </View>
         </FadeInUp>
       </ScrollView>
+
+      {/* 보관함 — 이 화면 위에 올라온다. 배경을 갈아입으면 뒤의 방도 즉시 바뀐다
+          (EquippedContext를 통해 roomBgId가 갱신되므로) */}
+      <VaultSheet
+        visible={vaultOpen}
+        onClose={() => setVaultOpen(false)}
+        onGoShop={() => {
+          setVaultOpen(false);
+          navigation.navigate('Shop');
+        }}
+      />
     </View>
   );
 }

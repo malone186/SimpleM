@@ -68,6 +68,10 @@ SHOP_ITEMS: list[dict[str, Any]] = [
      "desc": "리듬 타며 춤춰요 (움직이는 포즈!)"},
     {"id": "pose_hello", "slot": "pose", "mood": "hello", "name": "인사왕 브루", "emoji": "👋", "price": 900,
      "desc": "손을 들어 반갑게 인사해요 (움직이는 포즈!)"},
+    {"id": "pose_dab", "slot": "pose", "mood": "dab", "name": "스웩 브루", "emoji": "😎", "price": 850,
+     "desc": "요즘 유행하는 댑 포즈 (움직이는 포즈!)"},
+    {"id": "pose_workout", "slot": "pose", "mood": "workout", "name": "운동왕 브루", "emoji": "💪", "price": 850,
+     "desc": "팔벌려뛰기로 몸 풀어요 (움직이는 포즈!)"},
     # 배경 효과 — 캐릭터 위가 아니라 뒤에 깔리므로 어떤 포즈와도 겹치지 않는다.
     {"id": "bg_sparkle", "slot": "background", "name": "반짝임", "emoji": "✨", "price": 300,
      "desc": "가만히 있어도 빛나는 중"},
@@ -81,6 +85,25 @@ SHOP_ITEMS: list[dict[str, Any]] = [
      "desc": "오픈·이벤트 날의 들뜬 기분"},
     {"id": "bg_bubble", "slot": "background", "name": "뽀글 거품", "emoji": "🫧", "price": 300,
      "desc": "라떼 거품처럼 몽글몽글"},
+    # 카페 배경 — 게임 룸(브루의 카페)의 배경 사진을 통째로 바꾼다.
+    # 프론트에 같은 id의 사진이 등록돼 있어야 상점에 노출된다(사진 없는 아이템은
+    # 프론트가 숨긴다). 사진 추가 방법: 저장소 루트 '카페배경_추가_가이드.md' 참고.
+    {"id": "room_window", "slot": "room", "name": "창가 자리", "emoji": "🪟", "price": 400,
+     "desc": "큰 창으로 햇살이 드는 오후"},
+    {"id": "room_terrace", "slot": "room", "name": "야외 테라스", "emoji": "⛱️", "price": 400,
+     "desc": "파라솔 아래 노천카페"},
+    {"id": "room_night", "slot": "room", "name": "밤의 카페", "emoji": "🌙", "price": 450,
+     "desc": "전구 불빛만 남은 심야 감성"},
+    {"id": "room_blossom", "slot": "room", "name": "벚꽃 시즌", "emoji": "🌸", "price": 500,
+     "desc": "창밖 가득 흩날리는 벚꽃"},
+    {"id": "room_rainy", "slot": "room", "name": "비 오는 날", "emoji": "☔", "price": 450,
+     "desc": "빗방울 맺힌 창가의 아늑함"},
+    {"id": "room_winter", "slot": "room", "name": "겨울 카페", "emoji": "🎄", "price": 500,
+     "desc": "트리와 눈 내리는 창밖"},
+    {"id": "room_sunset", "slot": "room", "name": "노을 루프탑", "emoji": "🌇", "price": 550,
+     "desc": "주황빛 하늘 아래 옥상 카페"},
+    {"id": "room_plant", "slot": "room", "name": "플랜테리어", "emoji": "🪴", "price": 450,
+     "desc": "초록 식물 가득한 인테리어"},
     # 앞치마 색 — 브루가 입은 앞치마만 색을 바꾼다(털·모자·컵·글자는 그대로). 포즈별로
     # '앞치마 영역 마스크'로 리컬러한 변형 PNG를 미리 구워 두고, color 값으로 그 이미지를
     # 골라 원본 포즈를 대체한다(프론트 apronVariants.ts). pose와 다른 슬롯이라 함께 착용된다.
@@ -104,6 +127,7 @@ SLOT_LABEL = {
     "pose": "브루 모습",
     "background": "배경 효과",
     "apron": "앞치마 색",
+    "room": "카페 배경",  # 게임 룸 배경 사진 (부위당 하나 착용 규칙 그대로)
 }
 
 REASON_LABEL = {

@@ -273,3 +273,66 @@ export const getWeeklyPayroll = (token: string, weekStart?: string) =>
     `/api/v1/staff/weekly-payroll${weekStart ? `?week_start=${weekStart}` : ''}`,
     { headers: auth(token) },
   );
+
+// ---------------------------------------------------------------------------
+// 월 급여·정산 배치 조회 — /operation/payroll/all의 빠른 대체
+//
+// 기존 경로는 서버가 직원 한 명마다 DB 왕복 5번을 반복해 직원 5명이면 5초가 걸렸고,
+// 정산 계산은 내부에서 그걸 또 불러 '정산·급여' 카드가 10초 가까이 비어 있었다.
+// /staff/monthly-payroll·month-settlement는 같은 숫자를 왕복 2~4번으로 만든다.
+// 서버가 아직 옛 버전이면(404) 기존 경로로 폴백해 화면이 죽지 않게 한다.
+// ---------------------------------------------------------------------------
+
+/** /operation의 Payroll과 같은 모양 (프론트 화면 호환) */
+export type MonthlyPayrollRow = {
+  employee_id: number;
+  employee_name: string;
+  role: string;
+  hourly_rate: number;
+  period_start?: string;
+  period_end?: string;
+  total_work_hours: number;
+  base_salary: number;
+  weekly_holiday_allowance: number;
+  estimated_salary: number;
+  based_on_actual?: boolean;
+};
+
+export type MonthSettlement = {
+  total_sales: number;
+  total_expense: number;
+  total_payroll: number;
+  net_profit: number;
+  year_month?: string;
+  period_start?: string;
+  period_end?: string;
+  disclaimer?: string;
+};
+
+// 같은 화면의 여러 카드가 동시에 같은 달을 조회한다 — 진행 중인 요청은 하나로 합친다.
+// (완료된 뒤에는 다시 부르면 새로 조회하므로 등록·수정 직후 갱신은 그대로 동작한다)
+const inflight = new Map<string, Promise<unknown>>();
+function shareInflight<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const hit = inflight.get(key) as Promise<T> | undefined;
+  if (hit) return hit;
+  const p = run().finally(() => inflight.delete(key));
+  inflight.set(key, p);
+  return p;
+}
+
+export const getMonthlyPayroll = (token: string, yearMonth?: string) =>
+  shareInflight(`payroll:${yearMonth ?? ''}`, () =>
+    apiFetch<MonthlyPayrollRow[]>(
+      `/api/v1/staff/monthly-payroll${yearMonth ? `?year_month=${yearMonth}` : ''}`,
+      { headers: auth(token) },
+    ),
+  );
+
+/** 정산 + 직원별 급여를 요청 1번에 — '이번 달 정산·급여' 카드 전용 */
+export const getMonthSettlement = (token: string, yearMonth?: string) =>
+  shareInflight(`settlement:${yearMonth ?? ''}`, () =>
+    apiFetch<{ settlement: MonthSettlement; payroll: MonthlyPayrollRow[] }>(
+      `/api/v1/staff/month-settlement${yearMonth ? `?year_month=${yearMonth}` : ''}`,
+      { headers: auth(token) },
+    ),
+  );

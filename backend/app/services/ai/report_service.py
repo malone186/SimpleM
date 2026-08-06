@@ -358,6 +358,23 @@ def _labor_summary(db, store_id: str, start: date, end: date) -> dict[str, Any]:
     }
 
 
+def _store_coords(store_id: str) -> tuple[Optional[float], Optional[float]]:
+    """매장 등록 좌표 — 예측 캐시 키를 대시보드와 똑같이 맞추기 위해 필요하다.
+
+    예측 엔드포인트(chatbot.get_sales_forecast_api)도 좌표 미전달 시 이 값을 쓰므로,
+    같은 값을 넣어야 같은 캐시를 가리킨다.
+    """
+    from app.models.user import User
+
+    try:
+        with document_service._session() as db:
+            u = db.query(User).filter(User.email == store_id).first()
+            return (u.store_lat, u.store_lon) if u else (None, None)
+    except Exception:
+        logger.debug("매장 좌표 조회 실패 — 기본 좌표로 예측 캐시 조회", exc_info=True)
+        return None, None
+
+
 def _outlook(store_id: str, sales: dict[str, Any], period_type: str) -> Optional[dict[str, Any]]:
     """다음 기간 전망 — 이미 계산돼 있는 예측 캐시를 읽기만 한다.
 
@@ -374,7 +391,16 @@ def _outlook(store_id: str, sales: dict[str, Any], period_type: str) -> Optional
     try:
         from app.services.ai import forecast_service
 
-        hit = forecast_service.peek_forecast_cache(store_id)
+        # 캐시 키에는 좌표가 들어간다. 좌표 없이 조회하면 서울 기본값 키를 뒤지는데,
+        # 대시보드는 매장 등록 좌표로 캐시를 만들어 두므로 캐시가 있어도 영영 못 찾았다
+        # (전망이 늘 비어 있던 원인). 엔드포인트와 같은 좌표를 넣어 같은 키를 가리키게 한다.
+        # 이 경로는 메모리 캐시가 비어도 DB warm 캐시까지 살펴본다.
+        lat, lon = _store_coords(store_id)
+        hit = forecast_service.peek_forecast_cache(store_id, lat=lat, lon=lon)
+        # 좌표가 어긋난 캐시(기기 GPS로 만든 것 등)만 있는 경우를 위한 보완 —
+        # 100m 남짓 차이는 예측값을 가르지 않고, 전망은 있으면 얹고 없으면 마는 부가 정보다.
+        if hit is None:
+            hit = forecast_service.peek_any_forecast_cache(store_id)
     except Exception:  # 예측 쪽 문제가 리포트를 막아선 안 된다
         logger.debug("예측 캐시 조회 실패 — 전망 없이 발행", exc_info=True)
         return None

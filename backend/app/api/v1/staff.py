@@ -214,6 +214,32 @@ def delete_shift_api(
         raise HTTPException(400, str(e))
 
 
+@router.get("/monthly-payroll", summary="전 직원 월 예상 급여 (배치 계산 — 직원 수와 무관하게 왕복 2번)")
+def monthly_payroll_api(
+    year_month: Optional[str] = None,
+    current_user: User = Depends(require_owner),
+):
+    """/operation/payroll/all과 같은 모양·같은 기준. 그 경로는 직원마다 DB 왕복 5번이 붙어
+    직원 5명이면 5초가 걸렸다. year_month는 YYYY-MM, 생략하면 이번 달."""
+    try:
+        return staff_service.monthly_payroll(current_user.email, year_month=year_month)
+    except staff_service.StaffError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.get("/month-settlement", summary="월 손익 정산 + 직원별 급여 한 번에 (배치 계산)")
+def month_settlement_api(
+    year_month: Optional[str] = None,
+    current_user: User = Depends(require_owner),
+):
+    """'정산·급여' 카드가 요청 1번(DB 왕복 4번)으로 그려지게 정산과 급여를 함께 준다.
+    집계 기준은 기존 /operation/settlements/calculate와 동일하다."""
+    try:
+        return staff_service.month_settlement(current_user.email, year_month=year_month)
+    except staff_service.StaffError as e:
+        raise HTTPException(400, str(e))
+
+
 @router.get("/weekly-payroll", summary="이번 주 주급 정산 (스케줄 기준)")
 def weekly_payroll_api(
     week_start: Optional[str] = None,

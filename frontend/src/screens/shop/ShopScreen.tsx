@@ -1,13 +1,15 @@
 // 상점 — 할 일을 끝내 모은 코인으로 브루를 꾸민다 (게임화 보상)
 // 상단: 브루 미리보기 + 코인 잔액 / 중단: 부위별 아이템 / 하단: 적립·사용 내역
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 
 import { useAuth } from '../../auth/AuthContext';
 import Brew, { type BrewMood } from '../../components/brew/Brew';
-import { ACCESSORY_ART } from '../../components/brew/accessories';
 import { FadeInUp, PressableScale, useCountUp } from '../../components/motion';
+import ItemArt from '../../components/shop/ItemArt';
+import VaultSheet from '../../components/shop/VaultSheet';
 import { confirmDialog, toast } from '../../components/toast';
 import { Badge, Card, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
 import {
@@ -27,13 +29,18 @@ import {
   type ShopState,
   type Wallet,
 } from '../../lib/api/rewards';
+import { ROOM_BGS } from '../../components/brew/roomBackgrounds';
 import { useEquipped } from '../../rewards/EquippedContext';
 import { colors, typography } from '../../theme';
 // [한글 주석] load() 안의 지역변수 s(shop 응답)와 겹치지 않게 스케일 함수는 sc 로 별칭 처리
 import { s as sc, useBottomInset, useResponsive, useTopInset } from '../../theme/responsive';
 
 // 화면에 보여줄 부위 순서 — 위에서부터 눈에 띄는 것 순
-const SLOT_ORDER: ItemSlot[] = ['pose', 'apron', 'background'];
+const SLOT_ORDER: ItemSlot[] = ['pose', 'apron', 'background', 'room'];
+
+// 카페 배경(room) 아이템은 프론트에 사진이 등록된 것만 보여준다 — 백엔드 카탈로그에
+// 미리 올라가 있어도 사진이 없으면 사고 나서 아무 변화가 없기 때문. (roomBackgrounds.ts)
+const itemVisible = (item: ShopItem) => item.slot !== 'room' || !!ROOM_BGS[item.id];
 
 // 코인 내역 기본 노출 줄 수 — 이보다 많으면 '더보기'로 접는다
 const HISTORY_PREVIEW_COUNT = 5;
@@ -60,6 +67,16 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
   const [quests, setQuests] = useState<QuestBoard | null>(null);
   const [claiming, setClaiming] = useState<string | null>(null);
   const [historyExpanded, setHistoryExpanded] = useState(false); // 코인 내역 — 기본 5줄, 더보기로 전체 펼침
+
+  // 이미 산 아이템은 상점 목록에서 빼고 보관함에만 둔다 — 상점은 '아직 없는 것'만 보이게.
+  // 다만 방금 산 것은 바로 착용해 볼 수 있게 이번 방문 동안만 목록에 남겨 둔다.
+  // 화면을 벗어나면(탭 이동 등) 비워서, 다시 들어오면 보관함에만 남는다.
+  const isFocused = useIsFocused();
+  const [justBought, setJustBought] = useState<string[]>([]);
+  useEffect(() => {
+    if (!isFocused) setJustBought([]);
+  }, [isFocused]);
+  const inShopList = (i: ShopItem) => itemVisible(i) && (!i.owned || justBought.includes(i.id));
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -116,6 +133,7 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
         try {
           const next = await buyItem(item.id, token);
           setShop(next);
+          setJustBought((v) => (v.includes(item.id) ? v : [...v, item.id])); // 방금 산 건 착용까지 하고 갈 수 있게 남긴다
           setWallet(await getWallet(token));
           await refreshEquipped(); // 홈 화면 마스코트에도 즉시 반영
           toast('구매 완료', `${item.name} 적용! 홈 화면 브루도 같이 바뀌었어요.`);
@@ -221,9 +239,19 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
         </FadeInUp>
       )}
 
-      {/* ── 부위별 아이템 ── */}
+      {/* ── 부위별 아이템 — 아직 안 산 것만 (산 것은 보관함으로) ── */}
+      {!(shop?.items ?? []).some(inShopList) && (
+        <FadeInUp delay={60}>
+          <SectionTitle>꾸미기 아이템</SectionTitle>
+          <Card>
+            <Text style={styles.emptyText}>
+              살 수 있는 아이템을 다 모았어요! 보관함에서 갈아입혀 보세요 🎉
+            </Text>
+          </Card>
+        </FadeInUp>
+      )}
       {SLOT_ORDER.map((slot, si) => {
-        const items = (shop?.items ?? []).filter((i) => i.slot === slot);
+        const items = (shop?.items ?? []).filter((i) => i.slot === slot && inShopList(i));
         if (!items.length) return null;
         return (
           <FadeInUp key={slot} delay={60 + si * 50}>
@@ -244,50 +272,15 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
         );
       })}
 
-      {/* ── 보관함 — 내가 산 꾸미기 아이템만 모아 보는 시트 ── */}
-      <Modal visible={vaultOpen} animationType="slide" transparent onRequestClose={() => setVaultOpen(false)}>
-        <View style={styles.vaultBackdrop}>
-          <View style={[styles.vaultSheet, { paddingBottom: bottomInset + sc(16) }]}>
-            <View style={styles.vaultHeader}>
-              <Text style={styles.vaultTitle}>
-                보관함 <Text style={styles.vaultCount}>{(shop?.items ?? []).filter((i) => i.owned).length}개 보유</Text>
-              </Text>
-              <PressableScale onPress={() => setVaultOpen(false)} style={styles.vaultClose}>
-                <Ionicons name="close" size={20} color={colors.mochaBrown} />
-              </PressableScale>
-            </View>
-            <ScrollView style={{ maxHeight: '100%' }} showsVerticalScrollIndicator={false}>
-              {(shop?.items ?? []).some((i) => i.owned) ? (
-                SLOT_ORDER.map((slot) => {
-                  const owned = (shop?.items ?? []).filter((i) => i.slot === slot && i.owned);
-                  if (!owned.length) return null;
-                  return (
-                    <View key={slot} style={{ marginBottom: 6 }}>
-                      <SectionTitle>{owned[0].slot_label}</SectionTitle>
-                      <View style={{ gap: 10, marginBottom: 6 }}>
-                        {owned.map((item) => (
-                          <ShopRow
-                            key={item.id}
-                            item={item}
-                            apronColor={previewApron}
-                            busy={busyItem === item.id}
-                            onBuy={() => {}}
-                            onToggle={() => handleToggleEquip(item)}
-                          />
-                        ))}
-                      </View>
-                    </View>
-                  );
-                })
-              ) : (
-                <Text style={styles.emptyText}>
-                  아직 산 아이템이 없어요. 코인을 모아 브루를 꾸며 보세요!
-                </Text>
-              )}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      {/* ── 보관함 — 상점·게임 룸이 같은 시트를 쓴다 (components/shop/VaultSheet).
+             닫을 때 상점 목록도 다시 읽어 '착용 중' 표시를 맞춘다 ── */}
+      <VaultSheet
+        visible={vaultOpen}
+        onClose={() => {
+          setVaultOpen(false);
+          load();
+        }}
+      />
 
       {/* ── 적립·사용 내역 — 기본 5줄만, 나머지는 '더보기'로 펼친다 ── */}
       <FadeInUp delay={300}>
@@ -464,20 +457,6 @@ function GrowthCard({ progress }: { progress: Progress }) {
   );
 }
 
-/** 목록 썸네일 — 사면 실제로 보게 될 그림을 그대로 작게 보여준다 (포즈는 브루 자신) */
-function ItemArt({ item, apronColor }: { item: ShopItem; apronColor?: string }) {
-  if (item.slot === 'pose' && item.mood) {
-    // 착용 중인 앞치마 색을 입혀서 '이 포즈를 고르면 실제로 보일 모습' 그대로 미리 보여준다
-    return <Brew mood={item.mood as BrewMood} apronColor={apronColor} size={42} disableMotion />;
-  }
-  // 앞치마 색: 기본 포즈에 그 색을 입힌 미니 브루로 미리보기 (실제 착용 모습 그대로)
-  if (item.slot === 'apron' && item.color) {
-    return <Brew mood="top" apronColor={item.color} size={42} disableMotion />;
-  }
-  const Art = ACCESSORY_ART[item.id];
-  return Art ? <Art size={30} /> : <Text style={{ fontSize: 24 }}>{item.emoji}</Text>;
-}
-
 function HistoryRow({ item, last }: { item: PointHistoryItem; last: boolean }) {
   const earned = item.delta > 0;
   return (
@@ -546,26 +525,6 @@ const styles = StyleSheet.create({
     marginTop: 4, // 제목 첫 줄과 눈높이를 맞춘다
   },
   vaultBtnText: { ...typography.L5, fontWeight: '700', color: colors.espressoBrown },
-  vaultBackdrop: { flex: 1, backgroundColor: 'rgba(30,22,18,0.45)', justifyContent: 'flex-end' },
-  vaultSheet: {
-    backgroundColor: colors.creamSand,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    maxHeight: '82%',
-  },
-  vaultHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  vaultTitle: { ...typography.L3, fontSize: 18, fontWeight: '800', color: colors.espressoBrown, flex: 1 },
-  vaultCount: { ...typography.L5, fontWeight: '600', color: colors.mochaBrown },
-  vaultClose: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
 
   heroCard: { alignItems: 'center', paddingVertical: 22, marginBottom: 6 },

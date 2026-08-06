@@ -117,6 +117,23 @@ def peek_forecast_cache(store_id: str, lat: Optional[float] = None, lon: Optiona
     return result, False
 
 
+def peek_any_forecast_cache(store_id: str) -> Optional[tuple[dict, bool]]:
+    """좌표를 몰라도 이 매장의 오늘자 예측 캐시를 찾아 돌려준다 (없으면 None).
+
+    캐시 키에는 좌표가 들어간다. 부르는 쪽이 매장 등록 좌표를 정확히 맞추지 못하면
+    (기기 GPS를 보냈다든지, 저장된 값이 반올림됐다든지) 캐시가 있는데도 못 찾는다.
+    경영 리포트처럼 '있으면 얹고 없으면 마는' 부가 정보에는 정확한 키보다 이쪽이 맞다.
+    같은 매장 캐시가 여럿이면 가장 최근 것을 쓴다.
+    """
+    today = datetime.now(KST).date().isoformat()
+    hits = [(ts, result) for (sid, *_), (ts, made_on, result) in _forecast_cache.items()
+            if sid == store_id and made_on == today]
+    if not hits:
+        return None
+    ts, result = max(hits, key=lambda h: h[0])
+    return result, (time.time() - ts) < _FORECAST_FRESH_TTL
+
+
 def refresh_forecast_background(store_id: str, lat: Optional[float] = None,
                                 lon: Optional[float] = None, days: int = 7) -> None:
     """예측을 백그라운드에서 재계산해 캐시를 갱신한다 (BackgroundTasks용, 실패는 로그만).

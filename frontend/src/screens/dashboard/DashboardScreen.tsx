@@ -23,6 +23,8 @@ import { loadCache, markAllStale, peekCache, saveCache } from '../../lib/cache';
 import { awardDerivedTodo } from '../../lib/api/rewards';
 import AlertCenterCard, { type AlertItem } from '../../components/dashboard/AlertCenterCard';
 import { navigateToTarget } from '../../notifications/navigationTarget';
+import { getRoomTint } from '../../components/brew/roomBackgrounds';
+import { useEquipped } from '../../rewards/EquippedContext';
 import { colors, spacing, typography, shadows } from '../../theme';
 import { s, useBottomInset, useResponsive } from '../../theme/responsive';
 
@@ -369,6 +371,9 @@ export default function DashboardScreen() {
   const { user, token } = useAuth();
   const navigation = useNavigation<any>();
   const isFocused = useIsFocused();
+  // 상점에서 산 카페 배경을 착용하면 홈 상단 색도 그 분위기로 물든다 (사진이 아니라 색만 — roomBackgrounds.ts)
+  const { roomBgId } = useEquipped();
+  const tint = getRoomTint(roomBgId);
 
   const [pushModalOpen, setPushModalOpen] = useState(false);
   const [pushBadgeSeen, setPushBadgeSeen] = useState(false);
@@ -688,16 +693,15 @@ export default function DashboardScreen() {
    * 할 일 카드를 누르면 그 일을 처리할 수 있는 화면으로 보낸다.
    *
    * 재고 항목의 id는 'stock-<재료id>' 형식이라(ai_todo_service) 여기서 바로 꺼내
-   * 재고 화면의 그 재료로 보낸다 — 목록에서 다시 찾게 하지 않는다.
+   * 그 재료만 보여주는 '재고 확인' 화면을 스택 위에 얹는다 — 목록에서 다시 찾게 하지 않는다.
+   * 재고 탭으로 보내지 않는 이유: 탭이 통째로 바뀌면 보던 할 일 목록에서 튕겨 나가고,
+   * 돌아오려면 홈 탭을 다시 눌러 스크롤 위치까지 잃는다. 스택이면 뒤로가기 한 번이면 된다.
    * ts를 함께 넘겨야 같은 재료를 연달아 눌러도 받는 화면이 새 요청으로 인식한다.
    */
   const openTodoTarget = (todo: { id: string }) => {
     const m = /^stock-(\d+)$/.exec(todo.id);
     if (!m) return; // 재고가 아닌 항목(홍보 등)은 각자 링크로 처리한다
-    navigation.navigate('Tabs', {
-      screen: 'Inventory',
-      params: { focusIngredientId: Number(m[1]), ts: Date.now() },
-    });
+    navigation.navigate('StockDetail', { ingredientId: Number(m[1]), ts: Date.now() });
   };
 
   const toggleDone = async (id: string) => {
@@ -764,9 +768,10 @@ export default function DashboardScreen() {
         <Svg width="100%" height="100%" preserveAspectRatio="none">
           <Defs>
             {/* [한글 주석: 오로라 딥브라운 그라데이션 범위를 상단 25% 이내로만 제한하여 하단에 갈색 띠가 비치지 않도록 방지] */}
+            {/* [한글 주석: 상단 딥 그라데이션 — 착용한 카페 배경이 있으면 그 분위기 색으로. 밝기는 그대로라 흰 아이콘 대비는 유지된다] */}
             <LinearGradient id="auroraGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-              <Stop offset="0%" stopColor="#1E1612" />
-              <Stop offset="18%" stopColor="#251C17" />
+              <Stop offset="0%" stopColor={tint.top[0]} />
+              <Stop offset="18%" stopColor={tint.top[1]} />
               <Stop offset="30%" stopColor={colors.creamSand} />
               <Stop offset="100%" stopColor={colors.creamSand} />
             </LinearGradient>
@@ -777,9 +782,9 @@ export default function DashboardScreen() {
           </Defs>
           <Path d="M0 0 H2000 V2000 H0 Z" fill="url(#auroraGrad)" />
           {/* 글로우 원들을 상부 웰컴 영역에만 배치하여 하부 화이트 카드 부근엔 맑게 스며들도록 함 */}
-          <Circle cx="85%" cy="12%" r="140" fill="#E28257" filter="url(#auroraGlow)" opacity="0.25" />
-          <Circle cx="15%" cy="22%" r="130" fill="#C29D7A" filter="url(#auroraGlow)" opacity="0.2" />
-          <Circle cx="60%" cy="4%" r="120" fill="#88BCB5" filter="url(#auroraGlow)" opacity="0.16" />
+          <Circle cx="85%" cy="12%" r="140" fill={tint.glow[0]} filter="url(#auroraGlow)" opacity="0.25" />
+          <Circle cx="15%" cy="22%" r="130" fill={tint.glow[1]} filter="url(#auroraGlow)" opacity="0.2" />
+          <Circle cx="60%" cy="4%" r="120" fill={tint.glow[2]} filter="url(#auroraGlow)" opacity="0.16" />
         </Svg>
       </View>
 

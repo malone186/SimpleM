@@ -519,7 +519,7 @@ export default function DocumentScreen() {
       <SectionTitle>문서 만들기</SectionTitle>
 
       <Card>
-        <TemplateRow icon="cart-outline" name="발주서" desc="안전재고 이하 재료를 자동 추출해 수량 제안"
+        <TemplateRow icon="cart-outline" name="발주서" desc="부족한 재료를 자동으로 골라 수량 제안"
           busy={busy === 'po'} onPress={() => run('po', () => createPurchaseOrder(token!))} />
         <Divider />
         <TemplateRow icon="clipboard-outline" name="재고실사표" desc="장부 수량이 채워진 실사용 시트"

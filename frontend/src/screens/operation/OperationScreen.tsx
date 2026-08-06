@@ -11,7 +11,8 @@ import { supplyPriceOf, type VatMode } from '../../components/PriceInput';
 import { toast } from '../../components/toast';
 import { colors, typography } from '../../theme';
 import { useAuth } from '../../auth/AuthContext';
-import { listStaff, updateShift } from '../../lib/api/staff';
+import { peekCache, saveCache } from '../../lib/cache';
+import { getMonthlyPayroll, getMonthSettlement, listStaff, updateShift } from '../../lib/api/staff';
 import { useTranslation } from '../../i18n/translations';
 import {
   getSettlement, listPayroll, forecastSales, createExpense,
@@ -145,10 +146,17 @@ function ScheduleCalendarCard({
       // 직원 목록(/operation/employees)에는 대표 색·근무 요일이 없다. 그 값들은 '직원·인건비'
       // 쪽(/api/v1/staff)의 프로필에 있고, 근무 요일은 거기 등록한 '근무 가능 시간'에서
       // 파생된다. 달력 선·색이 그 데이터를 따라가도록 여기서 합쳐 준다.
+      // 급여는 배치 API(/staff/monthly-payroll, 왕복 2번)를 먼저 쓴다 — 기존
+      // /operation/payroll/all은 직원마다 왕복 5번이라 직원 5명이면 5초씩 걸렸다.
+      // 스케줄도 순서상 기다릴 이유가 없어 같은 병렬 묶음에 넣는다.
       const [payrollList, empList, staffList] = await Promise.all([
-        listPayroll(ym, token ?? undefined).catch(() => [] as Payroll[]),
+        (token
+          ? getMonthlyPayroll(token, ym).catch(() => listPayroll(ym, token))
+          : listPayroll(ym)
+        ).catch(() => [] as Payroll[]),
         listEmployees(token ?? undefined).catch(() => [] as Employee[]),
         token ? listStaff(token).catch(() => null) : Promise.resolve(null),
+        reloadSchedules(),
       ]);
       const profileMap = new Map(
         (staffList?.staff ?? []).map((m) => [m.id, m.profile] as const),
@@ -171,8 +179,6 @@ function ScheduleCalendarCard({
       } else {
         setSelectedEmpId(null);
       }
-
-      await reloadSchedules();
     } catch (e) {
       console.error('달력 데이터 조회 오류:', e);
     } finally {
@@ -923,32 +929,60 @@ function LiveOperationCard() {
   const [expVat, setExpVat] = useState<VatMode>('included');
 
   const load = useCallback(async () => {
-    setLoading(true);
+    // 지난 방문 때 받아 둔 값이 있으면 그걸로 먼저 그린다 — 스피너 대신 숫자가 떠 있게.
+    const cached = peekCache<{ settlement: Settlement; payroll: Payroll[] }>(`operation:live:${period}`);
+    if (cached) {
+      setSettlement(cached.data.settlement);
+      setPayroll(cached.data.payroll);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     setErr(null);
     try {
-      // [한글 주석] API 개별 실패 시 전체 카드가 거부되는 현상을 막기 위해 Promise.allSettled 안전 패턴 사용
-      const [sRes, pRes, fRes] = await Promise.allSettled([
-        getSettlement(period, token ?? undefined),
-        listPayroll(period, token ?? undefined),
-        forecastSales({ target_date: tomorrowISO(), engine: 'arima' }),
+      // 정산+급여는 배치 API 요청 1번(왕복 4번)으로 함께 온다. 기존 경로는 정산이
+      // 내부에서 직원별 급여 N+1을 재실행해 카드 하나에 10초 가까이 걸렸다.
+      // 서버가 옛 버전이면(404 등) 기존 두 경로로 폴백한다.
+      const combined = token
+        ? getMonthSettlement(token, period).then(
+            (r) => [r.settlement as Settlement, r.payroll as Payroll[]] as const,
+          ).catch(async () => {
+            const [s, p] = await Promise.allSettled([
+              getSettlement(period, token),
+              listPayroll(period, token),
+            ]);
+            return [
+              s.status === 'fulfilled' ? s.value : null,
+              p.status === 'fulfilled' ? p.value : null,
+            ] as const;
+          })
+        : Promise.allSettled([
+            getSettlement(period), listPayroll(period),
+          ]).then(([s, p]) => [
+            s.status === 'fulfilled' ? s.value : null,
+            p.status === 'fulfilled' ? p.value : null,
+          ] as const);
+
+      const [[s, p], fRes] = await Promise.all([
+        combined,
+        forecastSales({ target_date: tomorrowISO(), engine: 'arima' }).catch(() => null),
       ]);
 
-      if (sRes.status === 'fulfilled') setSettlement(sRes.value);
-      if (pRes.status === 'fulfilled') setPayroll(pRes.value);
-      if (fRes.status === 'fulfilled') setForecast(fRes.value);
-      else setForecast(null);
+      if (s) setSettlement(s);
+      if (p) setPayroll(p);
+      setForecast(fRes);
+      if (s && p) void saveCache(`operation:live:${period}`, { settlement: s, payroll: p });
 
-      // 모든 API가 전멸한 경우에만 에러 표출
-      if (sRes.status === 'rejected' && pRes.status === 'rejected' && fRes.status === 'rejected') {
-        const firstErr = sRes.reason || pRes.reason || fRes.reason;
-        setErr(firstErr instanceof Error ? firstErr.message : String(firstErr));
+      // 모든 API가 전멸했고 보여줄 캐시도 없는 경우에만 에러 표출
+      if (!s && !p && !fRes && !cached) {
+        setErr('정산·급여 정보를 불러오지 못했어요. 네트워크를 확인해 주세요.');
       }
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [period]);
+  }, [period, token]);
 
   useEffect(() => {
     load();
@@ -1221,28 +1255,41 @@ function UnavailabilityManagementCard() {
 
   const loadUnavailabilities = useCallback(async () => {
     if (!token) return;
-    setLoading(true);
+    // 지난 방문 값이 있으면 즉시 그린다 — 서버 응답이 오면 조용히 갱신
+    const cached = peekCache<{ list: EmployeeUnavailability[]; emps: { id: number; name: string }[] }>('operation:unavail');
+    if (cached) {
+      setList(cached.data.list);
+      setEmployees(cached.data.emps);
+    } else {
+      setLoading(true);
+    }
     setErr(null);
     try {
-      // [한글 주석] 기피시간 목록과 직원 명단을 함께 가져와 매핑합니다.
-      const [data, payrollData] = await Promise.all([
+      // 직원 이름만 필요하므로 직원 목록(왕복 1번)을 쓴다. 예전엔 급여 API를 썼는데
+      // 그 경로는 직원마다 왕복 5번이라 기피시간 카드가 몇 초씩 비어 있었고,
+      // 그 달 스케줄이 없는 직원은 급여 목록에서 빠져 이름조차 안 나왔다.
+      const [data, empList] = await Promise.all([
         listUnavailabilities(token),
-        listPayroll(nowYM(), token).catch(() => [] as Payroll[]),
+        listEmployees(token).catch(() => [] as Employee[]),
       ]);
       setList(data);
-      const emps = payrollData.map((p) => ({ id: p.employee_id, name: p.employee_name }));
+      const emps = empList.map((e) => ({ id: e.id, name: e.name }));
       setEmployees(emps);
-      if (emps.length > 0 && !emps.some((e) => String(e.id) === employeeId)) {
-        setEmployeeId(String(emps[0].id));
+      void saveCache('operation:unavail', { list: data, emps });
+      if (emps.length > 0) {
+        // 폼의 선택 직원이 목록에 없으면 첫 직원으로 — 값 확인은 함수형 갱신으로 해서
+        // 이 로더가 employeeId에 의존하지 않게 한다 (예전엔 폼에서 직원만 골라도
+        // 목록 전체를 다시 불러오는 재조회 루프가 있었다).
+        setEmployeeId((prev) => (emps.some((e) => String(e.id) === prev) ? prev : String(emps[0].id)));
       }
     } catch (e) {
       console.warn('기피시간 조회 실패:', e);
       // [한글 주석] 조회 실패 시 에러 메시지를 기록하여 화면에 명확히 표출함
-      setErr(e instanceof Error ? e.message : String(e));
+      if (!cached) setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [token, employeeId]);
+  }, [token]);
 
   useEffect(() => {
     loadUnavailabilities();

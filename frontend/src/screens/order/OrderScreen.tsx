@@ -182,7 +182,7 @@ export default function OrderScreen() {
               <Text style={styles.defSectionTitle}>곧 떨어져요 — 채워 두세요</Text>
             </View>
             <Text style={styles.defSectionHint}>
-              안전재고를 정한 재료는 그 기준으로, 안 정한 재료는 {DEFAULT_LOW_STOCK}개 미만일 때 알려드려요.
+              최소 보유량을 정한 재료는 그 기준으로, 안 정한 재료는 {DEFAULT_LOW_STOCK}개 미만일 때 알려드려요.
             </Text>
             <View style={styles.defList}>
               {lowStocks.map((item) => (
@@ -199,7 +199,7 @@ export default function OrderScreen() {
                     <Text style={styles.defStatus}>
                       남은 수량 {item.current_quantity}{item.unit}
                       {item.safety_quantity > 0
-                        ? ` · 안전재고 ${item.safety_quantity}${item.unit}`
+                        ? ` · 최소 ${item.safety_quantity}${item.unit} 필요`
                         : ` · 기본 기준 ${DEFAULT_LOW_STOCK}${item.unit}`}
                     </Text>
                   </View>

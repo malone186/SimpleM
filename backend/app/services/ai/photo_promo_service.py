@@ -185,7 +185,7 @@ def _refresh_bg_async(style: str, aspect_ratio: str) -> None:
         try:
             from app.services.ai import marketing_service as M
 
-            raw, _mime, provider = M._generate_image_bytes(_bg_prompt(style), aspect_ratio, "standard")
+            raw, _mime, provider, _meta = M._generate_image_bytes(_bg_prompt(style), aspect_ratio, "standard")
             with _bg_lock:
                 _bg_cache_put(key, raw)
             logger.info("[사진 합성] 배경 캐시 채움: %s/%s (%s)", style, aspect_ratio, provider)

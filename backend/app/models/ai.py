@@ -773,3 +773,50 @@ class AiWarmCache(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), index=True
     )
+
+
+# ---------------------------------------------------------------------------
+# 챗봇 사고 후보 — 운영 대화에서 자동으로 잡아 둔 오답
+# ---------------------------------------------------------------------------
+
+
+class ChatIncident(Base):
+    """감시 규칙이나 사장님의 부정 반응으로 걸러진 '답이 틀린 것 같은 턴'.
+
+    골든 회귀 테스트(evals/)는 적어 둔 질문만 지킨다. 그런데 사고가 났을 때 사람이 그
+    질문을 파일에 추가해 줄 거라는 전제는 현실적이지 않다 — 그 결과 세트는 처음 만든
+    문항에서 자라지 않고, 새로 생긴 오답은 계속 새로 겪게 된다.
+
+    그래서 answer_audit이 운영 대화 매 턴을 훑어 여기 쌓고, evals/harvest.py가 재현
+    검증을 거쳐 골든 세트에 자동 등록한다. status가 그 진행 상태다:
+      pending    — 잡혔지만 아직 재현해 보지 않음
+      confirmed  — 다시 물어봐도 재현됨 (진짜 버그)
+      registered — 골든 세트에 등록 완료
+      rejected   — 재현되지 않음 (일시적 잡음 — 분당 한도·외부 API 실패 등)
+
+    같은 매장의 같은 질문·같은 규칙이면 행을 늘리지 않고 hits만 올린다. 한 사장님이
+    같은 질문을 열 번 해서 문항이 열 개 생기면 세트가 금세 못 쓰게 된다.
+    """
+
+    __tablename__ = "chat_incidents"
+    __table_args__ = (
+        UniqueConstraint("store_id", "norm_key", "rule", name="uq_chat_incident"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    store_id: Mapped[str] = mapped_column(String(100), index=True)
+    question: Mapped[str] = mapped_column(String(300))
+    # 중복 판정용 정규화 키 (공백·문장부호 제거)
+    norm_key: Mapped[str] = mapped_column(String(300), index=True)
+    rule: Mapped[str] = mapped_column(String(40), index=True)
+    detail: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    # 원인 분석용 답변 일부 — 전문을 남기지 않는 건 이 표가 대화 로그가 되면 안 되기 때문
+    answer_excerpt: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    tools: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    experts: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    hits: Mapped[int] = mapped_column(Integer, default=1)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
