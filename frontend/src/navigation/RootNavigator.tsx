@@ -28,6 +28,7 @@ import OrderScreen from '../screens/order/OrderScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 import SalesInputScreen from '../screens/sales/SalesInputScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
+import StockDetailScreen from '../screens/inventory/StockDetailScreen';
 import BrewRoomScreen from '../screens/shop/BrewRoomScreen';
 import ShopScreen from '../screens/shop/ShopScreen';
 import StaffScreen from '../screens/staff/StaffScreen';
@@ -76,6 +77,9 @@ export type RootStackParamList = {
   StaffAccount: undefined;
   // section: 특정 설정 하위 화면으로 바로 진입 (예: 카드 정산 설정)
   Settings: { section?: 'account' | 'notification' | 'appearance' | 'inquiry' | 'legal' | 'settlement' } | undefined;
+  // ingredientId: 홈 할 일의 재고 항목에서 넘어온 재료 — 그 재료 하나만 보여준다
+  //   ts: 같은 재료를 연달아 눌러도 파라미터가 바뀌어 새 요청으로 인식되도록 하는 클릭 시각
+  StockDetail: { ingredientId: number; ts?: number };
   StoreMap: undefined;
   // openVault: 게임 룸에서 '보관함' 버튼으로 들어올 때 보관함 시트를 바로 연다
   Shop: { openVault?: boolean } | undefined;
@@ -201,6 +205,7 @@ export default function RootNavigator() {
         <Stack.Screen name="StaffAccount" component={StaffAccountScreen} options={({ navigation }) => erpHeader('직원 계정', navigation)} />
 
         <Stack.Screen name="Settings" component={SettingsScreen} options={({ navigation }) => erpHeader('설정', navigation)} />
+        <Stack.Screen name="StockDetail" component={StockDetailScreen} options={({ navigation }) => erpHeader('재고 확인', navigation)} />
         <Stack.Screen name="StoreMap" component={StoreMapScreen} options={({ navigation }) => erpHeader('매장 위치', navigation)} />
         <Stack.Screen name="Shop" component={ShopScreen} options={({ navigation }) => erpHeader('포인트 상점', navigation)} />
         {/* 게임 룸 — 배경 그림에 몰입하도록 기본 헤더 없이 자체 상단 바를 쓴다 */}

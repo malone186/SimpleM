@@ -688,16 +688,15 @@ export default function DashboardScreen() {
    * 할 일 카드를 누르면 그 일을 처리할 수 있는 화면으로 보낸다.
    *
    * 재고 항목의 id는 'stock-<재료id>' 형식이라(ai_todo_service) 여기서 바로 꺼내
-   * 재고 화면의 그 재료로 보낸다 — 목록에서 다시 찾게 하지 않는다.
+   * 그 재료만 보여주는 '재고 확인' 화면을 스택 위에 얹는다 — 목록에서 다시 찾게 하지 않는다.
+   * 재고 탭으로 보내지 않는 이유: 탭이 통째로 바뀌면 보던 할 일 목록에서 튕겨 나가고,
+   * 돌아오려면 홈 탭을 다시 눌러 스크롤 위치까지 잃는다. 스택이면 뒤로가기 한 번이면 된다.
    * ts를 함께 넘겨야 같은 재료를 연달아 눌러도 받는 화면이 새 요청으로 인식한다.
    */
   const openTodoTarget = (todo: { id: string }) => {
     const m = /^stock-(\d+)$/.exec(todo.id);
     if (!m) return; // 재고가 아닌 항목(홍보 등)은 각자 링크로 처리한다
-    navigation.navigate('Tabs', {
-      screen: 'Inventory',
-      params: { focusIngredientId: Number(m[1]), ts: Date.now() },
-    });
+    navigation.navigate('StockDetail', { ingredientId: Number(m[1]), ts: Date.now() });
   };
 
   const toggleDone = async (id: string) => {
