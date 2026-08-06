@@ -28,16 +28,22 @@
 필요 키 (backend/.env):
   GEMINI_API_KEY — 문구 생성용 (팀 공유 무료 키, 쿼터 주의)
 
-이미지 생성 공급자 (순서대로 시도, 하나라도 되면 성공):
-  1) pollinations — 주 공급자 (gen.pollinations.ai). GET 한 번으로 이미지를 준다.
-                   2026-08-05 기준 Seed/Flower 같은 무료 티어는 폐지되고("Tiers have
-                   stopped") Pollen 크레딧 지갑 방식이 됐다 → POLLINATIONS_TOKEN 필수.
-                   가입 직후 Setup 퀘스트로 받는 Pollen 1.25면 flux(0.001/장) 기준
-                   약 1,200장을 뽑을 수 있다. 잔액이 떨어지면 402로 막힌다.
-  2) gemini      — 품질은 최고지만 이미지 모델 무료 티어 한도가 0이라(실측 2026-07-31/
-                   08-05, 전 계열 limit: 0) 유료 키(MARKETING_IMAGE_API_KEY)가 있을 때만
-                   동작한다. 한도 0으로 막히면 1시간 건너뛴다(왕복 낭비 방지).
-  MARKETING_IMAGE_PROVIDERS 로 순서·사용 여부를 바꾼다 (기본 "pollinations,gemini").
+이미지 생성 공급자:
+  pollinations — 유일한 공급자 (gen.pollinations.ai, 모델 flux). GET 한 번으로 이미지를 준다.
+                 2026-08-05 기준 Seed/Flower 같은 무료 티어는 폐지되고("Tiers have
+                 stopped") Pollen 크레딧 지갑 방식이 됐다 → POLLINATIONS_TOKEN 필수.
+                 가입 직후 Setup 퀘스트로 받는 Pollen 1.25면 flux(0.001/장) 기준
+                 약 1,200장을 뽑을 수 있다. 잔액이 떨어지면 402로 막힌다.
+  [gemini 제거] 폴백으로 gemini-2.5-flash-image를 두고 있었지만 이미지 모델 무료 티어
+                한도가 0이라(실측 2026-07-31/08-05, 전 계열 limit: 0) 유료 키 없이는
+                반드시 실패했다. 실패가 확정된 왕복은 사장님 대기 시간만 늘린다.
+                코드 경로는 남겨 뒀으니 유료 키가 생기면 MARKETING_IMAGE_PROVIDERS를
+                "pollinations,gemini"로 되돌리면 그대로 살아난다.
+  MARKETING_IMAGE_PROVIDERS 로 순서·사용 여부를 바꾼다 (기본 "pollinations").
+
+  [대기 시간 상한] MARKETING_IMAGE_TIMEOUT(기본 15초)은 공급자 하나당이 아니라
+  '전체 합계'다. _generate_image_bytes가 벽시계 마감을 잡고 남은 시간만 넘긴다.
+  넘기면 기다리게 두지 않고 실패로 끊는다 — 다시 누르는 편이 대개 더 빠르다.
 모델 교체 (env):
   MARKETING_GEMINI_MODEL — 문구 생성 (기본: GEMINI_MODEL과 동일)
   MARKETING_IMAGE_MODEL  — 이미지 생성 (기본: gemini-2.5-flash-image)
@@ -70,7 +76,7 @@ IMAGE_MODEL = os.getenv("MARKETING_IMAGE_MODEL", "gemini-2.5-flash-image")
 # 이미지 전용 키 — 유료 키를 문구용 무료 키와 분리해 둘 수 있다 (없으면 GEMINI_API_KEY)
 IMAGE_API_KEY = os.getenv("MARKETING_IMAGE_API_KEY", "")
 IMAGE_PROVIDERS = [p.strip() for p in
-                   os.getenv("MARKETING_IMAGE_PROVIDERS", "pollinations,gemini").split(",")
+                   os.getenv("MARKETING_IMAGE_PROVIDERS", "pollinations").split(",")
                    if p.strip()]
 
 UPLOAD_DIR = Path(os.getenv("MARKETING_UPLOAD_DIR",
@@ -91,7 +97,15 @@ GCS_BUCKET = os.getenv("MARKETING_GCS_BUCKET", "")
 GCS_PREFIX = os.getenv("MARKETING_GCS_PREFIX", "marketing")
 
 COPY_TIMEOUT = float(os.getenv("MARKETING_COPY_TIMEOUT", "30"))
-IMAGE_TIMEOUT = float(os.getenv("MARKETING_IMAGE_TIMEOUT", "90"))
+# [15초 상한] 사장님이 버튼을 누르고 기다리는 시간이다. 90초를 주면 느린 날엔 정말로
+# 90초를 기다리게 되고, 그 사이에 앱을 닫아 버린다. 15초를 넘기면 기다리게 두는 대신
+# 실패로 끊고 다시 누르게 하는 편이 낫다 — 재시도가 대개 더 빠르다.
+IMAGE_TIMEOUT = float(os.getenv("MARKETING_IMAGE_TIMEOUT", "15"))
+# 생성 공급자가 전부 실패·지연했을 때 번들 배경으로라도 이미지를 낸다.
+# 이게 있어야 '상한 안에 반드시 이미지가 나온다'가 성립한다 (0으로 끄면 에러를 던진다).
+LOCAL_IMAGE_FALLBACK = os.getenv("MARKETING_IMAGE_LOCAL_FALLBACK", "1") not in ("0", "false", "False")
+# 로컬 배경을 만들 시간 몫. 1707px 크롭·인코딩이 실측 0.2초라 1초면 충분히 넉넉하다.
+_LOCAL_FALLBACK_RESERVE = 1.0
 # 프롬프트 정교화 — 무료 텍스트 모델을 한 번 더 부르는 대신 결과 품질이 크게 오른다.
 # 쿼터가 아까우면 0으로 끈다 (끄면 문구 AI가 준 image_prompt를 그대로 쓴다).
 PROMPT_REFINE = os.getenv("MARKETING_PROMPT_REFINE", "1") not in ("0", "false", "False")
@@ -426,7 +440,8 @@ POLLINATIONS_URL = os.getenv("POLLINATIONS_URL", "https://gen.pollinations.ai/im
 POLLINATIONS_MODEL = os.getenv("POLLINATIONS_MODEL", "flux")
 
 
-def _pollinations_generate(prompt: str, aspect_ratio: str, quality: str = "high") -> tuple[bytes, str]:
+def _pollinations_generate(prompt: str, aspect_ratio: str, quality: str = "high",
+                           timeout: Optional[float] = None) -> tuple[bytes, str]:
     """주 공급자 — Pollinations.ai (기본 모델 flux).
 
     GET 한 번으로 이미지를 돌려준다. FLUX는 한글 렌더링이 깨지므로 글자 없는 이미지
@@ -457,9 +472,16 @@ def _pollinations_generate(prompt: str, aspect_ratio: str, quality: str = "high"
     token = os.getenv("POLLINATIONS_TOKEN", "").strip()
     headers = {"Authorization": f"Bearer {token}"} if token else {}
 
+    # httpx에 float를 주면 연결·읽기·쓰기에 각각 그 시간을 준다 — 합치면 상한을 넘는다.
+    # 총 시간을 지키려면 Timeout으로 단계별 몫을 나눠 줘야 한다.
+    budget = IMAGE_TIMEOUT if timeout is None else max(1.0, timeout)
+    limits = httpx.Timeout(budget, connect=min(5.0, budget), read=budget, write=budget)
     try:
         r = httpx.get(f"{POLLINATIONS_URL}/{encoded}", params=params, headers=headers,
-                      timeout=IMAGE_TIMEOUT, follow_redirects=True)
+                      timeout=limits, follow_redirects=True)
+    except httpx.TimeoutException:
+        raise MarketingError(
+            f"이미지 생성이 {budget:.0f}초 안에 끝나지 않았습니다. 다시 눌러 주세요.")
     except httpx.HTTPError as e:
         raise MarketingError(f"이미지 생성 서버(Pollinations)에 연결하지 못했습니다: {e}")
 
@@ -485,13 +507,66 @@ def _pollinations_generate(prompt: str, aspect_ratio: str, quality: str = "high"
 # 공급자 체인 — 하나라도 성공하면 이미지가 나온다
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# 마지막 수단 — 네트워크를 타지 않는 로컬 배경
+# ---------------------------------------------------------------------------
+
+_LOCAL_BG_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "static", "promo_bg")
+# 번들 배경 파일명. photo_promo_service의 BACKGROUND_STYLES와 같은 자산을 쓴다.
+_LOCAL_BG_FILES = ("wood", "marble", "cozy", "studio", "season")
+
+
+def _local_background(aspect_ratio: str, quality: str) -> tuple[bytes, str]:
+    """번들 배경(없으면 그라데이션)을 요청 비율로 잘라 돌려준다. 실패하지 않는다.
+
+    이게 있어야 '15초 안에 반드시 이미지가 나온다'가 참이 된다. 생성 공급자는 남의
+    서버라 응답 시간을 우리가 정할 수 없지만, 이 경로는 디스크와 CPU만 쓰므로
+    수십 밀리초면 끝난다.
+
+    AI가 만든 그림이 아니므로 provider를 'local-bundled'/'local-gradient'로 남긴다 —
+    화면과 저장 문서에서 어느 것이 AI 생성물인지 구분할 수 있어야 한다.
+    """
+    import io as _io
+    import random
+
+    from PIL import Image
+
+    w, h = _target_size(aspect_ratio, quality)
+
+    for name in random.sample(_LOCAL_BG_FILES, len(_LOCAL_BG_FILES)):
+        path = os.path.join(_LOCAL_BG_DIR, f"{name}.jpg")
+        try:
+            with open(path, "rb") as f:
+                bg = Image.open(_io.BytesIO(f.read())).convert("RGB")
+        except Exception:
+            continue  # 자산이 빠졌어도 다음 파일 / 최후엔 그라데이션으로 간다
+        scale = max(w / bg.width, h / bg.height)
+        bg = bg.resize((round(bg.width * scale), round(bg.height * scale)), Image.LANCZOS)
+        left, top = (bg.width - w) // 2, (bg.height - h) // 2
+        buf = _io.BytesIO()
+        bg.crop((left, top, left + w, top + h)).save(buf, "JPEG", quality=92)
+        return buf.getvalue(), "image/jpeg"
+
+    # 자산이 하나도 없을 때 — 크림→라떼 베이지 그라데이션 (photo_promo_service와 같은 색)
+    img = Image.new("RGB", (w, h))
+    top_c, bottom_c = (250, 246, 240), (233, 223, 208)
+    for y in range(h):
+        t = y / max(1, h - 1)
+        img.paste(tuple(round(top_c[i] + (bottom_c[i] - top_c[i]) * t) for i in range(3)),
+                  (0, y, w, y + 1))
+    buf = _io.BytesIO()
+    img.save(buf, "JPEG", quality=92)
+    return buf.getvalue(), "image/jpeg"
+
+
 # Gemini 이미지가 "limit: 0"으로 막히면 그 사실을 기억해 한동안 건너뛴다.
 # (매 요청마다 확실히 실패할 왕복을 한 번씩 더 하는 게 체감 지연으로 이어졌다)
 _gemini_image_blocked_until = 0.0
 _GEMINI_BLOCK_SECONDS = float(os.getenv("MARKETING_GEMINI_BLOCK_SECONDS", "3600"))
 
 
-def _gemini_image(prompt: str, aspect_ratio: str) -> tuple[bytes, str]:
+def _gemini_image(prompt: str, aspect_ratio: str,
+                  timeout: Optional[float] = None) -> tuple[bytes, str]:
     global _gemini_image_blocked_until
 
     if time.monotonic() < _gemini_image_blocked_until:
@@ -503,7 +578,7 @@ def _gemini_image(prompt: str, aspect_ratio: str) -> tuple[bytes, str]:
                 "responseModalities": ["TEXT", "IMAGE"],
                 "imageConfig": {"aspectRatio": aspect_ratio},
             },
-        }, IMAGE_TIMEOUT, api_key=IMAGE_API_KEY)
+        }, IMAGE_TIMEOUT if timeout is None else max(1.0, timeout), api_key=IMAGE_API_KEY)
     except _FreeTierZero:
         _gemini_image_blocked_until = time.monotonic() + _GEMINI_BLOCK_SECONDS
         raise
@@ -514,15 +589,30 @@ def _generate_image_bytes(prompt: str, aspect_ratio: str,
                           quality: str) -> tuple[bytes, str, str]:
     """설정된 공급자를 순서대로 시도해 (바이트, mime, 공급자명)을 돌려준다.
 
-    전부 실패했을 때만 MarketingError — 이유를 공급자별로 모아서 알린다.
+    [총 IMAGE_TIMEOUT초 상한] 공급자마다 타임아웃을 주면 두 곳을 시도할 때 두 배가
+    걸린다. 여기서 벽시계 마감을 한 번 잡고 남은 시간만 넘겨, 공급자를 몇 개 쓰든
+    전체가 그 시간을 넘지 않게 한다 — 사장님이 실제로 기다리는 건 이 합계다.
+
+    [반드시 이미지가 나온다] 생성 공급자는 남의 서버라 응답 시간을 우리가 정할 수
+    없다. 그래서 마지막에 네트워크를 타지 않는 로컬 배경을 둔다 — 디스크와 CPU만 쓰니
+    수십 밀리초면 끝나고, 실패할 구석이 없다. 덕분에 '상한 안에 무조건 이미지가
+    나온다'가 참이 된다. 대신 AI 생성물이 아니므로 provider로 구분되게 남긴다.
+
+    MARKETING_IMAGE_LOCAL_FALLBACK=0 으로 끄면 예전처럼 전부 실패 시 에러를 던진다.
     """
+    deadline = time.monotonic() + IMAGE_TIMEOUT
     errors: list[str] = []
     for name in IMAGE_PROVIDERS:
+        # 로컬 폴백이 돌 시간(넉넉히 1초)은 남겨 둔다 — 그래야 상한을 넘기지 않는다
+        left = deadline - time.monotonic() - _LOCAL_FALLBACK_RESERVE
+        if left <= 1.0:  # 1초 미만 남으면 어차피 못 받는다 — 왕복만 낭비된다
+            errors.append(f"[{name}] {IMAGE_TIMEOUT:.0f}초 안에 순서가 오지 않아 건너뜀")
+            break
         try:
             if name == "pollinations":
-                image, mime = _pollinations_generate(prompt, aspect_ratio, quality)
+                image, mime = _pollinations_generate(prompt, aspect_ratio, quality, timeout=left)
             elif name == "gemini":
-                image, mime = _gemini_image(prompt, aspect_ratio)
+                image, mime = _gemini_image(prompt, aspect_ratio, timeout=left)
             else:
                 continue
             return image, mime, name
@@ -531,6 +621,11 @@ def _generate_image_bytes(prompt: str, aspect_ratio: str,
             logger.info("이미지 공급자 %s 실패 → 다음 공급자: %s", name, e)
 
     detail = " / ".join(errors)[:500]
+    if LOCAL_IMAGE_FALLBACK:
+        logger.warning("생성 공급자 전부 실패 → 로컬 배경으로 채움: %s", detail)
+        image, mime = _local_background(aspect_ratio, quality)
+        return image, mime, "local-bundled"
+
     logger.error("이미지 생성 전 공급자 실패: %s", detail)
     raise ImageCapacityError(
         "지금은 무료 이미지 생성 한도가 모두 차 있어요. 10분쯤 뒤에 다시 시도해 주세요. "

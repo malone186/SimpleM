@@ -1,0 +1,160 @@
+"""홍보 이미지 생성 — 공급자 구성과 대기 시간 상한
+
+사장님이 버튼을 누르고 실제로 기다리는 시간이라, '공급자당 몇 초'가 아니라
+'전부 합쳐 몇 초'가 지켜져야 한다. 90초를 주면 느린 날엔 정말 90초를 기다리다
+앱을 닫는다 — 넘기면 끊고 다시 누르게 하는 편이 대개 더 빠르다.
+"""
+import time
+
+import pytest
+
+from app.services.ai import marketing_service as M
+
+
+def test_gemini_is_not_in_the_default_chain():
+    """무료 키에서 이미지 모델 한도가 0이라 반드시 실패하던 왕복을 뺐다."""
+    assert M.IMAGE_PROVIDERS == ["pollinations"]
+
+
+def test_default_timeout_is_15_seconds():
+    assert M.IMAGE_TIMEOUT == 15.0
+
+
+def test_whole_chain_stops_at_the_deadline(monkeypatch):
+    """공급자를 여러 개 걸어도 합계가 상한을 넘지 않는다."""
+    monkeypatch.setattr(M, "IMAGE_PROVIDERS", ["pollinations", "gemini"])
+    monkeypatch.setattr(M, "IMAGE_TIMEOUT", 2.0)
+
+    def slow(*a, **kw):
+        # 넘겨받은 남은 시간만큼만 쓰고 실패하는 공급자
+        time.sleep(kw.get("timeout", 2.0))
+        raise M.MarketingError("느림")
+
+    monkeypatch.setattr(M, "_pollinations_generate", slow)
+    monkeypatch.setattr(M, "_gemini_image", slow)
+
+    started = time.monotonic()
+    _image, _mime, provider = M._generate_image_bytes("prompt", "1:1", "standard")
+    elapsed = time.monotonic() - started
+
+    # 예전처럼 공급자마다 2초씩이면 4초가 걸린다 — 합계 상한이라 2초 안에서 끝나야 한다
+    assert provider == "local-bundled"
+    assert elapsed <= 2.0, f"{elapsed:.1f}초 걸림 — 합계 상한이 안 지켜진다"
+
+
+def test_remaining_budget_is_passed_down(monkeypatch):
+    """두 번째 공급자는 '남은 시간'을 받는다 — 상한을 새로 받아 가면 두 배가 된다."""
+    monkeypatch.setattr(M, "IMAGE_PROVIDERS", ["pollinations", "gemini"])
+    monkeypatch.setattr(M, "IMAGE_TIMEOUT", 10.0)
+    seen = []
+
+    def first(*a, **kw):
+        seen.append(kw["timeout"])
+        time.sleep(0.4)
+        raise M.MarketingError("실패")
+
+    def second(*a, **kw):
+        seen.append(kw["timeout"])
+        return b"img", "image/png"
+
+    monkeypatch.setattr(M, "_pollinations_generate", first)
+    monkeypatch.setattr(M, "_gemini_image", second)
+
+    image, mime, provider = M._generate_image_bytes("prompt", "1:1", "standard")
+
+    assert provider == "gemini" and image == b"img"
+    # 로컬 폴백 몫(_LOCAL_FALLBACK_RESERVE)을 뺀 나머지가 첫 공급자에게 간다
+    assert seen[0] == pytest.approx(10.0 - M._LOCAL_FALLBACK_RESERVE, abs=0.2)
+    assert seen[1] < seen[0], "두 번째 공급자가 남은 시간이 아니라 상한을 새로 받았다"
+
+
+def test_provider_is_skipped_when_no_time_left(monkeypatch):
+    """시간이 거의 없으면 다음 공급자를 아예 부르지 않는다 — 왕복만 낭비된다."""
+    monkeypatch.setattr(M, "IMAGE_PROVIDERS", ["pollinations", "gemini"])
+    monkeypatch.setattr(M, "IMAGE_TIMEOUT", 2.5)
+    called = []
+
+    def burn(*a, **kw):
+        time.sleep(1.2)
+        raise M.MarketingError("실패")
+
+    def should_not_run(*a, **kw):
+        called.append(True)
+        return b"x", "image/png"
+
+    monkeypatch.setattr(M, "_pollinations_generate", burn)
+    monkeypatch.setattr(M, "_gemini_image", should_not_run)
+
+    _image, _mime, provider = M._generate_image_bytes("prompt", "1:1", "standard")
+
+    assert not called, "남은 시간이 1초 미만인데 다음 공급자를 불렀다"
+    assert provider == "local-bundled"
+
+
+# ---------------------------------------------------------------------------
+# 15초 장담 — 공급자가 어떻게 죽든 상한 안에 이미지가 나온다
+#
+# 생성 공급자는 남의 서버라 응답 시간을 우리가 정할 수 없다. 그래서 마지막에
+# 네트워크를 타지 않는 로컬 배경을 둔다. 아래가 그 약속을 잠근다.
+# ---------------------------------------------------------------------------
+
+def _hangs(*a, **kw):
+    """상한을 통째로 먹어치우는 공급자 — 실제 지연을 흉내낸다."""
+    time.sleep(kw.get("timeout", 99))
+    raise M.MarketingError("응답 없음")
+
+
+@pytest.mark.parametrize("aspect_ratio", ["1:1", "9:16", "16:9"])
+def test_image_always_returned_within_the_cap(monkeypatch, aspect_ratio):
+    """공급자가 끝까지 안 돌아와도 상한 안에 이미지가 나온다."""
+    monkeypatch.setattr(M, "IMAGE_TIMEOUT", 4.0)
+    monkeypatch.setattr(M, "_pollinations_generate", _hangs)
+
+    started = time.monotonic()
+    image, mime, provider = M._generate_image_bytes("prompt", aspect_ratio, "high")
+    elapsed = time.monotonic() - started
+
+    assert image and len(image) > 1000        # 진짜 이미지 바이트다
+    assert mime == "image/jpeg"
+    assert provider == "local-bundled"        # AI 생성물이 아님이 드러난다
+    assert elapsed <= 4.0, f"{elapsed:.1f}초 — 상한을 넘겼다"
+
+
+def test_provider_crash_also_yields_an_image(monkeypatch):
+    """지연이 아니라 예외로 죽어도 마찬가지다 (키 거부·402 등)."""
+    def boom(*a, **kw):
+        raise M.MarketingError("Pollinations API 키가 거부됐습니다")
+
+    monkeypatch.setattr(M, "_pollinations_generate", boom)
+
+    image, _mime, provider = M._generate_image_bytes("prompt", "1:1", "standard")
+
+    assert image and provider == "local-bundled"
+
+
+def test_local_fallback_can_be_turned_off(monkeypatch):
+    """끄면 예전처럼 에러를 던진다 — 폴백을 원치 않는 배포를 위해 남긴다."""
+    monkeypatch.setattr(M, "LOCAL_IMAGE_FALLBACK", False)
+    monkeypatch.setattr(M, "_pollinations_generate",
+                        lambda *a, **kw: (_ for _ in ()).throw(M.MarketingError("실패")))
+
+    with pytest.raises(M.ImageCapacityError):
+        M._generate_image_bytes("prompt", "1:1", "standard")
+
+
+def test_local_background_survives_missing_assets(monkeypatch):
+    """번들 파일이 하나도 없어도 그라데이션으로 이미지를 만든다 — 여기서 실패하면 약속이 깨진다."""
+    monkeypatch.setattr(M, "_LOCAL_BG_DIR", "/definitely/not/here")
+
+    image, mime = M._local_background("1:1", "standard")
+
+    assert image and len(image) > 1000 and mime == "image/jpeg"
+
+
+def test_successful_provider_is_not_replaced_by_fallback(monkeypatch):
+    """공급자가 성공하면 그 이미지를 그대로 쓴다 — 폴백이 끼어들면 안 된다."""
+    monkeypatch.setattr(M, "_pollinations_generate", lambda *a, **kw: (b"real-ai-bytes", "image/png"))
+
+    image, mime, provider = M._generate_image_bytes("prompt", "1:1", "standard")
+
+    assert (image, mime, provider) == (b"real-ai-bytes", "image/png", "pollinations")
