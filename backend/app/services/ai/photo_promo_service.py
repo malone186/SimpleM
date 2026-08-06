@@ -152,9 +152,14 @@ def _bg_cache_put(key: tuple[str, str], data: bytes) -> None:
     entries = _bg_cache.setdefault(key, [])
     entries.append((time.time(), data))
     del entries[:-_BG_PER_KEY]
+    # TTL 만료로 비어 버린 키를 먼저 걷어낸다 — 아래 min()이 빈 리스트를 0점으로 골라
+    # pop(0)에서 IndexError가 나면, 이 함수를 부르는 생성 스레드가 그때부터 전부 죽어
+    # 캐시가 프로세스 재시작 전까지 번들 배경만 남는 상태로 굳는다 (실제 재현된 사고).
+    for k in [k for k, v in _bg_cache.items() if not v]:
+        del _bg_cache[k]
     # 전체 장수 제한 — 가장 오래된 것부터 버린다
     while sum(len(v) for v in _bg_cache.values()) > _BG_CACHE_MAX:
-        oldest_key = min(_bg_cache, key=lambda k: _bg_cache[k][0][0] if _bg_cache[k] else 0)
+        oldest_key = min(_bg_cache, key=lambda k: _bg_cache[k][0][0])
         _bg_cache[oldest_key].pop(0)
         if not _bg_cache[oldest_key]:
             del _bg_cache[oldest_key]

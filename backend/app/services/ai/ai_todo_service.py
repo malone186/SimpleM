@@ -75,7 +75,9 @@ def _gather(store_id: str) -> tuple[list[dict], list[dict]]:
         from app.models.inventory import Menu, Sale
         from app.services.ai.document_service import _session
 
-        since = datetime.now() - timedelta(days=14)
+        # sold_at은 TIMESTAMPTZ — naive datetime을 넘기면 DB 세션 타임존(UTC)으로 읽혀
+        # '최근 14일' 창이 9시간 밀린다. tz-aware로 명시한다.
+        since = datetime.now().astimezone() - timedelta(days=14)
         with _session() as db:
             sold = dict(
                 db.query(Sale.menu_id, sa_func.sum(Sale.quantity))

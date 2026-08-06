@@ -518,11 +518,18 @@ def _get_model(model_name: str = ""):
     if model_name not in _models:
         from langchain_google_genai import ChatGoogleGenerativeAI
 
+        kwargs: dict[str, Any] = {}
+        # 2.5 계열은 기본이 '동적 사고'라 턴마다 사고 토큰을 태운다 — 챗봇은 한 턴에
+        # 메인+전문가로 4~8회 호출이 겹치므로 지연·무료쿼터 소모가 배로 커진다.
+        # OCR 서비스와 같은 규칙으로 사고 예산을 끈다 (2.5 계열에만 적용).
+        if model_name.startswith("gemini-2.5"):
+            kwargs["thinking_budget"] = 0
         _models[model_name] = ChatGoogleGenerativeAI(
             model=model_name,
             google_api_key=GEMINI_API_KEY,
             temperature=0.2,  # 도구 호출 일관성 우선
             max_retries=2,  # 일일 쿼터 소진 429는 재시도로 안 풀린다 — 기본 6회 백오프(30초+) 방지
+            **kwargs,
         )
     return _models[model_name]
 
@@ -605,6 +612,9 @@ def _bind_store(t, store_id: str, created_docs: list[dict[str, Any]], recorder=N
         doc = _extract_document(result)
         if doc and all(d["id"] != doc["id"] for d in created_docs):
             created_docs.append(doc)
+        if recorder is not None:
+            # 감사 규칙('근거 없는 금액')이 답변 속 숫자를 대조할 근거로 쓴다
+            recorder.tool_output(result)
         return result
 
     def _run(**kwargs):
@@ -815,6 +825,8 @@ def _audit_turn_safely(store_id: str, question: str, answer: str, recorder, ms: 
             experts=list(dict.fromkeys(recorder.experts)),
             expects_data=answer_audit.looks_like_store_question(question),
             ms=ms,
+            # 이걸 안 넘기면 '근거 없는 금액' 규칙(w_unsupported_number)이 항상 침묵한다
+            tool_output="\n".join(recorder.outputs),
         )
     except Exception:
         logger.debug("턴 자동 감사 실패", exc_info=True)

@@ -59,12 +59,28 @@ class TurnRecorder:
     서로 섞이지 않는다(전역 카운터만 잠금으로 보호하면 된다).
     """
 
-    __slots__ = ("experts", "tools", "tool_failures")
+    __slots__ = ("experts", "tools", "tool_failures", "outputs")
+
+    # 도구 결과 모음의 상한 — 감사 규칙('근거 없는 금액')이 숫자 대조에 쓸 만큼이면 된다
+    _OUTPUTS_MAX_CHARS = 20_000
 
     def __init__(self) -> None:
         self.experts: list[str] = []
         self.tools: list[str] = []
         self.tool_failures: int = 0
+        # 이번 턴 도구들이 돌려준 원문 — answer_audit의 '근거 없는 금액' 규칙이
+        # 답변 속 숫자를 대조할 근거다. 안 모으면 그 규칙은 영영 발동하지 않는다.
+        self.outputs: list[str] = []
+
+    def tool_output(self, text: object) -> None:
+        try:
+            if text is None:
+                return
+            if sum(len(o) for o in self.outputs) >= self._OUTPUTS_MAX_CHARS:
+                return
+            self.outputs.append(str(text)[:4000])
+        except Exception:
+            logger.debug("도구 결과 기록 실패", exc_info=True)
 
     def expert_called(self, name: str, ms: float, ok: bool = True) -> None:
         try:

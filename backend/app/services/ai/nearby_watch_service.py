@@ -21,7 +21,20 @@
 import logging
 import re
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+
+KST = timezone(timedelta(hours=9))
+
+
+def _today_kst() -> date:
+    """개업/폐업 판정 카운터의 '오늘'은 반드시 KST 기준이어야 한다.
+
+    date.today()는 서버 타임존을 따르는데, 알림 크론은 KST 날짜를
+    넘겨준다. 두 경로가 섞이면 00~09시 KST 사이에 서로 다른 '오늘'을 쓰게 되어
+    같은 영업일에 seen/miss 카운터가 두 번 오르고, 2회 확인·3회 실종 판정이
+    몇 시간 만에 끝나 버린다 — 그 오탐을 막으려고 만든 카운터인데.
+    """
+    return datetime.now(KST).date()
 from typing import Any, Optional
 
 from app.services.ai import nearby_cafe_service, nearby_event_service
@@ -94,7 +107,7 @@ def scan_cafe_changes(db, store_id: str, lat: float, lon: float,
     """
     from app.models.ai import NearbyCafeWatch
 
-    today = today or date.today()
+    today = today or _today_kst()
     today_iso = today.isoformat()
 
     rows = db.query(NearbyCafeWatch).filter(NearbyCafeWatch.store_id == store_id).all()
@@ -210,7 +223,7 @@ def pending_changes(db, store_id: str, days: int = NOTIFY_WINDOW_DAYS) -> dict[s
     """
     from app.models.ai import NearbyCafeWatch
 
-    since = (date.today() - timedelta(days=max(1, days))).isoformat()
+    since = (_today_kst() - timedelta(days=max(1, days))).isoformat()
     rows = db.query(NearbyCafeWatch).filter(NearbyCafeWatch.store_id == store_id).all()
 
     opened = [_as_change(r, "opened") for r in rows
@@ -248,7 +261,7 @@ def recent_changes(db, store_id: str, days: int = 30) -> dict[str, Any]:
     """
     from app.models.ai import NearbyCafeWatch
 
-    since = (date.today() - timedelta(days=max(1, days))).isoformat()
+    since = (_today_kst() - timedelta(days=max(1, days))).isoformat()
     rows = db.query(NearbyCafeWatch).filter(NearbyCafeWatch.store_id == store_id).all()
 
     opened = [_as_change(r, "opened") for r in rows
@@ -293,7 +306,7 @@ def scan_if_stale(db, store_id: str, lat: float, lon: float, exclude_name: str =
     if not force and now - last_try < _SCAN_COOLDOWN_SEC:
         return None
 
-    today_iso = date.today().isoformat()
+    today_iso = _today_kst().isoformat()
     if not force:
         latest = (db.query(NearbyCafeWatch.last_seen)
                   .filter(NearbyCafeWatch.store_id == store_id)
@@ -412,7 +425,7 @@ def plan_event_promotion(event: dict[str, Any], store_name: str = "내 매장", 
     if not name:
         return None
 
-    today = today or date.today().isoformat()
+    today = today or _today_kst().isoformat()
     cache_key = f"{store_name}|{name}|{event.get('start_date')}|{today}"
     hit = _plan_cache.get(cache_key)
     if hit and time.time() - hit[0] < _PLAN_TTL:

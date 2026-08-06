@@ -37,6 +37,11 @@ def get_proactive_insights(store_id: str, category: str = "") -> str:
         wanted = category.strip().lower()
         result["insights"] = [i for i in result["insights"] if i["category"] == wanted]
         result["count"] = len(result["insights"])
+        # 심각도 집계도 걸러진 목록 기준으로 다시 센다 — 안 맞추면 챗봇이
+        # "high 2건"이라 말해 놓고 목록에는 하나도 안 보여주는 답을 만든다.
+        for sev in ("high", "medium", "low"):
+            if sev in result:
+                result[sev] = sum(1 for i in result["insights"] if i.get("severity") == sev)
     if not result["insights"]:
         return _dump({
             "count": 0,

@@ -424,21 +424,26 @@ def _scan_staff_hours(db, store_id: str, today: date) -> list[dict[str, Any]]:
         )
         .all()
     )
-    hours: dict[str, float] = defaultdict(float)
-    rates: dict[str, int] = {}
+    # 직원 id로 묶는다 — 이름으로 묶으면 동명이인 두 사람의 시간이 한 사람으로 합산돼
+    # 주휴수당 발생 오탐이 난다. 표시용 이름은 따로 들고 간다.
+    hours: dict[int, float] = defaultdict(float)
+    rates: dict[int, int] = {}
+    names: dict[int, str] = {}
     for s, name, rate in rows:
         if s.start_time and s.end_time:
-            hours[name] += (s.end_time - s.start_time).total_seconds() / 3600
-        rates[name] = int(rate or 0)
+            hours[s.employee_id] += (s.end_time - s.start_time).total_seconds() / 3600
+        rates[s.employee_id] = int(rate or 0)
+        names[s.employee_id] = name
 
     out = []
-    for name, h in hours.items():
+    for emp_id, h in hours.items():
+        name = names.get(emp_id, "")
         if h < WEEKLY_ALLOWANCE_HOURS - 1.5:
             continue
-        weekly_pay = int(rates.get(name, 0) * (h / 40) * 8) if h >= WEEKLY_ALLOWANCE_HOURS else 0
+        weekly_pay = int(rates.get(emp_id, 0) * (h / 40) * 8) if h >= WEEKLY_ALLOWANCE_HOURS else 0
         if h >= WEEKLY_ALLOWANCE_HOURS:
             out.append(_insight(
-                key=f"weekly_allowance:{name}:{monday.isoformat()}",
+                key=f"weekly_allowance:{emp_id}:{monday.isoformat()}",
                 category="staff",
                 severity="medium",
                 title=f"{name}님 이번 주 {round(h, 1)}시간 — 주휴수당 발생",
@@ -451,7 +456,7 @@ def _scan_staff_hours(db, store_id: str, today: date) -> list[dict[str, Any]]:
             ))
         else:
             out.append(_insight(
-                key=f"weekly_allowance_near:{name}:{monday.isoformat()}",
+                key=f"weekly_allowance_near:{emp_id}:{monday.isoformat()}",
                 category="staff",
                 severity="low",
                 title=f"{name}님 이번 주 {round(h, 1)}시간 — 주휴수당 경계",
@@ -481,8 +486,17 @@ def _scan_missing_contracts(db, store_id: str, today: date) -> list[dict[str, An
         )
         .all()
     )
+    # 제목 전체를 이어 붙여 부분 문자열로 찾으면 '김민'이 '김민수'의 계약서에 덮여
+    # 계약서 없는 직원이 조용히 빠진다(법정 의무 알림 누락). 이름 뒤가 다른 한글로
+    # 이어지면 다른 사람 이름으로 보고, 호칭(님·씨)만 이어지는 건 같은 사람으로 본다.
+    import re as _re
+
     titles = " ".join(c.title or "" for c in contracts)
-    missing = [e.name for e in employees if e.name and e.name not in titles]
+
+    def _has_contract(name: str) -> bool:
+        return _re.search(rf"{_re.escape(name)}(?:님|씨)?(?![가-힣])", titles) is not None
+
+    missing = [e.name for e in employees if e.name and not _has_contract(e.name)]
     if not missing:
         return []
     shown = ", ".join(missing[:4]) + (f" 외 {len(missing) - 4}명" if len(missing) > 4 else "")
