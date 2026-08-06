@@ -244,6 +244,9 @@ class SettlementResponse(BaseModel):
     total_payroll: int = Field(..., description="예상 총 직원 급여액", examples=[1205000])
     other_expense: int = Field(..., description="기타 추가 비용", examples=[50000])
     net_profit: int = Field(..., description="예상 당기 순이익 (매출 - 비용 - 인건비 - 기타)", examples=[2245000])
+    # 지출에 임대료·공과금이 하나도 없으면 net_profit은 그만큼 부풀어 있다.
+    # 화면은 이 값이 True면 '순이익'이라 쓰지 않는다 (경영 리포트와 같은 규칙).
+    fixed_cost_missing: bool = Field(False, description="지출에 고정비(임대료·공과금 등)가 없어 순이익이 과대 계상됨")
     calculated_at: datetime = Field(..., description="계산 수행 일시")
     disclaimer: str = Field(
         "이 정산 결과는 예상 시뮬레이션 초안이며 실제 세무/회계 장부와 다를 수 있습니다.",

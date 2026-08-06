@@ -344,3 +344,49 @@ def test_fixed_cost_categories_are_recognized(db, category):
     _expense(db, 10_000, category=category)
 
     assert _report()["profit"]["fixed_cost_missing"] is False
+
+
+# ---------------------------------------------------------------------------
+# 이중 계상 — 레시피로 재료비를 잡는데 원두값을 지출에도 넣으면 두 번 빠진다
+# ---------------------------------------------------------------------------
+
+def test_material_purchase_expense_is_not_double_counted(db):
+    """지출에 넣은 원두매입은 손익에서 뺀다 — 재료비를 레시피로 이미 계산했다."""
+    latte = _menu_with_recipe(db, "라떼", price=5_000, unit_cost=1_500)
+    _sell(db, latte, qty=10, hour=10)
+    _expense(db, 30_000, category="원두매입")   # 레시피 재료비와 겹친다
+    _expense(db, 20_000, category="임대료")     # 이건 진짜 비용이다
+
+    c = _report()
+
+    assert c["expenses"]["total"] == 50_000              # 지출 표시는 그대로
+    assert c["profit"]["material_overlap_excluded"] == 30_000
+    # 50,000 매출 − 15,000 레시피 재료비 − 20,000 임대료 (원두매입 30,000은 빠졌다)
+    assert c["profit"]["estimated_profit"] == 15_000
+    assert "두 번 빠집니다" in c["note"]
+
+
+def test_cash_balance_still_counts_the_full_expense(db):
+    """현금수지는 실제로 나간 돈이라 원두매입도 그대로 센다 — 손익과 다른 질문이다."""
+    latte = _menu_with_recipe(db, "라떼", price=5_000, unit_cost=1_500)
+    _sell(db, latte, qty=10, hour=10)
+    _expense(db, 30_000, category="원두매입")
+
+    c = _report()
+
+    assert c["profit"]["cash_total_cost"] == 30_000      # 통장에서는 나갔다
+    assert c["profit"]["cash_balance"] == 20_000
+
+
+def test_no_overlap_exclusion_on_purchase_basis(db):
+    """매입 기준으로 계산할 때는 빼지 않는다 — 재료비를 확정 문서로 잡아 축이 다르다."""
+    covered = _menu_with_recipe(db, "라떼", price=1_000, unit_cost=300)
+    bare = _menu_without_recipe(db, "생과일주스", price=9_000)
+    _sell(db, covered, qty=1, hour=10)
+    _sell(db, bare, qty=1, hour=11)
+    _expense(db, 30_000, category="원두매입")
+
+    c = _report()
+
+    assert c["profit"]["basis"] == "purchase"
+    assert c["profit"]["material_overlap_excluded"] == 0

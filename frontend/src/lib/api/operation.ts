@@ -45,6 +45,8 @@ export type Settlement = {
   total_expense: number;
   total_payroll: number;
   net_profit: number;
+  /** 지출에 임대료·공과금이 하나도 없으면 true — net_profit이 그만큼 부풀어 있다 */
+  fixed_cost_missing?: boolean;
   other_expense?: number;
   year_month?: string;
   period_start?: string;

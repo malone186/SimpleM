@@ -1023,7 +1023,8 @@ function LiveOperationCard() {
               <Text style={liveStyles.kpiValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{won(settlement?.total_payroll ?? 0)}</Text>
             </View>
             <View style={[liveStyles.kpi, liveStyles.kpiProfit]}>
-              <Text style={liveStyles.kpiLabel}>순이익</Text>
+              {/* 임대료가 안 잡힌 매장에서 '순이익'이라 쓰면 월세만큼 더 번 것처럼 읽힌다 */}
+              <Text style={liveStyles.kpiLabel}>{settlement?.fixed_cost_missing ? '고정비 전' : '순이익'}</Text>
               <Text
                 style={[liveStyles.kpiValue, { color: (settlement?.net_profit ?? 0) >= 0 ? '#3E8E5A' : colors.pointOrange }]}
                 numberOfLines={1}

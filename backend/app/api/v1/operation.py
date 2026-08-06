@@ -18,6 +18,7 @@ from app.schemas.operation import (
     EmployeeCreate, EmployeeUpdate, EmployeeResponse
 )
 from app.schemas.bean_rag import BeanRAGChatRequest, BeanSearchRequest, BeanRAGChatResponse, BeanSearchResponse, ReindexResponse
+from app.services import cost_basis
 from app.services.operation.operation_service import OperationService, EmployeeUnavailabilityService
 from app.services.operation.curation_service import CurationFilterRequest, CuratedBeanResponse, curate_beans_by_preference
 from app.services.operation.tax_service import TaxService
@@ -691,6 +692,8 @@ def calculate_settlement_api(
         cost = payload.cost
         labor_cost = payload.labor_cost
         other_expense = payload.other_expense or 0
+        # 수동 입력 경로는 사장님이 직접 넣은 숫자라 무엇이 들었는지 알 수 없다 — 경고하지 않는다
+        fixed_cost_missing = False
 
         # [한글 주석: 프론트엔드 모바일 앱이 기간 정보를 꽂아 보냈다면, DB에서 일체 실시간 집계를 수행합니다]
         if payload.period_start and payload.period_end:
@@ -716,13 +719,18 @@ def calculate_settlement_api(
             revenue = int(sales_q.scalar() or 0)
 
             # 3. 지정 기간 총 지출 비용(Expense) 자동 집계 — 매장별 스코핑
-            expense_q = db.query(func.sum(Expense.amount)).filter(
+            expense_q = db.query(Expense.category, func.sum(Expense.amount)).filter(
                 Expense.expense_date >= payload.period_start,
                 Expense.expense_date <= payload.period_end
             )
             if store_id:
                 expense_q = expense_q.filter(Expense.store_id == store_id)
-            cost = int(expense_q.scalar() or 0)
+            expense_rows = expense_q.group_by(Expense.category).all()
+            cost = int(sum(amount or 0 for _, amount in expense_rows))
+            # 지출은 사장님이 손으로 넣는 표라 임대료가 대개 없다. 그러면 월세가 통째로 빠진
+            # 금액이 '순이익'으로 찍힌다 — 월세 200만원 매장은 200만원을 벌고 있다고 믿게 된다.
+            # 경영 리포트와 같은 규칙(cost_basis)을 쓴다: 두 화면이 다르게 말하면 안 된다.
+            fixed_cost_missing = not cost_basis.has_fixed_cost(c for c, _ in expense_rows)
 
             # 4. 지정 월 총 인건비(labor_cost) 자동 집계 — 해당 매장 직원 급여만 합산
             year_month = payload.period_start[:7]
@@ -750,6 +758,8 @@ def calculate_settlement_api(
             "total_expense": data["cost"],
             "total_payroll": data["labor_cost"],
             "net_profit": data["estimated_profit"],
+            # 임대료가 안 잡힌 매장에서는 화면이 이걸 보고 '순이익'이라 쓰지 않는다
+            "fixed_cost_missing": fixed_cost_missing,
             "year_month": (payload.period_start or "")[:7] or None,
             "period_start": payload.period_start,
             "period_end": payload.period_end,

@@ -28,6 +28,7 @@ import threading
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Optional
 
+from app.services import cost_basis
 from app.services.ai import document_service
 
 logger = logging.getLogger(__name__)
@@ -295,8 +296,14 @@ def _expense_summary(db, store_id: str, start: date, end: date) -> dict[str, Any
     by_category: dict[str, int] = {}
     for r in rows:
         by_category[r.category] = by_category.get(r.category, 0) + r.amount
+    # 원두·우유처럼 레시피 재료비와 겹치는 매입은 따로 센다. 손익의 재료비를 레시피로
+    # 계산하면서 같은 원두값을 지출로도 더하면 두 번 빠진다 — 실제 매장에 '원두매입
+    # 85,000원'이 지출로 들어와 있었다. 총액에서 빼지는 않고(현금수지·카테고리 표시에
+    # 그대로 쓰인다) 손익 계산에서만 제외한다.
+    material = sum(a for c, a in by_category.items() if cost_basis.is_material_purchase(c))
     return {
         "total": sum(r.amount for r in rows),
+        "material_overlap": material,
         "by_category": [{"category": c, "amount": a}
                         for c, a in sorted(by_category.items(), key=lambda x: x[1], reverse=True)],
     }
@@ -507,25 +514,8 @@ def _fmt_qty(v: float) -> str:
     return str(int(v)) if float(v).is_integer() else str(v)
 
 
-# 지출 카테고리가 '고정비'인지 알아보는 낱말들. 카테고리는 자유 입력이라 목록으로
-# 고를 수가 없어 이름으로 판단한다. 못 알아본 쪽으로 틀리면 "임대료를 넣어 달라"는
-# 안내가 한 번 더 뜨는 정도지만, 반대로 틀리면 월세가 빠진 금액을 순이익이라 부르게 된다.
-_FIXED_COST_WORDS = (
-    "임대", "월세", "관리비", "공과", "전기", "수도", "가스", "난방",
-    "통신", "인터넷", "보험", "세금", "부가세", "수수료", "렌탈", "렌트", "리스",
-    "이자", "상환", "고정비", "구독", "정기결제", "청소", "방역", "음악", "저작권",
-)
-
-
-def _has_fixed_cost(expenses: dict[str, Any]) -> bool:
-    """지출에 고정비 성격의 항목이 하나라도 있는지."""
-    return any(
-        any(w in (row.get("category") or "") for w in _FIXED_COST_WORDS)
-        for row in expenses.get("by_category") or []
-    )
-
-
-def _build_note(use_recipe: bool, cogs: dict, fixed_cost_missing: bool = False) -> str:
+def _build_note(use_recipe: bool, cogs: dict, fixed_cost_missing: bool = False,
+                material_overlap: int = 0) -> str:
     """리포트 숫자를 어디까지 믿어야 하는지 밝히는 안내문 — 계산 기준이 바뀌면 문구도 바뀐다."""
     if use_recipe:
         note = ("재료비는 팔린 메뉴의 레시피로 계산한 추정치입니다(재료 현재 단가 기준). "
@@ -537,6 +527,9 @@ def _build_note(use_recipe: bool, cogs: dict, fixed_cost_missing: bool = False) 
         note = ("재료비는 스캔해서 확정한 영수증·거래명세서 기준이라, 명세서를 몰아서 찍거나 "
                 "한 장도 안 찍은 기간에는 손익이 크게 튈 수 있어요. "
                 "메뉴에 레시피를 등록하면 팔린 만큼으로 재료비를 계산해 훨씬 안정적으로 나옵니다.")
+    if material_overlap:
+        note += (f" 지출에 넣으신 재료 매입 {material_overlap:,}원은 손익에서 뺐어요 — "
+                 "재료비를 레시피로 이미 계산해서, 그대로 두면 같은 값이 두 번 빠집니다.")
     # 가장 크게 틀리는 원인이라 맨 뒤가 아니라 반드시 붙여서 내보낸다
     if fixed_cost_missing:
         note += (" ⚠️ 임대료·공과금·카드수수료 같은 고정비가 등록되지 않아, 여기 남은 금액은 "
@@ -884,7 +877,13 @@ def generate_management_report(store_id: str, period_type: str = "weekly",
     # 커버리지가 기준 미달이면 종전대로 매입 기준으로 되돌린다.
     use_recipe = cogs["reliable"]
     material_cost = cogs["theoretical"] if use_recipe else purchases["total"]
-    total_cost = material_cost + expenses["total"] + labor["estimated_cost"]
+    # 레시피로 재료비를 잡는 동안에는 원두·우유 같은 '매입성 지출'을 빼고 더한다.
+    # 안 그러면 같은 원두값이 레시피 재료비와 지출 양쪽에서 두 번 빠진다.
+    # 매입 기준(use_recipe=False)일 때는 재료비를 확정 문서로 잡으므로 그대로 둔다 —
+    # 그쪽은 지출과 겹치는 축이 애초에 다르다.
+    overlap = expenses.get("material_overlap", 0) if use_recipe else 0
+    other_expense = expenses["total"] - overlap
+    total_cost = material_cost + other_expense + labor["estimated_cost"]
     estimated_profit = sales["total"] - total_cost
     # 현금 관점 — 실제로 나간 돈(매입·지출·인건비) 기준. 손익과 나란히 두면
     # '이익은 나는데 통장이 빈' 상황(대량 매입한 주)을 구분해 볼 수 있다.
@@ -898,10 +897,13 @@ def generate_management_report(store_id: str, period_type: str = "weekly",
     # 지출 15건이 전부 원두매입·우유·소모품(=변동비)이고 임대료는 한 건도 없었다.
     # 카테고리는 자유 입력이라(OperationScreen 플레이스홀더가 "예: 원두매입, 임대료")
     # 이름으로 알아볼 수밖에 없다.
-    fixed_cost_missing = not _has_fixed_cost(expenses)
+    fixed_cost_missing = not cost_basis.has_fixed_cost(
+        r["category"] for r in expenses["by_category"])
     profit = {
         "basis": "recipe" if use_recipe else "purchase",
         "material_cost": material_cost,
+        # 손익에서 뺀 '지출로도 들어와 있던 재료 매입' — 화면에서 왜 숫자가 다른지 밝힌다
+        "material_overlap_excluded": overlap,
         "total_cost": total_cost,
         "estimated_profit": estimated_profit,
         "margin_pct": round(estimated_profit / sales["total"] * 100, 1) if sales["total"] else None,
@@ -927,7 +929,7 @@ def generate_management_report(store_id: str, period_type: str = "weekly",
         "compliance_alerts": compliance,
         "highlights": _build_highlights(sales, cogs, labor, rhythm, outlook, inventory,
                                         compliance, profit, period_type),
-        "note": _build_note(use_recipe, cogs, fixed_cost_missing),
+        "note": _build_note(use_recipe, cogs, fixed_cost_missing, overlap),
     }
     # AI 조언 — 근거 숫자가 지난 리포트와 같으면 Gemini를 부르지 않고 이전 조언을 재사용하고,
     # 숫자가 바뀌었어도 마지막 생성 후 30분 안에는 재생성하지 않는다
