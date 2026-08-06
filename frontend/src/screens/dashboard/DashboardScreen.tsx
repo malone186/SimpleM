@@ -23,6 +23,8 @@ import { loadCache, markAllStale, peekCache, saveCache } from '../../lib/cache';
 import { awardDerivedTodo } from '../../lib/api/rewards';
 import AlertCenterCard, { type AlertItem } from '../../components/dashboard/AlertCenterCard';
 import { navigateToTarget } from '../../notifications/navigationTarget';
+import { getRoomTint } from '../../components/brew/roomBackgrounds';
+import { useEquipped } from '../../rewards/EquippedContext';
 import { colors, spacing, typography, shadows } from '../../theme';
 import { s, useBottomInset, useResponsive } from '../../theme/responsive';
 
@@ -369,6 +371,9 @@ export default function DashboardScreen() {
   const { user, token } = useAuth();
   const navigation = useNavigation<any>();
   const isFocused = useIsFocused();
+  // 상점에서 산 카페 배경을 착용하면 홈 상단 색도 그 분위기로 물든다 (사진이 아니라 색만 — roomBackgrounds.ts)
+  const { roomBgId } = useEquipped();
+  const tint = getRoomTint(roomBgId);
 
   const [pushModalOpen, setPushModalOpen] = useState(false);
   const [pushBadgeSeen, setPushBadgeSeen] = useState(false);
@@ -764,9 +769,10 @@ export default function DashboardScreen() {
         <Svg width="100%" height="100%" preserveAspectRatio="none">
           <Defs>
             {/* [한글 주석: 오로라 딥브라운 그라데이션 범위를 상단 25% 이내로만 제한하여 하단에 갈색 띠가 비치지 않도록 방지] */}
+            {/* [한글 주석: 상단 딥 그라데이션 — 착용한 카페 배경이 있으면 그 분위기 색으로. 밝기는 그대로라 흰 아이콘 대비는 유지된다] */}
             <LinearGradient id="auroraGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-              <Stop offset="0%" stopColor="#1E1612" />
-              <Stop offset="18%" stopColor="#251C17" />
+              <Stop offset="0%" stopColor={tint.top[0]} />
+              <Stop offset="18%" stopColor={tint.top[1]} />
               <Stop offset="30%" stopColor={colors.creamSand} />
               <Stop offset="100%" stopColor={colors.creamSand} />
             </LinearGradient>
@@ -777,9 +783,9 @@ export default function DashboardScreen() {
           </Defs>
           <Path d="M0 0 H2000 V2000 H0 Z" fill="url(#auroraGrad)" />
           {/* 글로우 원들을 상부 웰컴 영역에만 배치하여 하부 화이트 카드 부근엔 맑게 스며들도록 함 */}
-          <Circle cx="85%" cy="12%" r="140" fill="#E28257" filter="url(#auroraGlow)" opacity="0.25" />
-          <Circle cx="15%" cy="22%" r="130" fill="#C29D7A" filter="url(#auroraGlow)" opacity="0.2" />
-          <Circle cx="60%" cy="4%" r="120" fill="#88BCB5" filter="url(#auroraGlow)" opacity="0.16" />
+          <Circle cx="85%" cy="12%" r="140" fill={tint.glow[0]} filter="url(#auroraGlow)" opacity="0.25" />
+          <Circle cx="15%" cy="22%" r="130" fill={tint.glow[1]} filter="url(#auroraGlow)" opacity="0.2" />
+          <Circle cx="60%" cy="4%" r="120" fill={tint.glow[2]} filter="url(#auroraGlow)" opacity="0.16" />
         </Svg>
       </View>
 

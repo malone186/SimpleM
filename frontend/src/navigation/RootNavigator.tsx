@@ -239,12 +239,12 @@ function TabsNavigator() {
   // [한글 주석: 갤럭시 등 안드로이드 하단 소프트키/제스처 바 영역 높이 동적 측정 훅]
   const insets = useSafeAreaInsets();
 
-  // [한글 주석: 기기별 하단 안전 여백 보정 — 갤럭시 시스템 소프트키와 탭 바가 겹치지 않게 여백 확보]
-  const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 16 : 10);
-  const tabBarHeight = Platform.select({
-    ios: 65 + bottomInset,
-    default: 62 + bottomInset,
-  });
+  // [한글 주석: 기기별 하단 안전 여백 보정 — 시스템 제스처/소프트키 인셋(실측값)만 하단에 더하고,
+  //  아이콘·라벨 블록 주변의 눈에 보이는 여백은 위·아래 동일하게 유지한다]
+  const sysInset = insets.bottom;
+  const visualPad = 8; // 아이콘·라벨 블록 위아래 대칭 여백
+  const contentHeight = 54; // 아이콘(28) + 간격(2) + 라벨(14) + 아이템 자체 패딩(10)
+  const tabBarHeight = contentHeight + visualPad * 2 + sysInset;
 
   return (
     <Tab.Navigator
@@ -259,8 +259,8 @@ function TabsNavigator() {
           borderTopWidth: 0.8,
           borderTopColor: 'rgba(140, 111, 86, 0.08)', // 은은하고 세련된 초슬림 엣지
           height: tabBarHeight, // [한글 주석: 안드로이드 소프트키 및 노치 대응 동적 높이]
-          paddingBottom: bottomInset, // [한글 주석: 갤럭시 하단 시스템 바에 글자/아이콘 가림 방지 여백]
-          paddingTop: 8,
+          paddingBottom: visualPad + sysInset, // [한글 주석: 시스템 바 인셋 + 위와 동일한 대칭 여백]
+          paddingTop: visualPad,
           shadowColor: '#4E3629',
           shadowOffset: { width: 0, height: -3 },
           shadowOpacity: 0.04,

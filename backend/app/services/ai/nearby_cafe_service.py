@@ -48,7 +48,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 # "사용량을 다 썼어요"로 죽었다(8/5 실측). 처음엔 2.5-flash로 옮겼는데 그쪽은 분당 한도가
 # 빠듯해 배포 직후에도 플랜 생성이 간헐적으로 429였다. 아무 기능도 안 쓰는 전용 풀인
 # 2.5-flash-lite 고정 — 같은 키의 별도 쿼터라 서로를 굶기지 않고, 실측 연속 호출도 전부 200.
-GEMINI_MODEL = os.getenv("NEARBY_GEMINI_MODEL", "gemini-2.5-flash-lite")
+GEMINI_MODEL = os.getenv("NEARBY_GEMINI_MODEL", "gemini-3.1-flash-lite")
 
 _TIMEOUT = 6.0            # 검색 API 하나가 느려도 지도 화면이 오래 멈추지 않게
 _CAFE_TTL = 6 * 3600      # 주변 카페 목록 — 상권은 하루 단위로도 잘 안 바뀐다

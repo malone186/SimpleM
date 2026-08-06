@@ -1185,6 +1185,16 @@ def create_marketing_image(
         raise HTTPException(429 if "사용량" in str(e) else 502, str(e))
 
 
+@router.get("/marketing/health")
+def get_marketing_health(current_user: User = Depends(get_current_user)) -> dict:
+    """이미지 생성 파이프라인 상태 — 공급자·모델·Pollen 잔액·폰트·GCS 한눈에.
+
+    '이미지가 안 만들어져요' 신고가 오면 로그를 뒤지기 전에 이걸 먼저 본다.
+    잔액 조회가 실시간이라 응답에 몇 초 걸릴 수 있다.
+    """
+    return marketing_service.image_health()
+
+
 @router.post("/marketing/photo-image")
 def create_marketing_photo_image(
     file: UploadFile = File(...),

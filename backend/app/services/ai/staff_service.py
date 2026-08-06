@@ -869,6 +869,157 @@ def remove_shift(store_id: str, schedule_id: int) -> None:
         db.close()
 
 
+def _payroll_rows(employees: list, schedules: list) -> list[dict[str, Any]]:
+    """직원별 월 예상 급여 행 — /operation/payroll/all과 같은 모양·같은 계산 기준.
+
+    기존 경로는 직원 한 명마다 (직원 조회 + 스케줄 조회 + 저장 조회 + commit)을 반복해
+    Neon 왕복이 직원 수 × 5번 붙었다. 직원 5명이면 이 목록 하나에 5초가 걸렸고,
+    정산 계산이 내부에서 이걸 또 불러 '정산·급여' 카드가 10초 가까이 비어 있었다.
+    여기서는 미리 받아 둔 직원·스케줄 두 목록만으로 같은 숫자를 만든다 (조회 중 DB 쓰기 없음).
+
+    기존과 같은 규칙: 실제 출퇴근(actual_*)이 둘 다 있으면 그것을, 없으면 계획 시간.
+    시급이 0이거나 그 달 스케줄이 없는 직원은 목록에서 빠진다.
+    """
+    hours: dict[int, float] = {}
+    actual: dict[int, bool] = {}
+    for s in schedules:
+        use_actual = bool(s.actual_start_time and s.actual_end_time)
+        st = s.actual_start_time if use_actual else s.start_time
+        et = s.actual_end_time if use_actual else s.end_time
+        if not st or not et:
+            continue
+        dur = (et - st).total_seconds() / 3600
+        if dur < 0:  # 자정을 넘긴 근무
+            dur += 24
+        if dur <= 0:
+            continue
+        hours[s.employee_id] = hours.get(s.employee_id, 0.0) + dur
+        if use_actual:
+            actual[s.employee_id] = True
+
+    rows = []
+    for e in employees:
+        rate = e.hourly_rate or 0
+        h = hours.get(e.id, 0.0)
+        if rate <= 0 or h <= 0:
+            continue
+        base = int(h * rate)
+        rows.append({
+            "employee_id": e.id,
+            "employee_name": e.name,
+            "role": e.role,
+            "hourly_rate": rate,
+            "total_work_hours": h,
+            "base_salary": base,
+            "weekly_holiday_allowance": 0,
+            "estimated_salary": base,
+            "based_on_actual": actual.get(e.id, False),
+        })
+    return rows
+
+
+def monthly_payroll(store_id: str, year_month: Optional[str] = None) -> list[dict[str, Any]]:
+    """전 직원 월 예상 급여 목록 — 직원 수와 무관하게 DB 왕복 2번."""
+    from app.models.operation import Employee, Schedule
+
+    target = year_month or date.today().strftime("%Y-%m")
+    try:
+        date(int(target[:4]), int(target[5:7]), 1)
+    except (ValueError, IndexError):
+        raise StaffError("월 형식이 올바르지 않습니다 (YYYY-MM).")
+
+    db = _session()
+    try:
+        employees = db.query(Employee).filter(Employee.store_id == store_id).order_by(Employee.id).all()
+        emp_ids = [e.id for e in employees]
+        schedules = (
+            db.query(Schedule)
+            .filter(Schedule.employee_id.in_(emp_ids), Schedule.date.like(f"{target}%"))
+            .all()
+        ) if emp_ids else []
+    finally:
+        db.close()
+
+    rows = _payroll_rows(employees, schedules)
+    for r in rows:
+        r["period_start"] = f"{target}-01"
+        r["period_end"] = f"{target}-31"
+    return rows
+
+
+def month_settlement(store_id: str, year_month: Optional[str] = None) -> dict[str, Any]:
+    """월 손익 정산 + 직원별 급여를 한 응답으로 — '정산·급여' 카드가 요청 1번으로 그려지게.
+
+    기존 경로는 정산(내부에서 급여 N+1 재실행)과 급여 목록을 각각 불러 왕복이
+    (직원 수 × 5) × 2 + α였다. 여기서는 매출 합계 1 + 지출 합계 1 + 직원 1 + 스케줄 1,
+    총 4번으로 같은 숫자를 만든다. 집계 기준(매출=Sale, 비용=Expense, 인건비=스케줄×시급)은
+    기존 /operation/settlements/calculate와 동일하다.
+    """
+    from sqlalchemy import func as sa_func
+
+    from app.models.inventory import Sale
+    from app.models.operation import Employee, Expense, Schedule
+
+    target = year_month or date.today().strftime("%Y-%m")
+    try:
+        year, mon = int(target[:4]), int(target[5:7])
+        p_start_dt = datetime(year, mon, 1)
+    except (ValueError, IndexError):
+        raise StaffError("월 형식이 올바르지 않습니다 (YYYY-MM).")
+    p_end_dt = datetime(year + 1, 1, 1) if mon == 12 else datetime(year, mon + 1, 1)
+    p_start, p_end = f"{target}-01", f"{target}-{_calendar.monthrange(year, mon)[1]:02d}"
+
+    db = _session()
+    try:
+        revenue = int(
+            db.query(sa_func.sum(Sale.total_price))
+            .filter(Sale.store_id == store_id,
+                    Sale.sold_at >= p_start_dt, Sale.sold_at < p_end_dt)
+            .scalar() or 0
+        )
+        cost = int(
+            db.query(sa_func.sum(Expense.amount))
+            .filter(Expense.store_id == store_id,
+                    Expense.expense_date >= p_start, Expense.expense_date <= p_end)
+            .scalar() or 0
+        )
+        employees = db.query(Employee).filter(Employee.store_id == store_id).order_by(Employee.id).all()
+        emp_ids = [e.id for e in employees]
+        schedules = (
+            db.query(Schedule)
+            .filter(Schedule.employee_id.in_(emp_ids), Schedule.date.like(f"{target}%"))
+            .all()
+        ) if emp_ids else []
+    finally:
+        db.close()
+
+    payroll = _payroll_rows(employees, schedules)
+    labor_cost = sum(r["estimated_salary"] for r in payroll)
+    total_cost = cost + labor_cost
+    profit = revenue - total_cost
+    return {
+        "settlement": {
+            "revenue": revenue,
+            "cost": cost,
+            "labor_cost": labor_cost,
+            "other_expense": 0,
+            "total_cost": total_cost,
+            "estimated_profit": profit,
+            "profit_rate": round(profit / revenue * 100, 2) if revenue > 0 else None,
+            # 프론트 정산 카드가 쓰는 total_* 호환 필드
+            "total_sales": revenue,
+            "total_expense": cost,
+            "total_payroll": labor_cost,
+            "net_profit": profit,
+            "year_month": target,
+            "period_start": p_start,
+            "period_end": p_end,
+            "disclaimer": "본 정산 결과는 확정 정산이 아닌 단순 참고용 예상 정산 결과입니다.",
+        },
+        "payroll": payroll,
+    }
+
+
 def weekly_payroll(store_id: str, week_start: Optional[str] = None) -> dict[str, Any]:
     """주급 지급용 — 등록된 스케줄 기준으로 이번 주 실제 근무시간과 지급액을 뽑는다.
 
