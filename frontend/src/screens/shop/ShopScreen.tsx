@@ -1,14 +1,15 @@
 // 상점 — 할 일을 끝내 모은 코인으로 브루를 꾸민다 (게임화 보상)
 // 상단: 브루 미리보기 + 코인 잔액 / 중단: 부위별 아이템 / 하단: 적립·사용 내역
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Image as RNImage, Modal, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 
 import { useAuth } from '../../auth/AuthContext';
 import Brew, { type BrewMood } from '../../components/brew/Brew';
-import { ACCESSORY_ART } from '../../components/brew/accessories';
 import { FadeInUp, PressableScale, useCountUp } from '../../components/motion';
+import ItemArt from '../../components/shop/ItemArt';
+import VaultSheet from '../../components/shop/VaultSheet';
 import { confirmDialog, toast } from '../../components/toast';
 import { Badge, Card, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
 import {
@@ -271,50 +272,15 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
         );
       })}
 
-      {/* ── 보관함 — 내가 산 꾸미기 아이템만 모아 보는 시트 ── */}
-      <Modal visible={vaultOpen} animationType="slide" transparent onRequestClose={() => setVaultOpen(false)}>
-        <View style={styles.vaultBackdrop}>
-          <View style={[styles.vaultSheet, { paddingBottom: bottomInset + sc(16) }]}>
-            <View style={styles.vaultHeader}>
-              <Text style={styles.vaultTitle}>
-                보관함 <Text style={styles.vaultCount}>{(shop?.items ?? []).filter((i) => i.owned).length}개 보유</Text>
-              </Text>
-              <PressableScale onPress={() => setVaultOpen(false)} style={styles.vaultClose}>
-                <Ionicons name="close" size={20} color={colors.mochaBrown} />
-              </PressableScale>
-            </View>
-            <ScrollView style={{ maxHeight: '100%' }} showsVerticalScrollIndicator={false}>
-              {(shop?.items ?? []).some((i) => i.owned) ? (
-                SLOT_ORDER.map((slot) => {
-                  const owned = (shop?.items ?? []).filter((i) => i.slot === slot && i.owned && itemVisible(i));
-                  if (!owned.length) return null;
-                  return (
-                    <View key={slot} style={{ marginBottom: 6 }}>
-                      <SectionTitle>{owned[0].slot_label}</SectionTitle>
-                      <View style={{ gap: 10, marginBottom: 6 }}>
-                        {owned.map((item) => (
-                          <ShopRow
-                            key={item.id}
-                            item={item}
-                            apronColor={previewApron}
-                            busy={busyItem === item.id}
-                            onBuy={() => {}}
-                            onToggle={() => handleToggleEquip(item)}
-                          />
-                        ))}
-                      </View>
-                    </View>
-                  );
-                })
-              ) : (
-                <Text style={styles.emptyText}>
-                  아직 산 아이템이 없어요. 코인을 모아 브루를 꾸며 보세요!
-                </Text>
-              )}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      {/* ── 보관함 — 상점·게임 룸이 같은 시트를 쓴다 (components/shop/VaultSheet).
+             닫을 때 상점 목록도 다시 읽어 '착용 중' 표시를 맞춘다 ── */}
+      <VaultSheet
+        visible={vaultOpen}
+        onClose={() => {
+          setVaultOpen(false);
+          load();
+        }}
+      />
 
       {/* ── 적립·사용 내역 — 기본 5줄만, 나머지는 '더보기'로 펼친다 ── */}
       <FadeInUp delay={300}>
@@ -491,30 +457,6 @@ function GrowthCard({ progress }: { progress: Progress }) {
   );
 }
 
-/** 목록 썸네일 — 사면 실제로 보게 될 그림을 그대로 작게 보여준다 (포즈는 브루 자신) */
-function ItemArt({ item, apronColor }: { item: ShopItem; apronColor?: string }) {
-  if (item.slot === 'pose' && item.mood) {
-    // 착용 중인 앞치마 색을 입혀서 '이 포즈를 고르면 실제로 보일 모습' 그대로 미리 보여준다
-    return <Brew mood={item.mood as BrewMood} apronColor={apronColor} size={42} disableMotion />;
-  }
-  // 앞치마 색: 기본 포즈에 그 색을 입힌 미니 브루로 미리보기 (실제 착용 모습 그대로)
-  if (item.slot === 'apron' && item.color) {
-    return <Brew mood="top" apronColor={item.color} size={42} disableMotion />;
-  }
-  // 카페 배경: 실제 배경 사진을 작게 보여준다 (등록된 것만 목록에 오므로 항상 존재)
-  if (item.slot === 'room' && ROOM_BGS[item.id]) {
-    return (
-      <RNImage
-        source={ROOM_BGS[item.id]}
-        style={{ width: 42, height: 42, borderRadius: 8 }}
-        resizeMode="cover"
-      />
-    );
-  }
-  const Art = ACCESSORY_ART[item.id];
-  return Art ? <Art size={30} /> : <Text style={{ fontSize: 24 }}>{item.emoji}</Text>;
-}
-
 function HistoryRow({ item, last }: { item: PointHistoryItem; last: boolean }) {
   const earned = item.delta > 0;
   return (
@@ -583,26 +525,6 @@ const styles = StyleSheet.create({
     marginTop: 4, // 제목 첫 줄과 눈높이를 맞춘다
   },
   vaultBtnText: { ...typography.L5, fontWeight: '700', color: colors.espressoBrown },
-  vaultBackdrop: { flex: 1, backgroundColor: 'rgba(30,22,18,0.45)', justifyContent: 'flex-end' },
-  vaultSheet: {
-    backgroundColor: colors.creamSand,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    maxHeight: '82%',
-  },
-  vaultHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  vaultTitle: { ...typography.L3, fontSize: 18, fontWeight: '800', color: colors.espressoBrown, flex: 1 },
-  vaultCount: { ...typography.L5, fontWeight: '600', color: colors.mochaBrown },
-  vaultClose: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
 
   heroCard: { alignItems: 'center', paddingVertical: 22, marginBottom: 6 },
