@@ -25,6 +25,7 @@ import { adjustStock, createIngredient, listStocks, StockItem } from '../../lib/
 import { confirmOcrDocument, listOcrDocuments, rejectOcrDocument, uploadOcrImage, OcrDocument, updateOcrDocument, OcrItem, type UploadAsset } from '../../lib/api/ocr';
 import { colors, typography } from '../../theme';
 import { s, useResponsive, useTopInset } from '../../theme/responsive';
+import RoomBackdrop from '../../components/brew/RoomBackdrop';
 import { getRoomTint } from '../../components/brew/roomBackgrounds';
 import { useEquipped } from '../../rewards/EquippedContext';
 
@@ -521,6 +522,10 @@ export default function InventoryScreen() {
           <Circle cx="60%" cy="4%" r="120" fill={tint.glow[2]} filter="url(#invGlow)" opacity="0.16" />
         </Svg>
       </View>
+
+      {/* 착용한 카페 배경 '사진' — 브루룸과 같은 그림을 그대로 깐다.
+          미착용이면 null이라 위 오로라가 그대로 보인다 (RoomBackdrop.tsx) */}
+      <RoomBackdrop roomBgId={roomBgId} fadeAt={0.3} />
 
       {/* 헤더를 스크롤 안에 두고, 스크롤 시 천천히 위로+페이드 (홈 화면과 동일) */}
       <Animated.ScrollView

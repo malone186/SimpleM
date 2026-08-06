@@ -48,6 +48,7 @@ import {
 } from '../../lib/chatSessions';
 import { colors, spacing, typography } from '../../theme';
 import { fs, s, useBottomInset, useResponsive, useTopInset } from '../../theme/responsive';
+import RoomBackdrop from '../../components/brew/RoomBackdrop';
 import { getRoomTint } from '../../components/brew/roomBackgrounds';
 import { useEquipped } from '../../rewards/EquippedContext';
 
@@ -311,6 +312,10 @@ export default function ChatbotScreen() {
           <Circle cx="60%" cy="4%" r="120" fill={tint.glow[2]} filter="url(#chatGlow)" opacity="0.16" />
         </Svg>
       </View>
+
+      {/* 착용한 카페 배경 '사진' — 브루룸과 같은 그림을 그대로 깐다.
+          미착용이면 null이라 위 오로라가 그대로 보인다 (RoomBackdrop.tsx) */}
+      <RoomBackdrop roomBgId={roomBgId} fadeAt={0.3} />
 
       {/* 브라운 헤더 — 관리 탭과 동일 (제목/부제 + 마스코트만). 새 채팅/기록은 헤더 밖 시트 상단으로 이동 */}
       <View style={[styles.brownHeader, { paddingTop: topInset }]}>

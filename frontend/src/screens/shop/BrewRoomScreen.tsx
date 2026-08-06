@@ -83,10 +83,12 @@ export default function BrewRoomScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#241A14' }}>
-      {/* 배경을 자르지 않고 통째로 보여준다(contain). 화면 비율과 안 맞아 생기는
-          여백은 같은 그림을 크게 흐려 깐 것으로 채워 빈 띠처럼 안 보이게 한다. */}
+      {/* 배경은 화면을 꽉 채운다(cover). 예전엔 자르지 않으려고 contain을 썼는데,
+          화면 비율과 안 맞는 만큼 위아래·좌우에 흐린 띠가 남아 '덜 채워진' 것처럼 보였다.
+          이 화면의 주인공인 브루는 아래 ScrollView에 따로 얹히므로, 배경이 조금 잘려도
+          잃는 게 없다. 아래 블러 레이어는 세로로 아주 긴 화면에서의 안전망으로 남긴다. */}
       <ImageBackground source={ROOM_BG} style={StyleSheet.absoluteFill} resizeMode="cover" blurRadius={18} />
-      <Image source={ROOM_BG} style={styles.fullBg} resizeMode="contain" />
+      <Image source={ROOM_BG} style={styles.fullBg} resizeMode="cover" />
       {/* 글자가 얹히는 부분만 살짝 어둡게 — 배경 그림은 최대한 살린다 */}
       <View style={styles.dim} />
 

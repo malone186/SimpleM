@@ -27,6 +27,10 @@
       ],
       "googleServicesFile": "./google-services.json"
     },
+    "androidNavigationBar": {
+      "enforceContrast": false,
+      "barStyle": "dark-content"
+    },
     "web": {
       "favicon": "./assets/brew_icon_cutout.png"
     },

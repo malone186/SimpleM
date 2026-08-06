@@ -12,6 +12,7 @@ import { s, useResponsive, useTopInset } from '../../theme/responsive';
 import { useTranslation } from '../../i18n/translations';
 import { useAuth } from '../../auth/AuthContext';
 import Brew from '../../components/brew/Brew';
+import RoomBackdrop from '../../components/brew/RoomBackdrop';
 import { getRoomTint } from '../../components/brew/roomBackgrounds';
 import { useEquipped } from '../../rewards/EquippedContext';
 
@@ -152,6 +153,10 @@ export default function ManagementScreen() {
           <Circle cx="60%" cy="4%" r="120" fill={tint.glow[2]} filter="url(#mgmtGlow)" opacity="0.16" />
         </Svg>
       </View>
+
+      {/* 착용한 카페 배경 '사진' — 브루룸과 같은 그림을 그대로 깐다.
+          미착용이면 null이라 위 오로라가 그대로 보인다 (RoomBackdrop.tsx) */}
+      <RoomBackdrop roomBgId={roomBgId} fadeAt={0.3} />
 
       {/* 헤더 — ScrollView 밖에 있어 카드가 흘러도 제자리에 고정된다 */}
       <View style={[styles.header, { paddingTop: topInset }]}>

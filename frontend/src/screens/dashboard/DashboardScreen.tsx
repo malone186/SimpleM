@@ -23,6 +23,7 @@ import { loadCache, markAllStale, peekCache, saveCache } from '../../lib/cache';
 import { awardDerivedTodo } from '../../lib/api/rewards';
 import AlertCenterCard, { type AlertItem } from '../../components/dashboard/AlertCenterCard';
 import { navigateToTarget } from '../../notifications/navigationTarget';
+import RoomBackdrop from '../../components/brew/RoomBackdrop';
 import { getRoomTint } from '../../components/brew/roomBackgrounds';
 import { useEquipped } from '../../rewards/EquippedContext';
 import { colors, spacing, typography, shadows } from '../../theme';
@@ -787,6 +788,10 @@ export default function DashboardScreen() {
           <Circle cx="60%" cy="4%" r="120" fill={tint.glow[2]} filter="url(#auroraGlow)" opacity="0.16" />
         </Svg>
       </View>
+
+      {/* 착용한 카페 배경 '사진' — 브루룸과 같은 그림을 그대로 깐다.
+          미착용이면 null이라 위 오로라가 그대로 보인다 (RoomBackdrop.tsx) */}
+      <RoomBackdrop roomBgId={roomBgId} fadeAt={0.4} />
 
       {/* [한글 주석: 순정의 자연스럽고 부드러운 프리미엄 스크롤] */}
       <Animated.ScrollView
