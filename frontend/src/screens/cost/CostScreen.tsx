@@ -345,7 +345,8 @@ export default function CostScreen() {
                     </Text>
                     <Text style={styles.contribSubDot}>·</Text>
                     <Text style={styles.contribSubDetail}>
-                      잔당 순익 <Text style={styles.contribSubBold}>₩{m.margin_per_cup.toLocaleString()}</Text>
+                      {/* '순익'이 아니다 — 판매가에서 재료비만 뺀 값이라 고정비가 남아 있다 */}
+                      잔당 재료비 뺀 값 <Text style={styles.contribSubBold}>₩{m.margin_per_cup.toLocaleString()}</Text>
                     </Text>
                   </View>
                 </View>

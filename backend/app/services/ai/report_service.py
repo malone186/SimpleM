@@ -507,6 +507,24 @@ def _fmt_qty(v: float) -> str:
     return str(int(v)) if float(v).is_integer() else str(v)
 
 
+# 지출 카테고리가 '고정비'인지 알아보는 낱말들. 카테고리는 자유 입력이라 목록으로
+# 고를 수가 없어 이름으로 판단한다. 못 알아본 쪽으로 틀리면 "임대료를 넣어 달라"는
+# 안내가 한 번 더 뜨는 정도지만, 반대로 틀리면 월세가 빠진 금액을 순이익이라 부르게 된다.
+_FIXED_COST_WORDS = (
+    "임대", "월세", "관리비", "공과", "전기", "수도", "가스", "난방",
+    "통신", "인터넷", "보험", "세금", "부가세", "수수료", "렌탈", "렌트", "리스",
+    "이자", "상환", "고정비", "구독", "정기결제", "청소", "방역", "음악", "저작권",
+)
+
+
+def _has_fixed_cost(expenses: dict[str, Any]) -> bool:
+    """지출에 고정비 성격의 항목이 하나라도 있는지."""
+    return any(
+        any(w in (row.get("category") or "") for w in _FIXED_COST_WORDS)
+        for row in expenses.get("by_category") or []
+    )
+
+
 def _build_note(use_recipe: bool, cogs: dict, fixed_cost_missing: bool = False) -> str:
     """리포트 숫자를 어디까지 믿어야 하는지 밝히는 안내문 — 계산 기준이 바뀌면 문구도 바뀐다."""
     if use_recipe:
@@ -871,11 +889,16 @@ def generate_management_report(store_id: str, period_type: str = "weekly",
     # 현금 관점 — 실제로 나간 돈(매입·지출·인건비) 기준. 손익과 나란히 두면
     # '이익은 나는데 통장이 빈' 상황(대량 매입한 주)을 구분해 볼 수 있다.
     cash_cost = purchases["total"] + expenses["total"] + labor["estimated_cost"]
-    # 지출(Expense)은 사장님이 손으로 넣는 표라 대개 비어 있다. 그러면 임대료·공과금·
-    # 카드수수료가 통째로 빠진 채 '순이익'이 계산된다 — 월세 200만원 매장이면 200만원이
-    # 그대로 이익으로 둔갑한다. 재료비만 보고 '많이 남는다'고 믿게 만드는 바로 그 착각이라,
-    # 비어 있으면 숫자를 감추지는 않되 '순이익'이라고 부르지는 않는다.
-    fixed_cost_missing = expenses["total"] <= 0
+    # 지출(Expense)은 사장님이 손으로 넣는 표라 임대료가 대개 없다. 그러면 월세가 통째로
+    # 빠진 채 '순이익'이 계산된다 — 월세 200만원 매장이면 200만원이 그대로 이익으로 둔갑한다.
+    # 재료비만 보고 '많이 남는다'고 믿게 만드는 바로 그 착각이라, 고정비가 안 잡혔으면
+    # 숫자를 감추지는 않되 '순이익'이라고 부르지는 않는다.
+    #
+    # '지출이 하나라도 있으면 고정비도 넣었겠지'로 판단하면 안 된다. 실제 매장을 열어 보니
+    # 지출 15건이 전부 원두매입·우유·소모품(=변동비)이고 임대료는 한 건도 없었다.
+    # 카테고리는 자유 입력이라(OperationScreen 플레이스홀더가 "예: 원두매입, 임대료")
+    # 이름으로 알아볼 수밖에 없다.
+    fixed_cost_missing = not _has_fixed_cost(expenses)
     profit = {
         "basis": "recipe" if use_recipe else "purchase",
         "material_cost": material_cost,

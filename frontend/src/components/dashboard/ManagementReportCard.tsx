@@ -226,7 +226,11 @@ export default function ManagementReportCard() {
                 style={[styles.tile, selectedTile === 'profit' && styles.tileActive]}
                 onPress={() => toggleTile('profit')}
               >
-                <Text style={styles.tileLabel}>{t('estProfit')}</Text>
+                {/* 임대료가 안 잡힌 매장에서 '수익'이라 쓰면 그 금액이 남는 돈으로 읽힌다.
+                    타일은 카드에서 가장 먼저 눈이 가는 자리라 여기부터 정확해야 한다. */}
+                <Text style={styles.tileLabel}>
+                  {c.profit?.fixed_cost_missing ? '고정비 전' : t('estProfit')}
+                </Text>
                 <Text style={styles.tileValue} numberOfLines={1} adjustsFontSizeToFit>
                   {won(c.profit?.estimated_profit ?? 0)}
                 </Text>

@@ -315,3 +315,32 @@ def test_push_body_avoids_net_profit_label_without_fixed_cost():
     known = ns._report_body({"sales": {"total": 500_000},
                              "profit": {"estimated_profit": 350_000, "fixed_cost_missing": False}})
     assert "순이익 350,000원" in known
+
+
+def test_variable_cost_expenses_do_not_count_as_fixed_cost(db):
+    """원두매입·소모품만 넣은 매장은 여전히 고정비 미등록이다.
+
+    실제 매장을 열어 보니 지출 15건이 전부 원두매입·우유·소모품이고 임대료는 한 건도
+    없었다. '지출이 있으니 고정비도 넣었겠지'로 판단하면 월세가 빠진 금액을 순이익이라
+    부르게 된다.
+    """
+    latte = _menu_with_recipe(db, "라떼", price=5_000, unit_cost=1_500)
+    _sell(db, latte, qty=10, hour=10)
+    _expense(db, 65_000, category="원두매입")
+    _expense(db, 25_000, category="소모품")
+
+    c = _report()
+
+    assert c["expenses"]["total"] == 90_000        # 지출은 분명히 있다
+    assert c["profit"]["fixed_cost_missing"] is True   # 그래도 고정비는 없다
+    assert not any("순이익" in ln for ln in c["highlights"])
+
+
+@pytest.mark.parametrize("category", ["임대료", "월세", "전기요금", "관리비", "카드수수료", "4대보험"])
+def test_fixed_cost_categories_are_recognized(db, category):
+    """고정비로 읽어야 하는 이름들 — 하나라도 있으면 '순이익'이라 불러도 된다."""
+    latte = _menu_with_recipe(db, "라떼", price=5_000, unit_cost=1_500)
+    _sell(db, latte, qty=10, hour=10)
+    _expense(db, 10_000, category=category)
+
+    assert _report()["profit"]["fixed_cost_missing"] is False
