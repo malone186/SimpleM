@@ -19,12 +19,36 @@ export type ShopItem = {
   mood?: string | null;
   /** 앞치마 색 상품일 때만 — apronVariants의 색 키 (navy·forest 등) */
   color?: string | null;
+  /** 이 레벨부터 구매 가능 (0이면 조건 없음) */
+  min_level?: number;
+  /** 레벨 미달로 잠김 — 실루엣으로 보여주고 구매는 서버도 막는다 */
+  locked?: boolean;
 };
 
 export type ShopState = {
   balance: number;
+  /** 현재 브루 레벨 — 레벨 잠금 표시에 쓴다 */
+  level?: number;
   items: ShopItem[];
 };
+
+/** 브루 캡슐 뽑기 결과 — 결과는 서버가 정한다 (조작 방지) */
+export type GachaResult = {
+  rarity: 'common' | 'rare' | 'epic';
+  kind: 'coins' | 'item';
+  cost: number;
+  balance: number;
+  coins?: number;
+  item?: { id: string; slot: ItemSlot; slot_label: string; name: string; emoji: string; mood?: string | null; color?: string | null };
+};
+
+/** 브루 캡슐 뽑기 1회 (300코인) */
+export function drawCapsule(token?: string | null): Promise<GachaResult> {
+  return apiFetch<GachaResult>('/api/v1/rewards/gacha', {
+    method: 'POST',
+    headers: authHeader(token),
+  });
+}
 
 export type PointHistoryItem = {
   id: number;
