@@ -127,8 +127,14 @@ def list_transactions_api(customer_id: int, limit: int = Query(30, ge=1, le=200)
 
 
 @router.get("/store-qr", summary="계산대 QR (손님이 자기 폰으로 찍는다)")
-def store_qr_api(db: Session = Depends(get_db), user: User = Depends(require_owner)):
+def store_qr_api(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """[한글 주석] 계산대에 붙여둘 QR입니다.
+
+    직원(알바)도 볼 수 있다 — 계산대에 서는 사람이 손님에게 이 QR을 보여줘야
+    결제 요청 흐름이 시작된다. QR은 원래 붙여두고 공개하는 물건이라(추측 불가 토큰,
+    사장님 이메일 비노출) 민감정보가 아니고, get_or_create는 멱등이라 새로 부른다고
+    기존 QR이 바뀌지도 않는다. '결제 요청 대기 목록'(/checkins)이 이미 직원에게
+    열려 있는데 그 요청을 만드는 QR만 사장님 전용이던 게 앞뒤가 맞지 않았다.
 
     손님 QR을 사장님 앱이 읽으려면 앱에 카메라가 필요하고 네이티브 재빌드를 해야 합니다.
     방향을 뒤집어, 매장에 QR을 붙여두고 손님이 자기 폰의 기본 카메라로 찍게 했습니다.

@@ -54,6 +54,8 @@ def test_메뉴_원가율은_재고에_속하지만_막는다():
 @pytest.mark.parametrize("path,label", [
     ("/api/v1/membership/customers", "회원 조회"),
     ("/api/v1/membership/checkins", "결제 요청 확인"),
+    # 계산대에 서는 직원이 손님에게 보여줘야 결제 요청이 시작된다. 조회는 읽기 전용.
+    ("/api/v1/membership/store-qr", "계산대 QR 표시"),
     ("/api/v1/membership/quick-menus", "차감용 메뉴"),
     ("/api/v1/membership/customers/1/use", "잔액 차감"),
     ("/api/v1/inventory/ingredients", "재고 확인"),

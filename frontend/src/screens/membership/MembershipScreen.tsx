@@ -611,9 +611,8 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
       )}
 
       {/* 계산대 QR — 손님이 자기 폰으로 찍는다 (우리 앱엔 카메라가 필요 없다).
-             QR 발급은 사장님 전용(store-qr)이라 직원에겐 숨긴다 — 눌러도 403이 난다.
-             인쇄물은 사장님이 미리 붙여 두는 세팅이라 계산대 업무와 무관하다. */}
-      {!isStaff && (
+             직원도 본다 — 계산대에 서는 사람이 손님에게 이 QR을 보여줘야 결제 요청이
+             시작된다. 조회는 읽기 전용이라(백엔드 store-qr을 get_current_user로) 안전하다. */}
       <Pressable
         style={styles.qrCta}
         onPress={async () => {
@@ -634,7 +633,6 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
         </View>
         <Ionicons name="chevron-forward" size={14} color="#B0A79E" />
       </Pressable>
-      )}
 
       {/* ③ 충전 상품 — 사장님이 직접 설계한다 */}
       <View style={styles.card}>
