@@ -122,6 +122,9 @@ def menu_contribution(store_id: str, days: int = 30) -> dict[str, Any]:
             "revenue": revenue,
             "total_margin": margin_per_cup * qty,
             "recipe_missing": m.id not in cost_by_menu,
+            # 숨긴 메뉴도 판매 기여는 남아 있어 집계에는 넣되, '지금 파는 구성'을 봐야 하는
+            # 쪽(메뉴 개선안 점검)이 걸러낼 수 있게 상태를 함께 준다
+            "is_active": bool(getattr(m, "is_active", True)),
         })
 
     rows.sort(key=lambda r: -r["total_margin"])

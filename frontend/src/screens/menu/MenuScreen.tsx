@@ -13,6 +13,7 @@ import { useTranslation } from '../../i18n/translations';
 import { PressableScale } from '../../components/motion';
 import FormSheet, { LabeledInput } from '../../components/FormSheet';
 import MenuBoardScan from '../../components/menu/MenuBoardScan';
+import MenuImprovementCheck from '../../components/menu/MenuImprovementCheck';
 import { Badge, Button, Card, Divider, Screen, ScreenTitle } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
 import { colors, typography } from '../../theme';
@@ -577,6 +578,15 @@ export default function MenuScreen() {
         {/* 메뉴판 사진으로 일괄 등록 — 메뉴 탭에서만.
             한 개씩 손으로 넣기 전에 이 방법이 있다는 걸 먼저 보여준다 */}
         {!isDessertTab && <MenuBoardScan onDone={fetchData} />}
+
+        {/* 바꾸기 전에 확인 — 등록(위)과 순서가 반대가 되지 않게 등록 카드 바로 아래에 둔다.
+            메뉴가 없으면 비교할 기준도 없으므로 숨긴다 */}
+        {!isDessertTab && allPlainMenus.length > 0 && (
+          <MenuImprovementCheck
+            menus={allPlainMenus.map((m) => ({ id: m.id, name: m.name, selling_price: m.selling_price }))}
+            onApplied={fetchData}
+          />
+        )}
 
         <Button label={addLabel} variant="secondary" onPress={() => setAdding(true)} />
 

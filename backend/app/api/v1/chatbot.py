@@ -43,6 +43,8 @@ from app.schemas.ai import (
     MarketingCopyRequest,
     MarketingImageRequest,
     MarketingOverlayRequest,
+    MenuChangeApplyRequest,
+    MenuReviewRequest,
     NotificationSettingBody,
     NotificationSettingResponse,
     OcrConfirmRequest,
@@ -65,6 +67,7 @@ from app.services.ai import (
     insight_service,
     marketing_service,
     menu_ocr_service,
+    menu_review_service,
     nearby_cafe_service,
     nearby_event_service,
     nearby_watch_service,
@@ -219,6 +222,70 @@ async def confirm_menu_board(
     if not isinstance(menus, list) or not menus:
         raise HTTPException(400, "등록할 메뉴가 없습니다")
     return menu_ocr_service.confirm_menu_board(db, current_user.email, menus)
+
+
+@router.post("/menu/review")
+def review_menu_changes(
+    body: MenuReviewRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """메뉴 개선안을 실제 판매·원가로 점검한다. 아무것도 저장하지 않는다.
+
+    가격을 올릴 때 사장님이 진짜 궁금한 건 "손님이 얼마나 빠져도 괜찮나"라서,
+    항목마다 '버틸 수 있는 판매 감소폭'(breakeven_drop_pct)을 함께 돌려준다.
+    """
+    try:
+        return menu_review_service.review(
+            current_user.email,
+            [c.model_dump(exclude_none=True) for c in body.changes],
+            days=body.days,
+            comment=body.comment,
+        )
+    except menu_review_service.MenuReviewError as e:
+        raise HTTPException(422, str(e))
+
+
+@router.post("/menu/review/board")
+async def review_menu_board(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """새로 만든 메뉴판 사진 → 지금 등록된 메뉴와 대조해 바뀐 점을 찾아 점검한다.
+
+    사장님은 무엇을 바꿨는지 일일이 적지 않는다 — 새 메뉴판을 찍는 것으로 끝나야 한다.
+    등록(/ocr/menu-board)과 달리 여기서는 아무것도 저장하지 않는다.
+    """
+    content_type = _resolve_content_type(file)
+    image_bytes = await file.read()
+    if len(image_bytes) > MAX_IMAGE_BYTES:
+        raise HTTPException(413, "파일이 15MB를 초과합니다")
+    if not image_bytes:
+        raise HTTPException(400, "빈 파일입니다")
+    try:
+        return await menu_review_service.review_menu_board(
+            db, current_user.email, image_bytes, mime_type=content_type)
+    except menu_ocr_service.MenuOcrError as e:
+        raise HTTPException(502, str(e))
+    except menu_review_service.MenuReviewError as e:
+        raise HTTPException(422, str(e))
+
+
+@router.post("/menu/review/apply")
+def apply_menu_changes(
+    body: MenuChangeApplyRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """점검을 마친 개선안을 실제 메뉴에 반영한다 (사장님이 눌렀을 때만).
+
+    빼기는 삭제가 아니라 숨김이다 — 지우면 지난달 리포트의 메뉴 이름까지 사라진다.
+    """
+    try:
+        return menu_review_service.apply_changes(
+            db, current_user.email, [c.model_dump(exclude_none=True) for c in body.changes])
+    except menu_review_service.MenuReviewError as e:
+        raise HTTPException(422, str(e))
 
 
 @router.get("/ocr/documents", response_model=list[OcrDocumentResponse])
@@ -564,11 +631,16 @@ def cafe_similarity_api(
     current_user: User = Depends(get_current_user),
 ):
     """주변 카페들을 내 카페와 5축(메뉴30·가격25·컨셉20·분위기15·고객층10) 비교해
-    유사도 0~100%를 매긴다. 내 카페 프로필 = DB(메뉴·가격·업태) + 내 매장 리뷰 분석."""
+    유사도 0~100%를 매긴다. 내 카페 프로필 = DB(메뉴·가격·업태) + 내 매장 리뷰 분석.
+
+    리뷰 평판은 '내 카페'로 지정한 네이버 장소가 있을 때만 쓴다 — 상호만으로 검색하면
+    이름이 같은 남의 카페 후기가 내 분위기·고객층으로 둔갑한다(my-cafe/analysis와 같은 규칙).
+    """
     return cafe_similarity_service.score_nearby(
         current_user.email,
         [c.model_dump() for c in body.cafes],
         region=body.region,
+        linked_place=_linked_place(current_user.email),
     )
 
 

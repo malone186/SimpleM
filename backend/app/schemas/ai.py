@@ -215,6 +215,36 @@ class ComplianceItemResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# 메뉴 개선안 점검 — "이렇게 바꿔봤어요"를 판매·원가로 확인해 본다
+# ---------------------------------------------------------------------------
+
+MenuChangeKind = Literal["price", "add", "remove", "cost"]
+
+
+class MenuChange(BaseModel):
+    """개선안 한 줄. 저장을 지시하는 게 아니라 '이렇게 바꾸면 어떻게 되나'를 묻는 단위다."""
+
+    kind: MenuChangeKind = "price"
+    name: str = Field(min_length=1, max_length=100, description="메뉴 이름 (등록된 이름과 달라도 찾아준다)")
+    price: Optional[int] = Field(default=None, ge=0, le=1_000_000, description="바꿀 판매가 (kind=price/add)")
+    delta: Optional[int] = Field(default=None, ge=-1_000_000, le=1_000_000,
+                                 description="지금 가격에서의 증감 (price에 값이 없을 때만 쓴다)")
+    cost: Optional[int] = Field(default=None, ge=0, le=1_000_000, description="바꿀 재료비 (kind=cost/add)")
+
+
+class MenuReviewRequest(BaseModel):
+    changes: list[MenuChange] = Field(min_length=1, max_length=60)
+    days: int = Field(default=30, ge=7, le=180, description="비교 기준이 되는 최근 판매 기간")
+    comment: bool = Field(default=True, description="AI 총평을 함께 만들지 (끄면 규칙 문장)")
+
+
+class MenuChangeApplyRequest(BaseModel):
+    """점검을 마친 개선안을 실제 메뉴에 반영 — 사장님이 눌렀을 때만 호출된다."""
+
+    changes: list[MenuChange] = Field(min_length=1, max_length=60)
+
+
+# ---------------------------------------------------------------------------
 # 챗봇 대화 세션 — 사용자별 대화 기록 서버 보관 (프론트 로컬 보관소와 같은 모양)
 # ---------------------------------------------------------------------------
 
