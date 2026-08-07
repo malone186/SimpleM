@@ -1,9 +1,15 @@
-"""메뉴 개선안 점검 (백엔드 B) — "이렇게 바꿔봤어요"를 숫자로 확인해 준다
+"""메뉴 개선 (백엔드 B) — AI가 바꿀 곳을 찾아 주고, 바꾸면 어떻게 되는지 계산한다
 
 [왜 만들었나]
-사장님은 메뉴를 자주 손본다. 아메리카노 500원 올리고, 안 나가는 메뉴를 빼고, 신메뉴를 넣는다.
-그런데 그게 잘한 일인지 아는 데 두 달이 걸린다 — 다음 달 정산을 봐야 알기 때문이다.
-이미 등록된 판매 기록과 원가가 있으니, 바꾸기 전에 미리 계산해 볼 수 있다.
+사장님은 메뉴를 자주 손본다. 그런데 무엇을 손봐야 하는지는 아무도 말해 주지 않고,
+바꾼 게 잘한 일인지 아는 데는 두 달이 걸린다(다음 달 정산을 봐야 한다).
+이미 등록된 판매 기록과 원가가 있으니, 둘 다 지금 할 수 있다.
+
+[두 가지 일]
+1. 추천(recommend): 지금 매장 숫자를 훑어 "이 메뉴는 팔수록 손해라 얼마로 올리세요",
+   "30일간 한 잔도 안 나갔으니 빼세요", "이런 신메뉴는 어떠세요"를 먼저 찾아 준다.
+2. 점검(review): 사장님이 이미 정한 안("아메리카노 4500, 바닐라라떼 빼고")을 채점한다.
+   추천도 결국 이 채점기를 통과하므로, 두 경로의 숫자가 서로 어긋날 수 없다.
 
 [무엇을 답하나]
 가격을 올릴 때 진짜 궁금한 건 "얼마 더 버나"가 아니라 "손님이 얼마나 떨어져도 괜찮나"다.
@@ -13,12 +19,8 @@
 이 숫자는 가정이 아니라 산수라서 틀릴 수가 없다. 반대로 "손님이 X% 빠질 것"은 아무도 모르므로
 이 파일은 그걸 지어내지 않는다.
 
-[두 가지 입구]
-1. 사진: 새로 만든 메뉴판을 찍으면 지금 등록된 메뉴와 대조해 무엇이 바뀌었는지 스스로 찾아낸다.
-2. 말/입력: "아메리카노 4500, 바닐라라떼 빼고, 신메뉴 흑임자라떼 6000" → 같은 점검을 돌린다.
-
 [원칙]
-- 저장하지 않는다. 점검은 점검이고, 반영은 사장님이 apply_changes를 부를 때만 일어난다.
+- 저장하지 않는다. 추천도 점검도 계산일 뿐, 반영은 사장님이 apply_changes를 부를 때만.
 - 원가(레시피)가 없는 메뉴는 마진을 계산하지 않는다. 0원으로 잡으면 이익이 부풀려져
   "올려도 남는다"는 틀린 결론이 나온다 — 모른다고 말하는 편이 낫다.
 - 판매량은 최근 실적 그대로라고 가정한다. 이 가정은 결과에 항상 함께 실어 보낸다.
@@ -760,6 +762,250 @@ def _summarize(menus: list[dict[str, Any]], items: list[dict[str, Any]],
         "cost_ratio_avg_after": round(sum(ratios_after) / len(ratios_after), 1) if ratios_after else None,
         "top3_margin_share_after": (round(sum(top3) / margin_after * 100, 1)
                                     if margin_after > 0 else None),
+    }
+
+
+# ---------------------------------------------------------------------------
+# 추천 — 무엇을 바꿔야 하는지 먼저 찾아 준다
+# ---------------------------------------------------------------------------
+
+# 인상 폭을 정할 때 쓰는 기준선. 카페 음료 원가율 통상 목표(30~35%)의 중간값이다.
+TARGET_COST_RATIO = 33.0
+# 목표까지 한 번에 올리면 손님이 놀란다 — 이번엔 여기까지만 올리고 다음에 또 올린다.
+MAX_STEP_UP = 0.15
+# 한 번에 보여줄 제안 수. 열 개를 늘어놓으면 하나도 실행되지 않는다.
+MAX_SUGGESTIONS = 6
+# '팔수록 손해인데 이만큼밖에 안 나간다' → 올리는 대신 빼는 게 낫다는 선
+FEW_SALES_QTY = 5
+
+_NEW_MENU_PROMPT = """한국 카페 사장님에게 새로 넣을 메뉴 {count}가지를 제안해 주세요.
+
+지금 파는 메뉴와 가격:
+{menus}
+
+이번 달: {month}월
+
+규칙:
+- 실제로 한국 카페에서 파는 메뉴만. 이름은 손님이 메뉴판에서 보는 그대로 짧게.
+- 지금 파는 메뉴와 겹치거나 거의 같은 메뉴는 빼세요.
+- price는 원 단위 정수로, 지금 메뉴들의 가격대와 어울리게 정하세요.
+- 재료가 완전히 새로 필요한 메뉴보다, 지금 재료에 하나만 더하면 되는 메뉴가 좋습니다.
+- reason은 왜 이 매장에 어울리는지 한 문장으로 (계절·지금 메뉴 구성과 엮어서).
+"""
+
+_NEW_MENU_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "menus": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "price": {"type": "number"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["name", "price", "reason"],
+            },
+        }
+    },
+    "required": ["menus"],
+}
+
+
+def _suggest_price(cost: int, price: int) -> Optional[int]:
+    """원가율을 목표치로 되돌리는 판매가 (100원 단위 올림, 한 번에 15%까지).
+
+    목표까지 한 번에 올리지 않는 이유: 원가율 60%인 메뉴를 33%로 맞추려면 가격이 1.8배가 된다.
+    그 제안은 아무도 실행하지 않는다 — 실행할 수 있는 크기로 잘라 주는 편이 낫다.
+    """
+    if cost <= 0:
+        return None
+    ideal = cost / (TARGET_COST_RATIO / 100)
+    capped = min(ideal, price * (1 + MAX_STEP_UP)) if price > 0 else ideal
+    new = int(-(-capped // 100) * 100)  # 100원 단위 올림
+    return new if new > price else None
+
+
+def _ai_new_menus(menus: list[dict[str, Any]], month: int, count: int = 2) -> list[dict[str, Any]]:
+    """신메뉴 아이디어 → [{"name","price","reason"}]. 실패하면 빈 목록 (추천은 계속된다)."""
+    api_key = os.getenv("GEMINI_API_KEY", "")
+    if not api_key:
+        return []
+    listing = "\n".join(f"- {m['name']} {int(m['selling_price']):,}원" for m in menus[:25])
+    try:
+        import httpx
+
+        model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        config: dict[str, Any] = {
+            "temperature": 0.8,   # 아이디어라 매번 같으면 재미가 없다
+            "responseMimeType": "application/json",
+            "responseSchema": _NEW_MENU_SCHEMA,
+            "maxOutputTokens": 1024,
+        }
+        if model.startswith("gemini-2.5"):
+            config["thinkingConfig"] = {"thinkingBudget": 0}
+        elif model.startswith("gemini-3"):
+            config["thinkingConfig"] = {"thinkingLevel": "low"}
+        resp = httpx.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            json={"contents": [{"parts": [{"text": _NEW_MENU_PROMPT.format(
+                count=count, menus=listing, month=month)}]}], "generationConfig": config},
+            headers={"x-goog-api-key": api_key},
+            timeout=20.0,
+        )
+        resp.raise_for_status()
+        raw = json.loads(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
+    except Exception as e:
+        logger.info("신메뉴 아이디어 생성 실패 — 나머지 추천만 냅니다: %s", e)
+        return []
+
+    out = []
+    for m in (raw.get("menus") or [])[:count]:
+        name = str(m.get("name") or "").strip()
+        price = _to_won(str(m.get("price") or ""))
+        if not name or not price:
+            continue
+        out.append({"name": name, "price": price, "reason": str(m.get("reason") or "").strip()})
+    return out
+
+
+def recommend(store_id: str, days: int = 30, include_new: bool = True) -> dict[str, Any]:
+    """지금 매장 숫자를 훑어 '바꾸면 좋을 것'을 먼저 찾아 준다. 저장하지 않는다.
+
+    찾는 것 (급한 순):
+      1. 팔수록 손해인 메뉴 → 얼마로 올려야 하는지, 아니면 빼는 게 나은지
+      2. 재료비 비중이 높은 메뉴 → 목표 원가율로 되돌리는 가격
+      3. 30일간 한 잔도 안 나간 메뉴 → 메뉴판에서 빼기
+      4. 신메뉴 아이디어 (AI, 실패해도 나머지는 그대로 나온다)
+      5. 원가를 모르는 메뉴 → 레시피부터 등록 (계산의 전제가 없다)
+
+    각 제안은 review()와 같은 채점기를 통과한다 — 두 화면의 숫자가 어긋날 수 없다.
+    """
+    from datetime import datetime
+
+    from app.services.ai import sales_service
+
+    days = max(7, min(int(days or 30), 180))
+    data = sales_service.menu_contribution(store_id, days=days)
+    menus = [m for m in (data.get("menus") or []) if m.get("is_active", True)]
+    if not menus:
+        raise MenuReviewError(
+            "등록된 메뉴가 없어 볼 것이 없어요. 메뉴판 사진으로 먼저 등록해 주세요.")
+
+    scale = 30 / days
+    priced = [m for m in menus if not m["recipe_missing"]]
+    margins30 = sorted(m["margin_per_cup"] * m["sold_qty"] * scale for m in priced) or [0]
+    median_margin30 = margins30[len(margins30) // 2]
+    total_margin30 = sum(margins30)
+
+    suggestions: list[dict[str, Any]] = []
+    used: set[int] = set()
+
+    def _add(item: dict[str, Any], why: str, priority: int, actionable: bool = True) -> None:
+        item["why"] = why
+        item["priority"] = priority
+        item["actionable"] = actionable
+        suggestions.append(item)
+
+    # 1·2. 손해 메뉴와 재료비가 무거운 메뉴 — 올릴지 뺄지
+    risky = sorted(
+        [m for m in priced if m["margin_per_cup"] <= 0
+         or (m["cost_ratio"] or 0) >= COST_RATIO_WARN],
+        key=lambda m: (m["margin_per_cup"] > 0, -(m["cost_ratio"] or 0)),
+    )
+    for m in risky:
+        qty30 = round(m["sold_qty"] * scale)
+        losing = m["margin_per_cup"] <= 0
+        if losing and qty30 < FEW_SALES_QTY:
+            used.add(m["menu_id"])
+            _add(_remove_item(m, menus, scale, total_margin30),
+                 f"한 잔당 {_won(-m['margin_per_cup'])}씩 손해인데 최근 30일 {qty30}잔뿐이에요. "
+                 f"가격을 올리기보다 메뉴판에서 빼는 편이 나아요.", 0)
+            continue
+
+        new_price = _suggest_price(int(m["cost_price"]), int(m["selling_price"]))
+        if not new_price:
+            continue
+        used.add(m["menu_id"])
+        item = _price_item(m, new_price, scale)
+        if losing:
+            item["notes"].append("판매가·레시피 용량·재료 단가 중 하나가 잘못 입력됐을 수도 있어요. "
+                                 "올리기 전에 재료 양부터 확인해 보세요.")
+            why = (f"판매가 {_won(m['selling_price'])}인데 재료비가 {_won(m['cost_price'])}예요. "
+                   f"지금은 팔수록 손해라, 최소한 {_won(new_price)}은 받아야 해요.")
+        else:
+            why = (f"재료비가 판매가의 {m['cost_ratio']}%를 먹고 있어요"
+                   f"(최근 30일 {qty30}잔). {_won(new_price)}이면 "
+                   f"{round(m['cost_price'] / new_price * 100, 1)}%로 내려가요.")
+        # 목표까지 한 번에 못 간 경우 — 이번엔 여기까지라는 걸 밝힌다
+        if m["cost_price"] / new_price * 100 > TARGET_COST_RATIO + 1:
+            item["notes"].append(f"한 번에 올릴 수 있는 폭(15%)까지만 잡았어요. "
+                                 f"자리 잡으면 다음에 한 번 더 보세요.")
+        _add(item, why, 0 if losing else 1)
+
+    # 3. 30일간 한 잔도 안 나간 메뉴 — 메뉴판 자리를 차지하고 고르기만 어렵게 만든다
+    dead = [m for m in menus if m["menu_id"] not in used and round(m["sold_qty"] * scale) == 0]
+    for m in dead[:3]:
+        used.add(m["menu_id"])
+        _add(_remove_item(m, menus, scale, total_margin30),
+             "최근 30일 한 잔도 안 나갔어요. 메뉴가 많으면 손님이 고르기 어려워져요.", 2)
+
+    # 4. 신메뉴 아이디어 — 없어도 나머지 추천은 그대로 나온다
+    if include_new:
+        store_ings = _store_ingredients(store_id)
+        ratios = [m["cost_ratio"] for m in priced if m.get("cost_ratio")]
+        avg_ratio = (sum(ratios) / len(ratios) / 100) if ratios else None
+        for idea in _ai_new_menus(menus, datetime.now().month):
+            if _find_menu(menus, idea["name"]):
+                continue
+            cost, source, note = _estimate_cost(idea["name"], idea["price"], store_ings, avg_ratio)
+            item = _add_item(idea["name"], idea["price"], cost, source, note, menus, median_margin30)
+            item["source"] = "ai"
+            _add(item, idea["reason"] or "지금 메뉴 구성에 어울리는 메뉴예요.", 3)
+
+    # 5. 원가를 모르는 메뉴 — 위 계산이 서지 않는 근본 원인이라 마지막에 짚는다
+    missing = [m["name"] for m in menus if m["recipe_missing"]]
+    if missing:
+        # 절반 넘게 원가를 모르면 가격 제안 자체가 성립하지 않는다 — 그게 오늘의 첫 할 일이다
+        blind = len(missing) >= max(2, len(menus) / 2)
+        _add({
+            "kind": "info", "menu_id": None, "name": "원가부터 등록해 주세요",
+            "before": None, "after": None, "monthly_delta": None, "notes": [],
+            "verdict": "watch",
+            "headline": f"{len(missing)}개 메뉴는 원가를 모르는 상태예요",
+            "reason": (f"레시피가 없어 얼마 남는지 계산할 수 없어요: "
+                       f"{', '.join(missing[:5])}{' 외 ' + str(len(missing) - 5) + '개' if len(missing) > 5 else ''}. "
+                       f"메뉴를 눌러 재료를 넣으면 얼마로 올리면 좋을지까지 알려드릴 수 있어요."),
+        }, "원가를 모르면 올릴지 뺄지 판단할 근거가 없어요.", 0 if blind else 4, actionable=False)
+
+    suggestions.sort(key=lambda s: (s["priority"], -abs(s.get("monthly_delta") or 0)))
+    suggestions = suggestions[:MAX_SUGGESTIONS]
+
+    gain = sum(s["monthly_delta"] for s in suggestions
+               if s["actionable"] and isinstance(s.get("monthly_delta"), int))
+    actionable = [s for s in suggestions if s["actionable"]]
+
+    if not actionable:
+        headline = "지금은 급하게 바꿀 곳이 안 보여요"
+    elif gain > 0:
+        headline = f"다 하면 한 달에 약 {_won(gain)} 더 남아요"
+    else:
+        headline = f"바꿀 곳 {len(actionable)}군데를 찾았어요"
+
+    return {
+        "days": days,
+        "suggestions": suggestions,
+        "headline": headline,
+        "expected_gain": gain,
+        # 가장 급한 것 하나를 그대로 앞에 세운다 — 목록 맨 위와 다른 말을 하면 신뢰를 잃는다
+        "comment": (suggestions[0]["why"] if suggestions else
+                    "최근 30일 기준으로는 손해 보는 메뉴도, 안 나가는 메뉴도 없어요."),
+        "assumptions": [
+            f"최근 {days}일 판매 실적이 그대로 유지된다고 보고 계산했어요.",
+            "권하는 가격은 재료비가 판매가의 33%가 되도록 잡되, 한 번에 15%까지만 올렸어요.",
+            "새 메뉴는 얼마나 팔릴지 알 수 없어 예상 수익 합계에는 넣지 않았어요.",
+        ],
     }
 
 

@@ -11,7 +11,7 @@ import json
 import logging
 import os
 import secrets
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -222,6 +222,22 @@ async def confirm_menu_board(
     if not isinstance(menus, list) or not menus:
         raise HTTPException(400, "등록할 메뉴가 없습니다")
     return menu_ocr_service.confirm_menu_board(db, current_user.email, menus)
+
+
+@router.get("/menu/suggestions")
+def suggest_menu_improvements(
+    include_new: bool = True,
+    current_user: User = Depends(get_current_user),
+):
+    """AI가 지금 매장 숫자를 훑어 '바꾸면 좋을 것'을 찾아 준다. 저장하지 않는다.
+
+    팔수록 손해인 메뉴의 적정 가격, 재료비 비중이 높은 메뉴의 인상 폭, 안 나가는 메뉴 정리,
+    신메뉴 아이디어까지. 각 제안은 /menu/review와 같은 채점기를 통과하므로 숫자가 어긋나지 않는다.
+    """
+    try:
+        return menu_review_service.recommend(current_user.email, include_new=include_new)
+    except menu_review_service.MenuReviewError as e:
+        raise HTTPException(422, str(e))
 
 
 @router.post("/menu/review")
@@ -1015,6 +1031,107 @@ def get_nearby_event_plan_api(
 ):
     """이름만으로 부르는 옛 경로 (OTA 전 앱·챗봇용). 새 앱은 POST를 쓴다."""
     return _build_event_plan(db, current_user, name, start_date)
+
+
+class EventTodoRequest(BaseModel):
+    """행사 준비 플랜의 '해 둘 일'을 그대로 할 일 목록에 담는다 (지도 화면 → 홈 '오늘 할 일')."""
+
+    items: list[str] = Field(..., min_length=1, max_length=12,
+                             description="담을 할 일 제목들 (플랜의 prep_actions 등)")
+    event_name: str = Field("", max_length=120, description="어느 행사 준비인지 — 부제로 붙는다")
+    start_date: str = Field("", description="행사 시작일 YYYY-MM-DD — 기한 계산에 쓴다")
+
+
+def _prep_due_date(start_date: str) -> Optional[str]:
+    """행사 준비의 기한 — '행사 전날'. 단, 오늘보다 이르면 오늘로 당긴다.
+
+    행사 당일을 기한으로 잡으면 이미 늦다(재료·안내문은 전날까지 끝나야 한다).
+    이미 진행 중이거나 내일 시작하는 행사면 오늘이 기한이다.
+
+    '오늘'은 반드시 KST다 — 운영 서버(Cloud Run)는 UTC라 date.today()를 쓰면
+    한국 시간 오전 9시 전에 기한이 하루 이르게 잡힌다.
+    """
+    today = datetime.now(nearby_watch_service.KST).date()
+    if not start_date:
+        return None
+    try:
+        start = date.fromisoformat(start_date[:10])
+    except ValueError:
+        return None
+    return max(start - timedelta(days=1), today).isoformat()
+
+
+@router.post("/nearby-events/plan/todos", status_code=201)
+def add_event_prep_todos_api(
+    body: EventTodoRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """행사 준비 항목을 할 일 목록에 담는다 — 한 번의 호출로 여러 개.
+
+    사장님이 준비 플랜을 보고 "이거 해야지" 하고 화면을 닫으면 그대로 잊힌다. 여기서 담으면
+    홈 화면 '오늘 할 일'에 기한(행사 전날)과 함께 올라오고, 완료하면 코인도 쌓인다.
+    이미 같은 할 일이 열려 있으면 중복으로 만들지 않고 skipped로 돌려준다.
+    """
+    due = _prep_due_date(body.start_date)
+    # 부제는 '왜 이 할 일이 생겼는지' — 목록에서 행사 준비인 걸 알아볼 수 있어야 한다
+    event_name = body.event_name.strip()
+    note = f"{event_name} 준비"[:255] if event_name else "주변 행사 준비"
+    items = [
+        TodoCreate(title=text.strip()[:200], note=note, due_date=due)
+        for text in body.items if text and text.strip()
+    ]
+    try:
+        result = todo_service.add_todos_bulk(current_user.email, items, source="ai")
+    except todo_service.TodoError as e:
+        raise HTTPException(422, str(e))
+    return {**result, "due_date": due}
+
+
+class EventPromoRequest(BaseModel):
+    """행사에 맞춘 홍보물(문구 세트) 생성 요청 — 준비 플랜 시트의 '홍보물 만들기'.
+
+    플랜 값(이벤트·한정 메뉴·홍보 문구)을 함께 보내면 카피가 그 플랜과 같은 이야기를 한다.
+    비워 보내면 행사 정보만으로 만든다.
+    """
+
+    event: NearbyEventEcho
+    promotion_title: str = Field("", max_length=60)
+    promotion_detail: str = Field("", max_length=200)
+    menu_idea: str = Field("", max_length=120)
+    busy_window: str = Field("", max_length=60)
+    promo_copy: str = Field("", max_length=200)
+    channel: str = Field("instagram", description="instagram | blog | banner | sms")
+    tone: str = Field("", max_length=60, description="비우면 '설레고 활기차게'")
+
+
+@router.post("/nearby-events/promo", status_code=201)
+def create_event_promotion_api(
+    body: EventPromoRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """행사 홍보 문구 세트를 만든다 — 인스타 캡션·해시태그·이미지에 새길 슬로건까지.
+
+    준비 플랜의 promo_copy는 '한 줄'이라 그대로는 게시물이 되지 않는다. 여기서 그 한 줄을
+    씨앗 삼아 채널에 맞는 홍보물 한 세트로 부풀리고, 홍보 보관함(kind=marketing_content)에
+    저장한다. 이미지는 앱이 이어서 POST /marketing/image?doc_id=... 로 만든다
+    (문구는 몇 초, 이미지는 수십 초라 한 요청에 묶으면 문구까지 늦게 보인다).
+    """
+    event = _echo_to_event(body.event)
+    plan = {
+        "promotions": [{"title": body.promotion_title, "detail": body.promotion_detail}],
+        "menu_idea": body.menu_idea,
+        "busy_window": body.busy_window,
+        "promo_copy": body.promo_copy,
+    }
+    topic = nearby_watch_service.event_promo_topic(event, plan)
+    try:
+        doc = marketing_service.generate_promotion_copy(
+            current_user.email, topic=topic, channel=body.channel,
+            tone=body.tone or "설레고 활기차게, 행사 나들이 분위기에 어울리게",
+            menu=body.menu_idea)
+    except marketing_service.MarketingError as e:
+        raise HTTPException(429 if "사용량" in str(e) else 502, str(e))
+    return {"doc": doc, "event": event}
 
 
 class SaleItemIn(BaseModel):

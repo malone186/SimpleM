@@ -257,7 +257,103 @@ def test_점검할_게_없으면_막는다(store):
 
 
 # ---------------------------------------------------------------------------
-# 7. 반영 — 눌렀을 때만, 그리고 지우지 않는다
+# 7. 추천 — 무엇을 바꿔야 하는지 먼저 찾아 준다
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def no_ai_ideas(monkeypatch):
+    """신메뉴 아이디어(Gemini)는 따로 검증한다 — 규칙 부분만 고정한다."""
+    monkeypatch.setattr(svc, "_ai_new_menus", lambda menus, month, count=2: [])
+
+
+def test_손해_메뉴는_받아야_할_가격을_알려준다(store, no_ai_ideas):
+    """수제청에이드: 6,000원인데 재료비 6,500원. 원가율 33% 목표지만 한 번에 15%까지만."""
+    out = svc.recommend(store)
+    hit = next(s for s in out["suggestions"] if s["name"] == "수제청에이드")
+    assert hit["kind"] == "price"
+    assert hit["after"]["price"] == 6900               # 6,000 × 1.15 → 100원 단위 올림
+    assert "손해" in hit["why"]
+    assert any("15%" in n for n in hit["notes"])       # 목표까지 한 번에 못 갔다는 사실을 밝힌다
+
+
+def test_안_나가는_메뉴는_빼자고_한다(store, no_ai_ideas, monkeypatch):
+    dead = dict(_menu(9, "장미라떼", 6000, 1500, 0))
+    monkeypatch.setattr(
+        "app.services.ai.sales_service.menu_contribution",
+        lambda store_id, days=30: {"days": days, "menus": [dict(m) for m in STORE] + [dead],
+                                   "total_margin": 0, "total_revenue": 0, "total_qty": 0},
+    )
+    out = svc.recommend(store)
+    hit = next(s for s in out["suggestions"] if s["name"] == "장미라떼")
+    assert hit["kind"] == "remove"
+    assert "한 잔도" in hit["why"]
+
+
+def test_원가를_모르는_메뉴가_많으면_그것부터_짚는다(store, no_ai_ideas, monkeypatch):
+    """원가를 모르면 '얼마로 올리라'는 말 자체가 성립하지 않는다."""
+    blind = [dict(_menu(i, f"메뉴{i}", 5000, 0, 10, recipe_missing=True)) for i in range(10, 16)]
+    monkeypatch.setattr(
+        "app.services.ai.sales_service.menu_contribution",
+        lambda store_id, days=30: {"days": days, "menus": [dict(STORE[0])] + blind,
+                                   "total_margin": 0, "total_revenue": 0, "total_qty": 0},
+    )
+    out = svc.recommend(store)
+    assert out["suggestions"][0]["kind"] == "info"
+    assert out["suggestions"][0]["actionable"] is False
+    assert out["comment"] == out["suggestions"][0]["why"]
+
+
+def test_추천은_적용할_수_있는_형태로_준다(store, no_ai_ideas):
+    """제안이 review와 다른 모양이면 화면이 두 벌을 만들어야 한다."""
+    out = svc.recommend(store)
+    for s in out["suggestions"]:
+        assert {"kind", "name", "headline", "reason", "why", "priority", "actionable"} <= set(s)
+    assert out["headline"]
+    assert any("유지" in a for a in out["assumptions"])
+
+
+def test_추천_개수는_제한된다(store, no_ai_ideas, monkeypatch):
+    """열 개를 늘어놓으면 하나도 실행되지 않는다."""
+    many = [dict(_menu(i, f"고원가{i}", 5000, 3000, 10)) for i in range(20, 40)]
+    monkeypatch.setattr(
+        "app.services.ai.sales_service.menu_contribution",
+        lambda store_id, days=30: {"days": days, "menus": many,
+                                   "total_margin": 0, "total_revenue": 0, "total_qty": 0},
+    )
+    out = svc.recommend(store)
+    assert len(out["suggestions"]) == svc.MAX_SUGGESTIONS
+
+
+def test_신메뉴_아이디어는_이미_있는_메뉴면_버린다(store, monkeypatch):
+    monkeypatch.setattr(svc, "_ai_new_menus", lambda menus, month, count=2: [
+        {"name": "아메리카노", "price": 4500, "reason": "이미 있는 메뉴"},
+        {"name": "흑임자라떼", "price": 6000, "reason": "여름에 잘 나가요"},
+    ])
+    out = svc.recommend(store)
+    added = [s for s in out["suggestions"] if s["kind"] == "add"]
+    assert [s["name"] for s in added] == ["흑임자라떼"]
+    assert added[0]["source"] == "ai"
+    assert added[0]["why"] == "여름에 잘 나가요"
+
+
+def test_신메뉴_아이디어가_실패해도_나머지는_나온다(store, monkeypatch):
+    """Gemini 쿼터가 막혀도 규칙 기반 제안은 그대로 나가야 한다 (_ai_new_menus는 빈 목록을 준다)."""
+    monkeypatch.setattr(svc, "_ai_new_menus", lambda *a, **k: [])
+    out = svc.recommend(store)
+    assert out["suggestions"]
+
+
+@pytest.mark.parametrize("cost,price,expected", [
+    (900, 4000, None),        # 원가율 22.5% — 올릴 이유가 없다
+    (2000, 4000, 4600),       # 50% → 목표까지 못 가고 15% 상한에 걸린다
+    (1300, 4000, None),       # 32.5% — 이미 목표 안이라 올릴 이유가 없다
+])
+def test_권하는_가격은_한_번에_15퍼센트까지(cost, price, expected):
+    assert svc._suggest_price(cost, price) == expected
+
+
+# ---------------------------------------------------------------------------
+# 8. 반영 — 눌렀을 때만, 그리고 지우지 않는다
 # ---------------------------------------------------------------------------
 
 class _FakeMenu:

@@ -7,7 +7,8 @@ import { Platform } from 'react-native';
 import { apiFetch, API_BASE_URL } from './client';
 import type { UploadAsset } from './ocr';
 
-export type MenuChangeKind = 'price' | 'add' | 'remove' | 'cost';
+// info는 바로 적용할 수 없는 안내 항목(원가 미등록 등) — 추천에서만 온다
+export type MenuChangeKind = 'price' | 'add' | 'remove' | 'cost' | 'info';
 
 /** 개선안 한 줄 — 서버에 보내는 입력 */
 export type MenuChange = {
@@ -88,6 +89,28 @@ export type MenuReviewResult = {
   source?: 'board';
 };
 
+/** AI 추천 한 건 — 점검 결과와 같은 모양에 '왜 권하는지'가 붙는다 */
+export type MenuSuggestion = MenuReviewItem & {
+  /** 왜 이걸 권하는지 (근거 숫자 포함) */
+  why: string;
+  /** 급한 순 (작을수록 급함) */
+  priority: number;
+  /** false면 바로 반영할 수 없는 안내 항목 (원가 미등록 등) */
+  actionable: boolean;
+  /** 신메뉴 아이디어가 AI에서 왔을 때 */
+  source?: 'ai';
+};
+
+export type MenuSuggestionResult = {
+  days: number;
+  suggestions: MenuSuggestion[];
+  /** "다 하면 한 달에 약 31만원 더 남아요" */
+  headline: string;
+  expected_gain: number;
+  comment: string;
+  assumptions: string[];
+};
+
 export type MenuApplyResult = {
   updated: string[];
   hidden: string[];
@@ -97,6 +120,16 @@ export type MenuApplyResult = {
 
 const authHeader = (token?: string | null): Record<string, string> | undefined =>
   token ? { Authorization: `Bearer ${token}` } : undefined;
+
+/** AI가 바꾸면 좋을 곳을 찾아 준다 (저장 없음). */
+export function getMenuSuggestions(
+  token?: string | null,
+  includeNew = true,
+): Promise<MenuSuggestionResult> {
+  return apiFetch(`/api/v1/chatbot/menu/suggestions?include_new=${includeNew}`, {
+    headers: authHeader(token),
+  });
+}
 
 /** 개선안을 판매·원가로 점검한다 (저장 없음). */
 export function reviewMenuChanges(

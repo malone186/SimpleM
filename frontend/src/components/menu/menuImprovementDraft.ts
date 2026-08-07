@@ -56,17 +56,37 @@ export function toChange(item: MenuReviewItem): MenuChange {
   return { kind: item.kind, name: item.name, price: item.after?.price ?? 0 };
 }
 
+/** 반영할 수 있는 항목인가 — 안내(info)와 적용 불가 제안은 뺀다 */
+export const isActionable = (i: MenuReviewItem & { actionable?: boolean }): boolean =>
+  i.kind !== 'info' && i.actionable !== false;
+
 /**
  * 결과 화면에서 켜 둔 항목만 반영 목록으로.
  * 가격을 알 수 없는 항목은 거른다 — 0원으로 저장되면 매출이 0으로 잡힌다.
  */
-export function buildApplyPayload(items: MenuReviewItem[], picked: Set<string>): MenuChange[] {
+export function buildApplyPayload(
+  items: (MenuReviewItem & { actionable?: boolean })[],
+  picked: Set<string>,
+): MenuChange[] {
   return items
-    .filter((i) => picked.has(keyOf(i)))
+    .filter((i) => isActionable(i) && picked.has(keyOf(i)))
     .map(toChange)
     .filter((c) => c.kind === 'remove' || (c.price ?? c.cost ?? 0) > 0);
 }
 
-/** 결과를 처음 열 때 켜 둘 항목 — 사진에서 '추측'으로 잡힌 빼기는 꺼 둔다 */
-export const initialPicked = (items: MenuReviewItem[]): Set<string> =>
-  new Set(items.filter((i) => !i.uncertain).map(keyOf));
+/**
+ * 처음 열 때 켜 둘 항목.
+ * · 안내 항목은 반영 대상이 아니다
+ * · 사진에서 '추측'으로 잡힌 빼기는 꺼 둔다 (사진이 잘렸을 수 있다)
+ * · AI 추천은 사장님이 보고 고르는 것이라 기본은 꺼 둔다 — 켜 두면 눌러 본 순간
+ *   권한 적도 없는 신메뉴가 등록된다
+ */
+export const initialPicked = (
+  items: (MenuReviewItem & { actionable?: boolean; why?: string })[],
+  { preselect = true }: { preselect?: boolean } = {},
+): Set<string> =>
+  new Set(
+    preselect
+      ? items.filter((i) => isActionable(i) && !i.uncertain).map(keyOf)
+      : [],
+  );

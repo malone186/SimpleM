@@ -52,6 +52,23 @@ def review_menu_changes(store_id: str, changes: str) -> str:
 
 
 @tool
+def suggest_menu_improvements(store_id: str, include_new_menu: bool = True) -> str:
+    """메뉴를 어떻게 개선하면 좋을지 매장 숫자를 훑어 먼저 찾아 준다 — 팔수록 손해인 메뉴의
+    적정 가격, 재료비 비중이 높은 메뉴의 인상 폭, 30일간 안 나간 메뉴 정리, 신메뉴 아이디어.
+    "메뉴 개선 좀 추천해줘", "뭘 바꾸면 좋을까?", "메뉴 어떻게 손보면 돼?", "신메뉴 뭐 넣을까?"
+    같은 요청에 쓴다. 사장님이 이미 바꿀 안을 정했으면 review_menu_changes를 쓴다.
+
+    각 제안에는 why(왜 이걸 권하는지), monthly_delta(한 달 남는 돈의 변화),
+    breakeven_drop_pct(가격을 올릴 때 판매량이 이만큼 줄어도 본전)가 함께 온다.
+    actionable=false인 항목(원가 미등록 안내)은 바로 적용할 수 없는 안내이므로
+    '이것부터 해야 한다'는 뜻으로 전한다. 저장은 하지 않는다 (계산만)."""
+    try:
+        return _dump(menu_review_service.recommend(store_id, include_new=include_new_menu))
+    except menu_review_service.MenuReviewError as e:
+        return str(e)
+
+
+@tool
 def check_menu_lineup(store_id: str) -> str:
     """지금 메뉴 구성이 괜찮은지 점검한다 — 팔수록 손해인 메뉴, 재료비 비중이 높은 메뉴,
     이익이 한두 메뉴에 몰려 있는지를 본다. "메뉴 구성 어때?", "메뉴 좀 봐줘",
@@ -85,4 +102,4 @@ def check_menu_lineup(store_id: str) -> str:
     })
 
 
-TOOLS = [check_menu_lineup, review_menu_changes]
+TOOLS = [check_menu_lineup, review_menu_changes, suggest_menu_improvements]

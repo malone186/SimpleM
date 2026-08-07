@@ -7,6 +7,7 @@ import {
   buildApplyPayload,
   buildManualChanges,
   initialPicked,
+  isActionable,
   keyOf,
   toChange,
   toPrice,
@@ -108,6 +109,30 @@ describe('initialPicked', () => {
     const picked = initialPicked([sure, guessed]);
     expect(picked.has(keyOf(sure))).toBe(true);
     expect(picked.has(keyOf(guessed))).toBe(false);
+  });
+
+  it('AI 추천은 하나도 켜 두지 않는다', () => {
+    // 권한 적도 없는 신메뉴가 열어 본 것만으로 등록되면 안 된다
+    expect(initialPicked([item(), item({ name: '카페라떼' })], { preselect: false }).size).toBe(0);
+  });
+
+  it('안내 항목은 켤 수 없다', () => {
+    const info = item({ kind: 'info', name: '원가부터 등록해 주세요', before: null, after: null });
+    expect(initialPicked([info]).size).toBe(0);
+  });
+});
+
+describe('isActionable', () => {
+  it('안내(info)와 actionable=false는 반영 대상이 아니다', () => {
+    expect(isActionable(item())).toBe(true);
+    expect(isActionable(item({ kind: 'info' }))).toBe(false);
+    expect(isActionable({ ...item(), actionable: false })).toBe(false);
+  });
+
+  it('반영 목록에서도 안내 항목은 빠진다', () => {
+    const info = item({ kind: 'info', name: '원가부터 등록해 주세요', before: null, after: null });
+    // 켜져 있는 것처럼 보내도 서버로 나가지 않아야 한다
+    expect(buildApplyPayload([info], new Set([keyOf(info)]))).toEqual([]);
   });
 });
 

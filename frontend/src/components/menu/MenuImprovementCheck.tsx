@@ -1,14 +1,15 @@
-// 메뉴 개선안 점검 (백엔드 B)
+// AI 메뉴 개선 (백엔드 B)
 //
-// 사장님은 메뉴를 자주 손본다 — 가격을 올리고, 안 나가는 메뉴를 빼고, 신메뉴를 넣는다.
-// 그게 잘한 일인지는 다음 달 정산을 봐야 알 수 있는데, 이미 판매 기록과 원가가 있으니
-// 바꾸기 전에 미리 계산해 볼 수 있다.
+// 사장님은 메뉴를 자주 손보지만, '무엇을' 손봐야 하는지는 아무도 말해 주지 않는다.
+// 이미 팔린 잔 수와 재료비가 있으니 브루가 먼저 찾아 줄 수 있다.
 //
-// 입구는 둘이다:
-//   1. 새로 만든 메뉴판 사진 → 지금 메뉴와 대조해 무엇이 바뀌었는지 서버가 찾아낸다
-//   2. 직접 고르기 → 가격을 손으로 바꾸거나 뺄 메뉴를 고른다
+// 세 가지 입구 — 앞의 것이 이 화면의 본체다:
+//   1. 개선안 받기: 팔수록 손해인 메뉴의 적정 가격, 안 나가는 메뉴 정리, 신메뉴 아이디어
+//   2. 새 메뉴판 사진: 이미 바꾼 메뉴판을 찍으면 지금 메뉴와 대조해 바뀐 점을 채점
+//   3. 직접 고치기: 가격을 손으로 바꿔 보고 결과만 확인
 //
-// 점검은 아무것도 저장하지 않는다. 반영은 결과 화면에서 '이대로 반영하기'를 눌러야 일어난다.
+// 셋 다 아무것도 저장하지 않는다. 반영은 결과에서 '반영하기'를 눌러야 일어난다 —
+// 브루가 권했다고 값이 저절로 바뀌면, 사장님은 자기 가격표를 믿을 수 없게 된다.
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -17,15 +18,18 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../auth/AuthContext';
 import {
   applyMenuChanges,
+  getMenuSuggestions,
   reviewMenuBoard,
   reviewMenuChanges,
   type MenuReviewItem,
   type MenuReviewResult,
+  type MenuSuggestionResult,
 } from '../../lib/api/menuReview';
 import {
   buildApplyPayload,
   buildManualChanges,
   initialPicked,
+  isActionable,
   keyOf,
   type EditableMenu,
 } from './menuImprovementDraft';
@@ -42,8 +46,17 @@ export type { EditableMenu };
 const won = (n: number) => `${Math.round(n).toLocaleString('ko-KR')}원`;
 const signedWon = (n: number) => `${n > 0 ? '+' : n < 0 ? '-' : ''}${won(Math.abs(n))}`;
 
-const VERDICT_TONE = { good: 'green', watch: 'orange', risk: 'danger' } as const;
 const VERDICT_ICON = { good: 'checkmark-circle', watch: 'alert-circle', risk: 'warning' } as const;
+
+/** 결과 시트는 '추천'과 '점검' 둘 다 그린다 — 항목 모양이 같아 카드를 두 벌 만들 이유가 없다 */
+type Sheet =
+  | { mode: 'suggest'; data: MenuSuggestionResult }
+  | { mode: 'review'; data: MenuReviewResult };
+
+type SheetItem = MenuReviewItem & { why?: string; actionable?: boolean; source?: string };
+
+const itemsOf = (s: Sheet): SheetItem[] =>
+  s.mode === 'suggest' ? s.data.suggestions : s.data.changes;
 
 export default function MenuImprovementCheck({
   menus,
@@ -53,22 +66,24 @@ export default function MenuImprovementCheck({
   onApplied: () => void;
 }) {
   const { token } = useAuth();
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'' | 'suggest' | 'photo' | 'manual' | 'apply'>('');
   const [editing, setEditing] = useState(false);
-  const [result, setResult] = useState<MenuReviewResult | null>(null);
+  const [sheet, setSheet] = useState<Sheet | null>(null);
 
-  // 직접 고르기 상태 — 메뉴 id → 바꿀 가격(문자열), 뺄 메뉴 id 집합
+  // 직접 고치기 상태 — 메뉴 id → 바꿀 가격(문자열), 뺄 메뉴 id 집합
   const [prices, setPrices] = useState<Record<number, string>>({});
   const [drop, setDrop] = useState<Set<number>>(new Set());
   const [newName, setNewName] = useState('');
   const [newPrice, setNewPrice] = useState('');
 
-  // 결과에서 실제로 반영할 항목 (기본은 전부 켜되, 사진에서 추측한 '빼기'는 꺼 둔다)
+  // 결과에서 실제로 반영할 항목
   const [picked, setPicked] = useState<Set<string>>(new Set());
 
-  const openResult = (res: MenuReviewResult) => {
-    setPicked(initialPicked(res.changes));
-    setResult(res);
+  const open = (next: Sheet) => {
+    // 추천은 사장님이 보고 고르는 것이라 기본으로 켜 두지 않는다.
+    // 사장님이 적은 안(점검)은 이미 사장님의 뜻이므로 켜 둔다.
+    setPicked(initialPicked(itemsOf(next), { preselect: next.mode === 'review' }));
+    setSheet(next);
   };
 
   const reset = () => {
@@ -78,7 +93,19 @@ export default function MenuImprovementCheck({
     setNewPrice('');
   };
 
-  /** 새 메뉴판 사진으로 확인 */
+  /** ① AI 개선안 받기 */
+  const suggest = async () => {
+    setBusy('suggest');
+    try {
+      open({ mode: 'suggest', data: await getMenuSuggestions(token) });
+    } catch (e: any) {
+      showAlert('개선안을 만들지 못했어요', e?.message ?? '잠시 뒤 다시 시도해 주세요.');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  /** ② 새 메뉴판 사진으로 확인 */
   const pick = async (from: 'camera' | 'library') => {
     try {
       if (from === 'camera') {
@@ -94,17 +121,21 @@ export default function MenuImprovementCheck({
           : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.7 });
       if (p.canceled || !p.assets?.[0]) return;
 
-      setBusy(true);
+      setBusy('photo');
       const a = p.assets[0];
-      openResult(await reviewMenuBoard({ uri: a.uri, mimeType: a.mimeType, fileName: a.fileName }, token));
+      const data = await reviewMenuBoard(
+        { uri: a.uri, mimeType: a.mimeType, fileName: a.fileName },
+        token,
+      );
+      open({ mode: 'review', data });
     } catch (e: any) {
       showAlert('확인하지 못했어요', e?.message ?? '다시 시도해 주세요.');
     } finally {
-      setBusy(false);
+      setBusy('');
     }
   };
 
-  /** 직접 고른 내용을 변경 목록으로 (무엇을 거를지는 menuImprovementDraft가 정한다) */
+  /** ③ 직접 고친 내용 (무엇을 거를지는 menuImprovementDraft가 정한다) */
   const manualChanges = useMemo(
     () => buildManualChanges(menus, prices, drop, newName, newPrice),
     [menus, prices, drop, newName, newPrice],
@@ -115,26 +146,26 @@ export default function MenuImprovementCheck({
       showAlert('바꾼 내용이 없어요', '가격을 고치거나 뺄 메뉴를 골라 주세요.');
       return;
     }
-    setBusy(true);
+    setBusy('manual');
     try {
-      const res = await reviewMenuChanges(manualChanges, token);
+      const data = await reviewMenuChanges(manualChanges, token);
       setEditing(false);
-      openResult(res);
+      open({ mode: 'review', data });
     } catch (e: any) {
       showAlert('확인하지 못했어요', e?.message ?? '다시 시도해 주세요.');
     } finally {
-      setBusy(false);
+      setBusy('');
     }
   };
 
-  /** 점검 결과 중 켜 둔 항목만 실제 메뉴에 반영 */
+  /** 켜 둔 항목만 실제 메뉴에 반영 */
   const apply = async () => {
-    const targets = buildApplyPayload(result?.changes ?? [], picked);
+    const targets = buildApplyPayload(sheet ? itemsOf(sheet) : [], picked);
     if (!targets.length) {
       showAlert('반영할 항목이 없어요', '반영할 변경을 하나 이상 골라 주세요.');
       return;
     }
-    setBusy(true);
+    setBusy('apply');
     try {
       const res = await applyMenuChanges(targets, token);
       const lines: string[] = [];
@@ -143,13 +174,13 @@ export default function MenuImprovementCheck({
       if (res.created.length) lines.push(`새 메뉴: ${res.created.join(', ')}`);
       if (res.warnings.length) lines.push('', '확인이 필요해요:', ...res.warnings.map((w) => `· ${w}`));
       showAlert('메뉴에 반영했어요', lines.join('\n') || '바뀐 내용이 없어요.');
-      setResult(null);
+      setSheet(null);
       reset();
       onApplied();
     } catch (e: any) {
       showAlert('반영하지 못했어요', e?.message ?? '다시 시도해 주세요.');
     } finally {
-      setBusy(false);
+      setBusy('');
     }
   };
 
@@ -161,41 +192,52 @@ export default function MenuImprovementCheck({
       return next;
     });
 
+  const items = sheet ? itemsOf(sheet) : [];
+  const canApply = items.some(isActionable);
+
   return (
     <>
       <Card tone="cream">
         <View style={styles.head}>
-          <Ionicons name="pricetags-outline" size={18} color={colors.espressoBrown} />
-          <Text style={styles.headText}>메뉴 바꾼 거 확인해 보기</Text>
+          <Ionicons name="sparkles-outline" size={18} color={colors.espressoBrown} />
+          <Text style={styles.headText}>AI 메뉴 개선 추천</Text>
         </View>
         <Text style={styles.desc}>
-          가격을 올리거나 메뉴를 빼기 전에, 실제로 팔린 잔 수와 재료비로 계산해 봐요.
-          손님이 얼마나 줄어도 괜찮은지까지 알려드려요.
+          팔린 잔 수와 재료비를 보고 뭘 바꾸면 좋을지 찾아드려요. 얼마로 올리면 되는지,
+          어떤 메뉴를 빼면 되는지, 새로 넣을 만한 메뉴까지요.
         </Text>
-        <View style={styles.btnRow}>
-          <View style={styles.btnHalf}>
-            <Button label="새 메뉴판 찍기" variant="secondary" onPress={() => pick('camera')} disabled={busy} />
-          </View>
-          <View style={styles.btnHalf}>
-            <Button label="앨범에서" variant="secondary" onPress={() => pick('library')} disabled={busy} />
-          </View>
-        </View>
+
         <Button
-          label="가격 직접 고쳐 보기"
-          variant="ghost"
-          onPress={() => setEditing(true)}
-          disabled={busy}
-          style={{ marginTop: 8 }}
+          label={busy === 'suggest' ? '찾는 중…' : '개선안 받기'}
+          onPress={suggest}
+          disabled={!!busy}
+          style={{ marginTop: 12 }}
         />
-        {busy && !result && !editing && (
+
+        {/* 이미 바꿔 본 사장님을 위한 두 갈래 — 추천을 가리지 않게 작게 둔다 */}
+        <View style={styles.subRow}>
+          <PressableScale style={styles.subBtn} onPress={() => pick('camera')} to={0.97}>
+            <Ionicons name="camera-outline" size={14} color={colors.mochaBrown} />
+            <Text style={styles.subText}>바꾼 메뉴판 찍기</Text>
+          </PressableScale>
+          <Text style={styles.subDot}>·</Text>
+          <PressableScale style={styles.subBtn} onPress={() => setEditing(true)} to={0.97}>
+            <Ionicons name="create-outline" size={14} color={colors.mochaBrown} />
+            <Text style={styles.subText}>가격 직접 고쳐 보기</Text>
+          </PressableScale>
+        </View>
+
+        {!!busy && !sheet && !editing && (
           <View style={styles.busy}>
             <ActivityIndicator color={colors.espressoBrown} />
-            <Text style={styles.busyText}>바뀐 점을 찾고 있어요…</Text>
+            <Text style={styles.busyText}>
+              {busy === 'suggest' ? '메뉴를 하나씩 따져 보고 있어요…' : '메뉴판을 읽고 있어요…'}
+            </Text>
           </View>
         )}
       </Card>
 
-      {/* 직접 고르기 */}
+      {/* 직접 고치기 */}
       <SwipeDownModal visible={editing} onClose={() => setEditing(false)}>
         <View style={styles.sheetHead}>
           <Text style={styles.sheetTitle}>어떻게 바꿔 보셨어요?</Text>
@@ -264,67 +306,76 @@ export default function MenuImprovementCheck({
         </ScrollView>
 
         <Button
-          label={busy ? '계산 중…' : `${manualChanges.length}개 변경 확인해 보기`}
+          label={busy === 'manual' ? '계산 중…' : `${manualChanges.length}개 변경 확인해 보기`}
           onPress={runManual}
-          disabled={busy || !manualChanges.length}
+          disabled={!!busy || !manualChanges.length}
         />
       </SwipeDownModal>
 
-      {/* 점검 결과 */}
-      <SwipeDownModal visible={!!result} onClose={() => setResult(null)}>
-        {result && (
+      {/* 결과 — 추천과 점검이 같은 시트를 쓴다 */}
+      <SwipeDownModal visible={!!sheet} onClose={() => setSheet(null)}>
+        {sheet && (
           <>
             <View style={styles.sheetHead}>
-              <Text style={styles.sheetTitle}>{result.verdict_label}</Text>
-              <Text style={styles.sheetSub}>최근 {result.days}일 판매·원가 기준</Text>
+              <Text style={styles.sheetTitle}>
+                {sheet.mode === 'suggest' ? sheet.data.headline : sheet.data.verdict_label}
+              </Text>
+              <Text style={styles.sheetSub}>최근 {sheet.data.days}일 판매·재료비 기준</Text>
             </View>
 
             <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ paddingBottom: spacing.gridGap }}>
-              <Text style={styles.comment}>{result.comment}</Text>
+              <Text style={styles.comment}>{sheet.data.comment}</Text>
 
-              {result.summary && result.changes.length > 0 && (
+              {sheet.mode === 'review' && sheet.data.summary && sheet.data.changes.length > 0 && (
                 <View style={styles.summary}>
                   <SummaryCell
                     label="한 달 남는 돈"
-                    value={signedWon(result.summary.monthly_delta)}
-                    tone={result.summary.monthly_delta >= 0 ? 'up' : 'down'}
+                    value={signedWon(sheet.data.summary.monthly_delta)}
+                    tone={sheet.data.summary.monthly_delta >= 0 ? 'up' : 'down'}
                   />
                   <SummaryCell
                     label="잔당 평균 가격"
-                    value={won(result.summary.avg_ticket_after)}
-                    sub={`지금 ${won(result.summary.avg_ticket_before)}`}
+                    value={won(sheet.data.summary.avg_ticket_after)}
+                    sub={`지금 ${won(sheet.data.summary.avg_ticket_before)}`}
                   />
                   <SummaryCell
                     label="메뉴 수"
-                    value={`${result.summary.menu_count_after}개`}
-                    sub={`지금 ${result.summary.menu_count_before}개`}
+                    value={`${sheet.data.summary.menu_count_after}개`}
+                    sub={`지금 ${sheet.data.summary.menu_count_before}개`}
                   />
                 </View>
               )}
 
-              {result.changes.map((c) => (
-                <ChangeCard key={keyOf(c)} item={c} on={picked.has(keyOf(c))} onToggle={() => toggle(c)} />
+              {items.map((c) => (
+                <ChangeCard
+                  key={keyOf(c)}
+                  item={c}
+                  on={picked.has(keyOf(c))}
+                  onToggle={() => toggle(c)}
+                />
               ))}
 
-              {!!result.unmatched.length && (
+              {sheet.mode === 'review' && !!sheet.data.unmatched.length && (
                 <Text style={styles.note}>
-                  못 찾은 메뉴: {result.unmatched.join(', ')}
+                  못 찾은 메뉴: {sheet.data.unmatched.join(', ')}
                   {'\n'}등록된 이름과 같은지 확인해 주세요.
                 </Text>
               )}
-              {!!result.unchanged?.length && (
-                <Text style={styles.note}>그대로인 메뉴 {result.unchanged.length}개는 넘어갔어요.</Text>
+              {sheet.mode === 'review' && !!sheet.data.unchanged?.length && (
+                <Text style={styles.note}>
+                  그대로인 메뉴 {sheet.data.unchanged.length}개는 넘어갔어요.
+                </Text>
               )}
-              {result.assumptions.map((a) => (
+              {sheet.data.assumptions.map((a) => (
                 <Text key={a} style={styles.assumption}>· {a}</Text>
               ))}
             </ScrollView>
 
-            {result.changes.length > 0 && (
+            {canApply && (
               <Button
-                label={busy ? '반영 중…' : `고른 ${picked.size}개 메뉴에 반영하기`}
+                label={busy === 'apply' ? '반영 중…' : `고른 ${picked.size}개 메뉴에 반영하기`}
                 onPress={apply}
-                disabled={busy || picked.size === 0}
+                disabled={!!busy || picked.size === 0}
               />
             )}
           </>
@@ -362,27 +413,46 @@ function SummaryCell({
   );
 }
 
+const KIND_LABEL: Record<string, string> = {
+  price: '가격',
+  add: '새 메뉴',
+  remove: '빼기',
+  cost: '원가',
+  info: '먼저 할 일',
+};
+
 function ChangeCard({
   item,
   on,
   onToggle,
 }: {
-  item: MenuReviewItem;
+  item: SheetItem;
   on: boolean;
   onToggle: () => void;
 }) {
-  const kindLabel = { price: '가격', add: '새 메뉴', remove: '빼기', cost: '원가' }[item.kind];
+  // 반영할 수 없는 안내 항목은 체크박스를 주지 않는다 — 눌러도 아무 일이 없으면 고장으로 보인다
+  const selectable = isActionable(item);
 
   return (
-    <View style={[styles.card, !on && styles.cardOff]}>
-      <PressableScale style={styles.cardHead} onPress={onToggle} to={0.98}>
-        <Ionicons
-          name={on ? 'checkbox' : 'square-outline'}
-          size={19}
-          color={on ? colors.espressoBrown : '#C4B5A5'}
-        />
+    <View style={[styles.card, selectable && !on && styles.cardOff]}>
+      <PressableScale
+        style={styles.cardHead}
+        onPress={selectable ? onToggle : undefined}
+        disabled={!selectable}
+        to={selectable ? 0.98 : 1}
+      >
+        {selectable ? (
+          <Ionicons
+            name={on ? 'checkbox' : 'square-outline'}
+            size={19}
+            color={on ? colors.espressoBrown : '#C4B5A5'}
+          />
+        ) : (
+          <Ionicons name="information-circle" size={19} color={ACCENT} />
+        )}
         <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
-        <Badge label={kindLabel} tone="neutral" />
+        <Badge label={KIND_LABEL[item.kind] ?? item.kind} tone="neutral" />
+        {item.source === 'ai' && <Badge label="AI 제안" tone="orange" />}
         <View style={{ marginLeft: 'auto' }}>
           <Ionicons
             name={VERDICT_ICON[item.verdict]}
@@ -395,10 +465,15 @@ function ChangeCard({
       </PressableScale>
 
       <View style={styles.cardBody}>
+        {/* 왜 권하는지가 먼저다 — 결과부터 보여주면 근거 없는 지시로 읽힌다 */}
+        {!!item.why && <Text style={styles.why}>{item.why}</Text>}
+
         {item.before && item.after && (
           <Text style={styles.priceLine}>
             {won(item.before.price)} → <Text style={styles.priceNew}>{won(item.after.price)}</Text>
-            {item.change_pct ? <Text style={styles.pct}>  {item.change_pct > 0 ? '+' : ''}{item.change_pct}%</Text> : null}
+            {item.change_pct ? (
+              <Text style={styles.pct}>  {item.change_pct > 0 ? '+' : ''}{item.change_pct}%</Text>
+            ) : null}
           </Text>
         )}
         {item.kind === 'add' && item.after && (
@@ -442,8 +517,10 @@ const styles = StyleSheet.create({
   head: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   headText: { ...typography.L3, fontWeight: '800', color: colors.espressoBrown },
   desc: { ...typography.L5, color: colors.mochaBrown, marginTop: 6, lineHeight: 18 },
-  btnRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
-  btnHalf: { flex: 1 },
+  subRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 10 },
+  subBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4 },
+  subText: { ...typography.L5, color: colors.mochaBrown, textDecorationLine: 'underline' },
+  subDot: { ...typography.L5, color: '#C4B5A5' },
   busy: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, justifyContent: 'center' },
   busyText: { ...typography.L5, color: colors.mochaBrown },
 
@@ -451,7 +528,7 @@ const styles = StyleSheet.create({
   sheetTitle: { ...typography.L2, fontWeight: '800', color: colors.espressoBrown },
   sheetSub: { ...typography.L5, color: colors.mochaBrown, marginTop: 2 },
 
-  // 직접 고르기
+  // 직접 고치기
   editRow: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: colors.white, borderRadius: 12, padding: 10, marginBottom: 6,
@@ -484,6 +561,7 @@ const styles = StyleSheet.create({
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   cardName: { ...typography.L4, fontWeight: '700', color: colors.espressoBrown, flexShrink: 1 },
   cardBody: { marginTop: 8, paddingLeft: 25 },
+  why: { ...typography.L5, color: colors.espressoBrown, lineHeight: 18, marginBottom: 6 },
   priceLine: { ...typography.L5, color: colors.mochaBrown },
   priceNew: { color: colors.espressoBrown, fontWeight: '800' },
   pct: { color: ACCENT, fontWeight: '700' },
