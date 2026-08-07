@@ -12,6 +12,7 @@ import json
 from langchain_core.tools import tool
 
 from app.services.ai import nearby_cafe_service
+from app.services.ai.untrusted import quote_fields
 
 
 def _store_location(store_id: str) -> tuple[float, float, str, str] | str:
@@ -60,6 +61,10 @@ def analyze_nearby_cafe(cafe_name: str, address: str = "", category: str = "") -
     result = nearby_cafe_service.analyze_cafe(cafe_name, address=address, category=category)
     if not result["review_count"]:
         return f"'{cafe_name}'에 대한 네이버 블로그 후기를 찾지 못했습니다."
+    # [보안] 블로그 후기 제목·본문은 남이 쓴 글 — 문의 제목과 같은 ⟦남이_쓴_글⟧ 경계로
+    # 감싼다. 안 감싸면 후기 속 지시 문장이 도구 결과인 척 에이전트를 조종할 수 있다.
+    result = dict(result)
+    result["reviews"] = [quote_fields(r, ("title", "snippet")) for r in result.get("reviews", [])]
     return json.dumps(result, ensure_ascii=False)
 
 

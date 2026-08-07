@@ -64,10 +64,15 @@ jobs:
         run: python -m compileall -q backend/app
 
       - name: 관리자 콘솔 JS 문법 검사
-        # admin_web/app.js는 tsc 대상이 아니라서 따로 본다 (마커 3곳이 실제로 여기 커밋됐던 사고)
+        # 콘솔 JS는 tsc 대상이 아니라서 따로 본다 (마커 3곳이 실제로 여기 커밋됐던 사고).
+        # 파일이 backend/app/admin_console/static/으로 이사한 뒤 옛 경로(admin_web/*.js)를
+        # 계속 봐서, 글롭이 아무것도 못 찾고 항상 초록불이었다 — 두 위치를 다 본다.
         run: |
-          for f in admin_web/*.js; do
+          found=0
+          for f in admin_web/*.js backend/app/admin_console/static/*.js; do
             [ -e "$f" ] || continue
             node --check "$f"
+            found=$((found+1))
           done
-          echo "✅ admin_web JS 문법 통과"
+          [ "$found" -gt 0 ] || { echo "::error::검사할 콘솔 JS를 하나도 못 찾았습니다 — 글롭 경로를 확인하세요"; exit 1; }
+          echo "✅ 콘솔 JS ${found}개 문법 통과"

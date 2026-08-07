@@ -180,8 +180,13 @@ def record_orders(db: Session, store_id: str, orders: list[dict], provider: str 
         for rc in db.query(Recipe).filter(Recipe.menu_id.in_(menu_ids)).all():
             recipes_by_menu.setdefault(rc.menu_id, []).append((rc.ingredient_id, rc.quantity))
     ing_ids = {ing for lst in recipes_by_menu.values() for (ing, _q) in lst}
+    # 재고 행은 잠그고 읽는다(FOR UPDATE) — 웹훅·폴링·수동 조정이 같은 재료를 동시에
+    # 건드리면 읽고-고치고-쓰는 사이의 갱신 하나가 소리 없이 사라져 재고 캐시가
+    # 변동 장부 합계와 어긋난다. id 순 정렬은 교차 잠금 데드락 방지용.
     stock_by_ing = {
-        s.ingredient_id: s for s in db.query(Stock).filter(Stock.ingredient_id.in_(ing_ids)).all()
+        s.ingredient_id: s
+        for s in db.query(Stock).filter(Stock.ingredient_id.in_(ing_ids))
+        .order_by(Stock.id).with_for_update().all()
     } if ing_ids else {}
 
     already = {

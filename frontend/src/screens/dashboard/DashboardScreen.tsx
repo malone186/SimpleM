@@ -59,6 +59,15 @@ function todayKey(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** ISO 타임스탬프 → 기기 시간대의 YYYY-MM-DD.
+ * created_at은 UTC라 split('T')[0]로 자르면 'UTC의 날짜'가 나온다 — KST 00:00~08:59에
+ * 추가한 할 일(아침 오픈 준비 시간대)이 어제 키로 분류돼 오늘 탭에서 사라지는 버그의 원인. */
+function localDateKey(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.split('T')[0];
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 /**
  * 같은 일인지 판정하기 위한 제목 정규화 — 앞머리 태그·공백·'~하기' 어미를 걷어낸다.
  * (백엔드 todo_service._normalize_title과 같은 규칙)
@@ -384,7 +393,9 @@ function buildDashboard(
     .forEach((t: any) => {
       const serverIdStr = `server-${t.id}`;
       if (!dismissedSet.has(serverIdStr)) {
-        const parsedKey = t.date_key || (t.created_at ? t.created_at.split('T')[0] : undefined);
+        // due_date(사장님이 고른 날짜)가 최우선, 없으면 created_at을 '기기 시간대' 날짜로
+        const parsedKey =
+          t.due_date || (t.created_at ? localDateKey(t.created_at) : undefined);
         next.push({
           id: serverIdStr,
           title: t.title,
@@ -761,7 +772,9 @@ export default function DashboardScreen() {
 
     if (token) {
       try {
-        const created = await createTodo(token, trimmed);
+        // 선택한 날짜를 due_date로 함께 저장한다 — 안 보내면 서버 목록으로 대체되는 순간
+        // created_at(오늘) 기준으로 분류돼, 다른 요일 밑에 적은 할 일이 오늘로 튀어 온다.
+        const created = await createTodo(token, trimmed, undefined, targetKey);
         const realServerId = `server-${created.id}`;
         // [한글 주석] 서버 등록 완료 후 local- ID를 server- ID로 교체하여 삭제 시 서버 연동이 정상 동작하게 함
         pendingTodosRef.current.delete(tempLocalId);

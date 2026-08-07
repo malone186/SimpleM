@@ -367,6 +367,11 @@ def charge(db: Session, customer: Customer,
         return None, "적립 금액이 필요합니다."
     if pay_amount is not None and pay_amount < 0:
         return None, "결제 금액이 올바르지 않습니다."
+    # pay_amount를 안 넣은 직접 충전은 '보너스 없는 1:1 충전'으로 기록한다.
+    # NULL로 두면 _paid_ratio에서 낸 돈 0원으로 집계돼, 이 손님의 환불 현금가치가
+    # 0원이 된다 — 5만원 내고 5만원 적립한 손님이 환불을 청구하면 0원을 제안하는 사고.
+    if pay_amount is None:
+        pay_amount = credit_amount
 
     # 충전도 잠근다 — 차감과 동시에 들어오면 balance 캐시가 어긋난다
     customer = _lock_customer(db, customer)

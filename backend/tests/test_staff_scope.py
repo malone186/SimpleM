@@ -116,3 +116,16 @@ def test_파괴적_메서드는_직원에게_막힌다():
     assert not is_blocked_for_staff("/api/v1/inventory/ingredients/3", "GET")
     assert not is_blocked_for_staff("/api/v1/inventory/ingredients/3", "PATCH")
     assert not is_blocked_for_staff("/api/v1/inventory/orders", "GET")
+
+
+def test_직원은_사장님_계정을_건드릴_수_없다():
+    """[보안 회귀] 직원 토큰의 sub는 사장님 이메일이라 get_current_user가 사장님으로 풀린다.
+
+    /auth가 화이트리스트에 있어서, 아래가 열려 있으면 알바생이 사장님 비밀번호를 바꿔
+    계정을 넘겨받거나(PATCH /auth/profile) 사장님 계정을 탈퇴시킬 수 있었다(DELETE /auth/me).
+    """
+    assert is_blocked_for_staff("/api/v1/auth/profile", "PATCH")
+    assert is_blocked_for_staff("/api/v1/auth/me", "DELETE")
+    # 조회·로그인은 그대로 열려 있어야 한다
+    assert not is_blocked_for_staff("/api/v1/auth/me", "GET")
+    assert not is_blocked_for_staff("/api/v1/auth/login", "POST")

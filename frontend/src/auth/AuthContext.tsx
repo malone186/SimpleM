@@ -136,9 +136,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${idToken}`,
       },
+      // store_name은 보내지 않는다 — 여기서 `${name} 매장`을 매번 보내면, 사장님이
+      // 프로필에서 바꾼 상호명이 다음 로그인 때마다 기본값으로 되돌아간다 (상호명으로
+      // 아이디 찾기도 같이 깨진다). 기본 상호명은 백엔드 Lazy Signup이 최초 1회 채운다.
       body: JSON.stringify({
         name,
-        store_name: `${name} 매장`,
       }),
     })
       .then((res) => {
@@ -659,7 +661,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         const data = await response.json();
+        // 기존 user를 펼쳐 isStaff 같은 부가 필드를 보존한다 — 새로 조립하면 직원
+        // 세션이 프로필 수정 한 번에 사장님 모드 UI로 뒤집혔다.
         const updated: User = {
+          ...user,
           email: data.email,
           name: data.name,
           photo: patch.photo !== undefined ? patch.photo : user.photo,

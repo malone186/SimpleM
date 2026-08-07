@@ -1110,6 +1110,10 @@ def run_all(now: Optional[datetime] = None) -> dict[str, Any]:
                 results.append(run_for_store(db, store_id, now))
             except Exception:
                 logger.exception("알림 실행 실패 (%s)", store_id)
+                # 공유 세션이 'rollback 필요' 상태로 남으면 다음 매장의 첫 쿼리가
+                # PendingRollbackError로 연쇄 실패한다 — 한 매장의 실패가 나머지
+                # 전 매장을 죽이지 않도록 반드시 세션을 되살리고 넘어간다.
+                db.rollback()
                 results.append({"store_id": store_id, "error": True, "sent": []})
 
     total = sum(len(r.get("sent", [])) for r in results)

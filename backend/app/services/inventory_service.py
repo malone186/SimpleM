@@ -247,7 +247,11 @@ def add_or_adjust_stock(db: Session, store_id: str, adjust_in: StockAdjust) -> S
         )
 
     # 2-2. 실시간 재고 레코드를 찾아서 값을 증감시킵니다.
-    stock = db.query(Stock).filter(Stock.ingredient_id == adjust_in.ingredient_id).first()
+    # FOR UPDATE로 잠그고 읽는다 — POS 동기화와 수동 조정이 동시에 들어오면
+    # 나중 커밋이 먼저 커밋의 증감을 덮어써 재고 캐시가 장부와 어긋난다.
+    stock = (db.query(Stock)
+             .filter(Stock.ingredient_id == adjust_in.ingredient_id)
+             .with_for_update().first())
     if not stock:
         # 혹시 모를 에러 방지용: 재고 레코드가 없었다면 새로 파줍니다.
         stock = Stock(ingredient_id=adjust_in.ingredient_id, current_quantity=0.0)
@@ -434,6 +438,16 @@ def delete_menu(db: Session, store_id: str, menu_id: int) -> None:
     )
     if not menu:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="메뉴를 찾을 수 없습니다.")
+    # 판매 이력이 있는 메뉴는 지울 수 없다 — Sale.menu_id가 NOT NULL이라 ORM 삭제는
+    # NULL 업데이트 시도로 500이 나고, FK cascade로 지우면 매출 원장이 통째로 사라져
+    # 지난 정산·리포트 합계가 소급으로 줄어든다. 매출 기록은 회계 원장이므로 보존한다.
+    from app.models.inventory import Sale
+    has_sales = db.query(Sale.id).filter(Sale.menu_id == menu_id).first() is not None
+    if has_sales:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="판매 이력이 있는 메뉴는 삭제할 수 없습니다. 매출 기록 보존을 위해 메뉴를 남겨 두거나 이름을 바꿔 주세요.",
+        )
     db.delete(menu)
     db.commit()
 

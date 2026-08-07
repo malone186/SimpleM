@@ -63,6 +63,12 @@ STAFF_DENIED_PREFIXES = (
 STAFF_DENIED_METHOD_PREFIXES = (
     ("DELETE", "/api/v1/inventory/ingredients"),
     ("PATCH", "/api/v1/inventory/orders"),
+    # [보안] 직원 토큰의 sub에는 '사장님 이메일'이 들어 있어 get_current_user가 사장님
+    # 본인으로 풀린다. /auth가 화이트리스트에 있는 탓에, 아래 두 경로가 열려 있으면
+    # 알바생이 사장님 비밀번호를 바꿔 계정을 통째로 넘겨받거나(PATCH /auth/profile)
+    # 사장님 계정을 탈퇴시켜 버릴 수 있었다(DELETE /auth/me).
+    ("PATCH", "/api/v1/auth/profile"),
+    ("DELETE", "/api/v1/auth/me"),
 )
 
 # 인증과 무관한 공개 경로 — 토큰을 보지 않는다

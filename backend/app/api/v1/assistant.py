@@ -41,16 +41,16 @@ def _optional_store_id(
     token: Optional[str] = Depends(_oauth2_optional),
     db: Session = Depends(get_db),
 ) -> str:
-    """로그인했으면 매장 식별자(이메일)를, 아니면 데모 매장 — chatbot.py와 같은 패턴.
+    """로그인했으면 매장 식별자(이메일)를, 토큰이 아예 없으면 데모 매장.
 
     절대 None을 돌려주지 않는다 — None이 서비스까지 내려가면 전 매장 무스코프 조회가 된다.
+    토큰이 '있는데 틀린'(만료 등) 경우는 데모로 눙치지 않고 401을 그대로 던진다 —
+    chatbot.py가 이미 같은 사고(만료 토큰 사용자에게 데모 매장 숫자를 "내 매장"처럼
+    보여주고, 음성 명령은 데모 매장 기록을 바꿈)를 겪고 고친 정책과 동일하게 맞춘다.
     """
     if not token:
         return "owner@cafe.com"
-    try:
-        return get_current_user(token=token, db=db).email
-    except HTTPException:
-        return "owner@cafe.com"
+    return get_current_user(token=token, db=db).email
 
 
 # ──────────────────────────────────────────────

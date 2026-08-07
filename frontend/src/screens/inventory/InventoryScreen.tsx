@@ -8,7 +8,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 
 import { useAuth } from '../../auth/AuthContext';
 import { useTranslation } from '../../i18n/translations';
@@ -162,10 +162,15 @@ export default function InventoryScreen() {
     setTimeout(() => setRefreshing(false), 650);
   }, [loadStocks, loadDrafts]);
 
-  useEffect(() => {
-    loadStocks();
-    loadDrafts();
-  }, [loadStocks, loadDrafts]);
+  // 탭이 화면에 돌아올 때마다 다시 부른다 — 마운트 1회만 부르면 재고 상세에서 수량을
+  // 고치고 돌아와도 목록·부족 배지·게이지가 옛 숫자로 남는다 (탭 화면은 언마운트되지
+  // 않아서 useEffect가 다시 돌지 않는다). 대시보드와 같은 규칙.
+  useFocusEffect(
+    useCallback(() => {
+      loadStocks();
+      loadDrafts();
+    }, [loadStocks, loadDrafts])
+  );
 
   // OCR 대기 시간에 광고를 태우려면 미리 받아둬야 한다 (로드에 1~3초).
   // 실패하면 광고 없이 기존 흐름대로 동작한다.

@@ -42,6 +42,17 @@ def signup(user_in: UserCreate, db: Session = Depends(get_db)):
     # 로그인/재설정(대소문자 무시 매칭)과 저장값이 어긋나지 않게 한다.
     norm_email = user_in.email.strip().lower()
 
+    # [보안] 관리자 허용목록 이메일로는 일반 회원가입을 막는다 — get_current_admin이
+    # '이메일이 ADMIN_EMAILS에 있는가'만 보므로, 이 가드가 없으면 누구나
+    # admin@simplem.com으로 가입해 관리자 API 전체(회원 목록·삭제·코인 지급·전체 푸시)를
+    # 손에 넣는다.
+    from app.core.auth import ADMIN_EMAILS
+    if norm_email in (e.lower() for e in ADMIN_EMAILS):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="이미 등록된 이메일 주소입니다. 다른 이메일을 사용해 주세요.",
+        )
+
     # [검사 1] 이미 동일한 이메일로 가입한 사람이 있는지 DB에서 검색해 봅니다 (대소문자 무시).
     existing_user = db.query(User).filter(sa_func.lower(User.email) == norm_email).first()
     if existing_user:
@@ -165,18 +176,22 @@ def find_email(req: FindEmailRequest, db: Session = Depends(get_db)):
 def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
     """이메일 + 본인확인값(휴대폰 번호 또는 상호명)이 일치하면 비밀번호를 새 값으로 교체합니다."""
     user = db.query(User).filter(sa_func.lower(User.email) == req.email.strip().lower()).first()
-    # verify(신형: 휴대폰 또는 상호명 한 필드) / store_name(구버전 앱 호환) 중 온 값으로 확인
+    # verify(신형) / store_name(구버전 앱 호환) 중 온 값으로 확인.
+    # [보안] 본인확인은 '등록된 휴대폰 번호 일치'만 인정한다 — 예전엔 상호명·이름 일치도
+    # 통과시켰는데, 카페 상호는 간판에 적힌 공개 정보라 이메일만 알면 누구나 남의
+    # 비밀번호를 바꿀 수 있었다. 휴대폰 미등록 계정은 이메일 재설정 링크를 쓰면 된다
+    # (Firebase 미보유 계정도 프로비저닝 후 발송되므로 언제나 동작한다).
     raw = (req.verify or req.store_name or "").strip()
-    q = raw.lower()
-    matched = user is not None and bool(raw) and (
-        (bool(_digits(raw)) and _digits(user.phone) == _digits(raw))
-        or (user.store_name or "").strip().lower() == q
-        or (user.name or "").strip().lower() == q
+    matched = (
+        user is not None
+        and bool(_digits(raw))
+        and bool(_digits(user.phone))
+        and _digits(user.phone) == _digits(raw)
     )
     if not matched:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="이메일과 본인 확인 정보(휴대폰 번호 또는 상호명)가 일치하는 계정을 찾을 수 없습니다. 입력 정보를 다시 확인해 주세요.",
+            detail="이메일과 등록된 휴대폰 번호가 일치하는 계정을 찾을 수 없습니다. 휴대폰 번호를 등록하지 않으셨다면 '재설정 메일로 받기'를 이용해 주세요.",
         )
     user.hashed_password = get_password_hash(req.new_password)
     db.commit()

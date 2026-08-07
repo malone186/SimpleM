@@ -486,6 +486,9 @@ export default function SettingsScreen() {
       return;
     }
 
+    // 이미 보내는 중이면 무시 — 예전엔 플래그를 켜기만 하고 아무 데서도 안 읽어서,
+    // 연타하면 같은 문의가 여러 번 접수됐다.
+    if (isSubmittingInquiry) return;
     setIsSubmittingInquiry(true);
 
     const payload = {
@@ -515,6 +518,8 @@ export default function SettingsScreen() {
     } catch (err) {
       console.warn('Inquiries API fetch error:', err);
       toast('접수 실패', '네트워크 연결 상태를 확인 후 다시 시도해 주세요.');
+    } finally {
+      setIsSubmittingInquiry(false);
     }
   };
 
@@ -1380,8 +1385,9 @@ export default function SettingsScreen() {
               />
 
               <Button
-                label="문의 제출하기"
+                label={isSubmittingInquiry ? '제출 중…' : '문의 제출하기'}
                 style={{ marginTop: 16 }}
+                disabled={isSubmittingInquiry}
                 onPress={handleSubmitInquiry}
               />
             </View>

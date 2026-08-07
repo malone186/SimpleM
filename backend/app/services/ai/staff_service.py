@@ -942,9 +942,13 @@ def monthly_payroll(store_id: str, year_month: Optional[str] = None) -> list[dic
         db.close()
 
     rows = _payroll_rows(employees, schedules)
+    # 말일은 달마다 다르다 — "-31" 고정은 2월이면 2026-02-31 같은 존재하지 않는 날짜가
+    # 응답에 실려 클라이언트 날짜 파서가 깨질 수 있다.
+    y, m = int(target[:4]), int(target[5:7])
+    last_day = _calendar.monthrange(y, m)[1]
     for r in rows:
         r["period_start"] = f"{target}-01"
-        r["period_end"] = f"{target}-31"
+        r["period_end"] = f"{target}-{last_day:02d}"
     return rows
 
 
@@ -962,12 +966,17 @@ def month_settlement(store_id: str, year_month: Optional[str] = None) -> dict[st
     from app.models.operation import Employee, Expense, Schedule
 
     target = year_month or today_kst().strftime("%Y-%m")
+    # sold_at은 timestamptz — naive 경계를 주면 UTC 자정으로 잘려 KST 00:00~08:59 매출
+    # (아침 러시 포함)이 전달 정산으로 넘어간다. /operation/settlements/calculate와 같은
+    # 기준(KST 명시)이어야 '집계 기준 동일'이라는 이 함수의 약속이 지켜진다.
+    from app.utils.datetime_kst import KST
     try:
         year, mon = int(target[:4]), int(target[5:7])
-        p_start_dt = datetime(year, mon, 1)
+        p_start_dt = datetime(year, mon, 1, tzinfo=KST)
     except (ValueError, IndexError):
         raise StaffError("월 형식이 올바르지 않습니다 (YYYY-MM).")
-    p_end_dt = datetime(year + 1, 1, 1) if mon == 12 else datetime(year, mon + 1, 1)
+    p_end_dt = (datetime(year + 1, 1, 1, tzinfo=KST) if mon == 12
+                else datetime(year, mon + 1, 1, tzinfo=KST))
     p_start, p_end = f"{target}-01", f"{target}-{_calendar.monthrange(year, mon)[1]:02d}"
 
     db = _session()
