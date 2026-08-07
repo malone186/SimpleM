@@ -99,7 +99,8 @@ function ObjectSection({ name, obj }: { name: string; obj: Record<string, unknow
   );
 }
 
-/** AI 조언처럼 긴 문장은 라벨:값 행으로 찍으면 오른쪽 정렬 좁은 칸에 뭉개진다 — 전용 블록으로 */
+/** AI 조언처럼 긴 문장은 라벨:값 행으로 찍으면 오른쪽 정렬 좁은 칸에 뭉개진다 — 전용 블록으로.
+    새 형식은 "1. …\n2. …"의 번호 매긴 줄이라, 줄로 쪼개 번호를 강조해 읽기 쉽게 그린다. */
 function AdviceBlock({ text }: { text: string }) {
   return (
     <View style={styles.adviceWrap}>
@@ -107,7 +108,22 @@ function AdviceBlock({ text }: { text: string }) {
         <Ionicons name="cafe-outline" size={13} color={colors.pointOrange} />
         <Text style={styles.adviceTitle}>브루의 조언</Text>
       </View>
-      <Text style={styles.adviceText}>{text}</Text>
+      {text.split('\n').filter(Boolean).map((line, i) => {
+        const m = line.match(/^(\d+)\.\s*(.*)$/);
+        return (
+          <Text key={i} style={styles.adviceText}>
+            {m ? (
+              <>
+                <Text style={styles.adviceNum}>{m[1]}</Text>
+                <Text style={styles.adviceNum}>{'  '}</Text>
+                {m[2]}
+              </>
+            ) : (
+              line
+            )}
+          </Text>
+        );
+      })}
     </View>
   );
 }
@@ -126,6 +142,9 @@ function ActionsBlock({ raw }: { raw: unknown }) {
           style={styles.actionBlock}
           onPress={() => navigation.navigate(a.route as never)}
         >
+          <View style={styles.actionNumBadge}>
+            <Text style={styles.actionNumText}>{i + 1}</Text>
+          </View>
           <View style={{ flex: 1, gap: 2 }}>
             <Text style={styles.itemTitle}>{a.title}</Text>
             <Text style={styles.itemDetail}>{a.action}</Text>
@@ -268,6 +287,15 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   actionEvidence: { ...typography.L5, fontSize: 10, color: colors.mochaBrown },
+  actionNumBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionNumText: { ...typography.L5, fontSize: 11, fontWeight: '800', color: colors.pointOrange },
   itemTitle: { ...typography.L5, fontSize: 11, fontWeight: '700', color: colors.espressoBrown },
   itemDetail: { ...typography.L5, color: colors.mochaBrown, lineHeight: 16 },
   bulletDot: { color: colors.pointOrange, fontWeight: '700' },
@@ -284,6 +312,7 @@ const styles = StyleSheet.create({
   adviceHeader: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   adviceTitle: { ...typography.L5, fontWeight: '700', color: colors.pointOrange },
   adviceText: { ...typography.L5, fontSize: 12, color: colors.espressoBrown, lineHeight: 19 },
+  adviceNum: { fontWeight: '800', color: colors.pointOrange },
   collapsedHint: { paddingVertical: 9, alignItems: 'center' },
   collapsedHintText: { ...typography.L5, fontWeight: '700', color: colors.pointOrange },
   moreText: {

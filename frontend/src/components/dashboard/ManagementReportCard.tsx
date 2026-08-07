@@ -391,7 +391,8 @@ export default function ManagementReportCard({ refreshToken = 0 }: { refreshToke
               </View>
             )}
 
-            {/* 브루의 조언 — 숫자 요약을 '그래서 뭘 하면 되나'로 잇는 문장형 해설 */}
+            {/* 브루의 조언 — 번호 매긴 짧은 문장 한 줄씩. 백엔드가 "1. …\n2. …"로 보내므로
+                줄로 쪼개 번호만 오렌지로 강조한다 (구형식 문단 조언은 그대로 한 덩이로 나온다) */}
             {aiAdvice && (
               <View style={styles.adviceWrap}>
                 <View style={styles.adviceHeader}>
@@ -400,19 +401,40 @@ export default function ManagementReportCard({ refreshToken = 0 }: { refreshToke
                     {language === 'en' ? "BREW's advice" : '브루의 조언'}
                   </Text>
                 </View>
-                <Text style={styles.adviceText}>{aiAdvice}</Text>
+                {aiAdvice.split('\n').filter(Boolean).map((line, i) => {
+                  const m = line.match(/^(\d+)\.\s*(.*)$/);
+                  return (
+                    <Text key={i} style={styles.adviceText}>
+                      {m ? (
+                        <>
+                          <Text style={styles.adviceNum}>{m[1]}</Text>
+                          <Text style={styles.adviceNum}>{'  '}</Text>
+                          {m[2]}
+                        </>
+                      ) : (
+                        line
+                      )}
+                    </Text>
+                  );
+                })}
               </View>
             )}
 
             {/* 지금 할 수 있는 일 — 조언에서 짚은 문제를 그 화면으로 바로 이동해 해결 */}
             {aiActions.length > 0 && (
               <View style={styles.actionWrap}>
+                <Text style={styles.actionHead}>
+                  {language === 'en' ? 'Things to do now' : '지금 할 수 있는 일'}
+                </Text>
                 {aiActions.map((a, i) => (
                   <PressableScale
                     key={i}
                     style={styles.actionRow}
                     onPress={() => (navigation as any).navigate(a.route)}
                   >
+                    <View style={styles.actionNumBadge}>
+                      <Text style={styles.actionNumText}>{i + 1}</Text>
+                    </View>
                     <View style={{ flex: 1, gap: 1 }}>
                       <Text style={styles.actionTitle}>{a.title}</Text>
                       <Text style={styles.actionText} numberOfLines={2}>{a.action}</Text>
@@ -661,7 +683,18 @@ const styles = StyleSheet.create({
   adviceHeader: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   adviceTitle: { ...typography.L5, fontWeight: '800', color: colors.pointOrange },
   adviceText: { ...typography.L5, fontSize: 11.5, color: colors.espressoBrown, lineHeight: 18 },
+  adviceNum: { fontWeight: '800', color: colors.pointOrange },
   actionWrap: { gap: 6 },
+  actionHead: { ...typography.L5, fontWeight: '800', color: colors.mochaBrown, marginBottom: 1 },
+  actionNumBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: colors.coffeeCream,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionNumText: { ...typography.L5, fontSize: 11, fontWeight: '800', color: colors.pointOrange },
   actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
