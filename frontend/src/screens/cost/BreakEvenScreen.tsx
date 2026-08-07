@@ -191,7 +191,8 @@ export default function BreakEvenScreen() {
 
           <View style={styles.field}>
             <Text style={styles.fieldLabel}>한 달 영업일수</Text>
-            <View style={[styles.inputWrap, { width: 110 }]}>
+            {/* 기본 minWidth(140)가 width(110)를 이겨 박스가 커지던 충돌 — 둘 다 110으로 고정 */}
+            <View style={[styles.inputWrap, { width: 110, minWidth: 110 }]}>
               <TextInput
                 style={styles.input}
                 value={openDays}
@@ -250,7 +251,7 @@ export default function BreakEvenScreen() {
 
           <View style={[styles.field, { marginTop: 12 }]}>
             <Text style={styles.fieldLabel}>직접 적기 (선택)</Text>
-            <View style={[styles.inputWrap, { width: 110 }]}>
+            <View style={[styles.inputWrap, { width: 110, minWidth: 110 }]}>
               <TextInput
                 style={styles.input}
                 value={ratioText}
@@ -461,6 +462,9 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
+    // 웹의 <input>은 고유 최소 폭이 있어 flex여도 줄어들지 않는다 — 그대로 두면
+    // 옆의 단위 글자('일'·'%')를 박스 밖, 심하면 카드 밖까지 밀어낸다. 0으로 풀어준다.
+    minWidth: 0,
     textAlign: 'right',
     color: colors.espressoBrown,
     fontSize: 14,
