@@ -187,15 +187,23 @@ def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
 # 디자인의 메일로 보낸다. 설정(서비스계정+SMTP)이 없으면 503을 주어 프론트가 Firebase 기본
 # 메일로 폴백하게 한다. 이메일 존재 여부가 새어나가지 않도록 성공/계정없음 모두 204로 응답한다.
 @router.post("/reset-password-email", status_code=status.HTTP_204_NO_CONTENT)
-def reset_password_email(req: ResetEmailRequest):
+def reset_password_email(req: ResetEmailRequest, db: Session = Depends(get_db)):
     """가입 이메일로 비밀번호 재설정 링크가 담긴 커스텀 메일을 발송합니다."""
     from app.services import mail_service
 
     if not mail_service.custom_reset_available():
         # 커스텀 메일 미설정 — 프론트가 이 코드를 보고 Firebase 기본 메일로 폴백한다
         raise HTTPException(status_code=503, detail={"code": "custom_email_unavailable"})
+    email = req.email.strip().lower()
     try:
-        mail_service.send_password_reset(req.email.strip().lower())
+        sent = mail_service.send_password_reset(email)
+        if not sent:
+            # Firebase에 계정이 없어 링크가 안 만들어진 경우 — mock 모드에서 가입해 백엔드
+            # DB에만 있는 계정이면, Firebase 계정을 만들어 준 뒤 다시 발송한다. 예전엔 이
+            # 케이스가 '메일을 보냈어요' 화면 뒤에서 아무것도 안 보내고 끝났다.
+            user = db.query(User).filter(sa_func.lower(User.email) == email).first()
+            if user and mail_service.provision_firebase_account(email):
+                mail_service.send_password_reset(email)
     except mail_service.MailError as e:
         raise HTTPException(status_code=502, detail=str(e))
 

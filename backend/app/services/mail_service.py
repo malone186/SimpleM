@@ -104,10 +104,41 @@ def generate_reset_link(email: str, continue_url: str = "") -> Optional[str]:
         raise MailError(f"재설정 링크 요청 실패: {e}")
 
     if resp.status_code == 400 and "EMAIL_NOT_FOUND" in resp.text:
+        logger.info("재설정 링크 생략 — Firebase 계정 없음: %s", email)
         return None  # 해당 Firebase 계정 없음 — 조용히 넘긴다
     if resp.status_code >= 400:
         raise MailError(f"재설정 링크 생성 실패({resp.status_code})")
     return resp.json().get("oobLink")
+
+
+def provision_firebase_account(email: str) -> bool:
+    """백엔드 DB에만 있는 가입자의 Firebase 계정을 만들어 준다 (임의 비밀번호).
+
+    로그인이 Firebase 비밀번호를 검증하는데, mock 모드에서 가입한(백엔드 전용) 계정은
+    Firebase에 없어서 재설정 링크 생성이 EMAIL_NOT_FOUND로 끝난다 → 메일이 조용히 안 나갔다.
+    계정을 만들어 두면 재설정 링크가 동작하고, 링크에서 설정한 새 비밀번호로 Firebase
+    로그인이 된다. 임의 비밀번호는 아무도 모르는 값이라 이 계정으로 몰래 로그인할 수 없고,
+    기존 비밀번호의 백엔드 폴백 로그인도 그대로 동작한다.
+    """
+    token, project_id = _admin_token_and_project()
+    if not token or not project_id:
+        return False
+    import secrets
+    try:
+        resp = httpx.post(
+            f"https://identitytoolkit.googleapis.com/v1/projects/{project_id}/accounts",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"email": email, "password": secrets.token_urlsafe(24), "emailVerified": False},
+            timeout=15,
+        )
+    except Exception as e:
+        logger.warning("Firebase 계정 프로비저닝 실패(%s): %s", email, e)
+        return False
+    if resp.status_code >= 400:
+        logger.warning("Firebase 계정 프로비저닝 실패(%s): HTTP %s", email, resp.status_code)
+        return False
+    logger.info("Firebase 계정 프로비저닝 완료(재설정용): %s", email)
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -203,12 +234,15 @@ def custom_reset_available() -> bool:
     return _service_account_info() is not None and smtp_configured()
 
 
-def send_password_reset(email: str, continue_url: str = "") -> None:
-    """Firebase 재설정 링크를 만들어 커스텀 메일로 보낸다.
+def send_password_reset(email: str, continue_url: str = "") -> bool:
+    """Firebase 재설정 링크를 만들어 커스텀 메일로 보낸다. 발송했으면 True.
 
-    해당 이메일의 Firebase 계정이 없으면 아무 일도 하지 않는다(열거 방지 — 호출부는 성공 처리).
+    해당 이메일의 Firebase 계정이 없으면 아무 일도 하지 않고 False를 돌려준다
+    (열거 방지 — 호출부는 백엔드 DB 가입자면 프로비저닝 후 재시도, 아니면 성공 처리).
     """
     link = generate_reset_link(email, continue_url)
     if link is None:
-        return  # 계정 없음 — 조용히 성공
+        return False  # Firebase 계정 없음
     _send(_build_message(email, link))
+    logger.info("비밀번호 재설정 메일 발송: %s", email)
+    return True
