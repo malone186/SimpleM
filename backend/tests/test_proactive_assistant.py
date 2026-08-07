@@ -117,6 +117,102 @@ def test_최근에_홍보물을_만들었으면_조용하다(db):
 
 
 # ---------------------------------------------------------------------------
+# 메뉴 개선 — '점검해 보세요'가 아니라 '얼마로 올리세요'까지
+# ---------------------------------------------------------------------------
+
+def _fake_recommend(suggestions):
+    return {"days": 30, "suggestions": suggestions, "headline": "", "expected_gain": 0,
+            "comment": "", "assumptions": []}
+
+
+def test_메뉴_인사이트는_받아야_할_가격까지_말한다(monkeypatch, db):
+    """'원가율 45%예요, 점검하세요'는 숙제만 넘기는 말이다 — 얼마로 올릴지가 있어야 한다."""
+    from app.services.ai import menu_review_service
+
+    monkeypatch.setattr(menu_review_service, "recommend", lambda store_id, **kw: _fake_recommend([{
+        "kind": "price", "menu_id": 7, "name": "수제청에이드",
+        "before": {"price": 6000, "cost": 6500, "margin": -500, "sold_qty_30d": 20},
+        "after": {"price": 6900, "cost": 6500, "margin": 400},
+        "monthly_delta": 18000, "breakeven_drop_pct": None, "verdict": "risk",
+        "headline": "", "reason": "", "notes": [], "why": "", "priority": 0, "actionable": True,
+    }]))
+    found = insight_service._scan_menu_margin(db, STORE, TODAY)
+
+    assert found[0]["category"] == "menu"
+    assert found[0]["severity"] == "high"          # 팔수록 손해는 지금 조치
+    assert "6,900원" in found[0]["body"]           # 얼마로 올려야 하는지
+    assert found[0]["todo"] == "수제청에이드 가격 올리기"
+    assert "6900원으로 올리면" in found[0]["action"]  # 챗봇이 그대로 다시 계산해 준다
+
+
+def test_인상_추천은_버틸_수_있는_감소폭을_함께_말한다(monkeypatch, db):
+    from app.services.ai import menu_review_service
+
+    monkeypatch.setattr(menu_review_service, "recommend", lambda store_id, **kw: _fake_recommend([{
+        "kind": "price", "menu_id": 1, "name": "아메리카노",
+        "before": {"price": 4000, "cost": 2000, "margin": 2000, "sold_qty_30d": 500},
+        "after": {"price": 4600, "cost": 2000, "margin": 2600},
+        "monthly_delta": 300000, "breakeven_drop_pct": 23.1, "breakeven_drop_cups": 115,
+        "verdict": "good", "headline": "", "reason": "", "notes": [],
+        "why": "", "priority": 1, "actionable": True,
+    }]))
+    body = insight_service._scan_menu_margin(db, STORE, TODAY)[0]["body"]
+    assert "23.1%(115잔)" in body
+    assert "300,000원" in body
+
+
+def test_안_나가는_메뉴가_쌓이면_정리를_할_일로_올린다(monkeypatch, db):
+    from app.services.ai import menu_review_service
+
+    def dead(mid, name):
+        return {"kind": "remove", "menu_id": mid, "name": name,
+                "before": {"price": 5000, "cost": 1000, "margin": 4000, "sold_qty_30d": 0},
+                "after": None, "monthly_delta": 0, "verdict": "good",
+                "headline": "", "reason": "", "notes": [], "why": "", "priority": 2,
+                "actionable": True}
+
+    monkeypatch.setattr(menu_review_service, "recommend", lambda store_id, **kw: _fake_recommend(
+        [dead(1, "티라미수"), dead(2, "크로플"), dead(3, "마카롱")]))
+    found = insight_service._scan_menu_margin(db, STORE, TODAY)
+    assert found[0]["severity"] == "medium"        # 3개부터 할 일 (low는 투두가 되지 않는다)
+    assert found[0]["todo"] == "안 팔리는 메뉴 정리"
+    assert "티라미수" in found[0]["body"]
+
+
+def test_안_나가는_메뉴가_하나뿐이면_할_일로_올리지_않는다(monkeypatch, db):
+    """시즌 메뉴일 수 있다 — 알림으로만 남기고 할 일 칸은 비워 둔다."""
+    from app.services.ai import menu_review_service
+
+    monkeypatch.setattr(menu_review_service, "recommend", lambda store_id, **kw: _fake_recommend([{
+        "kind": "remove", "menu_id": 9, "name": "장미라떼",
+        "before": {"price": 6000, "cost": 1500, "margin": 4500, "sold_qty_30d": 0},
+        "after": None, "monthly_delta": 0, "verdict": "good",
+        "headline": "", "reason": "", "notes": [], "why": "", "priority": 2, "actionable": True,
+    }]))
+    assert insight_service._scan_menu_margin(db, STORE, TODAY)[0]["severity"] == "low"
+
+
+def test_메뉴가_없는_매장에서는_조용하다(monkeypatch, db):
+    from app.services.ai import menu_review_service
+
+    def boom(store_id, **kw):
+        raise menu_review_service.MenuReviewError("등록된 메뉴가 없어요")
+
+    monkeypatch.setattr(menu_review_service, "recommend", boom)
+    assert insight_service._scan_menu_margin(db, STORE, TODAY) == []
+
+
+def test_추천이_터져도_나머지_인사이트는_살아남는다(monkeypatch, db):
+    from app.services.ai import menu_review_service
+
+    def boom(store_id, **kw):
+        raise RuntimeError("DB 끊김")
+
+    monkeypatch.setattr(menu_review_service, "recommend", boom)
+    assert insight_service._scan_menu_margin(db, STORE, TODAY) == []
+
+
+# ---------------------------------------------------------------------------
 # 인사이트 → 할 일
 # ---------------------------------------------------------------------------
 
@@ -160,12 +256,41 @@ def test_한_영역이_할_일_칸을_독차지하지_않는다(monkeypatch, db)
     assert [t["category"] for t in todos] == ["inventory", "document"]
 
 
+def test_다_떨어진_재료가_많아도_상위_4개는_재료_id_순으로_고정된다(monkeypatch, db):
+    """동점(전부 0개)일 때 순서가 흔들리면 앱이 고른 4개와 어긋나 중복 줄이 생긴다.
+
+    앱(DashboardScreen.buildDashboard)도 (남은양/필요량, 재료id) 순으로 4개를 고른다.
+    여기서 순서가 DB가 주는 대로 흘러가면 두 목록이 달라지고, 한쪽에만 남은 재료를
+    소진 예측 인사이트가 다시 집어 와 '<재료명> 발주'가 두 줄로 뜬다.
+    """
+    from app.models.inventory import Ingredient, Stock
+
+    for i in (73, 64, 67, 65, 66):   # 일부러 뒤섞어 넣는다
+        db.add(Ingredient(id=i, name=f"재료{i}", unit="kg", current_price=0, store_id=STORE))
+        db.add(Stock(ingredient_id=i, current_quantity=0.0, safety_quantity=2.0))
+    db.commit()
+
+    stocks, _ = ai_todo_service._gather(STORE)
+    assert [s["id"] for s in stocks] == [64, 65, 66, 67]
+
+    # 그 4개 중 하나(67)의 소진 예측은 접히고, 밀려난 73은 그대로 남는다
+    monkeypatch.setattr(insight_service, "scan", lambda store_id, **kw: _fake_scan([
+        insight_service._insight("stock_runout:67:2026-07-30", "inventory", "high",
+                                 "재료67 소진 예상", "본문", "액션", todo="재료67 발주"),
+    ]))
+    todos = ai_todo_service.suggest_todos(STORE)["todos"]
+    titles = [t["title"] for t in todos]
+    assert titles.count("재료67 발주") == 1
+    assert len(set(t["id_hint"] for t in todos)) == len(todos)
+
+
 def test_이미_재고_할_일이_있는_재료는_두_줄로_만들지_않는다(monkeypatch, db):
     monkeypatch.setattr(insight_service, "scan", lambda store_id, **kw: _fake_scan([
         insight_service._insight("stock_runout:7:2026-07-30", "inventory", "high",
                                  "원두 소진 예상", "본문", "액션", todo="원두 발주"),
     ]))
-    assert ai_todo_service._insight_todos(STORE, {"stock-7"}) == []
+    # 재료 id로 판정한다 (예전엔 'stock-7' 문자열이었다)
+    assert ai_todo_service._insight_todos(STORE, {7}) == []
 
 
 # ---------------------------------------------------------------------------

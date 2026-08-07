@@ -23,7 +23,7 @@ import { loadCache, markAllStale, peekCache, saveCache } from '../../lib/cache';
 import { awardDerivedTodo } from '../../lib/api/rewards';
 import AlertCenterCard, { type AlertItem } from '../../components/dashboard/AlertCenterCard';
 import { navigateToTarget } from '../../notifications/navigationTarget';
-import RoomBackdrop from '../../components/brew/RoomBackdrop';
+import RoomBackdrop, { useSheetTop } from '../../components/brew/RoomBackdrop';
 import { getRoomTint } from '../../components/brew/roomBackgrounds';
 import { useEquipped } from '../../rewards/EquippedContext';
 import { colors, spacing, typography, shadows } from '../../theme';
@@ -36,6 +36,10 @@ const COMPLETED_TODOS_KEY = '@simplem_completed_todos';
 // [한글 주석: 사장님이 지운 스마트 알림 센터 ID 저장 키 (AsyncStorage 영구 보관)]
 const DISMISSED_ALERTS_KEY = '@simplem_dismissed_alerts';
 
+// 방금 만든 할 일을 서버 목록이 따라올 때까지 화면에 붙들어 두는 시간.
+// 조회 캐시가 60초라 그보다 조금만 길게 — 더 길면 서버에서 사라진 줄이 화면에만 남는다.
+const PENDING_KEEP_MS = 90_000;
+
 // [한글 주석: 알림 카드 하단 우측에 '실시간' 고정 문구 대신 실제 알림 감지 시각(예: 오전 08:30)을 노출하는 시각 포맷 함수]
 function getFormattedTimeText(): string {
   const now = new Date();
@@ -45,6 +49,48 @@ function getFormattedTimeText(): string {
   const displayHours = hours % 12 || 12;
   const displayMinutes = String(minutes).padStart(2, '0');
   return `${ampm} ${displayHours}:${displayMinutes}`;
+}
+
+/** 오늘 날짜 키 (YYYY-MM-DD, 기기 시간대 기준) */
+function todayKey(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * 같은 일인지 판정하기 위한 제목 정규화 — 앞머리 태그·공백·'~하기' 어미를 걷어낸다.
+ * (백엔드 todo_service._normalize_title과 같은 규칙)
+ */
+function normalizeTitle(title: string): string {
+  const t = (title || '').replace(/^\[[^\]]{1,8}\]\s*/, '').replace(/\s+/g, '');
+  return t.endsWith('하기') ? t.slice(0, -2) : t;
+}
+
+// ── 체크(완료) 표시는 '오늘 것'만 살린다 ──
+// 재고·서류처럼 자동으로 만들어지는 줄은 id가 날마다 같다(stock-64). 날짜를 안 따지면
+// 어제 체크한 발주가 오늘도 체크된 채로 떠서 이미 한 일처럼 보인다.
+// 보관 형식은 { id: 'YYYY-MM-DD' } — 예전 형식(id 배열)은 오늘 것으로 받아들이고 넘어간다.
+function parseCompletedMap(raw: string | null): Record<string, string> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      const today = todayKey();
+      return Object.fromEntries(parsed.map((id: string) => [id, today]));
+    }
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function todayCompletedSet(raw: string | null): Set<string> {
+  const today = todayKey();
+  return new Set(
+    Object.entries(parseCompletedMap(raw))
+      .filter(([, day]) => day === today)
+      .map(([id]) => id),
+  );
 }
 
 // 날짜는 '2026-08-09'가 아니라 '8월 9일'로 — 알림은 훑어보는 글이라 숫자를 세게 하지 않는다
@@ -182,9 +228,19 @@ function buildDashboard(
   // 여기에 '홍보할 메뉴 고르기' 링크가 붙는 promo 항목이 하나 따라온다.
   // id는 stock-<재료id>/promo-main 으로 안정적이라 숨김(X)·완료 기록이 유지된다.
   const aiSuggested: AiSuggestedTodo[] = sources.aiSuggest?.todos ?? [];
-  const aiStockIds = new Set(
-    aiSuggested.filter((s) => s.kind === 'stock').map((s) => s.id_hint),
-  );
+  // 브루가 이미 다루는 재료 — 아래 재고 블록이 같은 '<재료명> 발주' 줄을 또 만들지 않게 막는다.
+  // 두 갈래를 모두 본다: 부족 재고 항목(stock-<재료id>)과 소진 예측 인사이트
+  // (insight-stock_runout:<재료id>:<날짜>). 예전엔 앞의 것만 봐서, 브루가 상위 4개에서
+  // 밀어낸 재료를 소진 예측으로 다시 얹으면 '바닐라 시럽 발주'가 두 줄로 떴다.
+  const aiStockIds = new Set<string>();
+  aiSuggested.forEach((s) => {
+    if (s.kind === 'stock') {
+      aiStockIds.add(s.id_hint);
+      return;
+    }
+    const runout = /^insight-stock_runout:(\d+):/.exec(s.id_hint);
+    if (runout) aiStockIds.add(`stock-${runout[1]}`);
+  });
   // 서류 갱신은 인사이트도 만들고 아래 compliance 블록도 만든다 → 한 서류가 두 줄로 뜬다.
   // 인사이트 키가 `insight-renewal:<서류id>:<만료일>`이라 여기서 서류 id만 뽑아 막는다.
   const aiRenewalDocIds = new Set(
@@ -202,7 +258,9 @@ function buildDashboard(
       // 홍보 항목만 근거 줄을 뺀다 — 아래에 '메뉴 고르기' 링크가 있어 중복이라서
       meta: s.kind === 'promo' ? undefined : s.subtitle,
       urgentLabel: s.urgent ? '급함' : undefined,
-      actionable: s.kind === 'stock',
+      // 눌러서 갈 곳이 있는 항목만 눌리게 한다 (재고 상세 · 메뉴 개선 화면).
+      // 갈 곳이 없는데 눌리면 사장님은 앱이 먹통이라고 생각한다.
+      actionable: s.kind === 'stock' || /^insight-menu_/.test(s.id_hint),
       done: completedSet.has(s.id_hint),
       source: 'ai',
       ...(s.kind === 'promo' ? { action: 'marketing' as const, menu: s.menu ?? '' } : null),
@@ -235,12 +293,16 @@ function buildDashboard(
     }
   });
 
+  // 정렬 기준을 브루(ai_todo_service._gather)와 한 글자까지 맞춘다 —
+  // ① 나눗셈의 분모는 '실제로 필요한 양'(안전재고가 0이면 3) ② 동점이면 재료 id 순.
+  // 어긋나면 양쪽이 서로 다른 4개를 골라, 한쪽에만 남은 재료가 중복 줄로 되살아난다.
+  const needOf = (s: { safety_quantity: number }) => (s.safety_quantity > 0 ? s.safety_quantity : 3);
   lowStocks
     .slice()
     .sort(
       (a, b) =>
-        a.current_quantity / (a.safety_quantity || 1) -
-        b.current_quantity / (b.safety_quantity || 1),
+        a.current_quantity / needOf(a) - b.current_quantity / needOf(b) ||
+        a.ingredient_id - b.ingredient_id,
     )
     .slice(0, 4)
     .forEach((s) => {
@@ -361,7 +423,42 @@ function buildDashboard(
   };
   nextAlerts.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
 
-  return { todos: next, alerts: nextAlerts };
+  return { todos: dedupeTodos(next), alerts: nextAlerts };
+}
+
+/**
+ * 같은 일이 두 줄로 뜨지 않게 하는 마지막 방어선.
+ *
+ * 할 일은 다섯 갈래(브루 제안·재고·서류·서버 저장·목업)에서 모이고, 갈래마다 id 규칙이
+ * 달라서 id만으로는 겹침을 못 잡는다 — 'stock-67'과 'insight-stock_runout:67:…'은
+ * id가 다르지만 화면엔 똑같이 '바닐라 시럽 발주' 한 줄로 보인다. 그래서 두 가지로 접는다:
+ *   ① id가 같으면 (목록 key까지 겹쳐 화면이 깨진다)
+ *   ② 같은 날짜에 뜨는 항목끼리 제목이 사실상 같으면
+ * 겹칠 때는 서버에 행이 있는 쪽을 남긴다 — 고치고 지울 수 있는 건 그쪽뿐이다.
+ */
+function dedupeTodos(list: Todo[]): Todo[] {
+  const today = todayKey();
+  const seenIds = new Set<string>();
+  const slotOfTitle = new Map<string, number>();
+  const out: Todo[] = [];
+
+  for (const t of list) {
+    if (seenIds.has(t.id)) continue;
+    seenIds.add(t.id);
+
+    // 날짜가 없는 항목(재고·서류처럼 자동 도출된 것)은 오늘 줄에만 뜬다
+    const key = `${t.dateKey || today}|${normalizeTitle(t.title)}`;
+    const slot = slotOfTitle.get(key);
+    if (slot === undefined) {
+      slotOfTitle.set(key, out.length);
+      out.push(t);
+      continue;
+    }
+    if (t.id.startsWith('server-') && !out[slot].id.startsWith('server-')) {
+      out[slot] = t;
+    }
+  }
+  return out;
 }
 
 export default function DashboardScreen() {
@@ -375,12 +472,31 @@ export default function DashboardScreen() {
   const [runId, setRunId] = useState(0);
   const notifiedStocksRef = useRef<Set<string>>(new Set());
 
+  // 숨김·완료 기록은 화면과 같은 수명을 갖는다.
+  // 예전에는 이 값들이 데이터 조회 이펙트 안에만 있어서, 지운 직후 늦게 도착한 응답
+  // 하나가(인사이트는 7초까지 걸린다) 방금 지운 줄을 그대로 되살리고 체크도 풀었다.
+  // 기기 보관소에 쓰는 것과 **같은 순간** 여기도 고쳐야 그 되살아남이 없다.
+  const prefsRef = useRef<DashboardPrefs>({
+    dismissed: new Set(),
+    completed: new Set(),
+    dismissedAlerts: new Set(),
+  });
+  const prefsLoadedRef = useRef(false);
+
+  // 방금 추가하거나 고친 할 일 — 서버 목록이 따라올 때까지만 들고 있는다.
+  // paint()는 서버 응답으로 목록을 통째로 다시 만들기 때문에, 이 보관이 없으면
+  // 새 할 일을 적은 직후 느린 응답 하나만 도착해도 방금 적은 줄이 사라졌다
+  // (다음 조회까지 최대 1분).
+  const pendingTodosRef = useRef<Map<string, { todo: Todo; at: number }>>(new Map());
+
   const { user, token } = useAuth();
   const navigation = useNavigation<any>();
   const isFocused = useIsFocused();
   // 상점에서 산 카페 배경을 착용하면 홈 상단 색도 그 분위기로 물든다 (사진이 아니라 색만 — roomBackgrounds.ts)
   const { roomBgId } = useEquipped();
   const tint = getRoomTint(roomBgId);
+  // 착용 배경 사진이 웰컴 영역을 꽉 채우도록, 크림 시트가 시작하는 y를 실측해 넘긴다 (네 탭 공통)
+  const { sheetTop, onSheetLayout } = useSheetTop();
 
   const [pushModalOpen, setPushModalOpen] = useState(false);
   const [pushBadgeSeen, setPushBadgeSeen] = useState(false);
@@ -400,16 +516,27 @@ export default function DashboardScreen() {
     let cancelled = false;
 
     const sources: DashboardSources = {};
-    let prefs: DashboardPrefs | null = null;
 
     // 숨김·완료 기록을 읽기 전에는 그리지 않는다 — 먼저 그리면 지운 항목이 잠깐 되살아난다
     const paint = () => {
-      if (cancelled || !prefs) return;
-      const built = buildDashboard(sources, prefs);
-      setTodos((prev) => {
-        const localItems = prev.filter((p) => p.id.startsWith('local-'));
-        return [...localItems, ...built.todos];
+      if (cancelled || !prefsLoadedRef.current) return;
+      const built = buildDashboard(sources, prefsRef.current);
+
+      // 방금 만든 줄은 서버 목록이 따라올 때까지만 얹는다. 서버가 같은 id를 돌려주기
+      // 시작하면(=따라잡았으면) 즉시 놓아준다 — 계속 들고 있으면 서버에서 지워진
+      // 뒤에도 화면에만 남는다. 응답이 끝내 안 와도 PENDING_KEEP_MS면 정리된다.
+      const builtIds = new Set(built.todos.map((t) => t.id));
+      const now = Date.now();
+      pendingTodosRef.current.forEach((entry, id) => {
+        if (builtIds.has(id) || now - entry.at > PENDING_KEEP_MS) {
+          pendingTodosRef.current.delete(id);
+        }
       });
+      const pending = Array.from(pendingTodosRef.current.values()).map((e) => e.todo);
+
+      // 붙여 놓은 줄까지 합친 다음 한 번 더 접는다 — 사장님이 직접 적은 제목이 자동
+      // 도출된 줄과 같을 수 있다(예: '우유 발주'를 손으로 적었는데 재고에서도 같은 줄이 온다)
+      setTodos(dedupeTodos([...pending, ...built.todos]));
       setAlerts(built.alerts);
     };
 
@@ -482,11 +609,17 @@ export default function DashboardScreen() {
       );
       if (cancelled) return;
 
-      prefs = {
-        dismissed: parseSet(rawDismissed),
-        completed: parseSet(rawCompleted),
-        dismissedAlerts: parseSet(rawDismissedAlerts),
+      // 보관소를 읽는 사이에 사장님이 지운 항목은 그대로 둔다 — 읽기가 늦게 끝났다고
+      // 방금 지운 줄이 되살아나면 안 된다 (지움 기록은 늘 더해지기만 한다)
+      prefsRef.current = {
+        dismissed: new Set([...parseSet(rawDismissed), ...prefsRef.current.dismissed]),
+        completed: todayCompletedSet(rawCompleted),
+        dismissedAlerts: new Set([
+          ...parseSet(rawDismissedAlerts),
+          ...prefsRef.current.dismissedAlerts,
+        ]),
       };
+      prefsLoadedRef.current = true;
       // 이미 서버 응답이 온 항목은 캐시로 덮지 않는다
       cached.forEach(([name, data]) => {
         if (data !== undefined && sources[name] === undefined) sources[name] = data;
@@ -512,6 +645,7 @@ export default function DashboardScreen() {
   // [한글 주석: 스마트 알림 개별 닫기 — UI에서 즉시 제거 후 AsyncStorage 영구 기록]
   const handleDismissAlert = async (id: string) => {
     setAlerts((prev) => prev.filter((a) => a.id !== id));
+    prefsRef.current.dismissedAlerts.add(id);   // 늦게 도착한 응답이 되살리지 않게
     try {
       const raw = await AsyncStorage.getItem(DISMISSED_ALERTS_KEY);
       const set = new Set<string>(raw ? JSON.parse(raw) : []);
@@ -526,6 +660,7 @@ export default function DashboardScreen() {
   const handleClearAllAlerts = async () => {
     const ids = alerts.map((a) => a.id);
     setAlerts([]);
+    ids.forEach((id) => prefsRef.current.dismissedAlerts.add(id));
     try {
       const raw = await AsyncStorage.getItem(DISMISSED_ALERTS_KEY);
       const set = new Set<string>(raw ? JSON.parse(raw) : []);
@@ -544,6 +679,7 @@ export default function DashboardScreen() {
     } catch (e) {
       console.error('알림 기록 초기화 실패:', e);
     }
+    prefsRef.current.dismissedAlerts.clear();
     toast('지운 알림을 다시 불러왔어요', '지금 확인이 필요한 알림만 보여드려요.');
     setRunId((x) => x + 1);
   };
@@ -570,12 +706,16 @@ export default function DashboardScreen() {
   // 아래 핸들러들은 화면을 먼저 바꾸고(낙관적) 서버에 반영한다.
   const resync = () => setRunId((x) => x + 1);
 
+  /** 서버 목록이 따라올 때까지 화면에 붙들어 둘 항목으로 등록 (없으면 다음 응답에 사라진다) */
+  const holdPending = (todo: Todo) => {
+    pendingTodosRef.current.set(todo.id, { todo, at: Date.now() });
+  };
+
   const handleAddTodo = async (title: string, dateKey?: string) => {
     const trimmed = title.trim();
     if (!trimmed) return;
 
-    const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
-    const targetKey = dateKey || todayStr;
+    const targetKey = dateKey || todayKey();
     const tempLocalId = `local-${Date.now()}`;
 
     const newTodo: Todo = {
@@ -588,6 +728,7 @@ export default function DashboardScreen() {
       source: 'owner',
     };
 
+    holdPending(newTodo);
     setTodos((prev) => [newTodo, ...prev]);
 
     if (token) {
@@ -595,17 +736,24 @@ export default function DashboardScreen() {
         const created = await createTodo(token, trimmed);
         const realServerId = `server-${created.id}`;
         // [한글 주석] 서버 등록 완료 후 local- ID를 server- ID로 교체하여 삭제 시 서버 연동이 정상 동작하게 함
+        pendingTodosRef.current.delete(tempLocalId);
+        holdPending({ ...newTodo, id: realServerId });
         setTodos((prev) =>
           prev.map((t) => (t.id === tempLocalId ? { ...t, id: realServerId } : t))
         );
       } catch (e) {
         console.error('할 일 추가 실패:', e);
+        // 저장에 실패한 줄을 계속 들고 있으면 '적혔다'고 오해한다 — 다음 그리기에서 놓아준다
+        pendingTodosRef.current.delete(tempLocalId);
       }
     }
   };
 
   /** 자동 도출 항목이 새로고침 때 되살아나지 않게 숨김 목록에 넣는다 (기기에만 남는 기록) */
   const rememberDismissed = async (id: string) => {
+    // 화면에 쓰는 기록을 먼저 고친다 — 보관소 쓰기를 기다리는 사이에 늦은 응답이 도착하면
+    // 방금 지운 줄이 그대로 되살아난다
+    prefsRef.current.dismissed.add(id);
     try {
       const raw = await AsyncStorage.getItem(DISMISSED_TODOS_KEY);
       const set = new Set<string>(raw ? JSON.parse(raw) : []);
@@ -623,6 +771,8 @@ export default function DashboardScreen() {
 
     const serverId = serverIdOf(id);
     if (serverId !== null) {
+      const held = pendingTodosRef.current.get(id);
+      if (held) holdPending({ ...held.todo, title: newTitle });
       try {
         await updateTodo(token, serverId, { title: newTitle });
       } catch (e) {
@@ -641,21 +791,18 @@ export default function DashboardScreen() {
     try {
       const created = await createTodo(token, newTitle, target?.meta || undefined);
       await rememberDismissed(id);
-      setTodos((prev) =>
-        prev.map((t) =>
-          t.id === id
-            ? {
-                ...t,
-                id: `server-${created.id}`,
-                title: newTitle,
-                source: 'owner',
-                actionable: false,
-                urgentLabel: undefined,
-                action: undefined,
-              }
-            : t,
-        ),
-      );
+      const promoted: Todo = {
+        ...(target ?? { id, title: newTitle, subtitle: '' }),
+        id: `server-${created.id}`,
+        title: newTitle,
+        source: 'owner',
+        actionable: false,
+        urgentLabel: undefined,
+        action: undefined,
+      };
+      // 원본은 숨겼고 새 행은 아직 서버 목록에 없다 — 붙들어 두지 않으면 다음 그리기에서 통째로 사라진다
+      holdPending(promoted);
+      setTodos((prev) => prev.map((t) => (t.id === id ? promoted : t)));
     } catch (e) {
       console.error('할 일 수정 실패:', e);
       resync();
@@ -667,6 +814,7 @@ export default function DashboardScreen() {
     setTodos((prev) => prev.filter((t) => t.id !== id));
 
     // 2. [한글 주석] 삭제된 항목의 ID를 AsyncStorage에 추가하여 탭 이동 후 재생성되는 현상을 방지
+    pendingTodosRef.current.delete(id);
     await rememberDismissed(id);
 
     // 3. [한글 주석] 서버 DB 항목인 경우 서버에서도 삭제 API 호출
@@ -682,12 +830,17 @@ export default function DashboardScreen() {
   };
 
   // [한글 주석: 0.01초 딜레이 없는 초스피드 브루 추천 복원 핸들러 — 누르는 즉시 즉각 반응]
-  const handleRestoreAiTodos = () => {
+  const handleRestoreAiTodos = async () => {
     toast('✨ 브루 추천 복원 완료!', '삭제했던 브루의 업무 추천을 불러왔어요.');
+    // 보관소를 먼저 비우고 나서 다시 그린다. 예전엔 둘을 동시에 걸어서, 지우기가 늦으면
+    // 다시 그리는 쪽이 옛 숨김 목록을 그대로 읽어 아무것도 복원되지 않았다.
+    try {
+      await AsyncStorage.removeItem(DISMISSED_TODOS_KEY);
+    } catch (e) {
+      console.error('브루 추천 복원 실패:', e);
+    }
+    prefsRef.current.dismissed.clear();
     setRunId((x) => x + 1);
-    AsyncStorage.removeItem(DISMISSED_TODOS_KEY).catch((e) =>
-      console.error('브루 추천 복원 실패:', e),
-    );
   };
 
   /** 코인이 실제로 쌓였을 때만 알린다 — 이미 받은 항목을 다시 체크하면 아무 말도 하지 않는다 */
@@ -706,6 +859,12 @@ export default function DashboardScreen() {
    * ts를 함께 넘겨야 같은 재료를 연달아 눌러도 받는 화면이 새 요청으로 인식한다.
    */
   const openTodoTarget = (todo: { id: string }) => {
+    // 메뉴 개선 추천('아메리카노 가격 올리기')은 메뉴 화면으로 — 거기에 개선안 카드가 있다.
+    // 브루가 얼마로 올리라고까지 말해 놓고 갈 곳을 안 알려주면 사장님이 직접 찾아야 한다.
+    if (/^insight-menu_/.test(todo.id)) {
+      navigation.navigate('Menu');
+      return;
+    }
     const m = /^stock-(\d+)$/.exec(todo.id);
     if (!m) return; // 재고가 아닌 항목(홍보 등)은 각자 링크로 처리한다
     navigation.navigate('StockDetail', { ingredientId: Number(m[1]), ts: Date.now() });
@@ -718,16 +877,33 @@ export default function DashboardScreen() {
     const nextDone = !target?.done;
     setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, done: nextDone } : t)));
 
-    // [한글 주석] 완료(done) 상태 변경 시 기기 보관소(AsyncStorage)에 영구 저장하여 자동 갱신 시에도 체크가 풀리지 않게 보정
+    // 화면이 보는 기록을 먼저 고친다 — 늦게 도착한 응답이 방금 누른 체크를 풀지 않게
+    if (nextDone) {
+      prefsRef.current.completed.add(id);
+    } else {
+      prefsRef.current.completed.delete(id);
+    }
+    const held = pendingTodosRef.current.get(id);
+    if (held) holdPending({ ...held.todo, done: nextDone });
+
+    // [한글 주석] 완료(done) 상태를 기기 보관소에 저장해 자동 갱신 때 체크가 풀리지 않게 보정.
+    // 날짜를 함께 적는다 — 자동 도출 항목은 id가 날마다 같아서(stock-64) 날짜가 없으면
+    // 어제 체크한 발주가 오늘도 완료로 떠서 이미 한 일처럼 보인다. 오늘 것만 살려 읽는다.
     try {
       const raw = await AsyncStorage.getItem(COMPLETED_TODOS_KEY);
-      const set = new Set<string>(raw ? JSON.parse(raw) : []);
+      const today = todayKey();
+      const map = parseCompletedMap(raw);
+      // 지난 날짜 기록은 여기서 정리한다 (그냥 두면 한없이 쌓인다)
+      const pruned: Record<string, string> = {};
+      Object.entries(map).forEach(([key, day]) => {
+        if (day === today) pruned[key] = day;
+      });
       if (nextDone) {
-        set.add(id);
+        pruned[id] = today;
       } else {
-        set.delete(id);
+        delete pruned[id];
       }
-      await AsyncStorage.setItem(COMPLETED_TODOS_KEY, JSON.stringify(Array.from(set)));
+      await AsyncStorage.setItem(COMPLETED_TODOS_KEY, JSON.stringify(pruned));
     } catch (e) {
       console.error('완료 상태 보관소 저장 실패:', e);
     }
@@ -797,7 +973,7 @@ export default function DashboardScreen() {
 
       {/* 착용한 카페 배경 '사진' — 브루룸과 같은 그림을 그대로 깐다.
           미착용이면 null이라 위 오로라가 그대로 보인다 (RoomBackdrop.tsx) */}
-      <RoomBackdrop roomBgId={roomBgId} fadeAt={0.4} />
+      <RoomBackdrop roomBgId={roomBgId} sheetTop={sheetTop} fadeAt={0.44} />
 
       {/* [한글 주석: 순정의 자연스럽고 부드러운 프리미엄 스크롤] */}
       <Animated.ScrollView
@@ -846,6 +1022,8 @@ export default function DashboardScreen() {
             // [한글 주석] 폴드를 펼치면 673dp라 카드가 가로로 늘어져 읽기 나쁘다 → 폭을 묶고 가운데 정렬
             isWide && { maxWidth: contentMaxWidth, width: '100%', alignSelf: 'center' },
           ]}
+          // 배경 사진이 어디까지 보일지 정하는 기준선 (RoomBackdrop)
+          onLayout={onSheetLayout}
         >
           {/* runId를 key에 섞어 카드를 통째로 재마운트하지 않는다 — 재마운트는 캐시 훅·
               카운트업·투두 내부 상태를 전부 버려 새로고침마다 화면이 처음부터 다시 그려진다.

@@ -98,6 +98,11 @@ function CategoryChipCell({
 
 function getCategoryMeta(todo: Todo): { label: string; icon: string; color: string; bg: string } {
   const text = (todo.title + ' ' + todo.subtitle).toLowerCase();
+  // [한글 주석] 메뉴 개선 추천('아메리카노 가격 올리기')이 먼저다 — 이 항목도 눌러서 이동하므로
+  // actionable이 켜져 있는데, 아래 발주 조건이 actionable만 보고 '발주·재고'로 채가 버린다.
+  if (text.includes('가격') || text.includes('메뉴판') || text.includes('팔리는 메뉴')) {
+    return { label: '☕ 메뉴·가격', icon: 'pricetags-outline', color: '#9333EA', bg: '#F3E8FF' };
+  }
   if (todo.category === 'order' || todo.actionable || text.includes('재고') || text.includes('발주') || text.includes('소진') || text.includes('부족')) {
     return { label: '📦 발주·재고', icon: 'cart-outline', color: '#16A34A', bg: '#DCFCE7' };
   }
