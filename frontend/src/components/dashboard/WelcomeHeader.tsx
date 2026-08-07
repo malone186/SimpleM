@@ -13,6 +13,7 @@ import MarqueeText from '../MarqueeText';
 import { useAuth } from '../../auth/AuthContext';
 import { fetchNoticeFeed, type AdminNotice } from '../../lib/api/notice';
 import { useTranslation } from '../../i18n/translations';
+import { startLoop } from '../../lib/animLoop';
 
 // [시간대별 인사말] "~사장님!" 아래 줄에 현재 시각에 맞춰 자동으로 바뀌는 문구.
 // 각 구간에 여러 후보를 두고 10분 단위로 회전해 같은 시간대라도 조금씩 달라진다.
@@ -236,7 +237,9 @@ export default function WelcomeHeader({
   const floatAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const loop = Animated.loop(
+    // Animated.loop을 쓰지 않는다 — useNativeDriver:true면 웹에서 한 번 떴다 내려온 뒤
+    // 영영 멈춘다(lib/animLoop.ts에 이유). 브루가 안 움직인다는 신고의 절반이 이거였다.
+    return startLoop(() =>
       Animated.sequence([
         Animated.timing(floatAnim, {
           toValue: 1,
@@ -250,10 +253,8 @@ export default function WelcomeHeader({
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
+      ]),
+    ).stop;
   }, [floatAnim]);
 
   // [한글 주석: 위아래로 최대 7픽셀(px) 만큼 둥둥거리도록 애니메이션 수치 변환]
@@ -366,7 +367,12 @@ export default function WelcomeHeader({
 
         {/* [한글 주석: 우측 마스코트 강아지 캐릭터] */}
         {/* 강아지 탭 이스터에그: 한 번 = 쓰다듬기+한마디/간식 랜덤, 빠른 두 번 = 시크릿 */}
-        <MascotEasterEgg mood={mood} size={190} style={styles.mascot} />
+        {/* motion: 여기 브루는 원래 눈만 깜빡이고 몸은 멈춰 있었다(도입 때부터 disableMotion 고정).
+            홈에 늘 떠 있는 캐릭터가 굳어 있으니 그림처럼 보여서 잔동작을 켠다.
+            autonomous: 가끔 끄덕·갸웃·두리번을 스스로 얹는다. 전신 모션(점프·댄스)은 여기선
+            안 나온다 — 그건 무대가 넓은 게임 룸 몫이다(interactiveMotions가 꺼져 있어 자동으로 제외).
+            Animated 기반이라 8/6에 잡았던 SalesCard식 '초당 60회 setState' 부류가 아니다. */}
+        <MascotEasterEgg mood={mood} size={190} style={styles.mascot} motion autonomous />
       </Animated.View>
 
       {/* 알림함 모달 — 목록(스택 카드) ↔ 한 건 상세 두 단계로 동작한다 */}

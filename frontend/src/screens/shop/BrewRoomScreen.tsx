@@ -1,14 +1,15 @@
 // 브루의 카페 (게임 룸) — 홈 우상단 버튼으로 들어오는 게임 허브 화면.
 // 카페 배경 한가운데에 '내가 꾸민 브루'가 살아 움직이고, 그 아래로 레벨·주간 퀘스트가
 // 붙는다. 상점·보관함은 여기서 갈라져 들어간다 — 꾸미기 경제의 관문 역할.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, ImageBackground, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { useAuth } from '../../auth/AuthContext';
-import MascotEasterEgg from '../../components/dashboard/MascotEasterEgg';
+import BrewStage from '../../components/brew/BrewStage';
+import type { BrewContext } from '../../components/brew/useBrewBrain';
 import { FadeInUp, PressableScale } from '../../components/motion';
 import VaultSheet from '../../components/shop/VaultSheet';
 import { toast } from '../../components/toast';
@@ -42,6 +43,8 @@ export default function BrewRoomScreen() {
   // 보관함은 이 화면 위에 시트로 뜬다 — 꾸민 브루를 보면서 갈아입히는 게 목적이라
   // 상점으로 화면을 넘겨 버리면 정작 브루가 안 보인다
   const [vaultOpen, setVaultOpen] = useState(false);
+  // 무대 폭은 재 봐야 안다 (기기·폴드 상태마다 다르다) — 브루가 화면 밖으로 걸어 나가지 않게
+  const [stageWidth, setStageWidth] = useState(0);
   // 상점에서 산 '카페 배경'을 착용했으면 그 사진으로 방이 바뀐다 (미착용 시 기본 카운터)
   const { roomBgId } = useEquipped();
   const ROOM_BG = getRoomBg(roomBgId);
@@ -89,6 +92,15 @@ export default function BrewRoomScreen() {
     ? Math.max(0, Math.min(1, progress.exp_in_level / Math.max(1, progress.exp_to_next)))
     : 0;
 
+  // 브루가 몸으로 표현할 거리 — 이 화면이 아는 것만 넘긴다(나머지는 시간대로 판단한다)
+  const brewContext = useMemo<BrewContext>(
+    () => ({
+      streakDone: progress?.streak_active_today,
+      todosLeft: quests?.quests.filter((q) => !q.done).length,
+    }),
+    [progress?.streak_active_today, quests],
+  );
+
   return (
     <View style={{ flex: 1, backgroundColor: '#241A14' }}>
       {/* 배경은 화면을 꽉 채운다(cover). 예전엔 자르지 않으려고 contain을 썼는데,
@@ -118,10 +130,12 @@ export default function BrewRoomScreen() {
       >
         {/* ── 카페 한가운데의 브루 — 내가 꾸민 모습 그대로, 이 화면의 주인공이라 크게.
             홈과 같은 이스터에그(탭=쓰다듬기/간식, 더블탭=시크릿, 롱프레스=풍선 펑)를
-            그대로 쓰되, 여기서는 정지 포즈여도 잔동작을 켜서 살아 있게 한다. ── */}
-        <View style={styles.stage}>
-          {/* 탭하면 랜덤 전신 모션(손인사·점프·댄스) 1회 재생 — 게임 룸 전용 반응 */}
-          <MascotEasterEgg size={s(270)} motion interactiveMotions />
+            그대로 쓰되, 여기서는 무대에 올려 스스로 돌아다니게 한다. ── */}
+        <View style={styles.stage} onLayout={(e) => setStageWidth(e.nativeEvent.layout.width)}>
+          {/* 폭을 잰 뒤에야 어디까지 걸어갈지 정할 수 있다 — 첫 프레임엔 무대를 비운다 */}
+          {stageWidth > 0 && (
+            <BrewStage size={s(240)} width={stageWidth} context={brewContext} />
+          )}
         </View>
 
         {/* ── 레벨 카드 ── */}
@@ -254,7 +268,9 @@ const styles = StyleSheet.create({
   },
   stage: {
     alignItems: 'center',
-    justifyContent: 'flex-end',
+    // 가로·세로 모두 한가운데. 예전엔 flex-end라 남는 세로 여백이 전부 브루 위에 쌓여,
+    // 브루가 무대 바닥에 붙고 발끝이 레벨 카드에 닿았다.
+    justifyContent: 'center',
     minHeight: s(300),
     marginTop: s(4),
     marginBottom: 12,

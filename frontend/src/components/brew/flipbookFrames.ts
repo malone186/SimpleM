@@ -1,5 +1,6 @@
 // [자동 생성] 전신 플립북 프레임 — (모션, 앞치마 색)별 WebP 스프라이트 세트
-// 키: 'wave' | 'wave__navy' | ... 기본(갈색)은 색 접미사 없음. 재생성: 스크래치패드 bake 스크립트
+// 키: 'wave' | 'wave__navy' | ... 기본(갈색)은 색 접미사 없음.
+// 재생성: python scripts/bake_mascot.py index
 
 export const FLIP_FRAMES: Record<string, any[]> = {
   'wave': [

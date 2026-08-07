@@ -34,6 +34,7 @@ import {
 } from '../../lib/api/sensor';
 import SensorSetupModal from './SensorSetupModal';
 import { SwipeDownModal } from '../ui/SwipeDownModal';
+import { startLoop } from '../../lib/animLoop';
 
 // 대시보드 지표 → 센서 스테이션 기기 id 매핑 (설비 칩 탭 시 해당 가이드로 바로 진입)
 const METRIC_TO_DEVICE: Record<keyof LiveMetrics, string> = {
@@ -54,7 +55,9 @@ const LivePulseBadge: React.FC<{
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    const animation = Animated.loop(
+    // Animated.loop을 쓰지 않는다 — useNativeDriver:true면 웹에서 한 번 깜빡이고 멈춰
+    // '연결 중' 표시가 죽은 것처럼 보인다(lib/animLoop.ts에 이유).
+    return startLoop(() =>
       Animated.sequence([
         Animated.timing(pulseAnim, {
           toValue: 0.3,
@@ -66,10 +69,8 @@ const LivePulseBadge: React.FC<{
           duration: 900,
           useNativeDriver: true,
         }),
-      ])
-    );
-    animation.start();
-    return () => animation.stop();
+      ]),
+    ).stop;
   }, [pulseAnim]);
 
   if (variant === 'connecting') {

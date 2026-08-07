@@ -14,16 +14,22 @@ try {
 }
 
 import Brew, { FLIPBOOK_MOODS, type BrewMood, type BrewOneShot } from '../brew/Brew';
+import type { MotionName } from '../brew/brewMotions';
+import { useBrewBrain, type BrewContext } from '../brew/useBrewBrain';
 import { useEquipped } from '../../rewards/EquippedContext';
 import { colors } from '../../theme';
 
 // [한글 주석] 진동 피드백 — 웹에선 동작하지 않고, 실패 시에도 안전하게 예외 처리
-const buzz = (style: any) => {
-  if (Platform.OS === 'web' || !Haptics) return;
-  Haptics.impactAsync?.(style)?.catch(() => {});
+//
+// 세기를 문자열로 받는 이유: 예전엔 호출부에서 buzz(Haptics.ImpactFeedbackStyle.Light)처럼
+// 넘겼는데, 인자가 먼저 평가되므로 모듈 로드에 실패한 기기(위 try/catch로 Haptics=null)에서는
+// 함수 안의 가드에 닿기도 전에 터진다. 이름만 넘기면 그런 일이 없다.
+const buzz = (kind: 'Light' | 'Medium' | 'Heavy') => {
+  if (Platform.OS === 'web' || !Haptics?.impactAsync) return;
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle?.[kind])?.catch(() => {});
 };
 const buzzSuccess = () => {
-  if (Platform.OS === 'web' || !Haptics) return;
+  if (Platform.OS === 'web' || !Haptics?.notificationAsync) return;
   Haptics.notificationAsync?.(Haptics.NotificationFeedbackType?.Success)?.catch(() => {});
 };
 
@@ -93,6 +99,9 @@ export default function MascotEasterEgg({
   style,
   motion = false,
   interactiveMotions = false,
+  autonomous = false,
+  context,
+  idleMotion: idleMotionOverride = null,
 }: {
   mood?: BrewMood;
   size?: number;
@@ -103,6 +112,14 @@ export default function MascotEasterEgg({
   // 게임 룸 전용: 탭할 때마다 전신 모션(손인사·점프·댄스) 중 하나를 1회 재생한다.
   // 어떤 포즈를 입고 있어도 끼어들고, 끝나면 원래 모습으로 돌아온다.
   interactiveMotions?: boolean;
+  // 아무도 안 누를 때 브루가 스스로 다음 동작을 고르게 한다 (BrewBrain).
+  // 화면이 보이는 동안만 켜는 게 원칙 — 상시 켜 두면 루프가 프레임을 깎는다.
+  autonomous?: boolean;
+  // 브루가 몸으로 표현할 가게 상태 (매출 흐름·부족 재고 등). 없으면 시간대만 본다.
+  context?: BrewContext;
+  // 바깥(무대 등)에서 지금 이 동작을 시켜야 할 때. 자율 행동보다 우선한다 —
+  // 걸어가는 중에 브루가 혼자 기지개를 켜면 안 되니까.
+  idleMotion?: MotionName | null;
 }) {
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
@@ -175,26 +192,33 @@ export default function MascotEasterEgg({
   const singleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const DOUBLE_MS = 280;
 
-  // 게임 룸 탭 반응 — 전신 모션 1회 재생 (token이 바뀔 때마다 Brew가 새로 재생한다)
-  const [oneShot, setOneShot] = useState<BrewOneShot | null>(null);
-  const playRandomMotion = () => {
-    const key = pick<BrewOneShot['key']>(['wave', 'jump', 'dance', 'dab', 'jacks']);
-    setOneShot({ key, token: Date.now() });
+  // 게임 룸 탭 반응 — 전신 모션 1회 재생 (token이 바뀔 때마다 Brew가 새로 재생한다).
+  // 자율 행동과 통로를 하나로 합쳐 둔다: 둘이 각자 state를 들면 브루가 스스로 고른 동작과
+  // 사장님이 눌러서 낸 동작이 서로를 덮어써 깜빡인다. 여기서는 눌렀을 때가 항상 최신이라
+  // 자연스럽게 탭이 이긴다.
+  const { idleMotion, oneShot, setOneShot } = useBrewBrain({ enabled: autonomous, context });
+  // token은 '새 요청'이라는 표시일 뿐이라 단조 증가면 충분하다. 예전엔 Date.now()를 썼는데
+  // 같은 밀리초에 두 번 눌리면 token이 겹쳐 두 번째 탭이 조용히 무시됐다.
+  const shotToken = useRef(0);
+  const playMotion = (key: BrewOneShot['key']) => {
+    shotToken.current += 1;
+    setOneShot({ key, token: shotToken.current });
   };
+  const playRandomMotion = () => playMotion(pick<BrewOneShot['key']>(['wave', 'jump', 'dance', 'dab', 'jacks']));
 
   const triggerSingle = () => {
     if (interactiveMotions) playRandomMotion(); // 쓰다듬으면 폴짝 뛰거나 춤추거나 인사한다
     else wiggle(); // 전신 모션 중엔 통짜 흔들기를 겹치지 않는다 (움직임이 이중으로 보임)
     if (Math.random() < 0.5) {
-      buzz(Haptics.ImpactFeedbackStyle.Light);
+      buzz('Light');
       showBubble(pick(PAT_LINES), '#C05A24');
     } else {
-      buzz(Haptics.ImpactFeedbackStyle.Medium);
+      buzz('Medium');
       showTreat();
     }
   };
   const triggerSecret = () => {
-    if (interactiveMotions) setOneShot({ key: 'dance', token: Date.now() }); // 시크릿은 항상 댄스!
+    if (interactiveMotions) playMotion('dance'); // 시크릿은 항상 댄스!
     else wiggle();
     buzzSuccess();
     setHeartKey((k) => k + 1);
@@ -225,7 +249,7 @@ export default function MascotEasterEgg({
   const pop = () => {
     popped.current = true;
     suppressTap.current = true;
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+    buzz('Heavy'); // 모듈이 없는 기기에서도 안전하게 (예전엔 여기서 바로 터졌다)
     Animated.sequence([
       Animated.timing(balloon, { toValue: 2.7, duration: 90, useNativeDriver: true }),
       Animated.timing(balloon, { toValue: 0, duration: 130, easing: Easing.in(Easing.quad), useNativeDriver: true }),
@@ -246,7 +270,7 @@ export default function MascotEasterEgg({
   const startGrow = () => {
     longPressing.current = true;
     popped.current = false;
-    buzz(Haptics.ImpactFeedbackStyle.Light); // 부풀기 시작 틱
+    buzz('Light'); // 부풀기 시작 틱
     balloon.setValue(1);
     growAnim.current = Animated.timing(balloon, { toValue: 2.3, duration: 1000, easing: Easing.linear, useNativeDriver: true });
     growAnim.current.start(({ finished }) => {
@@ -287,7 +311,15 @@ export default function MascotEasterEgg({
         <Animated.View style={{ transform: [{ scale: combinedScale }, { rotate }] }}>
           {/* 상점에서 산 포즈·배경을 홈 마스코트에 그대로 반영한다 */}
           {/* 플립북 포즈(점프·댄스)는 움직임 자체가 상품이라 홈에서도 재생을 허용한다 */}
-          <Brew mood={shownMood} size={size} disableMotion={!motion && !FLIPBOOK_MOODS.has(shownMood)} accessories={accessories} apronColor={apronColor} oneShot={oneShot} />
+          <Brew
+            mood={shownMood}
+            size={size}
+            disableMotion={!motion && !FLIPBOOK_MOODS.has(shownMood)}
+            accessories={accessories}
+            apronColor={apronColor}
+            oneShot={oneShot}
+            idleMotion={idleMotionOverride ?? idleMotion}
+          />
         </Animated.View>
       </Pressable>
 

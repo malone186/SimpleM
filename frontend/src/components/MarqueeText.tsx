@@ -3,6 +3,7 @@
 // children을 두 번 렌더한다: 숨은 사본으로 자연 너비를 재고, 보이는 사본을 실제로 움직인다.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Animated, Easing, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { startLoop } from '../lib/animLoop';
 
 export default function MarqueeText({
   children,
@@ -27,16 +28,16 @@ export default function MarqueeText({
     if (!overflow) return;
     const dist = contentW - containerW;
     const dur = Math.max(600, (dist / speed) * 1000);
-    const loop = Animated.loop(
+    // Animated.loop을 쓰지 않는다 — useNativeDriver:true면 웹에서 한 바퀴만 흐르고
+    // 멈춘다(lib/animLoop.ts에 이유). 긴 공지가 한 번 지나가고 잘린 채 굳던 원인.
+    return startLoop(() =>
       Animated.sequence([
         Animated.delay(pause),
         Animated.timing(x, { toValue: -dist, duration: dur, easing: Easing.linear, useNativeDriver: true }),
         Animated.delay(pause),
         Animated.timing(x, { toValue: 0, duration: dur, easing: Easing.linear, useNativeDriver: true }),
       ]),
-    );
-    loop.start();
-    return () => loop.stop();
+    ).stop;
   }, [overflow, contentW, containerW, speed, pause, x]);
 
   return (

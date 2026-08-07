@@ -1,5 +1,5 @@
 // [자동 생성] 앞치마 색 변형 이미지 — 마스크 리컬러를 PNG로 구운 것.
-// 재생성: scratchpad의 앞치마 생성 스크립트. 손으로 고치지 말 것.
+// 재생성: python scripts/bake_mascot.py recolor <원본>. 손으로 고치지 말 것.
 import type { ImageSourcePropType } from 'react-native';
 
 export const APRON_COLORS = ['navy', 'forest', 'wine', 'mustard', 'charcoal', 'terracotta'] as const;
