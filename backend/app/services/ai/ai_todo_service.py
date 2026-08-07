@@ -22,6 +22,7 @@ import logging
 import time
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
+from app.utils.datetime_kst import today_kst
 
 logger = logging.getLogger(__name__)
 
@@ -220,7 +221,7 @@ def suggest_todos(store_id: str) -> dict[str, Any]:
     ① 부족 재고 발주  ② 선제 인사이트(정산·단골·발주서·POS·메뉴 원가·수요 전망…)
     ③ 홍보 — 이 셋이 홈 '오늘 할 일' 한 곳에 모인다.
     """
-    today = date.today().isoformat()
+    today = today_kst().isoformat()
     # v5 = 소진 예측 중복 제거 기준을 '부족 재고 전체'로 + 손익분기 미션 추가.
     # (양쪽이 각자 v4를 쓰던 걸 합치면서 올렸다 — 형식이 바뀌면 올려서 캐시를 버린다)
     key = f"{store_id}:v5"

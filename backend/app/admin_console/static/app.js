@@ -22,7 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
   window.fetch = (url, opts = {}) => {
     try {
       const u = typeof url === 'string' ? url : (url && url.url) || '';
-      if (/\/api\/v1\/(admin|auth\/users)/.test(u) && !/\/admin\/login/.test(u)) {
+      if (/\/api\/v1\/(admin|auth\/users|chatbot\/agents)/.test(u) && !/\/admin\/login/.test(u)) {
         const t = getAdminToken();
         if (t) opts = Object.assign({}, opts, { headers: Object.assign({}, opts.headers || {}, { Authorization: 'Bearer ' + t }) });
       }
@@ -30,7 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return _origFetch(url, opts).then((res) => {
       try {
         const u = typeof url === 'string' ? url : (url && url.url) || '';
-        if ((res.status === 401 || res.status === 403) && /\/api\/v1\/(admin|auth\/users)/.test(u) && !/\/admin\/login/.test(u)) {
+        if ((res.status === 401 || res.status === 403) && /\/api\/v1\/(admin|auth\/users|chatbot\/agents)/.test(u) && !/\/admin\/login/.test(u)) {
           localStorage.removeItem(ADMIN_TOKEN_KEY);
           showAdminLogin('세션이 만료되었습니다. 다시 로그인해 주세요.');
         }

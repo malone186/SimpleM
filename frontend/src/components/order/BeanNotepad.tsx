@@ -158,7 +158,11 @@ interface NotepadData {
 }
 
 const STORAGE_KEY = 'simplem:bean_notepad';
-const today = () => new Date().toISOString().split('T')[0];
+// 기기 로컬(=KST) 날짜 — toISOString()은 UTC라 오전 9시 전엔 어제 날짜가 찍힌다
+const today = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 // 🎚️ 양옆으로 부드럽게 드래그되는 제스처 기반의 커스냅 슬라이더 컴포넌트 [NEW]
 interface CurationSliderProps {

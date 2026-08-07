@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.models.operation import Schedule, Employee
 from app.schemas.operation import ScheduleUpdate
 from app.services.operation.operation_service import OperationService
+from app.utils.datetime_kst import today_kst
 from app.schemas.assistant import (
     TaskItem, BriefingResponse, NextTaskResponse,
     NotificationItem, NotificationsResponse,
@@ -287,7 +288,7 @@ def get_next_task(pending: List[TaskItem]) -> Optional[TaskItem]:
 def get_pending_tasks(db: Session, limit: int = 5,
                       store_id: Optional[str] = None) -> List[TaskItem]:
     """DB에서 오늘 남은 대기 할 일을 상위 N건 조회하여 반환합니다."""
-    today = date.today()
+    today = today_kst()
     all_pending = _fetch_pending_tasks(db, today, store_id=store_id)
 
     # 우선순위 → 마감 순으로 정렬 후 상위 N건
@@ -310,7 +311,7 @@ def assemble_briefing(db: Session, limit: int = 3,
     2. 음성 문단(speech_text) 생성
     3. 응답 스키마에 담아 반환
     """
-    today = date.today()
+    today = today_kst()
     completed = _fetch_completed_tasks(db, today, store_id=store_id)
     pending = _fetch_pending_tasks(db, today, store_id=store_id)
     speech_text = build_voice_briefing(completed, pending, limit=limit)
@@ -324,7 +325,7 @@ def assemble_briefing(db: Session, limit: int = 3,
 
 def assemble_next_task(db: Session, store_id: Optional[str] = None) -> NextTaskResponse:
     """다음 할 일 1건을 조립하여 NextTaskResponse를 반환합니다."""
-    today = date.today()
+    today = today_kst()
     pending = _fetch_pending_tasks(db, today, store_id=store_id)
     next_task = get_next_task(pending)
 
@@ -698,7 +699,7 @@ def handle_voice_command(
             ),
         )
 
-    today = date.today()
+    today = today_kst()
     pending = _fetch_pending_tasks(db, today, store_id=store_id)
 
     # ── read_pending: 읽기 전용이라 확인 없이 바로 수행 ──
@@ -937,7 +938,7 @@ def _execute_confirmed_action(
         )
 
     # 완료 후 남은 할 일을 함께 안내합니다.
-    remaining = _fetch_pending_tasks(db, date.today(), store_id=store_id)
+    remaining = _fetch_pending_tasks(db, today_kst(), store_id=store_id)
     if remaining:
         tail = f" 남은 할 일은 {_native_count(len(remaining))} 건입니다."
     else:

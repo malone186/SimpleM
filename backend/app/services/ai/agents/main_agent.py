@@ -33,6 +33,7 @@ from typing import Any, Optional
 
 from app.services.ai.agents import runtime_stats
 from app.services.ai.untrusted import UNTRUSTED_PROMPT_RULE
+from app.utils.datetime_kst import today_kst
 
 logger = logging.getLogger(__name__)
 
@@ -705,7 +706,7 @@ def render_main_prompt(experts: str, store_id: str) -> str:
     return _MAIN_PROMPT.format(
         agent_name=_MAIN_AGENT["name"],
         experts=experts,
-        today=date.today().isoformat(),
+        today=today_kst().isoformat(),
         store_id=store_id,
         untrusted_rule=UNTRUSTED_PROMPT_RULE,
     )
@@ -720,7 +721,7 @@ def render_sub_prompt(domain: dict[str, Any], store_id: str) -> str:
     return _SUB_PROMPT_BASE.format(
         title=domain["title"],
         store_id=store_id,
-        today=date.today().isoformat(),
+        today=today_kst().isoformat(),
         untrusted_rule=UNTRUSTED_PROMPT_RULE,
         extra=domain["extra"],
     )

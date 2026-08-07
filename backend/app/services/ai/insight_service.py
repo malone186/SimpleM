@@ -33,6 +33,7 @@ from datetime import date, datetime, time as dtime, timedelta
 from typing import Any, Callable, Optional
 
 from app.services.ai import warm_cache
+from app.utils.datetime_kst import today_kst
 
 logger = logging.getLogger(__name__)
 
@@ -1455,7 +1456,7 @@ def scan(store_id: str, include_dismissed: bool = False,
     """
     from app.models.ai import InsightAck
 
-    today = date.today()
+    today = today_kst()
     found, failed = _fast_insights(store_id, today, deep=deep)
 
     with _db() as db:

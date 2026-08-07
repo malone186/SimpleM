@@ -15,11 +15,19 @@ KST로 옮기면 과거 문의까지 한 번에 맞는다. (저장을 KST로 바
 naive 값은 UTC로 간주한다 — 위 테이블들의 유일한 기록자가 utcnow()이기 때문이다.
 (로컬 DB 시절의 naive=KST 데이터를 다루는 forecast_service 쪽 규칙과는 반대다.)
 """
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 KST = timezone(timedelta(hours=9))
 UTC = timezone.utc
+
+
+def today_kst() -> date:
+    """한국 기준 오늘. Cloud Run(UTC)에서 date.today()는 한국시간 자정~오전 9시에
+    어제를 돌려준다 — '오늘'이 필요한 모든 서비스 코드는 이 함수를 쓴다.
+    (2026-08-07 전수 감사에서 date.today() 호출 40여 곳을 이 함수로 교체했다.)
+    """
+    return datetime.now(KST).date()
 
 
 def utc_now() -> datetime:

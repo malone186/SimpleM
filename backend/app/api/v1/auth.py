@@ -209,6 +209,18 @@ def get_my_profile(current_user: User = Depends(get_current_user)):
     return current_user
 
 
+# 2-4. [회원 탈퇴(본인) API 창구]
+# 설정 화면의 '회원 탈퇴'가 쓰는 셀프 서비스 경로 — 예전엔 관리자 전용
+# DELETE /users/{id}를 불러 일반 계정에선 403이라 탈퇴가 조용히 무시됐다.
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+def delete_my_account(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """현재 로그인한 계정을 탈퇴 처리하고 DB에서 삭제합니다."""
+    user = db.query(User).filter(User.id == current_user.id).first()
+    if user is not None:
+        db.delete(user)
+        db.commit()
+
+
 # [관리자 전용] 3. [전체 회원 목록 조회 API 창구]
 @router.get("/users", response_model=list[UserResponse])
 def get_all_users(db: Session = Depends(get_db), _admin: User = Depends(get_current_admin)):

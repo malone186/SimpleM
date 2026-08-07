@@ -125,7 +125,10 @@ export function isInDndWindow(now: Date, start: string, end: string): boolean {
   return s < e ? cur >= s && cur < e : cur >= s || cur < e;
 }
 
-const dateKey = (d: Date) => d.toISOString().slice(0, 10);
+// 기기 로컬(=KST) 날짜 키 — toISOString()은 UTC라 오전 9시 전엔 어제가 나와
+// 아침 브리핑이 통째로 건너뛰어지고, 하루 1회 중복 방지가 오전 9시에 리셋됐다.
+const dateKey = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 /** ISO 주차 키 (주간 리포트 중복 발송 방지용) */
 function weekKey(d: Date): string {

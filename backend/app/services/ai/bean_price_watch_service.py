@@ -19,6 +19,7 @@ import time
 import urllib.request
 from datetime import date
 from typing import Any, Optional
+from app.utils.datetime_kst import today_kst
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +130,7 @@ def get_today_drops(db) -> list[dict[str, Any]]:
     """
     if os.getenv("BEAN_PRICE_WATCH", "1") == "0":
         return []
-    today = date.today().isoformat()
+    today = today_kst().isoformat()
     if _cache["day"] != today:
         try:
             drops = refresh_and_find_drops(db)

@@ -438,9 +438,12 @@ class OperationService:
         except ValueError:
             raise ValueError("연월 포맷은 YYYY-MM 형식이어야 합니다.")
 
+        # sold_at은 timestamptz — 세션 기본(UTC)으로 extract하면 매월 1일 오전 9시(KST) 전
+        # 매출이 전월로 밀린다. KST 벽시계 기준으로 옮겨 월을 자른다.
+        sold_at_kst = func.timezone("Asia/Seoul", Sale.sold_at)
         sales_q = db.query(func.sum(Sale.total_price)).filter(
-            extract("year", Sale.sold_at) == year,
-            extract("month", Sale.sold_at) == month,
+            extract("year", sold_at_kst) == year,
+            extract("month", sold_at_kst) == month,
         )
         expense_q = db.query(func.sum(Expense.amount)).filter(
             extract("year", Expense.expense_date) == year,

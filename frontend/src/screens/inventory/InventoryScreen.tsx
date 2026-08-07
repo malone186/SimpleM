@@ -200,7 +200,7 @@ export default function InventoryScreen() {
         const ing = await createIngredient(token, {
           name,
           unit: fUnit.trim(),
-          current_price: Number(fPrice) || 0,
+          current_price: Math.round(Number(fPrice) || 0), // 백엔드 스키마가 int — 소수점 입력 시 422 방지
         });
         if (qty > 0) {
           await adjustStock(token, { ingredient_id: ing.id, quantity_change: qty, description: '직접 등록 초기 수량' });
@@ -532,7 +532,7 @@ export default function InventoryScreen() {
     const body: Parameters<typeof updateIngredient>[2] = {};
     if (name !== s.name) body.name = name;
     if (unit !== s.unit) body.unit = unit;
-    if (price != null && price !== s.current_price) body.current_price = price;
+    if (price != null && Math.round(price) !== s.current_price) body.current_price = Math.round(price); // 백엔드가 int
     if (qty != null && qty !== s.current_quantity) body.current_quantity = qty;
     if (safety != null && safety !== s.safety_quantity) body.safety_quantity = safety;
 
@@ -1094,7 +1094,8 @@ export default function InventoryScreen() {
           </Card>
         ) : (
           filteredStocks.map((s) => {
-            const low = s.safety_quantity > 0 && s.current_quantity < s.safety_quantity;
+            // 홈 카드·푸시(AlertsWatcher)와 같은 기준 — 다르면 알림 받고 들어왔는데 '정상' 배지가 보인다
+            const low = s.current_quantity <= (s.safety_quantity > 0 ? s.safety_quantity : 3);
             const denominator = Math.max(s.current_quantity, s.safety_quantity * 2, 1);
             const editing = editStockId === s.ingredient_id;
             // 조정칸에 적힌 '바뀔 수량'과 지금 수량의 차이 — 반영 전에 미리 보여 준다

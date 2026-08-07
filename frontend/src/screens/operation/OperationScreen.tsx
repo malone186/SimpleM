@@ -29,10 +29,13 @@ const nowYM = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 };
+// 기기 로컬(=KST) 기준 날짜 문자열 — toISOString()은 UTC라 오전 9시 전엔 하루 이르게 나온다
+const localISO = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const tomorrowISO = () => {
   const d = new Date();
   d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 10);
+  return localISO(d);
 };
 const won = (n: number) => '₩' + Math.round(n || 0).toLocaleString('ko-KR');
 
@@ -1004,7 +1007,7 @@ function LiveOperationCard() {
     const supply = supplyPriceOf(amt, expVat);
     setAdding(true);
     try {
-      await createExpense(token, { amount: supply, category: cat, expense_date: new Date().toISOString().slice(0, 10) });
+      await createExpense(token, { amount: supply, category: cat, expense_date: localISO(new Date()) });
       notify(
         '지출 등록',
         expVat === 'included' && supply !== amt

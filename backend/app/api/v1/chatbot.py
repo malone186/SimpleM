@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.services.ai.agents import main_agent
 
-from app.core.auth import get_current_user
+from app.core.auth import get_current_admin, get_current_user
 from app.core.database import get_db
 from app.models.ai import ChatSession
 from app.models.user import User
@@ -57,6 +57,7 @@ from app.schemas.ai import (
     TodoResponse,
     TodoUpdate,
 )
+from app.utils.datetime_kst import today_kst
 from app.services.ai import (
     briefing_service,
     cafe_similarity_service,
@@ -209,7 +210,7 @@ async def analyze_menu_board(
 
 
 @router.post("/ocr/menu-board/confirm")
-async def confirm_menu_board(
+def confirm_menu_board(
     body: dict,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -305,7 +306,7 @@ def apply_menu_changes(
 
 
 @router.get("/ocr/documents", response_model=list[OcrDocumentResponse])
-async def list_documents(
+def list_documents(
     status: Optional[OcrStatus] = None,
     store_id: Optional[str] = Depends(_optional_store_id),
 ) -> list[OcrDocumentResponse]:
@@ -314,7 +315,7 @@ async def list_documents(
 
 
 @router.get("/ocr/documents/{doc_id}", response_model=OcrDocumentResponse)
-async def get_document(
+def get_document(
     doc_id: str, store_id: Optional[str] = Depends(_optional_store_id)
 ) -> OcrDocumentResponse:
     try:
@@ -324,7 +325,7 @@ async def get_document(
 
 
 @router.patch("/ocr/documents/{doc_id}", response_model=OcrDocumentResponse)
-async def update_document(
+def update_document(
     doc_id: str,
     patch: OcrDocumentUpdate,
     store_id: Optional[str] = Depends(_optional_store_id),
@@ -339,7 +340,7 @@ async def update_document(
 
 
 @router.post("/ocr/documents/{doc_id}/confirm", response_model=OcrConfirmResponse)
-async def confirm_document(
+def confirm_document(
     doc_id: str,
     body: OcrConfirmRequest,
     store_id: Optional[str] = Depends(_optional_store_id),
@@ -364,7 +365,7 @@ async def confirm_document(
 
 
 @router.post("/ocr/documents/{doc_id}/reject", response_model=OcrDocumentResponse)
-async def reject_document(
+def reject_document(
     doc_id: str, store_id: Optional[str] = Depends(_optional_store_id)
 ) -> OcrDocumentResponse:
     try:
@@ -1276,7 +1277,7 @@ def get_sales_calendar_api(
 
     일별 매출·잔 수·베스트 메뉴·피크 시간대와 월 합계·전월 대비 증감을 준다.
     """
-    today = date.today()
+    today = today_kst()
     return forecast_service.sales_calendar(
         current_user.email, year or today.year, month or today.month)
 
@@ -1816,10 +1817,12 @@ class ChatResponse(BaseModel):
 
 
 @router.get("/agents")
-def get_agent_overview_api() -> dict:
+def get_agent_overview_api(admin: User = Depends(get_current_admin)) -> dict:
     """멀티에이전트 편성 현황 — 관리자 콘솔(3000) AI 에이전트 탭 표시용.
 
     메인 오케스트레이터(브루)와 서브에이전트(전문가)별 활성 여부·보유 도구 목록을 돌려준다.
+    최근 턴 기록에 전 매장의 store_id(이메일)·질문 원문이 담기므로 관리자 전용이다
+    — 콘솔 app.js의 fetch 래퍼가 이 경로에도 관리자 토큰을 자동 첨부한다.
     """
     return main_agent.get_agent_overview()
 
@@ -1970,13 +1973,16 @@ def list_chat_incidents_api(
     확정/기각하기 위한 창구다.
 
     status: pending(미검증) / confirmed / registered / rejected. 빈 문자열이면 전부.
-    mine_only=true면 내 매장에서 난 것만 본다.
+    mine_only=true면 내 매장에서 난 것만 본다. 질문·답변 발췌에 매장 데이터가
+    담기므로 전체 열람(mine_only=false)은 관리자만 가능 — 일반 사용자는 항상 내 매장만.
     """
+    from app.core.auth import ADMIN_EMAILS
     from app.services.ai import answer_audit
 
+    is_admin = current_user.email in ADMIN_EMAILS
+    scope = "" if (is_admin and not mine_only) else current_user.email
     return {
-        "incidents": answer_audit.list_incidents(
-            status=status, store_id=current_user.email if mine_only else "", limit=limit),
+        "incidents": answer_audit.list_incidents(status=status, store_id=scope, limit=limit),
     }
 
 
@@ -1991,11 +1997,16 @@ def update_chat_incident_api(
     body: IncidentStatusUpdate,
     current_user: User = Depends(get_current_user),
 ):
-    """사고 후보 상태를 사람이 바꾼다 — 기계가 재현하지 못한 건을 직접 확정하거나 기각한다."""
+    """사고 후보 상태를 사람이 바꾼다 — 기계가 재현하지 못한 건을 직접 확정하거나 기각한다.
+
+    일반 사용자는 내 매장의 사고만 바꿀 수 있다 (관리자는 전체).
+    """
+    from app.core.auth import ADMIN_EMAILS
     from app.services.ai import answer_audit
 
+    scope = "" if current_user.email in ADMIN_EMAILS else current_user.email
     try:
-        found = answer_audit.set_status(incident_id, body.status, body.note)
+        found = answer_audit.set_status(incident_id, body.status, body.note, store_id=scope)
     except ValueError as e:
         raise HTTPException(400, str(e))
     if not found:

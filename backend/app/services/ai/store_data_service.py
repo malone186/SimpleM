@@ -28,6 +28,7 @@ from typing import Any, Optional
 
 from app.services.ai.untrusted import quote_fields
 from app.utils.datetime_kst import KST, to_kst
+from app.utils.datetime_kst import today_kst
 
 logger = logging.getLogger(__name__)
 
@@ -333,7 +334,7 @@ def get_expenses(store_id: str, days: int = 30) -> dict[str, Any]:
     """지출 내역 — 카테고리별 합계와 최근 건별 목록."""
     from app.models.operation import Expense
 
-    since = date.today() - timedelta(days=max(1, days))
+    since = today_kst() - timedelta(days=max(1, days))
     with _db() as db:
         rows = (
             db.query(Expense)
@@ -415,7 +416,7 @@ def get_work_schedules(store_id: str, start_date: str = "", end_date: str = "") 
     """근무 스케줄 — 기간 내 직원별 배정과 실제 출퇴근 기록. 기본은 이번 주."""
     from app.models.operation import Employee, Schedule
 
-    today = date.today()
+    today = today_kst()
     start = start_date.strip() or (today - timedelta(days=today.weekday())).isoformat()
     end = end_date.strip() or (today + timedelta(days=6 - today.weekday())).isoformat()
 

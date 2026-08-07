@@ -31,6 +31,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 from app.services.ai import warm_cache
+from app.utils.datetime_kst import today_kst
 
 # 매장 시간대 — Neon(timestamptz)은 sold_at을 UTC로 돌려주므로 시간대 집계 전 반드시 KST로 변환한다.
 KST = timezone(timedelta(hours=9))
@@ -270,7 +271,7 @@ def _load_daily_series(db, store_id: str, mask_abnormal: bool = True):
     daily.index = pd.to_datetime(daily.index)
     # 오늘은 하루가 끝나지 않아 미완성 집계다 — 학습에 넣으면 '판매가 급감한 날'로 오인해
     # 내일 예측을 끌어내리므로 시계열에서 제외한다 (오늘 실적은 _today_actuals가 따로 담당)
-    daily = daily[daily.index.date < date.today()]
+    daily = daily[daily.index.date < today_kst()]
     if daily.empty:
         return None
     # 첫 판매일~마지막 판매일 사이 비는 날을 0으로 — 시계열 연속성 확보
@@ -602,7 +603,7 @@ def _fetch_weather_flags(lat: float, lon: float, start: date, end: date) -> dict
             out[iso] = ((precip or 0) >= RAIN_MM,
                         tmax is not None and tmax >= HOT_TEMP_C)
 
-    today = date.today()
+    today = today_kst()
     daily_vars = "temperature_2m_max,precipitation_sum"
     # 1) 예보 API의 과거 병합 한계(92일)보다 오래된 구간 — 아카이브에서
     if start < today - timedelta(days=92):
@@ -1120,7 +1121,7 @@ def _fetch_events_naver(lat: float, lon: float, start: date, days: int) -> list[
         return []
 
     prompt = (
-        f"오늘은 {date.today().isoformat()}, 매장 위치는 '{region}'이다.\n"
+        f"오늘은 {today_kst().isoformat()}, 매장 위치는 '{region}'이다.\n"
         f"아래는 이 지역 행사 관련 뉴스·블로그 검색 결과다. 여기서 "
         f"{start.isoformat()}~{end.isoformat()} 기간에 열리는 행사만 골라 정리하라.\n\n"
         "규칙:\n"
@@ -1271,7 +1272,7 @@ def _order_recommendations(db, store_id: str, week_cups: float) -> list[dict[str
     """금주 예상 잔 수를 메뉴 비중으로 나누고 레시피로 재료 소요량을 계산해 발주를 추천한다."""
     from app.models.inventory import Ingredient, Menu, Recipe, Sale, Stock
 
-    since = (date.today() - timedelta(days=MENU_MIX_WINDOW_DAYS)).isoformat()
+    since = (today_kst() - timedelta(days=MENU_MIX_WINDOW_DAYS)).isoformat()
     mix_rows = (
         db.query(Sale.menu_id, Menu.name)
         .join(Menu, Sale.menu_id == Menu.id)
@@ -1330,7 +1331,7 @@ def _load_hourly_shares(db, store_id: str, target_weekday: int) -> dict[str, flo
     from datetime import date, timedelta
     from app.models.inventory import Sale
 
-    since = (date.today() - timedelta(days=60)).isoformat()
+    since = (today_kst() - timedelta(days=60)).isoformat()
     rows = (
         db.query(Sale.sold_at, Sale.quantity)
         .filter(Sale.store_id == store_id, Sale.sold_at >= since)
@@ -1387,7 +1388,7 @@ def _hourly_profile(db, store_id: str, target_weekday: int) -> list[float]:
     import pandas as pd
     from app.models.inventory import Sale
 
-    since = (date.today() - timedelta(days=60)).isoformat()
+    since = (today_kst() - timedelta(days=60)).isoformat()
     rows = (
         db.query(Sale.sold_at, Sale.quantity)
         .filter(Sale.store_id == store_id, Sale.sold_at >= since)
@@ -1421,7 +1422,7 @@ def _today_actuals(db, store_id: str) -> dict[str, Any]:
     from datetime import datetime
     from app.models.inventory import Sale
 
-    today = date.today()
+    today = today_kst()
     yesterday = today - timedelta(days=1)
     last_week = today - timedelta(days=7)
 
@@ -1775,7 +1776,7 @@ def sales_calendar(store_id: str, year: int, month: int) -> dict[str, Any]:
             .all()
         )
 
-    today = date.today()
+    today = today_kst()
     prev_cutoff_day = today.day if (year, month) == (today.year, today.month) else 31
 
     days: dict[int, dict[str, Any]] = {}
@@ -1871,11 +1872,11 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
         # 모델은 시계열의 마지막 인덱스 다음 날부터 예측을 내놓는다. 꼬리가 결측(휴무)이면
         # 그 날짜는 마지막 '판매일'과 다르므로, 잘라낼 구간은 시계열 끝을 기준으로 세야 한다.
         series_end = series.index[-1].date()
-        start = max(date.today(), series_end) + timedelta(days=1)
+        start = max(today_kst(), series_end) + timedelta(days=1)
         gap = (start - series_end).days - 1
         # '판매 공백'은 오늘 이전의 무판매일만 센다 — 시계열은 오늘(미완성 집계)을 항상
         # 제외하므로 start 기준으로 세면 어제까지 데이터가 멀쩡해도 매일 '1일 공백'이 찍힌다
-        sales_gap = max(0, (date.today() - last_sale_day).days - 1)
+        sales_gap = max(0, (today_kst() - last_sale_day).days - 1)
         if sales_gap > 90:
             raise ForecastError(
                 f"마지막 판매 기록({last_sale_day.isoformat()})이 {sales_gap}일 전이라 예측 정확도를 보장할 수 없어요. "

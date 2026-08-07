@@ -2,7 +2,9 @@
 
 [매장 동기화] 로그인 토큰이 오면 그 매장(이메일) 직원·스케줄만 읽고 바꾼다.
 예전엔 매장 구분 없이 전체를 읽어서, 음성 브리핑·완료 알림이 앱에 등록된 내 직원
-데이터와 따로 놀았다. 토큰이 없으면 기존처럼 전체 조회(하위 호환·데모)로 동작한다.
+데이터와 따로 놀았다. 토큰이 없으면 데모 매장(owner@cafe.com)으로 한정한다
+— /chatbot/chat과 같은 정책. 무스코프(None)로 서비스에 넘기면 전 매장 스케줄이
+읽히고 voice-command로는 남의 매장 출퇴근 기록까지 바뀐다.
 """
 from datetime import datetime
 from typing import Optional
@@ -38,14 +40,17 @@ _oauth2_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_erro
 def _optional_store_id(
     token: Optional[str] = Depends(_oauth2_optional),
     db: Session = Depends(get_db),
-) -> Optional[str]:
-    """로그인했으면 매장 식별자(이메일)를, 아니면 None — chatbot.py와 같은 패턴."""
+) -> str:
+    """로그인했으면 매장 식별자(이메일)를, 아니면 데모 매장 — chatbot.py와 같은 패턴.
+
+    절대 None을 돌려주지 않는다 — None이 서비스까지 내려가면 전 매장 무스코프 조회가 된다.
+    """
     if not token:
-        return None
+        return "owner@cafe.com"
     try:
         return get_current_user(token=token, db=db).email
     except HTTPException:
-        return None
+        return "owner@cafe.com"
 
 
 # ──────────────────────────────────────────────

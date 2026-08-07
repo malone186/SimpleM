@@ -444,8 +444,12 @@ def list_incidents(status: str = "", store_id: str = "", limit: int = 100) -> li
         db.close()
 
 
-def set_status(incident_id: int, status: str, note: str = "") -> bool:
-    """harvest의 재현 검증 결과나 사람의 판단을 반영한다."""
+def set_status(incident_id: int, status: str, note: str = "", store_id: str = "") -> bool:
+    """harvest의 재현 검증 결과나 사람의 판단을 반영한다.
+
+    store_id가 주어지면 그 매장의 사고만 바꿀 수 있다 (일반 사용자용 관문).
+    빈 문자열이면 무제한 — harvest·관리자 경로 전용.
+    """
     from app.models.ai import ChatIncident
 
     if status not in ("pending", "confirmed", "registered", "rejected"):
@@ -454,6 +458,8 @@ def set_status(incident_id: int, status: str, note: str = "") -> bool:
     try:
         row = db.get(ChatIncident, incident_id)
         if row is None:
+            return False
+        if store_id and row.store_id != store_id:
             return False
         row.status = status
         if note:

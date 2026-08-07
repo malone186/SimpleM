@@ -341,20 +341,21 @@ export default function SettingsScreen() {
     });
   }, [subView, navigation]);
 
-  // 현재 가게 이름·회원 id는 로그인 응답에 없어 /users에서 이메일로 조회
+  // 현재 가게 이름·회원 id는 로그인 응답에 없어 /auth/me에서 조회
+  // (예전 /auth/users 목록 조회는 8/6 보안 잠금으로 관리자 전용이 되어 항상 401 —
+  //  가게 이름·id가 조용히 비어 있었다)
   useEffect(() => {
-    if (!user) return;
-    fetch(`${API_BASE_URL}/api/v1/auth/users`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((list: Array<{ id: number; email: string; store_name?: string }>) => {
-        const me = list.find((u) => u.email === user.email);
+    if (!user || !token) return;
+    fetch(`${API_BASE_URL}/api/v1/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((me: { id: number; store_name?: string } | null) => {
         if (me) {
           setUserId(me.id);
           setStoreName(me.store_name ?? '');
         }
       })
       .catch(() => {});
-  }, [user]);
+  }, [user, token]);
 
   // 업종·영업 시간은 계정에 저장된 값이 원본이다 (기기 설정은 표시용 캐시).
   // 예전엔 이 화면이 AsyncStorage만 읽어서, 재설치하거나 다른 기기로 로그인하면
@@ -427,10 +428,12 @@ export default function SettingsScreen() {
       destructive: true,
       onConfirm: async () => {
         try {
-          if (userId != null) {
-            await fetch(`${API_BASE_URL}/api/v1/auth/users/${userId}`, {
+          // 셀프 탈퇴 전용 경로 — 관리자용 /users/{id}는 일반 계정에선 403이라
+          // 예전엔 탈퇴가 조용히 무시된 채 로그아웃만 됐다
+          if (token) {
+            await fetch(`${API_BASE_URL}/api/v1/auth/me`, {
               method: 'DELETE',
-              headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+              headers: { Authorization: `Bearer ${token}` },
             });
           }
         } catch {

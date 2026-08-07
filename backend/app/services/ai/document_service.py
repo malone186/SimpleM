@@ -344,7 +344,11 @@ def draft_payslip(store_id: str, req: PayslipRequest) -> dict[str, Any]:
 
     period = f"{req.year:04d}-{req.month:02d}"
     with _session() as db:
-        employee = db.query(Employee).filter(Employee.name == req.employee_name).first()
+        employee = (
+            db.query(Employee)
+            .filter(Employee.store_id == store_id, Employee.name == req.employee_name)
+            .first()
+        )
 
         hourly_wage = req.hourly_wage or (employee.hourly_rate if employee else None)
         if not hourly_wage:

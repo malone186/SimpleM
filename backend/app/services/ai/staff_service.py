@@ -23,6 +23,7 @@ import calendar as _calendar
 import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
+from app.utils.datetime_kst import today_kst
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +149,7 @@ def _staff_entry(db, emp, prof: dict[str, Any], month: Optional[str] = None) -> 
     저장할 때마다 목록 전체를 다시 부르면 Neon 왕복이 한 번 더 붙어 '눌러도 반응이 없는'
     체감이 생긴다. 저장 응답이 곧 최신 상태가 되도록 계산 결과까지 함께 돌려준다.
     """
-    target_month = month or date.today().strftime("%Y-%m")
+    target_month = month or today_kst().strftime("%Y-%m")
     scheduled = _scheduled_hours_by_employee(db, [emp.id], target_month).get(emp.id, 0.0)
     windows = _availability_by_employee(db, [emp.id]).get(emp.id, [])
     return {
@@ -394,7 +395,7 @@ def list_staff(store_id: str, month: Optional[str] = None) -> dict[str, Any]:
     from app.models.ai import EmployeeProfile
     from app.models.operation import Employee
 
-    target_month = month or date.today().strftime("%Y-%m")
+    target_month = month or today_kst().strftime("%Y-%m")
 
     db = _session()
     try:
@@ -593,7 +594,7 @@ def month_calendar(store_id: str, month: Optional[str] = None) -> dict[str, Any]
     from app.models.ai import EmployeeProfile
     from app.models.operation import Employee, Schedule
 
-    target = month or date.today().strftime("%Y-%m")
+    target = month or today_kst().strftime("%Y-%m")
     try:
         year, mon = int(target[:4]), int(target[5:7])
         first = date(year, mon, 1)
@@ -747,14 +748,14 @@ def apply_availability(store_id: str, month: Optional[str] = None,
     """
     from app.models.operation import Employee, Schedule
 
-    target = month or date.today().strftime("%Y-%m")
+    target = month or today_kst().strftime("%Y-%m")
     try:
         year, mon = int(target[:4]), int(target[5:7])
         first = date(year, mon, 1)
     except (ValueError, IndexError):
         raise StaffError("월 형식이 올바르지 않습니다 (YYYY-MM).")
     last = date(year, mon, _calendar.monthrange(year, mon)[1])
-    today = date.today()
+    today = today_kst()
     # 기본은 오늘부터 — 지난 날짜에 근무를 새로 만들면 이미 지급한 급여가 바뀐다.
     # 통째로 지난 달이면 start_day가 last를 넘어가 아무것도 만들지 않는다.
     # (데모 시드 스크립트만 from_today=False로 그 달 전체를 채운다)
@@ -922,7 +923,7 @@ def monthly_payroll(store_id: str, year_month: Optional[str] = None) -> list[dic
     """전 직원 월 예상 급여 목록 — 직원 수와 무관하게 DB 왕복 2번."""
     from app.models.operation import Employee, Schedule
 
-    target = year_month or date.today().strftime("%Y-%m")
+    target = year_month or today_kst().strftime("%Y-%m")
     try:
         date(int(target[:4]), int(target[5:7]), 1)
     except (ValueError, IndexError):
@@ -960,7 +961,7 @@ def month_settlement(store_id: str, year_month: Optional[str] = None) -> dict[st
     from app.models.inventory import Sale
     from app.models.operation import Employee, Expense, Schedule
 
-    target = year_month or date.today().strftime("%Y-%m")
+    target = year_month or today_kst().strftime("%Y-%m")
     try:
         year, mon = int(target[:4]), int(target[5:7])
         p_start_dt = datetime(year, mon, 1)
@@ -1029,7 +1030,7 @@ def weekly_payroll(store_id: str, week_start: Optional[str] = None) -> dict[str,
     from app.models.ai import EmployeeProfile
     from app.models.operation import Employee, Schedule
 
-    today = date.today()
+    today = today_kst()
     start = date.fromisoformat(week_start) if week_start else today - timedelta(days=today.weekday())
     end = start + timedelta(days=6)
 

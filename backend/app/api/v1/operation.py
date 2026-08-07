@@ -92,14 +92,20 @@ def create_employee_api(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
-    """신규 알바생을 새로 등록합니다. 토큰이 오면 로그인 매장 소속으로 등록합니다."""
+    """신규 알바생을 로그인 매장 소속으로 등록합니다.
+
+    비로그인 등록은 거부한다 — store_id가 NULL인 직원은 어느 매장 목록에도 안 보이는
+    유령이 되면서, 예전 소유권 검사(NULL이면 통과)와 결합해 아무나 수정·삭제할 수 있었다.
+    """
+    if current_user is None:
+        raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
     try:
         emp = OperationService.create_employee(
             db=db,
             name=payload.name,
             hourly_rate=payload.hourly_rate,
             role=payload.role,
-            store_id=current_user.email if current_user else None,
+            store_id=current_user.email,
         )
         return CommonResponse(
             success=True,
@@ -225,9 +231,17 @@ def get_all_schedules_api(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/schedules/{schedule_id}", response_model=CommonResponse)
-def get_schedule_api(schedule_id: int, db: Session = Depends(get_db)):
-    """지정한 ID에 해당하는 특정 스케줄 일정을 단건 조회합니다."""
+def get_schedule_api(
+    schedule_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """지정한 ID에 해당하는 특정 스케줄 일정을 단건 조회합니다. (로그인 매장 근무만)
+
+    연번 id를 훑으면 남의 매장 직원 출퇴근 시각까지 읽히므로 변경과 같은 소유권 검사를 탄다.
+    """
     try:
+        _assert_schedule_owned(db, schedule_id, current_user)
         schedule = OperationService.get_schedule_by_id(db, schedule_id)
         if not schedule:
             raise HTTPException(status_code=404, detail="존재하지 않는 스케줄 번호입니다.")
@@ -281,7 +295,9 @@ def _assert_schedule_owned(db: Session, schedule_id: int, current_user: Optional
         .filter(Schedule.id == schedule_id)
         .first()
     )
-    if row is not None and row[0] and row[0] != current_user.email:
+    # store_id가 NULL인 레거시 행도 '내 것 아님'으로 본다 — falsy 통과로 두면
+    # 아무 매장이나 남의 NULL 직원 근무를 고치고 지울 수 있다.
+    if row is not None and row[0] != current_user.email:
         raise HTTPException(status_code=404, detail="해당 스케줄을 찾을 수 없습니다.")
 
 
@@ -294,7 +310,7 @@ def _assert_employee_owned(db: Session, employee_id: int, current_user: Optional
     if current_user is None:
         raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
     row = db.query(Employee.store_id).filter(Employee.id == employee_id).first()
-    if row is not None and row[0] and row[0] != current_user.email:
+    if row is not None and row[0] != current_user.email:
         raise HTTPException(status_code=404, detail="해당 직원을 찾을 수 없습니다.")
 
 
@@ -750,9 +766,12 @@ def calculate_settlement_api(
             from app.models.operation import Expense
             
             # 1. 날짜 경계선 파싱 (마지막 날 23:59:59 누락을 막기 위해 종료일의 익일 0시 미만으로 안전하게 검색)
+            # sold_at은 timestamptz — naive 경계를 주면 UTC 자정으로 잘려 KST 00:00~08:59
+            # 매출이 전날 정산에 들어간다. 경계에 KST를 명시한다.
+            from app.utils.datetime_kst import KST
             try:
-                p_start_dt = datetime.strptime(payload.period_start, "%Y-%m-%d")
-                p_end_dt = datetime.strptime(payload.period_end, "%Y-%m-%d") + timedelta(days=1)
+                p_start_dt = datetime.strptime(payload.period_start, "%Y-%m-%d").replace(tzinfo=KST)
+                p_end_dt = datetime.strptime(payload.period_end, "%Y-%m-%d").replace(tzinfo=KST) + timedelta(days=1)
             except ValueError:
                 raise HTTPException(status_code=400, detail="날짜 포맷은 YYYY-MM-DD 형식이어야 합니다.")
 
@@ -916,9 +935,13 @@ def index_beans_vectorstore_api(
 @router.post("/beans/chat", response_model=CommonResponse, summary="원두 챗봇 RAG 자연어 질의응답 (Grounded 답변+근거+신뢰도) API")
 def bean_rag_chat_api(
     payload: BeanRAGChatRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     # [원두 챗봇 RAG 자연어 답변 API] 하이브리드 검색 및 Gemini LLM 근거 기반 답변, Grounding, Confidence 반환
+    # Gemini 호출이 들어가므로 비로그인 개방 시 팀 공유 쿼터가 외부에서 소진될 수 있다 — 로그인 필수.
+    if current_user is None:
+        raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
     try:
         from app.services.operation.bean_rag_service import generate_grounded_answer_service
         res = generate_grounded_answer_service(db, payload)
