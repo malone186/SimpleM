@@ -110,24 +110,29 @@ async def put_connection(
     except pos_service.PosError as e:
         raise HTTPException(400, str(e))
 
-    conn = db.query(PosConnection).filter(PosConnection.store_id == current_user.email).first()
-    if conn is None:
-        conn = PosConnection(store_id=current_user.email)
-        db.add(conn)
-    conn.provider = body.provider
-    conn.environment = body.environment
-    conn.access_token_enc = pos_service.encrypt(body.access_token)
-    conn.webhook_signature_key_enc = (
-        pos_service.encrypt(body.webhook_signature_key) if body.webhook_signature_key else None
-    )
-    conn.webhook_url = _webhook_url_for(request)
-    conn.merchant_id = merchant_id
-    conn.auto_sync = body.auto_sync
-    conn.last_status = None
-    conn.last_error = None
-    db.commit()
-    db.refresh(conn)
-    return _to_out(conn)
+    # 동기 SQLAlchemy는 async 핸들러에서 그대로 부르면 Neon 왕복(~0.2초/쿼리) 동안
+    # 이벤트 루프 전체가 멈춘다 — /chatbot/chat의 쿼터 처리와 같은 이유로 스레드로 내린다.
+    def _save() -> PosConnection:
+        conn = db.query(PosConnection).filter(PosConnection.store_id == current_user.email).first()
+        if conn is None:
+            conn = PosConnection(store_id=current_user.email)
+            db.add(conn)
+        conn.provider = body.provider
+        conn.environment = body.environment
+        conn.access_token_enc = pos_service.encrypt(body.access_token)
+        conn.webhook_signature_key_enc = (
+            pos_service.encrypt(body.webhook_signature_key) if body.webhook_signature_key else None
+        )
+        conn.webhook_url = _webhook_url_for(request)
+        conn.merchant_id = merchant_id
+        conn.auto_sync = body.auto_sync
+        conn.last_status = None
+        conn.last_error = None
+        db.commit()
+        db.refresh(conn)
+        return conn
+
+    return _to_out(await asyncio.to_thread(_save))
 
 
 @router.delete("/connection", status_code=204)
@@ -147,7 +152,8 @@ async def sync_now(
     current_user: User = Depends(get_current_user),
 ):
     """지금 즉시 동기화 — hours를 주면 그 시간만큼 거슬러 조회(최대 72h), 없으면 마지막 동기화 이후."""
-    conn = db.query(PosConnection).filter(PosConnection.store_id == current_user.email).first()
+    conn = await asyncio.to_thread(
+        lambda: db.query(PosConnection).filter(PosConnection.store_id == current_user.email).first())
     if conn is None:
         raise HTTPException(409, "POS가 연결돼 있지 않습니다. 먼저 연결을 저장해 주세요.")
     try:

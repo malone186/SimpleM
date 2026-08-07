@@ -1,7 +1,7 @@
 # c:\STUDY\SimpleM\backend\app\services\inventory_service.py
 import logging
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 from fastapi import HTTPException, status
 
 from app.models.inventory import Ingredient, IngredientPriceHistory, Menu, Recipe, Stock, StockTransaction, Order, OrderItem
@@ -358,7 +358,15 @@ def get_menus_with_recipes(db: Session, store_id: str) -> list[dict]:
     현재 매장의 메뉴판 정보와 각 메뉴별 레시피(재료 이름, 단위, 양)를 정렬하여 한 묶음의 리스트로 받아옵니다.
     (재재료 단가 변동이 실시간 반영되도록 각 메뉴별 원가 및 원가율을 동적으로 실시간 연산하여 동봉합니다.)
     """
-    menus = db.query(Menu).filter(Menu.store_id == store_id).order_by(Menu.id.asc()).all()
+    # recipes·ingredient를 lazy-load에 맡기면 메뉴×레시피 수만큼 Neon 왕복(2N+1)이라
+    # 메뉴 20개 목록이 수 초씩 걸렸다 — 한 번에 미리 당겨 총 2쿼리로 줄인다.
+    menus = (
+        db.query(Menu)
+        .options(selectinload(Menu.recipes).joinedload(Recipe.ingredient))
+        .filter(Menu.store_id == store_id)
+        .order_by(Menu.id.asc())
+        .all()
+    )
     results = []
 
     for menu in menus:
@@ -642,23 +650,33 @@ def get_menu_cost_reduction_recommendations(db: Session, store_id: str, menu_id:
         raise HTTPException(status_code=404, detail="원가 절감 분석을 수행할 메뉴 정보를 찾을 수 없습니다.")
 
     recommendations = []
-    current_total_cost = 0
 
-    # 2. 메뉴의 레시피에 들어가는 재료들을 한 품목씩 뜯어 단가와 매칭합니다.
-    for recipe in menu.recipes:
-        ing = recipe.ingredient
-        recipe_cost = int(recipe.quantity * ing.current_price)
-        current_total_cost += recipe_cost
-
+    def _is_coffee_bean(ing) -> bool:
         # [한글 주석] 재료명이나 단위에 원두 관련 텍스트가 있다면 로스터리 도매 납품 DB와 연결합니다.
-        is_coffee_bean = (
-            "원두" in ing.name or 
-            "예가체프" in ing.name or 
-            "수프리모" in ing.name or 
-            "콜롬비아" in ing.name or 
-            "원두" in ing.unit or 
+        return (
+            "원두" in ing.name or
+            "예가체프" in ing.name or
+            "수프리모" in ing.name or
+            "콜롬비아" in ing.name or
+            "원두" in ing.unit or
             "bean" in ing.name.lower()
         )
+
+    recipe_rows = [(r, r.ingredient, int(r.quantity * r.ingredient.current_price)) for r in menu.recipes]
+    current_total_cost = sum(cost for _, _, cost in recipe_rows)
+
+    # 다나와 실시간 조회(compare_prices)는 재료마다 크롤 1회라, 재료 수만큼 응답이 수십 초로
+    # 늘어난다 — 비원두는 잔당 원가가 큰 상위 3개만 조회한다 (절감 효과도 큰 순서다.
+    # price_service가 검색어당 1시간 캐시를 갖고 있어 두 번째 조회부터는 어차피 즉시다).
+    non_bean_costly = sorted(
+        (row for row in recipe_rows if not _is_coffee_bean(row[1])),
+        key=lambda row: row[2], reverse=True,
+    )
+    danawa_allowed_ids = {id(row[0]) for row in non_bean_costly[:3]}
+
+    # 2. 메뉴의 레시피에 들어가는 재료들을 한 품목씩 뜯어 단가와 매칭합니다.
+    for recipe, ing, recipe_cost in recipe_rows:
+        is_coffee_bean = _is_coffee_bean(ing)
 
         if is_coffee_bean:
             # A. 로스터리 도매 원두 DB(roastery_beans) 중 g당 단가가 사장님의 현재 원두 매입가보다 더 저렴한 원두 2개를 골라냅니다.
@@ -685,7 +703,7 @@ def get_menu_cost_reduction_recommendations(db: Session, store_id: str, menu_id:
                     "link": bean.product_url or "",
                     "description": f"로스터리 도매 직거래를 통해 g당 단가를 {int(bean.price_per_gram)}원 선으로 크게 낮출 수 있습니다. (원산지: {bean.country or '블렌딩'})"
                 })
-        else:
+        elif id(recipe) in danawa_allowed_ids:
             # B. 일반 우유, 컵, 시럽 등 부자재는 인터넷 가격비교(다나와)를 실시간으로 호출해 매칭합니다.
             try:
                 # _clean_query 규격에 맞춰 검색한 뒤 최저가 1종을 추출

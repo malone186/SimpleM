@@ -51,11 +51,11 @@ class Schedule(Base):
     id = Column(Integer, primary_key=True, index=True)
     
     # 이 스케줄이 어떤 직원(Employee)을 뜻하는지 외래키로 연결합니다.
-    employee_id = Column(Integer, ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
-    
+    employee_id = Column(Integer, ForeignKey("employees.id", ondelete="CASCADE"), nullable=False, index=True)
+
     start_time = Column(DateTime, nullable=False)  # 근무 시작 시간
     end_time = Column(DateTime, nullable=False)    # 근무 종료 시간
-    date = Column(String(20), nullable=False)      # 근무 일자 (YYYY-MM-DD)
+    date = Column(String(20), nullable=False, index=True)  # 근무 일자 (YYYY-MM-DD)
     actual_start_time = Column(DateTime, nullable=True)  # 실제 출근 시간 (신규 추가)
     actual_end_time = Column(DateTime, nullable=True)    # 실제 퇴근 시간 (신규 추가)
 
@@ -66,7 +66,7 @@ class Expense(Base):
     __tablename__ = "expenses"
 
     id = Column(Integer, primary_key=True, index=True)
-    store_id = Column(String(100), nullable=False)                   # 매장 식별 아이디
+    store_id = Column(String(100), nullable=False, index=True)       # 매장 식별 아이디
     amount = Column(Integer, nullable=False, default=0)              # 지출 금액 (원)
     category = Column(String(50), nullable=False)                    # 지출 카테고리 (예: 원두매입, 소모품비 등)
     description = Column(String(255), nullable=True)                 # 상세 설명

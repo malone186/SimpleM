@@ -927,16 +927,8 @@ def _visit_dates(db: Session, customer_id: int) -> List[datetime]:
     return out
 
 
-def visit_stats(db: Session, customer_id: int) -> Dict[str, Any]:
-    """개인별 방문 주기를 낸다.
-
-    [한글 주석] 평균이 아니라 중앙값을 쓴다.
-    어쩌다 한 번 두 달 비운 게 평균을 통째로 망가뜨리기 때문이다.
-    (원두 시세에서 중앙값을 쓴 것과 같은 이유다.)
-
-    간격이 최소 2개는 있어야 중앙값이 의미를 갖는다 → 방문 3회 이상이 조건.
-    """
-    dates = _visit_dates(db, customer_id)
+def _stats_from_dates(dates: List[datetime]) -> Dict[str, Any]:
+    """방문 날짜 목록 → 주기 지표. visit_stats(단건)와 bulk 경로가 공유하는 계산부."""
     if not dates:
         return {"visit_count": 0, "last_visit_at": None,
                 "days_since_visit": None, "median_interval_days": None}
@@ -957,6 +949,59 @@ def visit_stats(db: Session, customer_id: int) -> Dict[str, Any]:
         "days_since_visit": days_since,
         "median_interval_days": median,
     }
+
+
+def visit_stats(db: Session, customer_id: int) -> Dict[str, Any]:
+    """개인별 방문 주기를 낸다.
+
+    [한글 주석] 평균이 아니라 중앙값을 쓴다.
+    어쩌다 한 번 두 달 비운 게 평균을 통째로 망가뜨리기 때문이다.
+    (원두 시세에서 중앙값을 쓴 것과 같은 이유다.)
+
+    간격이 최소 2개는 있어야 중앙값이 의미를 갖는다 → 방문 3회 이상이 조건.
+    """
+    return _stats_from_dates(_visit_dates(db, customer_id))
+
+
+def _normalize_visit_date(d: Any) -> Optional[datetime]:
+    """func.date() 반환값을 datetime으로 — Postgres는 date, SQLite는 문자열을 준다."""
+    if d is None:
+        return None
+    if isinstance(d, datetime):
+        return d
+    if isinstance(d, str):
+        try:
+            return datetime.strptime(d[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            logger.warning("방문일 형식을 읽지 못했습니다: %r", d)
+            return None
+    return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+
+
+def visit_stats_bulk(db: Session, customer_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+    """여러 고객의 방문 지표를 쿼리 1번으로 낸다.
+
+    고객당 visit_stats를 부르면 Neon 왕복(~0.2초)이 사람 수만큼 쌓여
+    회원 50명 목록이 10초, 이탈 스캔 100명이 수십 초였다 (2026-08-06 감사).
+    """
+    if not customer_ids:
+        return {}
+    rows = (
+        db.query(BalanceTransaction.customer_id, func.date(BalanceTransaction.created_at))
+        .filter(
+            BalanceTransaction.customer_id.in_(customer_ids),
+            BalanceTransaction.tx_type == TX_USE,
+        )
+        .distinct()
+        .order_by(BalanceTransaction.customer_id, func.date(BalanceTransaction.created_at))
+        .all()
+    )
+    dates_by_customer: Dict[int, List[datetime]] = {}
+    for cid, d in rows:
+        parsed = _normalize_visit_date(d)
+        if parsed is not None:
+            dates_by_customer.setdefault(cid, []).append(parsed)
+    return {cid: _stats_from_dates(dates_by_customer.get(cid, [])) for cid in customer_ids}
 
 
 # [한글 주석] 이탈 판정 기준.
@@ -986,8 +1031,12 @@ def find_churn_risk(db: Session, store_id: str, limit: int = 20,
         .all()
     )
 
+    # 고객당 2쿼리(N+1)를 매장 전체 2쿼리로 — 방문 지표는 일괄, 쿠폰은 이탈 후보만 일괄
+    stats_map = visit_stats_bulk(db, [c.id for c in customers])
+
+    candidates = []
     for c in customers:
-        st = visit_stats(db, c.id)
+        st = stats_map.get(c.id) or _stats_from_dates([])
         if st["visit_count"] < CHURN_MIN_VISITS or st["median_interval_days"] is None:
             continue  # 평소 주기를 모르면 '뜸하다'를 판단할 수 없다
 
@@ -995,13 +1044,29 @@ def find_churn_risk(db: Session, store_id: str, limit: int = 20,
         threshold = max(CHURN_MIN_DAYS, min(threshold, CHURN_MAX_DAYS))
         if st["days_since_visit"] < threshold:
             continue
+        candidates.append((c, st))
 
+    now = _now()
+    usable_by_customer: Dict[int, List[str]] = {}
+    if candidates:
+        coupon_rows = (
+            db.query(Coupon)
+            .filter(Coupon.customer_id.in_([c.id for c, _ in candidates]), Coupon.used_at.is_(None))
+            .order_by(Coupon.issued_at.desc())
+            .all()
+        )
+        for cp in coupon_rows:
+            if cp.expires_at is not None and _aware(cp.expires_at) < now:
+                continue
+            usable_by_customer.setdefault(cp.customer_id, []).append(cp.title)
+
+    for c, st in candidates:
         # [한글 주석] 손님을 두 종류로 나눈다.
         #   잔액 있음 → 이미 올 이유가 있다. 잔액을 알려주면 된다.
         #   잔액 0원  → 올 이유가 없다. 쿠폰이 필요한 자리다.
         # 잔액 있는 손님에게 쿠폰까지 주면 이중 혜택이라 매장만 손해다.
-        usable = list_coupons(db, c.id, only_usable=True)
-        coupon_title = usable[0]["title"] if usable else None
+        usable = usable_by_customer.get(c.id, [])
+        coupon_title = usable[0] if usable else None
         needs_coupon = (c.balance or 0) <= 0 and not usable
 
         out.append({

@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -276,26 +277,32 @@ async def sync_connection(db: Session, conn: PosConnection, hours: Optional[floa
     else:
         start = now - timedelta(hours=24)
 
-    try:
-        orders = await _fetch_orders(
-            token, conn.environment,
-            start.strftime("%Y-%m-%dT%H:%M:%SZ"), now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        )
+    # 동기 SQLAlchemy(record_orders + commit)는 async 문맥에서 그대로 부르면 Neon 왕복
+    # 동안 이벤트 루프가 멈춘다 — 주문 반영/상태 기록을 전부 스레드로 내린다.
+    def _apply_ok(orders: list[dict]) -> dict:
         result = record_orders(db, conn.store_id, orders, provider=conn.provider)
         conn.last_synced_at = now
         conn.last_status = "ok"
         conn.last_error = None
         db.commit()
         return result
-    except PosError as e:
+
+    def _mark_error(msg: str) -> None:
         conn.last_status = "error"
-        conn.last_error = str(e)[:300]
+        conn.last_error = msg[:300]
         db.commit()
+
+    try:
+        orders = await _fetch_orders(
+            token, conn.environment,
+            start.strftime("%Y-%m-%dT%H:%M:%SZ"), now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        )
+        return await asyncio.to_thread(_apply_ok, orders)
+    except PosError as e:
+        await asyncio.to_thread(_mark_error, str(e))
         raise
     except httpx.HTTPError as e:
-        conn.last_status = "error"
-        conn.last_error = f"네트워크 오류: {e}"[:300]
-        db.commit()
+        await asyncio.to_thread(_mark_error, f"네트워크 오류: {e}")
         raise PosError(f"Square 통신 실패: {e}") from e
 
 
@@ -305,7 +312,8 @@ async def sync_all_auto() -> dict:
 
     synced, failed = 0, 0
     with SessionLocal() as db:
-        conns = db.query(PosConnection).filter(PosConnection.auto_sync == True).all()  # noqa: E712
+        conns = await asyncio.to_thread(
+            lambda: db.query(PosConnection).filter(PosConnection.auto_sync == True).all())  # noqa: E712
         for conn in conns:
             try:
                 await sync_connection(db, conn)
@@ -356,8 +364,8 @@ async def handle_square_webhook(db: Session, body: bytes, signature: str) -> dic
     if not merchant_id:
         raise PosError("웹훅에 merchant_id가 없습니다.")
 
-    conn = (
-        db.query(PosConnection)
+    conn = await asyncio.to_thread(
+        lambda: db.query(PosConnection)
         .filter(PosConnection.merchant_id == merchant_id, PosConnection.provider == "square")
         .first()
     )
@@ -382,9 +390,13 @@ async def handle_square_webhook(db: Session, body: bytes, signature: str) -> dic
     if conn.environment != "sandbox" and order.get("state") != "COMPLETED":
         return {"handled": False, "reason": f"미완료 주문({order.get('state')})", "order_id": order_id}
 
-    result = record_orders(db, conn.store_id, [order], provider="square")
-    conn.last_synced_at = datetime.now(timezone.utc)
-    conn.last_status = "ok"
-    conn.last_error = None
-    db.commit()
+    def _apply() -> dict:
+        result = record_orders(db, conn.store_id, [order], provider="square")
+        conn.last_synced_at = datetime.now(timezone.utc)
+        conn.last_status = "ok"
+        conn.last_error = None
+        db.commit()
+        return result
+
+    result = await asyncio.to_thread(_apply)
     return {"handled": True, "order_id": order_id, **result}

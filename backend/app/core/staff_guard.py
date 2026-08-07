@@ -55,11 +55,21 @@ STAFF_DENIED_PREFIXES = (
     "/api/v1/inventory/menus",
 )
 
+# [한글 주석] 허용 범위 안에서도 '이 메서드만' 막아야 하는 예외.
+#
+#   재료 삭제는 재고·레시피가 cascade로 함께 사라지는 파괴적 액션이고,
+#   발주 상태 변경(승인)은 돈이 나가는 결정이다. 확인·입고 찍기는 직원 업무지만
+#   지우고 승인하는 건 사장님 몫이다.
+STAFF_DENIED_METHOD_PREFIXES = (
+    ("DELETE", "/api/v1/inventory/ingredients"),
+    ("PATCH", "/api/v1/inventory/orders"),
+)
+
 # 인증과 무관한 공개 경로 — 토큰을 보지 않는다
 _PUBLIC_PREFIXES = ("/b/", "/s/", "/health", "/docs", "/openapi", "/redoc", "/console")
 
 
-def is_blocked_for_staff(path: str) -> bool:
+def is_blocked_for_staff(path: str, method: str = "GET") -> bool:
     """이 경로를 직원이 부를 수 없는가.
 
     [한글 주석] 판단을 미들웨어에서 떼어내 테스트할 수 있게 했다.
@@ -70,6 +80,9 @@ def is_blocked_for_staff(path: str) -> bool:
         return False
     if path.startswith(STAFF_DENIED_PREFIXES):
         return True
+    for denied_method, prefix in STAFF_DENIED_METHOD_PREFIXES:
+        if method.upper() == denied_method and path.startswith(prefix):
+            return True
     return not path.startswith(STAFF_ALLOWED_PREFIXES)
 
 
@@ -96,7 +109,7 @@ async def staff_scope_middleware(request: Request, call_next):
         return await call_next(request)
 
     staff_id = _staff_id_from_request(request)
-    if staff_id and is_blocked_for_staff(path):
+    if staff_id and is_blocked_for_staff(path, request.method):
         logger.info("[직원 권한] 차단 %s %s (staff_id=%s)", request.method, path, staff_id)
         return JSONResponse(
             status_code=403,

@@ -13,7 +13,7 @@ class Ingredient(Base):
     name = Column(String(100), nullable=False)                         # 재료명 (예: 서울우유 1L)
     unit = Column(String(20), nullable=False)                          # 측정 단위 (예: ml, g, 개)
     current_price = Column(Integer, nullable=False, default=0)         # 현재 구매 가격(단가)
-    store_id = Column(String(100), nullable=False)                     # 매장 식별 아이디 (Firebase 연동용)
+    store_id = Column(String(100), nullable=False, index=True)         # 매장 식별 아이디 (Firebase 연동용)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())  # 단가 수정 시간
 
@@ -126,8 +126,8 @@ class Sale(Base):
     menu_id = Column(Integer, ForeignKey("menus.id", ondelete="CASCADE"), nullable=False)
     quantity = Column(Integer, nullable=False, default=1)              # 판매 잔 수 (예: 2잔)
     total_price = Column(Integer, nullable=False)                      # 총 결제액
-    store_id = Column(String(100), nullable=False)                    # 매장 식별 아이디
-    sold_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    store_id = Column(String(100), nullable=False, index=True)        # 매장 식별 아이디
+    sold_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
 
     # [단골 관리 — 백엔드 B 추가] 누가 샀는지. 재방문 주기 계산의 근거가 된다.
     # 비회원 판매는 NULL이므로 기존 매출 집계에는 영향이 없다.
@@ -217,3 +217,48 @@ def ensure_menu_unique_constraint(engine) -> None:
             "[메뉴 스키마] 유니크 제약 추가 실패 — 같은 매장에 이름이 같은 메뉴가 "
             "이미 있는지 확인하세요: %s", e
         )
+
+
+# 자주 조회되는 컬럼의 인덱스 목록 — 모델의 index=True와 이름을 맞춘다 (ix_<table>_<column>).
+# create_all은 기존 테이블에 인덱스를 추가하지 않으므로 기동 시 ensure로 보강한다.
+_PERFORMANCE_INDEXES = [
+    ("sales", "ix_sales_store_id", "store_id"),
+    ("sales", "ix_sales_sold_at", "sold_at"),
+    ("ingredients", "ix_ingredients_store_id", "store_id"),
+    ("schedules", "ix_schedules_employee_id", "employee_id"),
+    ("schedules", "ix_schedules_date", "date"),
+    ("expenses", "ix_expenses_store_id", "store_id"),
+]
+
+
+def ensure_performance_indexes(engine) -> None:
+    """[자가치유 스키마] 대시보드·세무·급여가 매번 거르는 컬럼의 인덱스를 멱등하게 보강한다.
+
+    sales(store_id, sold_at)는 거의 모든 조회의 WHERE 절인데 인덱스가 없어
+    행이 쌓일수록 풀스캔이 늘었다 (2026-08-06 감사). IF NOT EXISTS라 재기동마다
+    카탈로그 확인만 하고 지나간다. 권한이 없으면(공유 DB 소유주 분리) 경고만 남긴다.
+
+    ※ sales·schedules·expenses는 팀원 담당 테이블이다. 이 보강은 팀에 공유할 것.
+    """
+    import logging
+
+    from sqlalchemy import inspect, text
+
+    log = logging.getLogger(__name__)
+    try:
+        insp = inspect(engine)
+        tables = set(insp.get_table_names())
+    except Exception as e:
+        log.warning("[인덱스 보강] 테이블 목록 조회 실패 — 건너뜁니다: %s", e)
+        return
+
+    for table, index_name, column in _PERFORMANCE_INDEXES:
+        if table not in tables:
+            continue
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    f'CREATE INDEX IF NOT EXISTS {index_name} ON {table} ("{column}")'
+                ))
+        except Exception as e:
+            log.warning("[인덱스 보강] %s.%s 실패 (권한/락 확인): %s", table, column, e)

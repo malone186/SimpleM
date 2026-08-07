@@ -28,7 +28,12 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message
 
 # [안전장치] 서버가 처음 기동할 때, 우리가 설계한 DB 테이블(User 등)이 실제 DB에 없으면 자동으로 생성해 줍니다.
 # DB가 꺼져 있어도 서버 자체는 뜨도록 한다 — DB와 무관한 기능(OCR 등)은 독립 동작해야 함 (PRD §7)
-try:
+#
+# [콜드스타트] create_all + ensure_* 9종이 전부 Neon 왕복이라 순차로 돌면 기동이 10~20초
+# 걸렸다 (Cloud Run 첫 요청이 그만큼 늦는다). 전부 멱등·자가치유라 순서만 지키면 되므로
+# 백그라운드 스레드로 내린다 — 서버는 즉시 뜨고, 보강은 몇 초 안에 따라온다.
+# (새 컬럼을 쓰는 요청이 그 몇 초 틈에 오면 한 번 500이 날 수 있지만, 다음 요청부터 정상.)
+def _startup_db_selfheal() -> None:
     Base.metadata.create_all(bind=engine)
 
     # [자가치유] 기존 users 테이블에 유입 경로 컬럼이 없으면 무중단으로 보강한다 (create_all은 기존 테이블을 ALTER하지 않음).
@@ -67,6 +72,10 @@ try:
     ensure_sale_customer_columns(engine)
     ensure_membership_extra_columns(engine)
 
+    # [자가치유] 자주 조회되는 컬럼(sales.store_id/sold_at 등)의 인덱스를 보강한다.
+    from app.models.inventory import ensure_performance_indexes
+    ensure_performance_indexes(engine)
+
     # [한글 주석] 로그인 데모를 즉시 하실 수 있게 테스트용 사장님 계정을 자동으로 생성(시딩)해 둡니다.
     #
     # 비밀번호는 앱 로그인 화면의 '데모 로그인' 버튼이 그대로 보내는 값이다
@@ -97,8 +106,19 @@ try:
         logger.error(f"테스트 계정 자동 생성 중 오류 발생: {seed_err}")
     finally:
         db_session.close()
-except Exception:
-    logger.exception("DB 테이블 자동 생성 실패 — DB 연결을 확인하세요. DB 없이 서버를 계속 띄웁니다.")
+
+
+def _startup_db_selfheal_safe() -> None:
+    try:
+        _startup_db_selfheal()
+        logger.info("DB 자가치유(테이블·컬럼·인덱스 보강) 완료")
+    except Exception:
+        logger.exception("DB 테이블 자동 생성 실패 — DB 연결을 확인하세요. DB 없이 서버를 계속 띄웁니다.")
+
+
+import threading  # noqa: E402
+
+threading.Thread(target=_startup_db_selfheal_safe, name="db-selfheal", daemon=True).start()
 
 def _check_timezone() -> None:
     """서버의 로컬 시간대가 KST인지 확인하고, 아니면 크게 경고한다.
