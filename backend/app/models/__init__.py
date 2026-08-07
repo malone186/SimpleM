@@ -8,6 +8,9 @@ from app.models.ai import (
     SettlementSetting, TodoItem,
 )
 
+# C (checklist.py) — 근무 체크리스트(매일 반복 루틴)
+from app.models.checklist import ChecklistCheck, ChecklistItem
+
 # I (inquiry.py & inventory.py)
 from app.models.inquiry import Inquiry
 from app.models.inventory import Ingredient, IngredientPriceHistory, Menu, Recipe, Stock, StockTransaction, Sale, Order, OrderItem

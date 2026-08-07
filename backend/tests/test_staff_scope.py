@@ -40,6 +40,7 @@ def test_챗봇은_막혀야_한다():
     다른 경로를 아무리 막아도 "이번 달 매출 알려줘" 한 마디로 우회된다."""
     assert is_blocked_for_staff("/api/v1/chatbot/chat")
     assert is_blocked_for_staff("/api/v1/chatbot/sessions")
+    assert is_blocked_for_staff("/api/v1/chatbot/todos")  # 할 일은 사장님 것 — 직원은 체크리스트를 쓴다
 
 
 def test_메뉴_원가율은_재고에_속하지만_막는다():
@@ -56,6 +57,9 @@ def test_메뉴_원가율은_재고에_속하지만_막는다():
     ("/api/v1/membership/checkins", "결제 요청 확인"),
     # 계산대에 서는 직원이 손님에게 보여줘야 결제 요청이 시작된다. 조회는 읽기 전용.
     ("/api/v1/membership/store-qr", "계산대 QR 표시"),
+    # 근무 체크리스트는 사장님과 같은 매장을 공유한다 — 직원이 조회·체크할 수 있어야 한다
+    ("/api/v1/checklist", "체크리스트 조회"),
+    ("/api/v1/checklist/12/toggle", "체크 토글"),
     ("/api/v1/membership/quick-menus", "차감용 메뉴"),
     ("/api/v1/membership/customers/1/use", "잔액 차감"),
     ("/api/v1/inventory/ingredients", "재고 확인"),

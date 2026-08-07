@@ -33,6 +33,7 @@ import StockDetailScreen from '../screens/inventory/StockDetailScreen';
 import BrewRoomScreen from '../screens/shop/BrewRoomScreen';
 import ShopScreen from '../screens/shop/ShopScreen';
 import StaffScreen from '../screens/staff/StaffScreen';
+import ChecklistScreen from '../screens/checklist/ChecklistScreen';
 import TaxDraftDetailScreen from '../screens/document/TaxDraftDetailScreen';
 import { colors, typography } from '../theme';
 import type { TaxEstimate } from '../lib/api/operation';
@@ -76,6 +77,7 @@ export type RootStackParamList = {
   Staff: undefined;
   BeanOperation: undefined;
   Membership: undefined;
+  Checklist: undefined;
   StaffAccount: undefined;
   // section: 특정 설정 하위 화면으로 바로 진입 (예: 카드 정산 설정)
   Settings: { section?: 'account' | 'notification' | 'appearance' | 'inquiry' | 'legal' | 'settlement' } | undefined;
@@ -148,34 +150,64 @@ const erpHeader = (title: string, navigation: any) =>
     animation: 'slide_from_right' as const,
   });
 
-// 직원 전용 앱 — 단골·선불 충전 화면 하나. 탭 없음.
-// 헤더 오른쪽에 로그아웃을 둔다(탭·설정이 없어 나갈 길이 여기뿐이다).
+// 직원 전용 앱 — 하단 탭 둘: 근무 체크리스트 · 단골 충전. (사장님 앱의 4개 탭 대신 이 둘만)
+// 체크리스트는 매일 반복되는 오픈·마감·위생 루틴이다. 사장님이 항목을 등록해 두면 직원이
+// 매일 체크하고, 사장님도 '오늘 마감 됐나'를 같은 화면에서 확인한다(같은 매장 공유).
+// 헤더 오른쪽에 로그아웃을 둔다(설정 화면이 없어 나갈 길이 여기뿐이다).
+const StaffTab = createBottomTabNavigator();
+
 function StaffApp({ userName }: { userName: string }) {
   const { logout } = useAuth();
+  const logoutBtn = () => (
+    <PressableScale
+      onPress={logout}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: 12, padding: 4 }}
+      to={0.9}
+    >
+      <Ionicons name="log-out-outline" size={18} color={colors.creamSand} />
+      <Text style={{ color: colors.creamSand, fontSize: 13, fontWeight: '600' }}>로그아웃</Text>
+    </PressableScale>
+  );
   return (
     <NavigationContainer key={`staff:${userName}`} ref={navigationRef}>
-      <Stack.Navigator>
-        <Stack.Screen
+      <StaffTab.Navigator
+        screenOptions={{
+          headerShown: true,
+          headerTitleAlign: 'left',
+          headerStyle: { backgroundColor: colors.espressoBrown },
+          headerTintColor: colors.creamSand,
+          headerTitleStyle: { fontSize: 16.5, fontWeight: '500' },
+          headerStatusBarHeight: Platform.OS === 'web' ? 35 : undefined,
+          headerRight: logoutBtn,
+          tabBarActiveTintColor: colors.pointOrange,
+          tabBarInactiveTintColor: colors.mochaBrown,
+          tabBarStyle: { backgroundColor: 'rgba(250, 249, 246, 0.98)', borderTopColor: 'rgba(140,111,86,0.08)' },
+          tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
+        }}
+      >
+        <StaffTab.Screen
+          name="Checklist"
+          component={ChecklistScreen}
+          options={{
+            title: '근무 체크리스트',
+            tabBarLabel: '체크리스트',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="checkbox-outline" size={size ?? 20} color={color} />
+            ),
+          }}
+        />
+        <StaffTab.Screen
           name="Membership"
           component={MembershipScreen}
-          options={({ navigation }) => ({
-            // 사장님 화면과 같은 브라운 헤더를 그대로 쓰고(erpHeader), 뒤로가기 대신
-            // 로그아웃을 오른쪽에 둔다 — 직원은 나갈 길이 여기뿐이다.
-            ...erpHeader('단골 · 선불 충전', navigation),
-            headerLeft: () => null,
-            headerRight: () => (
-              <PressableScale
-                onPress={logout}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: 12, padding: 4 }}
-                to={0.9}
-              >
-                <Ionicons name="log-out-outline" size={18} color={colors.creamSand} />
-                <Text style={{ color: colors.creamSand, fontSize: 13, fontWeight: '600' }}>로그아웃</Text>
-              </PressableScale>
+          options={{
+            title: '단골 · 선불 충전',
+            tabBarLabel: '단골 충전',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="card-outline" size={size ?? 20} color={color} />
             ),
-          })}
+          }}
         />
-      </Stack.Navigator>
+      </StaffTab.Navigator>
     </NavigationContainer>
   );
 }
@@ -245,6 +277,7 @@ export default function RootNavigator() {
         <Stack.Screen name="Staff" component={StaffScreen} options={({ navigation }) => erpHeader('직원 · 인건비', navigation)} />
         <Stack.Screen name="BeanOperation" component={BeanOperationScreen} options={({ navigation }) => erpHeader('운영 · 원두 실리뷰 분석', navigation)} />
         <Stack.Screen name="Membership" component={MembershipScreen} options={({ navigation }) => erpHeader('단골 · 선불 충전', navigation)} />
+        <Stack.Screen name="Checklist" component={ChecklistScreen} options={({ navigation }) => erpHeader('근무 체크리스트', navigation)} />
         <Stack.Screen name="StaffAccount" component={StaffAccountScreen} options={({ navigation }) => erpHeader('직원 계정', navigation)} />
 
         <Stack.Screen name="Settings" component={SettingsScreen} options={({ navigation }) => erpHeader('설정', navigation)} />

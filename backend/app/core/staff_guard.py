@@ -38,6 +38,10 @@ STAFF_ALLOWED_PREFIXES = (
     "/api/v1/staff-accounts",
     "/api/v1/inventory",
     "/api/v1/auth",
+    # 근무 체크리스트 — 매일 반복되는 오픈·마감·위생 루틴. 사장님과 같은 매장(store_id)을
+    # 공유하므로 직원이 체크하면 사장님도 '오늘 마감 했나'를 확인할 수 있다. 조회·토글은
+    # 직원도 되지만, 항목 등록·수정·삭제(/checklist/items)는 require_owner가 막는다.
+    "/api/v1/checklist",
 )
 
 # [한글 주석] 허용 범위 안에서도 막아야 하는 예외.

@@ -21,7 +21,9 @@ api_router.include_router(auth_router)
 from app.api.v1.breakeven import router as breakeven_router
 api_router.include_router(breakeven_router)
 
-# C (chatbot)
+# C (checklist, chatbot)
+from app.api.v1.checklist import router as checklist_router
+api_router.include_router(checklist_router)
 api_router.include_router(chatbot.router)
 
 # I (inquiry, inventory)
