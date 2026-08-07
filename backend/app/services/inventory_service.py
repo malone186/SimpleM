@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
 from app.models.inventory import Ingredient, IngredientPriceHistory, Menu, Recipe, Stock, StockTransaction, Order, OrderItem
-from app.schemas.inventory import IngredientCreate, StockAdjust, MenuCreate, RecipeCreate
+from app.schemas.inventory import IngredientCreate, IngredientUpdate, StockAdjust, MenuCreate, RecipeCreate
 
 # 원가 절감 추천에서 다나와 가격비교가 실패하면 except가 logger를 부른다 — 정의 안 하면 NameError로 재폭발
 logger = logging.getLogger(__name__)
@@ -78,6 +78,96 @@ def update_ingredient_price(db: Session, store_id: str, ingredient_id: int, new_
         db.refresh(ingredient)
         
     return ingredient
+
+
+def update_ingredient_full(
+    db: Session, store_id: str, ingredient_id: int, payload: IngredientUpdate
+) -> dict:
+    """
+    [백엔드 B 추가 — 재고 화면 '재료 정보 수정'] 이름·단위·단가·현재 수량·안전 수량을 한 번에 고칩니다.
+
+    수량만 고칠 수 있던 기존 흐름(add_or_adjust_stock)과 달리 재료 자체를 고치는 창구다.
+    - 보내지 않은 항목은 그대로 둔다 (부분 수정)
+    - 단가가 바뀌면 기존 단가 이력에 그대로 한 줄 쌓는다 (원가 추이가 끊기지 않게)
+    - 수량은 '최종값'을 받아 차액만 장부(StockTransaction)에 ADJUST로 남긴다.
+      실사 수량을 그대로 적게 하려면 화면에서 차액을 계산시키면 안 된다.
+    - 이름은 매장 안에서 겹치지 않게 막는다. 겹치면 OCR 입고가 어느 쪽에 붙을지 알 수 없다.
+    """
+    ingredient = db.query(Ingredient).filter(
+        Ingredient.id == ingredient_id,
+        Ingredient.store_id == store_id,
+    ).first()
+
+    if not ingredient:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="매장에 해당 식재료 정보가 존재하지 않습니다.",
+        )
+
+    # 이름 중복 검사 — 자기 자신은 제외한다 (이름을 안 바꾸고 수량만 고치는 경우가 대부분)
+    if payload.name is not None:
+        new_name = payload.name.strip()
+        if not new_name:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="재료명은 비워 둘 수 없습니다.")
+        if new_name != ingredient.name:
+            duplicated = db.query(Ingredient.id).filter(
+                Ingredient.store_id == store_id,
+                Ingredient.name == new_name,
+                Ingredient.id != ingredient_id,
+            ).first()
+            if duplicated:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"'{new_name}' 재료가 이미 있어요. 다른 이름을 쓰거나 기존 재료를 수정해 주세요.",
+                )
+            ingredient.name = new_name
+
+    if payload.unit is not None:
+        unit = payload.unit.strip()
+        if not unit:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="단위는 비워 둘 수 없습니다.")
+        ingredient.unit = unit
+
+    if payload.current_price is not None and payload.current_price != ingredient.current_price:
+        ingredient.current_price = payload.current_price
+        db.add(IngredientPriceHistory(ingredient_id=ingredient.id, price=payload.current_price))
+
+    stock = db.query(Stock).filter(Stock.ingredient_id == ingredient_id).first()
+    if not stock:
+        # 옛 데이터에 재고 행이 빠져 있을 수 있다 (재료만 있고 Stock이 없는 경우)
+        stock = Stock(ingredient_id=ingredient_id, current_quantity=0.0, safety_quantity=0.0)
+        db.add(stock)
+        db.flush()
+
+    if payload.current_quantity is not None:
+        diff = payload.current_quantity - stock.current_quantity
+        # 부동소수 오차(0.30000000000000004)로 0짜리 장부가 쌓이지 않게 아주 작은 차이는 무시
+        if abs(diff) > 1e-9:
+            stock.current_quantity = payload.current_quantity
+            db.add(StockTransaction(
+                ingredient_id=ingredient_id,
+                quantity_change=diff,
+                type="ADJUST",
+                description="재고 정보 수정 (실사 반영)",
+            ))
+
+    if payload.safety_quantity is not None:
+        stock.safety_quantity = payload.safety_quantity
+
+    db.commit()
+    db.refresh(stock)
+    db.refresh(ingredient)
+
+    # 화면이 목록을 다시 부르지 않고 그 자리에서 갱신할 수 있게 재고 현황과 같은 모양으로 돌려준다
+    return {
+        "ingredient_id": ingredient.id,
+        "name": ingredient.name,
+        "unit": ingredient.unit,
+        "current_price": ingredient.current_price,
+        "current_quantity": stock.current_quantity,
+        "safety_quantity": stock.safety_quantity,
+        "updated_at": stock.updated_at,
+    }
 
 
 def get_ingredient_price_history(db: Session, store_id: str, ingredient_id: int) -> list[IngredientPriceHistory]:

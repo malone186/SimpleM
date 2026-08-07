@@ -8,13 +8,14 @@ from app.models.user import User
 
 from app.schemas.inventory import (
     IngredientCreate, IngredientResponse, IngredientPriceUpdate, IngredientPriceHistoryResponse,
+    IngredientUpdate,
     StockAdjust, StockResponse, StockDetailResponse,
     MenuCreate, MenuRecipeUpdate, MenuResponse, MenuDetailResponse,
     OrderResponse, OrderStatusUpdate, RoasteryBeanResponse
 )
 from app.services.inventory_service import (
     create_ingredient, get_ingredients, delete_ingredient,
-    update_ingredient_price, get_ingredient_price_history,
+    update_ingredient_price, update_ingredient_full, get_ingredient_price_history,
     add_or_adjust_stock, get_stocks,
     create_menu_with_recipes, set_menu_recipes, get_menus_with_recipes, delete_menu,
     get_roastery_beans
@@ -66,6 +67,26 @@ def update_price_api(
         store_id=current_user.email,
         ingredient_id=ingredient_id,
         new_price=payload.price
+    )
+
+
+@router.patch("/ingredients/{ingredient_id}", response_model=StockDetailResponse)
+def update_ingredient_api(
+    ingredient_id: int,
+    payload: IngredientUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    [백엔드 B 추가 — 재료 정보 수정] 재고 화면에서 재료명·단위·단가·현재 수량·안전 수량을 한 번에 고칩니다.
+    보내지 않은 항목은 그대로 두고, 수량은 실사한 '최종값'을 받아 차액만 재고 장부에 기록합니다.
+    (A 확인 요망: 필요 시 자유롭게 수정하세요)
+    """
+    return update_ingredient_full(
+        db=db,
+        store_id=current_user.email,
+        ingredient_id=ingredient_id,
+        payload=payload,
     )
 
 

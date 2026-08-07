@@ -40,6 +40,27 @@ export function createIngredient(
   });
 }
 
+/** 재료 정보 수정 — 재료명·단위·단가·현재 수량·안전 수량을 한 번에 고친다.
+ *  보내지 않은 항목은 서버가 건드리지 않는다(부분 수정).
+ *  current_quantity는 변동량이 아니라 '지금 세어 본 최종 수량'이다 — 차액은 서버가 장부에 남긴다. */
+export function updateIngredient(
+  token: string,
+  ingredientId: number,
+  body: {
+    name?: string;
+    unit?: string;
+    current_price?: number;
+    current_quantity?: number;
+    safety_quantity?: number;
+  },
+): Promise<StockItem> {
+  return apiFetch(`/api/v1/inventory/ingredients/${ingredientId}`, {
+    method: 'PATCH',
+    headers: auth(token),
+    body: JSON.stringify(body),
+  });
+}
+
 /** 재고 수량 조정 — 입고는 양수, 차감/폐기는 음수 */
 export function adjustStock(
   token: string,

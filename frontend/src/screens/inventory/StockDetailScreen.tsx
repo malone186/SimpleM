@@ -14,7 +14,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -23,6 +22,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { FadeInUp, PressableScale } from '../../components/motion';
 import { toast } from '../../components/toast';
 import { Badge, Button, Card, ProgressBar } from '../../components/ui';
+import { QuantityStepper, parseQty, parseQtyOr, roundQty } from '../../components/ui/QuantityStepper';
 import { adjustStock, listStocks, type StockItem } from '../../lib/api/inventory';
 import { colors, spacing, typography } from '../../theme';
 import { useBottomInset } from '../../theme/responsive';
@@ -72,6 +72,7 @@ export default function StockDetailScreen() {
   const [stock, setStock] = useState<StockItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  // 조정칸에 적힌 값은 '바꾼 뒤에 남을 수량'이다 — 화면에 보이는 숫자가 곧 결과가 되게
   const [qty, setQty] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -83,7 +84,9 @@ export default function StockDetailScreen() {
     }
     try {
       const list = await listStocks(token);
-      setStock(list.find((s) => s.ingredient_id === ingredientId) ?? null);
+      const found = list.find((s) => s.ingredient_id === ingredientId) ?? null;
+      setStock(found);
+      setQty(String(found?.current_quantity ?? 0)); // 조정칸은 항상 '지금 수량'에서 출발한다
     } catch (e) {
       toast('불러오기 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
     } finally {
@@ -101,28 +104,33 @@ export default function StockDetailScreen() {
     setRefreshing(false);
   };
 
-  // 입고(+) / 차감(−) — 반영 후 목록을 다시 읽어 남은 양을 바로 갱신한다
-  const apply = async (sign: 1 | -1) => {
+  // 지금 수량과 적어 넣은 수량의 차이를 입고(+)·차감(−) 이력으로 남긴다.
+  // 반영 후 목록을 다시 읽어 남은 양을 바로 갱신한다.
+  const apply = async () => {
     if (!token || !stock) return;
-    const n = Number(qty);
-    if (!n || n <= 0) return toast('입력 확인', '0보다 큰 수량을 입력해 주세요.');
+    const target = parseQtyOr(qty, stock.current_quantity);
+    if (target < 0) return toast('입력 확인', '바꿀 수량을 0 이상 숫자로 적어 주세요.');
+    const delta = roundQty(target - stock.current_quantity);
+    if (!delta) return toast('바뀐 게 없어요', '−/＋ 를 눌러 수량을 바꾼 뒤 반영해 주세요.');
 
     setSaving(true);
     try {
       await adjustStock(token, {
         ingredient_id: stock.ingredient_id,
-        quantity_change: sign * n,
-        description: sign > 0 ? '직접 입고' : '직접 차감',
+        quantity_change: delta,
+        description: delta > 0 ? '직접 입고' : '직접 차감',
       });
-      setQty('');
       await load();
-      toast('반영 완료', `${stock.name} ${sign > 0 ? '+' : '−'}${n}${stock.unit} 반영했어요.`);
+      toast('반영 완료', `${stock.name} ${Math.abs(delta)}${stock.unit} ${delta > 0 ? '입고' : '차감'} · 남은 양 ${target}${stock.unit}`);
     } catch (e) {
       toast('반영 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
     } finally {
       setSaving(false);
     }
   };
+
+  /** 빠른 조절 칩 — 지금 적힌 수량에서 그만큼 더하거나 뺀다 */
+  const bump = (d: number) => setQty((prev) => String(Math.max(0, roundQty(parseQty(prev) + d))));
 
   const openFullInventory = () => {
     navigation.navigate('Tabs', {
@@ -154,6 +162,9 @@ export default function StockDetailScreen() {
   }
 
   const status = getStatus(stock);
+  // 조정칸에 적힌 '바뀔 수량'과 지금 수량의 차이 — 반영 전에 미리 보여 준다
+  const target = parseQtyOr(qty, stock.current_quantity);
+  const delta = roundQty(target - stock.current_quantity);
 
   return (
     <ScrollView
@@ -194,32 +205,35 @@ export default function StockDetailScreen() {
       <FadeInUp delay={60}>
         <Card style={{ marginTop: 12 }}>
           <Text style={styles.sectionLabel}>수량 조정</Text>
-          <View style={styles.adjustRow}>
-            <TextInput
-              style={styles.input}
-              value={qty}
-              onChangeText={setQty}
-              keyboardType="numeric"
-              placeholder={`수량 (${stock.unit})`}
-              placeholderTextColor="#A1A1AA"
-              editable={!saving}
-            />
-            <PressableScale
-              onPress={() => apply(-1)}
-              disabled={saving}
-              style={[styles.stepBtn, styles.stepMinus, saving && styles.btnBusy]}
-            >
-              <Ionicons name="remove" size={18} color={colors.espressoBrown} />
-            </PressableScale>
-            <PressableScale
-              onPress={() => apply(1)}
-              disabled={saving}
-              style={[styles.stepBtn, styles.stepPlus, saving && styles.btnBusy]}
-            >
-              <Ionicons name="add" size={18} color={colors.white} />
-            </PressableScale>
+          <QuantityStepper value={qty} onChange={setQty} unit={stock.unit} disabled={saving} />
+
+          {/* 한 번에 여러 개 들어오거나 나갈 때 — 암산 없이 톡 눌러 더한다 */}
+          <View style={styles.quickRow}>
+            {[-10, -5, 5, 10].map((d) => (
+              <PressableScale key={d} style={styles.quickChip} onPress={() => bump(d)} disabled={saving} to={0.93}>
+                <Text style={styles.quickChipText}>{d > 0 ? `+${d}` : `−${Math.abs(d)}`}</Text>
+              </PressableScale>
+            ))}
           </View>
-          <Text style={styles.hint}>＋는 입고, －는 차감·폐기로 기록돼요.</Text>
+
+          {/* 반영하면 무슨 일이 일어나는지 한 줄로 */}
+          <Text style={[styles.hint, delta !== 0 && styles.hintOn]}>
+            {delta === 0
+              ? `${stock.current_quantity}${stock.unit} 그대로 · −/＋ 로 바꿔 보세요`
+              : `${stock.current_quantity} → ${target}${stock.unit} · ${Math.abs(delta)}${stock.unit} ${delta > 0 ? '입고' : '차감'}`}
+          </Text>
+
+          <PressableScale
+            style={[styles.applyBtn, (delta === 0 || saving) && styles.btnBusy]}
+            onPress={apply}
+            disabled={delta === 0 || saving}
+            to={0.97}
+          >
+            <Ionicons name={delta < 0 ? 'arrow-down' : 'arrow-up'} size={15} color={colors.white} />
+            <Text style={styles.applyText}>
+              {saving ? '반영 중…' : delta < 0 ? '차감 반영' : '입고 반영'}
+            </Text>
+          </PressableScale>
         </Card>
       </FadeInUp>
 
@@ -278,24 +292,32 @@ const styles = StyleSheet.create({
   statusMsgDanger: { color: '#B23B2E', fontWeight: '700' },
 
   sectionLabel: { ...typography.L4, color: colors.espressoBrown, marginBottom: 8 },
-  adjustRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  input: {
+  quickRow: { flexDirection: 'row', gap: 6, marginTop: 8 },
+  quickChip: {
     flex: 1,
-    height: 42,
-    borderRadius: 12,
-    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 34,
+    borderRadius: 10,
     backgroundColor: colors.coffeeCream,
     borderWidth: 1,
     borderColor: colors.mutedSand,
-    color: colors.espressoBrown,
-    fontSize: 13,
-    fontWeight: '700',
   },
-  stepBtn: { width: 46, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  stepMinus: { backgroundColor: colors.coffeeCream, borderWidth: 1, borderColor: colors.mutedSand },
-  stepPlus: { backgroundColor: colors.espressoBrown },
-  btnBusy: { opacity: 0.5 },
+  quickChipText: { ...typography.L5, fontSize: 12.5, fontWeight: '800', color: colors.mochaBrown },
+  applyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    minHeight: 46,
+    borderRadius: 14,
+    backgroundColor: colors.pointOrange,
+    marginTop: 10,
+  },
+  applyText: { ...typography.L4, color: colors.white, fontWeight: '800' },
+  btnBusy: { opacity: 0.35 },
   hint: { ...typography.L5, color: colors.mochaBrown, marginTop: 8 },
+  hintOn: { color: colors.espressoBrown, fontWeight: '700' },
 
   metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   metaKey: { ...typography.L5, color: colors.mochaBrown },
