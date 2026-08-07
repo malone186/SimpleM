@@ -182,6 +182,29 @@ def _insight_todos(store_id: str, stock_ids: set[str]) -> list[dict[str, Any]]:
     return todos
 
 
+def _breakeven_todo(store_id: str) -> Optional[dict[str, Any]]:
+    """오늘의 손익분기 미션 — "얼마 팔면 본전인가"를 하루치 목표로.
+
+    id_hint를 'breakeven-daily'로 고정해 두면 매일 같은 id라 완료·숨김 기록이 유지되고,
+    앱에서 누르면 손익분기점 화면으로 보낼 수 있다 (DashboardScreen.openTodoTarget).
+    목표 금액은 매일 바뀌지만 '오늘의 목표'라는 항목 자체는 하나면 된다.
+    """
+    from app.services.ai import breakeven_service
+
+    mission = breakeven_service.daily_mission(store_id)
+    if not mission:
+        return None
+    return {
+        "id_hint": "breakeven-daily",
+        "title": mission["title"][:40],
+        "subtitle": mission["subtitle"],
+        "kind": "breakeven",
+        # 목표를 못 채운 게 '급한 일'은 아니다 — 빨간 배지는 재료가 떨어진 것 같은 데 쓴다
+        "urgent": False,
+        "menu": None,
+    }
+
+
 def suggest_todos(store_id: str) -> dict[str, Any]:
     """오늘의 브루 추천 투두. 반환: {engine, todos:[{id_hint,title,subtitle,kind,urgent,menu}]}
 
@@ -189,7 +212,7 @@ def suggest_todos(store_id: str) -> dict[str, Any]:
     ③ 홍보 — 이 셋이 홈 '오늘 할 일' 한 곳에 모인다.
     """
     today = date.today().isoformat()
-    key = f"{store_id}:v3"   # v3 = 인사이트 기반 항목 추가. 형식을 바꾸면 올려서 캐시를 버린다
+    key = f"{store_id}:v4"   # v4 = 손익분기 미션 추가. 형식을 바꾸면 올려서 캐시를 버린다
     hit = _cache.get(key)
     if hit and hit[1] == today and time.time() - hit[0] < _TTL:
         return {**hit[2], "cached": True}
@@ -202,6 +225,15 @@ def suggest_todos(store_id: str) -> dict[str, Any]:
         todos += _insight_todos(store_id, {t["id_hint"] for t in todos})
     except Exception:
         logger.exception("AI 투두: 인사이트 수집 실패 — 재고·홍보 항목만 내보낸다")
+
+    # 손익분기 미션 — 하루 목표 하나. 재료·인사이트 다음, 홍보 앞에 둔다
+    # (오늘 얼마를 팔아야 하는지는 홍보보다 먼저 알아야 할 숫자다)
+    try:
+        mission = _breakeven_todo(store_id)
+        if mission:
+            todos.append(mission)
+    except Exception:
+        logger.exception("AI 투두: 손익분기 미션 생성 실패 — 나머지 항목은 그대로 내보낸다")
 
     # 홍보 투두 — 등록된 메뉴가 있으면 항상 붙는 고정 항목 (메뉴 선택은 앱에서)
     if menus:

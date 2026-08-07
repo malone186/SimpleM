@@ -211,7 +211,8 @@ function buildDashboard(
       // 홍보 항목만 근거 줄을 뺀다 — 아래에 '메뉴 고르기' 링크가 있어 중복이라서
       meta: s.kind === 'promo' ? undefined : s.subtitle,
       urgentLabel: s.urgent ? '급함' : undefined,
-      actionable: s.kind === 'stock',
+      // 재고는 그 재료 화면으로, 손익분기 미션은 손익분기점 화면으로 보낸다 (openTodoTarget)
+      actionable: s.kind === 'stock' || s.kind === 'breakeven',
       done: completedSet.has(s.id_hint),
       source: 'ai',
       ...(s.kind === 'promo' ? { action: 'marketing' as const, menu: s.menu ?? '' } : null),
@@ -733,6 +734,11 @@ export default function DashboardScreen() {
    * ts를 함께 넘겨야 같은 재료를 연달아 눌러도 받는 화면이 새 요청으로 인식한다.
    */
   const openTodoTarget = (todo: { id: string }) => {
+    // 손익분기 미션 — 목표 숫자를 눌렀으면 그 숫자가 어떻게 나왔는지 보고 싶은 것이다
+    if (todo.id === 'breakeven-daily') {
+      navigation.navigate('BreakEven');
+      return;
+    }
     const m = /^stock-(\d+)$/.exec(todo.id);
     if (!m) return; // 재고가 아닌 항목(홍보 등)은 각자 링크로 처리한다
     navigation.navigate('StockDetail', { ingredientId: Number(m[1]), ts: Date.now() });

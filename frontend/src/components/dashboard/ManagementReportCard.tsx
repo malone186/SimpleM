@@ -341,6 +341,43 @@ export default function ManagementReportCard({ refreshToken = 0 }: { refreshToke
                               : '지금은 비용이 매출을 넘어 적자 상태예요.'}
                           </Text>
                         ) : null}
+
+                        {/* 손익분기점 — 이 기간에 얼마를 팔아야 본전인지.
+                            수익 숫자만으로는 잘한 건지 못한 건지 판단할 기준선이 없다. */}
+                        {c.breakeven?.computed && c.breakeven.target_revenue != null && (
+                          <>
+                            <View style={styles.popupDivider} />
+                            <View style={styles.detailInfoRow}>
+                              <Text style={styles.detailInfoLabel}>
+                                손익분기 목표 ({c.breakeven.label})
+                              </Text>
+                              <Text style={styles.detailInfoValue}>
+                                {won(c.breakeven.target_revenue)}
+                              </Text>
+                            </View>
+                            {c.breakeven.achieved_pct != null && (
+                              <View style={styles.detailInfoRow}>
+                                <Text style={styles.detailInfoLabel}>달성률</Text>
+                                <Text
+                                  style={[
+                                    styles.detailInfoValue,
+                                    {
+                                      color:
+                                        (c.breakeven.gap ?? 0) <= 0
+                                          ? colors.trendGreenText
+                                          : colors.pointOrange,
+                                    },
+                                  ]}
+                                >
+                                  {c.breakeven.achieved_pct}%
+                                </Text>
+                              </View>
+                            )}
+                            {!!c.breakeven.message && (
+                              <Text style={styles.totalCupsText}>{c.breakeven.message}</Text>
+                            )}
+                          </>
+                        )}
                       </View>
                     </>
                   )}

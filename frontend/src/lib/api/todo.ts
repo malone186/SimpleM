@@ -66,10 +66,13 @@ export async function deleteTodo(token: string, id: number): Promise<void> {
 // 보내지 않은 발주서, 뜸해진 단골, POS 연동 끊김, 원가율이 무너진 메뉴, 내일 수요 급증까지
 // 영역마다 하나씩. 상황이 해소되면 다음 날 목록에서 저절로 사라진다.
 export type AiSuggestedTodo = {
-  id_hint: string;            // stock-<재료id> | insight-<인사이트키> | promo-main — 숨김/완료 기록의 키
+  // stock-<재료id> | insight-<인사이트키> | promo-main | breakeven-daily — 숨김/완료 기록의 키
+  id_hint: string;
   title: string;              // "에티오피아 원두 발주"
   subtitle: string;           // "다 떨어짐 · 최소 5kg 필요"
-  kind: 'stock' | 'insight' | 'promo';
+  // breakeven = 오늘 얼마를 팔면 본전인지. 요즘 실적과 목표가 너무 멀면 서버가
+  // '한 걸음짜리' 목표로 바꿔서 준다 (breakeven_service.daily_mission)
+  kind: 'stock' | 'insight' | 'promo' | 'breakeven';
   urgent?: boolean;           // 재료가 0이거나 인사이트가 '지금 조치' — 앱에서 빨간 배지
   menu?: string | null;       // promo일 때 홍보할 메뉴명
   /** insight일 때 어느 영역인지 (inventory·settlement·customer·system·menu 등) */
