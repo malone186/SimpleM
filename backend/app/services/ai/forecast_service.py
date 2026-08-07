@@ -928,7 +928,8 @@ def _cut_title(text: str, limit: int = 50) -> str:
 
 
 def _fetch_events_tourapi(lat: float, lon: float, start: date, days: int) -> list[dict[str, Any]]:
-    """한국관광공사 TourAPI 축제·행사 — **전국** 커버. TOUR_API_KEY(data.go.kr 무료 발급) 필요.
+    """한국관광공사 TourAPI(KorService2) 축제·행사 — **전국** 커버.
+    TOUR_API_KEY(data.go.kr '한국관광공사 국문 관광정보 서비스 GW' 무료 발급) 필요.
 
     행사 기간(eventstartdate~eventenddate)이 예측 기간과 겹치고 매장 반경 안이면
     날짜별 이벤트로 펼친다. 진행 중인 장기 행사를 놓치지 않도록 120일 전 시작분부터 조회.
@@ -939,9 +940,18 @@ def _fetch_events_tourapi(lat: float, lon: float, start: date, days: int) -> lis
     api_key = os.getenv("TOUR_API_KEY", "").strip()
     if not api_key:
         return []
+    # data.go.kr 마이페이지는 Encoding 키와 Decoding 키를 나란히 보여준다. Encoding 키
+    # (…%2B…%3D%3D)를 그대로 넣으면 requests가 params를 인코딩하며 '%'를 '%25'로 한 번 더
+    # 감싸 인증이 깨진다 — base64 키에 '%'가 들어갈 일은 없으므로 있으면 되돌린다.
+    if "%" in api_key:
+        import urllib.parse
+        api_key = urllib.parse.unquote(api_key)
     try:
         r = requests.get(
-            "https://apis.data.go.kr/B551011/KorService1/searchFestival1",
+            # KorService2/searchFestival2 — 구버전(KorService1/searchFestival1)은 2026-08-07
+            # 실측에서 HTTP 400으로 응답이 끊겼다. 응답 필드명은 구버전과 동일해서
+            # (title·eventstartdate·eventenddate·mapx·mapy·addr1) 아래 파싱은 그대로 쓴다.
+            "https://apis.data.go.kr/B551011/KorService2/searchFestival2",
             params={"serviceKey": api_key, "MobileOS": "ETC", "MobileApp": "brewnote",
                     "_type": "json", "numOfRows": 1000, "pageNo": 1, "arrange": "A",
                     "eventStartDate": (start - timedelta(days=120)).strftime("%Y%m%d")},
