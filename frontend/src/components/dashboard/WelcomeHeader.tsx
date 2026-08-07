@@ -8,6 +8,7 @@ import { useNavigation } from '@react-navigation/native';
 import { colors, spacing, shadows } from '../../theme';
 import { useTopInset } from '../../theme/responsive';
 import { type BrewMood } from '../brew/Brew';
+import { type BrewOutlook } from '../brew/forecastMood';
 import MascotEasterEgg from './MascotEasterEgg';
 import MarqueeText from '../MarqueeText';
 import { useAuth } from '../../auth/AuthContext';
@@ -172,6 +173,9 @@ export default function WelcomeHeader({
   storeName,
   refreshTrigger,
   mood = 'top',
+  moodReason,
+  moodOverridesPose = false,
+  moodTone,
   onOpenMap,
   onOpenPushModal,
   onOpenShop,
@@ -180,6 +184,12 @@ export default function WelcomeHeader({
   storeName: string;
   refreshTrigger?: number;
   mood?: BrewMood;
+  /** 표정이 평소와 다른 날, 왜 그런지 말풍선에 띄울 한 줄 (없으면 인사말 그대로) */
+  moodReason?: string | null;
+  /** 그런 날에는 상점에서 산 포즈보다 이 표정을 앞세운다 */
+  moodOverridesPose?: boolean;
+  /** 지금 분위기 — 'bad'면 하트·반짝이 같은 배경 효과를 잠시 감춘다 */
+  moodTone?: BrewOutlook;
   onOpenMap?: () => void;
   onOpenPushModal?: () => void;
   onOpenShop?: () => void;
@@ -351,6 +361,17 @@ export default function WelcomeHeader({
                 <Ionicons name="close" size={12} color="#B4A89E" />
               </TouchableOpacity>
             </View>
+          ) : moodReason ? (
+            /* 내일 장사가 평소와 크게 다를 것 같은 날에만 — 브루 표정과 짝이 되는 한 줄.
+               ("평소랑 비슷하다"는 굳이 말할 필요가 없어서 그런 날은 인사말을 그대로 둔다) */
+            <View style={styles.announceRow}>
+              <Ionicons name="partly-sunny" size={11} color={colors.pointOrange} style={{ marginRight: 4 }} />
+              <MarqueeText style={{ flex: 1 }}>
+                <Text style={styles.quoteLine} maxFontSizeMultiplier={1.2} numberOfLines={1}>
+                  {moodReason}
+                </Text>
+              </MarqueeText>
+            </View>
           ) : (
             <MarqueeText>
               <Text style={styles.quoteLine} maxFontSizeMultiplier={1.2} numberOfLines={1}>
@@ -366,7 +387,14 @@ export default function WelcomeHeader({
 
         {/* [한글 주석: 우측 마스코트 강아지 캐릭터] */}
         {/* 강아지 탭 이스터에그: 한 번 = 쓰다듬기+한마디/간식 랜덤, 빠른 두 번 = 시크릿 */}
-        <MascotEasterEgg mood={mood} size={190} style={styles.mascot} />
+        <MascotEasterEgg
+          mood={mood}
+          moodOverridesPose={moodOverridesPose}
+          // 나쁜 소식일 때만 배경 효과를 감춘다 (좋은 날의 하트·반짝이는 그대로 둔다)
+          suppressAccessories={moodTone === 'bad'}
+          size={190}
+          style={styles.mascot}
+        />
       </Animated.View>
 
       {/* 알림함 모달 — 목록(스택 카드) ↔ 한 건 상세 두 단계로 동작한다 */}

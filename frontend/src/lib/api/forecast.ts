@@ -104,10 +104,29 @@ export type TodayActuals = {
   hourly: HourlyPoint[]; // 0~23시 실제 판매 집계
 };
 
+// 최근 실적 평균 — '요즘'에 비해 내일이 어떤지 판단하는 기준선.
+// 홈 마스코트 표정이 이걸 쓴다 (components/brew/forecastMood.ts).
+export type ForecastBaseline = {
+  days: number;      // 평균을 낸 날 수 (휴무로 뺀 날은 제외)
+  avg_cups: number;  // 하루 평균 판매 잔 수
+};
+
+// 최근 한 주 vs 직전 한 주 실적. 예측 모델은 며칠짜리 급락을 곧바로 반영하지 않아서
+// (그게 맞다 — 흔들림마다 예측이 출렁이면 발주가 망가진다) 매출이 반 토막 나도 내일
+// 예측은 예전 수준 근처에 머문다. 사장님이 체감하는 '요즘 안된다'는 여기에 먼저 나타난다.
+export type ForecastTrend = {
+  days: number;
+  recent_avg_cups: number;
+  prev_avg_cups: number;
+  change_pct: number; // 줄었으면 음수
+};
+
 export type SalesForecast = {
   location: { lat: number; lon: number; region: string };
   model: string;
   history_days: number;
+  baseline?: ForecastBaseline;
+  trend?: ForecastTrend | null;
   today?: TodayActuals; // 오늘 실시간 실적 (경영 리포트와 같은 Sale 집계 기준)
   tomorrow: ForecastDay;
   tomorrow_hourly: HourlyForecast[];
