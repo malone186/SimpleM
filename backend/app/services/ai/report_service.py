@@ -44,6 +44,13 @@ class ReportError(ValueError):
     """리포트 생성 실패 (입력 오류)"""
 
 
+def _today_kst() -> date:
+    """한국 기준 오늘. date.today()는 서버 시간대를 따르므로 Cloud Run(UTC)에서는
+    한국시간 자정~오전 9시 사이에 '어제' 날짜를 돌려준다 — 그 시간대에 일간 리포트가
+    전날 것으로 만들어지던 원인. 이 파일의 '오늘'은 전부 이 함수를 쓴다."""
+    return datetime.now(KST).date()
+
+
 # ---------------------------------------------------------------------------
 # 기간 계산
 # ---------------------------------------------------------------------------
@@ -70,7 +77,7 @@ def _period_range(period_type: str, ref: date) -> tuple[date, date, date, date, 
 
     # 진행 중인 기간은 이전 기간도 같은 경과일까지만 잘라 공정하게 비교한다
     # (예: 7/1~16 매출 vs 6월 전체가 아니라 6/1~16 매출 — 아니면 항상 '감소'로 보인다)
-    today = date.today()
+    today = _today_kst()
     if end > today:
         elapsed = today + timedelta(days=1) - start  # 오늘까지 포함한 경과일
         prev_end = min(prev_end, prev_start + elapsed)
@@ -327,7 +334,10 @@ def _labor_summary(db, store_id: str, start: date, end: date) -> dict[str, Any]:
         .filter(Schedule.date >= start.isoformat(), Schedule.date < end.isoformat())
         .all()
     )
-    now = datetime.now()
+    # 스케줄 시각은 KST 벽시계 기준의 naive datetime으로 저장돼 있다.
+    # datetime.now()는 서버 시간대(Cloud Run=UTC)를 따르므로 그대로 비교하면
+    # 진행 중 근무가 9시간 늦게 잡힌다 — KST 벽시계를 naive로 만들어 맞춘다.
+    now = datetime.now(KST).replace(tzinfo=None)
     total_hours = 0.0
     total_cost = 0.0
     employees: set[str] = set()
@@ -422,7 +432,7 @@ def _outlook(store_id: str, sales: dict[str, Any], period_type: str) -> Optional
     # 비교 기준은 '하루 평균'끼리 — 예측 7일 합계를 이번 주 경과분(3일) 합계와 견주면 늘 급증이다.
     # 오늘은 아직 안 끝난 하루라 평균을 끌어내리므로 뺀다. 남은 완결일이 너무 적으면
     # 그날 사정이 평균 행세를 하게 되므로 아예 비교하지 않는다 (숫자는 그대로 보여 주되 증감률만 생략).
-    today_iso = date.today().isoformat()
+    today_iso = _today_kst().isoformat()
     complete = [d for d in (sales.get("daily_trend") or []) if d["date"] != today_iso]
     recent = complete[-len(horizon):]
     recent_avg = round(sum(d["total"] for d in recent) / len(recent)) if len(recent) >= 3 else None
@@ -879,7 +889,7 @@ def generate_management_report(store_id: str, period_type: str = "weekly",
     (문서가 기간마다 하나씩만 쌓이도록). force_refresh=False면 있던 문서를 그대로 돌려준다.
     """
     try:
-        ref = date.fromisoformat(reference_date) if reference_date else date.today()
+        ref = date.fromisoformat(reference_date) if reference_date else _today_kst()
     except ValueError:
         raise ReportError(f"reference_date 형식 오류: '{reference_date}' (YYYY-MM-DD로 입력)")
     start, end, prev_start, prev_end, display = _period_range(period_type, ref)
@@ -1027,7 +1037,7 @@ def get_cached_management_report(store_id: str, period_type: str = "weekly",
     refresh_management_report_background로 백그라운드에서 처리한다.
     """
     try:
-        ref = date.fromisoformat(reference_date) if reference_date else date.today()
+        ref = date.fromisoformat(reference_date) if reference_date else _today_kst()
         *_, display = _period_range(period_type, ref)
     except (ValueError, ReportError):
         return None

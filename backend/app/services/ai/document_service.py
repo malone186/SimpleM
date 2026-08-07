@@ -13,7 +13,7 @@
 import json
 import logging
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 from app.schemas.ai import ComplianceItemCreate, EmploymentContractRequest, PayslipRequest
@@ -22,6 +22,15 @@ logger = logging.getLogger(__name__)
 
 # 한 달 평균 주 수 (365.25 / 12 / 7) — 주휴수당 월 환산에 사용
 WEEKS_PER_MONTH = 4.345
+
+KST = timezone(timedelta(hours=9))
+
+
+def _today_kst() -> date:
+    """한국 기준 오늘 — date.today()는 Cloud Run(UTC)에서 한국시간 자정~오전 9시에
+    '어제'를 돌려줘 문서 날짜·갱신 서류 D-day가 하루 밀린다 (report_service와 같은 규칙)."""
+    return datetime.now(KST).date()
+
 
 def _session():
     """DB 세션 획득. 테이블 생성은 main.py 기동 시 create_all이 이미 보장한다 —
@@ -179,7 +188,7 @@ def generate_purchase_order(store_id: str) -> dict[str, Any]:
             "재고가 줄어들면 다시 만들어 주세요."
         )
 
-    today = date.today().isoformat()
+    today = _today_kst().isoformat()
     total = sum(i["estimated_amount"] for i in items)
     content = {
         "date": today,
@@ -215,7 +224,7 @@ def generate_stocktake_sheet(store_id: str) -> dict[str, Any]:
             "difference": None,
         } for ing, stock in rows]
 
-    today = date.today().isoformat()
+    today = _today_kst().isoformat()
     content = {"date": today, "items": items,
                "note": "창고에서 실제 수량을 센 뒤 '실사 수량' 칸에 적으면 장부와의 차이를 확인할 수 있습니다."}
     return _save_document(store_id, "stocktake_sheet", f"재고실사표 ({today})", content, period=today)
@@ -239,7 +248,7 @@ def generate_inspection_report(store_id: str, ocr_doc_id: str) -> dict[str, Any]
         } for item in doc.items]
         vendor, issued = doc.vendor_name, doc.issued_date
 
-    today = date.today().isoformat()
+    today = _today_kst().isoformat()
     content = {
         "inspection_date": today,
         "vendor": vendor,
@@ -540,7 +549,7 @@ def draft_employment_contract(store_id: str, req: EmploymentContractRequest) -> 
 # ---------------------------------------------------------------------------
 
 def _compliance_to_dict(row) -> dict[str, Any]:
-    days_left = (date.fromisoformat(row.expiry_date) - date.today()).days
+    days_left = (date.fromisoformat(row.expiry_date) - _today_kst()).days
     status = "expired" if days_left < 0 else ("due_soon" if days_left <= row.remind_before_days else "ok")
     return {"id": row.id, "name": row.name, "expiry_date": row.expiry_date,
             "remind_before_days": row.remind_before_days, "memo": row.memo,

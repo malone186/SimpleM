@@ -656,6 +656,7 @@ const styles = StyleSheet.create({
     borderColor: colors.mutedSand,
     padding: 12,
     gap: 6,
+    marginBottom: 6, // 아래 실행 버튼 묶음과 붙지 않게
   },
   adviceHeader: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   adviceTitle: { ...typography.L5, fontWeight: '800', color: colors.pointOrange },
