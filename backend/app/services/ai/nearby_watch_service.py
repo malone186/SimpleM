@@ -489,6 +489,45 @@ def plan_for_store(db, store_id: str, event: dict[str, Any]) -> Optional[dict[st
     )
 
 
+def event_promo_topic(event: dict[str, Any], plan: Optional[dict[str, Any]] = None) -> str:
+    """행사 + 준비 플랜을 홍보 문구 생성기(marketing_service)에 넘길 '홍보 주제' 한 덩어리로.
+
+    준비 플랜에는 이미 이 행사에 걸 이벤트·한정 메뉴·한 줄 홍보 문구가 들어 있다. 그걸 버리고
+    "행사 홍보해줘"라고만 시키면 카피라이터가 전혀 다른 이벤트를 지어내, 사장님이 방금 본
+    플랜과 어긋난 홍보물이 나온다. 그래서 플랜의 알맹이를 그대로 재료로 넘긴다.
+
+    행사 이름·장소는 뉴스·블로그에서 긁어 온 남의 글이다 — 이 문자열을 프롬프트에 넣는 쪽
+    (generate_promotion_copy)에서 사장님 요청 칸에 들어가므로, 여기서는 길이만 제한하고
+    지시문처럼 보이는 문장을 만들지 않는다.
+    """
+    plan = plan or {}
+    name = (event.get("name") or "").strip()[:80]
+    place = (event.get("place") or event.get("host") or "").strip()[:60]
+    period = f"{event.get('start_date') or ''}~{event.get('end_date') or ''}".strip("~")
+
+    parts = [f"매장 근처에서 열리는 행사 '{name}' 기간에 맞춘 홍보"]
+    if period:
+        parts.append(f"행사 기간 {period}")
+    if place:
+        parts.append(f"장소 {place}")
+    if event.get("distance_km") is not None:
+        parts.append(f"매장에서 {event['distance_km']}km")
+
+    promo = (plan.get("promotions") or [{}])[0]
+    if promo.get("title"):
+        parts.append(f"진행할 이벤트: {promo['title']} — {(promo.get('detail') or '')[:60]}")
+    if plan.get("menu_idea"):
+        parts.append(f"행사 기간 한정 메뉴: {plan['menu_idea'][:50]}")
+    if plan.get("busy_window"):
+        parts.append(f"특히 붐빌 때: {plan['busy_window'][:30]}")
+    if plan.get("promo_copy"):
+        parts.append(f"사장님이 쓰려던 문구: {plan['promo_copy'][:60]}")
+
+    # 관광객·행사 참여자를 향한 홍보라는 점은 카피의 톤을 크게 바꾼다 (단골 대상 홍보와 다르다)
+    parts.append("행사에 온 방문객이 우리 매장으로 들르게 만드는 것이 목표")
+    return " / ".join(parts)[:900]
+
+
 def plan_summary_line(plan: dict[str, Any]) -> str:
     """푸시 본문 한 줄 — 열기 전에 이미 '무엇을 하면 되는지'가 보이게 한다."""
     promo = (plan.get("promotions") or [{}])[0]

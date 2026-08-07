@@ -64,7 +64,12 @@ def _gather(store_id: str) -> tuple[list[dict], list[dict]]:
                 if cur <= threshold:
                     stocks.append({"id": ing_id, "name": name, "unit": unit,
                                    "current": cur, "safety": threshold})
-            stocks.sort(key=lambda s: s["current"] / (s["safety"] or 1))
+            # 재료 id를 두 번째 기준으로 둔다 — 다 떨어진 재료는 비율이 전부 0이라 동점인데,
+            # 여기서 순서가 흔들리면 앱이 자기 재고 목록으로 고른 상위 4개와 어긋난다.
+            # 어긋나면 한쪽에만 남은 재료를 소진 예측 인사이트가 다시 집어 와서 같은 줄이
+            # 두 번 뜬다 (실제로 '바닐라 시럽 발주'가 두 줄로 뜨던 원인).
+            # 앱도 같은 기준으로 정렬한다 — DashboardScreen.buildDashboard 참고.
+            stocks.sort(key=lambda s: (s["current"] / (s["safety"] or 1), s["id"]))
             stocks = stocks[:4]  # 홈 투두와 같은 상한
     except Exception:
         logger.debug("AI 투두: 재고 수집 실패", exc_info=True)
@@ -132,7 +137,7 @@ def _first_clause(body: str, limit: int = 42) -> str:
     return text[:limit].rstrip() + ("…" if len(text) > limit else "")
 
 
-def _insight_todos(store_id: str, stock_ids: set[str]) -> list[dict[str, Any]]:
+def _insight_todos(store_id: str, stock_ids: set[int]) -> list[dict[str, Any]]:
     """선제 인사이트(모든 기능의 발동 조건) → 홈 할 일.
 
     insight_service가 정산·단골·발주·홍보·POS·센서·메뉴 원가·수요 전망까지 전부 검사하므로,
@@ -161,11 +166,15 @@ def _insight_todos(store_id: str, stock_ids: set[str]) -> list[dict[str, Any]]:
         label = (label or str(ins.get("title", ""))).strip()
         if not label:
             continue
-        # 재고 투두(안전재고 기준)와 소진 예측이 같은 재료를 두 줄로 만들지 않게
+        # 재고 투두(안전재고 기준)와 소진 예측이 같은 재료를 두 줄로 만들지 않게 —
+        # 둘 다 제목이 '<재료명> 발주'라 화면에선 똑같은 줄이다.
+        # (stock_ids는 위 _gather가 고른 상위 4개. 앱도 같은 기준으로 같은 4개를 고른다)
         if ins["key"].startswith("stock_runout:"):
-            ing_id = ins["key"].split(":")[1]
-            if f"stock-{ing_id}" in stock_ids:
-                continue
+            try:
+                if int(ins["key"].split(":")[1]) in stock_ids:
+                    continue
+            except (IndexError, ValueError):
+                pass
         todos.append({
             "id_hint": f"insight-{ins['key']}"[:120],
             "title": label[:40],
@@ -189,7 +198,7 @@ def suggest_todos(store_id: str) -> dict[str, Any]:
     ③ 홍보 — 이 셋이 홈 '오늘 할 일' 한 곳에 모인다.
     """
     today = date.today().isoformat()
-    key = f"{store_id}:v3"   # v3 = 인사이트 기반 항목 추가. 형식을 바꾸면 올려서 캐시를 버린다
+    key = f"{store_id}:v4"   # v4 = 소진 예측 중복 제거 기준을 '부족 재고 전체'로. 형식을 바꾸면 올린다
     hit = _cache.get(key)
     if hit and hit[1] == today and time.time() - hit[0] < _TTL:
         return {**hit[2], "cached": True}
@@ -199,9 +208,20 @@ def suggest_todos(store_id: str) -> dict[str, Any]:
 
     # 인사이트는 재고·메뉴가 비어 있어도 나올 수 있다 (서류·세무·정산·POS…)
     try:
-        todos += _insight_todos(store_id, {t["id_hint"] for t in todos})
+        todos += _insight_todos(store_id, {s["id"] for s in stocks})
     except Exception:
         logger.exception("AI 투두: 인사이트 수집 실패 — 재고·홍보 항목만 내보낸다")
+
+    # 마지막 방어선 — 어떤 경로로 들어왔든 같은 id_hint가 두 번 나가지 않게.
+    # (앱은 id_hint를 목록 key로 쓴다 — 겹치면 화면에도 두 줄로 그려진다)
+    seen_hints: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for t in todos:
+        if t["id_hint"] in seen_hints:
+            continue
+        seen_hints.add(t["id_hint"])
+        deduped.append(t)
+    todos = deduped
 
     # 홍보 투두 — 등록된 메뉴가 있으면 항상 붙는 고정 항목 (메뉴 선택은 앱에서)
     if menus:

@@ -76,6 +76,50 @@ def test_bad_due_date_rejected(db):
 
 
 # ---------------------------------------------------------------------------
+# 일괄 추가 (행사 준비 플랜 '전부 담기')
+# ---------------------------------------------------------------------------
+
+def test_bulk_add(db):
+    """행사 준비 항목을 통째로 담는다 — 기한·부제가 모든 줄에 그대로 붙어야 한다."""
+    items = [
+        TodoCreate(title="안내문 붙이기", note="여름축제 준비", due_date="2026-08-09"),
+        TodoCreate(title="얼음 2배 발주하기", note="여름축제 준비", due_date="2026-08-09"),
+    ]
+    res = ts.add_todos_bulk(STORE, items, source="ai")
+
+    assert len(res["added"]) == 2
+    assert res["skipped"] == []
+    assert {t["due_date"] for t in res["added"]} == {"2026-08-09"}
+    assert {t["source"] for t in res["added"]} == {"ai"}
+
+
+def test_bulk_add_skips_existing_and_inbatch_duplicates(db):
+    """이미 열려 있는 할 일도, 한 묶음 안의 표기만 다른 중복도 새 줄을 만들면 안 된다.
+
+    (AI가 같은 준비 항목을 '얼음 발주'와 '얼음 발주하기'로 두 곳에서 뽑아 오는 일이 있다.)
+    """
+    ts.add_todo(STORE, TodoCreate(title="안내문 붙이기"))
+
+    res = ts.add_todos_bulk(STORE, [
+        TodoCreate(title="안내문 붙이기"),
+        TodoCreate(title="얼음 발주"),
+        TodoCreate(title="얼음 발주하기"),
+    ])
+
+    assert [t["title"] for t in res["added"]] == ["얼음 발주"]
+    assert set(res["skipped"]) == {"안내문 붙이기", "얼음 발주하기"}
+    assert db.query(TodoItem).count() == 2
+
+
+def test_bulk_add_rejects_empty_and_bad_due_date(db):
+    with pytest.raises(ts.TodoError):
+        ts.add_todos_bulk(STORE, [TodoCreate(title="   ")])
+    with pytest.raises(ts.TodoError):
+        ts.add_todos_bulk(STORE, [TodoCreate(title="안내문 붙이기", due_date="2026-13-45")])
+    assert db.query(TodoItem).count() == 0
+
+
+# ---------------------------------------------------------------------------
 # 정렬 — 미완료 먼저, 기한 임박 순
 # ---------------------------------------------------------------------------
 

@@ -509,6 +509,9 @@ def image_health() -> dict[str, Any]:
         "pollinations_token": bool(token),
         "pollinations_model": POLLINATIONS_MODEL,
         "pollinations_fallback_model": POLLINATIONS_FALLBACK_MODEL,
+        # 실물 사진 홍보는 별도 편집 모델을 쓴다 — 장당 값이 10배라 여기서 같이 본다
+        "photo_edit_model": os.getenv("PHOTO_EDIT_MODEL", "kontext"),
+        "photo_edit_enabled": os.getenv("PHOTO_EDIT_AI", "1") != "0",
         "pollen_balance": balance,
         "pollen_warn_below": _POLLEN_WARN_BELOW,
         "gemini_image_blocked": time.monotonic() < _gemini_image_blocked_until,
