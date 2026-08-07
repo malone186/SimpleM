@@ -223,3 +223,110 @@ def test_hard_fail_skips_model_fallback(monkeypatch):
         M._pollinations_generate("prompt", "1:1", "standard", timeout=10.0)
 
     assert seen == ["zimage"]
+
+
+# ---------------------------------------------------------------------------
+# 정교화도 벽시계 상한 안에서 돈다
+#
+# REFINE_TIMEOUT은 HTTP 한 번의 제한이라 재시도·폴백이 겹치면 생성 시작 전에
+# 수십 초가 샌다. 사장님 대기는 '정교화 + 생성' 합계다 — 여기서 잠근다.
+# ---------------------------------------------------------------------------
+
+def test_refine_respects_wall_clock_budget(monkeypatch):
+    """정교화가 안 끝나면 상한에서 끊고 원본 아이디어로 진행한다."""
+    monkeypatch.setattr(M, "REFINE_BUDGET", 0.5)
+
+    def slow_refine(idea, style, aspect_ratio, layout):
+        time.sleep(5)
+        return "너무 늦게 온 답"
+
+    monkeypatch.setattr(M, "_refine_image_prompt", slow_refine)
+
+    started = time.monotonic()
+    result = M._refine_with_budget("라떼 클로즈업", "", "1:1", "bottom")
+    elapsed = time.monotonic() - started
+
+    assert result == "라떼 클로즈업", "상한을 넘겼으면 원본 아이디어를 써야 한다"
+    assert elapsed < 1.5, f"{elapsed:.1f}초 — 정교화 상한이 안 지켜진다"
+
+
+def test_refine_result_is_used_when_fast(monkeypatch):
+    """상한 안에 끝나면 정교화 결과를 그대로 쓴다."""
+    monkeypatch.setattr(M, "_refine_image_prompt",
+                        lambda *a: "a refined english art direction prompt")
+
+    assert M._refine_with_budget("라떼", "", "1:1", "bottom") == \
+        "a refined english art direction prompt"
+
+
+def test_refine_budget_skips_when_disabled(monkeypatch):
+    """PROMPT_REFINE=0이면 스레드도 띄우지 않고 원본을 돌려준다."""
+    monkeypatch.setattr(M, "PROMPT_REFINE", False)
+    monkeypatch.setattr(M, "_refine_image_prompt",
+                        lambda *a: (_ for _ in ()).throw(AssertionError("불리면 안 된다")))
+
+    assert M._refine_with_budget("라떼", "", "1:1", "bottom") == "라떼"
+
+
+# ---------------------------------------------------------------------------
+# 화면비 강제 — 공급자가 요청 해상도를 무시해도 비율이 맞은 이미지가 나간다
+#
+# 실측: flux는 width/height를 무시하고 1024×1088 근처만 돌려준다. 그대로 내보내면
+# 4:5 피드·16:9 배너 자리에서 잘리거나 찌그러진다.
+# ---------------------------------------------------------------------------
+
+def _png(w, h):
+    from io import BytesIO
+
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (w, h), (120, 90, 60)).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def test_wrong_aspect_is_center_cropped():
+    """16:9를 시켰는데 정방형이 오면 16:9로 잘라 돌려준다."""
+    from io import BytesIO
+
+    from PIL import Image
+
+    fixed, mime = M._enforce_aspect(_png(1024, 1088), "image/png", "16:9")
+
+    im = Image.open(BytesIO(fixed))
+    assert mime == "image/jpeg"
+    assert abs(im.width / im.height - 16 / 9) / (16 / 9) <= 0.02, \
+        f"{im.width}×{im.height} — 화면비가 안 맞는다"
+
+
+def test_correct_aspect_passes_through_untouched():
+    """비율이 이미 맞으면(2% 이내) 재인코딩 없이 원본 바이트 그대로다."""
+    original = _png(1472, 1472)
+
+    fixed, mime = M._enforce_aspect(original, "image/png", "1:1")
+
+    assert fixed is original and mime == "image/png"
+
+
+def test_undecodable_bytes_pass_through():
+    """디코드가 안 되는 바이트는 원본을 그대로 돌려준다 — 여기서 죽으면 안 된다."""
+    fixed, mime = M._enforce_aspect(b"not-an-image", "image/png", "4:5")
+
+    assert (fixed, mime) == (b"not-an-image", "image/png")
+
+
+def test_provider_chain_applies_aspect_enforcement(monkeypatch):
+    """공급자 성공 경로에서 화면비 보정이 실제로 걸린다."""
+    from io import BytesIO
+
+    from PIL import Image
+
+    monkeypatch.setattr(M, "_pollinations_generate",
+                        lambda *a, **kw: (_png(1024, 1088), "image/png",
+                                          {"model": "flux", "seed": 7}))
+
+    image, _mime, provider, meta = M._generate_image_bytes("prompt", "16:9", "high")
+
+    im = Image.open(BytesIO(image))
+    assert provider == "pollinations" and meta["seed"] == 7
+    assert abs(im.width / im.height - 16 / 9) / (16 / 9) <= 0.02

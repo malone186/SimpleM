@@ -91,7 +91,7 @@ def refresh_and_find_drops(db, min_pct: float = MIN_DROP_PCT) -> list[dict[str, 
 
     current = fetch_current_prices()
     if not current:
-        return []
+        raise BeanPriceUnavailable("시세 수집 결과가 비었다 — 네트워크/사이트 문제로 본다")
 
     drops: list[dict[str, Any]] = []
     updated = 0
@@ -117,12 +117,25 @@ def refresh_and_find_drops(db, min_pct: float = MIN_DROP_PCT) -> list[dict[str, 
     return drops
 
 
+class BeanPriceUnavailable(RuntimeError):
+    """시세 수집이 통째로 실패했다 — '오늘 하락 없음'과 구분해야 캐시가 오염되지 않는다"""
+
+
 def get_today_drops(db) -> list[dict[str, Any]]:
-    """오늘의 하락 목록 (하루 캐시). BEAN_PRICE_WATCH=0 이면 항상 빈 목록."""
+    """오늘의 하락 목록 (하루 캐시). BEAN_PRICE_WATCH=0 이면 항상 빈 목록.
+
+    수집이 통째로 실패한 날은 캐시에 '오늘 확인함'을 남기지 않는다 — 예전엔 일시적인
+    네트워크 오류 한 번이 빈 결과로 하루 종일 캐시돼 그날 시세 알림이 전부 죽었다.
+    """
     if os.getenv("BEAN_PRICE_WATCH", "1") == "0":
         return []
     today = date.today().isoformat()
     if _cache["day"] != today:
-        _cache["drops"] = refresh_and_find_drops(db)
+        try:
+            drops = refresh_and_find_drops(db)
+        except BeanPriceUnavailable as e:
+            logger.info("[원두 시세] 오늘 수집 실패 — 다음 호출에서 재시도: %s", e)
+            return []
+        _cache["drops"] = drops
         _cache["day"] = today
     return _cache["drops"]

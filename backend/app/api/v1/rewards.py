@@ -87,6 +87,15 @@ def get_progress(current_user: User = Depends(get_current_user)) -> dict:
     return reward_service.get_progress(current_user.email)
 
 
+@router.post("/gacha")
+def draw_capsule(current_user: User = Depends(get_current_user)) -> dict:
+    """브루 캡슐 뽑기 1회 — 코인 차감 후 아이템 또는 코인을 랜덤 지급 (결과는 서버가 정한다)."""
+    try:
+        return reward_service.draw_capsule(current_user.email)
+    except reward_service.RewardError as e:
+        raise HTTPException(400, str(e))
+
+
 @router.get("/quests")
 def get_quests(current_user: User = Depends(get_current_user)) -> dict:
     """주간 퀘스트 — 이번 주(월요일 시작) 할 일 완료 누적으로 진행도를 센다."""

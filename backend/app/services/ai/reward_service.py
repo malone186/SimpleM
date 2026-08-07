@@ -11,7 +11,7 @@ models/ai.py의 PointLedger 주석 참고.
 import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy import func as sa_func
 from sqlalchemy.exc import IntegrityError
@@ -59,19 +59,20 @@ SHOP_ITEMS: list[dict[str, Any]] = [
     {"id": "pose_pouring", "slot": "pose", "mood": "pouring", "name": "핸드드립 브루", "emoji": "🫗", "price": 300,
      "desc": "정성껏 물줄기를 내리는 중"},
     {"id": "pose_hero", "slot": "pose", "mood": "hero", "name": "스탠딩 바리스타", "emoji": "⭐", "price": 500,
-     "desc": "브루노트의 얼굴. 가장 늠름한 자세"},
+     "desc": "브루노트의 얼굴. 가장 늠름한 자세", "min_level": 3},
     # 전신 애니메이션 포즈 — 정지 그림이 아니라 실제로 움직인다 (프론트 플립북 재생).
-    # 모션캡처 동작을 마스코트에 입혀 스프라이트로 구운 것이라 가장 비싼 최상급 아이템.
-    {"id": "pose_jump", "slot": "pose", "mood": "jump", "name": "폴짝폴짝 브루", "emoji": "🐾", "price": 800,
-     "desc": "신나서 폴짝폴짝 뛰어요 (움직이는 포즈!)"},
-    {"id": "pose_dance", "slot": "pose", "mood": "dance", "name": "댄스 타임 브루", "emoji": "🕺", "price": 1000,
-     "desc": "리듬 타며 춤춰요 (움직이는 포즈!)"},
-    {"id": "pose_hello", "slot": "pose", "mood": "hello", "name": "인사왕 브루", "emoji": "👋", "price": 900,
-     "desc": "손을 들어 반갑게 인사해요 (움직이는 포즈!)"},
+    # 모션캡처 동작을 마스코트에 입혀 스프라이트로 구운 최상급 아이템 — 레벨 달성 보상으로
+    # min_level을 걸어 '레벨이 곧 목표'가 되게 한다 (코인만 있으면 다 사지는 걸 방지).
     {"id": "pose_dab", "slot": "pose", "mood": "dab", "name": "스웩 브루", "emoji": "😎", "price": 850,
-     "desc": "요즘 유행하는 댑 포즈 (움직이는 포즈!)"},
+     "desc": "요즘 유행하는 댑 포즈 (움직이는 포즈!)", "min_level": 4},
     {"id": "pose_workout", "slot": "pose", "mood": "workout", "name": "운동왕 브루", "emoji": "💪", "price": 850,
-     "desc": "팔벌려뛰기로 몸 풀어요 (움직이는 포즈!)"},
+     "desc": "팔벌려뛰기로 몸 풀어요 (움직이는 포즈!)", "min_level": 4},
+    {"id": "pose_jump", "slot": "pose", "mood": "jump", "name": "폴짝폴짝 브루", "emoji": "🐾", "price": 800,
+     "desc": "신나서 폴짝폴짝 뛰어요 (움직이는 포즈!)", "min_level": 5},
+    {"id": "pose_hello", "slot": "pose", "mood": "hello", "name": "인사왕 브루", "emoji": "👋", "price": 900,
+     "desc": "손을 들어 반갑게 인사해요 (움직이는 포즈!)", "min_level": 6},
+    {"id": "pose_dance", "slot": "pose", "mood": "dance", "name": "댄스 타임 브루", "emoji": "🕺", "price": 1000,
+     "desc": "리듬 타며 춤춰요 (움직이는 포즈!)", "min_level": 7},
     # 배경 효과 — 캐릭터 위가 아니라 뒤에 깔리므로 어떤 포즈와도 겹치지 않는다.
     {"id": "bg_sparkle", "slot": "background", "name": "반짝임", "emoji": "✨", "price": 300,
      "desc": "가만히 있어도 빛나는 중"},
@@ -85,6 +86,14 @@ SHOP_ITEMS: list[dict[str, Any]] = [
      "desc": "오픈·이벤트 날의 들뜬 기분"},
     {"id": "bg_bubble", "slot": "background", "name": "뽀글 거품", "emoji": "🫧", "price": 300,
      "desc": "라떼 거품처럼 몽글몽글"},
+    {"id": "bg_steam", "slot": "background", "name": "김 모락모락", "emoji": "♨️", "price": 350,
+     "desc": "갓 내린 커피의 김이 피어올라요"},
+    {"id": "bg_blossom", "slot": "background", "name": "벚꽃잎 흩날림", "emoji": "🌸", "price": 350,
+     "desc": "봄바람에 벚꽃잎이 팔랑팔랑"},
+    {"id": "bg_maple", "slot": "background", "name": "가을 단풍", "emoji": "🍁", "price": 350,
+     "desc": "단풍잎이 물들며 떨어져요"},
+    {"id": "bg_coins", "slot": "background", "name": "코인 비", "emoji": "🪙", "price": 500,
+     "desc": "코인이 쏟아지는 매출 대박 기운", "min_level": 5},
     # 카페 배경 — 게임 룸(브루의 카페)의 배경 사진을 통째로 바꾼다.
     # 프론트에 같은 id의 사진이 등록돼 있어야 상점에 노출된다(사진 없는 아이템은
     # 프론트가 숨긴다). 사진 추가 방법: 저장소 루트 '카페배경_추가_가이드.md' 참고.
@@ -135,6 +144,8 @@ REASON_LABEL = {
     "purchase": "상점 구매",
     "daily_bonus": "일일 도전 보너스",
     "quest": "주간 퀘스트 보상",
+    "gacha": "브루 캡슐 뽑기",
+    "gacha_reward": "캡슐에서 코인 획득",
     "test_grant": "테스트 지급",  # 개발 중 상점을 확인하려고 수동으로 넣은 코인
     "admin_grant": "관리자 지급",
     "admin_revoke": "관리자 회수",
@@ -466,26 +477,46 @@ def get_progress(store_id: str) -> dict[str, Any]:
 # 상점
 # ---------------------------------------------------------------------------
 
+def _level_of(db, store_id: str) -> int:
+    """현재 레벨 — 적립 총합(EXP)으로 계산한다 (get_progress와 같은 기준)."""
+    from app.models.ai import PointLedger
+
+    exp = db.query(sa_func.coalesce(sa_func.sum(PointLedger.delta), 0)).filter(
+        PointLedger.store_id == store_id, PointLedger.delta > 0
+    ).scalar()
+    level, _, _, _ = _level_calc(int(exp or 0))
+    return level
+
+
 def get_shop(store_id: str) -> dict[str, Any]:
-    """카탈로그 + 보유/착용 상태를 한 번에. 프론트가 추가 조회 없이 그릴 수 있게."""
+    """카탈로그 + 보유/착용 상태를 한 번에. 프론트가 추가 조회 없이 그릴 수 있게.
+
+    min_level이 걸린 아이템은 레벨 미달이면 locked=True로 내려간다 — 목록에는 실루엣으로
+    보여서 '저건 Lv.N에 열린다'는 목표가 되고, 구매는 buy()가 서버에서 막는다.
+    """
     from app.models.ai import OwnedItem
 
     with _session() as db:
         owned = {o.item_id: o for o in db.query(OwnedItem).filter(OwnedItem.store_id == store_id).all()}
         balance = _balance(db, store_id)
+        level = _level_of(db, store_id)
 
     items = []
     for item in SHOP_ITEMS:
         row = owned.get(item["id"])
+        min_level = int(item.get("min_level", 0))
         items.append({
             **item,
             "slot_label": SLOT_LABEL.get(item["slot"], item["slot"]),
             "owned": row is not None,
             "equipped": bool(row and row.equipped),
             "affordable": balance >= item["price"],
+            "min_level": min_level,
+            # 이미 보유한 건 잠그지 않는다 (레벨 조건이 나중에 생겨도 소급 몰수하지 않음)
+            "locked": min_level > level and row is None,
         })
 
-    return {"balance": balance, "items": items}
+    return {"balance": balance, "level": level, "items": items}
 
 
 def get_equipped(store_id: str) -> list[dict[str, Any]]:
@@ -533,6 +564,13 @@ def buy(store_id: str, item_id: str) -> dict[str, Any]:
         ).one_or_none()
         if already:
             raise RewardError("이미 가지고 있는 아이템이에요.")
+
+        # 레벨 잠금 — 프론트가 숨겨도 API를 직접 부르면 뚫리므로 서버가 최종 방어한다
+        min_level = int(item.get("min_level", 0))
+        if min_level:
+            level = _level_of(db, store_id)
+            if level < min_level:
+                raise RewardError(f"Lv.{min_level} 달성 시 열리는 아이템이에요. (현재 Lv.{level})")
 
         balance = _balance(db, store_id)
         if balance < item["price"]:
@@ -652,4 +690,90 @@ def claim_quest(store_id: str, quest_id: str) -> dict[str, Any]:
     result = get_quests(store_id)
     result["awarded"] = q["reward"] if awarded else 0
     result["balance"] = get_balance(store_id)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 브루 캡슐 뽑기 (가챠)
+#
+# 코인 소모처 + 운 요소. 서버가 결과를 정한다 — 프론트에서 정하면 조작이 가능하고,
+# 원장·보유 기록과 결과가 어긋날 수 있다.
+# 확률: 일반(코인 반환) 40% / 희귀(500코인 이하 미보유 아이템) 45% / 전설(500 초과) 15%.
+# 해당 등급에서 줄 수 있는 아이템이 없으면(다 모았거나 레벨 잠금) 코인으로 대체 —
+# '꽝'은 없다. 뽑기 비용보다 기대값이 낮게 코인 표를 짜서 인플레를 막는다.
+# ---------------------------------------------------------------------------
+GACHA_COST = 300
+_GACHA_COMMON_COINS = (30, 50, 80, 120, 150)  # 일반 등급 코인 표 (기대값 86)
+
+
+def draw_capsule(store_id: str) -> dict[str, Any]:
+    """캡슐 1회 뽑기 — 차감·지급·보유 등록까지 원장 기준으로 처리하고 결과를 돌려준다."""
+    import random
+
+    from app.models.ai import OwnedItem, PointLedger
+
+    with _session() as db:
+        balance = _balance(db, store_id)
+        if balance < GACHA_COST:
+            raise RewardError(f"코인이 {GACHA_COST - balance}개 부족해요. (뽑기 1회 {GACHA_COST}코인)")
+        level = _level_of(db, store_id)
+        owned_ids = {o.item_id for o in db.query(OwnedItem).filter(OwnedItem.store_id == store_id).all()}
+
+        # 등급별 후보 — 미보유 + 레벨 잠금 아닌 것만 (잠금 아이템이 뽑기로 뚫리면 잠금이 무의미)
+        def pool(cheap: bool) -> list[dict[str, Any]]:
+            return [
+                i for i in SHOP_ITEMS
+                if i["id"] not in owned_ids
+                and int(i.get("min_level", 0)) <= level
+                and (i["price"] <= 500 if cheap else i["price"] > 500)
+            ]
+
+        stamp = datetime.now(KST).strftime("%Y%m%d%H%M%S%f")
+        db.add(PointLedger(store_id=store_id, delta=-GACHA_COST, reason="gacha",
+                           ref=f"draw:{stamp}", memo="브루 캡슐 뽑기"))
+
+        roll = random.random()
+        rarity, kind = "common", "coins"
+        coins_won = 0
+        item_won: Optional[dict[str, Any]] = None
+        if roll < 0.40:
+            coins_won = random.choice(_GACHA_COMMON_COINS)
+        elif roll < 0.85:
+            rarity = "rare"
+            cands = pool(cheap=True)
+            if cands:
+                kind, item_won = "item", random.choice(cands)
+            else:
+                coins_won = 150  # 다 모은 사장님에겐 코인으로
+        else:
+            rarity = "epic"
+            cands = pool(cheap=False)
+            if cands:
+                kind, item_won = "item", random.choice(cands)
+            else:
+                coins_won = 300
+
+        if item_won is not None:
+            db.add(OwnedItem(store_id=store_id, item_id=item_won["id"], equipped=False))
+            memo = f"캡슐 뽑기 — {item_won['name']} 획득"
+            # 아이템 지급도 원장에 0코인 줄로 남겨 내역에서 보이게 한다
+            db.add(PointLedger(store_id=store_id, delta=0, reason="gacha_reward",
+                               ref=f"item:{stamp}", memo=memo))
+        else:
+            db.add(PointLedger(store_id=store_id, delta=coins_won, reason="gacha_reward",
+                               ref=f"coins:{stamp}", memo=f"캡슐에서 코인 {coins_won}개"))
+        db.commit()
+        new_balance = _balance(db, store_id)
+
+    result: dict[str, Any] = {"rarity": rarity, "kind": kind, "cost": GACHA_COST, "balance": new_balance}
+    if kind == "coins":
+        result["coins"] = coins_won
+    else:
+        assert item_won is not None
+        result["item"] = {
+            "id": item_won["id"], "slot": item_won["slot"],
+            "slot_label": SLOT_LABEL.get(item_won["slot"], item_won["slot"]),
+            "name": item_won["name"], "emoji": item_won["emoji"],
+            "mood": item_won.get("mood"), "color": item_won.get("color"),
+        }
     return result

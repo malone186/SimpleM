@@ -22,9 +22,17 @@ logger = logging.getLogger(__name__)
 _INSECURE_DEFAULT_SECRET = "simplem-secret-key-super-secure-key-1234567890"
 SECRET_KEY = os.getenv("SECRET_KEY", _INSECURE_DEFAULT_SECRET)
 if SECRET_KEY == _INSECURE_DEFAULT_SECRET:
-    # 소스에 공개된 기본 키로는 누구나 토큰을 위조할 수 있다 — .env에 SECRET_KEY를 반드시 설정할 것.
+    # 소스에 공개된 기본 키로는 누구나 토큰을 위조할 수 있다.
+    # 운영(Cloud Run은 K_SERVICE를 항상 주입한다)에서는 기동 자체를 막는다 —
+    # 경고 로그만 남기고 뜨면 위조 가능한 서버가 조용히 서비스를 계속한다.
+    # 로컬 개발은 경고만 하고 계속 뜬다 (.env 없이 클론만 받아도 돌아가게).
+    if os.getenv("K_SERVICE"):
+        raise RuntimeError(
+            "SECRET_KEY 환경변수가 없습니다 — 공개된 기본 키로는 운영 서버를 띄울 수 없습니다. "
+            "deploy/env.yaml(GCP_ENV_YAML)에 SECRET_KEY를 설정하세요."
+        )
     logger.error(
-        "[보안 경고] SECRET_KEY 환경변수가 없어 공개된 기본 키로 폴백했습니다. "
+        "[보안 경고] SECRET_KEY 환경변수가 없어 공개된 기본 키로 폴백했습니다 (로컬 개발 전용). "
         ".env에 SECRET_KEY를 설정하세요 (python -c \"import secrets; print(secrets.token_urlsafe(48))\")."
     )
 ALGORITHM = "HS256"

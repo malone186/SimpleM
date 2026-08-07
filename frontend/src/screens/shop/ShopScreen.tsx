@@ -1,7 +1,7 @@
 // 상점 — 할 일을 끝내 모은 코인으로 브루를 꾸민다 (게임화 보상)
 // 상단: 브루 미리보기 + 코인 잔액 / 중단: 부위별 아이템 / 하단: 적립·사용 내역
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, Easing, Modal, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 
@@ -15,11 +15,13 @@ import { Badge, Card, Screen, ScreenTitle, SectionTitle } from '../../components
 import {
   buyItem,
   claimQuest,
+  drawCapsule,
   equipItem,
   getProgress,
   getQuests,
   getShop,
   getWallet,
+  type GachaResult,
   type ItemSlot,
   type PointHistoryItem,
   type Progress,
@@ -30,6 +32,7 @@ import {
   type Wallet,
 } from '../../lib/api/rewards';
 import { ROOM_BGS } from '../../components/brew/roomBackgrounds';
+import { loadCache, peekCache, saveCache } from '../../lib/cache';
 import { useEquipped } from '../../rewards/EquippedContext';
 import { colors, typography } from '../../theme';
 // [한글 주석] load() 안의 지역변수 s(shop 응답)와 겹치지 않게 스케일 함수는 sc 로 별칭 처리
@@ -53,10 +56,11 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
   const { gutter, isWide, contentMaxWidth } = useResponsive();
   // 구매·착용하면 홈 화면 마스코트도 같이 바뀌어야 한다
   const { refresh: refreshEquipped } = useEquipped();
-  const [shop, setShop] = useState<ShopState | null>(null);
-  const [wallet, setWallet] = useState<Wallet | null>(null);
-  const [progress, setProgress] = useState<Progress | null>(null);
-  const [loading, setLoading] = useState(true);
+  // 지난 방문 값으로 먼저 그린다 — 매번 풀스크린 스피너를 보이지 않게 (서버 응답이 오면 조용히 갱신)
+  const [shop, setShop] = useState<ShopState | null>(() => peekCache<ShopState>('shop:shop')?.data ?? null);
+  const [wallet, setWallet] = useState<Wallet | null>(() => peekCache<Wallet>('shop:wallet')?.data ?? null);
+  const [progress, setProgress] = useState<Progress | null>(() => peekCache<Progress>('shop:progress')?.data ?? null);
+  const [loading, setLoading] = useState(() => !peekCache<ShopState>('shop:shop'));
   const [busyItem, setBusyItem] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [vaultOpen, setVaultOpen] = useState(false); // 보관함(보유 아이템 모음) 시트
@@ -64,9 +68,34 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
   useEffect(() => {
     if (route?.params?.openVault) setVaultOpen(true);
   }, [route?.params?.openVault]);
-  const [quests, setQuests] = useState<QuestBoard | null>(null);
+  const [quests, setQuests] = useState<QuestBoard | null>(() => peekCache<QuestBoard>('shop:quests')?.data ?? null);
   const [claiming, setClaiming] = useState<string | null>(null);
   const [historyExpanded, setHistoryExpanded] = useState(false); // 코인 내역 — 기본 5줄, 더보기로 전체 펼침
+  // 브루 캡슐 뽑기 — 모달이 열리고 캡슐이 흔들리다 결과가 공개된다
+  const [gachaOpen, setGachaOpen] = useState(false);
+  const [gachaResult, setGachaResult] = useState<GachaResult | null>(null);
+  const [gachaError, setGachaError] = useState<string | null>(null);
+
+  const handleGacha = async () => {
+    setGachaResult(null);
+    setGachaError(null);
+    setGachaOpen(true); // 캡슐 흔들리는 상태로 먼저 열어 두근거림을 만든다
+    try {
+      // 결과가 너무 빨리 오면 김이 새서, 최소 1.3초는 흔들리게 한다
+      const [res] = await Promise.all([
+        drawCapsule(token),
+        new Promise((r) => setTimeout(r, 1300)),
+      ]);
+      setGachaResult(res);
+      // 잔액·보유·착용 갱신 (아이템이 나왔으면 보관함에 이미 들어가 있다)
+      const [s, w] = await Promise.all([getShop(token), getWallet(token)]);
+      setShop(s);
+      setWallet(w);
+      await refreshEquipped();
+    } catch (e) {
+      setGachaError(e instanceof Error ? e.message : '뽑기에 실패했어요. 잠시 후 다시 시도해 주세요.');
+    }
+  };
 
   // 이미 산 아이템은 상점 목록에서 빼고 보관함에만 둔다 — 상점은 '아직 없는 것'만 보이게.
   // 다만 방금 산 것은 바로 착용해 볼 수 있게 이번 방문 동안만 목록에 남겨 둔다.
@@ -80,6 +109,12 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
 
   const load = useCallback(async () => {
     if (!token) return;
+    // 앱을 새로 켠 직후에는 메모리 캐시가 비어 있다 — 디스크에 남은 지난 값으로 먼저 그린다
+    const cached = await loadCache<ShopState>('shop:shop');
+    if (cached) {
+      setShop((prev) => prev ?? cached.data);
+      setLoading(false);
+    }
     try {
       const [s, w, p, q] = await Promise.all([
         getShop(token), getWallet(token), getProgress(token), getQuests(token),
@@ -94,6 +129,12 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
       setLoading(false);
     }
   }, [token]);
+
+  // 최신 상태를 기기에 남긴다 — 구매·착용·뽑기 등 어떤 경로로 바뀌어도 다음 방문이 즉시 뜬다
+  useEffect(() => { if (shop) void saveCache('shop:shop', shop); }, [shop]);
+  useEffect(() => { if (wallet) void saveCache('shop:wallet', wallet); }, [wallet]);
+  useEffect(() => { if (progress) void saveCache('shop:progress', progress); }, [progress]);
+  useEffect(() => { if (quests) void saveCache('shop:quests', quests); }, [quests]);
 
   // 퀘스트 보상 수령 — 잔액이 바뀌므로 상점·지갑도 같이 갱신
   const handleClaimQuest = async (q: Quest) => {
@@ -217,6 +258,24 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
         </Card>
       </FadeInUp>
 
+      {/* ── 브루 캡슐 뽑기 — 코인 소모처 + 운 요소 ── */}
+      <FadeInUp delay={30}>
+        <Card style={styles.gachaCard}>
+          <Text style={styles.gachaEgg}>🥚</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.gachaTitle}>브루 캡슐 뽑기</Text>
+            <Text style={styles.gachaDesc}>꾸미기 아이템 또는 코인이 랜덤으로! 꽝은 없어요</Text>
+          </View>
+          <PressableScale
+            style={[styles.gachaBtn, (shop?.balance ?? 0) < 300 && styles.gachaBtnOff]}
+            onPress={(shop?.balance ?? 0) >= 300 ? handleGacha : undefined}
+            disabled={(shop?.balance ?? 0) < 300}
+          >
+            <Text style={styles.gachaBtnText}>🪙 300 뽑기</Text>
+          </PressableScale>
+        </Card>
+      </FadeInUp>
+
       {/* ── 브루 키우기 (레벨·EXP·스트릭·일일 도전) ── */}
       {progress && (
         <FadeInUp delay={40}>
@@ -240,7 +299,9 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
       )}
 
       {/* ── 부위별 아이템 — 아직 안 산 것만 (산 것은 보관함으로) ── */}
-      {!(shop?.items ?? []).some(inShopList) && (
+      {/* shop이 아직 없으면(첫 로드 실패 등) 축하 배너를 띄우지 않는다 —
+          아무것도 못 불러온 상태를 '다 모았다'로 읽으면 안 된다 */}
+      {!!shop && !shop.items.some(inShopList) && (
         <FadeInUp delay={60}>
           <SectionTitle>꾸미기 아이템</SectionTitle>
           <Card>
@@ -281,6 +342,63 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
           load();
         }}
       />
+
+      {/* ── 캡슐 뽑기 결과 모달 — 결과 도착 전엔 캡슐이 흔들린다 ── */}
+      <Modal visible={gachaOpen} animationType="fade" transparent onRequestClose={() => setGachaOpen(false)}>
+        <View style={styles.gachaBackdrop}>
+          <View style={styles.gachaModal}>
+            {gachaError ? (
+              <>
+                <Text style={styles.gachaEggBig}>😢</Text>
+                <Text style={styles.gachaWait}>{gachaError}</Text>
+                <PressableScale style={styles.gachaClose} onPress={() => setGachaOpen(false)}>
+                  <Text style={styles.gachaCloseText}>닫기</Text>
+                </PressableScale>
+              </>
+            ) : !gachaResult ? (
+              <>
+                <CapsuleShake />
+                <Text style={styles.gachaWait}>두근두근…</Text>
+              </>
+            ) : (
+              <>
+                <Badge
+                  label={gachaResult.rarity === 'epic' ? '✨ 전설' : gachaResult.rarity === 'rare' ? '💠 희귀' : '일반'}
+                  tone={gachaResult.rarity === 'epic' ? 'orange' : gachaResult.rarity === 'rare' ? 'green' : 'neutral'}
+                />
+                {gachaResult.kind === 'item' && gachaResult.item ? (
+                  <>
+                    <View style={styles.gachaPrize}>
+                      <ItemArt
+                        item={{ ...gachaResult.item, slot_label: gachaResult.item.slot_label, price: 0, desc: '', owned: true, equipped: false, affordable: true } as ShopItem}
+                        size={84}
+                      />
+                    </View>
+                    <Text style={styles.gachaPrizeName}>{gachaResult.item.name}</Text>
+                    <Text style={styles.gachaPrizeSub}>{gachaResult.item.slot_label} · 보관함에 들어갔어요</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.gachaEggBig}>🪙</Text>
+                    <Text style={styles.gachaPrizeName}>코인 +{gachaResult.coins}</Text>
+                    <Text style={styles.gachaPrizeSub}>잔액 {gachaResult.balance.toLocaleString()}코인</Text>
+                  </>
+                )}
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
+                  {(shop?.balance ?? 0) >= 300 && (
+                    <PressableScale style={[styles.gachaClose, styles.gachaAgain]} onPress={handleGacha}>
+                      <Text style={[styles.gachaCloseText, { color: colors.white }]}>한 번 더 (300)</Text>
+                    </PressableScale>
+                  )}
+                  <PressableScale style={styles.gachaClose} onPress={() => setGachaOpen(false)}>
+                    <Text style={styles.gachaCloseText}>닫기</Text>
+                  </PressableScale>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       {/* ── 적립·사용 내역 — 기본 5줄만, 나머지는 '더보기'로 펼친다 ── */}
       <FadeInUp delay={300}>
@@ -326,6 +444,27 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
   );
 }
 
+/** 뽑기 대기 중 흔들리는 캡슐 — 결과가 올 때까지 좌우로 파닥인다 */
+function CapsuleShake() {
+  const t = useState(() => new Animated.Value(0))[0];
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(t, { toValue: 1, duration: 90, easing: Easing.linear, useNativeDriver: true }),
+        Animated.timing(t, { toValue: -1, duration: 180, easing: Easing.linear, useNativeDriver: true }),
+        Animated.timing(t, { toValue: 0, duration: 90, easing: Easing.linear, useNativeDriver: true }),
+        Animated.delay(240),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [t]);
+  const rotate = t.interpolate({ inputRange: [-1, 1], outputRange: ['-16deg', '16deg'] });
+  return (
+    <Animated.Text style={[styles.gachaEggBig, { transform: [{ rotate }] }]}>🥚</Animated.Text>
+  );
+}
+
 function ShopRow({
   item,
   apronColor,
@@ -339,6 +478,24 @@ function ShopRow({
   onBuy: () => void;
   onToggle: () => void;
 }) {
+  // 레벨 잠금 — 실루엣으로 보여서 'Lv.N에 열린다'는 목표가 되게 한다 (구매는 서버도 막는다)
+  if (item.locked) {
+    return (
+      <Card style={[styles.itemCard, { opacity: 0.75 }]}>
+        <View style={[styles.itemEmojiWrap, { opacity: 0.3 }]}>
+          <ItemArt item={item} apronColor={apronColor} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.itemName}>{item.name}</Text>
+          <Text style={styles.itemDesc}>{item.desc}</Text>
+        </View>
+        <View style={styles.levelLockBox}>
+          <Ionicons name="lock-closed" size={13} color={colors.mochaBrown} />
+          <Text style={styles.levelLockText}>Lv.{item.min_level}에 열려요</Text>
+        </View>
+      </Card>
+    );
+  }
   return (
     <Card style={[styles.itemCard, item.equipped && styles.itemCardOn]}>
       {/* 사기 전 미리보기와 산 뒤 모습이 정확히 같아야 한다 */}
@@ -350,6 +507,7 @@ function ShopRow({
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Text style={styles.itemName}>{item.name}</Text>
           {item.equipped && <Badge label="착용 중" tone="green" />}
+          {!!item.min_level && !item.owned && <Badge label={`Lv.${item.min_level}+`} tone="orange" />}
         </View>
         <Text style={styles.itemDesc}>{item.desc}</Text>
       </View>
@@ -528,6 +686,39 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
 
   heroCard: { alignItems: 'center', paddingVertical: 22, marginBottom: 6 },
+  // ── 브루 캡슐 뽑기 ──
+  gachaCard: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 },
+  gachaEgg: { fontSize: 30 },
+  gachaTitle: { ...typography.L4, fontSize: 13, fontWeight: '800', color: colors.espressoBrown },
+  gachaDesc: { ...typography.L5, color: colors.mochaBrown, marginTop: 1 },
+  gachaBtn: { backgroundColor: colors.pointOrange, borderRadius: 999, paddingHorizontal: 13, paddingVertical: 9 },
+  gachaBtnOff: { backgroundColor: colors.mutedSand },
+  gachaBtnText: { ...typography.L5, fontWeight: '800', color: colors.white },
+  gachaBackdrop: { flex: 1, backgroundColor: 'rgba(30,22,18,0.55)', alignItems: 'center', justifyContent: 'center' },
+  gachaModal: {
+    backgroundColor: colors.creamSand,
+    borderRadius: 22,
+    paddingHorizontal: 26,
+    paddingVertical: 24,
+    alignItems: 'center',
+    minWidth: 240,
+    gap: 6,
+  },
+  gachaEggBig: { fontSize: 56, marginVertical: 6 },
+  gachaWait: { ...typography.L4, fontWeight: '700', color: colors.mochaBrown, textAlign: 'center' },
+  gachaPrize: { marginTop: 8, marginBottom: 2 },
+  gachaPrizeName: { ...typography.L3, fontSize: 17, fontWeight: '800', color: colors.espressoBrown },
+  gachaPrizeSub: { ...typography.L5, color: colors.mochaBrown },
+  gachaClose: {
+    backgroundColor: colors.white,
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+  },
+  gachaAgain: { backgroundColor: colors.pointOrange },
+  gachaCloseText: { ...typography.L5, fontWeight: '800', color: colors.espressoBrown },
+  levelLockBox: { alignItems: 'center', gap: 2, width: 78 },
+  levelLockText: { ...typography.L5, fontWeight: '700', color: colors.mochaBrown },
 
   // 브루 키우기 성장 카드
   growthCard: { paddingVertical: 14, marginBottom: 6, gap: 10 },

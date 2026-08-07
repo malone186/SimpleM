@@ -99,6 +99,17 @@ export function useCachedResource<T>(
   // 보여줄 게 아무것도 없을 때만 '불러오는 중' — 캐시가 있으면 화면은 이미 채워져 있다
   const [loading, setLoading] = useState(false);
 
+  // key가 바뀌면(리포트 일간→주간, 매출 달력 이동 등) 이전 key의 값을 즉시 내린다.
+  // 안 그러면 새 응답이 올 때까지 이전 탭의 숫자가 새 탭 이름을 달고 그대로 보인다 —
+  // 홈 리포트에서 일간·주간·월간 금액이 똑같이 보이던 원인. effect(비동기)로 미루지 않고
+  // 렌더 중에 바꾸는 이유: 한 프레임이라도 (새 탭 라벨 + 옛 숫자) 조합을 그리지 않기 위해서다.
+  const prevKeyRef = useRef(key);
+  if (prevKeyRef.current !== key) {
+    prevKeyRef.current = key;
+    setData(key ? peekCache<T>(key)?.data ?? null : null);
+    setError(null);
+  }
+
   const prevRefreshRef = useRef(refreshToken);
   const [tick, setTick] = useState(0);
 

@@ -106,6 +106,7 @@ export default function ManagementScreen() {
     { label: t('taxDocsTitle'), en: 'DOCUMENTS', desc: t('taxDocsSub'), color: '#D6C8B8', route: 'Document' },
     { label: t('salesInputTitle'), en: 'SALES', desc: language === 'en' ? 'Cash/Card · Payout schedule' : '현금·카드 입력 · 입금 예정일', color: '#C2B09C', route: 'SalesInput' },
     { label: t('costAnalysisTitle'), en: 'COST', desc: t('costAnalysisSub'), color: '#A8927C', route: 'Cost' },
+    { label: language === 'en' ? 'Break-even Point' : '손익분기점', en: 'BREAK-EVEN', desc: language === 'en' ? 'Fixed costs → how much to sell to break even' : '고정비 입력 → 본전 매출 · 하루 목표 잔 수', color: '#9A8368', route: 'BreakEven' },
     { label: language === 'en' ? 'Marketing Studio' : '홍보 스튜디오', en: 'MARKETING', desc: language === 'en' ? 'AI promo copy & SNS banner creator' : 'AI 홍보 문구 · SNS 이미지 원스톱 생성', color: '#8E7660', route: 'Marketing' },
     { label: language === 'en' ? 'Bean Analysis' : '원두 분석', en: 'OPERATION', desc: language === 'en' ? 'Bean market price & Reviews' : '원두 최저가 시세 · 실리뷰 분석', color: '#6F5A47', route: 'BeanOperation' },
     { label: language === 'en' ? 'Regulars & Prepaid' : '단골 · 선불 충전', en: 'MEMBERSHIP', desc: language === 'en' ? 'Prepaid balance · Win-back alerts' : '선불 잔액 관리 · 뜸해진 단골 알림', color: '#524334', route: 'Membership' },

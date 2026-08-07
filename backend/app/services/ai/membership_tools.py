@@ -31,6 +31,54 @@ def _fail(msg: str) -> Dict[str, Any]:
     return {"success": False, "data": {}, "documents": [], "message": msg}
 
 
+def _visit_stats_bulk(db, customer_ids: list) -> Dict[int, Dict[str, Any]]:
+    """여러 회원의 방문 통계를 쿼리 1번으로 — svc.visit_stats와 같은 규칙.
+
+    회원 검색이 최대 10명을 돌려주는데 한 명마다 visit_stats(쿼리 1번)를 부르면
+    챗봇 턴에 Neon 왕복이 10번(약 2초) 더 붙는다. 날짜 목록을 GROUP 없이 한 번에
+    받아 파이썬에서 같은 계산(같은 날 여러 잔=1회, 중앙값 주기)을 한다.
+    """
+    import statistics
+
+    from sqlalchemy import func as sa_func
+
+    from app.models.membership import BalanceTransaction
+
+    if not customer_ids:
+        return {}
+    rows = (
+        db.query(BalanceTransaction.customer_id,
+                 sa_func.date(BalanceTransaction.created_at))
+        .filter(BalanceTransaction.customer_id.in_(customer_ids),
+                BalanceTransaction.tx_type == svc.TX_USE)
+        .distinct()
+        .all()
+    )
+    dates_by_id: Dict[int, list] = {}
+    for cid, d in rows:
+        if d is None:
+            continue
+        iso = d.isoformat() if hasattr(d, "isoformat") else str(d)[:10]
+        dates_by_id.setdefault(cid, []).append(iso)
+
+    from datetime import date as _date
+
+    today = svc._now().date()
+    out: Dict[int, Dict[str, Any]] = {}
+    for cid, isos in dates_by_id.items():
+        isos.sort()
+        ds = [_date.fromisoformat(s) for s in isos]
+        intervals = [(ds[i] - ds[i - 1]).days for i in range(1, len(ds))
+                     if (ds[i] - ds[i - 1]).days > 0]
+        out[cid] = {
+            "visit_count": len(ds),
+            "days_since_visit": (today - ds[-1]).days,
+            "median_interval_days": round(statistics.median(intervals), 1)
+            if len(intervals) >= 2 else None,
+        }
+    return out
+
+
 @tool
 def get_churn_risk_customers_tool(store_id: str, limit: int = 10) -> Dict[str, Any]:
     """[한글 주석] 평소보다 오랫동안 안 오신 단골 손님 목록을 조회합니다.
@@ -122,9 +170,11 @@ def find_customer_tool(store_id: str, query: Optional[str] = None) -> Dict[str, 
     db = SessionLocal()
     try:
         rows = svc.find_customers(db, store_id, query, limit=10)
+        stats_by_id = _visit_stats_bulk(db, [c.id for c in rows])
         items = []
         for c in rows:
-            st = svc.visit_stats(db, c.id)
+            st = stats_by_id.get(c.id) or {
+                "visit_count": 0, "days_since_visit": None, "median_interval_days": None}
             items.append({
                 "name": c.name or svc.mask_phone(c.phone),
                 "phone_masked": svc.mask_phone(c.phone),

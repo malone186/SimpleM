@@ -27,6 +27,12 @@ const PALETTE = {
   bubble: '#CDE7F0',
   // 컨페티 4색 — 앱 포인트 색과 섞어 알록달록하게
   confetti: ['#F2C14E', '#E8879B', '#8FB89A', '#6FA8D6'],
+  steam: '#D8CFC4',
+  petal: '#F5B8C8',
+  maple: '#D2691E',
+  mapleStem: '#8B4513',
+  coin: '#F2C14E',
+  coinEdge: '#B8860B',
 } as const;
 
 type IconProps = { size: number };
@@ -80,6 +86,46 @@ const bubbleShape = (px: number) => (
   <Svg width={px} height={px} viewBox="0 0 20 20">
     <Circle cx={10} cy={10} r={8} fill={PALETTE.bubble} opacity={0.85} />
     <Circle cx={7} cy={7} r={2.4} fill="#FFFFFF" opacity={0.9} />
+  </Svg>
+);
+/** 커피 김 — 위로 올라가며 S자로 흐르는 연기 한 가닥 */
+const steamShape = (px: number) => (
+  <Svg width={px} height={px * 1.5} viewBox="0 0 20 30">
+    <Path
+      d="M10 28 C4 23 16 18 10 12 C5 7 13 4 10 1"
+      stroke={PALETTE.steam}
+      strokeWidth={3.2}
+      strokeLinecap="round"
+      fill="none"
+      opacity={0.8}
+    />
+  </Svg>
+);
+/** 벚꽃잎 — 끝이 살짝 갈라진 꽃잎 한 장 */
+const petalShape = (px: number) => (
+  <Svg width={px} height={px} viewBox="0 0 20 20">
+    <Path
+      d="M10 18 C3 13 3 6 8 3 L10 5 L12 3 C17 6 17 13 10 18 Z"
+      fill={PALETTE.petal}
+    />
+  </Svg>
+);
+/** 단풍잎 — 다섯 갈래 잎을 단순화한 실루엣 + 잎자루 */
+const mapleShape = (px: number) => (
+  <Svg width={px} height={px} viewBox="0 0 20 20">
+    <Path
+      d="M10 1 L12 5 L16 3 L15 8 L19 9 L15 12 L16 16 L11 14 L10 16 L9 14 L4 16 L5 12 L1 9 L5 8 L4 3 L8 5 Z"
+      fill={PALETTE.maple}
+    />
+    <Path d="M10 14 L10 19" stroke={PALETTE.mapleStem} strokeWidth={1.4} strokeLinecap="round" />
+  </Svg>
+);
+/** 코인 — 금화에 테두리와 콩 무늬 */
+const coinShape = (px: number) => (
+  <Svg width={px} height={px} viewBox="0 0 20 20">
+    <Circle cx={10} cy={10} r={8.5} fill={PALETTE.coin} />
+    <Circle cx={10} cy={10} r={6} fill="none" stroke={PALETTE.coinEdge} strokeWidth={1.3} />
+    <Ellipse cx={10} cy={10} rx={2.6} ry={3.6} fill="none" stroke={PALETTE.coinEdge} strokeWidth={1.2} />
   </Svg>
 );
 
@@ -267,6 +313,30 @@ function BgBubble({ size }: IconProps) {
   return <DriftField size={size} cfgs={cfgs} dir="up" render={(px) => bubbleShape(px)} />;
 }
 
+// 김 모락모락 — 연기 가닥이 천천히 위로. 좌우로 살짝 흔들려 '피어오르는' 느낌을 준다
+function BgSteam({ size }: IconProps) {
+  const cfgs = useMemo(() => makeCfgs(5, [0.14, 0.22], [4200, 6200], 0.09), []);
+  return <DriftField size={size} cfgs={cfgs} dir="up" render={(px) => steamShape(px)} />;
+}
+
+// 벚꽃잎 — 눈보다 크게, 회전하며 팔랑팔랑 떨어진다
+function BgBlossom({ size }: IconProps) {
+  const cfgs = useMemo(() => makeCfgs(7, [0.11, 0.17], [3400, 5200], 0.12), []);
+  return <DriftField size={size} cfgs={cfgs} dir="down" spin render={(px) => petalShape(px)} />;
+}
+
+// 단풍잎 — 벚꽃보다 큼직하고 무겁게, 천천히 돌며 낙하
+function BgMaple({ size }: IconProps) {
+  const cfgs = useMemo(() => makeCfgs(6, [0.13, 0.2], [3600, 5600], 0.1), []);
+  return <DriftField size={size} cfgs={cfgs} dir="down" spin render={(px) => mapleShape(px)} />;
+}
+
+// 코인 비 — 동전이 빙글빙글 돌며 쏟아진다 (매출 대박 기운)
+function BgCoins({ size }: IconProps) {
+  const cfgs = useMemo(() => makeCfgs(8, [0.1, 0.16], [2200, 3600], 0.05), []);
+  return <DriftField size={size} cfgs={cfgs} dir="down" spin render={(px) => coinShape(px)} />;
+}
+
 /**
  * 아이템 id → 그림. 없는 아이템은 undefined를 돌려주고, 그때는 서버가 준 이모지로
  * 대신 그린다 — 새 아이템을 추가해도 화면이 비지 않는다.
@@ -278,4 +348,8 @@ export const ACCESSORY_ART: Record<string, React.ComponentType<IconProps>> = {
   bg_snow: BgSnow,
   bg_confetti: BgConfetti,
   bg_bubble: BgBubble,
+  bg_steam: BgSteam,
+  bg_blossom: BgBlossom,
+  bg_maple: BgMaple,
+  bg_coins: BgCoins,
 };

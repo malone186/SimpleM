@@ -40,6 +40,10 @@ COMPLIANCE_MILESTONES = [1, 7, 30]
 
 # 재고 소진 알림 기준 — 이 일수 이내로 떨어질 품목만 (발주하고 받는 데 걸리는 시간)
 STOCK_LEAD_DAYS = 3
+# 재고·서류 알림을 내보낼 가장 이른 시각 (KST). 매시간 스케줄러의 그날 첫 틱이 00:xx라
+# 날짜가 바뀌자마자 dedupe 키가 새것이 되고, 가만두면 "곧 떨어져요"·"D-7"이 자정에 나간다.
+STOCK_HOUR = 9
+COMPLIANCE_HOUR = 9
 # 안전재고를 따로 설정하지 않은 재료에 적용할 기본 부족 기준
 # (프론트 OrderScreen의 DEFAULT_LOW_STOCK과 같은 값이어야 화면과 알림이 어긋나지 않는다)
 DEFAULT_LOW_STOCK = 3
@@ -224,9 +228,13 @@ def _dispatch_bundle(db, store_id: str, category: str, dedupe_keys: list[str],
 # 규칙 1 — 갱신 임박 서류
 # ---------------------------------------------------------------------------
 
-def check_compliance(db, store_id: str, settings) -> list[str]:
+def check_compliance(db, store_id: str, settings, now: Optional[datetime] = None) -> list[str]:
     """D-30/D-7/D-1/만료 시점에 한 번씩. 놓치면 과태료라 가장 확실한 푸시 대상."""
     if not settings.compliance_alert:
+        return []
+    # days_left가 자정에 한 칸 줄어 D-7·D-1 구간 진입이 00:xx 틱에 걸린다 — 그대로 두면
+    # "보건증 갱신 7일 남았어요"가 한밤중에 나가고, dedupe에 막혀 아침엔 다시 안 나간다.
+    if now is not None and now.hour < COMPLIANCE_HOUR:
         return []
 
     sent: list[str] = []
@@ -388,11 +396,21 @@ def check_stock(db, store_id: str, settings, now: datetime) -> list[str]:
     if not settings.stock_alert:
         return []
 
+    # 자정 직후 틱(00:xx)에 보내지 않는다 — 날짜가 바뀌면 dedupe 키가 새것이 되어
+    # "곧 떨어져요"가 한밤중에 나가고, 한 번 나가면 아침의 제정신 시간대엔 다시 안 나간다.
+    if now.hour < STOCK_HOUR:
+        return []
+
     # 중복 판정을 예측보다 앞에 둔다 — forecast()는 SARIMAX 적합(CPU)에 날씨·지오코딩
     # 외부 호출까지 도는 데다 자기 캐시를 읽지 않는다. 하루 한 번 보내는 알림 때문에
     # 매 스케줄러 틱마다 이걸 돌릴 이유가 없다.
     dedupe_key = f"stock:{now.date().isoformat()}"
     if _already_sent(db, store_id, dedupe_key):
+        return []
+    # '오늘 점검했고 보낼 게 없었다'도 기억한다 — 안 남기면 재고가 멀쩡한 매장일수록
+    # 매 시간 틱마다 SARIMAX 적합 + 날씨·지오코딩 외부 호출을 통째로 다시 돌게 된다.
+    checked_key = f"stock-checked:{now.date().isoformat()}"
+    if _already_sent(db, store_id, checked_key):
         return []
 
     from app.services.ai import forecast_service
@@ -400,8 +418,10 @@ def check_stock(db, store_id: str, settings, now: datetime) -> list[str]:
     try:
         recs = forecast_service.forecast(store_id).get("order_recommendations") or []
     except Exception:
-        logger.exception("재고 소진 예측 실패 (%s)", store_id)
-        return []
+        # 판매 이력이 부족한 매장은 예측이 원래 실패한다 — 여기서 끝내면 아래의
+        # '절대 수량' 안전망(이 기능을 만든 이유였던)까지 같이 죽는다. 빈 예측으로 계속.
+        logger.exception("재고 소진 예측 실패 (%s) — 절대 수량 기준으로만 점검", store_id)
+        recs = []
 
     urgent_items = [
         r for r in recs
@@ -418,6 +438,19 @@ def check_stock(db, store_id: str, settings, now: datetime) -> list[str]:
             urgent_items.append(it)
 
     if not urgent_items:
+        # 점검 완료 마커만 남긴다 (푸시 발송 없음 — SentNotification은 사용자에게
+        # 노출되는 목록이 아니라 발송 이력 테이블이다). 유니크 제약 충돌은 동시 실행이
+        # 선점한 것이므로 조용히 넘어간다.
+        from sqlalchemy.exc import IntegrityError
+
+        from app.models.ai import SentNotification
+
+        db.add(SentNotification(store_id=store_id, dedupe_key=checked_key, category="stock",
+                                title="(점검 — 발송 없음)", body=""))
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
         return []
 
     # 소진일을 아는 품목이 먼저, 그 다음이 '수량이 적다'만 아는 품목
@@ -549,12 +582,16 @@ def check_closing(db, store_id: str, settings, now: datetime) -> list[str]:
 
         from app.models.inventory import Menu, Sale
 
+        # sold_at은 TIMESTAMPTZ다 — 날짜 문자열로 비교하면 DB 세션 타임존(UTC)으로
+        # 캐스팅되어 '오늘'이 09:00 KST부터 시작한다(개점~9시 매출이 통째로 빠진다).
+        # KST 자정 경계를 tz-aware datetime으로 명시한다.
+        day_start = datetime(today.year, today.month, today.day, tzinfo=KST)
         rows = (
             db.query(Menu.name, sa_func.sum(Sale.quantity), sa_func.sum(Sale.total_price))
             .join(Menu, Sale.menu_id == Menu.id)
             .filter(Sale.store_id == store_id,
-                    Sale.sold_at >= today.isoformat(),
-                    Sale.sold_at < (today + timedelta(days=1)).isoformat())
+                    Sale.sold_at >= day_start,
+                    Sale.sold_at < day_start + timedelta(days=1))
             .group_by(Menu.name)
             .order_by(sa_func.sum(Sale.quantity).desc())
             .all()
@@ -985,7 +1022,7 @@ def run_for_store(db, store_id: str, now: Optional[datetime] = None) -> dict[str
     if settings.dnd_enabled and in_dnd_window(now, settings.dnd_start, settings.dnd_end):
         return {"store_id": store_id, "skipped": "dnd", "sent": sent}
 
-    sent += check_compliance(db, store_id, settings)
+    sent += check_compliance(db, store_id, settings, now)
     sent += check_report(db, store_id, settings, now)
     sent += check_stock(db, store_id, settings, now)
     sent += check_closing(db, store_id, settings, now)      # 규칙 5 — 마감 리포트

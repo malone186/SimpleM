@@ -353,15 +353,21 @@ _DOMAINS: list[dict[str, Any]] = [
     {
         # 사장님이 가장 자주 하는 돈 질문 두 가지 — "카드 언제 들어와?"와 "인건비 얼마 나가?"
         "name": "settlement_expert",
-        "title": "정산·인건비 전문가",
+        "title": "정산·인건비·손익 전문가",
         "description": (
-            "카드 매출 정산과 인건비를 담당한다: 현금·카드 일 매출 기록, 카드사별 입금 "
+            "카드 매출 정산과 인건비, 손익분기점을 담당한다: 현금·카드 일 매출 기록, 카드사별 입금 "
             "예정일과 수수료, 이번 주/미입금 대금, 현금·카드 비중, 지난주 같은 요일 대비 매출, "
-            "직원별 고용형태·보험에 따른 월 인건비와 주급, 채용 조건 가정 시뮬레이션. "
+            "직원별 고용형태·보험에 따른 월 인건비와 주급, 채용 조건 가정 시뮬레이션, "
+            "월 고정비 입력과 손익분기점(본전 매출·하루 목표 잔 수·목표이익 역산). "
             "'카드 언제 들어와?', '오늘 현금 12만 카드 45만 팔았어', '이번 주 얼마 줘야 해?', "
-            "'시급 11000에 주 20시간이면 얼마 나가?' 같은 요청을 처리한다."
+            "'시급 11000에 주 20시간이면 얼마 나가?', '얼마 팔아야 본전이야?', "
+            "'월 300 남기려면 얼마 팔아야 해?' 같은 요청을 처리한다."
         ),
-        "modules": ["app.services.ai.settlement_tools", "app.services.ai.staff_tools"],
+        "modules": [
+            "app.services.ai.breakeven_tools",
+            "app.services.ai.settlement_tools",
+            "app.services.ai.staff_tools",
+        ],
         "extra": (
             "- 입금 예정일과 수수료는 매장 설정(수수료 구간·카드사별 입금 소요일) 기준 예상치입니다. "
             "금액을 보고할 때 '예상'임을 한 번은 밝히고, 통장과 다르면 설정에서 고칠 수 있다고 안내하세요.\n"
@@ -375,7 +381,14 @@ _DOMAINS: list[dict[str, Any]] = [
             "- 보험 요율과 최저임금은 매년 바뀌는 고시 기준이라 추정치입니다. 확정 금액은 "
             "4대보험 고지서로 확인하라고 덧붙이세요.\n"
             "- 매출 비교는 어제가 아니라 '지난주 같은 요일' 기준입니다 — 요일마다 손님 수가 "
-            "다르기 때문입니다. 비교 기준을 반드시 밝히세요."
+            "다르기 때문입니다. 비교 기준을 반드시 밝히세요.\n"
+            "- 손익분기점은 get_breakeven_point를 쓰세요. 응답의 computed가 false면 숫자를 "
+            "지어내지 말고 message를 그대로 전하며, needs에 적힌 값(고정비·변동비율)을 물어보세요.\n"
+            "- 사장님이 고정비를 말하면(예: '임대료 200에 인건비 300이야') save_fixed_costs로 "
+            "저장하세요. 저장해야 다음에 물어볼 때 바로 답할 수 있습니다.\n"
+            "- 월 목표는 크게 느껴져 행동으로 안 이어집니다. 보고할 때 하루 목표 매출과 "
+            "잔 수를 반드시 함께 말하세요.\n"
+            "- 손익분기점은 '최근 판매 구조가 유지된다면'이라는 가정 위의 예상치임을 밝히세요."
         ),
     },
     {
@@ -505,11 +518,18 @@ def _get_model(model_name: str = ""):
     if model_name not in _models:
         from langchain_google_genai import ChatGoogleGenerativeAI
 
+        kwargs: dict[str, Any] = {}
+        # 2.5 계열은 기본이 '동적 사고'라 턴마다 사고 토큰을 태운다 — 챗봇은 한 턴에
+        # 메인+전문가로 4~8회 호출이 겹치므로 지연·무료쿼터 소모가 배로 커진다.
+        # OCR 서비스와 같은 규칙으로 사고 예산을 끈다 (2.5 계열에만 적용).
+        if model_name.startswith("gemini-2.5"):
+            kwargs["thinking_budget"] = 0
         _models[model_name] = ChatGoogleGenerativeAI(
             model=model_name,
             google_api_key=GEMINI_API_KEY,
             temperature=0.2,  # 도구 호출 일관성 우선
             max_retries=2,  # 일일 쿼터 소진 429는 재시도로 안 풀린다 — 기본 6회 백오프(30초+) 방지
+            **kwargs,
         )
     return _models[model_name]
 
@@ -592,6 +612,9 @@ def _bind_store(t, store_id: str, created_docs: list[dict[str, Any]], recorder=N
         doc = _extract_document(result)
         if doc and all(d["id"] != doc["id"] for d in created_docs):
             created_docs.append(doc)
+        if recorder is not None:
+            # 감사 규칙('근거 없는 금액')이 답변 속 숫자를 대조할 근거로 쓴다
+            recorder.tool_output(result)
         return result
 
     def _run(**kwargs):
@@ -802,6 +825,8 @@ def _audit_turn_safely(store_id: str, question: str, answer: str, recorder, ms: 
             experts=list(dict.fromkeys(recorder.experts)),
             expects_data=answer_audit.looks_like_store_question(question),
             ms=ms,
+            # 이걸 안 넘기면 '근거 없는 금액' 규칙(w_unsupported_number)이 항상 침묵한다
+            tool_output="\n".join(recorder.outputs),
         )
     except Exception:
         logger.debug("턴 자동 감사 실패", exc_info=True)

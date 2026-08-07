@@ -15,14 +15,16 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.models  # noqa: F401 — 모든 모델을 Base.metadata에 등록
+from app.core.auth import get_current_user_optional
 from app.core.database import Base, get_db
 from app.main import app
 from app.models.inventory import Sale, Menu
 from app.models.operation import Expense
+from app.models.user import User
 
 PERIOD = {"period_start": "2026-07-01", "period_end": "2026-07-31"}
 STORE = "cafe@test.com"  # menus.store_id가 NOT NULL이라 실제 값이 필요하다
-# 비로그인 호출이라 엔드포인트는 매장으로 거르지 않는다 — 넣은 행이 그대로 집계된다
+# 기간 집계는 이제 로그인 필수(2026-08-06 보안 수정) — 로그인 매장 몫만 집계된다
 
 
 @pytest.fixture()
@@ -39,8 +41,12 @@ def client():
         yield session
 
     app.dependency_overrides[get_db] = _override
+    # 기간 정산은 로그인 필수 — STORE 매장 사장님으로 로그인한 것으로 친다
+    app.dependency_overrides[get_current_user_optional] = lambda: User(
+        id=1, email=STORE, name="테스트", hashed_password="x")
     yield TestClient(app), session
     app.dependency_overrides.pop(get_db, None)
+    app.dependency_overrides.pop(get_current_user_optional, None)
     session.close()
     engine.dispose()
 

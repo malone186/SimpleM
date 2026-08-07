@@ -141,16 +141,21 @@ export async function getSettlement(yearMonth: string, token?: string): Promise<
 }
 
 // ---------- 판매예측 ----------
-/** 판매 예측 (ARIMA + DB 자동집계, 데이터 부족 시 이동평균 폴백) */
-export async function forecastSales(body: {
-  target_date: string;
-  store_id?: string;
-  has_event?: boolean;
-  engine?: 'arima' | 'average';
-}): Promise<Forecast> {
+/** 판매 예측 (ARIMA + DB 자동집계, 데이터 부족 시 이동평균 폴백).
+ *  DB 집계 예측은 서버가 로그인 매장 기준으로만 계산한다 — 토큰 필수 (2026-08-06 보안 수정). */
+export async function forecastSales(
+  body: {
+    target_date: string;
+    store_id?: string;
+    has_event?: boolean;
+    engine?: 'arima' | 'average';
+  },
+  token?: string,
+): Promise<Forecast> {
   return unwrap(
     await apiFetch<CommonResponse<Forecast>>('/api/v1/operation/forecast/sales', {
       method: 'POST',
+      headers: token ? auth(token) : undefined,
       body: JSON.stringify(body),
     }),
   );
@@ -243,14 +248,16 @@ export async function createSchedule(
   );
 }
 
-/** 근무 스케줄 시간 수정 */
+/** 근무 스케줄 시간 수정 — 서버가 내 매장 근무인지 확인하므로 토큰 필수 (2026-08-06 보안 수정) */
 export async function updateSchedule(
   id: number,
   body: { start_time?: string; end_time?: string },
+  token?: string,
 ): Promise<Schedule> {
   return unwrap(
     await apiFetch<CommonResponse<Schedule>>(`/api/v1/operation/schedules/${id}`, {
       method: 'PATCH',
+      headers: token ? auth(token) : undefined,
       body: JSON.stringify(body),
     }),
   );
@@ -432,21 +439,26 @@ export async function createEmployee(
   );
 }
 
-/** 알바생 정보 수정 API */
+/** 알바생 정보 수정 API — 서버가 내 매장 직원인지 확인하므로 토큰 필수 (2026-08-06 보안 수정) */
 export async function updateEmployee(
   id: number,
   body: { name?: string; hourly_rate?: number; role?: string },
+  token?: string,
 ): Promise<Employee> {
   return unwrap(
     await apiFetch<CommonResponse<Employee>>(`/api/v1/operation/employees/${id}`, {
       method: 'PATCH',
+      headers: token ? auth(token) : undefined,
       body: JSON.stringify(body),
     }),
   );
 }
 
-/** 알바생 퇴사/삭제 API */
-export async function deleteEmployee(id: number): Promise<void> {
-  await apiFetch<CommonResponse<null>>(`/api/v1/operation/employees/${id}`, { method: 'DELETE' });
+/** 알바생 퇴사/삭제 API — 서버가 내 매장 직원인지 확인하므로 토큰 필수 (2026-08-06 보안 수정) */
+export async function deleteEmployee(id: number, token?: string): Promise<void> {
+  await apiFetch<CommonResponse<null>>(`/api/v1/operation/employees/${id}`, {
+    method: 'DELETE',
+    headers: token ? auth(token) : undefined,
+  });
 }
 

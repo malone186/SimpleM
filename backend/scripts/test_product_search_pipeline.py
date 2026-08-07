@@ -9,8 +9,13 @@ import os
 # 백엔드 최상위 디렉터리를 sys.path에 추가하여 app 모듈 접근 허용
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+# 유지보수 엔드포인트(prefetch)는 크론 시크릿이 필요하다 — app 임포트 전에 넣는다
+os.environ.setdefault("NOTIFICATION_CRON_SECRET", "local-dev-secret")
+
 from fastapi.testclient import TestClient
 from app.main import app
+
+MAINT_HEADERS = {"x-cron-secret": os.environ["NOTIFICATION_CRON_SECRET"]}
 from app.core.database import SessionLocal
 from app.models.roastery import RoasteryBean, ProductOffer, Roastery
 
@@ -199,7 +204,7 @@ def test_product_search_pipeline():
         "target_keywords": ["에티오피아", "디카페인"],
         "force_refresh": True
     }
-    res4 = client.post("/api/v1/operation/products/prefetch", json=payload4)
+    res4 = client.post("/api/v1/operation/products/prefetch", json=payload4, headers=MAINT_HEADERS)
     assert res4.status_code == 200, f"API 실패: {res4.text}"
     data4 = res4.json()["data"]
 

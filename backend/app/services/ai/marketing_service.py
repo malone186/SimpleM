@@ -109,6 +109,11 @@ _LOCAL_FALLBACK_RESERVE = 1.0
 # 쿼터가 아까우면 0으로 끈다 (끄면 문구 AI가 준 image_prompt를 그대로 쓴다).
 PROMPT_REFINE = os.getenv("MARKETING_PROMPT_REFINE", "1") not in ("0", "false", "False")
 REFINE_TIMEOUT = float(os.getenv("MARKETING_REFINE_TIMEOUT", "20"))
+# [정교화 벽시계 상한] REFINE_TIMEOUT은 HTTP 한 번의 제한이다 — Gemini 재시도(429 sleep
+# 포함)에 Pollinations 텍스트 폴백까지 겹치면 생성을 시작하기도 전에 수십 초가 샌다.
+# 사장님이 기다리는 건 '정교화 + 생성' 합계라, 여기서 벽시계로 한 번 더 자른다.
+# 상한을 넘기면 원본 아이디어로 바로 생성에 들어간다 (품질보다 응답이 먼저다).
+REFINE_BUDGET = float(os.getenv("MARKETING_REFINE_BUDGET", "8"))
 
 # Gemini 이미지 모델이 지원하는 화면비 — SNS 정방형(1:1)이 기본, 스토리는 9:16
 _ASPECT_RATIOS = {"1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"}
@@ -695,6 +700,41 @@ def _gemini_image(prompt: str, aspect_ratio: str,
     return image, mime, {"model": IMAGE_MODEL}
 
 
+def _enforce_aspect(image_bytes: bytes, mime: str, aspect_ratio: str) -> tuple[bytes, str]:
+    """공급자가 요청 화면비를 무시하면 중앙 크롭으로 맞춘다.
+
+    [실측 2026-08-06] flux는 width/height를 무시하고 1024×1088 근처만 돌려준다 —
+    기본 모델에서는 내렸지만 env로 되살릴 수 있고, 폴백 모델이 언제 같은 버릇을
+    보일지 모른다. 화면비가 틀어진 채 내보내면 4:5 피드·16:9 배너 자리에서 잘리거나
+    찌그러진다. 오차 2% 이내면 원본 그대로, 그 밖이면 긴 쪽을 잘라 비율을 맞춘다.
+    해석 불가한 바이트(디코드 실패)는 원본을 그대로 돌려준다 — 여기서 죽으면 안 된다.
+    """
+    try:
+        from PIL import Image
+
+        w, h = _AR_SIZES.get(aspect_ratio, (1472, 1472))
+        target = w / h
+        im = Image.open(BytesIO(image_bytes))
+        actual = im.width / im.height
+        if abs(actual - target) / target <= 0.02:
+            return image_bytes, mime
+        if actual > target:  # 요청보다 넓다 → 좌우를 잘라낸다
+            new_w = round(im.height * target)
+            left = (im.width - new_w) // 2
+            im = im.crop((left, 0, left + new_w, im.height))
+        else:                # 요청보다 길다 → 위아래를 잘라낸다
+            new_h = round(im.width / target)
+            top = (im.height - new_h) // 2
+            im = im.crop((0, top, im.width, top + new_h))
+        logger.info("공급자가 화면비 %s를 무시(%.2f) → 중앙 크롭 %d×%d",
+                    aspect_ratio, actual, im.width, im.height)
+        buf = BytesIO()
+        im.convert("RGB").save(buf, format="JPEG", quality=_JPEG_QUALITY, subsampling=0)
+        return buf.getvalue(), "image/jpeg"
+    except Exception:
+        return image_bytes, mime
+
+
 def _generate_image_bytes(prompt: str, aspect_ratio: str,
                           quality: str) -> tuple[bytes, str, str, dict[str, Any]]:
     """설정된 공급자를 순서대로 시도해 (바이트, mime, 공급자명, 메타)를 돌려준다.
@@ -729,6 +769,8 @@ def _generate_image_bytes(prompt: str, aspect_ratio: str,
                 image, mime, meta = _gemini_image(prompt, aspect_ratio, timeout=left)
             else:
                 continue
+            # 공급자가 요청 화면비를 무시했으면 여기서 바로잡는다 (2% 이내면 원본 유지)
+            image, mime = _enforce_aspect(image, mime, aspect_ratio)
             return image, mime, name, meta
         except Exception as e:  # 어떤 공급자가 어떻게 죽든 다음 공급자로 넘어간다
             errors.append(f"[{name}] {e}")
@@ -877,6 +919,29 @@ def _refine_image_prompt(idea: str, style: str, aspect_ratio: str, layout: str) 
     # 모델이 가끔 따옴표로 감싸 돌려준다 — 그대로 두면 프롬프트에 그대로 실린다
     text = text.strip('"').strip("'").strip()
     return text or idea
+
+
+def _refine_with_budget(idea: str, style: str, aspect_ratio: str, layout: str) -> str:
+    """_refine_image_prompt를 REFINE_BUDGET초 벽시계 상한 안에서 돌린다.
+
+    정교화 내부는 HTTP 재시도·폴백이 겹쳐 최악의 경우 상한 없이 늘어진다 — 그 시간은
+    전부 사장님 대기다. 스레드로 돌리고 상한까지만 기다린 뒤, 못 끝냈으면 원본
+    아이디어로 진행한다 (뒤늦게 끝난 스레드 결과는 버려진다 — 무해).
+    """
+    if not PROMPT_REFINE or not idea.strip():
+        return idea
+    import threading
+
+    result: list[str] = []
+    worker = threading.Thread(
+        target=lambda: result.append(_refine_image_prompt(idea, style, aspect_ratio, layout)),
+        daemon=True)
+    worker.start()
+    worker.join(REFINE_BUDGET)
+    if not result:
+        logger.info("프롬프트 정교화가 %.0f초 안에 못 끝나 원본 아이디어로 진행", REFINE_BUDGET)
+        return idea
+    return result[0]
 
 
 # ---------------------------------------------------------------------------
@@ -1269,8 +1334,8 @@ def generate_promotion_image(store_id: str, doc_id: str = "", request: str = "",
         base = (f"A warm, inviting professional promotional photo for the cafe '{name}', "
                 f"featuring {menus}, soft natural lighting, shallow depth of field")
 
-    # ① 무료 텍스트 모델로 구도·조명·렌즈까지 지정된 프롬프트로 확장
-    base = _refine_image_prompt(base, style, aspect_ratio, layout)
+    # ① 무료 텍스트 모델로 구도·조명·렌즈까지 지정된 프롬프트로 확장 (벽시계 상한 안에서)
+    base = _refine_with_budget(base, style, aspect_ratio, layout)
 
     parts = [
         "Create a single eye-catching, professional-grade cafe advertising image.",

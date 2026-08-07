@@ -293,6 +293,35 @@ class SettlementSetting(Base):
     )
 
 
+class FixedCostSetting(Base):
+    """매장별 월 고정비 — 손익분기점 계산의 입력값.
+
+    고정비는 '한 잔도 안 팔아도 매달 나가는 돈'이다. 임대료·인건비·공과금처럼 항목을
+    나눠 받는 이유는, 합계만 받으면 사장님이 뭘 빠뜨렸는지 알 수 없기 때문이다.
+    (실제로 가장 많이 빠뜨리는 게 본인 인건비와 보험료다.)
+
+    변동비율은 평소 판매 데이터에서 자동으로 뽑지만(레시피 원가 + 카드 수수료),
+    아직 메뉴 레시피를 안 넣은 매장은 자동 계산이 안 된다. 그때 직접 적은 값을
+    custom_variable_ratio에 담아 두고 계산에 우선 적용한다.
+    """
+
+    __tablename__ = "fixed_cost_settings"
+
+    store_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    rent: Mapped[int] = mapped_column(Integer, default=0)          # 임대료·관리비
+    labor: Mapped[int] = mapped_column(Integer, default=0)         # 고정 인건비 (사장 급여 포함)
+    utilities: Mapped[int] = mapped_column(Integer, default=0)     # 전기·가스·수도·통신
+    other: Mapped[int] = mapped_column(Integer, default=0)         # 보험·리스·구독료 등
+    # 사장님이 직접 적은 변동비율(%) — 비워 두면 판매 데이터에서 자동으로 뽑는다
+    custom_variable_ratio: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    # 한 달 영업일수 — 일 목표 매출을 내는 데 쓴다 (주 6일 영업이면 26)
+    open_days_per_month: Mapped[int] = mapped_column(Integer, default=26)
+    memo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class CafeReviewLink(Base):
     """사장님이 '이게 내 카페'라고 지정한 네이버 장소 (매장당 한 곳).
 

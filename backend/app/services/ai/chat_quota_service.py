@@ -75,6 +75,8 @@ def _get_or_create(db, store_id: str, *, lock: bool = False):
     lock=True면 SELECT ... FOR UPDATE로 잠근다. 같은 사용자가 메시지를 연달아 보내면
     used 증가가 겹쳐 한도를 넘길 수 있어서다 (Postgres에서만 실효, sqlite는 무시).
     """
+    from sqlalchemy.exc import IntegrityError
+
     from app.models.ai import ChatQuota
 
     today = _today()
@@ -86,7 +88,14 @@ def _get_or_create(db, store_id: str, *, lock: bool = False):
     if row is None:
         row = ChatQuota(store_id=store_id, date=today, used=0, granted=0, ads_watched=0)
         db.add(row)
-        db.flush()
+        try:
+            db.flush()
+        except IntegrityError:
+            # 같은 매장의 오늘 첫 요청 두 개가 동시에 들어오면 둘 다 '행 없음'을 보고
+            # 만들려 한다 — (store_id, date) PK에 진 쪽은 롤백하고 이긴 행을 다시 읽는다.
+            # 안 잡으면 사장님의 오늘 첫 챗봇 턴이 500으로 터진다.
+            db.rollback()
+            row = q.one()
     return row
 
 

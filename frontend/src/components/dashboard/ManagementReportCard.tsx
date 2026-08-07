@@ -17,6 +17,7 @@ import {
 } from '../../lib/api/documents';
 import { describeApiFailure, type ApiFailure } from '../../lib/api/errors';
 import { useCachedResource } from '../../lib/cache';
+import { parseReportActions } from '../../lib/reportActions';
 import { colors, spacing, typography } from '../../theme';
 import { PressableScale } from '../motion';
 import { Segmented } from '../ui/Segmented';
@@ -46,7 +47,7 @@ const formatFriendlyText = (text: string) => {
 
 const won = (n: number) => `${n < 0 ? '-' : ''}₩${Math.abs(n).toLocaleString('ko-KR')}`;
 
-export default function ManagementReportCard() {
+export default function ManagementReportCard({ refreshToken = 0 }: { refreshToken?: number }) {
   // [한글 주석: 전역 다국어 훅 연동 — AI 경영 리포트 카드 영문/한글 텍스트 제공]
   const { t, language } = useTranslation();
   const { token } = useAuth();
@@ -120,7 +121,7 @@ export default function ManagementReportCard() {
   } = useCachedResource<GeneratedDocument>(
     token ? `dash:report:${period}` : null,
     () => getManagementReport(token!, period),
-    { maxAgeMs: 10 * 60_000 },
+    { maxAgeMs: 10 * 60_000, refreshToken },
   );
 
   // 실패 사유를 분류해 들고 있는다 — 신규 계정에서 "로그인과 서버를 확인해 주세요"만 띄우면
@@ -135,6 +136,10 @@ export default function ManagementReportCard() {
   const salesDelta: number | null = c.sales?.change_pct ?? null;
   const deltaUp = salesDelta !== null && salesDelta >= 0;
   const highlights: string[] = Array.isArray(c.highlights) ? c.highlights : [];
+  // 브루의 조언 + 바로 실행 버튼 — 백엔드가 만들어 둔 ai_advice/ai_actions를 드디어 보여준다
+  // (그동안 챗봇 문서 카드에만 나오고 홈에서는 버려지고 있었다)
+  const aiAdvice: string | null = typeof c.ai_advice === 'string' && c.ai_advice ? c.ai_advice : null;
+  const aiActions = parseReportActions(c.ai_actions);
 
   // 리포트는 데이터가 없어도 0원짜리로 발행된다 — 신규 계정에서 ₩0 타일만 늘어놓으면
   // 고장인지 데이터가 없는 건지 알 수 없으므로, 집계할 기록이 전혀 없으면 안내로 대체한다.
@@ -289,6 +294,12 @@ export default function ManagementReportCard() {
                         <Text style={styles.totalCupsText}>
                           총 판매 잔수: <Text style={{ fontWeight: '800' }}>{(c.sales?.cups ?? 0).toLocaleString('ko-KR')}잔</Text>
                         </Text>
+                        {/* 객단가 — 매출 증감이 손님 수 문제인지 잔당 단가 문제인지 가르는 힌트 */}
+                        {c.sales?.avg_ticket != null && (
+                          <Text style={styles.totalCupsText}>
+                            잔당 평균: <Text style={{ fontWeight: '800' }}>{won(c.sales.avg_ticket)}</Text>
+                          </Text>
+                        )}
                       </View>
                     </>
                   )}
@@ -376,6 +387,38 @@ export default function ManagementReportCard() {
                     <Text style={styles.highlightDot}>✦ </Text>
                     {formatFriendlyText(h)}
                   </Text>
+                ))}
+              </View>
+            )}
+
+            {/* 브루의 조언 — 숫자 요약을 '그래서 뭘 하면 되나'로 잇는 문장형 해설 */}
+            {aiAdvice && (
+              <View style={styles.adviceWrap}>
+                <View style={styles.adviceHeader}>
+                  <Ionicons name="cafe" size={13} color={colors.pointOrange} />
+                  <Text style={styles.adviceTitle}>
+                    {language === 'en' ? "BREW's advice" : '브루의 조언'}
+                  </Text>
+                </View>
+                <Text style={styles.adviceText}>{aiAdvice}</Text>
+              </View>
+            )}
+
+            {/* 지금 할 수 있는 일 — 조언에서 짚은 문제를 그 화면으로 바로 이동해 해결 */}
+            {aiActions.length > 0 && (
+              <View style={styles.actionWrap}>
+                {aiActions.map((a, i) => (
+                  <PressableScale
+                    key={i}
+                    style={styles.actionRow}
+                    onPress={() => (navigation as any).navigate(a.route)}
+                  >
+                    <View style={{ flex: 1, gap: 1 }}>
+                      <Text style={styles.actionTitle}>{a.title}</Text>
+                      <Text style={styles.actionText} numberOfLines={2}>{a.action}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={15} color={colors.pointOrange} />
+                  </PressableScale>
                 ))}
               </View>
             )}
@@ -606,6 +649,31 @@ const styles = StyleSheet.create({
   },
   highlight: { ...typography.L5, fontSize: 11, fontWeight: '500', color: colors.espressoBrown, lineHeight: 16 },
   highlightDot: { color: colors.pointOrange, fontWeight: '700' },
+  adviceWrap: {
+    backgroundColor: colors.coffeeCream,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    padding: 12,
+    gap: 6,
+  },
+  adviceHeader: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  adviceTitle: { ...typography.L5, fontWeight: '800', color: colors.pointOrange },
+  adviceText: { ...typography.L5, fontSize: 11.5, color: colors.espressoBrown, lineHeight: 18 },
+  actionWrap: { gap: 6 },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: 'rgba(140,111,86,0.25)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  actionTitle: { ...typography.L5, fontSize: 11.5, fontWeight: '800', color: colors.espressoBrown },
+  actionText: { ...typography.L5, fontSize: 10.5, color: colors.mochaBrown, lineHeight: 14 },
   opsLine: {
     ...typography.L5,
     color: colors.mochaBrown,

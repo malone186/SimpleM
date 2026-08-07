@@ -3,7 +3,7 @@
 # A (ai.py)
 from app.models.ai import (
     AdminAccount, AdminNotification, CafeReviewLink, ChatSession, ComplianceItem, DailySalesEntry,
-    DeviceToken, EmployeeProfile, GeneratedDocument, InsightAck, NearbyCafeWatch,
+    DeviceToken, EmployeeProfile, FixedCostSetting, GeneratedDocument, InsightAck, NearbyCafeWatch,
     NotificationSetting, OcrDocument, OcrItem, PosConnection, PosSyncedOrder, SentNotification,
     SettlementSetting, TodoItem,
 )

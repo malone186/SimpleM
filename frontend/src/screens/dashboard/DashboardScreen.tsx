@@ -104,8 +104,14 @@ type DashboardPrefs = {
   dismissedAlerts: Set<string>;
 };
 
-// 이 시간 안에 받아 둔 값이면 탭을 다시 열어도 서버를 다시 부르지 않는다
+// 이 시간 안에 받아 둔 값이면 탭을 다시 열어도 서버를 다시 부르지 않는다.
+// 인사이트·AI 제안은 서버가 매장 전체를 훑는 7초짜리 계산이라(그리고 시간 단위로만
+// 바뀌는 정보라) 더 길게 잡는다 — 60초로 두면 탭을 오갈 때마다 서버가 그 계산을 다시 한다.
 const FRESH_ENOUGH_MS = 60_000;
+const SOURCE_FRESH_MS: Record<string, number> = {
+  'dash:insights': 10 * 60_000,
+  'dash:ai-suggestions': 10 * 60_000,
+};
 
 // 지난번 응답을 담아 두는 칸 이름 (lib/cache.ts가 앞에 접두어를 붙인다)
 const CACHE_KEYS = {
@@ -422,7 +428,7 @@ export default function DashboardScreen() {
     const jobs = (Object.keys(fetchers) as (keyof DashboardSources)[])
       .filter((name) => {
         const hit = peekCache(CACHE_KEYS[name]);
-        return !hit || Date.now() - hit.at >= FRESH_ENOUGH_MS;
+        return !hit || Date.now() - hit.at >= (SOURCE_FRESH_MS[CACHE_KEYS[name]] ?? FRESH_ENOUGH_MS);
       })
       .map((name) => [name, fetchers[name]()] as [keyof DashboardSources, Promise<any>]);
 
@@ -841,9 +847,11 @@ export default function DashboardScreen() {
             isWide && { maxWidth: contentMaxWidth, width: '100%', alignSelf: 'center' },
           ]}
         >
-          <FadeInUp key={`sales-${runId}`} delay={80}>
+          {/* runId를 key에 섞어 카드를 통째로 재마운트하지 않는다 — 재마운트는 캐시 훅·
+              카운트업·투두 내부 상태를 전부 버려 새로고침마다 화면이 처음부터 다시 그려진다.
+              대신 refreshToken으로 각 카드의 캐시 훅만 강제 갱신한다. */}
+          <FadeInUp delay={80}>
             <SalesCard
-              key={`salescard-${runId}`}
               todos={todos}
               onPressTodo={openTodoTarget}
               onToggleDone={toggleDone}
@@ -851,17 +859,18 @@ export default function DashboardScreen() {
               onEditTodo={handleEditTodo}
               onDeleteTodo={handleDeleteTodo}
               onRestoreAiTodos={handleRestoreAiTodos}
+              refreshToken={runId}
             />
           </FadeInUp>
 
           {/* 카드 대금 입금 예정 — 카드사마다 입금일이 달라 직접 세기 번거로운 숫자 */}
-          <FadeInUp key={`deposit-${runId}`} delay={110}>
-            <CardDepositCard key={`depositcard-${runId}`} />
+          <FadeInUp delay={110}>
+            <CardDepositCard refreshToken={runId} />
           </FadeInUp>
 
           {/* AI 경영 리포트 — 일간/주간/월간 탭을 누르면 홈에서 바로 보인다 */}
-          <FadeInUp key={`report-${runId}`} delay={140}>
-            <ManagementReportCard key={`reportcard-${runId}`} />
+          <FadeInUp delay={140}>
+            <ManagementReportCard refreshToken={runId} />
           </FadeInUp>
         </View>
       </Animated.ScrollView>

@@ -6,6 +6,7 @@
 챗봇 대화 엔드포인트는 main_agent 구현 시 추가 예정.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -119,13 +120,16 @@ def _optional_store_id(
     token: Optional[str] = Depends(_oauth2_optional),
     db: Session = Depends(get_db),
 ) -> Optional[str]:
-    """로그인했으면 매장 식별자(이메일)를, 아니면 None을 돌려준다 — 확정 시 재고 반영에 사용."""
+    """로그인했으면 매장 식별자(이메일)를, 토큰이 아예 없으면 None을 돌려준다.
+
+    토큰이 '있는데 틀린'(만료 등) 경우는 None으로 눙치지 않고 401을 그대로 던진다.
+    예전엔 만료 토큰도 None이 되어 챗봇이 데모 매장(owner@cafe.com) 데이터를
+    "우리 매장 매출"인 것처럼 보여줬다 — 사용자는 그게 남의 숫자인지 알 방법이 없다.
+    401을 받으면 앱이 재로그인을 안내한다.
+    """
     if not token:
         return None
-    try:
-        return get_current_user(token=token, db=db).email
-    except HTTPException:
-        return None
+    return get_current_user(token=token, db=db).email
 
 
 def _to_response(draft: dict) -> OcrDocumentResponse:
@@ -1550,7 +1554,8 @@ def upsert_chat_session(
 ) -> ChatSessionResponse:
     """세션 저장(신규/갱신) — 프론트가 턴마다 대화 전문을 통째로 올린다."""
     row = db.get(ChatSession, (session_id, current_user.email))
-    if row is None:
+    created = row is None
+    if created:
         row = ChatSession(id=session_id, store_id=current_user.email)
         db.add(row)
     row.title = body.title
@@ -1558,16 +1563,19 @@ def upsert_chat_session(
     row.created_at_ms = body.created_at
     row.updated_at_ms = body.updated_at
 
-    # 상한 초과분은 오래된 것부터 정리 (로컬 보관소와 같은 정책)
-    stale = (
-        db.query(ChatSession)
-        .filter(ChatSession.store_id == current_user.email, ChatSession.id != session_id)
-        .order_by(ChatSession.updated_at_ms.desc())
-        .offset(MAX_CHAT_SESSIONS - 1)
-        .all()
-    )
-    for s in stale:
-        db.delete(s)
+    # 상한 초과분은 오래된 것부터 정리 (로컬 보관소와 같은 정책).
+    # 세션 수는 새 세션이 생길 때만 늘어나므로 그때만 확인한다 — 기존 세션 갱신은
+    # 턴마다 오는 요청이라, 매번 정리 쿼리를 얹으면 대화 한 턴에 Neon 왕복이 하나 더 붙는다.
+    if created:
+        stale = (
+            db.query(ChatSession)
+            .filter(ChatSession.store_id == current_user.email, ChatSession.id != session_id)
+            .order_by(ChatSession.updated_at_ms.desc())
+            .offset(MAX_CHAT_SESSIONS - 1)
+            .all()
+        )
+        for s in stale:
+            db.delete(s)
 
     db.commit()
     db.refresh(row)
@@ -1642,17 +1650,20 @@ async def chat_message(
 
     # 무료 할당량을 Gemini 호출 전에 차감한다. 호출 후에 세면 한도를 넘긴 요청이
     # 이미 비용을 쓴 뒤가 된다. 실패하면 아래 except에서 되돌린다.
+    # 쿼터는 동기 SQLAlchemy(FOR UPDATE 포함)라 async 엔드포인트에서 그대로 부르면
+    # Neon 왕복(0.4~0.6초) 동안 이벤트 루프 전체가 멈춘다 — 스레드로 내린다.
     try:
-        chat_quota_service.consume(store_key)
+        await asyncio.to_thread(chat_quota_service.consume, store_key)
     except chat_quota_service.QuotaExhausted as e:
         # detail을 dict로 넘겨 프론트가 '할당량 소진'과 다른 429를 구분할 수 있게 한다
         raise HTTPException(429, {"quota_exhausted": True, "quota": e.args[0]})
 
     # [자동 감사] 이번 발화가 "아니 그게 아니라" 같은 부정이면 직전 턴을 사고 후보로 남긴다.
     # 숫자가 그럴듯하게 틀린 오답은 감시 규칙이 못 잡고, 그걸 아는 사람은 사장님뿐이다.
-    # 정규식 판정이라 LLM 호출도, 정상 대화에서는 DB 접근도 없다.
+    # 정규식 판정이라 LLM 호출은 없지만, 부정 발화로 판정되면 사고 기록 DB 쓰기가
+    # 생기므로 이것도 스레드에서 돌린다.
     from app.services.ai import answer_audit
-    answer_audit.check_followup(store_key, body.message, body.history)
+    await asyncio.to_thread(answer_audit.check_followup, store_key, body.message, body.history)
 
     try:
         # [한글 주석] 챗봇 에이전트의 대화 처리 루프 실행 — 답변 텍스트 + 이번 턴에 만든 문서 전문
@@ -1665,11 +1676,11 @@ async def chat_message(
         # 아래 except로는 AI 실패가 안 잡힌다. ok=False면 실질 답변을 못 만든 턴이니
         # 차감한 쿼터를 여기서 되돌린다 (안 그러면 실패한 턴도 사장님 쿼터가 깎인다).
         if not result.get("ok", True):
-            chat_quota_service.refund(store_key)
+            await asyncio.to_thread(chat_quota_service.refund, store_key)
         return ChatResponse(response=result["text"], documents=result["documents"])
     except Exception as e:
         # 답을 못 준 턴까지 차감하면 부당하다 — 되돌린다 (예외가 여기까지 올라온 드문 경우)
-        chat_quota_service.refund(store_key)
+        await asyncio.to_thread(chat_quota_service.refund, store_key)
         # [한글 주석] 장애 추적을 위해 로컬 콘솔에 상세 예외 Traceback을 기록합니다.
         logger.exception("챗봇 서비스 실행 중 장애 발생")
         raise HTTPException(500, f"챗봇 서비스 실행 중 장애 발생: {str(e)}")

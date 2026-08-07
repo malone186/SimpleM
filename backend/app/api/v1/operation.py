@@ -1,6 +1,9 @@
 """운영 API (백엔드 C 최초 작성 → 백엔드 B 인수)"""
+import os
+import secrets as _secrets
+from pathlib import Path
 from typing import List, Optional
-from fastapi import APIRouter, Query, Depends, HTTPException, status
+from fastapi import APIRouter, Header, Query, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.auth import get_current_user, get_current_user_optional
@@ -26,6 +29,19 @@ from app.services.operation.forecasting_service import ForecastingService
 from app.models.user import User
 
 router = APIRouter(prefix="/operation", tags=["Operation"])
+
+# 수집·색인·시드 같은 유지보수 파이프라인의 공유 비밀 — 알림 크론과 같은 값을 쓴다.
+# 예전엔 이 엔드포인트들이 인증 없이 열려 있어 curl 반복만으로 스크래핑·LLM·임베딩
+# 파이프라인을 마음대로 돌릴 수 있었다 (비용·CPU DoS, 2026-08-06 감사).
+_MAINTENANCE_SECRET = os.getenv("NOTIFICATION_CRON_SECRET", "")
+
+
+def _require_maintenance_secret(x_cron_secret: str = Header(default="")) -> None:
+    """유지보수 엔드포인트 관문 — 시크릿 미설정이면 존재 자체를 숨긴다(404)."""
+    if not _MAINTENANCE_SECRET:
+        raise HTTPException(status_code=404, detail="Not Found")
+    if not _secrets.compare_digest(x_cron_secret, _MAINTENANCE_SECRET):
+        raise HTTPException(status_code=403, detail="invalid maintenance secret")
 
 
 @router.post("/beans/curate", response_model=CommonResponse)
@@ -55,10 +71,15 @@ def list_employees_api(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
-    """알바생(근무자) 목록을 조회합니다. 토큰이 오면 로그인 매장 직원만 반환합니다."""
+    """알바생(근무자) 목록을 조회합니다. (로그인 매장 직원만)
+
+    비로그인은 빈 목록 — 예전엔 토큰 없이 부르면 전 매장 직원의 이름·시급이 통째로
+    나갔다 (2026-08-06 감사). 구버전 앱이 깨지지 않게 401 대신 빈 200을 준다.
+    """
     try:
-        store_id = current_user.email if current_user else None
-        employees = OperationService.get_employees(db, store_id=store_id)
+        if current_user is None:
+            return CommonResponse(success=True, data=[], message="로그인 후 이용할 수 있습니다.")
+        employees = OperationService.get_employees(db, store_id=current_user.email)
         data = [EmployeeResponse.model_validate(emp) for emp in employees]
         return CommonResponse(success=True, data=data, message="알바생 목록 조회가 완료되었습니다.")
     except Exception as e:
@@ -181,8 +202,10 @@ def get_all_schedules_api(
     '(삭제된 직원)'으로 표시됐다 — 실측 115건 중 내 것은 25건뿐이었다.
     """
     try:
-        store_id = current_user.email if current_user else None
-        schedules = OperationService.get_schedules(db, store_id=store_id)
+        # 비로그인은 빈 목록 — 예전엔 전 매장 근무가 통째로 나갔다 (2026-08-06 감사)
+        if current_user is None:
+            return CommonResponse(success=True, data=[], message="로그인 후 이용할 수 있습니다.")
+        schedules = OperationService.get_schedules(db, store_id=current_user.email)
         # 직원 이름을 여기서 붙여 보낸다 — 화면이 별도 조회로 맞추려다 실패하면
         # 근무가 전부 '(삭제된 직원)'으로 보였다. 조회 1번으로 id→이름 맵을 만든다.
         emp_ids = {s.employee_id for s in schedules}
@@ -247,30 +270,31 @@ def _assert_schedule_owned(db: Session, schedule_id: int, current_user: Optional
     """이 스케줄이 로그인 매장 직원의 것인지 확인한다.
 
     공유 DB에 여러 매장이 섞여 있고 schedule_id는 연번이라, 확인 없이 두면 옆 매장의
-    근무를 지우거나 고칠 수 있다. 비로그인 요청은 예전 동작(무검사)을 유지한다.
+    근무를 지우거나 고칠 수 있다. 비로그인 변경은 거부한다 — 예전엔 '무검사 통과'라
+    토큰 없이 아무 매장의 근무든 지울 수 있었다 (2026-08-06 감사).
     """
     if current_user is None:
-        return
+        raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
     row = (
         db.query(Employee.store_id)
         .join(Schedule, Schedule.employee_id == Employee.id)
         .filter(Schedule.id == schedule_id)
         .first()
     )
-    if row is not None and row[0] != current_user.email:
+    if row is not None and row[0] and row[0] != current_user.email:
         raise HTTPException(status_code=404, detail="해당 스케줄을 찾을 수 없습니다.")
 
 
 def _assert_employee_owned(db: Session, employee_id: int, current_user: Optional[User]) -> None:
-    """이 직원이 로그인 매장 소속인지 확인한다 (스케줄과 같은 정책 — 비로그인은 무검사).
+    """이 직원이 로그인 매장 소속인지 확인한다 (스케줄과 같은 정책 — 비로그인은 거부).
 
     확인 없이 두면 employee_id 연번만 알면 옆 매장 직원을 수정·삭제하거나, 남의 직원에게
     근무·기피시간을 붙일 수 있다.
     """
     if current_user is None:
-        return
+        raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
     row = db.query(Employee.store_id).filter(Employee.id == employee_id).first()
-    if row is not None and row[0] != current_user.email:
+    if row is not None and row[0] and row[0] != current_user.email:
         raise HTTPException(status_code=404, detail="해당 직원을 찾을 수 없습니다.")
 
 
@@ -300,12 +324,14 @@ def recommend_schedule_api(
 ):
     """실제 과거 매출 데이터를 시간대별로 분석하여 최적의 알바 근무 스케줄 추천안을 도출합니다.
 
-    [매장 판정] 로그인했다면 payload.store_id를 무시하고 로그인 매장으로 계산한다.
-    예전엔 클라이언트가 보낸 값을 그대로 믿었는데, 프론트 기본값이 데모용
-    'store_gildong'이라 남의 매장 매출·직원으로 추천안이 나왔다.
+    [매장 판정] payload.store_id는 믿지 않는다 — 항상 로그인 매장으로 계산하고,
+    비로그인은 거부한다. 예전엔 토큰 없이 임의 store_id의 매출·직원 데이터로
+    추천안을 뽑아볼 수 있었다 (2026-08-06 감사).
     """
     try:
-        store_id = current_user.email if current_user else payload.store_id
+        if current_user is None:
+            raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
+        store_id = current_user.email
         recommendation_result = OperationService.recommend_schedule(
             db=db,
             period_start=payload.target_date,
@@ -326,6 +352,8 @@ def recommend_schedule_api(
             message="스케줄 추천 연산이 완료되었습니다."
         )
 
+    except HTTPException:
+        raise  # 401 등 의도된 상태 코드가 아래 except에 삼켜져 500이 되지 않게
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -371,21 +399,18 @@ def list_unavailabilities_api(
     남의 매장 직원 이름이 노출됐다. 로그인 매장 직원으로 한정한다(비로그인은 기존 동작).
     """
     try:
-        store_id = current_user.email if current_user else None
-        if store_id:
-            store_emp_ids = {e.id for e in db.query(Employee).filter(Employee.store_id == store_id).all()}
-            # 남의 매장 직원 id를 콕 집어 조회하려 해도 빈 목록으로 막는다
-            rows = [
-                u for u in EmployeeUnavailabilityService.get_unavailabilities(db, employee_id)
-                if u.employee_id in store_emp_ids
-            ]
-            name_map = {
-                e.id: e.name
-                for e in db.query(Employee).filter(Employee.store_id == store_id).all()
-            }
-        else:
-            rows = EmployeeUnavailabilityService.get_unavailabilities(db, employee_id)
-            name_map = {e.id: e.name for e in db.query(Employee).all()}
+        # 비로그인은 빈 목록 — 예전엔 전 매장 직원의 기피시간·이름이 통째로 나갔다
+        if current_user is None:
+            return CommonResponse(success=True, data=[], message="로그인 후 이용할 수 있습니다.")
+        # 직원 조회는 한 번만 — 같은 쿼리를 id용·이름용으로 두 번 돌리고 있었다
+        store_emps = db.query(Employee).filter(Employee.store_id == current_user.email).all()
+        store_emp_ids = {e.id for e in store_emps}
+        # 남의 매장 직원 id를 콕 집어 조회하려 해도 빈 목록으로 막는다
+        rows = [
+            u for u in EmployeeUnavailabilityService.get_unavailabilities(db, employee_id)
+            if u.employee_id in store_emp_ids
+        ]
+        name_map = {e.id: e.name for e in store_emps}
         data = []
         for unav in rows:
             item = EmployeeUnavailabilityResponse.model_validate(unav)
@@ -521,14 +546,29 @@ def estimate_tax_manual_api(payload: TaxEstimateRequest):
         return CommonResponse(success=False, data=None, message=f"서버 오류: {str(e)}")
 
 @router.post("/forecast/sales", response_model=CommonResponse)
-def get_sales_forecast_api(payload: ForecastRequest, db: Session = Depends(get_db)):
-    """미래 일자의 판매량·매출액을 예측합니다. (sales_data 생략 시 DB 자동집계, ARIMA 기본)"""
+def get_sales_forecast_api(
+    payload: ForecastRequest,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """미래 일자의 판매량·매출액을 예측합니다. (sales_data 생략 시 DB 자동집계, ARIMA 기본)
+
+    [매장 판정] DB 자동집계는 로그인 필수이고 payload.store_id는 무시한다 — 예전엔
+    토큰 없이 임의 store_id의 매출 기반 예측을 뽑을 수 있었다 (2026-08-06 감사).
+    sales_data를 직접 넣는 순수 계산은 DB를 안 보므로 그대로 연다.
+    """
     try:
+        if payload.sales_data is None:
+            if current_user is None:
+                raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
+            store_id = current_user.email
+        else:
+            store_id = payload.store_id
         result = ForecastingService.forecast_sales(
             target_date=payload.target_date,
             sales_data=payload.sales_data,
             db=db,
-            store_id=payload.store_id,
+            store_id=store_id,
             has_event=payload.has_event,
             engine=payload.engine or "arima",
         )
@@ -538,6 +578,8 @@ def get_sales_forecast_api(payload: ForecastRequest, db: Session = Depends(get_d
             data=data,
             message="판매 예측 계산이 완료되었습니다."
         )
+    except HTTPException:
+        raise  # 401이 success=False 200으로 뭉개지지 않게
     except ValueError as e:
         return CommonResponse(success=False, data=None, message=str(e))
     except Exception as e:
@@ -665,9 +707,11 @@ def list_all_payroll_api(
     if not re.fullmatch(r"\d{4}-\d{2}", year_month):
         raise HTTPException(status_code=400, detail="year_month는 YYYY-MM 형식이어야 합니다.")
     try:
-        # 로그인한 매장 직원만 — 토큰 없이 부르면 기존처럼 전체 (다른 화면 호환)
+        # 비로그인은 빈 목록 — 예전엔 전 매장 직원의 급여가 통째로 나갔다 (2026-08-06 감사)
+        if current_user is None:
+            return CommonResponse(success=True, data=[], message="로그인 후 이용할 수 있습니다.")
         results = OperationService.list_employees_payroll(
-            db, year_month, store_id=current_user.email if current_user else None)
+            db, year_month, store_id=current_user.email)
         return CommonResponse(
             success=True,
             data=results,
@@ -684,7 +728,10 @@ def calculate_settlement_api(
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     # [예상 손익 정산 계산 API]
-    # 토큰이 오면 로그인 매장 몫만 집계(매장별 격리), 없으면 기존 전체 집계(하위호환).
+    # 기간 집계(DB 조회)는 로그인 필수 — 예전엔 토큰 없이 전 매장 매출·지출·급여 합계가
+    # 나갔다 (2026-08-06 감사). 매출·비용을 직접 넣는 수동 계산은 DB를 안 보므로 그대로 연다.
+    if payload.period_start and payload.period_end and current_user is None:
+        raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
     store_id = current_user.email if current_user else None
 
     try:
@@ -784,9 +831,20 @@ def calculate_settlement_api(
 @router.post("/beans/seed-import", response_model=CommonResponse, summary="원두 시드 데이터(JSON/CSV) 일괄 적재 API")
 def import_bean_seed_api(
     beans_file: Optional[str] = Query(None, description="원두 시드 파일 경로 (.json 또는 .csv)"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: None = Depends(_require_maintenance_secret),
 ):
     # [원두 시드 일괄 적재 API]
+    # 경로는 프로젝트 안의 .json/.csv만 허용한다 — 임의 경로를 그대로 open()하면
+    # 서버가 읽을 수 있는 아무 파일이나 적재→조회로 빼낼 수 있다 (2026-08-06 감사).
+    if beans_file:
+        project_root = Path(__file__).resolve().parents[4]
+        try:
+            resolved = Path(beans_file).resolve()
+        except OSError:
+            raise HTTPException(status_code=400, detail="경로를 해석할 수 없습니다.")
+        if resolved.suffix.lower() not in {".json", ".csv"} or not resolved.is_relative_to(project_root):
+            raise HTTPException(status_code=400, detail="프로젝트 안의 .json/.csv 파일만 지정할 수 있습니다.")
     try:
         from app.services.operation.seed_service import import_seed_roasteries_and_beans
         res = import_seed_roasteries_and_beans(db, beans_file=beans_file)
@@ -800,7 +858,8 @@ def import_bean_seed_api(
 
 
 @router.post("/beans/collect", response_model=CommonResponse, summary="원두 판매처·가격 및 리뷰 외부 수집 파이프라인 API")
-def collect_beans_data_api(db: Session = Depends(get_db)):
+def collect_beans_data_api(db: Session = Depends(get_db),
+                           _: None = Depends(_require_maintenance_secret)):
     # [원두 실데이터 수집 파이프라인 API]
     try:
         from app.services.operation.bean_collection_service import run_collection_pipeline_for_all_beans
@@ -815,7 +874,8 @@ def collect_beans_data_api(db: Session = Depends(get_db)):
 
 
 @router.post("/beans/aggregate-reviews", response_model=CommonResponse, summary="원두 리뷰 평점/감성/키워드 집계 스냅샷 갱신 API")
-def aggregate_bean_reviews_api(db: Session = Depends(get_db)):
+def aggregate_bean_reviews_api(db: Session = Depends(get_db),
+                               _: None = Depends(_require_maintenance_secret)):
     # [원두 리뷰 집계 스냅샷 갱신 API]
     try:
         from app.services.operation.bean_review_service import update_all_bean_review_summaries
@@ -832,7 +892,8 @@ def aggregate_bean_reviews_api(db: Session = Depends(get_db)):
 @router.post("/beans/index-vectorstore", response_model=CommonResponse, summary="ChromaDB 벡터스토어 리뷰/속성 전체/증분 색인 API")
 def index_beans_vectorstore_api(
     full_reindex: bool = Query(False, description="True 설정 시 전체 초기 색인, False 설정 시 증분 색인"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: None = Depends(_require_maintenance_secret),
 ):
     # [ChromaDB 벡터스토어 색인 API] 쌓인 리뷰 및 원두 속성을 ChromaDB에 색인합니다.
 
@@ -893,7 +954,8 @@ def bean_hybrid_search_api(
 @router.post("/rag/reindex", response_model=CommonResponse, summary="collected_at 시각 기준 원두 리뷰 증분 색인 API")
 def trigger_incremental_reindex_api(
     full_reindex: bool = Query(False, description="True 설정 시 전체 재색인, False 설정 시 증분 색인"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: None = Depends(_require_maintenance_secret),
 ):
     # [증분 색인 트리거 API] collected_at 기준 신규 수집된 리뷰만 선택하여 고정된 임베딩 모델로 벡터스토어에 증분 임베딩 수행
     try:
@@ -977,7 +1039,8 @@ def get_bean_offers_api(
 @router.post("/products/prefetch", response_model=CommonResponse, summary="사전 수집 큐 등록 및 오래된 시세 캐시 갱신 API")
 def prefetch_products_api(
     payload: Optional[dict] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: None = Depends(_require_maintenance_secret),
 ):
     # [사전 수집 및 캐시 갱신 API]
     try:

@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 _TOOL_MODULES = [
     "app.services.inventory_tools",              # 백엔드 A (재고/메뉴/레시피 도구 세트 활성화)
+    "app.services.ai.breakeven_tools",           # 백엔드 B (손익분기점 — 고정비 입력·본전 매출·목표이익 역산)
     "app.services.ai.briefing_tools",            # 백엔드 B (오늘 브리핑 — 어제 실적·오늘 근무·급한 일 3가지)
     "app.services.ai.document_tools",            # 백엔드 B (문서 자동화 — 발주서·장부·임금명세서·계약서·부가세)
     "app.services.ai.forecast_tools",            # 백엔드 B (판매 예측·발주 추천)

@@ -15,16 +15,16 @@ import { colors, shadows, spacing, typography } from '../../theme';
 
 const won = (n: number) => `₩${Math.round(n || 0).toLocaleString('ko-KR')}`;
 
-export default function CardDepositCard() {
+export default function CardDepositCard({ refreshToken = 0 }: { refreshToken?: number }) {
   const { token } = useAuth();
   const navigation = useNavigation<any>();
 
   // 입금 예정은 하루 단위로 바뀌는 값이라 지난번 응답을 그대로 먼저 보여 줘도 어긋나지 않는다.
-  // (서버 응답이 오면 조용히 갱신된다)
+  // (서버 응답이 오면 조용히 갱신된다. refreshToken은 당겨서 새로고침 — 재마운트 없이 강제 갱신)
   const { data } = useCachedResource<DepositSchedule>(
     token ? 'dash:deposits:14' : null,
     () => getDeposits(token!, 14),
-    { maxAgeMs: 5 * 60_000 },
+    { maxAgeMs: 5 * 60_000, refreshToken },
   );
 
   const pending = (data?.schedule ?? []).filter((s) => !s.settled);

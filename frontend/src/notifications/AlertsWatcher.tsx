@@ -25,6 +25,7 @@ import { listStocks, type StockItem } from '../lib/api/inventory';
 import { fetchNotifications } from '../lib/api/assistant';
 import { fetchBriefing } from '../lib/api/briefing';
 import { fetchInsights } from '../lib/api/insights';
+import { loadCache, saveCache } from '../lib/cache';
 import { enqueue as speechEnqueue, canPlayAudio, cancelAll as speechCancelAll, setAuthToken as speechSetAuthToken } from '../lib/speech/speechPlayer';
 import { toast } from '../components/toast';
 import { getNotificationSettings, updateNotificationSettings } from '../lib/api/push';
@@ -55,7 +56,9 @@ function lowest(items: StockItem[]): number {
 }
 
 const POLL_MS = 60_000;           // 감시 주기 (1분)
-const NOTICE_POLL_MS = 15_000;    // 문의 답변 감시 주기 (15초 — 답변 후 빠른 도착 체감)
+// 문의 답변 감시 주기 — 관리자가 답을 다는 데 보통 수 분~수 시간 걸린다.
+// 15초로 두면 홈에 가만히 있어도 분당 4회 요청이 계속 나가 배터리·서버만 축낸다.
+const NOTICE_POLL_MS = 120_000;
 const VOICE_POLL_MS = 30_000;     // ⑥ 음성 비서 알림 폴링 주기 (30초)
 const INSIGHT_POLL_MS = 600_000;  // ⑦ 선제 인사이트 폴링 주기 (10분 — 하루 단위로 바뀌는 정보라 자주 볼 필요 없다)
 const INSIGHT_MAX_PER_CYCLE = 3;  // 한 번에 쏟아붓지 않는다 — 나머지는 다음 주기에
@@ -301,10 +304,18 @@ export default function AlertsWatcher() {
         const state: AlertState = raw ? JSON.parse(raw) : {};
         let dirty = false;
 
-        // 재고를 한 번만 조회해 ①·②에 함께 사용
+        // 재고를 한 번만 조회해 ①·②에 함께 사용.
+        // 홈 화면(dash:stocks)이 방금 받아 둔 값이 있으면 그걸 쓴다 — 앱을 켠 직후에는
+        // 홈과 이 감시자가 같은 재고 API를 몇 초 간격으로 두 번 부르고 있었다.
         let stocks: StockItem[] = [];
         try {
-          stocks = await listStocks(token);
+          const hit = await loadCache<StockItem[]>('dash:stocks');
+          if (hit && Date.now() - hit.at < 45_000) {
+            stocks = hit.data;
+          } else {
+            stocks = await listStocks(token);
+            void saveCache('dash:stocks', stocks);
+          }
         } catch {
           return; // 서버 오프라인 — 다음 주기에 재시도
         }
@@ -477,7 +488,16 @@ export default function AlertsWatcher() {
       try {
         if (prefs.dndEnabled && isInDndWindow(new Date(), prefs.dndStart, prefs.dndEnd)) return;
 
-        const scan = await fetchInsights(token);
+        // 홈 화면과 같은 캐시(dash:insights)를 거친다 — 서버 인사이트 스캔은 매장 전체를
+        // 훑는 7초짜리 계산이라, 홈과 감시자가 앱 시작 직후 각각 부르면 그 계산이 두 번 돈다.
+        const hit = await loadCache<Awaited<ReturnType<typeof fetchInsights>>>('dash:insights');
+        let scan: Awaited<ReturnType<typeof fetchInsights>>;
+        if (hit && Date.now() - hit.at < INSIGHT_POLL_MS) {
+          scan = hit.data;
+        } else {
+          scan = await fetchInsights(token);
+          void saveCache('dash:insights', scan);
+        }
         const urgent = scan.insights.filter(
           // 주변 상권 변화(market)는 '주변 소식 알림' 스위치를 따로 따른다 —
           // 재고·서류와 성격이 달라 한쪽만 끄고 싶은 사장님이 있다

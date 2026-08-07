@@ -965,7 +965,7 @@ function LiveOperationCard() {
 
       const [[s, p], fRes] = await Promise.all([
         combined,
-        forecastSales({ target_date: tomorrowISO(), engine: 'arima' }).catch(() => null),
+        forecastSales({ target_date: tomorrowISO(), engine: 'arima' }, token ?? undefined).catch(() => null),
       ]);
 
       if (s) setSettlement(s);
