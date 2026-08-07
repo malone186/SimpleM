@@ -110,6 +110,7 @@ export default function ManagementScreen() {
     { label: language === 'en' ? 'Marketing Studio' : '홍보 스튜디오', en: 'MARKETING', desc: language === 'en' ? 'AI promo copy & SNS banner creator' : 'AI 홍보 문구 · SNS 이미지 원스톱 생성', color: '#8E7660', route: 'Marketing' },
     { label: language === 'en' ? 'Bean Analysis' : '원두 분석', en: 'OPERATION', desc: language === 'en' ? 'Bean market price & Reviews' : '원두 최저가 시세 · 실리뷰 분석', color: '#6F5A47', route: 'BeanOperation' },
     { label: language === 'en' ? 'Regulars & Prepaid' : '단골 · 선불 충전', en: 'MEMBERSHIP', desc: language === 'en' ? 'Prepaid balance · Win-back alerts' : '선불 잔액 관리 · 뜸해진 단골 알림', color: '#524334', route: 'Membership' },
+    { label: language === 'en' ? 'Shift Checklist' : '근무 체크리스트', en: 'CHECKLIST', desc: language === 'en' ? 'Daily open/close routine for staff' : '오픈·마감·위생 루틴 · 직원이 매일 체크', color: '#463829', route: 'Checklist' },
     { label: language === 'en' ? 'Staff Accounts' : '직원 계정', en: 'STAFF LOGIN', desc: language === 'en' ? 'Counter-only login for part-timers' : '알바생용 계산대 전용 로그인 발급', color: '#3A2E24', route: 'StaffAccount' },
   ];
 

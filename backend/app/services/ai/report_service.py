@@ -29,7 +29,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Optional
 
 from app.services import cost_basis
-from app.services.ai import document_service
+from app.services.ai import breakeven_service, document_service
 
 logger = logging.getLogger(__name__)
 
@@ -580,7 +580,8 @@ _HIGHLIGHT_LIMIT = 7
 
 
 def _build_highlights(sales: dict, cogs: dict, labor: dict, rhythm: dict, outlook: Optional[dict],
-                      inventory: dict, compliance: list, profit: dict, period_type: str) -> list[str]:
+                      inventory: dict, compliance: list, profit: dict, period_type: str,
+                      breakeven: Optional[dict] = None) -> list[str]:
     """집계에서 바로 읽히는 사실을 중요한 순으로 골라 준다.
 
     항목이 늘면서 순서가 문제로 바뀌었다. 코드에 적힌 순서대로 9~10줄을 쏟아내면
@@ -596,6 +597,18 @@ def _build_highlights(sales: dict, cogs: dict, labor: dict, rhythm: dict, outloo
         scored.append((priority, text))
 
     prev_word = _PREV_WORD.get(period_type, "이전 기간보다")
+
+    # [손익분기] 매출이 잘한 건지 못한 건지 판단할 기준선. 못 넘겼으면 '지금 손대야 할 일'이라
+    # 우선순위 1, 넘겼으면 상태 정보(3)로 둔다.
+    if breakeven and breakeven.get("computed") and "gap" in breakeven:
+        gap = breakeven["gap"]
+        if gap > 0:
+            add(1, f"손익분기까지 {gap:,}원 남았어요 "
+                   f"— {breakeven['label']} 목표 {breakeven['target_revenue']:,}원 "
+                   f"(달성률 {breakeven['achieved_pct']}%)")
+        else:
+            add(3, f"손익분기 {breakeven['target_revenue']:,}원을 넘겼어요 "
+                   f"— {abs(gap):,}원 초과 달성")
 
     # [매출 변동] 리포트의 머리글 — 정렬에서 빼고 항상 첫 줄에 둔다
     if sales["change_pct"] is not None:
@@ -797,6 +810,8 @@ def _advice_source(content: dict[str, Any]) -> str:
     """
     slim = {
         "period": content["period"],
+        # 조언이 '얼마를 더 팔아야 하는지'를 근거 있게 말하려면 손익분기 목표를 알아야 한다
+        "breakeven": content.get("breakeven"),
         "sales": {k: v for k, v in content["sales"].items() if k != "daily_trend"},
         "cogs": content["cogs"],
         "rhythm": content["rhythm"],
@@ -973,9 +988,19 @@ def generate_management_report(store_id: str, period_type: str = "weekly",
         "fixed_cost_missing": fixed_cost_missing,
     }
 
+    # 손익분기점 — "그래서 이번 기간에 얼마를 팔아야 본전인가".
+    # 매출·순이익만 있으면 잘한 건지 못한 건지 판단할 기준선이 없다. 기간에 맞춰 환산해
+    # 넣는다 (일간 리포트에 월 목표를 그대로 실으면 하루에 그만큼 팔라는 말로 읽힌다).
+    try:
+        breakeven = breakeven_service.period_target(store_id, period_type, sales["total"])
+    except Exception:
+        logger.exception("리포트: 손익분기점 계산 실패 — 그 섹션 없이 계속한다")
+        breakeven = None
+
     content = {
         "period_type": period_type,
         "period": display,
+        "breakeven": breakeven,
         "sales": sales,
         "cogs": cogs,
         "purchases": purchases,
@@ -988,7 +1013,7 @@ def generate_management_report(store_id: str, period_type: str = "weekly",
         "orders": orders,
         "compliance_alerts": compliance,
         "highlights": _build_highlights(sales, cogs, labor, rhythm, outlook, inventory,
-                                        compliance, profit, period_type),
+                                        compliance, profit, period_type, breakeven),
         "note": _build_note(use_recipe, cogs, fixed_cost_missing, overlap),
     }
     # AI 조언 — 근거 숫자가 지난 리포트와 같으면 Gemini를 부르지 않고 이전 조언을 재사용하고,

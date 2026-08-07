@@ -62,7 +62,11 @@ import { colors } from '../../theme';
 const won = (n: number) => `${n.toLocaleString()}원`;
 
 export default function MembershipScreen() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  // 직원(알바) 계정이면 재무·마케팅·상품설계는 감춘다. 계산대에서 필요한 건
+  // 대기 손님 결제 / 충전 상품으로 충전 / 회원 등록뿐이다. (RootNavigator가 화면
+  // 자체를 이 하나로 제한하고, 여기서는 화면 안의 사장님 전용 카드를 걸러낸다.)
+  const isStaff = !!user?.isStaff;
   // [한글 주석] 선불 현황 카드는 팀 요청으로 화면에서 뺐다.
   // summary는 '회원 N명' 숫자 하나 때문에 남겨 둔다 —
   // 회원 목록은 50개까지만 받으므로 그걸로 세면 51명부터 틀린다.
@@ -113,15 +117,22 @@ export default function MembershipScreen() {
     if (!token) return;
     setError(null);
     try {
-      const [s, c, p, list, m, ci, ca] = await Promise.all([
-        fetchPrepaidSummary(token, 30),
-        fetchChurnRisk(token, 20),
+      // 선수금 현황·뜸해진 단골·실질 원가율은 사장님 전용 API(require_owner)라 직원이
+      // 부르면 403이 나 화면 상단에 에러가 뜬다. 어차피 직원에겐 감추는 카드이므로
+      // 아예 호출하지 않고 안전한 기본값을 쓴다.
+      const [p, list, m, ci] = await Promise.all([
         fetchChargePlans(token),
         searchCustomers(token, query),
         fetchQuickMenus(token).catch(() => [] as QuickMenu[]),
         fetchCheckIns(token).catch(() => [] as CheckIn[]),
-        fetchCostAnalysis(token, 90).catch(() => null),
       ]);
+      const [s, c, ca] = isStaff
+        ? [null, [] as ChurnRiskCustomer[], null]
+        : await Promise.all([
+            fetchPrepaidSummary(token, 30),
+            fetchChurnRisk(token, 20),
+            fetchCostAnalysis(token, 90).catch(() => null),
+          ]);
       setSummary(s);
       setChurn(c);
       setPlans(p.filter((x) => x.is_active));
@@ -135,7 +146,7 @@ export default function MembershipScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [token, query]);
+  }, [token, query, isStaff]);
 
   useEffect(() => {
     load();
@@ -485,7 +496,9 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
         </View>
       )}
 
-      {/* ① 뜸해진 단골 — 이 기능의 목적이라 맨 위에 둔다 */}
+      {/* ① 뜸해진 단골 — 이 기능의 목적이라 맨 위에 둔다. 직원에겐 숨긴다(단골 관리·문자
+             발송은 사장님 마케팅 판단이라 계산대 업무가 아니다). */}
+      {!isStaff && (
       <View style={styles.card}>
         <View style={styles.cardHead}>
           <Ionicons name="alert-circle-outline" size={16} color="#B23B2E" />
@@ -536,9 +549,10 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
           </View>
         )}
       </View>
+      )}
 
-      {/* 실질 원가율 — 선불 회원제가 남는 장사인지 판단하는 숫자 */}
-      {cost?.has_data && (
+      {/* 실질 원가율 — 선불 회원제가 남는 장사인지 판단하는 숫자. 마진 정보라 직원에겐 숨긴다. */}
+      {!isStaff && cost?.has_data && (
         <View style={styles.card}>
           <View style={styles.cardHead}>
             <Ionicons name="calculator-outline" size={16} color={colors.mochaBrown} />
@@ -596,7 +610,9 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
         </View>
       )}
 
-      {/* 계산대 QR — 손님이 자기 폰으로 찍는다 (우리 앱엔 카메라가 필요 없다) */}
+      {/* 계산대 QR — 손님이 자기 폰으로 찍는다 (우리 앱엔 카메라가 필요 없다).
+             직원도 본다 — 계산대에 서는 사람이 손님에게 이 QR을 보여줘야 결제 요청이
+             시작된다. 조회는 읽기 전용이라(백엔드 store-qr을 get_current_user로) 안전하다. */}
       <Pressable
         style={styles.qrCta}
         onPress={async () => {
@@ -623,10 +639,13 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
         <View style={styles.cardHead}>
           <Ionicons name="pricetags-outline" size={16} color={colors.mochaBrown} />
           <Text style={styles.cardTitle}>충전 상품</Text>
-          <Pressable style={styles.addBtn} onPress={() => setPlanOpen(true)}>
-            <Ionicons name="add" size={13} color="#FFF" />
-            <Text style={styles.addBtnText}>상품 추가</Text>
-          </Pressable>
+          {/* 상품 설계·삭제는 사장님만. 직원은 만들어진 상품을 골라 충전만 한다. */}
+          {!isStaff && (
+            <Pressable style={styles.addBtn} onPress={() => setPlanOpen(true)}>
+              <Ionicons name="add" size={13} color="#FFF" />
+              <Text style={styles.addBtnText}>상품 추가</Text>
+            </Pressable>
+          )}
         </View>
 
         {plans.length === 0 ? (
@@ -643,9 +662,11 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
                 <Text style={styles.planCredit}>{won(p.credit_amount)}</Text>
                 <Text style={styles.planBonus}>+{won(p.bonus_amount)}</Text>
                 <Text style={styles.planRate}>-{p.discount_rate}%</Text>
-                <Pressable onPress={() => onDeletePlan(p)} hitSlop={8}>
-                  <Ionicons name="trash-outline" size={14} color="#B0A79E" />
-                </Pressable>
+                {!isStaff && (
+                  <Pressable onPress={() => onDeletePlan(p)} hitSlop={8}>
+                    <Ionicons name="trash-outline" size={14} color="#B0A79E" />
+                  </Pressable>
+                )}
               </View>
             ))}
           </View>
@@ -656,7 +677,8 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
       <View style={styles.card}>
         <View style={styles.cardHead}>
           <Ionicons name="people-outline" size={16} color={colors.mochaBrown} />
-          <Text style={styles.cardTitle}>회원 {summary?.customer_count ?? 0}명</Text>
+          {/* 직원은 요약(summary)을 못 불러오므로 검색 목록 수로 대신 표시한다 */}
+          <Text style={styles.cardTitle}>회원 {summary?.customer_count ?? customers.length}명</Text>
           <Pressable style={styles.addBtn} onPress={() => setRegisterOpen(true)}>
             <Ionicons name="add" size={13} color="#FFF" />
             <Text style={styles.addBtnText}>회원 등록</Text>
@@ -962,14 +984,18 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
                              onPress={() => setTarget(null)}>
                     <Text style={styles.cancelText}>닫기</Text>
                   </Pressable>
-                  {target.balance > 0 && (
+                  {/* 환불(현금 지출)·삭제는 사장님 전용(require_owner)이라 직원에겐 숨긴다.
+                      직원이 하는 건 충전과 차감뿐이다. */}
+                  {!isStaff && target.balance > 0 && (
                     <Pressable style={styles.refundBtn} onPress={() => onRefund(target)}>
                       <Text style={styles.refundText}>환불</Text>
                     </Pressable>
                   )}
-                  <Pressable style={styles.refundBtn} onPress={() => onDeleteCustomer(target)}>
-                    <Text style={styles.refundText}>삭제</Text>
-                  </Pressable>
+                  {!isStaff && (
+                    <Pressable style={styles.refundBtn} onPress={() => onDeleteCustomer(target)}>
+                      <Text style={styles.refundText}>삭제</Text>
+                    </Pressable>
+                  )}
                 </View>
               </>
             )}

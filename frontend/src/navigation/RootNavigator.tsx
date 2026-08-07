@@ -1,7 +1,7 @@
 // 공동 소유 — 탭 추가 시 알파벳순 정렬, 팀 공지
 // PRD §6 화면 5개: 대시보드 / 재고 / 발주 / 챗봇 / 운영
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator, LayoutAnimation, Platform, View } from 'react-native';
+import { ActivityIndicator, LayoutAnimation, Platform, Text, View } from 'react-native';
 import { PressableScale } from '../components/motion';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -33,6 +33,7 @@ import StockDetailScreen from '../screens/inventory/StockDetailScreen';
 import BrewRoomScreen from '../screens/shop/BrewRoomScreen';
 import ShopScreen from '../screens/shop/ShopScreen';
 import StaffScreen from '../screens/staff/StaffScreen';
+import ChecklistScreen from '../screens/checklist/ChecklistScreen';
 import TaxDraftDetailScreen from '../screens/document/TaxDraftDetailScreen';
 import { colors, typography } from '../theme';
 import type { TaxEstimate } from '../lib/api/operation';
@@ -76,6 +77,7 @@ export type RootStackParamList = {
   Staff: undefined;
   BeanOperation: undefined;
   Membership: undefined;
+  Checklist: undefined;
   StaffAccount: undefined;
   // section: 특정 설정 하위 화면으로 바로 진입 (예: 카드 정산 설정)
   Settings: { section?: 'account' | 'notification' | 'appearance' | 'inquiry' | 'legal' | 'settlement' } | undefined;
@@ -148,6 +150,68 @@ const erpHeader = (title: string, navigation: any) =>
     animation: 'slide_from_right' as const,
   });
 
+// 직원 전용 앱 — 하단 탭 둘: 근무 체크리스트 · 단골 충전. (사장님 앱의 4개 탭 대신 이 둘만)
+// 체크리스트는 매일 반복되는 오픈·마감·위생 루틴이다. 사장님이 항목을 등록해 두면 직원이
+// 매일 체크하고, 사장님도 '오늘 마감 됐나'를 같은 화면에서 확인한다(같은 매장 공유).
+// 헤더 오른쪽에 로그아웃을 둔다(설정 화면이 없어 나갈 길이 여기뿐이다).
+const StaffTab = createBottomTabNavigator();
+
+function StaffApp({ userName }: { userName: string }) {
+  const { logout } = useAuth();
+  const logoutBtn = () => (
+    <PressableScale
+      onPress={logout}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: 12, padding: 4 }}
+      to={0.9}
+    >
+      <Ionicons name="log-out-outline" size={18} color={colors.creamSand} />
+      <Text style={{ color: colors.creamSand, fontSize: 13, fontWeight: '600' }}>로그아웃</Text>
+    </PressableScale>
+  );
+  return (
+    <NavigationContainer key={`staff:${userName}`} ref={navigationRef}>
+      <StaffTab.Navigator
+        screenOptions={{
+          headerShown: true,
+          headerTitleAlign: 'left',
+          headerStyle: { backgroundColor: colors.espressoBrown },
+          headerTintColor: colors.creamSand,
+          headerTitleStyle: { fontSize: 16.5, fontWeight: '500' },
+          headerStatusBarHeight: Platform.OS === 'web' ? 35 : undefined,
+          headerRight: logoutBtn,
+          tabBarActiveTintColor: colors.pointOrange,
+          tabBarInactiveTintColor: colors.mochaBrown,
+          tabBarStyle: { backgroundColor: 'rgba(250, 249, 246, 0.98)', borderTopColor: 'rgba(140,111,86,0.08)' },
+          tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
+        }}
+      >
+        <StaffTab.Screen
+          name="Checklist"
+          component={ChecklistScreen}
+          options={{
+            title: '근무 체크리스트',
+            tabBarLabel: '체크리스트',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="checkbox-outline" size={size ?? 20} color={color} />
+            ),
+          }}
+        />
+        <StaffTab.Screen
+          name="Membership"
+          component={MembershipScreen}
+          options={{
+            title: '단골 · 선불 충전',
+            tabBarLabel: '단골 충전',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="card-outline" size={size ?? 20} color={color} />
+            ),
+          }}
+        />
+      </StaffTab.Navigator>
+    </NavigationContainer>
+  );
+}
+
 export default function RootNavigator() {
   const { user, booting } = useAuth();
 
@@ -168,6 +232,14 @@ export default function RootNavigator() {
   // 관리자 → 하단 탭 없이 관리자 콘솔만 노출
   if (ADMIN_EMAILS.includes(user.email)) {
     return <AdminScreen />;
+  }
+
+  // 직원(알바) → 단골·선불 충전 화면 하나만. 탭도, 대시보드·재고·챗봇·관리도 없다.
+  // 계산대에 서는 알바가 매출·정산·급여·원가를 보면 안 되기 때문이다(백엔드 staff_guard도
+  // 같은 이유로 API를 막는다 — 화면은 오해를 줄이려 감추고, 실제 차단은 서버가 한다).
+  // 화면 안에서도 재무·마케팅·상품설계는 MembershipScreen이 isStaff로 걸러낸다.
+  if (user.isStaff) {
+    return <StaffApp userName={user.name} />;
   }
 
   return (
@@ -205,6 +277,7 @@ export default function RootNavigator() {
         <Stack.Screen name="Staff" component={StaffScreen} options={({ navigation }) => erpHeader('직원 · 인건비', navigation)} />
         <Stack.Screen name="BeanOperation" component={BeanOperationScreen} options={({ navigation }) => erpHeader('운영 · 원두 실리뷰 분석', navigation)} />
         <Stack.Screen name="Membership" component={MembershipScreen} options={({ navigation }) => erpHeader('단골 · 선불 충전', navigation)} />
+        <Stack.Screen name="Checklist" component={ChecklistScreen} options={({ navigation }) => erpHeader('근무 체크리스트', navigation)} />
         <Stack.Screen name="StaffAccount" component={StaffAccountScreen} options={({ navigation }) => erpHeader('직원 계정', navigation)} />
 
         <Stack.Screen name="Settings" component={SettingsScreen} options={({ navigation }) => erpHeader('설정', navigation)} />

@@ -13,7 +13,7 @@ try {
   // 모듈 로드 불가 시 예외를 내지 않고 넘어갑니다.
 }
 
-import Brew, { FLIPBOOK_MOODS, type BrewMood, type BrewOneShot } from '../brew/Brew';
+import Brew, { FLIPBOOK_MOODS, type BrewAccessory, type BrewMood, type BrewOneShot } from '../brew/Brew';
 import type { MotionName } from '../brew/brewMotions';
 import { useBrewBrain, type BrewContext } from '../brew/useBrewBrain';
 import { useEquipped } from '../../rewards/EquippedContext';
@@ -93,6 +93,9 @@ function Burst({ emojis, spread = 42, rise = 72 }: { emojis: string[]; spread?: 
   );
 }
 
+// 배경 효과를 감출 때 넘길 빈 배열 — 매번 새 배열을 만들면 Brew가 불필요하게 다시 그려진다
+const EMPTY_ACCESSORIES: BrewAccessory[] = [];
+
 export default function MascotEasterEgg({
   mood = 'top',
   size = 150,
@@ -102,10 +105,18 @@ export default function MascotEasterEgg({
   autonomous = false,
   context,
   idleMotion: idleMotionOverride = null,
+  moodOverridesPose = false,
+  suppressAccessories = false,
 }: {
   mood?: BrewMood;
   size?: number;
   style?: StyleProp<ViewStyle>;
+  // 산 포즈보다 mood를 앞세운다 — 지금 꼭 표정으로 말해야 할 상황일 때만 켠다.
+  // (홈에서 매출이 꺾였는데 스웩 댑 포즈로 춤추고 있으면 표정이 정보가 아니라 장식이 된다)
+  moodOverridesPose?: boolean;
+  // 배경 효과(하트·반짝이)를 잠시 감춘다 — 나쁜 소식과 같이 띄우면 화면이 농담처럼 읽힌다.
+  // 보관함에서 다른 배경으로 갈아입으면 그 즉시 다시 보인다 (아래 suppressedSig 참고).
+  suppressAccessories?: boolean;
   // 게임 룸처럼 브루가 주인공인 화면에서는 정지 포즈여도 잔동작(숨쉬기 등)을 켠다.
   // 홈에서는 기존대로 플립북 포즈만 움직인다(기본값 false).
   motion?: boolean;
@@ -125,9 +136,28 @@ export default function MascotEasterEgg({
   useEffect(() => () => { alive.current = false; }, []);
 
   // 상점에서 산 것 (전역 공유 — 구매·착용하면 여기도 같이 바뀐다).
-  // 포즈를 샀으면 그 모습으로, 안 샀으면 화면이 정한 기본 포즈로 그린다.
+  // 평소엔 산 포즈가 이긴다 — 코인 주고 산 걸 앱이 마음대로 덮으면 산 보람이 없다.
+  // 다만 화면이 '지금은 이 표정이어야 한다'고 못박은 순간(moodOverridesPose)에는 mood가 이긴다.
+  // 앞치마 색은 어느 쪽이든 유지된다 — 옷 색은 감정과 무관하기 때문이다.
   const { accessories, poseMood, apronColor } = useEquipped();
-  const shownMood = poseMood ?? mood;
+  const shownMood = moodOverridesPose ? mood : (poseMood ?? mood);
+
+  // ── 배경 효과(하트·반짝이)는 나쁜 소식과 같이 띄우지 않는다 ──
+  // 매출이 반 토막 났는데 시무룩한 브루 주위로 하트가 날아다니면 화면이 농담처럼 읽힌다.
+  //
+  // 다만 영영 숨기면 안 된다. 사장님이 보관함에서 배경을 바꿨는데 아무 변화가 없으면
+  // 앱이 고장난 것처럼 보인다. 그래서 '숨기기 시작한 그 배경'만 숨기고, 다른 것으로
+  // 갈아입는 순간 숨기기를 푼다 — 방금 고른 건 눈으로 확인돼야 한다.
+  const accessorySig = accessories.map((a) => a.id).join(',');
+  const suppressedSig = useRef<string | null>(null);
+  if (!suppressAccessories) {
+    suppressedSig.current = null;              // 상황이 풀리면 다음 나쁜 날을 위해 비워 둔다
+  } else if (suppressedSig.current === null) {
+    suppressedSig.current = accessorySig;      // 이 배경이 숨김 대상
+  }
+  // 지금 착용한 게 숨김 대상과 다르면 = 사장님이 방금 갈아입은 것 → 그대로 보여 준다
+  const hideAccessories = suppressAccessories && suppressedSig.current === accessorySig;
+  const shownAccessories = hideAccessories ? EMPTY_ACCESSORIES : accessories;
 
   // 강아지 반동(탭 공통) + 풍선 부풀기(롱프레스) — 최종 스케일은 둘의 곱
   const scale = useRef(new Animated.Value(1)).current;
@@ -315,7 +345,7 @@ export default function MascotEasterEgg({
             mood={shownMood}
             size={size}
             disableMotion={!motion && !FLIPBOOK_MOODS.has(shownMood)}
-            accessories={accessories}
+            accessories={shownAccessories}
             apronColor={apronColor}
             oneShot={oneShot}
             idleMotion={idleMotionOverride ?? idleMotion}
