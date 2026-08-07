@@ -21,6 +21,10 @@ const POSES = {
   top: require('../../../assets/mascot/brew_top.png'), // 모자 쓰고 커피 든 바리스타 — 홈 헤더용
   greet: require('../../../assets/mascot/brew_greet.png'), // 발 흔들며 인사하는 브루 — 인사·안내 (현재 미사용)
   coffee: require('../../../assets/mascot/brew_coffee.png'), // 커피잔 든 브루 (현재 미사용)
+  // 시무룩한 브루 — 매출이 꺾였을 때. 여기 있는 다른 포즈는 전부 웃고 있어서,
+  // '가게 상태가 나쁘다'를 표정으로 말할 방법이 이 둘뿐이다.
+  upset: require('../../../assets/mascot/brew_upset2.png'), // 장부 보며 시무룩 (상반신) — 홈 헤더용
+  upsetFull: require('../../../assets/mascot/brew_upset1.png'), // 고개 숙인 전신 — 전신을 쓰는 화면용
   // 전신 애니메이션 포즈 — 정지 시엔 첫 프레임, 모션이 켜지면 플립북으로 재생된다
   jump: require('../../../assets/mascot/anim/jump/f00.webp'), // 폴짝 뛰는 브루 (상점 판매)
   dance: require('../../../assets/mascot/anim/dance/f00.webp'), // 춤추는 브루 (상점 판매)
@@ -98,6 +102,10 @@ const MOTION_BY_MOOD: Record<BrewMood, Motion> = {
   welcome: 'wave',
   happy: 'bounce',
   resting: 'none',
+  // 시무룩할 때는 잔동작도 없다 — 가만히 있는 것 자체가 기운 없어 보인다.
+  // 통통 튀게 두면 표정만 슬프고 몸은 신나 있어서 감정이 안 읽힌다.
+  upset: 'none',
+  upsetFull: 'none',
   pouring: 'pour',
   clipboard: 'part', // 몸 고정, 클립보드만 갸웃 (PART_ANIM)
   serving: 'bounce',

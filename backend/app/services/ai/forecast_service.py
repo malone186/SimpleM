@@ -43,6 +43,11 @@ def _to_kst(dt: "datetime") -> "datetime":
 logger = logging.getLogger(__name__)
 
 MIN_HISTORY_DAYS = 14        # 이 일수 미만의 판매 기록이면 예측을 제공하지 않는다
+# '요즘'의 길이 — 최근 실적 평균을 낼 때 며칠을 볼지.
+# 짧으면 하루 이벤트에 기준선이 휘둘리고, 길면 내리막을 늦게 알아챈다. 2주가 요일 한 바퀴다.
+BASELINE_WINDOW_DAYS = 14
+# 추세를 볼 때 앞뒤로 며칠씩 견줄지 — 요일 구성이 같아야 비교가 성립하므로 7일(한 바퀴)이다.
+TREND_WINDOW_DAYS = 7
 MENU_MIX_WINDOW_DAYS = 14    # 메뉴별 판매 비중(발주 소요량 계산)에 쓰는 최근 기간
 DEFAULT_EVENT_BOOST = 20     # 수동 입력 행사 부스팅 기본값 (%)
 AUTO_EVENT_BOOST = 10        # 자동 수집 행사 1건당 부스팅 (%) — 소규모 공연이 많아 보수적으로
@@ -2024,6 +2029,42 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
         # 오늘 실시간 실적 (경영 리포트와 동일한 Sale 기준 집계)
         today_actual = _today_actuals(db, store_id)
 
+        # 최근 실적 평균 — "요즘에 비해 내일은 어떤가"의 기준선.
+        #
+        # base_cups(모델 예측)와 cups(보정 후)의 비율만 보면 날씨·행사 보정만 잡힌다.
+        # 예측은 매출 추세를 이미 따라가므로, 장사가 계속 내리막이어도 그 비율은 1에 가깝다.
+        # 사장님이 정말 궁금한 건 '요즘 대비 내일'이라 실제 최근 평균을 따로 실어 보낸다.
+        # 휴무로 마스킹된 날(NaN)은 평균에서 빠진다 — 쉰 날까지 세면 기준선이 내려앉는다.
+        # 달력 기준 14일이 아니라 '영업한 날' 14일을 센다. 휴가나 공사로 한 주를 통째로
+        # 쉰 매장은 달력으로 자르면 표본이 서너 날만 남아 기준선이 그날 운에 휘둘린다.
+        valid_cups = series["cups"].dropna()
+        recent = valid_cups.tail(BASELINE_WINDOW_DAYS)
+        baseline = {
+            "days": int(len(recent)),
+            "avg_cups": round(float(recent.mean())) if len(recent) else 0,
+        }
+
+        # 추세 — 최근 한 주와 그 직전 한 주를 견준다.
+        #
+        # 왜 예측만으로는 부족한가: 모델은 며칠짜리 급락을 곧바로 '새로운 수준'으로 받아들이지
+        # 않는다(그게 맞다 — 하루 이틀 흔들림마다 예측이 출렁이면 발주가 망가진다). 그래서
+        # 매출이 반 토막 나도 내일 예측은 예전 수준 근처에 머물고, 예측만 보면 '평소와 비슷'이 된다.
+        # 사장님이 체감하는 '요즘 장사 안된다'는 예측이 아니라 실적에 먼저 나타나므로 따로 싣는다.
+        # 요일 구성을 맞추려고 앞뒤 모두 '영업한 날' 7일씩 본다.
+        trend = None
+        if len(valid_cups) >= TREND_WINDOW_DAYS * 2:
+            recent_week = valid_cups.tail(TREND_WINDOW_DAYS)
+            prev_week = valid_cups.iloc[-TREND_WINDOW_DAYS * 2:-TREND_WINDOW_DAYS]
+            prev_avg = float(prev_week.mean())
+            recent_avg = float(recent_week.mean())
+            if prev_avg > 0:
+                trend = {
+                    "days": TREND_WINDOW_DAYS,
+                    "recent_avg_cups": round(recent_avg),
+                    "prev_avg_cups": round(prev_avg),
+                    "change_pct": round((recent_avg / prev_avg - 1) * 100, 1),
+                }
+
     result = {
         "store_id": store_id,
         "location": {"lat": lat, "lon": lon, "region": region},
@@ -2031,6 +2072,8 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
         "history_days": valid_days,       # 휴무·품절 의심일을 뺀 '학습에 쓴' 날 수
         "excluded_days": len(series) - valid_days,
         "today": today_actual,
+        "baseline": baseline,             # 최근 실적 평균 — 홈 마스코트가 '요즘 대비'를 판단하는 기준
+        "trend": trend,                   # 최근 한 주 vs 직전 한 주 — 예측이 아직 못 따라잡은 급락을 잡는다
         "tomorrow": week[0],
         "tomorrow_hourly": tomorrow_hourly,
         "tomorrow_hourly_24": tomorrow_hourly_24,

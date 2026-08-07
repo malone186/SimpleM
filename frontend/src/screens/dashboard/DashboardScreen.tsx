@@ -1,5 +1,5 @@
 // 대시보드 (프론트 A) — Design Spec 기반
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import Svg, { Defs, LinearGradient, Stop, Path, Circle, Filter, FeGaussianBlur } from 'react-native-svg';
@@ -19,6 +19,8 @@ import { listCompliance } from '../../lib/api/documents';
 import { listStocks } from '../../lib/api/inventory';
 import { createTodo, deleteTodo, getAiTodoSuggestions, listTodos, updateTodo, type AiSuggestedTodo } from '../../lib/api/todo';
 import { fetchInsights } from '../../lib/api/insights';
+import { getSalesForecast, getStoredStoreLocation, type SalesForecast } from '../../lib/api/forecast';
+import { isNotable, moodFromForecast } from '../../components/brew/forecastMood';
 import { loadCache, markAllStale, peekCache, saveCache } from '../../lib/cache';
 import { awardDerivedTodo } from '../../lib/api/rewards';
 import AlertCenterCard, { type AlertItem } from '../../components/dashboard/AlertCenterCard';
@@ -95,6 +97,9 @@ type DashboardSources = {
   serverTodos?: Awaited<ReturnType<typeof listTodos>>;
   insights?: Awaited<ReturnType<typeof fetchInsights>>;
   aiSuggest?: Awaited<ReturnType<typeof getAiTodoSuggestions>>;
+  // 브루 표정을 정하는 데만 쓴다 — 할 일·알림은 만들지 않는다 (forecastMood.ts).
+  // null이면 '판단할 근거가 없음'(판매 기록 14일 미만 등) → 평소 포즈를 유지한다.
+  forecast?: SalesForecast | null;
 };
 
 // 사장님이 지우거나 완료 표시한 항목 — 기기에만 남는 기록
@@ -111,6 +116,9 @@ const FRESH_ENOUGH_MS = 60_000;
 const SOURCE_FRESH_MS: Record<string, number> = {
   'dash:insights': 10 * 60_000,
   'dash:ai-suggestions': 10 * 60_000,
+  // 예측은 날씨·행사가 바뀌어야 달라진다 — 탭을 오갈 때마다 다시 부를 이유가 없고,
+  // 브루 표정이 몇 초 만에 기뻤다 슬펐다 하면 그게 더 이상하다.
+  'dash:forecast': 30 * 60_000,
 };
 
 // 지난번 응답을 담아 두는 칸 이름 (lib/cache.ts가 앞에 접두어를 붙인다)
@@ -120,6 +128,7 @@ const CACHE_KEYS = {
   serverTodos: 'dash:todos',
   insights: 'dash:insights',
   aiSuggest: 'dash:ai-suggestions',
+  forecast: 'dash:forecast',
 } as const;
 
 /**
@@ -371,6 +380,8 @@ export default function DashboardScreen() {
   const { isWide, contentMaxWidth } = useResponsive();
   const [todos, setTodos] = useState<Todo[]>([]);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  // 내일 매출 예측 — 브루 표정과 말풍선에만 쓴다 (할 일·알림은 만들지 않는다)
+  const [forecast, setForecast] = useState<SalesForecast | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [runId, setRunId] = useState(0);
   const notifiedStocksRef = useRef<Set<string>>(new Set());
@@ -411,6 +422,8 @@ export default function DashboardScreen() {
         return [...localItems, ...built.todos];
       });
       setAlerts(built.alerts);
+      // 브루 표정 — 캐시로 그릴 때도, 예측이 늦게 도착할 때도 같은 자리에서 갱신된다
+      setForecast(sources.forecast ?? null);
     };
 
     // 1) 네트워크부터 발사한다 (저장소 읽기를 기다리지 않게).
@@ -423,6 +436,18 @@ export default function DashboardScreen() {
       serverTodos: () => listTodos(token),
       insights: () => fetchInsights(token),
       aiSuggest: () => getAiTodoSuggestions(token),
+      // 브루 표정용 예측 — 이미 저장된 매장 좌표만 쓴다. 홈을 열자마자 GPS 권한창을
+      // 띄우면 표정 하나 때문에 사장님을 붙잡는 꼴이라, 좌표가 없으면 그냥 없이 부른다.
+      forecast: async () => {
+        try {
+          const loc = await getStoredStoreLocation();
+          return await getSalesForecast(token, loc?.lat, loc?.lon);
+        } catch {
+          // 판매 기록이 14일 미만이면 서버가 409로 거절한다 — 새 매장에선 정상이라
+          // 에러로 시끄럽게 굴 이유가 없다. 근거가 없으면 표정을 바꾸지 않는다.
+          return null;
+        }
+      },
     };
 
     const jobs = (Object.keys(fetchers) as (keyof DashboardSources)[])
@@ -548,8 +573,10 @@ export default function DashboardScreen() {
     setRunId((x) => x + 1);
   };
 
-  // 홈 헤더 마스코트 — 모자 쓰고 커피 든 바리스타 브루(brew_top)
-  const brewMood = 'top';
+  // 홈 헤더 마스코트 — 표정을 내일 매출 예측이 정한다 (components/brew/forecastMood.ts).
+  // 평소보다 잘될 것 같으면 폴짝 뛰고(jump, 플립북 재생), 한산할 것 같으면 턱을 괸다(resting).
+  // 판단할 근거가 없으면 기본 바리스타 포즈(top) 그대로다.
+  const brewOutlook = useMemo(() => moodFromForecast(forecast), [forecast]);
   const scrollY = useRef(new Animated.Value(0)).current;
 
   const onRefresh = useCallback(() => {
@@ -824,7 +851,10 @@ export default function DashboardScreen() {
         >
           <WelcomeHeader
             storeName={user?.name || '포자카페'}
-            mood={brewMood}
+            mood={brewOutlook.mood}
+            moodReason={brewOutlook.reason}
+            moodOverridesPose={isNotable(brewOutlook.outlook)}
+            moodTone={brewOutlook.outlook}
             onOpenMap={() => navigation.navigate('StoreMap')}
             onOpenPushModal={handleOpenPushModal}
             onOpenShop={() => navigation.navigate('BrewRoom')}
