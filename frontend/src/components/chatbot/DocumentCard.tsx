@@ -4,9 +4,11 @@
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 
 import type { ChatDocument } from '../../lib/api/chatbot';
 import { formatValue, labelFor, visibleEntries } from '../../lib/documentLabels';
+import { parseReportActions } from '../../lib/reportActions';
 import { colors, typography } from '../../theme';
 import { PressableScale } from '../motion';
 
@@ -110,9 +112,36 @@ function AdviceBlock({ text }: { text: string }) {
   );
 }
 
+/** 리포트의 액션 제안 — 제목·근거·할 일에 이동 버튼까지, 일반 품목 블록으로는 못 그린다 */
+function ActionsBlock({ raw }: { raw: unknown }) {
+  const navigation = useNavigation<any>();
+  const actions = parseReportActions(raw);
+  if (actions.length === 0) return null;
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>지금 할 수 있는 일</Text>
+      {actions.map((a, i) => (
+        <PressableScale
+          key={i}
+          style={styles.actionBlock}
+          onPress={() => navigation.navigate(a.route as never)}
+        >
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={styles.itemTitle}>{a.title}</Text>
+            <Text style={styles.itemDetail}>{a.action}</Text>
+            {!!a.evidence && <Text style={styles.actionEvidence}>{a.evidence}</Text>}
+          </View>
+          <Ionicons name="chevron-forward" size={15} color={colors.pointOrange} />
+        </PressableScale>
+      ))}
+    </View>
+  );
+}
+
 /** content의 한 필드를 타입에 맞는 컴포넌트로 — 배열→품목 블록, 객체→섹션, 스칼라→행 */
 function renderField(key: string, value: unknown) {
   if (key === 'ai_advice' && typeof value === 'string') return <AdviceBlock key={key} text={value} />;
+  if (key === 'ai_actions') return <ActionsBlock key={key} raw={value} />;
   if (Array.isArray(value)) return <ArraySection key={key} name={key} list={value} />;
   if (isPlainObject(value)) return <ObjectSection key={key} name={key} obj={value} />;
   return <Row key={key} k={key} v={fmt(key, value)} />;
@@ -227,6 +256,18 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     gap: 2,
   },
+  actionBlock: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.coffeeCream,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  actionEvidence: { ...typography.L5, fontSize: 10, color: colors.mochaBrown },
   itemTitle: { ...typography.L5, fontSize: 11, fontWeight: '700', color: colors.espressoBrown },
   itemDetail: { ...typography.L5, color: colors.mochaBrown, lineHeight: 16 },
   bulletDot: { color: colors.pointOrange, fontWeight: '700' },

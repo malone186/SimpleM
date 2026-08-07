@@ -147,6 +147,8 @@ def _sales_summary(db, store_id: str, start: date, end: date,
     return {
         "total": total,
         "cups": cups,
+        # 객단가(잔당 평균) — 매출 증감이 '손님이 줄어서'인지 '한 잔 단가가 낮아져서'인지 가른다
+        "avg_ticket": round(total / cups) if cups else None,
         "prev_total": prev_total,
         "change_pct": _change_pct(total, prev_total),
         "daily_trend": [{"date": d, "total": t} for d, t in sorted(daily.items())],
@@ -811,21 +813,30 @@ def _generate_ai_advice(source: str, period_type: str) -> tuple[Optional[str], l
         data=source,
     )
     try:
+        import time as _time
+
         import httpx
 
-        resp = httpx.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
-            json={
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {
-                    "temperature": 0.3,
-                    "responseMimeType": "application/json",
-                    "responseSchema": _ADVICE_SCHEMA,
+        # 홈이 일간·주간·월간을 연달아 갱신하면 분당 호출 제한(429)에 걸리기 쉽다.
+        # 한 번은 짧게 쉬고 다시 시도한다 — 그 이상은 공유 쿼터만 태우므로 포기.
+        for attempt in (1, 2):
+            resp = httpx.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {
+                        "temperature": 0.3,
+                        "responseMimeType": "application/json",
+                        "responseSchema": _ADVICE_SCHEMA,
+                    },
                 },
-            },
-            headers={"x-goog-api-key": GEMINI_API_KEY},
-            timeout=20.0,
-        )
+                headers={"x-goog-api-key": GEMINI_API_KEY},
+                timeout=20.0,
+            )
+            if resp.status_code in (429, 500, 503) and attempt == 1:
+                _time.sleep(2.0)
+                continue
+            break
         resp.raise_for_status()
         raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
         parsed = json.loads(raw)
@@ -981,11 +992,25 @@ def generate_management_report(store_id: str, period_type: str = "weekly",
         content["ai_advice_hash"] = prev.get("ai_advice_hash")
         content["ai_advice_at"] = prev.get("ai_advice_at")
     else:
-        # 생성 실패(None)면 해시를 저장해도 ai_advice가 비어 있어 다음 갱신 때 다시 시도된다
-        content["ai_advice"], content["ai_actions"] = _generate_ai_advice(source, period_type)
-        content["ai_advice_hash"] = source_hash
-        content["ai_advice_at"] = datetime.now(KST).isoformat()
-    content["ai_advice_version"] = _ADVICE_VERSION
+        advice, actions = _generate_ai_advice(source, period_type)
+        if advice is None and prev.get("ai_advice"):
+            # 생성 실패가 이전 조언을 지우면 안 된다 — 쿼터 소진(429) 몇 분 사이에
+            # 홈 카드의 조언이 통째로 사라졌다가 돌아오는 깜빡임이 실제로 있었다.
+            # 이전 조언과 그 해시·시각을 그대로 두면, 쿼터가 돌아온 다음 갱신에서
+            # (해시 불일치 + 30분 경과) 조건으로 자연히 재생성된다.
+            content["ai_advice"] = prev["ai_advice"]
+            content["ai_actions"] = prev.get("ai_actions") or []
+            content["ai_advice_hash"] = prev.get("ai_advice_hash")
+            content["ai_advice_at"] = prev.get("ai_advice_at")
+            # 구버전 형식의 조언을 임시로 살린 경우 버전 도장도 그대로 둔다 —
+            # 최신 버전으로 찍어 버리면 숫자가 안 바뀌는 매장에선 형식 재생성이 영영 안 돈다
+            content["ai_advice_version"] = prev.get("ai_advice_version")
+        else:
+            # 첫 생성부터 실패(None)면 해시를 저장해도 ai_advice가 비어 있어 다음 갱신 때 다시 시도된다
+            content["ai_advice"], content["ai_actions"] = advice, actions
+            content["ai_advice_hash"] = source_hash
+            content["ai_advice_at"] = datetime.now(KST).isoformat()
+    content.setdefault("ai_advice_version", _ADVICE_VERSION)
     if existing:
         return document_service.update_document(store_id, existing["id"], content)
     label = PERIOD_LABEL[period_type]

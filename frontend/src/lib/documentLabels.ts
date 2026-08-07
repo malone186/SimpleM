@@ -119,6 +119,51 @@ export const FIELD_LABELS: Record<string, string> = {
   open_amount: '발주 예상 금액',
   compliance_alerts: '기한 임박 서류',
   ai_advice: '브루의 조언',
+  ai_actions: '지금 할 수 있는 일',
+  // 경영 리포트 — 재료 원가(레시피 기준)
+  cogs: '재료값 (팔린 메뉴 기준)',
+  theoretical: '재료값 합계',
+  cost_ratio: '매출 대비 재료값',
+  coverage_pct: '레시피 반영 매출 비율',
+  uncovered_menus: '레시피 없는 메뉴',
+  uncovered_count: '레시피 없는 메뉴 수',
+  worst_margin_menus: '재료값 비중 높은 메뉴',
+  loss_amount: '실사에서 줄어든 금액',
+  loss_pct: '재료값 대비 감소 비율',
+  loss_items: '많이 줄어든 재료',
+  revenue: '매출',
+  cost: '금액',
+  // 경영 리포트 — 영업 리듬
+  rhythm: '영업 리듬',
+  hourly: '시간대별 매출',
+  hourly_cost: '시간대별 인건비',
+  weekday: '요일별 매출',
+  peak_hours: '가장 바쁜 시간',
+  negative_hours: '인건비가 매출보다 큰 시간',
+  best_weekday: '가장 좋은 요일',
+  worst_weekday: '가장 낮은 요일',
+  avg_total: '하루 평균 매출',
+  days: '집계 일수',
+  hour: '시간대',
+  gap: '모자란 금액',
+  // 경영 리포트 — 다음 기간 전망
+  outlook: '다음 기간 전망',
+  expected_revenue: '예상 매출',
+  expected_cups: '예상 판매 잔 수',
+  expected_daily_avg: '하루 평균 예상 매출',
+  recent_daily_avg: '최근 하루 평균 매출',
+  busiest: '가장 바쁠 날',
+  order_recommendations: '발주 제안',
+  // 경영 리포트 — 손익 상세
+  basis: '재료값 계산 기준',
+  material_cost: '재료비',
+  material_overlap_excluded: '지출과 겹쳐 뺀 재료 매입',
+  cash_total_cost: '실제 나간 돈 합계',
+  cash_balance: '현금 기준 남은 돈',
+  avg_ticket: '잔당 평균 금액',
+  evidence: '근거',
+  action: '할 일',
+  title: '제목',
   // 갱신 서류
   expiry_date: '만료일',
   remind_before_days: '알림 시작(일 전)',
@@ -127,13 +172,18 @@ export const FIELD_LABELS: Record<string, string> = {
 
 // 화면에 절대 보여주지 않는 내부 관리용 키 — 조언 캐시 무효화용 해시·타임스탬프 등.
 // 여기 안 걸러지면 챗봇 카드·서류 화면에 ai_advice_hash 같은 영문 키가 그대로 노출된다.
-export const HIDDEN_FIELDS = new Set(['ai_advice_hash', 'ai_advice_at']);
+export const HIDDEN_FIELDS = new Set([
+  'ai_advice_hash', 'ai_advice_at', 'ai_advice_version',
+  // 경영 리포트의 내부 판정 플래그 — 문장(note·하이라이트)으로 이미 풀어서 안내한다
+  'reliable', 'fixed_cost_missing', 'stale', 'model', 'screen',
+]);
 
 // kind별 표시 순서 — 사장님이 먼저 봐야 하는 것(핵심 요약·조언)을 위로.
 // 목록에 없는 키는 원래 순서대로 뒤에 붙는다.
 export const KIND_FIELD_ORDER: Record<string, string[]> = {
   management_report: [
-    'period_type', 'period', 'highlights', 'ai_advice', 'sales', 'profit',
+    'period_type', 'period', 'highlights', 'ai_advice', 'ai_actions', 'outlook',
+    'sales', 'profit', 'cogs', 'rhythm',
     'purchases', 'expenses', 'labor', 'inventory', 'orders', 'compliance_alerts',
   ],
 };
@@ -157,6 +207,7 @@ export function visibleEntries(
 // 영문 상태값 → 한글 (weekly → 주간 등)
 export const VALUE_LABELS: Record<string, Record<string, string>> = {
   period_type: { daily: '일간', weekly: '주간', monthly: '월간' },
+  basis: { recipe: '팔린 메뉴의 레시피', purchase: '확정한 명세서' },
   status: {
     draft: '초안', confirmed: '확정', rejected: '반려',
     ok: '정상', due_soon: '갱신 임박', expired: '만료',
@@ -171,11 +222,17 @@ export const MONEY_KEYS = new Set([
   'weekly_holiday_pay', 'gross', 'withholding', 'net_pay', 'estimated_sales_vat',
   'purchase_subtotal', 'purchase_tax', 'estimated_payable_vat', 'total_gross', 'total_net',
   'prev_total', 'estimated_cost', 'total_cost', 'estimated_profit', 'total_value',
-  'open_amount', 'amount',
+  'open_amount', 'amount', 'theoretical', 'loss_amount', 'revenue', 'cost',
+  'avg_total', 'gap', 'expected_revenue', 'expected_daily_avg', 'recent_daily_avg',
+  'material_cost', 'material_overlap_excluded', 'cash_total_cost', 'cash_balance',
+  'avg_ticket',
 ]);
 
 // 퍼센트 키는 '%'를 붙인다
-export const PERCENT_KEYS = new Set(['change_pct', 'margin_pct', 'withholding_rate', 'saving_pct']);
+export const PERCENT_KEYS = new Set([
+  'change_pct', 'margin_pct', 'withholding_rate', 'saving_pct',
+  'cost_ratio', 'coverage_pct', 'loss_pct',
+]);
 
 // 숫자 키에 단위를 붙여 읽기 쉽게 (판매 잔 수 128 → 128잔)
 export const UNIT_KEYS: Record<string, string> = {
@@ -194,7 +251,13 @@ export const UNIT_KEYS: Record<string, string> = {
   purchase_document_count: '건',
   ingredient_count: '종',
   open_count: '건',
+  expected_cups: '잔',
+  days: '일',
+  hour: '시',
 };
+
+// 백엔드 weekday()는 0=월 — JS Date의 0=일과 다르니 섞어 쓰지 말 것
+const PY_WEEKDAYS = ['월', '화', '수', '목', '금', '토', '일'];
 
 export const labelFor = (key: string): string => FIELD_LABELS[key] ?? key;
 
@@ -216,6 +279,10 @@ const RANGE_RE = /^(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})$/;
 export function formatValue(key: string, v: unknown): string {
   if (v === null || v === undefined || v === '') return '—';
   if (typeof v === 'boolean') return v ? '예' : '아니오';
+  // 영업 리듬의 요일 번호(0=월)는 숫자 그대로 보여주면 못 읽는다
+  if (key === 'weekday' && typeof v === 'number' && v >= 0 && v <= 6) {
+    return `${PY_WEEKDAYS[v]}요일`;
+  }
   if (typeof v === 'number') {
     const n = v.toLocaleString('ko-KR');
     if (MONEY_KEYS.has(key)) return `${n}원`;
