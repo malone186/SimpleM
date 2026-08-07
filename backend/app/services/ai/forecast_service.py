@@ -936,7 +936,7 @@ def _fetch_events_tourapi(lat: float, lon: float, start: date, days: int) -> lis
     """
     import requests
 
-    api_key = os.getenv("TOUR_API_KEY", "")
+    api_key = os.getenv("TOUR_API_KEY", "").strip()
     if not api_key:
         return []
     try:
@@ -992,7 +992,10 @@ def _fetch_events_seoul(lat: float, lon: float, start: date, days: int) -> list[
     """
     import requests
 
-    api_key = os.getenv("SEOUL_OPENAPI_KEY", "sample")
+    # 빈 문자열도 '없음'으로 본다 — env.yaml에 자리만 만들어 두고 값을 비워 두면
+    # getenv의 기본값이 먹지 않아 URL이 ".../8088//json/..."이 되어 서울 행사가 통째로
+    # 사라진다(샘플 키로라도 5건은 나오던 것이 0건이 된다).
+    api_key = os.getenv("SEOUL_OPENAPI_KEY", "").strip() or "sample"
     limit = 5 if api_key == "sample" else 500
     events: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
