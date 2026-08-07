@@ -1,7 +1,7 @@
 // 공동 소유 — 탭 추가 시 알파벳순 정렬, 팀 공지
 // PRD §6 화면 5개: 대시보드 / 재고 / 발주 / 챗봇 / 운영
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator, LayoutAnimation, Platform, View } from 'react-native';
+import { ActivityIndicator, LayoutAnimation, Platform, Text, View } from 'react-native';
 import { PressableScale } from '../components/motion';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -146,6 +146,38 @@ const erpHeader = (title: string, navigation: any) =>
     animation: 'slide_from_right' as const,
   });
 
+// 직원 전용 앱 — 단골·선불 충전 화면 하나. 탭 없음.
+// 헤더 오른쪽에 로그아웃을 둔다(탭·설정이 없어 나갈 길이 여기뿐이다).
+function StaffApp({ userName }: { userName: string }) {
+  const { logout } = useAuth();
+  return (
+    <NavigationContainer key={`staff:${userName}`} ref={navigationRef}>
+      <Stack.Navigator>
+        <Stack.Screen
+          name="Membership"
+          component={MembershipScreen}
+          options={({ navigation }) => ({
+            // 사장님 화면과 같은 브라운 헤더를 그대로 쓰고(erpHeader), 뒤로가기 대신
+            // 로그아웃을 오른쪽에 둔다 — 직원은 나갈 길이 여기뿐이다.
+            ...erpHeader('단골 · 선불 충전', navigation),
+            headerLeft: () => null,
+            headerRight: () => (
+              <PressableScale
+                onPress={logout}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: 12, padding: 4 }}
+                to={0.9}
+              >
+                <Ionicons name="log-out-outline" size={18} color={colors.creamSand} />
+                <Text style={{ color: colors.creamSand, fontSize: 13, fontWeight: '600' }}>로그아웃</Text>
+              </PressableScale>
+            ),
+          })}
+        />
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+}
+
 export default function RootNavigator() {
   const { user, booting } = useAuth();
 
@@ -166,6 +198,14 @@ export default function RootNavigator() {
   // 관리자 → 하단 탭 없이 관리자 콘솔만 노출
   if (ADMIN_EMAILS.includes(user.email)) {
     return <AdminScreen />;
+  }
+
+  // 직원(알바) → 단골·선불 충전 화면 하나만. 탭도, 대시보드·재고·챗봇·관리도 없다.
+  // 계산대에 서는 알바가 매출·정산·급여·원가를 보면 안 되기 때문이다(백엔드 staff_guard도
+  // 같은 이유로 API를 막는다 — 화면은 오해를 줄이려 감추고, 실제 차단은 서버가 한다).
+  // 화면 안에서도 재무·마케팅·상품설계는 MembershipScreen이 isStaff로 걸러낸다.
+  if (user.isStaff) {
+    return <StaffApp userName={user.name} />;
   }
 
   return (
