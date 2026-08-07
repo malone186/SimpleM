@@ -8,7 +8,7 @@ import { useNavigation } from '@react-navigation/native';
 
 import type { ChatDocument } from '../../lib/api/chatbot';
 import { formatValue, labelFor, visibleEntries } from '../../lib/documentLabels';
-import { parseReportActions } from '../../lib/reportActions';
+import { parseAdviceLines, parseReportActions } from '../../lib/reportActions';
 import { colors, typography } from '../../theme';
 import { PressableScale } from '../motion';
 
@@ -100,30 +100,21 @@ function ObjectSection({ name, obj }: { name: string; obj: Record<string, unknow
 }
 
 /** AI 조언처럼 긴 문장은 라벨:값 행으로 찍으면 오른쪽 정렬 좁은 칸에 뭉개진다 — 전용 블록으로.
-    새 형식은 "1. …\n2. …"의 번호 매긴 줄이라, 줄로 쪼개 번호를 강조해 읽기 쉽게 그린다. */
+    번호는 인덱스로 붙이고, 구형식(문단) 조언도 parseAdviceLines가 문장 단위로 끊어 준다. */
 function AdviceBlock({ text }: { text: string }) {
+  const lines = parseAdviceLines(text);
   return (
     <View style={styles.adviceWrap}>
       <View style={styles.adviceHeader}>
         <Ionicons name="cafe-outline" size={13} color={colors.pointOrange} />
         <Text style={styles.adviceTitle}>브루의 조언</Text>
       </View>
-      {text.split('\n').filter(Boolean).map((line, i) => {
-        const m = line.match(/^(\d+)\.\s*(.*)$/);
-        return (
-          <Text key={i} style={styles.adviceText}>
-            {m ? (
-              <>
-                <Text style={styles.adviceNum}>{m[1]}</Text>
-                <Text style={styles.adviceNum}>{'  '}</Text>
-                {m[2]}
-              </>
-            ) : (
-              line
-            )}
-          </Text>
-        );
-      })}
+      {lines.map((line, i) => (
+        <Text key={i} style={styles.adviceText}>
+          {lines.length > 1 && <Text style={styles.adviceNum}>{i + 1}{'  '}</Text>}
+          {line}
+        </Text>
+      ))}
     </View>
   );
 }

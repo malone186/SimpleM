@@ -17,7 +17,7 @@ import {
 } from '../../lib/api/documents';
 import { describeApiFailure, type ApiFailure } from '../../lib/api/errors';
 import { useCachedResource } from '../../lib/cache';
-import { parseReportActions } from '../../lib/reportActions';
+import { parseAdviceLines, parseReportActions } from '../../lib/reportActions';
 import { colors, spacing, typography } from '../../theme';
 import { PressableScale } from '../motion';
 import { Segmented } from '../ui/Segmented';
@@ -391,34 +391,29 @@ export default function ManagementReportCard({ refreshToken = 0 }: { refreshToke
               </View>
             )}
 
-            {/* 브루의 조언 — 번호 매긴 짧은 문장 한 줄씩. 백엔드가 "1. …\n2. …"로 보내므로
-                줄로 쪼개 번호만 오렌지로 강조한다 (구형식 문단 조언은 그대로 한 덩이로 나온다) */}
-            {aiAdvice && (
-              <View style={styles.adviceWrap}>
-                <View style={styles.adviceHeader}>
-                  <Ionicons name="cafe" size={13} color={colors.pointOrange} />
-                  <Text style={styles.adviceTitle}>
-                    {language === 'en' ? "BREW's advice" : '브루의 조언'}
-                  </Text>
-                </View>
-                {aiAdvice.split('\n').filter(Boolean).map((line, i) => {
-                  const m = line.match(/^(\d+)\.\s*(.*)$/);
-                  return (
-                    <Text key={i} style={styles.adviceText}>
-                      {m ? (
-                        <>
-                          <Text style={styles.adviceNum}>{m[1]}</Text>
-                          <Text style={styles.adviceNum}>{'  '}</Text>
-                          {m[2]}
-                        </>
-                      ) : (
-                        line
-                      )}
+            {/* 브루의 조언 — 짧은 문장 한 줄씩, 번호는 인덱스로 붙인다.
+                구형식(문단) 조언도 parseAdviceLines가 문장 단위로 끊어 같은 모양으로 만든다 */}
+            {aiAdvice && (() => {
+              const lines = parseAdviceLines(aiAdvice);
+              return (
+                <View style={styles.adviceWrap}>
+                  <View style={styles.adviceHeader}>
+                    <Ionicons name="cafe" size={13} color={colors.pointOrange} />
+                    <Text style={styles.adviceTitle}>
+                      {language === 'en' ? "BREW's advice" : '브루의 조언'}
                     </Text>
-                  );
-                })}
-              </View>
-            )}
+                  </View>
+                  {lines.map((line, i) => (
+                    <Text key={i} style={styles.adviceText}>
+                      {lines.length > 1 && (
+                        <Text style={styles.adviceNum}>{i + 1}{'  '}</Text>
+                      )}
+                      {line}
+                    </Text>
+                  ))}
+                </View>
+              );
+            })()}
 
             {/* 지금 할 수 있는 일 — 조언에서 짚은 문제를 그 화면으로 바로 이동해 해결 */}
             {aiActions.length > 0 && (
