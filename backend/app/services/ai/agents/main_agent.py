@@ -843,7 +843,15 @@ def get_agent_overview() -> dict[str, Any]:
         "experts": experts,
         # 서버 시작 이후의 실제 실행 현황 (프로세스 메모리 기준 — 재시작하면 0부터)
         "runtime": runtime,
+        # 기능 검증(QA) 멀티에이전트 편성 — 챗봇 편성과 별개로, 저장소 전체를 기능
+        # 단위로 검증한 마지막 실행의 판정표. 콘솔이 하단에 함께 그린다.
+        "qa_fleet": _qa_fleet_snapshot(),
     }
+
+
+def _qa_fleet_snapshot() -> dict[str, Any]:
+    from app.services.ai.agents import qa_fleet
+    return qa_fleet.snapshot()
 
 
 def _audit_turn_safely(store_id: str, question: str, answer: str, recorder, ms: float) -> None:
