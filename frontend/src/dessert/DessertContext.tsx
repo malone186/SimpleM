@@ -4,6 +4,7 @@
 //      ① 매입가(완제품 사입가)  ② 입고 배치(수량+소비기한)  ③ 폐기 기록
 //  · 모두 menuId(숫자)로 메뉴에 붙는다. 로컬 영구저장(AsyncStorage).
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { dateKey } from '../lib/dateKey';
 import {
   createContext,
   useCallback,
@@ -62,7 +63,7 @@ const EMPTY: DessertData = { metas: [], batches: [], wastes: [] };
 
 export function todayISO(): string {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return dateKey(d);
 }
 
 // 소비기한까지 남은 일수 (오늘=0, 지남=음수)

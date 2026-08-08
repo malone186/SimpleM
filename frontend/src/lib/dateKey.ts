@@ -16,3 +16,8 @@ export function localDateKey(iso: string): string {
   if (Number.isNaN(d.getTime())) return iso.split('T')[0];
   return dateKey(d);
 }
+
+/** Date → 기기 시간대 기준 YYYY-MM (월 키) */
+export function monthKey(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}

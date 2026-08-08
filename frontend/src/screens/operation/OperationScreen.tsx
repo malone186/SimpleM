@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, Modal, Platform, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { dateKey, monthKey } from '../../lib/dateKey';
 
 import { Badge, Button, Card, Divider, Screen, ScreenTitle, SectionTitle, WeekdayButtonGroup, IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
@@ -27,11 +28,11 @@ const notify = (title: string, message: string) => toast(title, message);
 // [백엔드 연동] 이번 달 기준 · 전체 매장 집계
 const nowYM = () => {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return monthKey(d);
 };
 // 기기 로컬(=KST) 기준 날짜 문자열 — toISOString()은 UTC라 오전 9시 전엔 하루 이르게 나온다
 const localISO = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  dateKey(d);
 const tomorrowISO = () => {
   const d = new Date();
   d.setDate(d.getDate() + 1);
@@ -120,7 +121,7 @@ function ScheduleCalendarCard({
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return dateKey(d);
   });
   const [payrollEmployees, setPayrollEmployees] = useState<Payroll[]>([]);
   const [dbEmployees, setDbEmployees] = useState<Employee[]>([]);
@@ -232,7 +233,7 @@ function ScheduleCalendarCard({
 
     // [한글 주석: UTC 파싱 오차 없는 100% 정확한 로컬 ISO 날짜 생성]
     const nowD = new Date();
-    const todayStr = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, '0')}-${String(nowD.getDate()).padStart(2, '0')}`;
+    const todayStr = dateKey(nowD);
 
     for (let d = 1; d <= daysInMonth; d++) {
       const mStr = String(month + 1).padStart(2, '0');
