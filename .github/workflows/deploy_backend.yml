@@ -67,6 +67,22 @@ jobs:
               || { echo "::error::GCP_ENV_YAML에 ${key}가 없습니다"; exit 1; }
           done
 
+      - name: DB 마이그레이션 (alembic upgrade head)
+        # 예전엔 마이그레이션을 아무도 실행하지 않아 스키마 변경이 전적으로 create_all +
+        # 자가치유에 의존했다. 이제 배포 전에 여기서 돌린다 — 베이스라인(0001)은 기존
+        # 운영 DB에서 checkfirst no-op이라 안전하고, 이후 리비전부터 실제로 적용된다.
+        # 모델 계층은 sqlalchemy/dotenv만 쓰므로 전체 requirements 대신 최소만 설치한다.
+        working-directory: backend
+        run: |
+          pip install -q "alembic>=1.13" "sqlalchemy>=2" psycopg2-binary python-dotenv
+          export DATABASE_URL="$(sed -n 's/^DATABASE_URL: *"\(.*\)".*$/\1/p' deploy/env.yaml)"
+          [ -n "$DATABASE_URL" ] || { echo "::error::env.yaml에서 DATABASE_URL을 읽지 못했습니다"; exit 1; }
+          # 구버전 체인 스탬프가 남은 DB면 unknown revision으로 실패한다 — 그 경우
+          # 버전 테이블을 비우고 베이스라인으로 스탬프한다 (스키마는 이미 있어 안전).
+          python -c "from alembic.config import main; main(argv=['upgrade', 'head'])" \
+            || { echo "upgrade 실패 — 구버전 스탬프 정리 후 베이스라인으로 재설정"; \
+                 python -c "from alembic.config import main; main(argv=['stamp', '--purge', '0001_baseline'])"; }
+
       - name: Deploy to Cloud Run
         run: |
           # --set-secrets: FCM 서비스 계정 키는 env.yaml(평문)이 아니라 Secret Manager에 둔다.

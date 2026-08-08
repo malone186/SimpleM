@@ -498,7 +498,10 @@ def collect_and_process_reviews(
             review = BeanReview(
                 bean_id=bean_id,
                 source_site=source_site,
-                source_url=canonical_url,
+                # source_url 유니크 제약(uq_bean_reviews_source_url)과 충돌하지 않게
+                # 샘플마다 고유 프래그먼트를 붙인다 — 예전엔 5개가 전부 같은 URL이라
+                # 유니크 제약이 걸린 DB(마이그레이션 빌드)에서는 두 번째부터 터졌다.
+                source_url=f"{canonical_url}#sample-{bean_id}-{i + 1}",
                 rating=rating,
                 content=text,
                 sentiment=analysis["sentiment"],

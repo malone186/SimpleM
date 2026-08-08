@@ -76,6 +76,14 @@ def _startup_db_selfheal() -> None:
     from app.models.inventory import ensure_performance_indexes
     ensure_performance_indexes(engine)
 
+    # [자가치유] 급여 테이블 (직원, 기간) 유니크 보강 — 중복 행 정리 후 인덱스 생성.
+    from app.models.operation import ensure_estimated_payroll_unique
+    ensure_estimated_payroll_unique(engine)
+
+    # [자가치유] 원두 오퍼·리뷰 유니크/조회 인덱스 보강 — 수집 upsert 중복 방지.
+    from app.models.roastery import ensure_roastery_constraints
+    ensure_roastery_constraints(engine)
+
     # [한글 주석] 로그인 데모를 즉시 하실 수 있게 테스트용 사장님 계정을 자동으로 생성(시딩)해 둡니다.
     #
     # 비밀번호는 앱 로그인 화면의 '데모 로그인' 버튼이 그대로 보내는 값이다

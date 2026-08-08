@@ -1,1 +1,16 @@
-Generic single-database configuration.
+SimpleM 마이그레이션 (2026-08-08 재구축)
+
+예전 체인은 루트가 존재하지 않는 테이블(employees)을 FK로 참조해 신규 DB에서
+upgrade가 불가능했고, 실행하는 곳도 없었다. 그래서 0001_baseline(모델 메타데이터
+전체를 checkfirst 생성) 하나로 다시 시작했다.
+
+- 실행 주체: .github/workflows/deploy_backend.yml 이 배포 전에 `alembic upgrade head`를
+  운영 DB(Neon)에 돌린다. 로컬은 `DATABASE_URL=... alembic upgrade head`.
+- 스키마 변경 절차: 모델 수정 → `alembic revision --autogenerate -m "..."` →
+  생성된 파일 검토(빈 파일이면 env.py의 include_object/DB_SCHEMA 확인) → 커밋.
+- 제약·인덱스는 반드시 모델 __table_args__에 선언한다 — 메타데이터가 단일 진실이고,
+  마이그레이션에만 넣으면 create_all로 만든 DB와 갈라진다.
+- main.py의 ensure_* 자가치유는 '이미 배포된 기존 DB 보정'용으로 유지된다. 새 변경은
+  마이그레이션이 기본 경로다.
+- 구버전 체인(5f74cb88c050~e1f234567890)을 로컬 DB에 적용했던 팀원은
+  `alembic stamp 0001_baseline`으로 버전만 맞추면 된다 (스키마는 이미 있음).

@@ -905,6 +905,13 @@ def _payroll_rows(employees: list, schedules: list) -> list[dict[str, Any]]:
         if rate <= 0 or h <= 0:
             continue
         base = int(h * rate)
+        # 주휴수당 — 주 평균 15시간 이상이면 포함. /operation/payroll/all(calculate_payroll_from_db)
+        # 및 직원 목록의 예상 인건비(estimate_labor_cost)와 같은 규칙 — 화면마다 월급이
+        # 다르게 보이던 불일치의 해소. 이 목록은 월 단위라 월 평균 주 수(WEEKS_PER_MONTH)를 쓴다.
+        weekly_avg = h / WEEKS_PER_MONTH
+        holiday = 0
+        if weekly_avg >= 15.0:
+            holiday = int(round(min(1.0, weekly_avg / 40.0) * 8 * rate * WEEKS_PER_MONTH))
         rows.append({
             "employee_id": e.id,
             "employee_name": e.name,
@@ -912,8 +919,8 @@ def _payroll_rows(employees: list, schedules: list) -> list[dict[str, Any]]:
             "hourly_rate": rate,
             "total_work_hours": h,
             "base_salary": base,
-            "weekly_holiday_allowance": 0,
-            "estimated_salary": base,
+            "weekly_holiday_allowance": holiday,
+            "estimated_salary": base + holiday,
             "based_on_actual": actual.get(e.id, False),
         })
     return rows
