@@ -27,7 +27,7 @@ import * as AuthSession from 'expo-auth-session';
 
 import { auth } from '../lib/firebase';
 import { shouldRetryWithBackendLogin } from './loginFallback';
-import { API_BASE_URL } from '../lib/api/client';
+import { API_BASE_URL, onAuthExpired } from '../lib/api/client';
 import { clearMemoryCache } from '../lib/cache';
 import { unregisterFromPush } from '../notifications/pushRegistration';
 
@@ -623,6 +623,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearMemoryCache();
     await AsyncStorage.clear();
   }, [token]);
+
+  // [세션 만료 전역 처리] 어떤 API든 인증 401을 받으면 죽은 세션을 정리하고 로그인
+  // 화면으로 보낸다 — 예전엔 화면마다 "로그인이 만료됐어요" 에러만 반복되고,
+  // 사용자가 설정에서 로그아웃 버튼을 직접 찾아 눌러야 했다.
+  useEffect(() => {
+    onAuthExpired(() => {
+      if (!userRef.current) return; // 이미 로그인 화면 — 중복 정리 방지
+      logout().catch(() => {});
+    });
+    return () => onAuthExpired(null);
+  }, [logout]);
 
   // [한글 주석] 로그인된 점주님의 정보(이름/비밀번호)를 Firebase 및 백엔드 데이터베이스에 동시 갱신합니다.
   const updateProfile = useCallback(

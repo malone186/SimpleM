@@ -802,6 +802,21 @@ def calculate_settlement_api(
             year_month = payload.period_start[:7]
             employees_payroll = OperationService.list_employees_payroll(db, year_month, store_id=store_id)
             labor_cost = sum(payroll.get("estimated_salary", 0) for payroll in employees_payroll)
+            # 급여는 시작월 '한 달치'로 집계된다 — 기간이 월 전체가 아니면(1주 정산 등)
+            # 그대로 빼면 이익이 크게 축소되므로 기간 일수 비율로 안분한다.
+            # (매출·지출은 정확히 기간대로 잡히는데 인건비만 한 달치 통째였다)
+            try:
+                import calendar as _cal
+                from datetime import date as _date
+                ps = _date.fromisoformat(payload.period_start)
+                pe = _date.fromisoformat(payload.period_end)
+                month_days = _cal.monthrange(ps.year, ps.month)[1]
+                full_month = (ps.day == 1 and pe == _date(ps.year, ps.month, month_days))
+                if not full_month:
+                    period_days = max(0, (pe - ps).days + 1)
+                    labor_cost = int(round(labor_cost * min(1.0, period_days / month_days)))
+            except (ValueError, TypeError):
+                pass  # 날짜 형식이 어긋나면 기존 동작(한 달치) 유지
 
         # [한글 주석: 두 경로 모두 유효 데이터가 확보되지 않았다면 에러를 리턴합니다]
         if revenue is None or cost is None or labor_cost is None:

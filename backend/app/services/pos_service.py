@@ -111,20 +111,25 @@ async def _fetch_orders(token: str, environment: str, start_at: str, end_at: str
             raise PosError("Square 계정에 활성 매장(Location)이 없습니다.")
 
         states = ["COMPLETED", "OPEN"] if environment == "sandbox" else ["COMPLETED"]
-        payload = {
-            "location_ids": locations[:10],
-            "query": {
-                "filter": {
-                    "state_filter": {"states": states},
-                    "date_time_filter": {"created_at": {"start_at": start_at, "end_at": end_at}},
+        # Square orders/search는 요청당 location 10개 제한 — 예전엔 [:10]으로 잘라
+        # 11번째 이후 매장의 매출이 소리 없이 누락됐다. 10개씩 나눠 전부 조회한다.
+        orders: list[dict] = []
+        for i in range(0, len(locations), 10):
+            payload = {
+                "location_ids": locations[i:i + 10],
+                "query": {
+                    "filter": {
+                        "state_filter": {"states": states},
+                        "date_time_filter": {"created_at": {"start_at": start_at, "end_at": end_at}},
+                    },
+                    "sort": {"sort_field": "CREATED_AT", "sort_order": "DESC"},
                 },
-                "sort": {"sort_field": "CREATED_AT", "sort_order": "DESC"},
-            },
-        }
-        resp = await client.post(f"{base}/orders/search", json=payload, headers=headers)
-        if resp.status_code != 200:
-            raise PosError(f"Square orders 검색 실패 (HTTP {resp.status_code}).")
-        return resp.json().get("orders", [])
+            }
+            resp = await client.post(f"{base}/orders/search", json=payload, headers=headers)
+            if resp.status_code != 200:
+                raise PosError(f"Square orders 검색 실패 (HTTP {resp.status_code}).")
+            orders.extend(resp.json().get("orders", []))
+        return orders
 
 
 async def _fetch_order(token: str, environment: str, order_id: str) -> Optional[dict]:
@@ -236,7 +241,10 @@ def record_orders(db: Session, store_id: str, orders: list[dict], provider: str 
                 use = rqty * qty
                 stock = stock_by_ing.get(ing_id)
                 if stock is not None:
-                    stock.current_quantity = max(0.0, stock.current_quantity - use)
+                    # 0에서 자르지 않는다 — 장부(StockTransaction)에는 -use 전액이 남는데
+                    # 캐시만 0에서 멈추면 둘이 어긋나고, 발주 추천의 부족량 계산도
+                    # 실제 부족분보다 적게 잡힌다. 수동 조정 경로와 같은 규칙(음수 허용).
+                    stock.current_quantity -= use
                 db.add(StockTransaction(ingredient_id=ing_id, quantity_change=-use,
                                         type="OUT", description=f"POS 실시간 동기화 ({provider})"))
             created_sales += 1

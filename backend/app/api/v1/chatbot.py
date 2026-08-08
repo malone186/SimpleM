@@ -1845,34 +1845,42 @@ async def chat_message(
     # 쿼터는 동기 SQLAlchemy(FOR UPDATE 포함)라 async 엔드포인트에서 그대로 부르면
     # Neon 왕복(0.4~0.6초) 동안 이벤트 루프 전체가 멈춘다 — 스레드로 내린다.
     try:
-        await asyncio.to_thread(chat_quota_service.consume, store_key)
+        quota_snap = await asyncio.to_thread(chat_quota_service.consume, store_key)
     except chat_quota_service.QuotaExhausted as e:
         # detail을 dict로 넘겨 프론트가 '할당량 소진'과 다른 429를 구분할 수 있게 한다
         raise HTTPException(429, {"quota_exhausted": True, "quota": e.args[0]})
+    # 환불은 '차감된 그 날' 행에 해야 한다 — 자정 직전 차감 → 직후 실패면 day 없이는
+    # 오늘(used=0) 행에서 빼려다 어제 턴이 영영 차감된 채 남는다.
+    quota_day = quota_snap.get("date")
+
+    # [비용 상한] history는 클라이언트가 그대로 보내는 무제한 리스트라, 한 턴에 수 MB를
+    # 실어 보내면 메인+전문가 모든 모델 호출의 토큰 비용·지연이 배로 뛴다. 최근 40개(20턴)면
+    # 대화 맥락으로 충분하다.
+    history = (body.history or [])[-40:]
 
     # [자동 감사] 이번 발화가 "아니 그게 아니라" 같은 부정이면 직전 턴을 사고 후보로 남긴다.
     # 숫자가 그럴듯하게 틀린 오답은 감시 규칙이 못 잡고, 그걸 아는 사람은 사장님뿐이다.
     # 정규식 판정이라 LLM 호출은 없지만, 부정 발화로 판정되면 사고 기록 DB 쓰기가
     # 생기므로 이것도 스레드에서 돌린다.
     from app.services.ai import answer_audit
-    await asyncio.to_thread(answer_audit.check_followup, store_key, body.message, body.history)
+    await asyncio.to_thread(answer_audit.check_followup, store_key, body.message, history)
 
     try:
         # [한글 주석] 챗봇 에이전트의 대화 처리 루프 실행 — 답변 텍스트 + 이번 턴에 만든 문서 전문
         result = await main_agent.generate_response(
             user_message=body.message,
             store_id=store_key,
-            history=body.history
+            history=history
         )
         # generate_response는 내부에서 예외를 전부 삼켜 정상 dict로 돌려주므로(사과 문구),
         # 아래 except로는 AI 실패가 안 잡힌다. ok=False면 실질 답변을 못 만든 턴이니
         # 차감한 쿼터를 여기서 되돌린다 (안 그러면 실패한 턴도 사장님 쿼터가 깎인다).
         if not result.get("ok", True):
-            await asyncio.to_thread(chat_quota_service.refund, store_key)
+            await asyncio.to_thread(chat_quota_service.refund, store_key, quota_day)
         return ChatResponse(response=result["text"], documents=result["documents"])
     except Exception as e:
         # 답을 못 준 턴까지 차감하면 부당하다 — 되돌린다 (예외가 여기까지 올라온 드문 경우)
-        await asyncio.to_thread(chat_quota_service.refund, store_key)
+        await asyncio.to_thread(chat_quota_service.refund, store_key, quota_day)
         # [한글 주석] 장애 추적을 위해 로컬 콘솔에 상세 예외 Traceback을 기록합니다.
         logger.exception("챗봇 서비스 실행 중 장애 발생")
         raise HTTPException(500, f"챗봇 서비스 실행 중 장애 발생: {str(e)}")
@@ -1890,14 +1898,19 @@ def get_chat_quota(store_id: Optional[str] = Depends(_optional_store_id)) -> dic
 
 @router.post("/quota/ad-reward")
 def grant_chat_quota(store_id: Optional[str] = Depends(_optional_store_id)) -> dict:
-    """광고 시청 완료 → 턴 충전.
+    """광고 시청 완료 → 턴 충전. 로그인 계정만 가능.
 
     지금은 클라이언트의 '봤다'는 보고를 믿는다. 앱을 뜯으면 광고 없이 이 엔드포인트를
     때려 무한 충전이 가능하므로, 실제 서비스에서는 AdMob 서버 사이드 검증(SSV) 콜백으로
     바꿔야 한다 — MAX_ADS_PER_DAY가 그때까지의 피해 상한 역할을 한다.
+    비로그인은 401 — 익명은 전 세계가 데모 계정(owner@cafe.com)의 쿼터 행 하나를
+    공유하므로, 열어 두면 curl 루프 하나로 무한 충전되거나 반대로 한 명이 다 써서
+    모든 비로그인 사용자의 체험이 막힌다. (앱은 로그인 후에만 챗봇에 진입한다.)
     """
+    if store_id is None:
+        raise HTTPException(401, "로그인 후 이용할 수 있습니다.")
     try:
-        return chat_quota_service.grant_from_ad(store_id or "owner@cafe.com")
+        return chat_quota_service.grant_from_ad(store_id)
     except chat_quota_service.AdLimitReached as e:
         raise HTTPException(429, {"ad_limit_reached": True, "quota": e.args[0]})
 

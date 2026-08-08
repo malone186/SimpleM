@@ -315,8 +315,11 @@ export default function SalesCard({
     { maxAgeMs: 5 * 60_000, refreshToken },
   );
 
-  const weekDays = useMemo(() => getWeekDays(), []);
   const todayKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+  // todayKey를 의존성으로 — 마운트 1회 고정([])이면 자정을 넘겨도 isToday/isPast가
+  // 어제 기준으로 남아, 날짜 미지정 할 일들이 전날 칸에 계속 그려졌다.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const weekDays = useMemo(() => getWeekDays(), [todayKey]);
   const [selectedDateKey, setSelectedDateKey] = useState<string>(todayKey);
 
   const selectedDateInfo = useMemo(() => {

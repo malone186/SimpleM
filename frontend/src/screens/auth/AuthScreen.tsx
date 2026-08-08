@@ -243,7 +243,9 @@ export default function AuthScreen() {
     setError('');
     setBusy(true);
     try {
-      await loginAsStaff(staffId.trim(), staffPw, true);
+      // 자동 로그인 체크박스를 존중한다 — 공용 계산대 기기에서 무조건 세션을 디스크에
+      // 남기던(true 고정) 동작은 화면의 체크박스와 어긋났다.
+      await loginAsStaff(staffId.trim(), staffPw, autoLogin);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

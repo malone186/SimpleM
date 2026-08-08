@@ -1303,6 +1303,11 @@ function UnavailabilityManagementCard() {
       notify('로그인 필요', '기피시간 등록은 로그인 후 사용할 수 있습니다.');
       return;
     }
+    // 등록된 직원 목록에 있는 id만 통과 — 기본값 '1'이 실재하는 직원이라는 보장이 없다
+    if (!employees.some((e) => String(e.id) === employeeId)) {
+      notify('입력 확인', '직원을 먼저 등록한 뒤 선택해 주세요.');
+      return;
+    }
     const empId = parseInt(employeeId, 10);
     const sH = parseInt(startHour, 10);
     const eH = parseInt(endHour, 10);
@@ -1410,14 +1415,12 @@ function UnavailabilityManagementCard() {
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>직원 선택</Text>
                 {employees.length === 0 ? (
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
-                    <PressableScale
-                      style={[styles.peakSegmentBtn, { flex: 0, paddingHorizontal: 16, paddingVertical: 10 }, styles.segmentBtnActiveNormal]}
-                      onPress={() => setEmployeeId('1')}
-                    >
-                      <Text style={styles.segmentTextActiveNormal}>직원 1 (ID:1)</Text>
-                    </PressableScale>
-                  </View>
+                  // 직원이 없으면 등록으로 안내한다 — 예전엔 'ID:1' 하드코딩 칩이 있어
+                  // 존재하지 않는 직원 id로 기피 시간이 등록되는 유령 데이터가 생겼다
+                  // (스케줄 추가 모달이 이미 같은 이유로 걷어낸 패턴).
+                  <Text style={styles.formLabel}>
+                    등록된 직원이 없어요. 먼저 직원 관리에서 직원을 등록해 주세요.
+                  </Text>
                 ) : (
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                     {employees.map((emp) => {

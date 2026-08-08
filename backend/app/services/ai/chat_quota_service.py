@@ -69,17 +69,18 @@ def _snapshot(row) -> dict[str, Any]:
     }
 
 
-def _get_or_create(db, store_id: str, *, lock: bool = False):
-    """오늘 행을 가져오거나 만든다.
+def _get_or_create(db, store_id: str, *, lock: bool = False, day: str | None = None):
+    """오늘(또는 지정한 날) 행을 가져오거나 만든다.
 
     lock=True면 SELECT ... FOR UPDATE로 잠근다. 같은 사용자가 메시지를 연달아 보내면
     used 증가가 겹쳐 한도를 넘길 수 있어서다 (Postgres에서만 실효, sqlite는 무시).
+    day는 환불이 '차감했던 그 날' 행을 짚을 때 쓴다 (자정 직전 소비 → 직후 환불 케이스).
     """
     from sqlalchemy.exc import IntegrityError
 
     from app.models.ai import ChatQuota
 
-    today = _today()
+    today = day or _today()
     q = db.query(ChatQuota).filter(ChatQuota.store_id == store_id, ChatQuota.date == today)
     if lock:
         q = q.with_for_update()
@@ -127,10 +128,15 @@ def consume(store_id: str) -> dict[str, Any]:
         return snap
 
 
-def refund(store_id: str) -> None:
-    """소비를 되돌린다 — 챗봇이 장애로 답을 못 준 턴까지 차감하면 부당하다."""
+def refund(store_id: str, day: str | None = None) -> None:
+    """소비를 되돌린다 — 챗봇이 장애로 답을 못 준 턴까지 차감하면 부당하다.
+
+    day: 차감이 일어난 날짜(consume 반환값의 date). 자정 직전에 차감된 턴이 자정을
+    넘겨 실패하면, day 없이 되돌릴 때 '오늘'(used=0) 행에서 무의미하게 빼려다
+    어제의 실패 턴이 영영 차감된 채 남는다.
+    """
     with _session() as db:
-        row = _get_or_create(db, store_id, lock=True)
+        row = _get_or_create(db, store_id, lock=True, day=day)
         if row.used > 0:
             row.used -= 1
         db.commit()

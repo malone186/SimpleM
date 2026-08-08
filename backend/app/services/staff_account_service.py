@@ -131,20 +131,49 @@ def list_accounts(db: Session, store_id: str) -> List[Dict[str, Any]]:
     ]
 
 
+# [무차별 대입 방어] 직원 비밀번호는 6자리 숫자(경우의 수 100만)라 시도 제한이 없으면
+# 원격에서 몇 시간이면 뚫린다. 프로세스 메모리 기준 잠금(단일 인스턴스 배포 전제):
+# 같은 login_id로 연속 실패가 _LOCK_THRESHOLD회면 _LOCK_MINUTES분 잠근다.
+_FAILED: dict[str, tuple[int, "datetime"]] = {}
+_LOCK_THRESHOLD = 5
+_LOCK_MINUTES = 5
+
+
+def _login_locked(login_id: str) -> bool:
+    count, last = _FAILED.get(login_id, (0, None))
+    if count < _LOCK_THRESHOLD or last is None:
+        return False
+    if _now() - last > timedelta(minutes=_LOCK_MINUTES):
+        _FAILED.pop(login_id, None)  # 잠금 만료 — 카운터 리셋
+        return False
+    return True
+
+
+def _record_login_failure(login_id: str) -> None:
+    count, _ = _FAILED.get(login_id, (0, None))
+    _FAILED[login_id] = (count + 1, _now())
+
+
 def login(db: Session, login_id: str,
           password: str) -> Tuple[Optional[str], str, Optional[StaffAccount]]:
     """직원 로그인 — 성공하면 매장 이메일이 담긴 토큰을 준다."""
     import jwt
 
+    clean_id = (login_id or "").strip()
+    if _login_locked(clean_id):
+        return None, "로그인 시도가 너무 많았어요. 5분 뒤에 다시 시도해 주세요.", None
+
     acc = (
         db.query(StaffAccount)
-        .filter(StaffAccount.login_id == (login_id or "").strip())
+        .filter(StaffAccount.login_id == clean_id)
         .first()
     )
     # [한글 주석] 아이디가 없는 것과 비밀번호가 틀린 것을 구분해 알리지 않는다.
     # 구분해 주면 유효한 아이디를 찾아내는 시도에 단서가 된다.
     if not acc or not verify_password(password or "", acc.hashed_password):
+        _record_login_failure(clean_id)
         return None, "아이디 또는 비밀번호가 올바르지 않습니다.", None
+    _FAILED.pop(clean_id, None)  # 성공 — 실패 카운터 리셋
     if not acc.is_active:
         return None, "사용이 중지된 계정입니다. 사장님께 문의해 주세요.", None
 

@@ -301,11 +301,14 @@ class OperationService:
         weekly_holiday_allowance = 0
         estimated_salary = base_salary + weekly_holiday_allowance
 
+        # (employee_id, period) 유니크 제약이 없어 동시 조회 두 개가 중복 행을 만들 수
+        # 있다 — 최신 행(id 최대)을 집게 정렬해, 어느 행을 읽을지 실행마다 달라지는
+        # 비결정성을 없앤다.
         est_payroll = db.query(EstimatedPayroll).filter(
             EstimatedPayroll.employee_id == employee_id,
             EstimatedPayroll.period_start == period_start,
             EstimatedPayroll.period_end == period_end
-        ).first()
+        ).order_by(EstimatedPayroll.id.desc()).first()
 
         if est_payroll:
             est_payroll.total_work_hours = total_hours

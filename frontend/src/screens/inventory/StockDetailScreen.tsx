@@ -94,9 +94,13 @@ export default function StockDetailScreen() {
     }
   }, [token, ingredientId]);
 
+  // route.params.ts: 호출부가 '같은 재료를 다시 탭해도 재조회되게' 넘기는 타임스탬프.
+  // 예전엔 받고도 안 읽어서, 화면이 이미 떠 있는 채 같은 재료로 다시 진입하면
+  // 재조회가 없었다 — 의존성에 넣어 값이 바뀔 때마다 다시 부른다.
+  const routeTs = route.params?.ts;
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, routeTs]);
 
   const onRefresh = async () => {
     setRefreshing(true);
