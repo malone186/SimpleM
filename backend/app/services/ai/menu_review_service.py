@@ -552,7 +552,7 @@ def _ai_comment(summary: dict[str, Any], items: list[dict[str, Any]]) -> tuple[s
     try:
         import httpx
 
-        model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        model = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
         config: dict[str, Any] = {"temperature": 0.4, "maxOutputTokens": 512}
         # 두 문장 쓰는 데 사고 예산을 쓰면 답이 통째로 비어 온다 (OCR과 같은 이유)
         if model.startswith("gemini-2.5"):
@@ -836,7 +836,7 @@ def _ai_new_menus(menus: list[dict[str, Any]], month: int, count: int = 2) -> li
     try:
         import httpx
 
-        model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        model = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
         config: dict[str, Any] = {
             "temperature": 0.8,   # 아이디어라 매번 같으면 재미가 없다
             "responseMimeType": "application/json",

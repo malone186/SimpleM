@@ -37,7 +37,7 @@ PERIOD_LABEL = {"daily": "일간", "weekly": "주간", "monthly": "월간"}
 KST = timezone(timedelta(hours=9))
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
 
 
 class ReportError(ValueError):

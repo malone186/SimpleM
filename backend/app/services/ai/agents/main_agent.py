@@ -55,7 +55,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
 
 # ---------------------------------------------------------------------------
 # LangSmith 트레이싱 — .env에 LANGSMITH_API_KEY만 넣으면 자동 활성화된다.

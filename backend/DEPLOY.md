@@ -54,7 +54,7 @@ powershell -File deploy/deploy_frontend.ps1
 
 ## 알아둘 것
 
-- **OCR**: Gemini API(`gemini-2.5-flash` 기본, `OCR_GEMINI_MODEL`로 교체 가능).
+- **OCR**: Gemini API(`gemini-3.1-flash-lite` 기본, `OCR_GEMINI_MODEL`로 교체 가능).
   무료 쿼터는 모델별·팀 공유 키 합산이므로 데모 전 쿼터 잔량 확인.
   파인튜닝 Qwen(0.8B/2B) 경로는 제거됨 — 평가 지표는 `backend/vlm_finetune/metrics/` 보관.
 - **파일 저장**: Cloud Run 디스크는 휘발성. OCR 초안은 DB(ocr_documents)에 있어
