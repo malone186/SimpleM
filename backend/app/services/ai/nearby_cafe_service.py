@@ -368,11 +368,8 @@ def _gemini_json(prompt: str, schema: dict[str, Any], timeout: float = 25.0) -> 
         "responseSchema": schema,
         "maxOutputTokens": 2048,
     }
-    if GEMINI_MODEL.startswith("gemini-2.5"):
-        # 2.5 계열은 기본 thinking이 출력 예산을 잠식해 JSON이 잘린다
-        generation_config["thinkingConfig"] = {"thinkingBudget": 0}
-    elif GEMINI_MODEL.startswith("gemini-3"):
-        generation_config["thinkingConfig"] = {"thinkingLevel": "low"}
+    from app.services.ai.gemini_config import apply_thinking
+    apply_thinking(generation_config, GEMINI_MODEL)
 
     import httpx
 

@@ -450,14 +450,10 @@ async def _call_gemini(image_bytes: bytes, mime_type: str = "image/jpeg") -> dic
         "responseSchema": _gemini_schema(),
         "maxOutputTokens": GEMINI_MAX_OUTPUT_TOKENS,
     }
-    if GEMINI_MODEL.startswith("gemini-2.5"):
-        # 2.5 계열은 기본 thinking이 출력 토큰 예산을 잠식해 JSON이 잘린다
-        # (실측: 349자에서 절단). OCR은 추론이 필요 없으므로 끈다.
-        generation_config["thinkingConfig"] = {"thinkingBudget": 0}
-    elif GEMINI_MODEL.startswith("gemini-3"):
-        # 3.x 계열은 thinkingBudget 대신 thinkingLevel — OCR은 추론이 필요 없어 최저로.
-        # 실측(2026-07-27, 품목 24개 영수증 2회씩): 인식 결과 동일, 첫 응답 지연 소폭 감소.
-        generation_config["thinkingConfig"] = {"thinkingLevel": "low"}
+    # 세대별 thinking 설정은 gemini_config 한 곳에서 관리한다
+    # (실측 2026-07-27, 품목 24개 영수증 2회씩: 인식 결과 동일, 첫 응답 지연 소폭 감소)
+    from app.services.ai.gemini_config import apply_thinking
+    apply_thinking(generation_config, GEMINI_MODEL)
 
     payload = {
         "contents": [{"parts": [

@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.services.membership_service import normalize_phone
 
@@ -46,8 +46,7 @@ class CustomerOut(BaseModel):
     last_visit_at: Optional[datetime] = None
     days_since_visit: Optional[int] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- 충전 상품 ---
@@ -73,8 +72,7 @@ class ChargePlanOut(BaseModel):
     discount_rate: float       # 적립액 기준 실질 할인율(%)
     is_active: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- 거래 ---
@@ -130,8 +128,7 @@ class TransactionOut(BaseModel):
     memo: Optional[str]
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class BalanceResult(BaseModel):

@@ -4,6 +4,7 @@ import Svg, { Defs, LinearGradient, Stop, Path, Circle, Line, Text as SvgText, R
 import { Ionicons } from '@expo/vector-icons';
 
 import { colors, spacing, typography, shadows } from '../../theme';
+import { dateKey } from '../../lib/dateKey';
 import { useResponsive } from '../../theme/responsive';
 import { useCountUp } from '../motion';
 import { PressableScale } from '../motion';
@@ -77,7 +78,7 @@ function getWeekDays(referenceDate: Date = new Date()): DateInfo[] {
   const monday = new Date(current.setDate(diffToMon));
 
   const dayNames = ['월', '화', '수', '목', '금', '토', '일'];
-  const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+  const todayStr = dateKey();
 
   return Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday);
@@ -315,7 +316,7 @@ export default function SalesCard({
     { maxAgeMs: 5 * 60_000, refreshToken },
   );
 
-  const todayKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+  const todayKey = dateKey();
   // todayKey를 의존성으로 — 마운트 1회 고정([])이면 자정을 넘겨도 isToday/isPast가
   // 어제 기준으로 남아, 날짜 미지정 할 일들이 전날 칸에 계속 그려졌다.
   // eslint-disable-next-line react-hooks/exhaustive-deps

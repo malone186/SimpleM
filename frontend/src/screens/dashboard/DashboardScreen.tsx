@@ -53,20 +53,10 @@ function getFormattedTimeText(): string {
   return `${ampm} ${displayHours}:${displayMinutes}`;
 }
 
-/** 오늘 날짜 키 (YYYY-MM-DD, 기기 시간대 기준) */
-function todayKey(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
+// 날짜 키는 lib/dateKey 한 곳에서 관리한다 (UTC 절단 사고 방지)
+import { dateKey, localDateKey } from '../../lib/dateKey';
 
-/** ISO 타임스탬프 → 기기 시간대의 YYYY-MM-DD.
- * created_at은 UTC라 split('T')[0]로 자르면 'UTC의 날짜'가 나온다 — KST 00:00~08:59에
- * 추가한 할 일(아침 오픈 준비 시간대)이 어제 키로 분류돼 오늘 탭에서 사라지는 버그의 원인. */
-function localDateKey(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso.split('T')[0];
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
+const todayKey = () => dateKey();
 
 /**
  * 같은 일인지 판정하기 위한 제목 정규화 — 앞머리 태그·공백·'~하기' 어미를 걷어낸다.
@@ -205,7 +195,7 @@ function buildDashboard(
   if (__DEV__) {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+    const yesterdayKey = dateKey(yesterday);
 
     const mockItems: Todo[] = [
       {

@@ -131,13 +131,8 @@ class ImageCapacityError(MarketingError):
     """이미지 생성 공급자가 전부 한도에 걸렸다 — 서버 고장이 아니라 '지금은 불가'."""
 
 
-def _thinking_config(model: str) -> Optional[dict[str, Any]]:
-    """모델 세대별 thinking 설정 — 2.5 계열은 기본 thinking이 출력 예산을 잠식한다."""
-    if model.startswith("gemini-2.5") and "image" not in model:
-        return {"thinkingBudget": 0}
-    if model.startswith("gemini-3"):
-        return {"thinkingLevel": "low"}
-    return None
+# 세대별 thinking 설정은 gemini_config 한 곳에서 관리한다
+from app.services.ai.gemini_config import thinking_config as _thinking_config
 
 
 def _gemini_call(model: str, payload: dict[str, Any], timeout: float,

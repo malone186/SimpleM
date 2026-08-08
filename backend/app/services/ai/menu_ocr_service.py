@@ -152,10 +152,8 @@ async def _ask_gemini(parts: list[dict], schema: dict) -> dict[str, Any]:
         "maxOutputTokens": 8192,
     }
     # OCR과 같은 이유로 추론을 끈다 — 읽어 적는 일에 사고 예산을 쓰면 출력이 잘린다
-    if GEMINI_MODEL.startswith("gemini-2.5"):
-        generation_config["thinkingConfig"] = {"thinkingBudget": 0}
-    elif GEMINI_MODEL.startswith("gemini-3"):
-        generation_config["thinkingConfig"] = {"thinkingLevel": "low"}
+    from app.services.ai.gemini_config import apply_thinking
+    apply_thinking(generation_config, GEMINI_MODEL)
 
     payload = {"contents": [{"parts": parts}], "generationConfig": generation_config}
     last: Exception | None = None

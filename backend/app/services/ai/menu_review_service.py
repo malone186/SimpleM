@@ -555,10 +555,8 @@ def _ai_comment(summary: dict[str, Any], items: list[dict[str, Any]]) -> tuple[s
         model = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
         config: dict[str, Any] = {"temperature": 0.4, "maxOutputTokens": 512}
         # 두 문장 쓰는 데 사고 예산을 쓰면 답이 통째로 비어 온다 (OCR과 같은 이유)
-        if model.startswith("gemini-2.5"):
-            config["thinkingConfig"] = {"thinkingBudget": 0}
-        elif model.startswith("gemini-3"):
-            config["thinkingConfig"] = {"thinkingLevel": "low"}
+        from app.services.ai.gemini_config import apply_thinking
+        apply_thinking(config, model)
         resp = httpx.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
             json={"contents": [{"parts": [{"text": _COMMENT_PROMPT.format(
@@ -843,10 +841,8 @@ def _ai_new_menus(menus: list[dict[str, Any]], month: int, count: int = 2) -> li
             "responseSchema": _NEW_MENU_SCHEMA,
             "maxOutputTokens": 1024,
         }
-        if model.startswith("gemini-2.5"):
-            config["thinkingConfig"] = {"thinkingBudget": 0}
-        elif model.startswith("gemini-3"):
-            config["thinkingConfig"] = {"thinkingLevel": "low"}
+        from app.services.ai.gemini_config import apply_thinking
+        apply_thinking(config, model)
         resp = httpx.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
             json={"contents": [{"parts": [{"text": _NEW_MENU_PROMPT.format(
