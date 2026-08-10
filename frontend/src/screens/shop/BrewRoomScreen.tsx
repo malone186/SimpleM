@@ -228,6 +228,42 @@ export default function BrewRoomScreen() {
           </FadeInUp>
         )}
 
+        {/* ── 이번 주 본전 스트릭 (달력) ── */}
+        {quests?.breakeven_streak?.available && (
+          <FadeInUp delay={50}>
+            <View style={styles.card}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="flame" size={15} color="#C07030" />
+                <Text style={styles.sectionTitle}>이번 주 본전 스트릭</Text>
+                <Text style={styles.streakBadge}>
+                  {quests.breakeven_streak.achieved_count}일 달성
+                </Text>
+              </View>
+              <View style={styles.streakRow}>
+                {quests.breakeven_streak.days.map((d) => (
+                  <View key={d.date} style={styles.streakCell}>
+                    <Text style={[styles.streakDow, d.is_today && styles.streakDowToday]}>{d.weekday}</Text>
+                    <View style={[
+                      styles.streakMark,
+                      d.done && styles.streakMarkDone,
+                      d.is_today && !d.done && styles.streakMarkToday,
+                      d.is_future && styles.streakMarkFuture,
+                    ]}>
+                      {d.done ? (
+                        <Ionicons name="checkmark" size={15} color={colors.white} />
+                      ) : d.is_future ? (
+                        <Text style={styles.streakDot}>·</Text>
+                      ) : (
+                        <Ionicons name="close" size={12} color="#C9BEB2" />
+                      )}
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </FadeInUp>
+        )}
+
         {/* ── 주간 퀘스트 ── */}
         {quests && quests.quests.length > 0 && (
           <FadeInUp delay={60}>
@@ -405,6 +441,24 @@ const styles = StyleSheet.create({
     backgroundColor: colors.espressoBrown, borderRadius: 12, paddingVertical: 12,
   },
   setupBtnText: { ...typography.L5, fontWeight: '800', color: colors.white },
+  // 본전 스트릭 달력
+  streakBadge: {
+    ...typography.L5, fontWeight: '800', color: '#C07030',
+    backgroundColor: 'rgba(192,112,48,0.12)', paddingHorizontal: 8, paddingVertical: 3,
+    borderRadius: 999, marginLeft: 'auto', overflow: 'hidden',
+  },
+  streakRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 },
+  streakCell: { alignItems: 'center', gap: 5, flex: 1 },
+  streakDow: { ...typography.L5, color: colors.mochaBrown, fontSize: 11 },
+  streakDowToday: { color: '#C07030', fontWeight: '800' },
+  streakMark: {
+    width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.mutedSand,
+  },
+  streakMarkDone: { backgroundColor: '#3E9B4F' },
+  streakMarkToday: { borderWidth: 2, borderColor: '#C07030', backgroundColor: 'rgba(192,112,48,0.08)' },
+  streakMarkFuture: { backgroundColor: 'rgba(140,111,86,0.06)' },
+  streakDot: { color: '#C9BEB2', fontSize: 16, fontWeight: '900', lineHeight: 16 },
   btnRow: { flexDirection: 'row', gap: 10, marginTop: 2 },
   bigBtn: {
     flex: 1,

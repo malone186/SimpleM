@@ -191,3 +191,47 @@ def test_손익분기_설정_전엔_보상_없음(monkeypatch):
     _stub_breakeven(monkeypatch, computed=False, daily_cups=None)
     res = R.reward_breakeven_on_dates(STORE, [date(2026, 8, 6)])
     assert res["coins"] == 0 and res["achieved"] == []
+
+
+# --- 주간 본전 스트릭 (A) ---
+
+def test_주간_스트릭_달력과_달성일수(monkeypatch):
+    """이번 주 월~오늘 날짜별 ✓/✗ + 달성 일수. 미래 요일은 집계에서 빠진다."""
+    from datetime import datetime, timezone, timedelta
+    _stub_breakeven(monkeypatch, daily_cups=50)
+    # 모든 날 목표 넘김으로 세팅 → 달성 일수는 '월~오늘' 일수와 같아야 한다
+    monkeypatch.setattr(R, "_cups_on",
+                        lambda db, s, day, avg_ticket=None: {"sale": 99, "prepaid": 0, "total": 99})
+
+    st = R._weekly_breakeven(STORE)
+    today = datetime.now(timezone(timedelta(hours=9))).date()
+    elapsed = today.weekday() + 1   # 월=1 … 오늘까지 지난 날 수
+
+    assert st["available"] is True and st["goal"] == 50
+    assert len(st["days"]) == 7
+    assert st["achieved_count"] == elapsed, "지난 날은 다 달성, 미래는 제외"
+    # 미래 요일은 done=False
+    assert all((not d["done"]) for d in st["days"] if d["is_future"])
+    # 지난/오늘 요일은 done=True
+    assert all(d["done"] for d in st["days"] if not d["is_future"])
+
+
+def test_본전_스트릭_퀘스트가_보드에_실린다(monkeypatch):
+    _stub_breakeven(monkeypatch, daily_cups=50)
+    monkeypatch.setattr(R, "_weekly_breakeven", lambda s: {
+        "available": True, "goal": 50, "achieved_count": 3,
+        "days": [{"date": "2026-08-10", "weekday": "월", "done": True,
+                  "is_today": False, "is_future": False}]})
+    board = R.get_quests(STORE)
+    be3 = next(q for q in board["quests"] if q["id"] == "wq-be-3")
+    be5 = next(q for q in board["quests"] if q["id"] == "wq-be-5")
+    assert be3["progress"] == 3 and be3["done"] is True and be3["claimable"] is True
+    assert be5["progress"] == 3 and be5["done"] is False   # 5일은 아직
+    assert board["breakeven_streak"]["achieved_count"] == 3
+
+
+def test_본전_스트릭_설정_전엔_available_False(monkeypatch):
+    _stub_breakeven(monkeypatch, computed=False, daily_cups=None)
+    st = R._weekly_breakeven(STORE)
+    assert st["available"] is False
+    assert len(st["days"]) == 7   # 달력 틀은 주되 전부 미달성

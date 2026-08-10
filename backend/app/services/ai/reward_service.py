@@ -173,6 +173,12 @@ WEEKLY_QUESTS: list[dict[str, Any]] = [
      "title": "카페의 심장", "desc": "이번 주 할 일 30개 완료"},
     {"id": "wq-days-4", "kind": "days", "goal": 4, "reward": 120,
      "title": "꾸준함이 무기", "desc": "이번 주 4일 이상 할 일 완료"},
+    # 본전 스트릭 마일스톤 — 매일 본전(일일 퀘스트 50코인)을 넘긴 '날 수'에 얹는 보너스.
+    # 같은 행동을 두 번 사는 게 아니라, 여러 날 이어간 것에 대한 마일스톤이다(할 일 퀘스트와 같은 구조).
+    {"id": "wq-be-3", "kind": "be_days", "goal": 3, "reward": 150,
+     "title": "본전 3일", "desc": "이번 주 3일 본전 넘기기"},
+    {"id": "wq-be-5", "kind": "be_days", "goal": 5, "reward": 300,
+     "title": "본전 5일", "desc": "이번 주 5일 본전 넘기기"},
 ]
 _QUEST_BY_ID = {q["id"]: q for q in WEEKLY_QUESTS}
 
@@ -655,6 +661,57 @@ def _weekly_todo_stats(db, store_id: str):
     return len(dates), len(set(dates))
 
 
+_WEEKDAY_KO = ["월", "화", "수", "목", "금", "토", "일"]
+
+
+def _weekly_breakeven(store_id: str) -> dict[str, Any]:
+    """이번 주(월~오늘) 날짜별 본전 달성 여부 + 달성 일수.
+
+    하루짜리 '오늘의 목표'보다 끈적한 주간 스트릭용. 각 날의 판매 잔 수를 손익분기
+    하루 목표와 비교해 ✓/✗를 만든다. 손익분기 미설정이면 available=False.
+    미래 요일은 is_future로 표시(아직 안 온 날).
+    """
+    _, _, monday = _week_key()
+    today = datetime.now(KST).date()
+    try:
+        from app.services.ai import breakeven_service
+        be = breakeven_service.compute_breakeven(store_id)
+    except Exception:
+        logger.exception("주간 스트릭 손익분기 계산 실패")
+        be = {}
+
+    target = be.get("breakeven_daily_cups")
+    if not be.get("computed") or not target:
+        return {"available": False, "goal": None,
+                "days": [{"date": (monday + timedelta(days=i)).isoformat(),
+                          "weekday": _WEEKDAY_KO[i], "done": False,
+                          "is_today": (monday + timedelta(days=i)) == today,
+                          "is_future": (monday + timedelta(days=i)) > today}
+                         for i in range(7)],
+                "achieved_count": 0}
+
+    avg = be.get("avg_ticket")
+    days = []
+    achieved = 0
+    with _session() as db:
+        for i in range(7):
+            d = monday + timedelta(days=i)
+            future = d > today
+            done = False
+            if not future:
+                done = _cups_on(db, store_id, d, avg_ticket=avg)["total"] >= target
+                if done:
+                    achieved += 1
+            days.append({"date": d.isoformat(), "weekday": _WEEKDAY_KO[i], "done": done,
+                         "is_today": d == today, "is_future": future})
+    return {"available": True, "goal": target, "days": days, "achieved_count": achieved}
+
+
+def _weekly_breakeven_count(store_id: str) -> int:
+    """이번 주 본전 넘긴 날 수 (마일스톤 퀘스트 진행도용)."""
+    return _weekly_breakeven(store_id).get("achieved_count", 0)
+
+
 # ---------------------------------------------------------------------------
 # 일일 퀘스트 — 오늘 본전 넘기기 (손익분기점 연동)
 # ---------------------------------------------------------------------------
@@ -853,9 +910,15 @@ def get_quests(store_id: str) -> dict[str, Any]:
                 PointLedger.store_id == store_id, PointLedger.reason == "quest"
             ).all()
         }
+    streak = _weekly_breakeven(store_id)          # 본전 스트릭 달력 (며칠 달성)
+    be_days = streak["achieved_count"]
+
+    def _progress(kind: str) -> int:
+        return {"count": count, "days": days, "be_days": be_days}.get(kind, count)
+
     quests = []
     for q in WEEKLY_QUESTS:
-        progress = count if q["kind"] == "count" else days
+        progress = _progress(q["kind"])
         claimed = f"{q['id']}:{week}" in claimed_refs
         quests.append({
             "id": q["id"], "title": q["title"], "desc": q["desc"],
@@ -863,8 +926,9 @@ def get_quests(store_id: str) -> dict[str, Any]:
             "done": progress >= q["goal"], "claimed": claimed,
             "claimable": progress >= q["goal"] and not claimed,
         })
-    # 오늘의 목표(일일 퀘스트)를 같은 응답에 실어 화면이 한 번만 부르게 한다
-    return {"week": week, "quests": quests, "daily": _daily_breakeven_quest(store_id)}
+    # 오늘의 목표(일일 퀘스트) + 본전 스트릭 달력을 같은 응답에 실어 화면이 한 번만 부르게 한다
+    return {"week": week, "quests": quests,
+            "daily": _daily_breakeven_quest(store_id), "breakeven_streak": streak}
 
 
 def claim_quest(store_id: str, quest_id: str) -> dict[str, Any]:
@@ -875,7 +939,12 @@ def claim_quest(store_id: str, quest_id: str) -> dict[str, Any]:
     week, _, _ = _week_key()
     with _session() as db:
         count, days = _weekly_todo_stats(db, store_id)
-    progress = count if q["kind"] == "count" else days
+    if q["kind"] == "be_days":
+        progress = _weekly_breakeven_count(store_id)
+    elif q["kind"] == "days":
+        progress = days
+    else:
+        progress = count
     if progress < q["goal"]:
         raise RewardError("아직 목표를 채우지 못했어요.")
     awarded = award(store_id, q["reward"], "quest", f"{quest_id}:{week}",

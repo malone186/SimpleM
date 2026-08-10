@@ -191,10 +191,26 @@ export type DailyQuest = {
   balance?: number;       // claim 응답에만
 };
 
+// 이번 주 본전 스트릭 — 날짜별 ✓/✗ 달력. 손익분기 미설정이면 available=false.
+export type BreakevenStreakDay = {
+  date: string;       // YYYY-MM-DD
+  weekday: string;    // 월·화·…
+  done: boolean;      // 그날 본전 넘겼나
+  is_today: boolean;
+  is_future: boolean; // 아직 안 온 날
+};
+export type BreakevenStreak = {
+  available: boolean;
+  goal: number | null;
+  days: BreakevenStreakDay[];
+  achieved_count: number;
+};
+
 export type QuestBoard = {
   week: string; // 이번 주 월요일 (YYYY-MM-DD) — 월요일마다 리셋
   quests: Quest[];
   daily?: DailyQuest; // 오늘의 목표 (get_quests 응답에 함께 실림)
+  breakeven_streak?: BreakevenStreak; // 이번 주 본전 달력
   awarded?: number; // claim 응답에만: 이번에 받은 코인
   balance?: number; // claim 응답에만: 수령 후 잔액
 };
