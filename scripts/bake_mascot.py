@@ -360,18 +360,32 @@ def index(args) -> int:
         if meta.exists():
             fps_map[key] = json.loads(meta.read_text(encoding="utf-8"))["fps"]
 
+    # 개별 프레임 require는 더 이상 내보내지 않는다 — (모션×색)당 시트 1장만 번들에 실린다.
+    # 프레임을 낱장으로 실으면 에셋이 수천 개가 되어 OTA(EAS Update)의 업데이트당 1000개
+    # 제한에 걸린다. 시트가 없는 세트는 여기서 바로 실패시킨다 (조용히 빠지면 앱에서
+    # 모션이 사라진 걸 뒤늦게 발견하게 된다): python bake_mascot.py pack <폴더> 먼저.
+    sheets_dir = ANIM.parent / "sheets"
+    sheet_meta: dict[str, dict] = {}
+    for key in sets:
+        meta_path = sheets_dir / f"{key}.json"
+        if not meta_path.exists():
+            sys.exit(f"시트가 없다: {key} — 먼저 `pack {ANIM / key}` 실행")
+        sheet_meta[key] = json.loads(meta_path.read_text(encoding="utf-8"))
+
     lines = [
-        "// [자동 생성] 전신 플립북 프레임 — (모션, 앞치마 색)별 WebP 스프라이트 세트",
+        "// [자동 생성] 전신 플립북 — (모션, 앞치마 색)별 스프라이트 시트 1장 + 격자 메타",
         "// 키: 'wave' | 'wave__navy' | ... 기본(갈색)은 색 접미사 없음.",
-        "// 재생성: python scripts/bake_mascot.py index",
+        "// 재생성: python scripts/bake_mascot.py pack <프레임폴더> → index",
         "",
-        "export const FLIP_FRAMES: Record<string, any[]> = {",
+        "import type { FlipSheet } from './Flipbook';",
+        "",
+        "export const FLIP_SHEETS: Record<string, FlipSheet> = {",
     ]
-    for key, frames in sets.items():
-        lines.append(f"  '{key}': [")
-        for fr in frames:
-            lines.append(f"    require('../../../assets/mascot/anim/{key}/{fr}'),")
-        lines.append("  ],")
+    for key, m in sheet_meta.items():
+        lines.append(
+            f"  '{key}': {{ src: require('../../../assets/mascot/sheets/{key}.webp'), "
+            f"frame: [{m['frame'][0]}, {m['frame'][1]}], cols: {m['cols']}, rows: {m['rows']}, count: {m['count']} }},"
+        )
     lines += ["};", ""]
     lines += [
         "// 영상 파이프라인 세트의 원본 재생 속도(fps). 여기 없는 키는 재생기 기본값을 쓴다.",

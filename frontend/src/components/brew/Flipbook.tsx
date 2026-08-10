@@ -49,22 +49,30 @@ export function seamOpacityRange(n: number): { inputRange: number[]; outputRange
   return { inputRange: [n - BLEND, n], outputRange: [0, 1], extrapolate: 'clamp' };
 }
 
+/** 스프라이트 시트 한 장 + 격자 좌표. bake_mascot.py pack이 굽고 index가 메타를 싣는다.
+ *  프레임을 개별 파일로 두면 모션 하나에 에셋이 수백 개가 되는데(OTA는 업데이트당 1000개
+ *  제한에 걸린다), 시트면 (모션×색)당 1개다. 렌더링은 프레임별로 시트를 클리핑해 보여준다 —
+ *  Image 인스턴스가 여러 개여도 텍스처는 한 장을 재사용한다. */
+export type FlipSheet = { src: any; frame: [number, number]; cols: number; rows: number; count: number };
+
 export default function Flipbook({
   frames,
+  sheet,
   size,
   fps = 11,
   loop = true,
   onEnd,
   style,
 }: {
-  frames: any[];
+  frames?: any[];
+  sheet?: FlipSheet;
   size: number;
   fps?: number;
   loop?: boolean;
   onEnd?: () => void;
   style?: StyleProp<ImageStyle>;
 }) {
-  const n = frames.length;
+  const n = sheet ? sheet.count : (frames?.length ?? 0);
   const t = useRef(new Animated.Value(0)).current;
   // onEnd가 매 렌더 새 함수여도 애니메이션을 다시 시작하지 않도록 ref로 받는다
   const endRef = useRef(onEnd);
@@ -95,55 +103,90 @@ export default function Flipbook({
     return () => run.stop();
   }, [t, n, fps, loop]);
 
+  // i번째 칸만 보이도록 시트를 클리핑한 레이어. opacity는 개별 프레임과 동일한 곡선을 쓴다.
+  const sheetCell = (i: number, opacity: any, key: string) => {
+    if (!sheet) return null;
+    return (
+      <Animated.View
+        key={key}
+        style={[
+          { position: 'absolute', top: 0, left: 0, width: size, height: size, opacity, overflow: 'hidden' },
+          style as StyleProp<any>,
+        ]}
+      >
+        <Image
+          source={sheet.src}
+          resizeMode="stretch"
+          style={{
+            position: 'absolute',
+            width: size * sheet.cols,
+            height: size * sheet.rows,
+            left: -size * (i % sheet.cols),
+            top: -size * Math.floor(i / sheet.cols),
+          }}
+        />
+      </Animated.View>
+    );
+  };
+
   // 프레임이 하나뿐이면 겹칠 상대가 없다 (구간이 뒤집혀 interpolate가 터진다)
   if (n <= 1) {
-    return n === 1 ? (
+    if (n !== 1) return null;
+    if (sheet) return sheetCell(0, 1, 'only');
+    return (
       <Image
-        source={frames[0]}
+        source={frames![0]}
         resizeMode="contain"
         style={[{ position: 'absolute', top: 0, left: 0, width: size, height: size }, style]}
       />
-    ) : null;
+    );
   }
 
   const frameOpacity = (i: number) => t.interpolate(frameOpacityRange(i, n));
 
   return (
     <>
-      {frames.map((src, i) => (
-        <Animated.Image
-          key={i}
-          source={src}
-          resizeMode="contain"
-          style={[
-            { position: 'absolute', top: 0, left: 0, width: size, height: size, opacity: frameOpacity(i) },
-            style,
-          ]}
-        />
-      ))}
+      {Array.from({ length: n }, (_, i) =>
+        sheet ? (
+          sheetCell(i, frameOpacity(i), String(i))
+        ) : (
+          <Animated.Image
+            key={i}
+            source={frames![i]}
+            resizeMode="contain"
+            style={[
+              { position: 'absolute', top: 0, left: 0, width: size, height: size, opacity: frameOpacity(i) },
+              style,
+            ]}
+          />
+        ),
+      )}
       {/* 루프 이음매 — 첫 프레임을 맨 위에 한 장 더 깔아, 마지막 장 위로 덮어 오게 한다.
           첫 장은 스택 맨 아래라 마지막 장을 가릴 수 없어서 여기만 예외로 복제한다.
           t가 끝(n)에서 0으로 되감기는 순간, 보이는 그림은 양쪽 다 '첫 프레임'이라 티가 안 난다.
 
           반복 재생일 때만 깐다. 한 번 재생(탭 반응)에까지 두면 동작이 끝나는 순간 첫 자세가
           위로 덮여 올라와, 마무리 자세 대신 시작 자세가 잠깐 비쳤다 사라진다. */}
-      {loop && (
-        <Animated.Image
-          source={frames[0]}
-          resizeMode="contain"
-          style={[
-            {
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: size,
-              height: size,
-              opacity: t.interpolate(seamOpacityRange(n)),
-            },
-            style,
-          ]}
-        />
-      )}
+      {loop &&
+        (sheet ? (
+          sheetCell(0, t.interpolate(seamOpacityRange(n)), 'seam')
+        ) : (
+          <Animated.Image
+            source={frames![0]}
+            resizeMode="contain"
+            style={[
+              {
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: size,
+                height: size,
+                opacity: t.interpolate(seamOpacityRange(n)),
+              },
+              style,
+            ]}
+          />
+        ))}
     </>
   );
 }

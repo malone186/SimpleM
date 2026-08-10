@@ -9,7 +9,7 @@ import { BLINK_OVERLAY } from './blinkOverlays';
 import { startLoop } from '../../lib/animLoop';
 import { MOTIONS, startMotion, type MotionName } from './brewMotions';
 import Flipbook from './Flipbook';
-import { FLIP_FRAMES, FLIP_FPS } from './flipbookFrames';
+import { FLIP_SHEETS, FLIP_FPS } from './flipbookFrames';
 
 // 캐릭터 시트에서 잘라낸 포즈들 (표정 매칭 표)
 const POSES = {
@@ -212,22 +212,22 @@ export default function Brew({
   // 플립북 — 프레임을 이어 재생한다 (전신이 통째로 움직인다).
   // 앞치마 색을 착용했으면 그 색으로 구운 세트를, 없으면 기본(갈색) 세트를 쓴다.
   const flipKey = FLIP_KEY[mood];
-  const flipFrames = flipKey
-    ? (apronColor && FLIP_FRAMES[`${flipKey}__${apronColor}`]) || FLIP_FRAMES[flipKey]
+  const flipSheet = flipKey
+    ? (apronColor && FLIP_SHEETS[`${flipKey}__${apronColor}`]) || FLIP_SHEETS[flipKey]
     : undefined;
 
   // 한 번 재생 — oneShot.token이 바뀌면 그 모션을 0→끝 프레임까지 1회 돌리고 원래 모습으로.
   // 루프 플립북과 별개 상태라, 어떤 포즈(정지 포즈 포함)를 입고 있어도 끼어들 수 있다.
-  const shotFrames = oneShot
-    ? (apronColor && FLIP_FRAMES[`${oneShot.key}__${apronColor}`]) || FLIP_FRAMES[oneShot.key]
+  const shotSheet = oneShot
+    ? (apronColor && FLIP_SHEETS[`${oneShot.key}__${apronColor}`]) || FLIP_SHEETS[oneShot.key]
     : undefined;
   // 재생 중인지만 알면 된다 — 몇 번째 프레임인지는 Flipbook 안에서 네이티브 드라이버가 굴린다
   const [shotPlaying, setShotPlaying] = useState(false);
   useEffect(() => {
-    if (oneShot && shotFrames) setShotPlaying(true);
+    if (oneShot && shotSheet) setShotPlaying(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [oneShot?.token]);
-  const shotActive = shotPlaying && !!shotFrames;
+  const shotActive = shotPlaying && !!shotSheet;
 
   useEffect(() => {
     // 'part'는 분리 레이어가, 'flip'은 프레임 교체가 움직임을 담당 — 몸통 루프는 돌리지 않는다
@@ -342,18 +342,18 @@ export default function Brew({
   // 플립북 — 프레임을 모두 겹쳐 두고 Flipbook이 이웃끼리 크로스페이드로 넘긴다.
   // (source를 주기적으로 갈아끼우면 웹에서 첫 사이클에 로딩 깜빡임이 생긴다)
   const flipLayer = (dim: number) =>
-    motion === 'flip' && flipFrames && !shotActive ? (
+    motion === 'flip' && flipSheet && !shotActive ? (
       // 영상에서 구운 세트는 원본 속도(FLIP_FPS)로 — 없으면 재생기 기본값(구운 20장 세트)
-      <Flipbook frames={flipFrames} size={dim} fps={flipKey ? FLIP_FPS[flipKey] : undefined} />
+      <Flipbook sheet={flipSheet} size={dim} fps={flipKey ? FLIP_FPS[flipKey] : undefined} />
     ) : null;
 
   // 한 번 재생 레이어 — 재생 중엔 몸통·루프 플립북 대신 이 프레임들이 보인다.
   // key에 token을 물려 같은 동작을 연달아 눌러도 처음부터 다시 돌게 한다.
   const shotLayer = (dim: number) =>
-    shotActive && shotFrames && oneShot ? (
+    shotActive && shotSheet && oneShot ? (
       <Flipbook
         key={oneShot.token}
-        frames={shotFrames}
+        sheet={shotSheet}
         size={dim}
         fps={FLIP_FPS[oneShot.key]}
         loop={false}
