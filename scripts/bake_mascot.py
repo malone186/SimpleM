@@ -10,17 +10,22 @@
   recolor  원본 갈색 그림 → 앞치마 6색 변형 (learn 결과를 적용)
   pack     프레임 20장 → 스프라이트 시트 1장 (재생기가 Image 1개만 마운트하게)
   index    assets/mascot/anim을 훑어 flipbookFrames.ts를 다시 생성
+  pad      생성 이미지에 배경색 패딩 — 영상 생성 시 큰 동작이 잘리지 않게
+  frames   영상 → 프레임 추출(ffmpeg) → 배경 제거(rembg isnet-anime)
+  loop     누끼 프레임에서 루프 구간 탐지 → 크롭·리사이즈 → f00.webp… 규격 저장
 
-복원할 수 없는 단계 — 전신 모션 프레임 자체(20장)는 AnimatedDrawings로 원화를
-리깅해 모션캡처를 입혀 구운 것이다. 리깅 설정과 BVH가 남아 있지 않고 로컬에
-AnimatedDrawings도 없어서, '새 모션을 굽는' 단계는 이 스크립트로 되살릴 수 없다.
-새 동작이 필요하면 런타임 절차적 동작(brewMotions.ts) 쪽으로 가는 게 맞다.
+전신 모션 프레임을 굽는 원래 단계(AnimatedDrawings 리깅+BVH)는 유실됐고 되살릴
+수 없다. 대신 지금은 AI 생성 파이프라인으로 새 모션을 만든다:
+  기준 원화(krea) → pad → 영상 생성(minimax, 카메라 고정·흰 배경) → frames → loop
+  → (recolor) → index.  loop까지 끝나면 기존 pack/index/재생기에 그대로 합류한다.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -196,6 +201,131 @@ def pack(args) -> int:
     return 0
 
 
+# ── pad / frames / loop — AI 생성 파이프라인 ─────────────────────────────────
+def _tool(name: str) -> str:
+    """rembg는 이 스크립트를 돌린 파이썬의 venv에 같이 깔려 있을 확률이 높다 — 거기부터 찾는다."""
+    cand = Path(sys.executable).parent / name
+    if cand.exists():
+        return str(cand)
+    found = shutil.which(name)
+    if not found:
+        sys.exit(f"{name} 실행 파일을 못 찾았다. (마스코트 venv: ~/.venvs/mascot)")
+    return found
+
+
+def _hex_rgb(s: str) -> tuple[int, int, int]:
+    s = s.lstrip("#")
+    return tuple(int(s[i : i + 2], 16) for i in (0, 2, 4))  # type: ignore[return-value]
+
+
+def pad(args) -> int:
+    """영상 생성 입력용 패딩. 큰 동작은 팔다리가 프레임 밖으로 나가며 잘리는데,
+    배경과 같은 색으로 여백을 미리 줘야 영상 모델이 그 공간을 동작에 쓸 수 있다."""
+    src = Path(args.src)
+    targets = [src] if src.is_file() else sorted(src.glob("*.png")) + sorted(src.glob("*.webp"))
+    if not targets:
+        sys.exit(f"입력이 없다: {src}")
+    bg = _hex_rgb(args.bg)
+    for path in targets:
+        img = Image.open(path).convert("RGBA")
+        w, h = img.size
+        pw, ph = int(w * args.ratio), int(h * args.ratio)
+        canvas = Image.new("RGBA", (w + 2 * pw, h + 2 * ph), bg + (255,))
+        canvas.alpha_composite(img, (pw, ph))
+        dst = Path(args.out) if args.out and src.is_file() else path.with_name(f"{path.stem}_pad.png")
+        canvas.convert("RGB").save(dst)  # 영상 모델 입력은 알파가 없어야 한다
+        print(f"  {path.name}: {w}x{h} → {canvas.width}x{canvas.height} → {dst.name}")
+    return 0
+
+
+def frames(args) -> int:
+    """영상 → 프레임 PNG(raw/) → 배경 제거 PNG(cutout/). 기하 변형은 하지 않는다 — loop 몫."""
+    video = Path(args.src)
+    if not video.is_file():
+        sys.exit(f"영상이 없다: {video}")
+    out = Path(args.out) if args.out else video.with_suffix("")
+    raw, cut = out / "raw", out / "cutout"
+    raw.mkdir(parents=True, exist_ok=True)
+    cut.mkdir(parents=True, exist_ok=True)
+
+    subprocess.run(
+        [_tool("ffmpeg"), "-y", "-loglevel", "error", "-i", str(video),
+         "-vf", f"fps={args.fps}", str(raw / "f%03d.png")],
+        check=True,
+    )
+    n_raw = len(list(raw.glob("f*.png")))
+    if not n_raw:
+        sys.exit("추출된 프레임이 없다")
+    print(f"  프레임 추출: {n_raw}장 ({args.fps}fps) → {raw}")
+
+    # 전 프레임을 같은 모델·같은 설정으로 한 번에 — 프레임마다 경계가 흔들리면 재생 시 지글거린다
+    subprocess.run([_tool("rembg"), "p", "-m", args.model, str(raw), str(cut)], check=True)
+    n_cut = len(list(cut.glob("f*.png")))
+    print(f"  배경 제거({args.model}): {n_cut}장 → {cut}")
+    return 0
+
+
+def _thumb(path: Path, side: int = 64) -> np.ndarray:
+    """비교용 축소본 — 알파를 곱한 RGB라서 배경 잔재 없이 실루엣+색을 함께 본다."""
+    im = Image.open(path).convert("RGBA").resize((side, side), Image.BILINEAR)
+    arr = np.asarray(im).astype(float) / 255.0
+    return np.concatenate([arr[..., :3] * arr[..., 3:4], arr[..., 3:4]], axis=-1)
+
+
+def loop(args) -> int:
+    """루프 구간을 찾아 잘라내고, 공통 크롭·리사이즈해서 f00.webp… 규격으로 저장한다.
+
+    영상 생성 결과는 도입부가 어정쩡하게 시작하는 일이 많아 시작점도 함께 탐색한다:
+    모든 (i, j) 쌍에서 i-프레임과 j-프레임이 가장 닮은 곳을 찾으면 i~j-1이 한 사이클.
+    점수가 비슷하면 짧은 쪽(기본 주기)을 고르도록 길이에 미세한 벌점을 준다."""
+    src = Path(args.src)
+    paths = sorted(src.glob("f*.png")) or sorted(src.glob("*.png"))
+    if len(paths) < args.min_len + 1:
+        sys.exit(f"프레임이 부족하다: {len(paths)}장 (최소 {args.min_len + 1})")
+    thumbs = np.stack([_thumb(p) for p in paths])
+
+    best, best_score = None, float("inf")
+    for i in range(len(paths) - args.min_len):
+        diffs = np.abs(thumbs[i + args.min_len :] - thumbs[i]).mean(axis=(1, 2, 3))
+        j_rel = int(diffs.argmin())
+        score = float(diffs[j_rel]) + 0.0005 * (args.min_len + j_rel)
+        if score < best_score:
+            best, best_score = (i, i + args.min_len + j_rel), score
+    i, j = best  # type: ignore[misc]
+    cycle = paths[i:j]
+    print(f"  루프 탐지: f{i:03d} ~ f{j - 1:03d} ({len(cycle)}장, 이음새 오차 {best_score:.4f})")
+
+    if args.count:
+        idx = np.linspace(0, len(cycle), args.count, endpoint=False).astype(int)
+        cycle = [cycle[k] for k in idx]
+        print(f"  리샘플: {args.count}장")
+
+    # 사이클 전체의 알파 합집합 bbox로 크롭 — 프레임마다 따로 자르면 캐릭터가 덜컹거린다
+    imgs = [np.array(Image.open(p).convert("RGBA")) for p in cycle]
+    union = np.zeros(imgs[0].shape[:2], dtype=bool)
+    for im in imgs:
+        union |= im[..., 3] > 16
+    if not union.any():
+        sys.exit("알파가 전부 비어 있다 — cutout 폴더가 맞는지 확인")
+    ys, xs = np.where(union)
+    m = int(max(union.shape) * 0.04)
+    y0, y1 = max(0, ys.min() - m), min(union.shape[0], ys.max() + 1 + m)
+    x0, x1 = max(0, xs.min() - m), min(union.shape[1], xs.max() + 1 + m)
+
+    side = max(y1 - y0, x1 - x0)
+    out = Path(args.out) if args.out else ANIM / src.parent.name
+    out.mkdir(parents=True, exist_ok=True)
+    for k, im in enumerate(imgs):
+        crop = Image.fromarray(im[y0:y1, x0:x1])
+        square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+        square.paste(crop, ((side - crop.width) // 2, (side - crop.height) // 2))
+        square.resize((args.size, args.size), Image.LANCZOS).save(
+            out / f"f{k:02d}.webp", "WEBP", quality=92, method=6
+        )
+    print(f"  → {out} ({len(imgs)}장, {args.size}x{args.size})")
+    return 0
+
+
 # ── index ────────────────────────────────────────────────────────────────────
 def index(args) -> int:
     """assets/mascot/anim 실제 내용대로 flipbookFrames.ts를 다시 쓴다."""
@@ -243,6 +373,28 @@ def main() -> int:
     p.add_argument("--max-dim", type=int, default=4096, dest="max_dim",
                    help="시트 한 변의 상한 (기본 4096 — 구형 기기 최대 텍스처)")
     p.set_defaults(fn=pack)
+
+    p = sub.add_parser("pad", help="영상 생성 입력용 배경색 패딩")
+    p.add_argument("src", help="이미지 파일 또는 폴더")
+    p.add_argument("--ratio", type=float, default=0.25, help="한 변당 패딩 비율 (기본 0.25)")
+    p.add_argument("--bg", default="#ffffff", help="패딩 색 (기본 흰색)")
+    p.add_argument("--out", help="출력 파일 (단일 입력일 때만)")
+    p.set_defaults(fn=pad)
+
+    p = sub.add_parser("frames", help="영상 → 프레임 추출 + 배경 제거")
+    p.add_argument("src", help="mp4 등 영상 파일")
+    p.add_argument("--fps", type=int, default=12, help="추출 fps (기본 12)")
+    p.add_argument("--model", default="isnet-anime", help="rembg 모델 (기본 isnet-anime)")
+    p.add_argument("--out", help="출력 루트 (기본: 영상 이름 폴더 — raw/, cutout/ 생성)")
+    p.set_defaults(fn=frames)
+
+    p = sub.add_parser("loop", help="누끼 프레임 → 루프 절단 + f00.webp… 규격 저장")
+    p.add_argument("src", help="cutout PNG 폴더")
+    p.add_argument("--out", help="출력 폴더 (기본: assets/mascot/anim/<모션이름>)")
+    p.add_argument("--size", type=int, default=360, help="한 변 픽셀 (기본 360)")
+    p.add_argument("--count", type=int, help="프레임 수 리샘플 (기본: 사이클 그대로)")
+    p.add_argument("--min-len", type=int, default=8, dest="min_len", help="최소 사이클 길이 (기본 8)")
+    p.set_defaults(fn=loop)
 
     sub.add_parser("index", help="flipbookFrames.ts 재생성").set_defaults(fn=index)
 
