@@ -14,6 +14,7 @@ import VaultSheet from '../../components/shop/VaultSheet';
 import { toast } from '../../components/toast';
 import { Badge } from '../../components/ui';
 import {
+  claimDailyQuest,
   claimQuest,
   getProgress,
   getQuests,
@@ -85,6 +86,22 @@ export default function BrewRoomScreen() {
     }
   };
 
+  const [claimingDaily, setClaimingDaily] = useState(false);
+  const handleClaimDaily = async () => {
+    setClaimingDaily(true);
+    try {
+      const res = await claimDailyQuest(token);
+      // 오늘의 목표만 갱신 — 주간 퀘스트는 그대로 두고 daily만 갈아끼운다
+      setQuests((prev) => (prev ? { ...prev, daily: res } : prev));
+      if (typeof res.balance === 'number') setCoins(res.balance);
+      toast('오늘 본전 넘었어요! 🎉', `${res.reward}코인을 받았어요 🪙`);
+    } catch (e) {
+      toast('수령 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+    } finally {
+      setClaimingDaily(false);
+    }
+  };
+
   const expPct = progress
     ? Math.max(0, Math.min(1, progress.exp_in_level / Math.max(1, progress.exp_to_next)))
     : 0;
@@ -143,6 +160,67 @@ export default function BrewRoomScreen() {
               <Text style={styles.expHint}>
                 다음 레벨까지 {Math.max(0, progress.exp_to_next - progress.exp_in_level)} EXP
               </Text>
+            </View>
+          </FadeInUp>
+        )}
+
+        {/* ── 오늘의 목표 (일일 퀘스트 · 손익분기 연동) ── */}
+        {quests?.daily && (
+          <FadeInUp delay={40}>
+            <View style={[styles.card, styles.dailyCard]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="flag" size={15} color={colors.pointOrange} />
+                <Text style={styles.sectionTitle}>오늘의 목표</Text>
+                {quests.daily.claimed && <Badge label="달성" tone="green" />}
+              </View>
+
+              {quests.daily.available ? (
+                <>
+                  <Text style={styles.dailyTitle}>{quests.daily.title}</Text>
+                  <Text style={styles.sectionHint}>
+                    {quests.daily.desc} · 매출을 입력하면 채워져요
+                  </Text>
+                  <View style={styles.questTrack}>
+                    <View style={[styles.questFill, {
+                      width: `${Math.min(100, ((quests.daily.progress ?? 0) / Math.max(1, quests.daily.goal ?? 1)) * 100)}%`,
+                    }, quests.daily.done && { backgroundColor: '#3E9B4F' }]} />
+                  </View>
+                  <View style={styles.dailyFoot}>
+                    <Text style={styles.dailyCount}>
+                      <Text style={{ fontWeight: '900', color: quests.daily.done ? '#3E9B4F' : colors.espressoBrown }}>
+                        {quests.daily.sold_cups ?? 0}
+                      </Text>
+                      {' '}/ 약 {quests.daily.goal}잔
+                    </Text>
+                    {claimingDaily ? (
+                      <ActivityIndicator color={colors.mochaBrown} style={{ width: 64 }} />
+                    ) : quests.daily.claimable ? (
+                      <PressableScale style={styles.claimBtn} onPress={handleClaimDaily}>
+                        <Text style={styles.claimText}>+{quests.daily.reward} 받기</Text>
+                      </PressableScale>
+                    ) : quests.daily.done ? (
+                      <Text style={styles.questReward}>🪙 {quests.daily.reward}</Text>
+                    ) : (
+                      <Text style={styles.dailyRemain}>
+                        {Math.max(0, (quests.daily.goal ?? 0) - (quests.daily.sold_cups ?? 0))}잔 남음
+                      </Text>
+                    )}
+                  </View>
+                </>
+              ) : (
+                // 손익분기(고정비·레시피·객단가) 미설정 → 목표 대신 설정 유도 (기능 유입 통로)
+                <>
+                  <Text style={styles.dailySetupMsg}>{quests.daily.message}</Text>
+                  <PressableScale
+                    style={styles.setupBtn}
+                    onPress={() => navigation.navigate('BreakEven')}
+                    to={0.96}
+                  >
+                    <Ionicons name="calculator-outline" size={15} color={colors.white} />
+                    <Text style={styles.setupBtnText}>손익분기 설정하러 가기</Text>
+                  </PressableScale>
+                </>
+              )}
             </View>
           </FadeInUp>
         )}
@@ -312,6 +390,18 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   claimText: { ...typography.L5, fontWeight: '800', color: colors.white },
+  // 오늘의 목표 (일일 퀘스트)
+  dailyCard: { borderWidth: 1.5, borderColor: 'rgba(192,112,48,0.28)' },
+  dailyTitle: { ...typography.L4, fontSize: 15, fontWeight: '800', color: colors.espressoBrown, marginTop: 8 },
+  dailyFoot: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 },
+  dailyCount: { ...typography.L5, color: colors.mochaBrown },
+  dailyRemain: { ...typography.L5, fontWeight: '700', color: colors.pointOrange, width: 72, textAlign: 'right' },
+  dailySetupMsg: { ...typography.L5, color: colors.mochaBrown, marginTop: 8, marginBottom: 12, lineHeight: 18 },
+  setupBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: colors.espressoBrown, borderRadius: 12, paddingVertical: 12,
+  },
+  setupBtnText: { ...typography.L5, fontWeight: '800', color: colors.white },
   btnRow: { flexDirection: 'row', gap: 10, marginTop: 2 },
   bigBtn: {
     flex: 1,

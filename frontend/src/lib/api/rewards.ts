@@ -166,9 +166,33 @@ export type Quest = {
   claimable: boolean;
 };
 
+// 오늘의 목표 (일일 퀘스트) — 손익분기 하루 목표 잔수 대비 오늘 판매량.
+// 손익분기(고정비·레시피·객단가)가 안 갖춰지면 available=false + needs_setup.
+export type DailyQuest = {
+  id: string;
+  date: string;           // 오늘 (YYYY-MM-DD) — 자정마다 리셋
+  title: string;
+  reward: number;
+  available: boolean;     // 목표를 낼 수 있나
+  needs_setup: boolean;   // 손익분기 설정이 필요
+  message?: string;       // 설정 안내 문구
+  desc?: string;
+  goal?: number;          // 하루 목표 잔수
+  progress?: number;      // 오늘 판매량(목표에서 멈춤)
+  sold_cups?: number;     // 오늘 실제 판매 잔 수
+  avg_ticket?: number;
+  target_daily_revenue?: number;
+  done?: boolean;
+  claimed?: boolean;
+  claimable?: boolean;
+  awarded?: number;       // claim 응답에만
+  balance?: number;       // claim 응답에만
+};
+
 export type QuestBoard = {
   week: string; // 이번 주 월요일 (YYYY-MM-DD) — 월요일마다 리셋
   quests: Quest[];
+  daily?: DailyQuest; // 오늘의 목표 (get_quests 응답에 함께 실림)
   awarded?: number; // claim 응답에만: 이번에 받은 코인
   balance?: number; // claim 응답에만: 수령 후 잔액
 };
@@ -181,6 +205,14 @@ export function getQuests(token?: string | null): Promise<QuestBoard> {
 /** 달성한 퀘스트 보상 수령 */
 export function claimQuest(questId: string, token?: string | null): Promise<QuestBoard> {
   return apiFetch<QuestBoard>(`/api/v1/rewards/quests/${questId}/claim`, {
+    method: 'POST',
+    headers: authHeader(token),
+  });
+}
+
+/** 오늘의 목표(일일 퀘스트) 보상 수령 — 하루 1회 */
+export function claimDailyQuest(token?: string | null): Promise<DailyQuest> {
+  return apiFetch<DailyQuest>('/api/v1/rewards/quests/daily/claim', {
     method: 'POST',
     headers: authHeader(token),
   });

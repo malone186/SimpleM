@@ -176,6 +176,12 @@ WEEKLY_QUESTS: list[dict[str, Any]] = [
 ]
 _QUEST_BY_ID = {q["id"]: q for q in WEEKLY_QUESTS}
 
+# 일일 퀘스트 — 손익분기점에 묶는다. 배지가 아니라 사장님이 유일하게 신경 쓰는 숫자(본전).
+# 목표 잔수는 손익분기 서비스가 이미 계산한 breakeven_daily_cups를 그대로 쓴다.
+# 진행은 오늘(KST) 실제 판매 잔 수. 매출을 입력해야 채워진다(실시간 판매가 아니다).
+DAILY_BE_REWARD = 50
+DAILY_BE_ID = "dq-breakeven"
+
 
 class RewardError(ValueError):
     """포인트·상점 처리 실패 (잔액 부족, 없는 아이템 등)"""
@@ -649,6 +655,101 @@ def _weekly_todo_stats(db, store_id: str):
     return len(dates), len(set(dates))
 
 
+# ---------------------------------------------------------------------------
+# 일일 퀘스트 — 오늘 본전 넘기기 (손익분기점 연동)
+# ---------------------------------------------------------------------------
+
+def _today_cups(db, store_id: str) -> int:
+    """오늘(KST) 판매된 잔 수 합. 매출을 입력해야 채워진다(실시간 판매가 아님)."""
+    from app.models.inventory import Sale
+
+    today = datetime.now(KST).date()
+    # KST 자정 경계의 저장 편차를 흡수하려 하루 여유로 당겨오고 KST 날짜로 정확히 거른다
+    start = datetime.combine(today, datetime.min.time(), tzinfo=KST) - timedelta(days=1)
+    rows = db.query(Sale.quantity, Sale.sold_at).filter(
+        Sale.store_id == store_id, Sale.sold_at >= start.astimezone(timezone.utc),
+    ).all()
+    total = 0
+    for qty, sold_at in rows:
+        d = sold_at.astimezone(KST).date() if sold_at.tzinfo else sold_at.date()
+        if d == today:
+            total += int(qty or 0)
+    return total
+
+
+def _daily_breakeven_quest(store_id: str) -> dict[str, Any]:
+    """오늘의 목표 카드 데이터.
+
+    손익분기(고정비·레시피·객단가)가 갖춰지면 목표 잔수를 주고, 아니면 setup 안내를 준다.
+    게임 화면이 손익분기 서비스에 기대는 건 여기 한 곳뿐이라, 실패해도 카드만 빠지고
+    주간 퀘스트는 그대로 뜬다.
+    """
+    today = datetime.now(KST).date().isoformat()
+    base = {"id": DAILY_BE_ID, "date": today, "reward": DAILY_BE_REWARD,
+            "title": "오늘 본전 넘기기"}
+    try:
+        from app.services.ai import breakeven_service
+
+        be = breakeven_service.compute_breakeven(store_id)
+    except Exception:
+        logger.exception("일일 퀘스트 손익분기 계산 실패 — 카드 숨김")
+        return {**base, "available": False, "needs_setup": True,
+                "message": "손익분기를 설정하면 오늘의 목표가 생겨요."}
+
+    target = be.get("breakeven_daily_cups")
+    if not be.get("computed") or not target:
+        # 고정비·레시피·객단가 중 뭐가 없는지 손익분기 서비스가 만든 안내를 그대로 전한다
+        return {**base, "available": False, "needs_setup": True,
+                "target_revenue": be.get("breakeven_daily_revenue"),
+                "message": be.get("message") or "손익분기를 설정하면 오늘의 목표가 생겨요."}
+
+    with _session() as db:
+        cups = _today_cups(db, store_id)
+        from app.models.ai import PointLedger
+        claimed = db.query(PointLedger.id).filter(
+            PointLedger.store_id == store_id,
+            PointLedger.reason == "quest_daily",
+            PointLedger.ref == f"{DAILY_BE_ID}:{today}",
+        ).first() is not None
+
+    done = cups >= target
+    return {
+        **base,
+        "available": True,
+        "needs_setup": False,
+        "goal": target,
+        "progress": min(cups, target),
+        "sold_cups": cups,
+        "avg_ticket": be.get("avg_ticket"),
+        "target_daily_revenue": be.get("breakeven_daily_revenue"),
+        "done": done,
+        "claimed": claimed,
+        "claimable": done and not claimed,
+        "desc": f"약 {target}잔이면 오늘치 고정비를 다 갚아요",
+    }
+
+
+def get_daily_quest(store_id: str) -> dict[str, Any]:
+    """오늘의 목표(일일 퀘스트) 단독 조회."""
+    return _daily_breakeven_quest(store_id)
+
+
+def claim_daily_quest(store_id: str) -> dict[str, Any]:
+    """오늘 본전 달성 보상 수령. 하루 1회(ref=날짜)만 — DB 유니크가 이중 수령을 막는다."""
+    q = _daily_breakeven_quest(store_id)
+    if not q.get("available"):
+        raise RewardError("아직 오늘의 목표가 없어요. 손익분기를 먼저 설정해 주세요.")
+    if not q.get("done"):
+        raise RewardError("아직 오늘 목표를 채우지 못했어요.")
+    today = q["date"]
+    awarded = award(store_id, DAILY_BE_REWARD, "quest_daily", f"{DAILY_BE_ID}:{today}",
+                    "일일 퀘스트 '오늘 본전 넘기기' 달성")
+    result = _daily_breakeven_quest(store_id)
+    result["awarded"] = DAILY_BE_REWARD if awarded else 0
+    result["balance"] = get_balance(store_id)
+    return result
+
+
 def get_quests(store_id: str) -> dict[str, Any]:
     """주간 퀘스트 목록 — 진행도·달성·수령 여부. 월요일(KST)마다 리셋된다."""
     week, _, _ = _week_key()
@@ -671,7 +772,8 @@ def get_quests(store_id: str) -> dict[str, Any]:
             "done": progress >= q["goal"], "claimed": claimed,
             "claimable": progress >= q["goal"] and not claimed,
         })
-    return {"week": week, "quests": quests}
+    # 오늘의 목표(일일 퀘스트)를 같은 응답에 실어 화면이 한 번만 부르게 한다
+    return {"week": week, "quests": quests, "daily": _daily_breakeven_quest(store_id)}
 
 
 def claim_quest(store_id: str, quest_id: str) -> dict[str, Any]:

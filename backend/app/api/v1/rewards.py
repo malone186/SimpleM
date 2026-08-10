@@ -109,3 +109,18 @@ def claim_quest(quest_id: str, current_user: User = Depends(get_current_user)) -
         return reward_service.claim_quest(current_user.email, quest_id)
     except reward_service.RewardError as e:
         raise HTTPException(400, str(e))
+
+
+@router.get("/quests/daily")
+def get_daily_quest(current_user: User = Depends(get_current_user)) -> dict:
+    """오늘의 목표(일일 퀘스트) — 손익분기 하루 목표 잔수 대비 오늘 판매량."""
+    return reward_service.get_daily_quest(current_user.email)
+
+
+@router.post("/quests/daily/claim")
+def claim_daily_quest(current_user: User = Depends(get_current_user)) -> dict:
+    """오늘 본전 달성 보상 수령 — 하루 1회. 갱신된 오늘의 목표 + 잔액을 돌려준다."""
+    try:
+        return reward_service.claim_daily_quest(current_user.email)
+    except reward_service.RewardError as e:
+        raise HTTPException(400, str(e))
