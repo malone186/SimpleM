@@ -275,25 +275,31 @@ def _thumb(path: Path, side: int = 64) -> np.ndarray:
 def loop(args) -> int:
     """루프 구간을 찾아 잘라내고, 공통 크롭·리사이즈해서 f00.webp… 규격으로 저장한다.
 
-    영상 생성 결과는 도입부가 어정쩡하게 시작하는 일이 많아 시작점도 함께 탐색한다:
-    모든 (i, j) 쌍에서 i-프레임과 j-프레임이 가장 닮은 곳을 찾으면 i~j-1이 한 사이클.
-    점수가 비슷하면 짧은 쪽(기본 주기)을 고르도록 길이에 미세한 벌점을 준다."""
+    영상 생성 결과는 도입부가 어정쩡하고 끝은 정지 상태로 끝나는 일이 많다. 정지 구간은
+    아무 데서 잘라도 이음새가 붙기 때문에 '이음새 오차 최소'만 보면 반드시 거기에 속는다 —
+    그래서 이음새 오차를 사이클 내부 움직임량으로 나눈 비율로 채점한다: 많이 움직였는데도
+    처음과 끝이 닮은 구간이 진짜 루프다. 길이 벌점은 기본 주기(1사이클)를 고르게 한다."""
     src = Path(args.src)
     paths = sorted(src.glob("f*.png")) or sorted(src.glob("*.png"))
     if len(paths) < args.min_len + 1:
         sys.exit(f"프레임이 부족하다: {len(paths)}장 (최소 {args.min_len + 1})")
     thumbs = np.stack([_thumb(p) for p in paths])
+    cons = np.abs(thumbs[1:] - thumbs[:-1]).mean(axis=(1, 2, 3))  # 인접 프레임 간 움직임
 
     best, best_score = None, float("inf")
     for i in range(len(paths) - args.min_len):
-        diffs = np.abs(thumbs[i + args.min_len :] - thumbs[i]).mean(axis=(1, 2, 3))
-        j_rel = int(diffs.argmin())
-        score = float(diffs[j_rel]) + 0.0005 * (args.min_len + j_rel)
-        if score < best_score:
-            best, best_score = (i, i + args.min_len + j_rel), score
+        for j in range(i + args.min_len, len(paths)):
+            seam = float(np.abs(thumbs[j] - thumbs[i]).mean())
+            motion = float(cons[i:j].mean())
+            score = seam / (motion + 1e-4) + 0.002 * (j - i)
+            if score < best_score:
+                best, best_score = (i, j), score
     i, j = best  # type: ignore[misc]
     cycle = paths[i:j]
-    print(f"  루프 탐지: f{i:03d} ~ f{j - 1:03d} ({len(cycle)}장, 이음새 오차 {best_score:.4f})")
+    seam = float(np.abs(thumbs[j] - thumbs[i]).mean())
+    motion = float(cons[i:j].mean())
+    print(f"  루프 탐지: f{i:03d} ~ f{j - 1:03d} ({len(cycle)}장, "
+          f"이음새 {seam:.4f} / 움직임 {motion:.4f} = {seam / (motion + 1e-4):.2f})")
 
     if args.count:
         idx = np.linspace(0, len(cycle), args.count, endpoint=False).astype(int)
