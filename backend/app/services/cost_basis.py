@@ -54,3 +54,26 @@ def is_material_purchase(category: Any) -> bool:
 def has_fixed_cost(categories: Iterable[Any]) -> bool:
     """고정비 성격의 항목이 하나라도 있는지."""
     return any(is_fixed_cost_category(c) for c in categories)
+
+
+# 손익분기 4칸(임대료/인건비/공과금/기타)에 지출 카테고리를 매핑할 낱말.
+# 손익분기 자동 채우기가 쓴다 — 순서대로 먼저 걸리는 버킷으로 넣는다.
+_BUCKET_WORDS = {
+    "rent": ("임대", "월세", "관리비"),
+    "labor": ("인건", "급여", "월급", "시급", "알바", "아르바이트"),
+    "utilities": ("공과", "전기", "수도", "가스", "난방", "통신", "인터넷"),
+    "other": ("보험", "세금", "부가세", "수수료", "렌탈", "렌트", "리스",
+              "이자", "상환", "고정비", "구독", "정기결제", "청소", "방역", "음악", "저작권"),
+}
+
+
+def fixed_cost_bucket(category: Any) -> str | None:
+    """지출 카테고리를 손익분기 칸(rent/labor/utilities/other)으로 분류. 고정비가 아니면 None.
+
+    임대→임대료, 전기→공과금, 보험→기타처럼 나눈다. '관리비'가 '공과'보다 먼저 임대로 가게
+    순서를 잡았다(전기'요금'관리비 같은 애매한 이름은 앞선 버킷 우선)."""
+    n = _norm(category)
+    for bucket, words in _BUCKET_WORDS.items():
+        if any(w in n for w in words):
+            return bucket
+    return None

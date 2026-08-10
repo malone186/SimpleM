@@ -45,3 +45,26 @@ def test_none_and_missing_categories_are_safe():
     assert cost_basis.is_fixed_cost_category(None) is False
     assert cost_basis.is_material_purchase(None) is False
     assert cost_basis.has_fixed_cost([None, ""]) is False
+
+
+# --- 손익분기 자동 채우기용 버킷 분류 ---
+
+import pytest as _pytest
+
+
+@_pytest.mark.parametrize("category,bucket", [
+    ("임대료", "rent"), ("월세", "rent"), ("건물 관리비", "rent"),
+    ("인건비", "labor"), ("직원 급여", "labor"), ("알바 시급", "labor"),
+    ("전기요금", "utilities"), ("수도세", "utilities"), ("가스비", "utilities"),
+    ("통신비", "utilities"), ("인터넷", "utilities"),
+    ("화재보험", "other"), ("정수기 렌탈", "other"), ("음악 저작권료", "other"),
+    ("카드수수료", "other"), ("구독료", "other"),
+    ("원두매입", None), ("소모품", None), ("회식비", None), ("", None),
+])
+def test_fixed_cost_bucket(category, bucket):
+    assert cost_basis.fixed_cost_bucket(category) == bucket
+
+
+def test_관리비는_공과보다_임대로_먼저_간다():
+    """'관리비'는 임대료 버킷 — 전기'요금관리비' 같은 애매한 이름이 공과로 새지 않게."""
+    assert cost_basis.fixed_cost_bucket("관리비") == "rent"

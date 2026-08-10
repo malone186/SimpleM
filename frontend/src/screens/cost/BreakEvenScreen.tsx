@@ -30,9 +30,11 @@ import {
   getFixedCosts,
   saveFixedCosts,
   simulateBreakeven,
+  suggestFixedCosts,
   type Breakeven,
   type FixedCostField,
   type FixedCosts,
+  type FixedCostSuggestion,
 } from '../../lib/api/breakeven';
 import { colors, spacing, typography } from '../../theme';
 import { useBottomInset } from '../../theme/responsive';
@@ -63,6 +65,7 @@ export default function BreakEvenScreen() {
   const [openDays, setOpenDays] = useState('');
   const [ratioText, setRatioText] = useState(''); // 변동비율 직접 입력 (자동이면 비어 있다)
   const [targetProfit, setTargetProfit] = useState('');
+  const [suggestion, setSuggestion] = useState<FixedCostSuggestion | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -73,9 +76,28 @@ export default function BreakEvenScreen() {
       const [f, r] = await Promise.all([getFixedCosts(token), getBreakeven(token)]);
       setFixed(f);
       setResult(r);
-      setDraft(toDraft(f));
       setOpenDays(String(f.open_days_per_month));
       setRatioText(f.custom_variable_ratio != null ? String(f.custom_variable_ratio) : '');
+
+      // 아직 한 번도 저장 안 한 매장이면, 빈 칸 대신 앱이 이미 아는 값으로 미리 채운다.
+      // (지난 지출·급여) — 사장님은 타이핑 대신 확인만 하면 된다. 온보딩 벽 낮추기.
+      if (!f.configured) {
+        try {
+          const sg = await suggestFixedCosts(token);
+          if (sg.has_any) {
+            setSuggestion(sg);
+            setDraft(FIXED_COST_FIELDS.reduce(
+              (acc, k) => ({ ...acc, [k]: sg.suggested[k] ? String(sg.suggested[k]) : '' }),
+              emptyDraft,
+            ));
+            setOpenDays(String(sg.open_days_per_month));
+            return;
+          }
+        } catch {
+          /* 제안 실패는 무해 — 그냥 빈 칸으로 둔다 */
+        }
+      }
+      setDraft(toDraft(f));
     } catch (e) {
       toast('불러오기 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
     } finally {
@@ -167,9 +189,25 @@ export default function BreakEvenScreen() {
           <Text style={styles.cardHint}>
             한 잔도 안 팔아도 나가는 돈이에요. 사장님 본인 급여와 보험료도 넣어야 정확합니다.
           </Text>
+
+          {/* 자동 채우기 안내 — 지난 지출·급여에서 미리 넣었으니 확인만 하면 된다 */}
+          {suggestion && (
+            <View style={styles.suggestBanner}>
+              <Ionicons name="sparkles" size={14} color="#C07030" />
+              <Text style={styles.suggestText}>
+                지난 지출·급여에서 미리 채웠어요. 맞는지 확인하고 저장하세요.
+              </Text>
+            </View>
+          )}
+
           {FIXED_COST_FIELDS.map((key) => (
             <View key={key} style={styles.field}>
-              <Text style={styles.fieldLabel}>{fixed?.labels?.[key] ?? key}</Text>
+              <View style={styles.fieldLabelRow}>
+                <Text style={styles.fieldLabel}>{fixed?.labels?.[key] ?? key}</Text>
+                {suggestion?.sources?.[key] && (
+                  <Text style={styles.fieldSource}>{suggestion.sources[key]}</Text>
+                )}
+              </View>
               <View style={styles.inputWrap}>
                 <TextInput
                   style={styles.input}
@@ -447,6 +485,14 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   fieldLabel: { ...typography.L5, color: colors.espressoBrown, fontWeight: '700', flexShrink: 1 },
+  fieldLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, flexWrap: 'wrap' },
+  fieldSource: { ...typography.L5, color: '#3E9B4F', fontSize: 10, fontWeight: '600' },
+  suggestBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: 'rgba(192,112,48,0.10)', borderRadius: 10,
+    paddingVertical: 9, paddingHorizontal: 12, marginBottom: 12, marginTop: 2,
+  },
+  suggestText: { ...typography.L5, color: '#8A5A2B', fontWeight: '600', flexShrink: 1, lineHeight: 15 },
   inputWrap: {
     flexDirection: 'row',
     alignItems: 'center',

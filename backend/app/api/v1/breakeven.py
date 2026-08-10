@@ -55,6 +55,12 @@ def get_fixed_costs_api(current_user: User = Depends(require_owner)):
     return breakeven_service.get_fixed_costs(current_user.email)
 
 
+@router.get("/fixed-costs/suggest", summary="고정비 자동 제안 (지난 지출·급여에서)")
+def suggest_fixed_costs_api(current_user: User = Depends(require_owner)):
+    """설정 화면을 처음 열 때 빈 칸 대신 앱이 이미 아는 값으로 미리 채우게 한다."""
+    return breakeven_service.suggest_fixed_costs(current_user.email)
+
+
 @router.put("/fixed-costs", summary="월 고정비 저장 (보낸 항목만 반영)")
 def save_fixed_costs_api(payload: FixedCostUpdate, current_user: User = Depends(require_owner)):
     try:

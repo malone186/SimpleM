@@ -140,6 +140,66 @@ def save_fixed_costs(
     return get_fixed_costs(store_id)
 
 
+def suggest_fixed_costs(store_id: str) -> dict[str, Any]:
+    """고정비 자동 제안 — 앱이 이미 아는 값으로 4칸을 미리 채운다 (온보딩 벽 낮추기).
+
+    임대료·공과금·기타는 최근 지출(Expense)을 카테고리로 분류해 합산하고, 인건비는
+    직원 급여 추정에서 가져온다. 사장님은 빈 칸을 타이핑하는 대신 '확인'만 하면 된다.
+
+    각 값이 어디서 왔는지 sources로 함께 준다 — 화면이 "지난 지출에서 가져왔어요"를
+    보여줘 신뢰를 준다. 끌어올 데이터가 없으면 그 칸은 0으로 두고(정직하게 비움)
+    사장님이 넣게 한다.
+    """
+    from datetime import date, datetime, timedelta
+
+    from app.models.operation import Expense
+    from app.services import cost_basis
+    from app.services.operation.operation_service import OperationService
+
+    buckets = {"rent": 0, "labor": 0, "utilities": 0, "other": 0}
+    sources: dict[str, str] = {}
+
+    with _session() as db:
+        # 1) 지출 — 최근 31일 롤링(월 경계와 무관하게 최근 한 달치를 잡는다)
+        since = date.today() - timedelta(days=31)
+        rows = (
+            db.query(Expense.category, Expense.amount)
+            .filter(Expense.store_id == store_id, Expense.expense_date >= since)
+            .all()
+        )
+        seen_cat: dict[str, set] = {"rent": set(), "utilities": set(), "other": set()}
+        for cat, amount in rows:
+            bucket = cost_basis.fixed_cost_bucket(cat)
+            # 인건비 지출은 급여 추정으로 대체하므로 여기선 rent/utilities/other만
+            if bucket in ("rent", "utilities", "other"):
+                buckets[bucket] += int(amount or 0)
+                seen_cat[bucket].add((cat or "").strip())
+        for b in ("rent", "utilities", "other"):
+            if buckets[b] > 0:
+                names = " · ".join(sorted(c for c in seen_cat[b] if c)[:2])
+                sources[b] = f"지난 지출 ({names})" if names else "지난 지출"
+
+        # 2) 인건비 — 이번 달 직원 급여 추정 합
+        year_month = datetime.now(KST).strftime("%Y-%m")
+        try:
+            payroll = OperationService.list_employees_payroll(db, year_month, store_id=store_id)
+            labor = sum(int(p.get("estimated_salary") or 0) for p in payroll)
+        except Exception:
+            logger.exception("인건비 추정 실패 — 0으로 둠")
+            labor = 0
+        if labor > 0:
+            buckets["labor"] = labor
+            sources["labor"] = f"이번 달 급여 추정 (직원 {len(payroll)}명)"
+
+    return {
+        "suggested": buckets,
+        "sources": sources,
+        "labels": FIXED_COST_LABELS,
+        "has_any": any(v > 0 for v in buckets.values()),
+        "open_days_per_month": DEFAULT_OPEN_DAYS,
+    }
+
+
 def clear_custom_variable_ratio(store_id: str) -> dict[str, Any]:
     """직접 적은 변동비율을 지워 자동 계산으로 되돌린다."""
     from app.models.ai import FixedCostSetting
