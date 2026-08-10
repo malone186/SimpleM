@@ -153,6 +153,124 @@ def test_save_rejects_negative_cost():
 
 
 # ---------------------------------------------------------------------------
+# 리포트 — 기간에 맞춘 목표
+# ---------------------------------------------------------------------------
+
+def test_period_target_scales_to_the_period():
+    """월 개념인 손익분기점을 일간 리포트에 그대로 실으면 하루에 그만큼 팔라는 말이 된다."""
+    bes.save_fixed_costs(STORE, **FIXED, custom_variable_ratio=40, open_days_per_month=25)
+
+    daily = bes.period_target(STORE, "daily")
+    weekly = bes.period_target(STORE, "weekly")
+    monthly = bes.period_target(STORE, "monthly")
+
+    assert monthly["target_revenue"] == 10_000_000
+    assert daily["target_revenue"] == round(10_000_000 / 25)
+    # 한 달 25일 영업이면 한 주는 약 6일
+    assert weekly["open_days"] == round(25 / 4.345)
+    assert weekly["target_revenue"] == daily["target_revenue"] * weekly["open_days"]
+    assert daily["target_revenue"] < weekly["target_revenue"] < monthly["target_revenue"]
+
+
+def test_period_target_reports_gap_and_achievement():
+    bes.save_fixed_costs(STORE, **FIXED, custom_variable_ratio=40, open_days_per_month=25)
+
+    behind = bes.period_target(STORE, "monthly", actual_sales=6_000_000)
+    assert behind["achieved_pct"] == 60.0
+    assert behind["gap"] == 4_000_000
+    assert "남았" in behind["message"]
+
+    ahead = bes.period_target(STORE, "monthly", actual_sales=12_000_000)
+    assert ahead["gap"] == -2_000_000        # 음수 = 초과 달성
+    assert "넘겼" in ahead["message"]
+    assert "-" not in ahead["message"]       # 음수 부호가 문구로 새면 안 된다
+
+
+def test_period_target_says_what_is_missing_instead_of_zero():
+    """고정비가 없으면 '목표 0원'이 아니라 무엇을 넣어야 하는지 돌려준다."""
+    r = bes.period_target(STORE, "weekly", actual_sales=1_000_000)
+    assert r["computed"] is False
+    assert "fixed_costs" in r["needs"]
+    assert "target_revenue" not in r
+
+
+# ---------------------------------------------------------------------------
+# 할 일 — '달성 가능한' 미션
+# ---------------------------------------------------------------------------
+
+def test_mission_asks_for_setup_when_nothing_entered():
+    m = bes.daily_mission(STORE)
+    assert m["mode"] == "setup"
+    assert "설정" in m["title"]
+
+
+def test_mission_keeps_goal_when_already_reachable(monkeypatch):
+    """요즘 실적이 목표를 넘고 있으면 '유지'가 미션이다."""
+    bes.save_fixed_costs(STORE, **FIXED, custom_variable_ratio=40, open_days_per_month=25)
+    target = round(10_000_000 / 25)   # 하루 40만원
+
+    # 객단가 5,000원에 하루 100잔 = 50만원 → 목표를 이미 넘는다
+    monkeypatch.setattr(bes, "_recent_daily_cups", lambda _sid: 100.0)
+    monkeypatch.setattr(bes, "compute_breakeven", _with_ticket(5_000))
+
+    m = bes.daily_mission(STORE)
+    assert m["mode"] == "keep"
+    assert f"{target:,}" in m["title"]
+
+
+def test_mission_gives_full_goal_when_gap_is_small(monkeypatch):
+    """조금만 더 하면 닿는 거리면 목표를 그대로 준다."""
+    bes.save_fixed_costs(STORE, **FIXED, custom_variable_ratio=40, open_days_per_month=25)
+
+    # 하루 목표 40만원, 요즘 36만원(-10%) → 닿을 만하다
+    monkeypatch.setattr(bes, "_recent_daily_cups", lambda _sid: 72.0)
+    monkeypatch.setattr(bes, "compute_breakeven", _with_ticket(5_000))
+
+    m = bes.daily_mission(STORE)
+    assert m["mode"] == "target"
+    assert "만 더" in m["subtitle"]
+
+
+def test_mission_steps_down_when_goal_is_far(monkeypatch):
+    """하루 15만원 파는 매장에 '40만원 파세요'는 미션이 아니라 통보다."""
+    bes.save_fixed_costs(STORE, **FIXED, custom_variable_ratio=40, open_days_per_month=25)
+
+    # 요즘 하루 15만원 — 목표의 37%뿐이라 한 걸음짜리로 바뀌어야 한다
+    monkeypatch.setattr(bes, "_recent_daily_cups", lambda _sid: 30.0)
+    monkeypatch.setattr(bes, "compute_breakeven", _with_ticket(5_000))
+
+    m = bes.daily_mission(STORE)
+    assert m["mode"] == "step"
+    # 한 걸음 목표는 요즘(15만)보다 크고 본전(40만)보다 작아야 한다
+    step = int(m["title"].replace(",", "").split("원")[0].split()[-1])
+    assert 150_000 < step < 400_000
+    # 최종 목표는 사라지지 않고 보조줄에 남는다
+    assert "400,000" in m["subtitle"]
+
+
+def test_mission_shows_target_only_when_history_unknown(monkeypatch):
+    """실적을 모르면 '조금만 더'라고 말할 근거가 없다 — 목표만 알려 준다."""
+    bes.save_fixed_costs(STORE, **FIXED, custom_variable_ratio=40, open_days_per_month=25)
+    monkeypatch.setattr(bes, "_recent_daily_cups", lambda _sid: None)
+
+    m = bes.daily_mission(STORE)
+    assert m["mode"] == "target"
+    assert "본전" in m["title"]
+
+
+def _with_ticket(price: int):
+    """compute_breakeven 결과에 객단가만 끼워 넣는 대역 — 판매 이력 없이 잔 수 환산을 시험한다."""
+    real = bes.compute_breakeven
+
+    def patched(store_id, **kwargs):
+        out = real(store_id, **kwargs)
+        out["avg_ticket"] = price
+        return out
+
+    return patched
+
+
+# ---------------------------------------------------------------------------
 # HTTP 계약 — 계산이 맞아도 화면이 못 읽으면 소용이 없다
 # ---------------------------------------------------------------------------
 

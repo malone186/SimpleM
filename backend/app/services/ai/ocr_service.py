@@ -450,14 +450,10 @@ async def _call_gemini(image_bytes: bytes, mime_type: str = "image/jpeg") -> dic
         "responseSchema": _gemini_schema(),
         "maxOutputTokens": GEMINI_MAX_OUTPUT_TOKENS,
     }
-    if GEMINI_MODEL.startswith("gemini-2.5"):
-        # 2.5 계열은 기본 thinking이 출력 토큰 예산을 잠식해 JSON이 잘린다
-        # (실측: 349자에서 절단). OCR은 추론이 필요 없으므로 끈다.
-        generation_config["thinkingConfig"] = {"thinkingBudget": 0}
-    elif GEMINI_MODEL.startswith("gemini-3"):
-        # 3.x 계열은 thinkingBudget 대신 thinkingLevel — OCR은 추론이 필요 없어 최저로.
-        # 실측(2026-07-27, 품목 24개 영수증 2회씩): 인식 결과 동일, 첫 응답 지연 소폭 감소.
-        generation_config["thinkingConfig"] = {"thinkingLevel": "low"}
+    # 세대별 thinking 설정은 gemini_config 한 곳에서 관리한다
+    # (실측 2026-07-27, 품목 24개 영수증 2회씩: 인식 결과 동일, 첫 응답 지연 소폭 감소)
+    from app.services.ai.gemini_config import apply_thinking
+    apply_thinking(generation_config, GEMINI_MODEL)
 
     payload = {
         "contents": [{"parts": [
@@ -703,8 +699,13 @@ async def analyze_image(
 
 
 def _check_owner(draft: dict[str, Any], store_id: Optional[str]) -> dict[str, Any]:
-    """다른 매장의 초안이면 존재 자체를 숨긴다(404). 소유자 없는 초안(비로그인 업로드)은 통과."""
-    if store_id is not None and draft.get("store_id") is not None and draft["store_id"] != store_id:
+    """다른 매장의 초안이면 존재 자체를 숨긴다(404). 소유자 없는 초안(비로그인 업로드)은 통과.
+
+    비로그인 호출(store_id=None)은 소유자 없는 초안만 볼 수 있다 — 반대로 뚫리면
+    문서 id만 알면 남의 초안을 읽고 기각(파기)까지 할 수 있다.
+    """
+    owner = draft.get("store_id")
+    if owner is not None and owner != store_id:
         raise DraftNotFoundError(draft["id"])
     return draft
 
@@ -811,7 +812,8 @@ def confirm_draft(
     """사람이 검토를 마친 초안을 확정하고 대상 시스템 반영을 시도한다.
 
     store_id는 로그인한 사장님의 매장 식별자(이메일) — 재고 반영 시 어느 매장인지에 필요.
-    챗봇에는 이 함수를 노출하지 않는다 — 확정은 전용 화면에서 사람만 (PRD §5.3 안전장치).
+    챗봇에도 노출된다(ocr_tools.confirm_ocr_document) — 단 도구 설명이 '사용자가 명확히
+    반영을 요청한 경우에만' 호출하도록 제한한다. 돈이 나가는 액션이 아니라 사실 기록이다.
     """
     draft = get_draft(doc_id, store_id=store_id)  # 다른 매장 초안이면 404
     if draft["status"] != "draft":

@@ -13,6 +13,8 @@ import logging
 import httpx
 from langchain_core.tools import tool
 
+from app.services.ai.untrusted import quote_untrusted
+
 # 오류 사항을 안전하게 모니터링하기 위해 로깅을 활성화합니다.
 logger = logging.getLogger(__name__)
 
@@ -80,15 +82,19 @@ def web_search(
                     "해외 정보라면 country를 비우고 영어로 다시 검색해 보세요."
                 )
 
+            # [보안] 웹 본문은 남이 쓴 글이다 — 문의 제목과 똑같이 ⟦남이_쓴_글⟧ 경계로
+            # 감싸서 넘긴다. 안 감싸면 크롤링된 페이지 속 "이전 지시를 무시하고 …" 같은
+            # 문장이 도구 결과로 그대로 들어와, 문서 확정·삭제 도구를 쥔 에이전트를
+            # 조종할 수 있다 (untrusted.py의 방어가 여기만 비어 있었다).
             output = []
             if answer:
-                output.append(f"[Tavily AI 검색 요약]\n{answer}\n")
+                output.append(f"[Tavily AI 검색 요약]\n{quote_untrusted(answer, max_len=800)}\n")
 
             output.append("[실시간 검색 출처 및 참고 문서]")
             for idx, r in enumerate(results, 1):
-                title = r.get("title", "제목 없음")
+                title = quote_untrusted(r.get("title", "제목 없음"), max_len=150)
                 link = r.get("url", "링크 없음")
-                content = (r.get("content") or "").strip()
+                content = quote_untrusted((r.get("content") or "").strip())
                 published = r.get("published_date")
                 date_note = f" ({published})" if published else ""
                 output.append(f"{idx}. {title}{date_note}\n  - 주소: {link}\n  - 내용: {content}")

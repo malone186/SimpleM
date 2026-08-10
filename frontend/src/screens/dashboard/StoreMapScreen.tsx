@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Linking,
   Modal,
   Pressable,
@@ -26,6 +27,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../../auth/AuthContext';
 import { useFrameSheetStyle } from '../../components/DeviceFrame';
+import { toast } from '../../components/toast';
 import StoreLocationMap from '../../components/dashboard/StoreLocationMap';
 import StoreLocationPicker from '../../components/dashboard/StoreLocationPicker';
 import {
@@ -45,12 +47,26 @@ import {
 } from '../../lib/api/nearbyCafes';
 import { describeApiFailure, type ApiFailure } from '../../lib/api/errors';
 import {
+  addEventPrepTodos,
+  createEventPromotion,
   getEventPlan,
   getNearbyEvents,
+  planToText,
   type EventPlan,
   type NearbyEventItem,
   type NearbyEventsResult,
 } from '../../lib/api/nearbyEvents';
+import {
+  aspectToNumber,
+  createPromotionImage,
+  promoFilename,
+  promoImageUrl,
+  promotionText,
+  type PromotionDoc,
+  type PromotionImage,
+} from '../../lib/api/marketing';
+// saveImage는 앱에서 자동으로 공유 시트(shareImage)로 넘어간다 — 화면은 한 버튼만 두면 된다
+import { canDownload, copyText, saveImage } from '../../lib/share/promoShare';
 import {
   cacheRegisteredStore,
   resolveStoreLocation,
@@ -64,6 +80,34 @@ const RADIUS_OPTIONS = [500, 1000, 2000] as const;
 
 // 행사 조회 기간 — 예측(1주)보다 넉넉히 잡아 "다음 주말 축제"까지 미리 보이게 한다
 const EVENT_DAYS = 14;
+
+// 행사 홍보물의 판형 — 인스타 피드(4:5)와 매장 앞 포스터(16:9)는 구도가 아예 다르다
+const PROMO_CHANNELS: { key: 'instagram' | 'banner'; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: 'instagram', label: '인스타 게시물', icon: 'logo-instagram' },
+  { key: 'banner', label: '매장 앞 포스터', icon: 'image-outline' },
+];
+
+// 플랜의 각 항목을 '할 일'로 옮길 때의 제목 — 목록에서 봤을 때 무엇을 하라는 건지 읽혀야 한다.
+// (원문 그대로 담으면 "상큼한 레몬 에이드(행사 한정 500원 할인)"처럼 할 일이 아닌 문장이 된다.)
+const eventTodoTitle = (title: string) => `${title} 준비하기`;
+const menuTodoTitle = (menu: string) => `한정 메뉴 준비하기 — ${menu}`;
+const stockTodoTitle = (item: string) => `${item} 준비하기`;
+
+/** 화면에 미리 보여 줄 준비 기한 — 서버(_prep_due_date)와 같은 규칙: 행사 전날, 지났으면 오늘 */
+function prepDueDate(startDate: string) {
+  const [y, m, d] = (startDate || '').split('-').map(Number);
+  if (!y || !m || !d) return '';
+  const eve = new Date(y, m - 1, d - 1);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const due = eve < today ? today : eve;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${due.getFullYear()}-${pad(due.getMonth() + 1)}-${pad(due.getDate())}`;
+}
+
+// '다른 그림으로' 버튼이 돌려 쓰는 아트 디렉션 — 빈 문자열은 서버 기본(실사 사진풍)이다.
+// 같은 문구로 다시 그릴 때 스타일까지 같으면 거의 같은 그림이 나와 다시 그린 보람이 없다.
+const REDRAW_STYLES = ['', '수채화 일러스트', '레트로 필름 감성', '팝한 플랫 벡터 일러스트', '아늑한 손그림'];
 
 // 상권 변화를 되돌아볼 기간 — 알림은 그때그때 한 번 울리고 끝이지만, 화면에서는
 // "요즘 우리 동네가 어떻게 바뀌었나"를 한눈에 보려면 지난 기록까지 넘겨볼 수 있어야 한다.
@@ -110,6 +154,23 @@ export default function StoreMapScreen() {
   const [plan, setPlan] = useState<EventPlan | null>(null);
   const [planError, setPlanError] = useState('');
 
+  // 플랜에서 '할 일'로 담은 항목 — 서버가 중복을 막아 주지만, 눌렀다는 사실이 화면에도 남아야
+  // 한다(안 그러면 담았는지 몰라 계속 다시 누른다). 제목을 키로 쓴다.
+  const [addedPrep, setAddedPrep] = useState<Record<string, boolean>>({});
+  const [addingPrep, setAddingPrep] = useState(false);
+
+  // 행사 홍보물 — 플랜의 '한 줄 문구'를 씨앗으로 문구 세트(캡션·해시태그·슬로건)를 만들고,
+  // 이어서 그 문구에 맞는 AI 이미지를 그린다. 문구는 몇 초, 이미지는 수십 초라 단계를 나눠
+  // 보여 준다(문구가 나오면 먼저 읽을 수 있게).
+  const [promoDoc, setPromoDoc] = useState<PromotionDoc | null>(null);
+  const [promoImage, setPromoImage] = useState<PromotionImage | null>(null);
+  const [promoStage, setPromoStage] = useState<'idle' | 'copy' | 'image'>('idle');
+  const [promoError, setPromoError] = useState('');
+  // 인스타(4:5)냐 매장 앞 포스터(16:9)냐 — 같은 문구라도 그림의 판형이 달라진다
+  const [promoChannel, setPromoChannel] = useState<'instagram' | 'banner'>('instagram');
+  // '다른 그림으로' 버튼이 매번 같은 그림을 뽑지 않도록 스타일을 돌려 쓴다
+  const redrawStyle = useRef(0);
+
   // [닫힘 애니메이션 유지용] 시트를 닫으면 state는 그 즉시 null인데 Modal은 슬라이드-아웃이
   // 끝날 때까지 계속 그린다. 그 사이 제목·본문이 다 비고 'D-0' 배지만 남은 빈 시트가
   // 내려가는 게 실제로 보였다(상세→플랜 전환 때마다). 마지막으로 열었던 값을 들고 있다가
@@ -125,7 +186,7 @@ export default function StoreMapScreen() {
   // 다른 카페를 누르거나 반경을 바꾸면 늦게 도착한 옛 응답이 새 화면을 덮어썼다.
   // (실제로 카페 A의 '우리 대응'이 카페 B 이름 아래 붙는다 — 잘못된 경쟁 분석을 보고 움직이게 된다.)
   // 각 조회는 자기 순번을 들고 나갔다가, 돌아왔을 때 그 사이 더 최근 요청이 나갔으면 조용히 버린다.
-  const seq = useRef({ nearby: 0, cafe: 0, plan: 0, changes: 0, events: 0, myCafe: 0 });
+  const seq = useRef({ nearby: 0, cafe: 0, plan: 0, changes: 0, events: 0, myCafe: 0, promo: 0 });
   const alive = useRef(true);
   useEffect(() => {
     // 마운트마다 되살린다. 정리 함수만 두면 StrictMode·Fast Refresh가 한 번 정리한 뒤로
@@ -156,6 +217,10 @@ export default function StoreMapScreen() {
   // 내 카페와의 유사도 — 카페 이름 → {total, tier, axes, reason}. 목록 배지·정렬·상세 비교에 쓴다.
   const [simMap, setSimMap] = useState<Record<string, CafeSimilarity>>({});
   const [sortMode, setSortMode] = useState<'distance' | 'similarity'>('distance');
+  // 채점 진행 상태 — 'done'이 아니어도 정렬 칩은 계속 보여 준다. 예전에는 채점이 끝나야만
+  // 칩이 나타나서, 실패하면 기능이 통째로 없는 화면이 됐다(있는 줄 알았는데 안 보인다).
+  const [simState, setSimState] = useState<'idle' | 'loading' | 'done' | 'failed'>('idle');
+  const [simNote, setSimNote] = useState('');
 
   // 내 카페 리뷰 — 사장님이 자기 가게 후기를 지도 화면에서 바로 확인
   const [myCafe, setMyCafe] = useState<CafeAnalysisResult | null>(null);
@@ -207,12 +272,15 @@ export default function StoreMapScreen() {
       setNearbyError('');
       // 반경을 바꾸면 옛 배지가 잠깐 남아 새 목록에 엉뚱하게 붙는다 — 먼저 비운다
       setSimMap({});
+      setSimNote('');
+      setSimState('idle');
       try {
         const data = await getNeighborhoodInsight(token, radiusM);
         if (seq.current.nearby !== my || !alive.current) return; // 더 최근 반경 요청이 있다
         setNearby(data);
         // 유사도 채점은 뒤이어 비동기로 — 배지가 준비되는 대로 목록에 나타난다
         if (data.cafes.length > 0) {
+          setSimState('loading');
           getCafeSimilarity(
             token,
             data.region ?? '',
@@ -223,9 +291,14 @@ export default function StoreMapScreen() {
               const map: Record<string, CafeSimilarity> = {};
               sim.results.forEach((r) => { map[r.name] = r; });
               setSimMap(map);
+              setSimNote(sim.note ?? '');
+              setSimState(sim.results.length > 0 ? 'done' : 'failed');
             })
             .catch(() => { // 채점 실패해도 목록은 그대로 (배지만 생략)
-              if (seq.current.nearby === my && alive.current) setSimMap({});
+              if (seq.current.nearby !== my || !alive.current) return;
+              setSimMap({});
+              setSimState('failed');
+              setSimNote('유사도 채점을 불러오지 못했어요. 잠시 뒤 다시 열어 보세요.');
             });
         }
       } catch (e) {
@@ -314,6 +387,13 @@ export default function StoreMapScreen() {
       const my = ++seq.current.plan;
       setPlanEvent(event);
       setPlan(null);
+      // 다른 행사를 열면 앞 행사에서 담은 표시·만든 홍보물이 남아 있으면 안 된다
+      seq.current.promo += 1;
+      setAddedPrep({});
+      setPromoDoc(null);
+      setPromoImage(null);
+      setPromoStage('idle');
+      setPromoError('');
       // 토큰이 없으면 시트를 열지 않는다 — 열어 두면 영영 도는 스피너만 남는다
       if (!token) {
         setPlanError('로그인이 풀렸어요. 다시 로그인한 뒤 열어 주세요.');
@@ -333,6 +413,104 @@ export default function StoreMapScreen() {
     },
     [token],
   );
+
+  // 준비 항목 → 홈 '오늘 할 일'. 항목 하나만 담을 수도, 통째로 담을 수도 있다.
+  // 기한은 서버가 '행사 전날'로 잡는다 (당일에 알려 봐야 재료를 못 시킨다).
+  const addPrepTodos = useCallback(
+    async (items: string[]) => {
+      const target = shownPlanEvent;
+      const fresh = items.map((t) => t.trim()).filter((t) => t && !addedPrep[t]);
+      if (!token || !target || fresh.length === 0) return;
+      setAddingPrep(true);
+      try {
+        const res = await addEventPrepTodos(token, {
+          items: fresh,
+          eventName: target.name,
+          startDate: target.start_date,
+        });
+        if (!alive.current) return;
+        setAddedPrep((prev) => {
+          const next = { ...prev };
+          fresh.forEach((t) => {
+            next[t] = true;
+          });
+          return next;
+        });
+        const due = res.due_date ? `${formatDueDay(res.due_date)}까지 ` : '';
+        const dup = res.skipped.length ? ` (이미 있던 ${res.skipped.length}개는 그대로 뒀어요)` : '';
+        toast(
+          res.added.length ? `할 일 ${res.added.length}개를 담았어요` : '이미 담겨 있어요',
+          res.added.length ? `${due}끝내면 되는 일이에요.${dup}` : '홈 화면 오늘 할 일에서 볼 수 있어요.',
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        toast('할 일에 담지 못했어요', msg.replace(/^\d+\s·\s/, ''));
+      } finally {
+        if (alive.current) setAddingPrep(false);
+      }
+    },
+    [token, shownPlanEvent, addedPrep],
+  );
+
+  // 행사 홍보물 만들기 — ① 문구 세트(Gemini 1회) → ② 이미지(무료 생성기, 수십 초).
+  // redraw=true면 ①을 건너뛰고 이미 만든 문구로 그림만 다시 그린다(같은 문구, 다른 그림).
+  const makePromo = useCallback(
+    async (redraw = false) => {
+      const target = shownPlanEvent;
+      if (!token || !target) return;
+      const my = ++seq.current.promo;
+      setPromoError('');
+      try {
+        let doc = redraw ? promoDoc : null;
+        if (!doc) {
+          setPromoStage('copy');
+          setPromoImage(null);
+          const res = await createEventPromotion(token, target, plan, promoChannel);
+          if (seq.current.promo !== my || !alive.current) return;
+          doc = res.doc;
+          setPromoDoc(doc);
+        }
+        setPromoStage('image');
+        const image = await createPromotionImage(token, {
+          doc_id: doc.id,
+          aspect_ratio: promoChannel === 'banner' ? '16:9' : '4:5',
+          style: REDRAW_STYLES[redrawStyle.current % REDRAW_STYLES.length],
+          overlay: 'auto',
+        });
+        if (seq.current.promo !== my || !alive.current) return;
+        setPromoImage(image);
+        redrawStyle.current += 1;
+      } catch (e) {
+        if (seq.current.promo !== my || !alive.current) return;
+        const msg = e instanceof Error ? e.message : String(e);
+        setPromoError(msg.replace(/^\d+\s·\s/, ''));
+      } finally {
+        if (seq.current.promo === my && alive.current) setPromoStage('idle');
+      }
+    },
+    [token, shownPlanEvent, plan, promoChannel, promoDoc],
+  );
+
+  // 준비 항목을 전부 담았는지 — '전부 담기' 버튼을 다 담은 뒤에도 그대로 두면 또 누르게 된다
+  const allPrepAdded = useMemo(
+    () => !!plan?.prep_actions?.length && plan.prep_actions.every((t) => addedPrep[t.trim()]),
+    [plan, addedPrep],
+  );
+
+  // 복사 — 성공/실패를 토스트로 알려 준다 (웹에서 권한이 막히면 조용히 실패하기 때문)
+  const copyPlain = useCallback(async (text: string, okMessage: string) => {
+    if (!text) return;
+    const ok = await copyText(text);
+    toast(ok ? okMessage : '복사하지 못했어요', ok ? '붙여넣기만 하면 돼요.' : '길게 눌러 직접 복사해 주세요.');
+  }, []);
+
+  // 이미지 저장 — 웹은 파일 다운로드, 앱은 공유 시트(인스타·카톡·사진 앱)로 넘어간다
+  const savePromoImage = useCallback(async () => {
+    if (!promoImage) return;
+    const res = await saveImage(promoImageUrl(promoImage.url), promoFilename(promoImage));
+    if (res === 'downloaded') toast('이미지를 저장했어요');
+    else if (res === 'failed') toast('이미지를 저장하지 못했어요', '잠시 후 다시 시도해 주세요.');
+  }, [promoImage]);
 
   // 2-c) 내 카페 리뷰 — 상호만 있으면 조회된다(매장 위치 등록과 무관). 한 번만 부른다.
   const loadMyCafe = useCallback(async () => {
@@ -734,23 +912,40 @@ export default function StoreMapScreen() {
             </View>
           </View>
 
-          {/* 정렬 토글 — 유사도는 채점이 끝난 뒤에만 선택 가능 */}
-          {Object.keys(simMap).length > 0 && (
+          {/* 정렬 토글 — 카페가 있으면 항상 보여 준다. '유사도순'은 채점이 끝나야 누를 수 있지만,
+              채점 중에도 칩 자체는 남겨 둔다: 예전처럼 칩을 통째로 숨기면 사장님 눈에는
+              기능이 존재하지 않는 화면이 된다. 대신 지금 무슨 상태인지 옆에 적는다. */}
+          {(nearby?.cafes.length ?? 0) > 0 && simState !== 'idle' && (
             <View style={styles.sortRow}>
-              {([['distance', '거리순'], ['similarity', '유사도순']] as const).map(([mode, label]) => (
-                <TouchableOpacity
-                  key={mode}
-                  style={[styles.chip, sortMode === mode && styles.chipActive]}
-                  onPress={() => setSortMode(mode)}
-                >
-                  <Text style={[styles.chipText, sortMode === mode && styles.chipTextActive]}>
-                    {label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-              <Text style={styles.sortHint}>유사도 = 내 카페와 메뉴·가격·컨셉이 겹치는 정도</Text>
+              {([['distance', '거리순'], ['similarity', '유사도순']] as const).map(([mode, label]) => {
+                const locked = mode === 'similarity' && simState !== 'done';
+                return (
+                  <TouchableOpacity
+                    key={mode}
+                    style={[styles.chip, sortMode === mode && styles.chipActive,
+                            locked && styles.chipDisabled]}
+                    disabled={locked}
+                    onPress={() => setSortMode(mode)}
+                  >
+                    <Text style={[styles.chipText, sortMode === mode && styles.chipTextActive,
+                                  locked && styles.chipTextDisabled]}>
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+              {simState === 'loading' && <ActivityIndicator size="small" color={colors.mochaBrown} />}
+              <Text style={styles.sortHint}>
+                {simState === 'loading'
+                  ? '우리 가게와 얼마나 비슷한지 채점하는 중...'
+                  : '유사도 = 내 카페와 메뉴·가격·컨셉이 겹치는 정도'}
+              </Text>
             </View>
           )}
+
+          {/* 채점 신뢰도 한 줄 — 왜 점수가 거칠어졌는지(AI 대신 간이 추정, 메뉴 미등록 등)를
+              밝히지 않으면 '이 기능 고장 났네'로 읽힌다. */}
+          {!!simNote && <Text style={styles.simNote}>{simNote}</Text>}
 
           {loadingNearby ? (
             <View style={styles.inlineLoading}>
@@ -1464,7 +1659,15 @@ export default function StoreMapScreen() {
                       <Text style={styles.listTitle}>🎁 이런 이벤트 어때요</Text>
                       {plan.promotions.map((p, i) => (
                         <View key={`promo-${i}`} style={styles.promoBox}>
-                          <Text style={styles.promoTitle}>{p.title}</Text>
+                          <View style={styles.promoHead}>
+                            <Text style={[styles.promoTitle, { flex: 1 }]}>{p.title}</Text>
+                            {/* 마음에 든 이벤트는 그 자리에서 준비 항목으로 담는다 */}
+                            <TodoChip
+                              added={!!addedPrep[eventTodoTitle(p.title)]}
+                              busy={addingPrep}
+                              onPress={() => addPrepTodos([eventTodoTitle(p.title)])}
+                            />
+                          </View>
                           <Text style={styles.promoDetail}>{p.detail}</Text>
                           {!!p.why && <Text style={styles.promoWhy}>→ {p.why}</Text>}
                         </View>
@@ -1476,32 +1679,208 @@ export default function StoreMapScreen() {
                     <View style={styles.strategyBox}>
                       <Text style={styles.strategyLabel}>☕ 기간 한정 메뉴</Text>
                       <Text style={styles.strategyText}>{plan.menu_idea}</Text>
+                      <TouchableOpacity
+                        style={styles.strategyTodoBtn}
+                        disabled={addingPrep}
+                        onPress={() => addPrepTodos([menuTodoTitle(plan.menu_idea)])}
+                      >
+                        <Ionicons
+                          name={addedPrep[menuTodoTitle(plan.menu_idea)] ? 'checkmark-circle' : 'add-circle-outline'}
+                          size={14}
+                          color={colors.white}
+                        />
+                        <Text style={styles.strategyTodoText}>
+                          {addedPrep[menuTodoTitle(plan.menu_idea)] ? '할 일에 담김' : '준비 할 일로 담기'}
+                        </Text>
+                      </TouchableOpacity>
                     </View>
                   )}
 
                   {plan.prep_actions?.length > 0 && (
                     <View style={styles.actionBox}>
-                      <Text style={styles.actionTitle}>행사 전에 해 둘 일</Text>
+                      <View style={styles.actionHead}>
+                        <Text style={[styles.actionTitle, { flex: 1 }]}>행사 전에 해 둘 일</Text>
+                        <TouchableOpacity
+                          style={[styles.bulkBtn, allPrepAdded && styles.bulkBtnDone]}
+                          disabled={addingPrep || allPrepAdded}
+                          onPress={() => addPrepTodos(plan.prep_actions)}
+                        >
+                          {addingPrep ? (
+                            <ActivityIndicator size="small" color={colors.espressoBrown} />
+                          ) : (
+                            <>
+                              <Ionicons
+                                name={allPrepAdded ? 'checkmark-circle' : 'add-circle-outline'}
+                                size={14}
+                                color={allPrepAdded ? colors.trendGreenText : colors.espressoBrown}
+                              />
+                              <Text style={[styles.bulkBtnText, allPrepAdded && styles.bulkBtnTextDone]}>
+                                {allPrepAdded ? '모두 담김' : '전부 할 일에 담기'}
+                              </Text>
+                            </>
+                          )}
+                        </TouchableOpacity>
+                      </View>
                       {plan.prep_actions.map((text, i) => (
                         <View key={`prep-${i}`} style={styles.actionRow}>
                           <View style={[styles.actionNum, styles.actionNumEvent]}>
                             <Text style={styles.actionNumText}>{i + 1}</Text>
                           </View>
                           <Text style={styles.actionText}>{text}</Text>
+                          {/* 담김 표시의 키는 서버에 보낸 값과 같아야 한다 — 양쪽 다 trim */}
+                          <TodoChip
+                            added={!!addedPrep[text.trim()]}
+                            busy={addingPrep}
+                            onPress={() => addPrepTodos([text])}
+                          />
                         </View>
                       ))}
+                      <Text style={styles.actionHint}>
+                        담으면 홈 화면 ‘오늘 할 일’에 기한
+                        {shownPlanEvent?.start_date ? `(${formatDueDay(prepDueDate(shownPlanEvent.start_date))})` : ''}
+                        과 함께 올라와요.
+                      </Text>
                     </View>
                   )}
 
-                  <TagBlock title="📦 넉넉히 준비할 재료" items={plan.stock_prep} tone="warn" />
+                  <TagBlock
+                    title="📦 넉넉히 준비할 재료 · 눌러서 할 일에 담기"
+                    items={plan.stock_prep}
+                    tone="warn"
+                    onPressItem={(item) => addPrepTodos([stockTodoTitle(item)])}
+                  />
                   {!!plan.staffing && <TagBlock title="👥 인력 배치" items={[plan.staffing]} />}
 
-                  {!!plan.promo_copy && (
-                    <View style={styles.copyBox}>
-                      <Text style={styles.copyLabel}>📣 그대로 쓰는 홍보 문구</Text>
-                      <Text style={styles.copyText}>{plan.promo_copy}</Text>
+                  {/* 홍보물 — 한 줄 문구에서 끝내지 않고, 그대로 올릴 수 있는 게시물까지 만든다 */}
+                  <View style={styles.copyBox}>
+                    <View style={styles.copyHead}>
+                      <Text style={[styles.copyLabel, { flex: 1 }]}>📣 그대로 쓰는 홍보 문구</Text>
+                      {!!plan.promo_copy && (
+                        <TouchableOpacity
+                          onPress={() => copyPlain(plan.promo_copy, '홍보 문구를 복사했어요')}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Ionicons name="copy-outline" size={16} color="#B4542C" />
+                        </TouchableOpacity>
+                      )}
                     </View>
-                  )}
+                    {!!plan.promo_copy && <Text style={styles.copyText}>{plan.promo_copy}</Text>}
+
+                    <View style={styles.channelRow}>
+                      {PROMO_CHANNELS.map((c) => (
+                        <TouchableOpacity
+                          key={c.key}
+                          style={[styles.channelChip, promoChannel === c.key && styles.channelChipOn]}
+                          disabled={promoStage !== 'idle'}
+                          onPress={() => setPromoChannel(c.key)}
+                        >
+                          <Ionicons
+                            name={c.icon}
+                            size={13}
+                            color={promoChannel === c.key ? colors.white : colors.mochaBrown}
+                          />
+                          <Text
+                            style={[
+                              styles.channelChipText,
+                              promoChannel === c.key && styles.channelChipTextOn,
+                            ]}
+                          >
+                            {c.label}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+
+                    {promoStage !== 'idle' ? (
+                      <View style={styles.inlineLoading}>
+                        <ActivityIndicator size="small" color={colors.pointOrange} />
+                        <Text style={styles.inlineLoadingText}>
+                          {promoStage === 'copy'
+                            ? '이 행사에 맞는 홍보 문구를 쓰는 중...'
+                            : '홍보 이미지를 그리는 중이에요 (1분까지 걸려요)'}
+                        </Text>
+                      </View>
+                    ) : (
+                      <TouchableOpacity style={styles.promoMakeBtn} onPress={() => makePromo(false)}>
+                        <Ionicons name="color-wand" size={15} color={colors.white} />
+                        <Text style={styles.detailPlanBtnText}>
+                          {promoDoc ? '문구·이미지 새로 만들기' : '이 문구로 홍보물 만들기'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                    {!!promoError && <Text style={styles.promoErrorText}>{promoError}</Text>}
+
+                    {!!promoDoc && (
+                      <View style={styles.promoResult}>
+                        {!!promoImage && (
+                          <Image
+                            source={{ uri: promoImageUrl(promoImage.url) }}
+                            style={[
+                              styles.promoImg,
+                              { aspectRatio: aspectToNumber(promoImage.aspect_ratio) },
+                            ]}
+                            resizeMode="cover"
+                          />
+                        )}
+                        <Text style={styles.promoKitHeadline}>{promoDoc.content.headline}</Text>
+                        <Text style={styles.promoKitBody}>
+                          {promoDoc.content.sns_caption || promoDoc.content.body}
+                        </Text>
+                        {promoDoc.content.hashtags?.length > 0 && (
+                          <Text style={styles.promoKitTags}>
+                            {promoDoc.content.hashtags.join(' ')}
+                          </Text>
+                        )}
+                        <View style={styles.promoBtnRow}>
+                          <TouchableOpacity
+                            style={styles.promoSmallBtn}
+                            onPress={() =>
+                              copyPlain(promotionText(promoDoc.content, true), '문구를 복사했어요')
+                            }
+                          >
+                            <Ionicons name="copy-outline" size={14} color={colors.espressoBrown} />
+                            <Text style={styles.promoSmallBtnText}>문구 복사</Text>
+                          </TouchableOpacity>
+                          {!!promoImage && (
+                            <TouchableOpacity style={styles.promoSmallBtn} onPress={savePromoImage}>
+                              <Ionicons
+                                name={canDownload ? 'download-outline' : 'share-social-outline'}
+                                size={14}
+                                color={colors.espressoBrown}
+                              />
+                              <Text style={styles.promoSmallBtnText}>
+                                {canDownload ? '이미지 저장' : '이미지 공유'}
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+                          {!!promoImage && (
+                            <TouchableOpacity
+                              style={styles.promoSmallBtn}
+                              onPress={() => makePromo(true)}
+                            >
+                              <Ionicons name="refresh" size={14} color={colors.espressoBrown} />
+                              <Text style={styles.promoSmallBtnText}>다른 그림</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                        <Text style={styles.promoSavedNote}>
+                          홍보 보관함에도 저장됐어요 — 홍보 화면에서 다시 꺼내 쓸 수 있어요.
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* 계획 전체를 직원에게 넘길 때 — 시트를 켜 두고 받아 적지 않아도 되게 */}
+                  <TouchableOpacity
+                    style={styles.detailSearchBtn}
+                    onPress={() =>
+                      shownPlanEvent &&
+                      copyPlain(planToText(shownPlanEvent, plan), '준비 계획을 복사했어요')
+                    }
+                  >
+                    <Ionicons name="clipboard-outline" size={14} color={colors.espressoBrown} />
+                    <Text style={styles.detailSearchText}>준비 계획 전체 복사 (직원 공유용)</Text>
+                  </TouchableOpacity>
 
                   <Text style={styles.aiNote}>
                     공개된 행사 정보를 바탕으로 AI가 짠 제안이에요. 매장 사정에 맞게 골라 쓰세요.
@@ -1544,6 +1923,23 @@ function formatWatchDay(iso: string) {
   if (diff === 1) return '어제';
   if (diff > 1 && diff <= 6) return `${diff}일 전`;
   return `${m}/${d}`;
+}
+
+// 기한 표기 — 할 일에 담았을 때 "언제까지 하면 되는지"를 말해 준다.
+// 지난 날짜를 다루는 formatWatchDay와 반대로 앞날을 본다 (오늘·내일·8/9(토)).
+function formatDueDay(iso: string) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-').map(Number);
+  if (!y || !m || !d) return iso;
+  const target = new Date(y, m - 1, d);
+  const today = new Date();
+  const diff = Math.round(
+    (target.getTime() - new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()) /
+      86400000,
+  );
+  if (diff <= 0) return '오늘';
+  if (diff === 1) return '내일';
+  return `${m}/${d}(${WEEKDAYS[target.getDay()]})`;
 }
 
 function formatEventRange(start: string, end: string) {
@@ -1617,6 +2013,27 @@ function TagBlock({
         ))}
       </View>
     </View>
+  );
+}
+
+// 준비 항목 한 줄을 '오늘 할 일'로 담는 작은 버튼. 담긴 뒤에는 눌리지 않고 체크만 남는다.
+function TodoChip({ added, busy, onPress }: { added: boolean; busy: boolean; onPress: () => void }) {
+  return (
+    <TouchableOpacity
+      style={[styles.todoChip, added && styles.todoChipDone]}
+      disabled={added || busy}
+      onPress={onPress}
+      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+    >
+      <Ionicons
+        name={added ? 'checkmark' : 'add'}
+        size={13}
+        color={added ? colors.trendGreenText : colors.espressoBrown}
+      />
+      <Text style={[styles.todoChipText, added && styles.todoChipTextDone]}>
+        {added ? '담김' : '할 일'}
+      </Text>
+    </TouchableOpacity>
   );
 }
 
@@ -1874,6 +2291,9 @@ const styles = StyleSheet.create({
   // ── 유사도 (정렬 토글 · 배지 · 상세 축 비교) ──
   sortRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   sortHint: { ...typography.L5, color: '#AEAEB2', marginLeft: 2, flexShrink: 1 },
+  chipDisabled: { opacity: 0.45 },
+  chipTextDisabled: { color: colors.mochaBrown },
+  simNote: { ...typography.L5, color: colors.mochaBrown, marginTop: 6, marginBottom: 2, lineHeight: 16 },
   simBadge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 },
   simBadgeText: { fontSize: 10.5, fontWeight: '800' },
   simBox: {
@@ -2170,6 +2590,101 @@ const styles = StyleSheet.create({
   },
   copyLabel: { ...typography.L5, color: '#B4542C', fontWeight: '800' },
   copyText: { ...typography.L4, color: colors.espressoBrown, lineHeight: 19 },
+  copyHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+
+  // ── 행사 준비 → 할 일 담기 ──
+  promoHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  actionHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  actionHint: { ...typography.L5, color: colors.mochaBrown, marginTop: 2, lineHeight: 16 },
+  bulkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.white,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    minWidth: 92,
+    justifyContent: 'center',
+  },
+  bulkBtnDone: { backgroundColor: colors.trendGreenBg, borderColor: 'transparent' },
+  bulkBtnText: { ...typography.L5, color: colors.espressoBrown, fontWeight: '800' },
+  bulkBtnTextDone: { color: colors.trendGreenText },
+  todoChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: colors.white,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+  },
+  todoChipDone: { backgroundColor: colors.trendGreenBg, borderColor: 'transparent' },
+  todoChipText: { ...typography.L5, color: colors.espressoBrown, fontWeight: '800' },
+  todoChipTextDone: { color: colors.trendGreenText },
+  // 한정 메뉴 상자는 짙은 갈색 바탕이라 버튼도 반투명 흰색으로 얹는다
+  strategyTodoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    marginTop: 8,
+    paddingVertical: 7,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  strategyTodoText: { ...typography.L5, color: colors.white, fontWeight: '800' },
+
+  // ── 행사 홍보물 (문구 세트 + AI 이미지) ──
+  channelRow: { flexDirection: 'row', gap: 6, marginTop: 10 },
+  channelChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.white,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+  },
+  channelChipOn: { backgroundColor: colors.espressoBrown, borderColor: 'transparent' },
+  channelChipText: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700' },
+  channelChipTextOn: { color: colors.white },
+  promoMakeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    marginTop: 10,
+    backgroundColor: colors.pointOrange,
+    borderRadius: 12,
+    paddingVertical: 12,
+  },
+  promoErrorText: { ...typography.L5, color: '#B4542C', marginTop: 8, lineHeight: 17 },
+  promoResult: { marginTop: 12, gap: 6 },
+  promoImg: { width: '100%', borderRadius: 12, backgroundColor: colors.mutedSand },
+  promoKitHeadline: { ...typography.L3, color: colors.espressoBrown, marginTop: 4 },
+  promoKitBody: { ...typography.L5, color: colors.espressoBrown, lineHeight: 18 },
+  promoKitTags: { ...typography.L5, color: '#B4542C', lineHeight: 17 },
+  promoBtnRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
+  promoSmallBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.white,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+  },
+  promoSmallBtnText: { ...typography.L5, color: colors.espressoBrown, fontWeight: '800' },
+  promoSavedNote: { ...typography.L5, color: colors.mochaBrown, marginTop: 2, lineHeight: 16 },
 
   modalRoot: { flex: 1, justifyContent: 'flex-end', width: '100%', maxWidth: 420, alignSelf: 'center' },
   backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: colors.black40 },

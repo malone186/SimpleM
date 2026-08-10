@@ -143,7 +143,7 @@ export const FIELD_LABELS: Record<string, string> = {
   best_weekday: '가장 좋은 요일',
   worst_weekday: '가장 낮은 요일',
   avg_total: '하루 평균 매출',
-  days: '집계 일수',
+  days: '일수',
   hour: '시간대',
   gap: '모자란 금액',
   // 경영 리포트 — 다음 기간 전망
@@ -164,6 +164,7 @@ export const FIELD_LABELS: Record<string, string> = {
   evidence: '근거',
   action: '할 일',
   title: '제목',
+  screen: '이동 화면',
   // 갱신 서류
   expiry_date: '만료일',
   remind_before_days: '알림 시작(일 전)',
@@ -175,7 +176,7 @@ export const FIELD_LABELS: Record<string, string> = {
 export const HIDDEN_FIELDS = new Set([
   'ai_advice_hash', 'ai_advice_at', 'ai_advice_version',
   // 경영 리포트의 내부 판정 플래그 — 문장(note·하이라이트)으로 이미 풀어서 안내한다
-  'reliable', 'fixed_cost_missing', 'stale', 'model', 'screen',
+  'reliable', 'fixed_cost_missing', 'stale', 'model',
 ]);
 
 // kind별 표시 순서 — 사장님이 먼저 봐야 하는 것(핵심 요약·조언)을 위로.
@@ -208,6 +209,12 @@ export function visibleEntries(
 export const VALUE_LABELS: Record<string, Record<string, string>> = {
   period_type: { daily: '일간', weekly: '주간', monthly: '월간' },
   basis: { recipe: '팔린 메뉴의 레시피', purchase: '확정한 명세서' },
+  // ai_actions의 이동 화면 — 서류 화면·인쇄에서 영문 라우트명 대신 화면 이름으로
+  screen: {
+    Menu: '메뉴 관리', Cost: '원가 분석', Inventory: '재고',
+    Staff: '직원 · 스케줄', Document: '서류 자동화', Marketing: '홍보 스튜디오',
+    SalesInput: '매출 입력',
+  },
   status: {
     draft: '초안', confirmed: '확정', rejected: '반려',
     ok: '정상', due_soon: '갱신 임박', expired: '만료',

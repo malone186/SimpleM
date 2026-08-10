@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models.operation import Employee, Schedule
 from app.services.operation.operation_service import OperationService
+from app.utils.datetime_kst import today_kst
 
 # 종합소득세 누진세율표 (2024~2026 기준): (과세표준 상한, 세율, 누진공제액)
 INCOME_TAX_BRACKETS = [
@@ -113,20 +114,29 @@ class TaxService:
         return {"amount": total, "income_tax": income_tax, "local_tax": local_tax, "basis": basis}
 
     @classmethod
-    def calculate_monthly_withholding(cls, db: Session, year_month: str) -> Dict:
-        """해당 월 스케줄(실 출퇴근 기록)의 1일 지급액마다 일용근로 원천징수를 합산합니다."""
-        schedules = db.query(Schedule).filter(
-            Schedule.date.like(f"{year_month}%"),
-            Schedule.actual_start_time.isnot(None),
-            Schedule.actual_end_time.isnot(None),
-        ).all()
+    def calculate_monthly_withholding(cls, db: Session, year_month: str, store_id: str | None = None) -> Dict:
+        """해당 월 스케줄(실 출퇴근 기록)의 1일 지급액마다 일용근로 원천징수를 합산합니다.
+
+        store_id 필수 스코프 — 공유 DB라 스코프 없이 합산하면 남의 매장 인건비까지
+        내 세금에 섞인다 (금액 오류 + 유출). None은 레거시 호환용으로만 남긴다.
+        Employee를 스케줄과 함께 한 번에 조회한다 (행마다 조회하던 N+1 제거).
+        """
+        q = (
+            db.query(Schedule, Employee)
+            .join(Employee, Employee.id == Schedule.employee_id)
+            .filter(
+                Schedule.date.like(f"{year_month}%"),
+                Schedule.actual_start_time.isnot(None),
+                Schedule.actual_end_time.isnot(None),
+            )
+        )
+        if store_id:
+            q = q.filter(Employee.store_id == store_id)
+        rows = q.all()
 
         total = 0
         work_days = 0
-        for s in schedules:
-            emp = db.query(Employee).filter(Employee.id == s.employee_id).first()
-            if not emp:
-                continue
+        for s, emp in rows:
             hours = OperationService.calculate_work_hours(s.actual_start_time, s.actual_end_time)
             daily_pay = int(hours * emp.hourly_rate)
             total += cls.calculate_withholding_tax(daily_pay, income_type="daily")["amount"]
@@ -149,7 +159,7 @@ class TaxService:
         except ValueError:
             raise ValueError("기간 포맷은 YYYY-MM 형식이어야 합니다.")
 
-        today = date.today()
+        today = today_kst()
 
         # 부가가치세
         if tax_type == "simplified":
@@ -254,7 +264,7 @@ class TaxService:
 
         vat = cls.calculate_vat(revenue, expense, tax_type)
         income = cls.calculate_income_tax(revenue, expense)
-        withholding = cls.calculate_monthly_withholding(db, year_month)
+        withholding = cls.calculate_monthly_withholding(db, year_month, store_id)
         return cls._assemble(year_month, tax_type, revenue, expense, vat, income, withholding)
 
     @classmethod

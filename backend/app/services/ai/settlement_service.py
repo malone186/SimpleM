@@ -25,6 +25,7 @@ import json
 import logging
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Optional
+from app.utils.datetime_kst import today_kst
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +91,7 @@ def _holidays() -> dict[str, str]:
     # 입금 예정일이 연말에 다음 해로 넘어갈 수 있어 올해·내년 두 해를 함께 본다
     from app.services.ai.forecast_service import kr_holidays
 
-    y = date.today().year
+    y = today_kst().year
     return kr_holidays(y, y + 1)
 
 
@@ -229,7 +230,7 @@ def suggest_tier(store_id: str, lookback_days: int = 90) -> dict[str, Any]:
     from app.models.inventory import Sale
 
     lookback_days = max(7, min(int(lookback_days), 365))
-    today = date.today()
+    today = today_kst()
     since = today - timedelta(days=lookback_days - 1)
 
     by_date: dict[str, int] = {}
@@ -325,7 +326,7 @@ def preview(
     amount = max(0, int(amount))
 
     try:
-        start = date.fromisoformat(sale_date) if sale_date else date.today()
+        start = date.fromisoformat(sale_date) if sale_date else today_kst()
     except ValueError:
         raise SettlementError("날짜 형식이 올바르지 않습니다 (YYYY-MM-DD)")
 
@@ -501,7 +502,7 @@ def upcoming_deposits(store_id: str, lookback_days: int = 21, ahead_days: int = 
 
     settings = get_settings(store_id)
     lag_by_code = {i["code"]: i["lag"] for i in settings["issuers"]}
-    today = date.today()
+    today = today_kst()
     since = (today - timedelta(days=lookback_days)).isoformat()
     until = today.isoformat()
 
@@ -577,7 +578,7 @@ def period_summary(store_id: str, days: int = 28) -> dict[str, Any]:
     from app.models.ai import DailySalesEntry
 
     settings = get_settings(store_id)
-    today = date.today()
+    today = today_kst()
     since = (today - timedelta(days=days - 1)).isoformat()
 
     db = _session()

@@ -20,6 +20,26 @@ const SCREEN_ROUTES: Record<string, string> = {
   SalesInput: 'SalesInput',
 };
 
+/** 브루의 조언(ai_advice)을 화면에 그릴 줄 목록으로.
+ *
+ * 새 형식은 "1. …\n2. …"의 번호 매긴 줄이라 줄바꿈으로 나누고 번호 접두어는 뗀다
+ * (번호는 렌더링 쪽에서 인덱스로 다시 붙인다 — 텍스트 파싱에 기대지 않기 위해).
+ * 구형식(한 문단)은 문장 끝(…요./…다.)에서 끊어 같은 목록 모양으로 맞춘다 —
+ * 쿼터 소진으로 옛 조언이 보존된 동안에도 카드가 문단 덩어리로 보이지 않게. */
+export function parseAdviceLines(text: string): string[] {
+  const lines = text
+    .split('\n')
+    .map((l) => l.trim().replace(/^\d+\.\s*/, ''))
+    .filter(Boolean);
+  if (lines.length !== 1) return lines;
+  // 소수점(52.6%)은 건드리지 않도록 '요./다. + 공백'만 문장 경계로 본다
+  return lines[0]
+    .replace(/([요다]\.)\s+/g, '$1\n')
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 /** content.ai_actions를 화면에서 쓸 수 있는 액션 목록으로 정리 (라우트 없는 항목은 버린다) */
 export function parseReportActions(raw: unknown): (ReportAction & { route: string })[] {
   if (!Array.isArray(raw)) return [];

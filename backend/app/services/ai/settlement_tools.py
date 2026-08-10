@@ -14,6 +14,7 @@ from datetime import date
 from langchain_core.tools import tool
 
 from app.services.ai import settlement_service
+from app.utils.datetime_kst import today_kst
 
 
 def _dump(data) -> str:
@@ -34,7 +35,7 @@ def get_day_sales(store_id: str, target_date: str = "") -> str:
     """특정 날짜의 현금·카드 매출 입력 내용과 그날 카드 수수료·입금 예정일을 조회한다.
     '어제 얼마 팔았지?', '오늘 카드 얼마야?'처럼 물을 때 쓴다.
     target_date는 YYYY-MM-DD, 비우면 오늘이다."""
-    return _dump(settlement_service.get_day(store_id, target_date or date.today().isoformat()))
+    return _dump(settlement_service.get_day(store_id, target_date or today_kst().isoformat()))
 
 
 @tool
@@ -45,7 +46,7 @@ def record_day_sales(store_id: str, cash: int = 0, card: int = 0,
     카드사를 나눠 말하지 않았으면 card에 총액을 넣는다 — 입금일은 보수적으로 계산된다.
     cups(잔 수)는 사장님이 말했을 때만 넣고, 아니면 0으로 둔다.
     저장 후 그날의 수수료와 입금 예정일을 돌려주므로 그대로 알려 주면 된다."""
-    target = target_date or date.today().isoformat()
+    target = target_date or today_kst().isoformat()
     cards = [{"issuer": "unknown", "amount": int(card), "card_type": "credit"}] if card > 0 else []
     try:
         return _dump(settlement_service.save_day(

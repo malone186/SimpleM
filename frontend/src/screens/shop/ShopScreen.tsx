@@ -37,6 +37,7 @@ import { useEquipped } from '../../rewards/EquippedContext';
 import { colors, typography } from '../../theme';
 // [한글 주석] load() 안의 지역변수 s(shop 응답)와 겹치지 않게 스케일 함수는 sc 로 별칭 처리
 import { s as sc, useBottomInset, useResponsive, useTopInset } from '../../theme/responsive';
+import { startLoop } from '../../lib/animLoop';
 
 // 화면에 보여줄 부위 순서 — 위에서부터 눈에 띄는 것 순
 const SLOT_ORDER: ItemSlot[] = ['pose', 'apron', 'background', 'room'];
@@ -448,16 +449,16 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
 function CapsuleShake() {
   const t = useState(() => new Animated.Value(0))[0];
   useEffect(() => {
-    const loop = Animated.loop(
+    // Animated.loop을 쓰지 않는다 — useNativeDriver:true면 웹에서 한 번 파닥이고 멈춰
+    // 뽑기 대기 중인지 알 수 없게 된다(lib/animLoop.ts에 이유).
+    return startLoop(() =>
       Animated.sequence([
         Animated.timing(t, { toValue: 1, duration: 90, easing: Easing.linear, useNativeDriver: true }),
         Animated.timing(t, { toValue: -1, duration: 180, easing: Easing.linear, useNativeDriver: true }),
         Animated.timing(t, { toValue: 0, duration: 90, easing: Easing.linear, useNativeDriver: true }),
         Animated.delay(240),
       ]),
-    );
-    loop.start();
-    return () => loop.stop();
+    ).stop;
   }, [t]);
   const rotate = t.interpolate({ inputRange: [-1, 1], outputRange: ['-16deg', '16deg'] });
   return (

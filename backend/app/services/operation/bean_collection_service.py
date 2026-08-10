@@ -93,10 +93,16 @@ def upsert_bean_reviews_batch(db: Session, reviews_data: List[Dict[str, Any]]) -
             existing.helpful_count = item.get("helpful_count", existing.helpful_count)
             existing.collected_at = now_utc
         else:
+            # source_url이 없으면 (원두, 내용) 기반 결정적 고유 URL을 만든다 —
+            # 예전 f"https://review.sample/{count+1}"은 배치마다 1부터 다시 세서
+            # 유니크 제약(uq_bean_reviews_source_url)과 배치 간 충돌했다.
+            import hashlib
+            fallback_url = "https://review.sample/" + hashlib.sha1(
+                f"{item['bean_id']}:{item['content']}".encode()).hexdigest()[:16]
             new_review = BeanReview(
                 bean_id=item["bean_id"],
                 source_site=item.get("source_site", "Naver Shopping"),
-                source_url=source_url or f"https://review.sample/{count+1}",
+                source_url=source_url or fallback_url,
                 rating=float(item.get("rating", 5.0)),
                 content=item["content"],
                 sentiment=item.get("sentiment", "neutral"),

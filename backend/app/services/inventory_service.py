@@ -1,11 +1,11 @@
 # c:\STUDY\SimpleM\backend\app\services\inventory_service.py
 import logging
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 from fastapi import HTTPException, status
 
 from app.models.inventory import Ingredient, IngredientPriceHistory, Menu, Recipe, Stock, StockTransaction, Order, OrderItem
-from app.schemas.inventory import IngredientCreate, StockAdjust, MenuCreate, RecipeCreate
+from app.schemas.inventory import IngredientCreate, IngredientUpdate, StockAdjust, MenuCreate, RecipeCreate
 
 # 원가 절감 추천에서 다나와 가격비교가 실패하면 except가 logger를 부른다 — 정의 안 하면 NameError로 재폭발
 logger = logging.getLogger(__name__)
@@ -78,6 +78,96 @@ def update_ingredient_price(db: Session, store_id: str, ingredient_id: int, new_
         db.refresh(ingredient)
         
     return ingredient
+
+
+def update_ingredient_full(
+    db: Session, store_id: str, ingredient_id: int, payload: IngredientUpdate
+) -> dict:
+    """
+    [백엔드 B 추가 — 재고 화면 '재료 정보 수정'] 이름·단위·단가·현재 수량·안전 수량을 한 번에 고칩니다.
+
+    수량만 고칠 수 있던 기존 흐름(add_or_adjust_stock)과 달리 재료 자체를 고치는 창구다.
+    - 보내지 않은 항목은 그대로 둔다 (부분 수정)
+    - 단가가 바뀌면 기존 단가 이력에 그대로 한 줄 쌓는다 (원가 추이가 끊기지 않게)
+    - 수량은 '최종값'을 받아 차액만 장부(StockTransaction)에 ADJUST로 남긴다.
+      실사 수량을 그대로 적게 하려면 화면에서 차액을 계산시키면 안 된다.
+    - 이름은 매장 안에서 겹치지 않게 막는다. 겹치면 OCR 입고가 어느 쪽에 붙을지 알 수 없다.
+    """
+    ingredient = db.query(Ingredient).filter(
+        Ingredient.id == ingredient_id,
+        Ingredient.store_id == store_id,
+    ).first()
+
+    if not ingredient:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="매장에 해당 식재료 정보가 존재하지 않습니다.",
+        )
+
+    # 이름 중복 검사 — 자기 자신은 제외한다 (이름을 안 바꾸고 수량만 고치는 경우가 대부분)
+    if payload.name is not None:
+        new_name = payload.name.strip()
+        if not new_name:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="재료명은 비워 둘 수 없습니다.")
+        if new_name != ingredient.name:
+            duplicated = db.query(Ingredient.id).filter(
+                Ingredient.store_id == store_id,
+                Ingredient.name == new_name,
+                Ingredient.id != ingredient_id,
+            ).first()
+            if duplicated:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"'{new_name}' 재료가 이미 있어요. 다른 이름을 쓰거나 기존 재료를 수정해 주세요.",
+                )
+            ingredient.name = new_name
+
+    if payload.unit is not None:
+        unit = payload.unit.strip()
+        if not unit:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="단위는 비워 둘 수 없습니다.")
+        ingredient.unit = unit
+
+    if payload.current_price is not None and payload.current_price != ingredient.current_price:
+        ingredient.current_price = payload.current_price
+        db.add(IngredientPriceHistory(ingredient_id=ingredient.id, price=payload.current_price))
+
+    stock = db.query(Stock).filter(Stock.ingredient_id == ingredient_id).first()
+    if not stock:
+        # 옛 데이터에 재고 행이 빠져 있을 수 있다 (재료만 있고 Stock이 없는 경우)
+        stock = Stock(ingredient_id=ingredient_id, current_quantity=0.0, safety_quantity=0.0)
+        db.add(stock)
+        db.flush()
+
+    if payload.current_quantity is not None:
+        diff = payload.current_quantity - stock.current_quantity
+        # 부동소수 오차(0.30000000000000004)로 0짜리 장부가 쌓이지 않게 아주 작은 차이는 무시
+        if abs(diff) > 1e-9:
+            stock.current_quantity = payload.current_quantity
+            db.add(StockTransaction(
+                ingredient_id=ingredient_id,
+                quantity_change=diff,
+                type="ADJUST",
+                description="재고 정보 수정 (실사 반영)",
+            ))
+
+    if payload.safety_quantity is not None:
+        stock.safety_quantity = payload.safety_quantity
+
+    db.commit()
+    db.refresh(stock)
+    db.refresh(ingredient)
+
+    # 화면이 목록을 다시 부르지 않고 그 자리에서 갱신할 수 있게 재고 현황과 같은 모양으로 돌려준다
+    return {
+        "ingredient_id": ingredient.id,
+        "name": ingredient.name,
+        "unit": ingredient.unit,
+        "current_price": ingredient.current_price,
+        "current_quantity": stock.current_quantity,
+        "safety_quantity": stock.safety_quantity,
+        "updated_at": stock.updated_at,
+    }
 
 
 def get_ingredient_price_history(db: Session, store_id: str, ingredient_id: int) -> list[IngredientPriceHistory]:
@@ -157,7 +247,11 @@ def add_or_adjust_stock(db: Session, store_id: str, adjust_in: StockAdjust) -> S
         )
 
     # 2-2. 실시간 재고 레코드를 찾아서 값을 증감시킵니다.
-    stock = db.query(Stock).filter(Stock.ingredient_id == adjust_in.ingredient_id).first()
+    # FOR UPDATE로 잠그고 읽는다 — POS 동기화와 수동 조정이 동시에 들어오면
+    # 나중 커밋이 먼저 커밋의 증감을 덮어써 재고 캐시가 장부와 어긋난다.
+    stock = (db.query(Stock)
+             .filter(Stock.ingredient_id == adjust_in.ingredient_id)
+             .with_for_update().first())
     if not stock:
         # 혹시 모를 에러 방지용: 재고 레코드가 없었다면 새로 파줍니다.
         stock = Stock(ingredient_id=adjust_in.ingredient_id, current_quantity=0.0)
@@ -268,7 +362,15 @@ def get_menus_with_recipes(db: Session, store_id: str) -> list[dict]:
     현재 매장의 메뉴판 정보와 각 메뉴별 레시피(재료 이름, 단위, 양)를 정렬하여 한 묶음의 리스트로 받아옵니다.
     (재재료 단가 변동이 실시간 반영되도록 각 메뉴별 원가 및 원가율을 동적으로 실시간 연산하여 동봉합니다.)
     """
-    menus = db.query(Menu).filter(Menu.store_id == store_id).order_by(Menu.id.asc()).all()
+    # recipes·ingredient를 lazy-load에 맡기면 메뉴×레시피 수만큼 Neon 왕복(2N+1)이라
+    # 메뉴 20개 목록이 수 초씩 걸렸다 — 한 번에 미리 당겨 총 2쿼리로 줄인다.
+    menus = (
+        db.query(Menu)
+        .options(selectinload(Menu.recipes).joinedload(Recipe.ingredient))
+        .filter(Menu.store_id == store_id)
+        .order_by(Menu.id.asc())
+        .all()
+    )
     results = []
 
     for menu in menus:
@@ -336,6 +438,16 @@ def delete_menu(db: Session, store_id: str, menu_id: int) -> None:
     )
     if not menu:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="메뉴를 찾을 수 없습니다.")
+    # 판매 이력이 있는 메뉴는 지울 수 없다 — Sale.menu_id가 NOT NULL이라 ORM 삭제는
+    # NULL 업데이트 시도로 500이 나고, FK cascade로 지우면 매출 원장이 통째로 사라져
+    # 지난 정산·리포트 합계가 소급으로 줄어든다. 매출 기록은 회계 원장이므로 보존한다.
+    from app.models.inventory import Sale
+    has_sales = db.query(Sale.id).filter(Sale.menu_id == menu_id).first() is not None
+    if has_sales:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="판매 이력이 있는 메뉴는 삭제할 수 없습니다. 매출 기록 보존을 위해 메뉴를 남겨 두거나 이름을 바꿔 주세요.",
+        )
     db.delete(menu)
     db.commit()
 
@@ -552,23 +664,33 @@ def get_menu_cost_reduction_recommendations(db: Session, store_id: str, menu_id:
         raise HTTPException(status_code=404, detail="원가 절감 분석을 수행할 메뉴 정보를 찾을 수 없습니다.")
 
     recommendations = []
-    current_total_cost = 0
 
-    # 2. 메뉴의 레시피에 들어가는 재료들을 한 품목씩 뜯어 단가와 매칭합니다.
-    for recipe in menu.recipes:
-        ing = recipe.ingredient
-        recipe_cost = int(recipe.quantity * ing.current_price)
-        current_total_cost += recipe_cost
-
+    def _is_coffee_bean(ing) -> bool:
         # [한글 주석] 재료명이나 단위에 원두 관련 텍스트가 있다면 로스터리 도매 납품 DB와 연결합니다.
-        is_coffee_bean = (
-            "원두" in ing.name or 
-            "예가체프" in ing.name or 
-            "수프리모" in ing.name or 
-            "콜롬비아" in ing.name or 
-            "원두" in ing.unit or 
+        return (
+            "원두" in ing.name or
+            "예가체프" in ing.name or
+            "수프리모" in ing.name or
+            "콜롬비아" in ing.name or
+            "원두" in ing.unit or
             "bean" in ing.name.lower()
         )
+
+    recipe_rows = [(r, r.ingredient, int(r.quantity * r.ingredient.current_price)) for r in menu.recipes]
+    current_total_cost = sum(cost for _, _, cost in recipe_rows)
+
+    # 다나와 실시간 조회(compare_prices)는 재료마다 크롤 1회라, 재료 수만큼 응답이 수십 초로
+    # 늘어난다 — 비원두는 잔당 원가가 큰 상위 3개만 조회한다 (절감 효과도 큰 순서다.
+    # price_service가 검색어당 1시간 캐시를 갖고 있어 두 번째 조회부터는 어차피 즉시다).
+    non_bean_costly = sorted(
+        (row for row in recipe_rows if not _is_coffee_bean(row[1])),
+        key=lambda row: row[2], reverse=True,
+    )
+    danawa_allowed_ids = {id(row[0]) for row in non_bean_costly[:3]}
+
+    # 2. 메뉴의 레시피에 들어가는 재료들을 한 품목씩 뜯어 단가와 매칭합니다.
+    for recipe, ing, recipe_cost in recipe_rows:
+        is_coffee_bean = _is_coffee_bean(ing)
 
         if is_coffee_bean:
             # A. 로스터리 도매 원두 DB(roastery_beans) 중 g당 단가가 사장님의 현재 원두 매입가보다 더 저렴한 원두 2개를 골라냅니다.
@@ -595,7 +717,7 @@ def get_menu_cost_reduction_recommendations(db: Session, store_id: str, menu_id:
                     "link": bean.product_url or "",
                     "description": f"로스터리 도매 직거래를 통해 g당 단가를 {int(bean.price_per_gram)}원 선으로 크게 낮출 수 있습니다. (원산지: {bean.country or '블렌딩'})"
                 })
-        else:
+        elif id(recipe) in danawa_allowed_ids:
             # B. 일반 우유, 컵, 시럽 등 부자재는 인터넷 가격비교(다나와)를 실시간으로 호출해 매칭합니다.
             try:
                 # _clean_query 규격에 맞춰 검색한 뒤 최저가 1종을 추출

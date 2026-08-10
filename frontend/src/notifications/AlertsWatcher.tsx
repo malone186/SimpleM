@@ -125,7 +125,10 @@ export function isInDndWindow(now: Date, start: string, end: string): boolean {
   return s < e ? cur >= s && cur < e : cur >= s || cur < e;
 }
 
-const dateKey = (d: Date) => d.toISOString().slice(0, 10);
+// 기기 로컬(=KST) 날짜 키 — toISOString()은 UTC라 오전 9시 전엔 어제가 나와
+// 아침 브리핑이 통째로 건너뛰어지고, 하루 1회 중복 방지가 오전 9시에 리셋됐다.
+// 구현은 lib/dateKey 한 곳에서 관리한다.
+import { dateKey } from '../lib/dateKey';
 
 /** ISO 주차 키 (주간 리포트 중복 발송 방지용) */
 function weekKey(d: Date): string {
@@ -324,8 +327,13 @@ export default function AlertsWatcher() {
         if (prefs.lowStockAlert) {
           const today = dateKey(now);
           const alreadyIds = state.lowStockDate === today ? state.lowStockIds ?? [] : [];
+          // 안전재고 미설정(0)은 3개 기준으로 본다 — 홈 할 일·재고 배지와 같은 규칙.
+          // 이 폴백이 빠지면 safety=0 재료는 1~3개 남아 화면엔 '부족' 배지가 떠도
+          // 푸시만 조용히 안 나간다 (아래 문구의 need 계산과도 어긋났다).
           const low = stocks.filter(
-            (s) => s.current_quantity <= s.safety_quantity && !alreadyIds.includes(s.ingredient_id)
+            (s) =>
+              s.current_quantity <= (s.safety_quantity > 0 ? s.safety_quantity : 3) &&
+              !alreadyIds.includes(s.ingredient_id)
           );
           // 문구는 홈 할 일·알림 센터와 같은 쉬운 말로 ('안전재고' 같은 용어는 쓰지 않는다)
           if (low.length === 1) {
@@ -354,7 +362,10 @@ export default function AlertsWatcher() {
           }
         }
 
-        // ② 단가 급등 알림 — 직전 기준가 대비 +10% 이상이면 발송
+        // ② 단가 급등 알림 — 직전 기준가 대비 +10% 이상이면 발송.
+        // 알림을 꺼 둔 동안에는 '급등을 소비'하지 않는다 — 예전엔 꺼져 있어도 기준가를
+        // 올려 버려서, 나중에 알림을 켜도 그 사이의 급등은 영영 안 알려줬다.
+        // (신규 품목·가격 하락의 기준가 갱신은 켜짐 여부와 무관하게 유지)
         const baseline = { ...(state.priceBaseline ?? {}) };
         const surged: StockItem[] = [];
         for (const s of stocks) {
@@ -366,7 +377,7 @@ export default function AlertsWatcher() {
               baseline[key] = s.current_price;
               dirty = true;
             }
-          } else if (base > 0 && s.current_price >= base * SURGE_RATIO) {
+          } else if (prefs.priceSurgeAlert && base > 0 && s.current_price >= base * SURGE_RATIO) {
             surged.push(s);
             baseline[key] = s.current_price; // 알린 뒤 기준가 갱신 → 같은 급등 반복 알림 방지
             dirty = true;

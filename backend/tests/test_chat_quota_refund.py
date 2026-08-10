@@ -16,8 +16,9 @@ def _call(monkeypatch, ok: bool):
     calls = {"consume": 0, "refund": 0}
     monkeypatch.setattr(cb.chat_quota_service, "consume",
                         lambda s: calls.__setitem__("consume", calls["consume"] + 1) or {})
+    # refund는 (store_id, day)를 받는다 — 차감된 날짜 행을 짚어 되돌리는 자정 경계 규칙
     monkeypatch.setattr(cb.chat_quota_service, "refund",
-                        lambda s: calls.__setitem__("refund", calls["refund"] + 1))
+                        lambda s, day=None: calls.__setitem__("refund", calls["refund"] + 1))
 
     async def fake_gen(**kwargs):
         return {"text": "답" if ok else "앗! 문제가 생겼어요", "documents": [], "ok": ok}

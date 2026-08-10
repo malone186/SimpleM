@@ -27,6 +27,9 @@ export type ChatQuota = {
   ads_watched: number;
   turns_per_ad: number;
   can_watch_ad: boolean; // 하루 광고 상한에 걸리면 false — 광고를 권하지 말 것
+  // 서버가 앱 보고만으로는 충전하지 않는 모드(SSV 강제)일 때 true. 실패가 아니라
+  // '아직'이다 — 구글의 검증 콜백이 서버에 도착하면 그때 충전된다.
+  pending_verification?: boolean;
 };
 
 /** 남은 턴이 없어 거절됐다 — 광고를 보면 충전할 수 있다 (다른 오류와 구분해야 해서 별도 타입) */
@@ -90,10 +93,42 @@ export function getChatQuota(token?: string | null): Promise<ChatQuota> {
   return apiFetch<ChatQuota>('/api/v1/chatbot/quota', { headers: authHeader(token) });
 }
 
-/** 광고를 끝까지 본 뒤 호출 — 턴을 충전한다. */
+/**
+ * 광고를 끝까지 본 뒤 호출 — 턴을 충전한다.
+ *
+ * 서버가 SSV(구글 서버 사이드 검증) 강제 모드면 이 호출로는 충전되지 않고
+ * pending_verification=true가 돌아온다. 그때는 잠시 뒤 쿼터를 다시 조회해야 한다
+ * (waitForAdQuota가 그 대기를 대신한다).
+ */
 export function grantChatQuotaFromAd(token?: string | null): Promise<ChatQuota> {
   return apiFetch<ChatQuota>('/api/v1/chatbot/quota/ad-reward', {
     method: 'POST',
     headers: authHeader(token),
   });
+}
+
+/**
+ * 광고 충전이 반영될 때까지 잠깐 기다린다 — 검증 콜백이 구글에서 서버로 오는 몇 초를 덮는다.
+ *
+ * 곧바로 충전된 경우(검증 강제가 아닌 서버)에는 첫 응답에서 끝나므로 대기가 없다.
+ */
+export async function waitForAdQuota(
+  granted: ChatQuota,
+  token?: string | null,
+  tries = 5,
+): Promise<ChatQuota> {
+  if (!granted.pending_verification || granted.remaining > 0) return granted;
+
+  let latest = granted;
+  for (let i = 0; i < tries; i += 1) {
+    await new Promise((r) => setTimeout(r, 1200));
+    try {
+      latest = await getChatQuota(token);
+    } catch {
+      // 일시적인 네트워크 오류 — 다음 회차에 다시 본다
+      continue;
+    }
+    if (latest.remaining > 0) return latest;
+  }
+  return latest;
 }

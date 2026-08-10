@@ -22,7 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
   window.fetch = (url, opts = {}) => {
     try {
       const u = typeof url === 'string' ? url : (url && url.url) || '';
-      if (/\/api\/v1\/(admin|auth\/users)/.test(u) && !/\/admin\/login/.test(u)) {
+      if (/\/api\/v1\/(admin|auth\/users|chatbot\/agents)/.test(u) && !/\/admin\/login/.test(u)) {
         const t = getAdminToken();
         if (t) opts = Object.assign({}, opts, { headers: Object.assign({}, opts.headers || {}, { Authorization: 'Bearer ' + t }) });
       }
@@ -30,7 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return _origFetch(url, opts).then((res) => {
       try {
         const u = typeof url === 'string' ? url : (url && url.url) || '';
-        if ((res.status === 401 || res.status === 403) && /\/api\/v1\/(admin|auth\/users)/.test(u) && !/\/admin\/login/.test(u)) {
+        if ((res.status === 401 || res.status === 403) && /\/api\/v1\/(admin|auth\/users|chatbot\/agents)/.test(u) && !/\/admin\/login/.test(u)) {
           localStorage.removeItem(ADMIN_TOKEN_KEY);
           showAdminLogin('세션이 만료되었습니다. 다시 로그인해 주세요.');
         }
@@ -1553,7 +1553,52 @@ document.addEventListener('DOMContentLoaded', () => {
       })
       .join('');
 
-    wrap.innerHTML = mainCard + `<div class="agent-grid">${expertCards}</div>`;
+    // 3) 하단: 기능 검증(QA) 멀티에이전트 편성 — 챗봇 편성과 별개로, 저장소 전체를
+    //    기능 단위로 검증한 마지막 실행의 판정표 (qa_fleet.py 스냅샷)
+    let qaSection = '';
+    const qa = d.qa_fleet;
+    if (qa && qa.subagents && qa.subagents.length) {
+      const badge = (s) =>
+        s === '정상' ? 'green-bg' : s === '경미한 문제' ? 'brown-bg' : 'red-bg';
+      const qaCards = qa.subagents
+        .map(
+          (a) => `
+        <div class="agent-card">
+          <div class="agent-card-head">
+            <div class="agent-card-avatar"><i data-lucide="shield-check"></i></div>
+            <div class="agent-card-titles">
+              <div class="agent-card-title">${a.title}</div>
+              <div class="agent-card-code">${a.name}</div>
+            </div>
+            <span class="status-badge ${badge(a.status)}">${a.status}</span>
+          </div>
+          <div class="agent-card-desc">${a.note}</div>
+        </div>`
+        )
+        .join('');
+      qaSection = `
+      <div class="agent-main-card" style="margin-top: 28px;">
+        <div class="agent-main-head">
+          <div class="agent-main-avatar"><i data-lucide="shield-check"></i></div>
+          <div>
+            <div class="agent-main-title-row">
+              <span class="agent-main-name">${qa.main.title}</span>
+              <span class="agent-card-code">${qa.main.name}</span>
+            </div>
+            <div class="agent-main-desc">${qa.main.description}</div>
+          </div>
+        </div>
+        <div class="agent-main-meta">
+          <div class="agent-meta-item"><span class="meta-label">서브 에이전트</span><span class="meta-val">${qa.total}개 (기능당 1개)</span></div>
+          <div class="agent-meta-item"><span class="meta-label">판정</span><span class="meta-val">정상 ${qa.counts['정상'] || 0} · 경미 ${qa.counts['경미한 문제'] || 0} · 심각 ${qa.counts['심각한 문제'] || 0}</span></div>
+          <div class="agent-meta-item"><span class="meta-label">마지막 검증</span><span class="meta-val">${qa.checked_at}</span></div>
+        </div>
+      </div>
+      <div class="orchestra-connector fan"></div>
+      <div class="agent-grid">${qaCards}</div>`;
+    }
+
+    wrap.innerHTML = mainCard + `<div class="agent-grid">${expertCards}</div>` + qaSection;
     if (window.lucide) lucide.createIcons();
   }
 

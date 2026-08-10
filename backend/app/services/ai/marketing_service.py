@@ -35,18 +35,14 @@
                    기본 모델 zimage(0.004/장, 해상도 정확·5초) → 실패 시 klein으로
                    1회 폴백. flux는 2026-08-06 실측에서 요청 해상도를 무시하고
                    1024×1088만 돌려줘 기본에서 내렸다. 잔액이 떨어지면 402로 막힌다.
-  2) gemini      — 품질은 최고지만 이미지 모델 무료 티어 한도가 0이라(실측 2026-07-31/
-                   08-05, 전 계열 limit: 0) 유료 키(MARKETING_IMAGE_API_KEY)가 있을 때만
-                   동작한다. 한도 0으로 막히면 1시간 건너뛴다(왕복 낭비 방지).
   MARKETING_IMAGE_PROVIDERS 로 순서·사용 여부를 바꾼다 (기본 "pollinations").
-  [gemini 기본 제외] 이미지 모델 무료 티어 한도가 0이라 유료 키 없이는 반드시 실패한다.
-                실패가 확정된 왕복은 사장님 대기 시간만 늘린다. 코드 경로는 남아 있으니
-                유료 키가 생기면 "pollinations,gemini"로 되돌리면 그대로 살아난다.
-                실질적인 폴백은 Pollinations 모델 교체(zimage→klein)다.
+  [gemini 이미지 삭제 2026-08-08] 이미지 모델(gemini-*-image)은 무료 티어 한도가 0이라
+                (실측 2026-07-31/08-05, 전 계열 limit: 0) 유료 키 없이는 반드시 실패했고,
+                우리는 유료 키를 쓰지 않기로 해 경로 자체를 걷어냈다. 실질적인 폴백은
+                Pollinations 모델 교체(zimage→klein)와 로컬 배경이다. 문구·정교화 같은
+                텍스트 호출은 GEMINI_MODEL(3.1 계열)로 계속 Gemini를 쓴다.
 모델 교체 (env):
   MARKETING_GEMINI_MODEL — 문구 생성 (기본: GEMINI_MODEL과 동일)
-  MARKETING_IMAGE_MODEL  — 이미지 생성 (기본: gemini-2.5-flash-image)
-  MARKETING_IMAGE_API_KEY — 이미지 전용 유료 키 (없으면 GEMINI_API_KEY를 쓴다)
   POLLINATIONS_TOKEN — enter.pollinations.ai 가입 후 발급
   POLLINATIONS_MODEL / POLLINATIONS_FALLBACK_MODEL — 주/폴백 이미지 모델 (기본 zimage/klein)
 한글 폰트 (슬로건 합성용):
@@ -55,7 +51,6 @@
   건너뛰고 이미지 자체는 정상 반환한다 → 배포 이미지에는 fonts-nanum을 넣어 둔다.
 """
 
-import base64
 import json
 import logging
 import os
@@ -70,11 +65,7 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "") or os.getenv("GOOGLE_API_KEY", "")
-COPY_MODEL = os.getenv("MARKETING_GEMINI_MODEL", "") or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-# 이미지 생성은 전용 모델만 가능하다 — 텍스트 모델에 responseModalities=IMAGE를 줘도 400이 난다
-IMAGE_MODEL = os.getenv("MARKETING_IMAGE_MODEL", "gemini-2.5-flash-image")
-# 이미지 전용 키 — 유료 키를 문구용 무료 키와 분리해 둘 수 있다 (없으면 GEMINI_API_KEY)
-IMAGE_API_KEY = os.getenv("MARKETING_IMAGE_API_KEY", "")
+COPY_MODEL = os.getenv("MARKETING_GEMINI_MODEL", "") or os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
 IMAGE_PROVIDERS = [p.strip() for p in
                    os.getenv("MARKETING_IMAGE_PROVIDERS", "pollinations").split(",")
                    if p.strip()]
@@ -140,13 +131,8 @@ class ImageCapacityError(MarketingError):
     """이미지 생성 공급자가 전부 한도에 걸렸다 — 서버 고장이 아니라 '지금은 불가'."""
 
 
-def _thinking_config(model: str) -> Optional[dict[str, Any]]:
-    """모델 세대별 thinking 설정 — 2.5 계열은 기본 thinking이 출력 예산을 잠식한다."""
-    if model.startswith("gemini-2.5") and "image" not in model:
-        return {"thinkingBudget": 0}
-    if model.startswith("gemini-3"):
-        return {"thinkingLevel": "low"}
-    return None
+# 세대별 thinking 설정은 gemini_config 한 곳에서 관리한다
+from app.services.ai.gemini_config import thinking_config as _thinking_config
 
 
 def _gemini_call(model: str, payload: dict[str, Any], timeout: float,
@@ -396,22 +382,6 @@ def generate_promotion_copy(store_id: str, topic: str = "", channel: str = "inst
 # 2) 홍보 이미지 생성
 # ---------------------------------------------------------------------------
 
-def _extract_image(raw: dict[str, Any]) -> tuple[bytes, str]:
-    """generateContent 응답에서 이미지 바이트와 mime을 꺼낸다 (camel/snake 모두 방어)."""
-    for cand in raw.get("candidates", []):
-        for part in (cand.get("content") or {}).get("parts", []):
-            inline = part.get("inlineData") or part.get("inline_data")
-            if inline and inline.get("data"):
-                mime = inline.get("mimeType") or inline.get("mime_type") or "image/png"
-                return base64.b64decode(inline["data"]), mime
-    # 안전 필터 등으로 이미지 없이 텍스트만 돌아온 경우 — 이유를 그대로 전달
-    for cand in raw.get("candidates", []):
-        for part in (cand.get("content") or {}).get("parts", []):
-            if part.get("text"):
-                raise MarketingError(f"이미지가 생성되지 않았습니다: {part['text'][:200]}")
-    raise MarketingError("이미지 생성 응답이 비어 있습니다. 잠시 후 다시 시도해 주세요.")
-
-
 # Pollinations 생성용 화면비 → 픽셀 크기 (전부 64의 배수).
 # 홍보물은 품질이 곧 설득력이라 고해상도(1400px대)를 기본으로 뽑는다.
 # [실측 2026-08-06] zimage는 이 크기를 정확히 지키고 약 5초. 이보다 키우면(2.2MP급)
@@ -509,9 +479,11 @@ def image_health() -> dict[str, Any]:
         "pollinations_token": bool(token),
         "pollinations_model": POLLINATIONS_MODEL,
         "pollinations_fallback_model": POLLINATIONS_FALLBACK_MODEL,
+        # 실물 사진 홍보는 별도 편집 모델을 쓴다 — 장당 값이 10배라 여기서 같이 본다
+        "photo_edit_model": os.getenv("PHOTO_EDIT_MODEL", "kontext"),
+        "photo_edit_enabled": os.getenv("PHOTO_EDIT_AI", "1") != "0",
         "pollen_balance": balance,
         "pollen_warn_below": _POLLEN_WARN_BELOW,
-        "gemini_image_blocked": time.monotonic() < _gemini_image_blocked_until,
         "korean_font": korean_font_available(),
         "gcs_bucket": GCS_BUCKET if _gcs_bucket() is not None else "",
     }
@@ -673,31 +645,13 @@ def _local_background(aspect_ratio: str, quality: str) -> tuple[bytes, str]:
     return buf.getvalue(), "image/jpeg"
 
 
-# Gemini 이미지가 "limit: 0"으로 막히면 그 사실을 기억해 한동안 건너뛴다.
-# (매 요청마다 확실히 실패할 왕복을 한 번씩 더 하는 게 체감 지연으로 이어졌다)
-_gemini_image_blocked_until = 0.0
-_GEMINI_BLOCK_SECONDS = float(os.getenv("MARKETING_GEMINI_BLOCK_SECONDS", "3600"))
-
-
-def _gemini_image(prompt: str, aspect_ratio: str,
-                  timeout: Optional[float] = None) -> tuple[bytes, str, dict[str, Any]]:
-    global _gemini_image_blocked_until
-
-    if time.monotonic() < _gemini_image_blocked_until:
-        raise MarketingError(f"{IMAGE_MODEL}는 이 키 요금제에서 막혀 있어 건너뜁니다")
-    try:
-        raw = _gemini_call(IMAGE_MODEL, {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "responseModalities": ["TEXT", "IMAGE"],
-                "imageConfig": {"aspectRatio": aspect_ratio},
-            },
-        }, IMAGE_TIMEOUT if timeout is None else max(1.0, timeout), api_key=IMAGE_API_KEY)
-    except _FreeTierZero:
-        _gemini_image_blocked_until = time.monotonic() + _GEMINI_BLOCK_SECONDS
-        raise
-    image, mime = _extract_image(raw)
-    return image, mime, {"model": IMAGE_MODEL}
+# [gemini 이미지 삭제 2026-08-08] 이미지 생성 공급자 테이블 — 이름 → 생성 함수.
+# 서명은 (prompt, aspect_ratio, quality, timeout=None) → (bytes, mime, meta)로 통일한다.
+# 새 공급자는 여기 한 줄이면 체인(합계 시간 상한·화면비 보정·로컬 폴백)을 그대로 얻는다.
+_PROVIDER_FUNCS = {
+    "pollinations": lambda prompt, aspect_ratio, quality, timeout=None:
+        _pollinations_generate(prompt, aspect_ratio, quality, timeout=timeout),
+}
 
 
 def _enforce_aspect(image_bytes: bytes, mime: str, aspect_ratio: str) -> tuple[bytes, str]:
@@ -761,14 +715,11 @@ def _generate_image_bytes(prompt: str, aspect_ratio: str,
         if left <= 1.0:  # 1초 미만 남으면 어차피 못 받는다 — 왕복만 낭비된다
             errors.append(f"[{name}] {IMAGE_TIMEOUT:.0f}초 안에 순서가 오지 않아 건너뜀")
             break
+        provider_fn = _PROVIDER_FUNCS.get(name)
+        if provider_fn is None:
+            continue  # 모르는 공급자 이름은 건너뛴다 (env 오타가 전체를 죽이지 않게)
         try:
-            if name == "pollinations":
-                image, mime, meta = _pollinations_generate(prompt, aspect_ratio, quality,
-                                                           timeout=left)
-            elif name == "gemini":
-                image, mime, meta = _gemini_image(prompt, aspect_ratio, timeout=left)
-            else:
-                continue
+            image, mime, meta = provider_fn(prompt, aspect_ratio, quality, timeout=left)
             # 공급자가 요청 화면비를 무시했으면 여기서 바로잡는다 (2% 이내면 원본 유지)
             image, mime = _enforce_aspect(image, mime, aspect_ratio)
             return image, mime, name, meta

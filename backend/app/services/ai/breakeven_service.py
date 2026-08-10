@@ -411,6 +411,172 @@ def compute_breakeven(
     return result
 
 
+# ---------------------------------------------------------------------------
+# 리포트용 — "이번 기간에 얼마를 벌어야 본전인가"
+# ---------------------------------------------------------------------------
+
+# 한 주에 며칠 여는지 = 한 달 영업일수 ÷ 한 달의 주 수(평균 4.345주)
+def _weekly_open_days(open_days_per_month: int) -> int:
+    return max(1, min(7, round(open_days_per_month / 4.345)))
+
+
+def period_target(store_id: str, period_type: str = "weekly",
+                  actual_sales: Optional[int] = None) -> Optional[dict[str, Any]]:
+    """그 기간의 손익분기 목표와 달성 현황. 계산이 불가능하면 None.
+
+    리포트는 일간·주간·월간으로 나오는데 손익분기점은 월 단위 개념이라 그대로 실으면
+    "본전 1,000만원"이 일간 리포트에도 붙어 사장님이 하루에 1,000만원을 팔아야 하는 줄 안다.
+    그래서 기간에 맞춰 환산한다 — 일간은 하루치, 주간은 그 주 영업일수만큼.
+
+    actual_sales를 주면 달성률·부족액까지 같이 계산한다 (리포트가 이미 집계한 값을 넘긴다).
+    """
+    result = compute_breakeven(store_id)
+    if not result.get("computed"):
+        # 왜 못 냈는지는 리포트가 그대로 안내할 수 있게 함께 돌려준다
+        return {"computed": False, "needs": result.get("needs", []), "message": result.get("message")}
+
+    daily = int(result["breakeven_daily_revenue"])
+    open_days = int(result["open_days_per_month"])
+    if period_type == "daily":
+        target, days, label = daily, 1, "하루"
+    elif period_type == "monthly":
+        target, days, label = int(result["breakeven_revenue"]), open_days, "이번 달"
+    else:
+        days = _weekly_open_days(open_days)
+        target, label = daily * days, "이번 주"
+
+    out: dict[str, Any] = {
+        "computed": True,
+        "period_type": period_type,
+        "label": label,
+        "target_revenue": target,
+        "open_days": days,
+        "daily_revenue": daily,
+        "fixed_cost_total": result["fixed_cost_total"],
+        "variable_cost_ratio": result["variable_cost_ratio"],
+        "contribution_margin_ratio": result["contribution_margin_ratio"],
+    }
+    if actual_sales is not None and target > 0:
+        actual = max(0, int(actual_sales))
+        out.update({
+            "actual_revenue": actual,
+            "achieved_pct": round(actual / target * 100, 1),
+            "gap": target - actual,          # 음수면 이미 넘겼다
+        })
+        out["message"] = _period_message(label, target, actual, target - actual, days)
+    else:
+        out["message"] = f"{label} {target:,}원을 팔면 본전입니다 (하루 {daily:,}원)."
+    return out
+
+
+def _period_message(label: str, target: int, actual: int, gap: int, days: int) -> str:
+    if gap <= 0:
+        return (f"{label} 손익분기 {target:,}원을 넘겼어요 — {actual:,}원 "
+                f"(+{abs(gap):,}원). 여기서부터는 남는 장사입니다.")
+    # 남은 금액을 하루치로 쪼개 준다 — 월 목표는 커서 손이 안 가지만 하루치는 손이 간다
+    per_day = round(gap / days) if days > 0 else gap
+    return (f"{label} 손익분기 {target:,}원 중 {actual:,}원까지 왔어요. "
+            f"{gap:,}원 남았고, 남은 기간 하루 {per_day:,}원씩이면 닿습니다.")
+
+
+# ---------------------------------------------------------------------------
+# 할 일용 — 오늘 '해볼 만한' 목표
+# ---------------------------------------------------------------------------
+
+# 요즘 실적이 목표에 이만큼까지 모자라면 그래도 목표를 그대로 제시한다.
+# 그 이상 벌어져 있으면 손이 안 가는 숫자라, 한 걸음짜리 미션으로 바꾼다.
+REACHABLE_GAP = 0.25
+# 한 걸음의 크기 — 요즘 평균보다 이만큼만 더. 10%는 '음료 몇 잔'이라 실감이 난다.
+STEP_UP = 0.10
+
+
+def daily_mission(store_id: str) -> Optional[dict[str, Any]]:
+    """오늘의 손익분기 미션. 만들 수 없으면 None.
+
+    왜 '달성 가능한' 미션인가:
+      하루 본전이 40만원인데 요즘 하루 15만원 파는 매장에 "오늘 40만원 파세요"는
+      미션이 아니라 통보다. 두 번 보면 그냥 배경이 되고, 세 번째부터는 앱을 닫는다.
+      그래서 요즘 실적과 목표의 거리를 재서, 닿을 만하면 목표를 그대로 주고
+      멀면 '요즘보다 10% 더'라는 한 걸음짜리로 바꾼다. 최종 목표는 보조줄에 남겨
+      지금 어디쯤인지는 계속 보이게 한다.
+    """
+    result = compute_breakeven(store_id)
+
+    # 고정비를 한 번도 안 넣은 매장에는 계산 대신 '한 번만 넣어 달라'는 미션을 준다
+    if not result.get("computed"):
+        if "fixed_costs" in result.get("needs", []):
+            return {
+                "mode": "setup",
+                "title": "손익분기점 설정하기",
+                "subtitle": "월세·인건비만 넣으면 하루 목표가 나와요",
+            }
+        return None   # 변동비율을 못 구하는 건 사장님이 손쓸 일이 아니라 굳이 안 띄운다
+
+    target = int(result["breakeven_daily_revenue"])
+    if target <= 0:
+        return None
+
+    # 요즘 하루 매출 — 예측이 쓰는 것과 같은 기준선(최근 2주 실적)
+    avg_cups = _recent_daily_cups(store_id)
+    avg_ticket = result.get("avg_ticket")
+    reference = round(avg_cups * avg_ticket) if (avg_cups and avg_ticket) else None
+
+    cups_for = (lambda won: max(1, round(won / avg_ticket))) if avg_ticket else None
+
+    if reference is None:
+        # 실적을 모르면 목표만 알려 준다 (판단 근거 없이 '조금만 더'라고 하면 거짓말이 된다)
+        return {
+            "mode": "target",
+            "title": f"오늘 {target:,}원 팔면 본전",
+            "subtitle": f"하루 손익분기 매출{f' · 약 {cups_for(target)}잔' if cups_for else ''}",
+        }
+
+    if reference >= target:
+        return {
+            "mode": "keep",
+            "title": f"오늘도 {target:,}원 넘기기",
+            "subtitle": f"요즘 하루 {reference:,}원 — 이대로면 본전을 넘겨요",
+        }
+
+    shortfall = (target - reference) / target
+    if shortfall <= REACHABLE_GAP:
+        gap = target - reference
+        return {
+            "mode": "target",
+            "title": f"오늘 {target:,}원 팔면 본전",
+            "subtitle": (f"요즘보다 {gap:,}원만 더"
+                         + (f" (약 {cups_for(gap)}잔)" if cups_for else "")),
+        }
+
+    # 목표가 멀다 — 한 걸음짜리로 바꾸고 최종 목표는 보조줄에 남긴다
+    step = round(reference * (1 + STEP_UP))
+    extra = step - reference
+    return {
+        "mode": "step",
+        "title": f"오늘 {step:,}원 도전하기",
+        "subtitle": (f"요즘보다 {extra:,}원 더"
+                     + (f" (약 {cups_for(extra)}잔)" if cups_for else "")
+                     + f" · 본전까지는 {target:,}원"),
+    }
+
+
+def _recent_daily_cups(store_id: str) -> Optional[float]:
+    """최근 실적 기준 하루 평균 잔 수 — 예측 응답의 baseline과 같은 값."""
+    try:
+        from app.services.ai import forecast_service
+
+        series = None
+        with _session() as db:
+            series = forecast_service._load_daily_series(db, store_id)
+        if series is None:
+            return None
+        recent = series["cups"].dropna().tail(forecast_service.BASELINE_WINDOW_DAYS)
+        return float(recent.mean()) if len(recent) else None
+    except Exception:
+        logger.exception("최근 하루 평균 판매량 조회 실패 — 미션은 목표만으로 만든다")
+        return None
+
+
 def _needs_message(needs: list[str], estimate: dict[str, Any]) -> str:
     if "fixed_costs" in needs and "variable_cost_ratio" in needs:
         return ("고정비와 변동비율이 모두 필요해요. 매달 나가는 임대료·인건비·공과금을 적고, "

@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -110,20 +111,25 @@ async def _fetch_orders(token: str, environment: str, start_at: str, end_at: str
             raise PosError("Square 계정에 활성 매장(Location)이 없습니다.")
 
         states = ["COMPLETED", "OPEN"] if environment == "sandbox" else ["COMPLETED"]
-        payload = {
-            "location_ids": locations[:10],
-            "query": {
-                "filter": {
-                    "state_filter": {"states": states},
-                    "date_time_filter": {"created_at": {"start_at": start_at, "end_at": end_at}},
+        # Square orders/search는 요청당 location 10개 제한 — 예전엔 [:10]으로 잘라
+        # 11번째 이후 매장의 매출이 소리 없이 누락됐다. 10개씩 나눠 전부 조회한다.
+        orders: list[dict] = []
+        for i in range(0, len(locations), 10):
+            payload = {
+                "location_ids": locations[i:i + 10],
+                "query": {
+                    "filter": {
+                        "state_filter": {"states": states},
+                        "date_time_filter": {"created_at": {"start_at": start_at, "end_at": end_at}},
+                    },
+                    "sort": {"sort_field": "CREATED_AT", "sort_order": "DESC"},
                 },
-                "sort": {"sort_field": "CREATED_AT", "sort_order": "DESC"},
-            },
-        }
-        resp = await client.post(f"{base}/orders/search", json=payload, headers=headers)
-        if resp.status_code != 200:
-            raise PosError(f"Square orders 검색 실패 (HTTP {resp.status_code}).")
-        return resp.json().get("orders", [])
+            }
+            resp = await client.post(f"{base}/orders/search", json=payload, headers=headers)
+            if resp.status_code != 200:
+                raise PosError(f"Square orders 검색 실패 (HTTP {resp.status_code}).")
+            orders.extend(resp.json().get("orders", []))
+        return orders
 
 
 async def _fetch_order(token: str, environment: str, order_id: str) -> Optional[dict]:
@@ -179,8 +185,13 @@ def record_orders(db: Session, store_id: str, orders: list[dict], provider: str 
         for rc in db.query(Recipe).filter(Recipe.menu_id.in_(menu_ids)).all():
             recipes_by_menu.setdefault(rc.menu_id, []).append((rc.ingredient_id, rc.quantity))
     ing_ids = {ing for lst in recipes_by_menu.values() for (ing, _q) in lst}
+    # 재고 행은 잠그고 읽는다(FOR UPDATE) — 웹훅·폴링·수동 조정이 같은 재료를 동시에
+    # 건드리면 읽고-고치고-쓰는 사이의 갱신 하나가 소리 없이 사라져 재고 캐시가
+    # 변동 장부 합계와 어긋난다. id 순 정렬은 교차 잠금 데드락 방지용.
     stock_by_ing = {
-        s.ingredient_id: s for s in db.query(Stock).filter(Stock.ingredient_id.in_(ing_ids)).all()
+        s.ingredient_id: s
+        for s in db.query(Stock).filter(Stock.ingredient_id.in_(ing_ids))
+        .order_by(Stock.id).with_for_update().all()
     } if ing_ids else {}
 
     already = {
@@ -230,7 +241,10 @@ def record_orders(db: Session, store_id: str, orders: list[dict], provider: str 
                 use = rqty * qty
                 stock = stock_by_ing.get(ing_id)
                 if stock is not None:
-                    stock.current_quantity = max(0.0, stock.current_quantity - use)
+                    # 0에서 자르지 않는다 — 장부(StockTransaction)에는 -use 전액이 남는데
+                    # 캐시만 0에서 멈추면 둘이 어긋나고, 발주 추천의 부족량 계산도
+                    # 실제 부족분보다 적게 잡힌다. 수동 조정 경로와 같은 규칙(음수 허용).
+                    stock.current_quantity -= use
                 db.add(StockTransaction(ingredient_id=ing_id, quantity_change=-use,
                                         type="OUT", description=f"POS 실시간 동기화 ({provider})"))
             created_sales += 1
@@ -276,26 +290,32 @@ async def sync_connection(db: Session, conn: PosConnection, hours: Optional[floa
     else:
         start = now - timedelta(hours=24)
 
-    try:
-        orders = await _fetch_orders(
-            token, conn.environment,
-            start.strftime("%Y-%m-%dT%H:%M:%SZ"), now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        )
+    # 동기 SQLAlchemy(record_orders + commit)는 async 문맥에서 그대로 부르면 Neon 왕복
+    # 동안 이벤트 루프가 멈춘다 — 주문 반영/상태 기록을 전부 스레드로 내린다.
+    def _apply_ok(orders: list[dict]) -> dict:
         result = record_orders(db, conn.store_id, orders, provider=conn.provider)
         conn.last_synced_at = now
         conn.last_status = "ok"
         conn.last_error = None
         db.commit()
         return result
-    except PosError as e:
+
+    def _mark_error(msg: str) -> None:
         conn.last_status = "error"
-        conn.last_error = str(e)[:300]
+        conn.last_error = msg[:300]
         db.commit()
+
+    try:
+        orders = await _fetch_orders(
+            token, conn.environment,
+            start.strftime("%Y-%m-%dT%H:%M:%SZ"), now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        )
+        return await asyncio.to_thread(_apply_ok, orders)
+    except PosError as e:
+        await asyncio.to_thread(_mark_error, str(e))
         raise
     except httpx.HTTPError as e:
-        conn.last_status = "error"
-        conn.last_error = f"네트워크 오류: {e}"[:300]
-        db.commit()
+        await asyncio.to_thread(_mark_error, f"네트워크 오류: {e}")
         raise PosError(f"Square 통신 실패: {e}") from e
 
 
@@ -305,7 +325,8 @@ async def sync_all_auto() -> dict:
 
     synced, failed = 0, 0
     with SessionLocal() as db:
-        conns = db.query(PosConnection).filter(PosConnection.auto_sync == True).all()  # noqa: E712
+        conns = await asyncio.to_thread(
+            lambda: db.query(PosConnection).filter(PosConnection.auto_sync == True).all())  # noqa: E712
         for conn in conns:
             try:
                 await sync_connection(db, conn)
@@ -356,8 +377,8 @@ async def handle_square_webhook(db: Session, body: bytes, signature: str) -> dic
     if not merchant_id:
         raise PosError("웹훅에 merchant_id가 없습니다.")
 
-    conn = (
-        db.query(PosConnection)
+    conn = await asyncio.to_thread(
+        lambda: db.query(PosConnection)
         .filter(PosConnection.merchant_id == merchant_id, PosConnection.provider == "square")
         .first()
     )
@@ -382,9 +403,13 @@ async def handle_square_webhook(db: Session, body: bytes, signature: str) -> dic
     if conn.environment != "sandbox" and order.get("state") != "COMPLETED":
         return {"handled": False, "reason": f"미완료 주문({order.get('state')})", "order_id": order_id}
 
-    result = record_orders(db, conn.store_id, [order], provider="square")
-    conn.last_synced_at = datetime.now(timezone.utc)
-    conn.last_status = "ok"
-    conn.last_error = None
-    db.commit()
+    def _apply() -> dict:
+        result = record_orders(db, conn.store_id, [order], provider="square")
+        conn.last_synced_at = datetime.now(timezone.utc)
+        conn.last_status = "ok"
+        conn.last_error = None
+        db.commit()
+        return result
+
+    result = await asyncio.to_thread(_apply)
     return {"handled": True, "order_id": order_id, **result}

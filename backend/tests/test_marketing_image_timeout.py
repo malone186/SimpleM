@@ -12,8 +12,13 @@ from app.services.ai import marketing_service as M
 
 
 def test_gemini_is_not_in_the_default_chain():
-    """무료 키에서 이미지 모델 한도가 0이라 반드시 실패하던 왕복을 뺐다."""
+    """무료 키에서 이미지 모델 한도가 0이라 반드시 실패하던 왕복을 뺐다.
+
+    2026-08-08: gemini 이미지 경로는 코드째 삭제됐다 — 이름과 함수 테이블 모두 확인한다.
+    """
     assert M.IMAGE_PROVIDERS == ["pollinations"]
+    assert "gemini" not in M._PROVIDER_FUNCS
+    assert not hasattr(M, "_gemini_image")
 
 
 def test_default_timeout_is_15_seconds():
@@ -21,8 +26,8 @@ def test_default_timeout_is_15_seconds():
 
 
 def test_whole_chain_stops_at_the_deadline(monkeypatch):
-    """공급자를 여러 개 걸어도 합계가 상한을 넘지 않는다."""
-    monkeypatch.setattr(M, "IMAGE_PROVIDERS", ["pollinations", "gemini"])
+    """공급자를 여러 개 걸어도 합계가 상한을 넘지 않는다 (가짜 2차 공급자로 검증)."""
+    monkeypatch.setattr(M, "IMAGE_PROVIDERS", ["pollinations", "second"])
     monkeypatch.setattr(M, "IMAGE_TIMEOUT", 2.0)
 
     def slow(*a, **kw):
@@ -31,7 +36,7 @@ def test_whole_chain_stops_at_the_deadline(monkeypatch):
         raise M.MarketingError("느림")
 
     monkeypatch.setattr(M, "_pollinations_generate", slow)
-    monkeypatch.setattr(M, "_gemini_image", slow)
+    monkeypatch.setitem(M._PROVIDER_FUNCS, "second", slow)
 
     started = time.monotonic()
     _image, _mime, provider, _meta = M._generate_image_bytes("prompt", "1:1", "standard")
@@ -44,7 +49,7 @@ def test_whole_chain_stops_at_the_deadline(monkeypatch):
 
 def test_remaining_budget_is_passed_down(monkeypatch):
     """두 번째 공급자는 '남은 시간'을 받는다 — 상한을 새로 받아 가면 두 배가 된다."""
-    monkeypatch.setattr(M, "IMAGE_PROVIDERS", ["pollinations", "gemini"])
+    monkeypatch.setattr(M, "IMAGE_PROVIDERS", ["pollinations", "second"])
     monkeypatch.setattr(M, "IMAGE_TIMEOUT", 10.0)
     seen = []
 
@@ -58,11 +63,11 @@ def test_remaining_budget_is_passed_down(monkeypatch):
         return b"img", "image/png", {"model": "x"}
 
     monkeypatch.setattr(M, "_pollinations_generate", first)
-    monkeypatch.setattr(M, "_gemini_image", second)
+    monkeypatch.setitem(M._PROVIDER_FUNCS, "second", second)
 
     image, mime, provider, meta = M._generate_image_bytes("prompt", "1:1", "standard")
 
-    assert provider == "gemini" and image == b"img"
+    assert provider == "second" and image == b"img"
     # 로컬 폴백 몫(_LOCAL_FALLBACK_RESERVE)을 뺀 나머지가 첫 공급자에게 간다
     assert seen[0] == pytest.approx(10.0 - M._LOCAL_FALLBACK_RESERVE, abs=0.2)
     assert seen[1] < seen[0], "두 번째 공급자가 남은 시간이 아니라 상한을 새로 받았다"
@@ -70,7 +75,7 @@ def test_remaining_budget_is_passed_down(monkeypatch):
 
 def test_provider_is_skipped_when_no_time_left(monkeypatch):
     """시간이 거의 없으면 다음 공급자를 아예 부르지 않는다 — 왕복만 낭비된다."""
-    monkeypatch.setattr(M, "IMAGE_PROVIDERS", ["pollinations", "gemini"])
+    monkeypatch.setattr(M, "IMAGE_PROVIDERS", ["pollinations", "second"])
     monkeypatch.setattr(M, "IMAGE_TIMEOUT", 2.5)
     called = []
 
@@ -83,7 +88,7 @@ def test_provider_is_skipped_when_no_time_left(monkeypatch):
         return b"x", "image/png", {"model": "x"}
 
     monkeypatch.setattr(M, "_pollinations_generate", burn)
-    monkeypatch.setattr(M, "_gemini_image", should_not_run)
+    monkeypatch.setitem(M._PROVIDER_FUNCS, "second", should_not_run)
 
     _image, _mime, provider, _meta = M._generate_image_bytes("prompt", "1:1", "standard")
 

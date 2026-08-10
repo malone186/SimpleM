@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
+from sqlalchemy.exc import IntegrityError
 from app.models.operation import Employee, Schedule, Expense, EstimatedPayroll, EstimatedSettlement
 from app.models.inventory import Sale
 from app.schemas.operation import ScheduleUpdate
@@ -298,14 +299,31 @@ class OperationService:
             total_hours += max(0.0, dur)
                 
         base_salary = int(total_hours * employee.hourly_rate)
+        # 주휴수당 — 주 평균 15시간 이상이면 (주 시간/40, 최대 1) × 8시간 × 시급을 주당 지급.
+        # 예전엔 0 고정이라, 직원 목록의 예상 인건비(estimate_labor_cost)는 주휴수당을
+        # 포함하는데 급여/정산 화면은 빼고 보여줘 같은 직원의 월급이 화면마다 달랐다
+        # (주 20시간 알바 기준 월 십수만원 차이). 법정 수당이므로 포함이 기준이다.
+        try:
+            _ps = datetime.strptime(period_start, "%Y-%m-%d")
+            _pe = datetime.strptime(period_end, "%Y-%m-%d")
+            weeks_in_period = max(((_pe - _ps).days + 1) / 7.0, 1 / 7.0)
+        except (ValueError, TypeError):
+            weeks_in_period = 4.345  # 기간 파싱 불가 — 월 평균 주 수로 폴백
+        weekly_avg_hours = total_hours / weeks_in_period
         weekly_holiday_allowance = 0
+        if weekly_avg_hours >= 15.0:
+            weekly_holiday_allowance = int(round(
+                min(1.0, weekly_avg_hours / 40.0) * 8 * employee.hourly_rate * weeks_in_period))
         estimated_salary = base_salary + weekly_holiday_allowance
 
+        # (employee_id, period) 유니크 제약이 없어 동시 조회 두 개가 중복 행을 만들 수
+        # 있다 — 최신 행(id 최대)을 집게 정렬해, 어느 행을 읽을지 실행마다 달라지는
+        # 비결정성을 없앤다.
         est_payroll = db.query(EstimatedPayroll).filter(
             EstimatedPayroll.employee_id == employee_id,
             EstimatedPayroll.period_start == period_start,
             EstimatedPayroll.period_end == period_end
-        ).first()
+        ).order_by(EstimatedPayroll.id.desc()).first()
 
         if est_payroll:
             est_payroll.total_work_hours = total_hours
@@ -322,7 +340,23 @@ class OperationService:
             )
             db.add(est_payroll)
 
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            # (직원, 기간) 유니크 제약 도입 후: 동시 조회 두 개가 같은 행을 만들려던
+            # 경합 — 진 쪽은 롤백하고 이긴 행을 읽어 값만 갱신한다.
+            db.rollback()
+            est_payroll = db.query(EstimatedPayroll).filter(
+                EstimatedPayroll.employee_id == employee_id,
+                EstimatedPayroll.period_start == period_start,
+                EstimatedPayroll.period_end == period_end
+            ).order_by(EstimatedPayroll.id.desc()).first()
+            if est_payroll is None:
+                raise
+            est_payroll.total_work_hours = total_hours
+            est_payroll.estimated_salary = estimated_salary
+            est_payroll.calculated_at = datetime.now()
+            db.commit()
         db.refresh(est_payroll)
 
         return {
@@ -438,9 +472,12 @@ class OperationService:
         except ValueError:
             raise ValueError("연월 포맷은 YYYY-MM 형식이어야 합니다.")
 
+        # sold_at은 timestamptz — 세션 기본(UTC)으로 extract하면 매월 1일 오전 9시(KST) 전
+        # 매출이 전월로 밀린다. KST 벽시계 기준으로 옮겨 월을 자른다.
+        sold_at_kst = func.timezone("Asia/Seoul", Sale.sold_at)
         sales_q = db.query(func.sum(Sale.total_price)).filter(
-            extract("year", Sale.sold_at) == year,
-            extract("month", Sale.sold_at) == month,
+            extract("year", sold_at_kst) == year,
+            extract("month", sold_at_kst) == month,
         )
         expense_q = db.query(func.sum(Expense.amount)).filter(
             extract("year", Expense.expense_date) == year,

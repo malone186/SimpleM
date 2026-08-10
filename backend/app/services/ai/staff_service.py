@@ -23,6 +23,7 @@ import calendar as _calendar
 import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
+from app.utils.datetime_kst import today_kst
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +149,7 @@ def _staff_entry(db, emp, prof: dict[str, Any], month: Optional[str] = None) -> 
     저장할 때마다 목록 전체를 다시 부르면 Neon 왕복이 한 번 더 붙어 '눌러도 반응이 없는'
     체감이 생긴다. 저장 응답이 곧 최신 상태가 되도록 계산 결과까지 함께 돌려준다.
     """
-    target_month = month or date.today().strftime("%Y-%m")
+    target_month = month or today_kst().strftime("%Y-%m")
     scheduled = _scheduled_hours_by_employee(db, [emp.id], target_month).get(emp.id, 0.0)
     windows = _availability_by_employee(db, [emp.id]).get(emp.id, [])
     return {
@@ -394,7 +395,7 @@ def list_staff(store_id: str, month: Optional[str] = None) -> dict[str, Any]:
     from app.models.ai import EmployeeProfile
     from app.models.operation import Employee
 
-    target_month = month or date.today().strftime("%Y-%m")
+    target_month = month or today_kst().strftime("%Y-%m")
 
     db = _session()
     try:
@@ -593,7 +594,7 @@ def month_calendar(store_id: str, month: Optional[str] = None) -> dict[str, Any]
     from app.models.ai import EmployeeProfile
     from app.models.operation import Employee, Schedule
 
-    target = month or date.today().strftime("%Y-%m")
+    target = month or today_kst().strftime("%Y-%m")
     try:
         year, mon = int(target[:4]), int(target[5:7])
         first = date(year, mon, 1)
@@ -747,14 +748,14 @@ def apply_availability(store_id: str, month: Optional[str] = None,
     """
     from app.models.operation import Employee, Schedule
 
-    target = month or date.today().strftime("%Y-%m")
+    target = month or today_kst().strftime("%Y-%m")
     try:
         year, mon = int(target[:4]), int(target[5:7])
         first = date(year, mon, 1)
     except (ValueError, IndexError):
         raise StaffError("월 형식이 올바르지 않습니다 (YYYY-MM).")
     last = date(year, mon, _calendar.monthrange(year, mon)[1])
-    today = date.today()
+    today = today_kst()
     # 기본은 오늘부터 — 지난 날짜에 근무를 새로 만들면 이미 지급한 급여가 바뀐다.
     # 통째로 지난 달이면 start_day가 last를 넘어가 아무것도 만들지 않는다.
     # (데모 시드 스크립트만 from_today=False로 그 달 전체를 채운다)
@@ -904,6 +905,13 @@ def _payroll_rows(employees: list, schedules: list) -> list[dict[str, Any]]:
         if rate <= 0 or h <= 0:
             continue
         base = int(h * rate)
+        # 주휴수당 — 주 평균 15시간 이상이면 포함. /operation/payroll/all(calculate_payroll_from_db)
+        # 및 직원 목록의 예상 인건비(estimate_labor_cost)와 같은 규칙 — 화면마다 월급이
+        # 다르게 보이던 불일치의 해소. 이 목록은 월 단위라 월 평균 주 수(WEEKS_PER_MONTH)를 쓴다.
+        weekly_avg = h / WEEKS_PER_MONTH
+        holiday = 0
+        if weekly_avg >= 15.0:
+            holiday = int(round(min(1.0, weekly_avg / 40.0) * 8 * rate * WEEKS_PER_MONTH))
         rows.append({
             "employee_id": e.id,
             "employee_name": e.name,
@@ -911,8 +919,8 @@ def _payroll_rows(employees: list, schedules: list) -> list[dict[str, Any]]:
             "hourly_rate": rate,
             "total_work_hours": h,
             "base_salary": base,
-            "weekly_holiday_allowance": 0,
-            "estimated_salary": base,
+            "weekly_holiday_allowance": holiday,
+            "estimated_salary": base + holiday,
             "based_on_actual": actual.get(e.id, False),
         })
     return rows
@@ -922,7 +930,7 @@ def monthly_payroll(store_id: str, year_month: Optional[str] = None) -> list[dic
     """전 직원 월 예상 급여 목록 — 직원 수와 무관하게 DB 왕복 2번."""
     from app.models.operation import Employee, Schedule
 
-    target = year_month or date.today().strftime("%Y-%m")
+    target = year_month or today_kst().strftime("%Y-%m")
     try:
         date(int(target[:4]), int(target[5:7]), 1)
     except (ValueError, IndexError):
@@ -941,9 +949,13 @@ def monthly_payroll(store_id: str, year_month: Optional[str] = None) -> list[dic
         db.close()
 
     rows = _payroll_rows(employees, schedules)
+    # 말일은 달마다 다르다 — "-31" 고정은 2월이면 2026-02-31 같은 존재하지 않는 날짜가
+    # 응답에 실려 클라이언트 날짜 파서가 깨질 수 있다.
+    y, m = int(target[:4]), int(target[5:7])
+    last_day = _calendar.monthrange(y, m)[1]
     for r in rows:
         r["period_start"] = f"{target}-01"
-        r["period_end"] = f"{target}-31"
+        r["period_end"] = f"{target}-{last_day:02d}"
     return rows
 
 
@@ -960,13 +972,18 @@ def month_settlement(store_id: str, year_month: Optional[str] = None) -> dict[st
     from app.models.inventory import Sale
     from app.models.operation import Employee, Expense, Schedule
 
-    target = year_month or date.today().strftime("%Y-%m")
+    target = year_month or today_kst().strftime("%Y-%m")
+    # sold_at은 timestamptz — naive 경계를 주면 UTC 자정으로 잘려 KST 00:00~08:59 매출
+    # (아침 러시 포함)이 전달 정산으로 넘어간다. /operation/settlements/calculate와 같은
+    # 기준(KST 명시)이어야 '집계 기준 동일'이라는 이 함수의 약속이 지켜진다.
+    from app.utils.datetime_kst import KST
     try:
         year, mon = int(target[:4]), int(target[5:7])
-        p_start_dt = datetime(year, mon, 1)
+        p_start_dt = datetime(year, mon, 1, tzinfo=KST)
     except (ValueError, IndexError):
         raise StaffError("월 형식이 올바르지 않습니다 (YYYY-MM).")
-    p_end_dt = datetime(year + 1, 1, 1) if mon == 12 else datetime(year, mon + 1, 1)
+    p_end_dt = (datetime(year + 1, 1, 1, tzinfo=KST) if mon == 12
+                else datetime(year, mon + 1, 1, tzinfo=KST))
     p_start, p_end = f"{target}-01", f"{target}-{_calendar.monthrange(year, mon)[1]:02d}"
 
     db = _session()
@@ -1029,7 +1046,7 @@ def weekly_payroll(store_id: str, week_start: Optional[str] = None) -> dict[str,
     from app.models.ai import EmployeeProfile
     from app.models.operation import Employee, Schedule
 
-    today = date.today()
+    today = today_kst()
     start = date.fromisoformat(week_start) if week_start else today - timedelta(days=today.weekday())
     end = start + timedelta(days=6)
 

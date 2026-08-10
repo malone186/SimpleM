@@ -33,6 +33,7 @@ from typing import Any, Optional
 
 from app.services.ai.agents import runtime_stats
 from app.services.ai.untrusted import UNTRUSTED_PROMPT_RULE
+from app.utils.datetime_kst import today_kst
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
 
 # ---------------------------------------------------------------------------
 # LangSmith 트레이싱 — .env에 LANGSMITH_API_KEY만 넣으면 자동 활성화된다.
@@ -245,6 +246,42 @@ _DOMAINS: list[dict[str, Any]] = [
             "'평소보다 뜸하다'는 사실과 마지막 방문 시점을 함께 전하세요.\n"
             "- 방문이 3회 미만이면 주기를 계산할 수 없습니다. 그럴 땐 계산된 척하지 말고 "
             "'아직 주기를 볼 만큼 방문 기록이 쌓이지 않았다'고 보고하세요."
+        ),
+    },
+    {
+        # 메뉴를 '바꾸기 전에' 답해야 하는 질문 — 재고 전문가(등록·조회)와 일부러 분리했다.
+        # 가격을 올려도 되는지는 조회가 아니라 판단이고, 근거가 판매·원가 두 곳에 걸쳐 있다.
+        "name": "menu_expert",
+        "title": "메뉴 개선 전문가",
+        "description": (
+            "메뉴를 어떻게 개선할지 먼저 찾아 주고(추천), 사장님이 정한 안이 괜찮은지 점검한다. "
+            "추천: 팔수록 손해인 메뉴의 적정 가격, 재료비 비중이 높은 메뉴의 인상 폭, "
+            "안 나가는 메뉴 정리, 신메뉴 아이디어. "
+            "점검: 가격 인상·인하, 메뉴 단종, 신메뉴 추가, 원가 절감의 효과와 위험. "
+            "'메뉴 개선 추천해줘', '뭘 바꾸면 좋을까?', '신메뉴 뭐 넣을까?', "
+            "'아메리카노 500원 올려도 될까?', '이 메뉴 빼도 돼?', '메뉴 구성 좀 봐줘' 같은 "
+            "요청을 처리한다. 메뉴 등록·레시피 수정 자체는 재고 전문가 담당이다."
+        ),
+        "modules": ["app.services.ai.menu_review_tools"],
+        "extra": (
+            "- 무엇을 바꿀지 정해지지 않은 질문('뭘 바꾸면 좋을까')에는 suggest_menu_improvements를 "
+            "쓰세요. 도구가 준 제안만 전하고, 목록에 없는 메뉴를 임의로 권하지 마세요.\n"
+            "- 제안을 보고할 때는 why(왜 권하는지)를 근거로 함께 말하고, 급한 것 2~3개만 "
+            "추리세요. 여섯 개를 다 늘어놓으면 하나도 실행되지 않습니다.\n"
+            "- actionable이 false인 제안(원가 미등록)은 바로 적용할 수 없습니다. "
+            "'이것부터 해야 나머지 계산이 선다'는 뜻으로 전하세요.\n"
+            "- 가격 인상을 물으면 '얼마 더 번다'로 끝내지 말고 breakeven_drop_pct를 반드시 "
+            "전하세요 — 사장님이 진짜 걱정하는 건 손님이 떨어지는 것입니다 "
+            "(예: '판매가 13.9%, 52잔까지 줄어도 본전이에요'). '손익분기점'·'기여이익' 같은 용어 "
+            "대신 '이만큼 줄어도 본전', '남는 돈'처럼 풀어 말하세요.\n"
+            "- 손님이 얼마나 빠질지는 아무도 모릅니다. 추측한 이탈률로 계산하지 마세요.\n"
+            "- 모든 계산은 '최근 판매량이 유지된다면'이라는 가정 위에 있습니다. 한 번은 밝히세요.\n"
+            "- 원가(레시피)가 없는 메뉴는 도구가 마진을 비워서 줍니다. 0원으로 넘겨짚지 말고 "
+            "'레시피를 넣으면 계산해 드릴 수 있다'고 안내하세요.\n"
+            "- 신메뉴의 원가는 표준 레시피나 매장 평균으로 잡은 추정입니다(after.cost_source). "
+            "추정임을 밝히고, 판매량은 알 수 없어 월 수익 합계에서 빠졌다는 점도 전하세요.\n"
+            "- 이 도구는 계산만 합니다. 실제 가격 변경·단종은 메뉴 화면에서 사장님이 "
+            "'적용'을 눌러야 반영된다고 안내하세요."
         ),
     },
     {
@@ -669,7 +706,7 @@ def render_main_prompt(experts: str, store_id: str) -> str:
     return _MAIN_PROMPT.format(
         agent_name=_MAIN_AGENT["name"],
         experts=experts,
-        today=date.today().isoformat(),
+        today=today_kst().isoformat(),
         store_id=store_id,
         untrusted_rule=UNTRUSTED_PROMPT_RULE,
     )
@@ -684,7 +721,7 @@ def render_sub_prompt(domain: dict[str, Any], store_id: str) -> str:
     return _SUB_PROMPT_BASE.format(
         title=domain["title"],
         store_id=store_id,
-        today=date.today().isoformat(),
+        today=today_kst().isoformat(),
         untrusted_rule=UNTRUSTED_PROMPT_RULE,
         extra=domain["extra"],
     )
@@ -806,7 +843,15 @@ def get_agent_overview() -> dict[str, Any]:
         "experts": experts,
         # 서버 시작 이후의 실제 실행 현황 (프로세스 메모리 기준 — 재시작하면 0부터)
         "runtime": runtime,
+        # 기능 검증(QA) 멀티에이전트 편성 — 챗봇 편성과 별개로, 저장소 전체를 기능
+        # 단위로 검증한 마지막 실행의 판정표. 콘솔이 하단에 함께 그린다.
+        "qa_fleet": _qa_fleet_snapshot(),
     }
+
+
+def _qa_fleet_snapshot() -> dict[str, Any]:
+    from app.services.ai.agents import qa_fleet
+    return qa_fleet.snapshot()
 
 
 def _audit_turn_safely(store_id: str, question: str, answer: str, recorder, ms: float) -> None:

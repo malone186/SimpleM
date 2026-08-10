@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, Modal, Platform, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { dateKey, monthKey } from '../../lib/dateKey';
 
 import { Badge, Button, Card, Divider, Screen, ScreenTitle, SectionTitle, WeekdayButtonGroup, IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
@@ -27,12 +28,15 @@ const notify = (title: string, message: string) => toast(title, message);
 // [백엔드 연동] 이번 달 기준 · 전체 매장 집계
 const nowYM = () => {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return monthKey(d);
 };
+// 기기 로컬(=KST) 기준 날짜 문자열 — toISOString()은 UTC라 오전 9시 전엔 하루 이르게 나온다
+const localISO = (d: Date) =>
+  dateKey(d);
 const tomorrowISO = () => {
   const d = new Date();
   d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 10);
+  return localISO(d);
 };
 const won = (n: number) => '₩' + Math.round(n || 0).toLocaleString('ko-KR');
 
@@ -117,7 +121,7 @@ function ScheduleCalendarCard({
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return dateKey(d);
   });
   const [payrollEmployees, setPayrollEmployees] = useState<Payroll[]>([]);
   const [dbEmployees, setDbEmployees] = useState<Employee[]>([]);
@@ -229,7 +233,7 @@ function ScheduleCalendarCard({
 
     // [한글 주석: UTC 파싱 오차 없는 100% 정확한 로컬 ISO 날짜 생성]
     const nowD = new Date();
-    const todayStr = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, '0')}-${String(nowD.getDate()).padStart(2, '0')}`;
+    const todayStr = dateKey(nowD);
 
     for (let d = 1; d <= daysInMonth; d++) {
       const mStr = String(month + 1).padStart(2, '0');
@@ -1004,7 +1008,7 @@ function LiveOperationCard() {
     const supply = supplyPriceOf(amt, expVat);
     setAdding(true);
     try {
-      await createExpense(token, { amount: supply, category: cat, expense_date: new Date().toISOString().slice(0, 10) });
+      await createExpense(token, { amount: supply, category: cat, expense_date: localISO(new Date()) });
       notify(
         '지출 등록',
         expVat === 'included' && supply !== amt
@@ -1300,6 +1304,11 @@ function UnavailabilityManagementCard() {
       notify('로그인 필요', '기피시간 등록은 로그인 후 사용할 수 있습니다.');
       return;
     }
+    // 등록된 직원 목록에 있는 id만 통과 — 기본값 '1'이 실재하는 직원이라는 보장이 없다
+    if (!employees.some((e) => String(e.id) === employeeId)) {
+      notify('입력 확인', '직원을 먼저 등록한 뒤 선택해 주세요.');
+      return;
+    }
     const empId = parseInt(employeeId, 10);
     const sH = parseInt(startHour, 10);
     const eH = parseInt(endHour, 10);
@@ -1407,14 +1416,12 @@ function UnavailabilityManagementCard() {
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>직원 선택</Text>
                 {employees.length === 0 ? (
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
-                    <PressableScale
-                      style={[styles.peakSegmentBtn, { flex: 0, paddingHorizontal: 16, paddingVertical: 10 }, styles.segmentBtnActiveNormal]}
-                      onPress={() => setEmployeeId('1')}
-                    >
-                      <Text style={styles.segmentTextActiveNormal}>직원 1 (ID:1)</Text>
-                    </PressableScale>
-                  </View>
+                  // 직원이 없으면 등록으로 안내한다 — 예전엔 'ID:1' 하드코딩 칩이 있어
+                  // 존재하지 않는 직원 id로 기피 시간이 등록되는 유령 데이터가 생겼다
+                  // (스케줄 추가 모달이 이미 같은 이유로 걷어낸 패턴).
+                  <Text style={styles.formLabel}>
+                    등록된 직원이 없어요. 먼저 직원 관리에서 직원을 등록해 주세요.
+                  </Text>
                 ) : (
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                     {employees.map((emp) => {

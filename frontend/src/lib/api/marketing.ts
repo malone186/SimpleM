@@ -37,7 +37,10 @@ export type PromotionImage = {
   mime_type: string;
   aspect_ratio: string;
   style: string;
-  provider?: 'pollinations' | 'gemini'; // pollinations = 무료 생성 (주 공급자)
+  // 'pollinations'·'gemini' = AI 생성, 'photo_composite(...)' = 실물 사진 합성,
+  // 'photo_retouch' = 오려낼 메뉴가 없어 사진 보정만 한 경우
+  provider?: string;
+  note?: string; // 결과가 사장님 기대와 다를 수 있을 때의 한 줄 안내 (없으면 빈 문자열)
   // --- 아래는 슬로건 합성이 들어간 뒤 생긴 필드 (옛 이미지에는 없다)
   raw_filename?: string;
   raw_url?: string; // 글자 없는 원본 — overlay가 none이면 url과 같다

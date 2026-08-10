@@ -45,8 +45,10 @@ def _tx_out(tx) -> TransactionOut:
     )
 
 
-def _customer_out(db: Session, c: Customer) -> CustomerOut:
-    st = svc.visit_stats(db, c.id)
+def _customer_out(db: Session, c: Customer, st: Optional[dict] = None) -> CustomerOut:
+    # st를 넘기면(목록 경로의 일괄 조회) 고객당 방문 지표 쿼리를 생략한다
+    if st is None:
+        st = svc.visit_stats(db, c.id)
     return CustomerOut(
         id=c.id, phone=c.phone, phone_masked=svc.mask_phone(c.phone),
         name=c.name, balance=c.balance or 0, memo=c.memo,
@@ -84,7 +86,10 @@ def list_customers_api(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
 ):
-    return [_customer_out(db, c) for c in svc.find_customers(db, user.email, query, limit)]
+    # 고객당 방문 지표 1쿼리(N+1)로 50명 목록이 ~10초 걸리던 것 → 일괄 1쿼리
+    customers = svc.find_customers(db, user.email, query, limit)
+    stats = svc.visit_stats_bulk(db, [c.id for c in customers])
+    return [_customer_out(db, c, stats.get(c.id)) for c in customers]
 
 
 @router.get("/customers/{customer_id}", response_model=CustomerOut, summary="회원 상세")

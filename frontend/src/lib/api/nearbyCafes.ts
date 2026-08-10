@@ -128,6 +128,17 @@ export type CafeSimilarity = {
 export type SimilarityResult = {
   engine: 'ai' | 'heuristic' | 'none';
   weights: SimilarityAxes;
+  /** 채점 신뢰도를 사장님 말로 알려 주는 한 줄 (AI 대신 간이 추정을 썼거나, 메뉴 미등록 등).
+   *  빈 문자열이면 덧붙일 말이 없다는 뜻 — 그대로 믿어도 되는 결과다. */
+  note?: string;
+  my_profile?: {
+    store_name: string;
+    avg_price: number;
+    menu_count: number;
+    dessert_ratio: number;
+    review_source: 'linked' | 'unlinked' | 'none';
+    has_review_view: boolean;
+  };
   results: CafeSimilarity[];
 };
 

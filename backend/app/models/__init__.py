@@ -2,10 +2,11 @@
 
 # A (ai.py)
 from app.models.ai import (
-    AdminAccount, AdminNotification, CafeReviewLink, ChatSession, ComplianceItem, DailySalesEntry,
-    DeviceToken, EmployeeProfile, FixedCostSetting, GeneratedDocument, InsightAck, NearbyCafeWatch,
-    NotificationSetting, OcrDocument, OcrItem, PosConnection, PosSyncedOrder, SentNotification,
-    SettlementSetting, TodoItem,
+    AdminAccount, AdminNotification, AdminUserNote, AiWarmCache, CafeReviewLink, ChatIncident,
+    ChatQuota, ChatSession, ComplianceItem, DailySalesEntry, DeviceToken, EmployeeAvailability,
+    EmployeeProfile, FixedCostSetting, GeneratedDocument, InsightAck, NearbyCafeWatch,
+    NotificationSetting, OcrDocument, OcrItem, OwnedItem, PointLedger, PosConnection,
+    PosSyncedOrder, SentNotification, SettlementSetting, StoreProfile, TodoItem,
 )
 
 # C (checklist.py) — 근무 체크리스트(매일 반복 루틴)
@@ -21,10 +22,10 @@ from app.models.membership import (
 )
 
 # O (operation.py)
-from app.models.operation import Employee, EstimatedPayroll, EstimatedSettlement, Expense, Schedule  # 정산/급여 및 지출 모델 불러오기
+from app.models.operation import Employee, EmployeeUnavailability, EstimatedPayroll, EstimatedSettlement, Expense, Schedule  # 정산/급여 및 지출 모델 불러오기
 
 # R (roastery.py)
-from app.models.roastery import Roastery, RoasteryBean
+from app.models.roastery import BeanPriceHistory, BeanReview, ProductOffer, Roastery, RoasteryBean
 
 # T (tracking.py)
 from app.models.tracking import TrackingEvent

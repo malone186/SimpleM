@@ -17,7 +17,7 @@ import {
 } from '../../lib/api/documents';
 import { describeApiFailure, type ApiFailure } from '../../lib/api/errors';
 import { useCachedResource } from '../../lib/cache';
-import { parseReportActions } from '../../lib/reportActions';
+import { parseAdviceLines, parseReportActions } from '../../lib/reportActions';
 import { colors, spacing, typography } from '../../theme';
 import { PressableScale } from '../motion';
 import { Segmented } from '../ui/Segmented';
@@ -341,6 +341,43 @@ export default function ManagementReportCard({ refreshToken = 0 }: { refreshToke
                               : '지금은 비용이 매출을 넘어 적자 상태예요.'}
                           </Text>
                         ) : null}
+
+                        {/* 손익분기점 — 이 기간에 얼마를 팔아야 본전인지.
+                            수익 숫자만으로는 잘한 건지 못한 건지 판단할 기준선이 없다. */}
+                        {c.breakeven?.computed && c.breakeven.target_revenue != null && (
+                          <>
+                            <View style={styles.popupDivider} />
+                            <View style={styles.detailInfoRow}>
+                              <Text style={styles.detailInfoLabel}>
+                                손익분기 목표 ({c.breakeven.label})
+                              </Text>
+                              <Text style={styles.detailInfoValue}>
+                                {won(c.breakeven.target_revenue)}
+                              </Text>
+                            </View>
+                            {c.breakeven.achieved_pct != null && (
+                              <View style={styles.detailInfoRow}>
+                                <Text style={styles.detailInfoLabel}>달성률</Text>
+                                <Text
+                                  style={[
+                                    styles.detailInfoValue,
+                                    {
+                                      color:
+                                        (c.breakeven.gap ?? 0) <= 0
+                                          ? colors.trendGreenText
+                                          : colors.pointOrange,
+                                    },
+                                  ]}
+                                >
+                                  {c.breakeven.achieved_pct}%
+                                </Text>
+                              </View>
+                            )}
+                            {!!c.breakeven.message && (
+                              <Text style={styles.totalCupsText}>{c.breakeven.message}</Text>
+                            )}
+                          </>
+                        )}
                       </View>
                     </>
                   )}
@@ -391,28 +428,45 @@ export default function ManagementReportCard({ refreshToken = 0 }: { refreshToke
               </View>
             )}
 
-            {/* 브루의 조언 — 숫자 요약을 '그래서 뭘 하면 되나'로 잇는 문장형 해설 */}
-            {aiAdvice && (
-              <View style={styles.adviceWrap}>
-                <View style={styles.adviceHeader}>
-                  <Ionicons name="cafe" size={13} color={colors.pointOrange} />
-                  <Text style={styles.adviceTitle}>
-                    {language === 'en' ? "BREW's advice" : '브루의 조언'}
-                  </Text>
+            {/* 브루의 조언 — 짧은 문장 한 줄씩, 번호는 인덱스로 붙인다.
+                구형식(문단) 조언도 parseAdviceLines가 문장 단위로 끊어 같은 모양으로 만든다 */}
+            {aiAdvice && (() => {
+              const lines = parseAdviceLines(aiAdvice);
+              return (
+                <View style={styles.adviceWrap}>
+                  <View style={styles.adviceHeader}>
+                    <Ionicons name="cafe" size={13} color={colors.pointOrange} />
+                    <Text style={styles.adviceTitle}>
+                      {language === 'en' ? "BREW's advice" : '브루의 조언'}
+                    </Text>
+                  </View>
+                  {lines.map((line, i) => (
+                    <Text key={i} style={styles.adviceText}>
+                      {lines.length > 1 && (
+                        <Text style={styles.adviceNum}>{i + 1}{'  '}</Text>
+                      )}
+                      {line}
+                    </Text>
+                  ))}
                 </View>
-                <Text style={styles.adviceText}>{aiAdvice}</Text>
-              </View>
-            )}
+              );
+            })()}
 
             {/* 지금 할 수 있는 일 — 조언에서 짚은 문제를 그 화면으로 바로 이동해 해결 */}
             {aiActions.length > 0 && (
               <View style={styles.actionWrap}>
+                <Text style={styles.actionHead}>
+                  {language === 'en' ? 'Things to do now' : '지금 할 수 있는 일'}
+                </Text>
                 {aiActions.map((a, i) => (
                   <PressableScale
                     key={i}
                     style={styles.actionRow}
                     onPress={() => (navigation as any).navigate(a.route)}
                   >
+                    <View style={styles.actionNumBadge}>
+                      <Text style={styles.actionNumText}>{i + 1}</Text>
+                    </View>
                     <View style={{ flex: 1, gap: 1 }}>
                       <Text style={styles.actionTitle}>{a.title}</Text>
                       <Text style={styles.actionText} numberOfLines={2}>{a.action}</Text>
@@ -656,11 +710,23 @@ const styles = StyleSheet.create({
     borderColor: colors.mutedSand,
     padding: 12,
     gap: 6,
+    marginBottom: 6, // 아래 실행 버튼 묶음과 붙지 않게
   },
   adviceHeader: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   adviceTitle: { ...typography.L5, fontWeight: '800', color: colors.pointOrange },
   adviceText: { ...typography.L5, fontSize: 11.5, color: colors.espressoBrown, lineHeight: 18 },
+  adviceNum: { fontWeight: '800', color: colors.pointOrange },
   actionWrap: { gap: 6 },
+  actionHead: { ...typography.L5, fontWeight: '800', color: colors.mochaBrown, marginBottom: 1 },
+  actionNumBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: colors.coffeeCream,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionNumText: { ...typography.L5, fontSize: 11, fontWeight: '800', color: colors.pointOrange },
   actionRow: {
     flexDirection: 'row',
     alignItems: 'center',

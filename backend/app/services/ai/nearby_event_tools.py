@@ -69,4 +69,60 @@ def plan_nearby_event(store_id: str, event_name: str) -> str:
     return json.dumps({"event": event, "plan": plan}, ensure_ascii=False)
 
 
-TOOLS = [list_nearby_events, plan_nearby_event]
+@tool
+def add_event_prep_todos(store_id: str, event_name: str) -> str:
+    """행사 준비 계획의 '미리 해 둘 일'을 사장님의 할 일 목록에 담는다 (기한은 행사 전날).
+    "그거 할 일에 넣어줘", "축제 준비할 것들 잊지 않게 적어줘" 같은 요청에 쓴다.
+    event_name은 list_nearby_events가 알려준 행사 이름 그대로 넣는다.
+    이미 같은 할 일이 있으면 새로 만들지 않는다."""
+    from datetime import date, timedelta
+
+    from app.core.database import SessionLocal
+    from app.schemas.ai import TodoCreate
+    from app.services.ai import nearby_watch_service, todo_service
+    from app.services.ai.nearby_event_service import _norm
+
+    loc = _store_location(store_id)
+    if isinstance(loc, str):
+        return loc
+    lat, lon, _store_name, _biz = loc
+
+    events = nearby_event_service.find_nearby_events(lat, lon).get("events", [])
+    target = _norm(event_name)
+    event = next((e for e in events if _norm(e["name"]) == target), None) \
+        or next((e for e in events if target and target in _norm(e["name"])), None)
+    if event is None:
+        names = ", ".join(e["name"] for e in events[:5]) or "없음"
+        return f"'{event_name}' 행사를 찾지 못했습니다. 확인된 행사: {names}"
+
+    db = SessionLocal()
+    try:
+        plan = nearby_watch_service.plan_for_store(db, store_id, event)
+    finally:
+        db.close()
+    actions = [a for a in (plan or {}).get("prep_actions", []) if a and a.strip()]
+    if not actions:
+        return f"'{event['name']}' 행사의 준비 항목을 지금은 만들지 못했습니다. 잠시 후 다시 시도해 주세요."
+
+    # 기한은 화면(POST /nearby-events/plan/todos)과 같은 규칙 — 행사 전날, 이미 지났으면 오늘
+    today = nearby_watch_service._today_kst()
+    try:
+        due = max(date.fromisoformat(event["start_date"]) - timedelta(days=1), today).isoformat()
+    except (KeyError, ValueError):
+        due = today.isoformat()
+
+    result = todo_service.add_todos_bulk(
+        store_id,
+        [TodoCreate(title=a.strip()[:200], note=f"{event['name']} 준비"[:255], due_date=due)
+         for a in actions],
+        source="ai",
+    )
+    return json.dumps({
+        "event": event["name"],
+        "due_date": due,
+        "added": [t["title"] for t in result["added"]],
+        "already_there": result["skipped"],
+    }, ensure_ascii=False)
+
+
+TOOLS = [list_nearby_events, plan_nearby_event, add_event_prep_todos]

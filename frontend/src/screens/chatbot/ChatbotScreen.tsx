@@ -32,6 +32,7 @@ import {
   grantChatQuotaFromAd,
   isChatQuotaExhausted,
   sendChatMessage,
+  waitForAdQuota,
   type ChatHistoryItem,
 } from '../../lib/api/chatbot';
 import { isRewardedReady, preloadRewarded, showRewarded } from '../../lib/ads';
@@ -48,7 +49,7 @@ import {
 } from '../../lib/chatSessions';
 import { colors, spacing, typography } from '../../theme';
 import { fs, s, useBottomInset, useResponsive, useTopInset } from '../../theme/responsive';
-import RoomBackdrop from '../../components/brew/RoomBackdrop';
+import RoomBackdrop, { ROOM_TEXT_SHADOW, useSheetTop } from '../../components/brew/RoomBackdrop';
 import { getRoomTint } from '../../components/brew/roomBackgrounds';
 import { useEquipped } from '../../rewards/EquippedContext';
 
@@ -93,9 +94,11 @@ export default function ChatbotScreen() {
   // 착용한 카페 배경의 분위기 색으로 상단 오로라를 물들인다 (홈과 통일 — roomBackgrounds.ts)
   const { roomBgId } = useEquipped();
   const tint = getRoomTint(roomBgId);
+  // 착용 배경 사진이 헤더를 꽉 채우도록, 크림 시트가 시작하는 y를 실측해 넘긴다 (네 탭 공통)
+  const { sheetTop, onSheetLayout } = useSheetTop();
   // [한글 주석: 전역 다국어 번역 훅 연동]
   const { t, language } = useTranslation();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   // [한글 주석] 노치 실측 여백 + 하단 제스처 바 + 화면 급수 (좁은 화면에서 헤더를 접는다)
   const topInset = useTopInset();
   const bottomInset = useBottomInset();
@@ -177,7 +180,13 @@ export default function ChatbotScreen() {
             botSay('광고를 끝까지 보지 않아서 충전되지 않았어요.');
             return;
           }
-          await grantChatQuotaFromAd(token);
+          // 서버가 SSV 강제 모드면 이 호출로 바로 충전되지 않는다 — 구글 검증 콜백이
+          // 도착할 때까지 몇 초 기다린 뒤 재질문한다 (안 기다리면 또 소진 오류가 난다).
+          const quota = await waitForAdQuota(await grantChatQuotaFromAd(token), token);
+          if (quota.remaining <= 0) {
+            botSay('충전 확인이 조금 늦어지고 있어요. 잠시 후 다시 물어봐 주세요.');
+            return;
+          }
           await askBrew(q, history);
         } catch {
           botSay('앗, 충전에 실패했어요. 잠시 후 다시 시도해 주세요.');
@@ -268,9 +277,13 @@ export default function ChatbotScreen() {
 
   // 무료 턴이 소진되는 순간 광고가 준비돼 있어야 한다 (로드에 1~3초).
   // 실패하면 광고 없이 "내일 다시" 안내로 떨어진다.
+  //
+  // 로그인 이메일을 함께 넘기는 이유: 서버 사이드 검증(SSV) 식별자는 광고를 요청할 때만
+  // 심을 수 있다. 이 값이 있어야 구글이 "이 계정이 광고를 끝까지 봤다"를 서명해 우리
+  // 서버로 직접 알려주고, 서버가 앱 보고 대신 그 통보를 근거로 충전할 수 있다.
   useEffect(() => {
-    preloadRewarded();
-  }, []);
+    preloadRewarded(user?.email);
+  }, [user?.email]);
 
   // 경영 리포트 등에서 버튼으로 넘어오면 그 질문을 자동으로 전송한다 (입력만 채우지 않고 바로 물어봄).
   // ts가 함께 바뀌므로 같은 질문 버튼을 다시 눌러도 매번 새로 전송된다.
@@ -315,7 +328,7 @@ export default function ChatbotScreen() {
 
       {/* 착용한 카페 배경 '사진' — 브루룸과 같은 그림을 그대로 깐다.
           미착용이면 null이라 위 오로라가 그대로 보인다 (RoomBackdrop.tsx) */}
-      <RoomBackdrop roomBgId={roomBgId} fadeAt={0.3} />
+      <RoomBackdrop roomBgId={roomBgId} sheetTop={sheetTop} fadeAt={0.32} />
 
       {/* 브라운 헤더 — 관리 탭과 동일 (제목/부제 + 마스코트만). 새 채팅/기록은 헤더 밖 시트 상단으로 이동 */}
       <View style={[styles.brownHeader, { paddingTop: topInset }]}>
@@ -333,7 +346,8 @@ export default function ChatbotScreen() {
         </View>
       </View>
 
-      <View style={styles.brownSheet}>
+      {/* onLayout은 배경 사진이 어디까지 보일지 정하는 기준선이다 (RoomBackdrop) */}
+      <View style={styles.brownSheet} onLayout={onSheetLayout}>
       {/* 새 채팅/기록 — 브라운 헤더 아래 별도 섹션 (크림 시트 상단) */}
       <View style={styles.chatActionsRow}>
         <PressableScale style={styles.sheetChip} onPress={startNewChat} disabled={sending}>
@@ -510,8 +524,9 @@ const styles = StyleSheet.create({
   // 관리 탭 헤더 높이(설정칩+마스코트 ~153)에 맞춰 마스코트를 하단 정렬 — 챗봇 헤더엔 버튼이 없어 minHeight로 확보
   // [한글 주석] minHeight 고정 154는 세로가 짧은 화면에서 대화 영역을 통째로 잡아먹었다 → 스케일 적용
   brownHeaderRight: { alignItems: 'flex-end', justifyContent: 'flex-end', minHeight: s(154) },
-  brownHeaderTitle: { fontSize: fs(24), fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
-  brownHeaderSub: { fontSize: fs(11.5), color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
+  // 배경 사진 위에 얹히므로 글자 그림자를 준다 (RoomBackdrop.ROOM_TEXT_SHADOW)
+  brownHeaderTitle: { fontSize: fs(24), fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5, ...ROOM_TEXT_SHADOW },
+  brownHeaderSub: { fontSize: fs(11.5), color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2, ...ROOM_TEXT_SHADOW },
   // 새 채팅/기록 — 브라운 헤더 아래 크림 시트 상단 섹션의 칩 (크림 배경이라 어두운 글씨)
   chatActionsRow: {
     flexDirection: 'row',

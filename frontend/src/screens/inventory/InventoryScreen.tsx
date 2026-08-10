@@ -8,7 +8,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 
 import { useAuth } from '../../auth/AuthContext';
 import { useTranslation } from '../../i18n/translations';
@@ -18,14 +18,16 @@ import Svg, { Circle, Defs, FeGaussianBlur, Filter, LinearGradient, Path, Stop }
 import Brew from '../../components/brew/Brew';
 import { confirmDialog, toast } from '../../components/toast';
 import { Badge, Button, Card, ProgressBar, SectionTitle } from '../../components/ui';
+import { Field, FieldRow } from '../../components/ui/Field';
+import { QuantityStepper, parseQty, parseQtyOr, roundQty } from '../../components/ui/QuantityStepper';
 import { SwipeDownModal } from '../../components/ui/SwipeDownModal';
 import { preloadInterstitial, showAdWhile } from '../../lib/ads';
 import { API_BASE_URL } from '../../lib/api/client';
-import { adjustStock, createIngredient, listStocks, StockItem } from '../../lib/api/inventory';
+import { adjustStock, createIngredient, listStocks, updateIngredient, StockItem } from '../../lib/api/inventory';
 import { confirmOcrDocument, listOcrDocuments, rejectOcrDocument, uploadOcrImage, OcrDocument, updateOcrDocument, OcrItem, type UploadAsset } from '../../lib/api/ocr';
 import { colors, typography } from '../../theme';
 import { s, useResponsive, useTopInset } from '../../theme/responsive';
-import RoomBackdrop from '../../components/brew/RoomBackdrop';
+import RoomBackdrop, { ROOM_TEXT_SHADOW, useSheetTop } from '../../components/brew/RoomBackdrop';
 import { getRoomTint } from '../../components/brew/roomBackgrounds';
 import { useEquipped } from '../../rewards/EquippedContext';
 
@@ -62,10 +64,24 @@ function getCategory(name: string): string {
 // 초안 편집용 행 — 타이핑 중간 상태("1." 등)를 허용하려고 문자열로 들고 저장 시 숫자로 변환
 type EditRow = { name: string; qty: string; unit: string; price: string };
 
+// 재고 카드 안에서 재료 정보를 통째로 고칠 때 쓰는 폼 값 (전부 문자열로 들고 저장 시 변환)
+type StockEditForm = { name: string; unit: string; price: string; qty: string; safety: string };
+
+// 입력값 → 숫자. 사장님이 "1,200"처럼 쉼표를 찍어도 받아 준다.
+// 빈칸은 null(= 그 항목은 안 고침), 숫자가 아니면 undefined(= 입력 오류)로 구분한다.
+function parseNumberInput(raw: string): number | null | undefined {
+  const cleaned = raw.replace(/[,\s]/g, '');
+  if (cleaned === '') return null;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 export default function InventoryScreen() {
   // 착용한 카페 배경의 분위기 색으로 상단 오로라를 물들인다 (홈과 통일 — roomBackgrounds.ts)
   const { roomBgId } = useEquipped();
   const tint = getRoomTint(roomBgId);
+  // 착용 배경 사진이 헤더를 꽉 채우도록, 크림 시트가 시작하는 y를 실측해 넘긴다 (네 탭 공통)
+  const { sheetTop, onSheetLayout } = useSheetTop();
   // [한글 주석: 다국어 번역 훅 연동 — 영문/한글 화면 가공]
   const { t, language } = useTranslation();
   const { token } = useAuth();
@@ -111,11 +127,20 @@ export default function InventoryScreen() {
   const [fUnit, setFUnit] = useState('');
   const [fPrice, setFPrice] = useState('');
   const [fQty, setFQty] = useState('');
+  const [fSafety, setFSafety] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // 기존 재고 직접 입고/차감
+  // 기존 재고 직접 입고/차감 — adjustTarget은 '조정 뒤에 남을 수량'이다.
+  // (예전에는 '더하거나 뺄 양'이었는데, −/＋ 를 눌러 하나씩 굴릴 수 있게 되면서
+  //  화면에 보이는 숫자가 곧 결과가 되는 편이 훨씬 덜 헷갈린다)
   const [adjustId, setAdjustId] = useState<number | null>(null);
-  const [adjustQty, setAdjustQty] = useState('');
+  const [adjustTarget, setAdjustTarget] = useState('');
+  const [adjustSaving, setAdjustSaving] = useState(false);
+
+  // 등록한 재료의 정보를 통째로 고치는 편집 모드 (홈 '할 일'처럼 모든 칸을 고칠 수 있게)
+  const [editStockId, setEditStockId] = useState<number | null>(null);
+  const [stockForm, setStockForm] = useState<StockEditForm>({ name: '', unit: '', price: '', qty: '', safety: '' });
+  const [savingStock, setSavingStock] = useState(false);
 
   const loadStocks = useCallback(() => {
     if (!token) return;
@@ -137,10 +162,15 @@ export default function InventoryScreen() {
     setTimeout(() => setRefreshing(false), 650);
   }, [loadStocks, loadDrafts]);
 
-  useEffect(() => {
-    loadStocks();
-    loadDrafts();
-  }, [loadStocks, loadDrafts]);
+  // 탭이 화면에 돌아올 때마다 다시 부른다 — 마운트 1회만 부르면 재고 상세에서 수량을
+  // 고치고 돌아와도 목록·부족 배지·게이지가 옛 숫자로 남는다 (탭 화면은 언마운트되지
+  // 않아서 useEffect가 다시 돌지 않는다). 대시보드와 같은 규칙.
+  useFocusEffect(
+    useCallback(() => {
+      loadStocks();
+      loadDrafts();
+    }, [loadStocks, loadDrafts])
+  );
 
   // OCR 대기 시간에 광고를 태우려면 미리 받아둬야 한다 (로드에 1~3초).
   // 실패하면 광고 없이 기존 흐름대로 동작한다.
@@ -166,6 +196,8 @@ export default function InventoryScreen() {
         return;
       }
 
+      const safety = parseNumberInput(fSafety);
+
       if (existing) {
         await adjustStock(token, { ingredient_id: existing.ingredient_id, quantity_change: qty, description: '직접 등록 추가 입고' });
         notify('입고 완료', `이미 등록된 재료라 ${existing.name} 재고에 ${qty}${existing.unit}을(를) 추가했어요.`);
@@ -173,15 +205,19 @@ export default function InventoryScreen() {
         const ing = await createIngredient(token, {
           name,
           unit: fUnit.trim(),
-          current_price: Number(fPrice) || 0,
+          current_price: Math.round(Number(fPrice) || 0), // 백엔드 스키마가 int — 소수점 입력 시 422 방지
         });
         if (qty > 0) {
           await adjustStock(token, { ingredient_id: ing.id, quantity_change: qty, description: '직접 등록 초기 수량' });
         }
+        // 부족 알림 기준은 재료 등록 API가 받지 않는다 — 적어 넣었을 때만 한 번 더 저장한다
+        if (safety != null && safety > 0) {
+          await updateIngredient(token, ing.id, { safety_quantity: safety }).catch(() => {});
+        }
         notify('등록 완료', `${ing.name} 재료가 등록됐어요.`);
       }
 
-      setFName(''); setFUnit(''); setFPrice(''); setFQty('');
+      setFName(''); setFUnit(''); setFPrice(''); setFQty(''); setFSafety('');
       setFormOpen(false);
       loadStocks();
     } catch (e) {
@@ -402,23 +438,125 @@ export default function InventoryScreen() {
     }
   };
 
-  // 기존 재고 수량 직접 조정 (입고=+, 차감=-)
-  const applyAdjust = async (s: StockItem, sign: 1 | -1) => {
+  // 조정칸 열기 — 지금 수량을 그대로 띄워 두고, 여기서 −/＋ 로 굴리거나 숫자를 고쳐 쓴다
+  const openAdjust = (s: StockItem) => {
+    setEditStockId(null); // 재료 정보 수정칸과 동시에 열리면 어느 수량이 반영될지 헷갈린다
+    setAdjustId(s.ingredient_id);
+    setAdjustTarget(String(s.current_quantity ?? 0));
+  };
+
+  const closeAdjust = () => {
+    setAdjustId(null);
+    setAdjustTarget('');
+  };
+
+  /**
+   * 재료 한 줄을 눌렀을 때 '재고 확인' 화면을 연다 (홈 할 일에서 재고 항목을 눌렀을 때와 같은 화면).
+   *
+   * 그동안 이 화면은 홈 할 일·부족 알림으로만 들어갈 수 있었다. 정작 재고 탭에서는
+   * 남은 양·최소 수량·단가·마지막 변동을 한 화면에서 볼 방법이 없어, 사장님이 같은 재료를
+   * 확인하려면 홈으로 돌아가 할 일에 그 재료가 떠 있기를 기다려야 했다.
+   * ts를 함께 넘겨야 같은 재료를 연달아 눌러도 받는 화면이 새 요청으로 인식한다.
+   */
+  const openStockDetail = (s: StockItem) => {
+    navigation.navigate('StockDetail', { ingredientId: s.ingredient_id, ts: Date.now() });
+  };
+
+  /** 빠른 조절 칩(+10 등) — 지금 적힌 수량에서 그만큼 더하거나 뺀다 (0 아래로는 안 내려간다) */
+  const bumpAdjust = (delta: number) =>
+    setAdjustTarget((prev) => String(Math.max(0, roundQty(parseQty(prev) + delta))));
+
+  // 기존 재고 수량 직접 조정 — 지금 수량과의 차이를 입고(+)·차감(−) 이력으로 남긴다
+  const applyAdjust = async (s: StockItem) => {
     if (!token) return notify('로그인 필요', '재고 조정은 로그인 후 가능합니다.');
-    const qty = Number(adjustQty);
-    if (!qty || qty <= 0) return notify('입력 확인', '0보다 큰 수량을 입력하세요.');
+    const target = parseNumberInput(adjustTarget);
+    if (target === undefined || target === null || target < 0) {
+      return notify('입력 확인', '바꿀 수량을 0 이상 숫자로 적어 주세요.');
+    }
+    const delta = roundQty(target - s.current_quantity);
+    if (!delta) return notify('바뀐 게 없어요', '−/＋ 를 눌러 수량을 바꾼 뒤 반영해 주세요.');
+
+    setAdjustSaving(true);
     try {
       await adjustStock(token, {
         ingredient_id: s.ingredient_id,
-        quantity_change: sign * qty,
-        description: sign > 0 ? '직접 입고' : '직접 차감',
+        quantity_change: delta,
+        description: delta > 0 ? '직접 입고' : '직접 차감',
       });
-      setAdjustId(null);
-      setAdjustQty('');
+      closeAdjust();
       loadStocks();
-      notify('반영 완료', `${s.name} ${sign > 0 ? '+' : '−'}${qty}${s.unit} 반영했어요.`);
+      notify('반영 완료', `${s.name} ${Math.abs(delta)}${s.unit} ${delta > 0 ? '입고' : '차감'} · 남은 양 ${target}${s.unit}`);
     } catch (e) {
       notify('조정 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+    } finally {
+      setAdjustSaving(false);
+    }
+  };
+
+  // ── 등록한 재료 정보 통째로 수정 ────────────────────────────────
+  // 그동안 등록 뒤에는 수량만 만질 수 있었다. 오타 난 이름이나 잘못 넣은 단위·단가를
+  // 고치려면 지우고 다시 등록해야 했는데, 그러면 그 재료의 입출고 이력과 레시피 연결이
+  // 같이 날아간다. 홈 '할 일'처럼 모든 칸을 그 자리에서 고칠 수 있게 한다.
+  const startEditStock = (s: StockItem) => {
+    closeAdjust(); // 입고/차감 칸과 동시에 열리면 어느 수량이 반영될지 헷갈린다
+    setEditStockId(s.ingredient_id);
+    setStockForm({
+      name: s.name,
+      unit: s.unit,
+      price: String(s.current_price ?? 0),
+      qty: String(s.current_quantity ?? 0),
+      safety: String(s.safety_quantity ?? 0),
+    });
+  };
+
+  const cancelEditStock = () => {
+    setEditStockId(null);
+    setStockForm({ name: '', unit: '', price: '', qty: '', safety: '' });
+  };
+
+  const patchStockForm = (patch: Partial<StockEditForm>) => setStockForm((prev) => ({ ...prev, ...patch }));
+
+  const saveStockEdit = async (s: StockItem) => {
+    if (!token) return notify('로그인 필요', '재료 수정은 로그인 후 가능합니다.');
+    const name = stockForm.name.trim();
+    const unit = stockForm.unit.trim();
+    if (!name) return notify('입력 확인', '재료명을 적어 주세요.');
+    if (!unit) return notify('입력 확인', '단위를 적어 주세요. (예: 팩, kg, 개)');
+
+    const price = parseNumberInput(stockForm.price);
+    const qty = parseNumberInput(stockForm.qty);
+    const safety = parseNumberInput(stockForm.safety);
+    if (price === undefined || qty === undefined || safety === undefined) {
+      return notify('입력 확인', '단가·수량은 숫자로 적어 주세요.');
+    }
+    if ((price ?? 0) < 0 || (qty ?? 0) < 0 || (safety ?? 0) < 0) {
+      return notify('입력 확인', '수량과 단가는 0보다 작을 수 없어요.');
+    }
+
+    // 바뀐 칸만 보낸다 — 안 건드린 값을 굳이 덮어써서 단가 이력·재고 장부를 어지럽히지 않는다
+    const body: Parameters<typeof updateIngredient>[2] = {};
+    if (name !== s.name) body.name = name;
+    if (unit !== s.unit) body.unit = unit;
+    if (price != null && Math.round(price) !== s.current_price) body.current_price = Math.round(price); // 백엔드가 int
+    if (qty != null && qty !== s.current_quantity) body.current_quantity = qty;
+    if (safety != null && safety !== s.safety_quantity) body.safety_quantity = safety;
+
+    if (Object.keys(body).length === 0) {
+      cancelEditStock();
+      return;
+    }
+
+    setSavingStock(true);
+    try {
+      const updated = await updateIngredient(token, s.ingredient_id, body);
+      // 목록을 통째로 다시 부르지 않고 그 줄만 갈아 끼운다 (원격 DB 왕복 1회 절약)
+      setStocks((prev) => prev.map((x) => (x.ingredient_id === updated.ingredient_id ? updated : x)));
+      cancelEditStock();
+      notify('수정 완료', `${updated.name} 정보를 고쳤어요.`);
+    } catch (e) {
+      notify('수정 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+    } finally {
+      setSavingStock(false);
     }
   };
 
@@ -525,7 +663,7 @@ export default function InventoryScreen() {
 
       {/* 착용한 카페 배경 '사진' — 브루룸과 같은 그림을 그대로 깐다.
           미착용이면 null이라 위 오로라가 그대로 보인다 (RoomBackdrop.tsx) */}
-      <RoomBackdrop roomBgId={roomBgId} fadeAt={0.3} />
+      <RoomBackdrop roomBgId={roomBgId} sheetTop={sheetTop} fadeAt={0.34} />
 
       {/* 헤더를 스크롤 안에 두고, 스크롤 시 천천히 위로+페이드 (홈 화면과 동일) */}
       <Animated.ScrollView
@@ -564,7 +702,8 @@ export default function InventoryScreen() {
           </View>
         </Animated.View>
 
-        {/* 둥근 크림 시트 — 콘텐츠가 위로 올라오며 헤더를 덮는다 */}
+        {/* 둥근 크림 시트 — 콘텐츠가 위로 올라오며 헤더를 덮는다.
+            onLayout은 배경 사진이 어디까지 보일지 정하는 기준선이다 (RoomBackdrop) */}
         {/* [한글 주석] 탭 바는 화면 아래 별도 영역이라 겹치지 않는다 — 하단은 시트 기본 여백(24)만 사용 */}
         <View
           style={[
@@ -572,6 +711,7 @@ export default function InventoryScreen() {
             // [한글 주석] 폴드 펼침에서 카드가 가로로 늘어지지 않게 폭 제한 + 가운데 정렬
             isWide && { maxWidth: contentMaxWidth, width: '100%', alignSelf: 'center' },
           ]}
+          onLayout={onSheetLayout}
         >
           {/* [한글 주석: 상단 관리 & 입고 연관 카드 그룹 — 8px 밀착 간격으로 유기적 배치] */}
           <View style={{ gap: 8 }}>
@@ -639,95 +779,102 @@ export default function InventoryScreen() {
                   <View style={{ gap: 8, marginVertical: 8 }}>
                     {/* [한글 주석] 기존 품목도 값(품목명·수량·단위·단가)을 그 자리에서 바로 고칠 수 있는 입력칸 */}
                     {editingRows.map((row, idx) => (
-                      <View key={idx} style={{ gap: 6, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.mutedSand }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                          <View style={{ flex: 1 }}>
-                            <TextInput
-                              style={[styles.input, { height: 36, fontSize: 13 }]}
-                              placeholder="품목명"
-                              value={row.name}
-                              onChangeText={(t) => updateRow(idx, { name: t })}
-                            />
-                          </View>
-                          {/* [한글 주석] 품목 삭제 버튼 */}
-                          <PressableScale onPress={() => handleDeleteItem(idx)} to={0.9}>
-                            <Ionicons name="trash-outline" size={18} color={colors.pointOrange} />
-                          </PressableScale>
-                        </View>
-                        <View style={{ flexDirection: 'row', gap: 8 }}>
-                          <View style={{ flex: 1 }}>
-                            <TextInput
-                              style={[styles.input, { height: 36, fontSize: 13 }]}
-                              placeholder="수량"
-                              value={row.qty}
-                              onChangeText={(t) => updateRow(idx, { qty: t })}
-                              keyboardType="numeric"
-                            />
-                          </View>
-                          <View style={{ flex: 1 }}>
-                            <TextInput
-                              style={[styles.input, { height: 36, fontSize: 13 }]}
-                              placeholder="단위"
-                              value={row.unit}
-                              onChangeText={(t) => updateRow(idx, { unit: t })}
-                            />
-                          </View>
-                          <View style={{ flex: 1.2 }}>
-                            <TextInput
-                              style={[styles.input, { height: 36, fontSize: 13 }]}
-                              placeholder="단가 (원)"
-                              value={row.price}
-                              onChangeText={(t) => updateRow(idx, { price: t })}
-                              keyboardType="numeric"
-                            />
-                          </View>
-                        </View>
+                      <View key={idx} style={{ gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.mutedSand }}>
+                        <Field
+                          compact
+                          label={`${idx + 1}번 품목`}
+                          minWidth={200}
+                          placeholder="품목명"
+                          value={row.name}
+                          onChangeText={(t) => updateRow(idx, { name: t })}
+                          right={
+                            /* 품목 삭제 버튼 — 라벨 줄 오른쪽 끝에 붙인다 */
+                            <PressableScale style={styles.rowDeleteBtn} onPress={() => handleDeleteItem(idx)} to={0.9}>
+                              <Ionicons name="trash-outline" size={15} color="#B23B2E" />
+                              <Text style={styles.rowDeleteText}>삭제</Text>
+                            </PressableScale>
+                          }
+                        />
+                        <FieldRow>
+                          <Field
+                            compact
+                            label="수량"
+                            minWidth={90}
+                            placeholder="0"
+                            value={row.qty}
+                            onChangeText={(t) => updateRow(idx, { qty: t })}
+                            keyboardType="numeric"
+                          />
+                          <Field
+                            compact
+                            label="단위"
+                            minWidth={90}
+                            placeholder="개"
+                            value={row.unit}
+                            onChangeText={(t) => updateRow(idx, { unit: t })}
+                          />
+                          <Field
+                            compact
+                            label="단가"
+                            minWidth={110}
+                            suffix="원"
+                            placeholder="0"
+                            value={row.price}
+                            onChangeText={(t) => updateRow(idx, { price: t })}
+                            keyboardType="numeric"
+                          />
+                        </FieldRow>
                       </View>
                     ))}
 
                     {/* [한글 주석] 품목 직접 추가를 위한 입력 폼 UI */}
                     <View style={{ backgroundColor: colors.coffeeCream, padding: 12, borderRadius: 8, marginTop: 8, gap: 8 }}>
                       <Text style={[styles.draftName, { fontSize: 13, color: colors.mochaBrown }]}>➕ 품목 직접 추가</Text>
-                      <View style={styles.formRow}>
-                        <View style={{ flex: 2 }}>
-                          <TextInput 
-                            style={[styles.input, { height: 36, fontSize: 13 }]} 
-                            placeholder="재료명 (예: 우유)" 
-                            value={newItemName} 
-                            onChangeText={setNewItemName} 
-                          />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <TextInput 
-                            style={[styles.input, { height: 36, fontSize: 13 }]} 
-                            placeholder="단위 (개/kg)" 
-                            value={newItemUnit} 
-                            onChangeText={setNewItemUnit} 
-                          />
-                        </View>
-                      </View>
-                      <View style={styles.formRow}>
-                        <View style={{ flex: 1 }}>
-                          <TextInput 
-                            style={[styles.input, { height: 36, fontSize: 13 }]} 
-                            placeholder="수량" 
-                            value={newItemQty} 
-                            onChangeText={setNewItemQty} 
-                            keyboardType="numeric" 
-                          />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <TextInput 
-                            style={[styles.input, { height: 36, fontSize: 13 }]} 
-                            placeholder="단가 (원)" 
-                            value={newItemPrice} 
-                            onChangeText={setNewItemPrice} 
-                            keyboardType="numeric" 
-                          />
-                        </View>
-                      </View>
+                      <FieldRow>
+                        <Field
+                          compact
+                          label="재료명"
+                          required
+                          minWidth={170}
+                          placeholder="예: 우유"
+                          value={newItemName}
+                          onChangeText={setNewItemName}
+                        />
+                        <Field
+                          compact
+                          label="단위"
+                          minWidth={100}
+                          placeholder="개"
+                          value={newItemUnit}
+                          onChangeText={setNewItemUnit}
+                        />
+                      </FieldRow>
+                      <FieldRow>
+                        <Field
+                          compact
+                          label="수량"
+                          required
+                          minWidth={110}
+                          suffix={newItemUnit.trim() || undefined}
+                          placeholder="0"
+                          value={newItemQty}
+                          onChangeText={setNewItemQty}
+                          keyboardType="numeric"
+                        />
+                        <Field
+                          compact
+                          label="단가"
+                          minWidth={110}
+                          suffix="원"
+                          placeholder="0"
+                          value={newItemPrice}
+                          onChangeText={setNewItemPrice}
+                          keyboardType="numeric"
+                        />
+                      </FieldRow>
                       {/* [한글 주석] 버튼 내부 글씨가 버튼 상하 폭에 비해 비대해 보이는 현상을 막기 위해 폰트 크기를 13px로 조절 */}
-                      <Button label="목록에 품목 추가" onPress={handleAddItem} style={{ height: 36, marginTop: 4 }} textStyle={{ fontSize: 13, fontWeight: '700' }} />
+                      {/* 높이를 고정하면 '글씨 크게 보기'를 켠 폰에서 글자가 잘린다 — minHeight로 준다 */}
+                      <Button label="목록에 품목 추가" onPress={handleAddItem} style={{ minHeight: 42, marginTop: 4 }} textStyle={{ fontSize: 13, fontWeight: '700' }} />
                     </View>
                   </View>
                 ) : (
@@ -878,24 +1025,61 @@ export default function InventoryScreen() {
         {formOpen && (
           <Card tone="cream">
             <SectionTitle>재료 직접 등록</SectionTitle>
-            {/* 인풋 박스가 화면 밖으로 넘치지 않도록 감싸는 View + flex 적용 */}
-            <View style={styles.formRow}>
-              <View style={{ flex: 2 }}>
-                <TextInput style={[styles.input, { width: '100%' }]} placeholder="재료명 (예: 서울우유 1L)" value={fName} onChangeText={setFName} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <TextInput style={[styles.input, { width: '100%' }]} placeholder="단위 (팩, kg)" value={fUnit} onChangeText={setFUnit} />
-              </View>
+            {/* 칸 이름을 입력창 위에 항상 적는다 — 안내 문구(placeholder)를 안 그려 주는 폰에서도
+                무슨 칸인지 알 수 있다. 좁은 화면에서는 FieldRow가 알아서 한 줄에 하나씩 접는다. */}
+            <View style={{ gap: 12, marginTop: 12 }}>
+              <FieldRow>
+                <Field
+                  label="재료명"
+                  required
+                  minWidth={190}
+                  placeholder="예: 서울우유 1L"
+                  value={fName}
+                  onChangeText={setFName}
+                />
+                <Field
+                  label="단위"
+                  required
+                  minWidth={110}
+                  placeholder="예: 팩"
+                  value={fUnit}
+                  onChangeText={setFUnit}
+                />
+              </FieldRow>
+              <FieldRow>
+                <Field
+                  label="단가"
+                  minWidth={130}
+                  suffix="원"
+                  placeholder="0"
+                  value={fPrice}
+                  onChangeText={setFPrice}
+                  keyboardType="numeric"
+                />
+                <Field
+                  label="처음 수량"
+                  minWidth={130}
+                  suffix={fUnit.trim() || undefined}
+                  placeholder="0"
+                  value={fQty}
+                  onChangeText={setFQty}
+                  keyboardType="numeric"
+                />
+              </FieldRow>
+              <FieldRow>
+                <Field
+                  label="부족 알림 기준"
+                  minWidth={130}
+                  suffix={fUnit.trim() || undefined}
+                  placeholder="0"
+                  value={fSafety}
+                  onChangeText={setFSafety}
+                  keyboardType="numeric"
+                  hint="이 수량 아래로 떨어지면 알려드려요 (비워 두면 안 알림)"
+                />
+              </FieldRow>
             </View>
-            <View style={styles.formRow}>
-              <View style={{ flex: 1 }}>
-                <TextInput style={[styles.input, { width: '100%' }]} placeholder="단가 (원)" value={fPrice} onChangeText={setFPrice} keyboardType="numeric" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <TextInput style={[styles.input, { width: '100%' }]} placeholder="초기 수량" value={fQty} onChangeText={setFQty} keyboardType="numeric" />
-              </View>
-            </View>
-            <Button label={saving ? '등록 중…' : '등록'} onPress={registerIngredient} disabled={saving} style={{ marginTop: 12 }} />
+            <Button label={saving ? '등록 중…' : '등록'} onPress={registerIngredient} disabled={saving} style={{ marginTop: 14 }} />
           </Card>
         )}
 
@@ -915,8 +1099,14 @@ export default function InventoryScreen() {
           </Card>
         ) : (
           filteredStocks.map((s) => {
-            const low = s.safety_quantity > 0 && s.current_quantity < s.safety_quantity;
+            // 홈 카드·푸시(AlertsWatcher)와 같은 기준 — 다르면 알림 받고 들어왔는데 '정상' 배지가 보인다
+            const low = s.current_quantity <= (s.safety_quantity > 0 ? s.safety_quantity : 3);
             const denominator = Math.max(s.current_quantity, s.safety_quantity * 2, 1);
+            const editing = editStockId === s.ingredient_id;
+            // 조정칸에 적힌 '바뀔 수량'과 지금 수량의 차이 — 반영 전에 미리 보여 준다
+            const adjusting = adjustId === s.ingredient_id;
+            const targetQty = adjusting ? parseQtyOr(adjustTarget, s.current_quantity) : s.current_quantity;
+            const delta = adjusting ? roundQty(targetQty - s.current_quantity) : 0;
             return (
               <Card
                 key={s.ingredient_id}
@@ -925,57 +1115,193 @@ export default function InventoryScreen() {
                 onLayout={(e) => { cardY.current[s.ingredient_id] = e.nativeEvent.layout.y; }}
               >
                 <View style={styles.rowBetween}>
-                  <Text style={styles.stockName}>{s.name}</Text>
+                  <Text style={styles.stockName} numberOfLines={2}>
+                    {editing ? `${s.name} 수정 중` : s.name}
+                  </Text>
                   <View style={styles.headRight}>
-                    {low ? <Badge label="재고 부족" tone="danger" /> : <Badge label="정상" tone="green" />}
-                    <PressableScale style={styles.delBtn} onPress={() => removeStock(s)} to={0.88}>
-                      <Ionicons name="trash-outline" size={16} color="#B23B2E" />
-                    </PressableScale>
+                    {!editing && (low ? <Badge label="재고 부족" tone="danger" /> : <Badge label="정상" tone="green" />)}
+                    {/* 수정 중에는 삭제 버튼을 숨긴다 — 저장 버튼 옆에서 잘못 눌리기 쉽다 */}
+                    {!editing && (
+                      <PressableScale style={styles.delBtn} onPress={() => removeStock(s)} to={0.88}>
+                        <Ionicons name="trash-outline" size={16} color="#B23B2E" />
+                      </PressableScale>
+                    )}
                   </View>
                 </View>
-                <View style={styles.stockValueRow}>
-                  <Text style={styles.stockValue}>
-                    {s.current_quantity}
-                    <Text style={styles.stockUnit}> {s.unit}</Text>
-                  </Text>
-                  <Text style={styles.safetyText}>
-                    {s.current_price > 0 ? `단가 ₩${s.current_price.toLocaleString()} · ` : ''}
-                    최소 {s.safety_quantity}{s.unit} 필요
-                  </Text>
-                </View>
-                <ProgressBar ratio={s.current_quantity / denominator} tone={low ? 'danger' : 'mocha'} />
 
-                {/* 재고 직접 조정 */}
-                {adjustId === s.ingredient_id ? (
-                  <View style={styles.adjustRow}>
-                    <TextInput
-                      style={styles.adjustInput}
-                      placeholder={`수량 (${s.unit})`}
-                      placeholderTextColor={colors.mochaBrown}
-                      value={adjustQty}
-                      onChangeText={setAdjustQty}
-                      keyboardType="numeric"
-                      autoFocus
-                    />
-                    <PressableScale style={styles.inBtn} onPress={() => applyAdjust(s, 1)} to={0.92}>
-                      <Text style={styles.inText}>입고 +</Text>
-                    </PressableScale>
-                    <PressableScale style={styles.outBtn} onPress={() => applyAdjust(s, -1)} to={0.92}>
-                      <Text style={styles.outText}>차감 −</Text>
-                    </PressableScale>
-                    <PressableScale style={styles.cancelBtn} onPress={() => { setAdjustId(null); setAdjustQty(''); }} to={0.92}>
-                      <Ionicons name="close" size={16} color={colors.mochaBrown} />
-                    </PressableScale>
+                {editing ? (
+                  /* 전체 수정 — 재료명·단위·단가·현재 수량·부족 알림 기준을 그 자리에서 고친다 */
+                  <View style={styles.editBox}>
+                    <FieldRow>
+                      <Field
+                        label="재료명"
+                        required
+                        minWidth={190}
+                        placeholder="예: 서울우유 1L"
+                        value={stockForm.name}
+                        onChangeText={(v) => patchStockForm({ name: v })}
+                      />
+                      <Field
+                        label="단위"
+                        required
+                        minWidth={110}
+                        placeholder="예: 팩"
+                        value={stockForm.unit}
+                        onChangeText={(v) => patchStockForm({ unit: v })}
+                      />
+                    </FieldRow>
+                    <FieldRow>
+                      <Field
+                        label="단가"
+                        minWidth={130}
+                        suffix="원"
+                        placeholder="0"
+                        value={stockForm.price}
+                        onChangeText={(v) => patchStockForm({ price: v })}
+                        keyboardType="numeric"
+                      />
+                      <Field
+                        label="부족 알림 기준"
+                        minWidth={130}
+                        suffix={stockForm.unit.trim() || undefined}
+                        placeholder="0"
+                        value={stockForm.safety}
+                        onChangeText={(v) => patchStockForm({ safety: v })}
+                        keyboardType="numeric"
+                        hint="이 수량 아래로 떨어지면 알려드려요"
+                      />
+                    </FieldRow>
+                    {/* 현재 수량만 −/＋ 로 — 여기는 실사한 최종 수량을 적는 칸이라 한두 개 어긋난 걸 고치는 일이 잦다 */}
+                    <View style={styles.editQtyBlock}>
+                      <Text style={styles.editQtyLabel}>현재 수량</Text>
+                      <QuantityStepper
+                        value={stockForm.qty}
+                        onChange={(v) => patchStockForm({ qty: v })}
+                        unit={stockForm.unit.trim() || undefined}
+                        disabled={savingStock}
+                      />
+                      <Text style={styles.editQtyHint}>지금 세어 본 수량을 그대로 적어요 (입출고 기록은 남지 않아요)</Text>
+                    </View>
+                    <View style={styles.editActions}>
+                      <PressableScale
+                        style={styles.editCancelBtn}
+                        onPress={cancelEditStock}
+                        disabled={savingStock}
+                        to={0.97}
+                      >
+                        <Ionicons name="close" size={16} color={colors.mochaBrown} />
+                        <Text style={styles.rejectText}>취소</Text>
+                      </PressableScale>
+                      <PressableScale
+                        style={[styles.editSaveBtn, savingStock && styles.editSaveBtnOff]}
+                        onPress={() => saveStockEdit(s)}
+                        disabled={savingStock}
+                        to={0.97}
+                      >
+                        <Ionicons name="checkmark" size={16} color={colors.white} />
+                        <Text style={styles.confirmText}>{savingStock ? '저장 중…' : '저장'}</Text>
+                      </PressableScale>
+                    </View>
                   </View>
                 ) : (
-                  <PressableScale
-                    style={styles.adjustOpen}
-                    onPress={() => { setAdjustId(s.ingredient_id); setAdjustQty(''); }}
-                    to={0.96}
-                  >
-                    <Ionicons name="swap-vertical" size={15} color={colors.pointOrange} />
-                    <Text style={styles.adjustOpenText}>재고 직접 입력 (입고/차감)</Text>
-                  </PressableScale>
+                  <>
+                    {/* 남은 양이 적힌 이 부분을 누르면 그 재료만 보는 '재고 확인' 화면이 열린다.
+                        아래 버튼과 같은 곳으로 가지만, 숫자를 보다가 그대로 누르는 게 더 자연스럽다. */}
+                    <PressableScale
+                      style={styles.stockSummary}
+                      onPress={() => openStockDetail(s)}
+                      to={0.99}
+                    >
+                      <View style={styles.stockValueRow}>
+                        <Text style={styles.stockValue}>
+                          {s.current_quantity}
+                          <Text style={styles.stockUnit}> {s.unit}</Text>
+                        </Text>
+                        <Text style={styles.safetyText}>
+                          {s.current_price > 0 ? `단가 ₩${s.current_price.toLocaleString()} · ` : ''}
+                          최소 {s.safety_quantity}{s.unit} 필요
+                        </Text>
+                      </View>
+                      <ProgressBar ratio={s.current_quantity / denominator} tone={low ? 'danger' : 'mocha'} />
+                    </PressableScale>
+
+                    {/* 재고 직접 조정 — −/＋ 로 하나씩, 칩으로 여러 개, 숫자로 한 번에 */}
+                    {adjusting ? (
+                      <View style={styles.adjustPanel}>
+                        <View style={styles.adjustHead}>
+                          <Text style={styles.adjustTitle}>수량 바꾸기</Text>
+                          <PressableScale style={styles.adjustClose} onPress={closeAdjust} to={0.88}>
+                            <Ionicons name="close" size={16} color={colors.mochaBrown} />
+                          </PressableScale>
+                        </View>
+
+                        <QuantityStepper
+                          value={adjustTarget}
+                          onChange={setAdjustTarget}
+                          unit={s.unit}
+                          disabled={adjustSaving}
+                        />
+
+                        {/* 한 번에 여러 개 들어오거나 나갈 때 — 암산 없이 톡 눌러 더한다 */}
+                        <View style={styles.quickRow}>
+                          {[-10, -5, 5, 10].map((d) => (
+                            <PressableScale
+                              key={d}
+                              style={styles.quickChip}
+                              onPress={() => bumpAdjust(d)}
+                              disabled={adjustSaving}
+                              to={0.93}
+                            >
+                              <Text style={styles.quickChipText}>{d > 0 ? `+${d}` : `−${Math.abs(d)}`}</Text>
+                            </PressableScale>
+                          ))}
+                        </View>
+
+                        {/* 반영하면 무슨 일이 일어나는지 한 줄로 — 눌러 보고 나서 알게 되지 않도록 */}
+                        <Text style={[styles.adjustPreview, delta !== 0 && styles.adjustPreviewOn]}>
+                          {delta === 0
+                            ? `${s.current_quantity}${s.unit} 그대로`
+                            : `${s.current_quantity} → ${targetQty}${s.unit} · ${Math.abs(delta)}${s.unit} ${delta > 0 ? '입고' : '차감'}`}
+                        </Text>
+
+                        <PressableScale
+                          style={[styles.adjustApply, (delta === 0 || adjustSaving) && styles.adjustApplyOff]}
+                          onPress={() => applyAdjust(s)}
+                          disabled={delta === 0 || adjustSaving}
+                          to={0.97}
+                        >
+                          <Ionicons
+                            name={delta < 0 ? 'arrow-down' : 'arrow-up'}
+                            size={15}
+                            color={colors.white}
+                          />
+                          <Text style={styles.adjustApplyText}>
+                            {adjustSaving ? '반영 중…' : delta < 0 ? '차감 반영' : '입고 반영'}
+                          </Text>
+                        </PressableScale>
+                      </View>
+                    ) : (
+                      <View style={styles.stockActionRow}>
+                        <PressableScale
+                          style={[styles.stockActionBtn, styles.stockActionPrimary]}
+                          onPress={() => openAdjust(s)}
+                          to={0.97}
+                        >
+                          <Ionicons name="swap-vertical" size={15} color={colors.white} />
+                          <Text style={styles.stockActionPrimaryText}>입고 / 차감</Text>
+                        </PressableScale>
+                        {/* 홈 할 일에서 재고 항목을 눌렀을 때 열리던 화면 — 재고 탭에서도 바로 갈 수 있게 */}
+                        <PressableScale style={styles.stockActionBtn} onPress={() => openStockDetail(s)} to={0.97}>
+                          <Ionicons name="reader-outline" size={15} color={colors.pointOrange} />
+                          <Text style={styles.adjustOpenText}>재고 확인</Text>
+                        </PressableScale>
+                        <PressableScale style={styles.stockActionBtn} onPress={() => startEditStock(s)} to={0.97}>
+                          <Ionicons name="create-outline" size={15} color={colors.pointOrange} />
+                          <Text style={styles.adjustOpenText}>재료 정보 수정</Text>
+                        </PressableScale>
+                      </View>
+                    )}
+                  </>
                 )}
               </Card>
             );
@@ -1091,8 +1417,9 @@ const styles = StyleSheet.create({
   // 재고엔 설정 칩이 없으므로 같은 높이를 확보하고 마스코트를 하단 정렬해 브라운 밴드 높이를 맞춘다.
   // 관리 탭 헤더 높이(설정칩+마스코트 ~153)에 맞춰 마스코트를 하단 정렬 — 재고엔 설정칩이 없어 minHeight로 확보
   brownHeaderRight: { alignItems: 'flex-end', justifyContent: 'flex-end', minHeight: 154 },
-  brownHeaderTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
-  brownHeaderSub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
+  // 배경 사진 위에 얹히므로 글자 그림자를 준다 (RoomBackdrop.ROOM_TEXT_SHADOW)
+  brownHeaderTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5, ...ROOM_TEXT_SHADOW },
+  brownHeaderSub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2, ...ROOM_TEXT_SHADOW },
   brownSheet: {
     flexGrow: 1,
     backgroundColor: colors.creamSand,
@@ -1165,26 +1492,113 @@ const styles = StyleSheet.create({
   menuNavSub: { ...typography.L5, color: colors.mochaBrown, marginTop: 3 },
   headRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   delBtn: { padding: 6, borderRadius: 9, backgroundColor: 'rgba(178,59,46,0.08)' },
-  adjustOpen: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 12, alignSelf: 'flex-start' },
   adjustOpenText: { ...typography.L5, color: colors.pointOrange, fontWeight: '700' },
-  adjustRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12 },
-  adjustInput: {
+  // 남은 양 + 진행바 묶음 — 통째로 눌러 '재고 확인'으로 간다.
+  // 카드 배경과 같은 색이라 눈에는 그대로지만, 손가락에는 한 덩어리로 잡힌다.
+  stockSummary: { alignSelf: 'stretch' },
+  // 입고/차감 · 재고 확인 · 재료 정보 수정 버튼 — 폭을 나눠 갖고, 좁은 화면에서는 아래로 접힌다
+  stockActionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  stockActionBtn: {
     flex: 1,
-    minWidth: 0,
+    flexBasis: 132, // 이보다 좁아지면 다음 줄로 (폴드 커버·SE)
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    minHeight: 44, // 손가락 터치 최소 영역
     borderWidth: 1,
     borderColor: colors.mutedSand,
-    borderRadius: 10,
-    paddingHorizontal: 10,
+    borderRadius: 14,
+    backgroundColor: colors.coffeeCream,
+    paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: colors.white,
-    ...typography.L5,
-    color: colors.espressoBrown,
   },
-  inBtn: { backgroundColor: colors.trendGreenText, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
-  inText: { ...typography.L5, color: colors.white, fontWeight: '700' },
-  outBtn: { backgroundColor: '#B23B2E', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
-  outText: { ...typography.L5, color: colors.white, fontWeight: '700' },
-  cancelBtn: { padding: 8 },
+  // 이 카드에서 제일 자주 누르는 버튼 — 채워서 눈에 먼저 걸리게
+  stockActionPrimary: { backgroundColor: colors.espressoBrown, borderColor: colors.espressoBrown },
+  stockActionPrimaryText: { ...typography.L5, color: colors.white, fontWeight: '800' },
+  // 수정칸도 조정칸과 같은 '한 겹 들어간 판'으로 — 어디까지가 수정 영역인지 눈으로 잡힌다
+  editBox: {
+    gap: 12,
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 16,
+    backgroundColor: colors.coffeeCream,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+  },
+  editQtyBlock: { gap: 6 },
+  editQtyLabel: {
+    ...typography.L5,
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: colors.espressoBrown,
+    letterSpacing: -0.2,
+  },
+  editQtyHint: { ...typography.L5, fontSize: 11, color: colors.mochaBrown },
+  editActions: { flexDirection: 'row', gap: 8, marginTop: 2 },
+  editCancelBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    minHeight: 46,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+    borderRadius: 14,
+    backgroundColor: colors.white,
+    paddingHorizontal: 12,
+  },
+  editSaveBtn: {
+    flex: 1.6, // 저장이 이 칸의 목적지라 조금 더 넓게
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    minHeight: 46,
+    backgroundColor: colors.pointOrange,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+  },
+  editSaveBtnOff: { opacity: 0.5 },
+  // ── 수량 바꾸기 칸 ── 카드 안에 한 겹 들어간 작은 판으로 묶어, 어디까지가 조정 영역인지 보이게
+  adjustPanel: {
+    gap: 10,
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 16,
+    backgroundColor: colors.coffeeCream,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+  },
+  adjustHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  adjustTitle: { ...typography.L5, fontWeight: '800', color: colors.espressoBrown },
+  adjustClose: { padding: 6, borderRadius: 9, backgroundColor: colors.white },
+  quickRow: { flexDirection: 'row', gap: 6 },
+  quickChip: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 34,
+    borderRadius: 10,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.mutedSand,
+  },
+  quickChipText: { ...typography.L5, fontSize: 12.5, fontWeight: '800', color: colors.mochaBrown },
+  adjustPreview: { ...typography.L5, fontSize: 12, color: colors.mochaBrown, lineHeight: 16 },
+  adjustPreviewOn: { color: colors.espressoBrown, fontWeight: '700' },
+  adjustApply: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    minHeight: 46,
+    borderRadius: 14,
+    backgroundColor: colors.pointOrange,
+  },
+  adjustApplyOff: { opacity: 0.35 },
+  adjustApplyText: { ...typography.L4, color: colors.white, fontWeight: '800' },
   docBox: {
     backgroundColor: colors.white,
     borderRadius: 12,
@@ -1230,19 +1644,19 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   rejectText: { ...typography.L5, color: colors.mochaBrown, fontWeight: '700' },
-  formRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
-  input: {
-    minWidth: 0, // 웹 flex 자식이 콘텐츠보다 작게 줄어들 수 있게 (넘침 방지)
-    borderWidth: 1,
-    borderColor: colors.mutedSand,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
-    backgroundColor: colors.white,
-    ...typography.L5,
-    color: colors.espressoBrown,
+  // (제거) formRow·input — 안내 문구가 안 보이던 맨 TextInput들을 Field로 옮기면서 쓸 곳이 없어졌다
+  rowDeleteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginLeft: 'auto',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: 'rgba(178,59,46,0.08)',
   },
-  stockName: { ...typography.L3, color: colors.espressoBrown },
+  rowDeleteText: { fontSize: 11, fontWeight: '800', color: '#B23B2E' },
+  stockName: { ...typography.L3, color: colors.espressoBrown, flex: 1, marginRight: 8 },
   stockValueRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 10, marginBottom: 8 },
   stockValue: { ...typography.L2, color: colors.espressoBrown },
   stockUnit: { ...typography.L4, color: colors.mochaBrown },

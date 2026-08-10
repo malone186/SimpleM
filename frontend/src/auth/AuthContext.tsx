@@ -27,7 +27,7 @@ import * as AuthSession from 'expo-auth-session';
 
 import { auth } from '../lib/firebase';
 import { shouldRetryWithBackendLogin } from './loginFallback';
-import { API_BASE_URL } from '../lib/api/client';
+import { API_BASE_URL, onAuthExpired } from '../lib/api/client';
 import { clearMemoryCache } from '../lib/cache';
 import { unregisterFromPush } from '../notifications/pushRegistration';
 
@@ -136,9 +136,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${idToken}`,
       },
+      // store_name은 보내지 않는다 — 여기서 `${name} 매장`을 매번 보내면, 사장님이
+      // 프로필에서 바꾼 상호명이 다음 로그인 때마다 기본값으로 되돌아간다 (상호명으로
+      // 아이디 찾기도 같이 깨진다). 기본 상호명은 백엔드 Lazy Signup이 최초 1회 채운다.
       body: JSON.stringify({
         name,
-        store_name: `${name} 매장`,
       }),
     })
       .then((res) => {
@@ -622,6 +624,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await AsyncStorage.clear();
   }, [token]);
 
+  // [세션 만료 전역 처리] 어떤 API든 인증 401을 받으면 죽은 세션을 정리하고 로그인
+  // 화면으로 보낸다 — 예전엔 화면마다 "로그인이 만료됐어요" 에러만 반복되고,
+  // 사용자가 설정에서 로그아웃 버튼을 직접 찾아 눌러야 했다.
+  useEffect(() => {
+    onAuthExpired(() => {
+      if (!userRef.current) return; // 이미 로그인 화면 — 중복 정리 방지
+      logout().catch(() => {});
+    });
+    return () => onAuthExpired(null);
+  }, [logout]);
+
   // [한글 주석] 로그인된 점주님의 정보(이름/비밀번호)를 Firebase 및 백엔드 데이터베이스에 동시 갱신합니다.
   const updateProfile = useCallback(
     async (patch: { name?: string; store_name?: string; password?: string; photo?: string }) => {
@@ -659,7 +672,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         const data = await response.json();
+        // 기존 user를 펼쳐 isStaff 같은 부가 필드를 보존한다 — 새로 조립하면 직원
+        // 세션이 프로필 수정 한 번에 사장님 모드 UI로 뒤집혔다.
         const updated: User = {
+          ...user,
           email: data.email,
           name: data.name,
           photo: patch.photo !== undefined ? patch.photo : user.photo,

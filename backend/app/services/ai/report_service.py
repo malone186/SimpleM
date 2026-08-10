@@ -29,7 +29,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Optional
 
 from app.services import cost_basis
-from app.services.ai import document_service
+from app.services.ai import breakeven_service, document_service
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +37,18 @@ PERIOD_LABEL = {"daily": "일간", "weekly": "주간", "monthly": "월간"}
 KST = timezone(timedelta(hours=9))
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
 
 
 class ReportError(ValueError):
     """리포트 생성 실패 (입력 오류)"""
+
+
+def _today_kst() -> date:
+    """한국 기준 오늘. date.today()는 서버 시간대를 따르므로 Cloud Run(UTC)에서는
+    한국시간 자정~오전 9시 사이에 '어제' 날짜를 돌려준다 — 그 시간대에 일간 리포트가
+    전날 것으로 만들어지던 원인. 이 파일의 '오늘'은 전부 이 함수를 쓴다."""
+    return datetime.now(KST).date()
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +77,7 @@ def _period_range(period_type: str, ref: date) -> tuple[date, date, date, date, 
 
     # 진행 중인 기간은 이전 기간도 같은 경과일까지만 잘라 공정하게 비교한다
     # (예: 7/1~16 매출 vs 6월 전체가 아니라 6/1~16 매출 — 아니면 항상 '감소'로 보인다)
-    today = date.today()
+    today = _today_kst()
     if end > today:
         elapsed = today + timedelta(days=1) - start  # 오늘까지 포함한 경과일
         prev_end = min(prev_end, prev_start + elapsed)
@@ -327,7 +334,10 @@ def _labor_summary(db, store_id: str, start: date, end: date) -> dict[str, Any]:
         .filter(Schedule.date >= start.isoformat(), Schedule.date < end.isoformat())
         .all()
     )
-    now = datetime.now()
+    # 스케줄 시각은 KST 벽시계 기준의 naive datetime으로 저장돼 있다.
+    # datetime.now()는 서버 시간대(Cloud Run=UTC)를 따르므로 그대로 비교하면
+    # 진행 중 근무가 9시간 늦게 잡힌다 — KST 벽시계를 naive로 만들어 맞춘다.
+    now = datetime.now(KST).replace(tzinfo=None)
     total_hours = 0.0
     total_cost = 0.0
     employees: set[str] = set()
@@ -422,7 +432,7 @@ def _outlook(store_id: str, sales: dict[str, Any], period_type: str) -> Optional
     # 비교 기준은 '하루 평균'끼리 — 예측 7일 합계를 이번 주 경과분(3일) 합계와 견주면 늘 급증이다.
     # 오늘은 아직 안 끝난 하루라 평균을 끌어내리므로 뺀다. 남은 완결일이 너무 적으면
     # 그날 사정이 평균 행세를 하게 되므로 아예 비교하지 않는다 (숫자는 그대로 보여 주되 증감률만 생략).
-    today_iso = date.today().isoformat()
+    today_iso = _today_kst().isoformat()
     complete = [d for d in (sales.get("daily_trend") or []) if d["date"] != today_iso]
     recent = complete[-len(horizon):]
     recent_avg = round(sum(d["total"] for d in recent) / len(recent)) if len(recent) >= 3 else None
@@ -570,7 +580,8 @@ _HIGHLIGHT_LIMIT = 7
 
 
 def _build_highlights(sales: dict, cogs: dict, labor: dict, rhythm: dict, outlook: Optional[dict],
-                      inventory: dict, compliance: list, profit: dict, period_type: str) -> list[str]:
+                      inventory: dict, compliance: list, profit: dict, period_type: str,
+                      breakeven: Optional[dict] = None) -> list[str]:
     """집계에서 바로 읽히는 사실을 중요한 순으로 골라 준다.
 
     항목이 늘면서 순서가 문제로 바뀌었다. 코드에 적힌 순서대로 9~10줄을 쏟아내면
@@ -586,6 +597,18 @@ def _build_highlights(sales: dict, cogs: dict, labor: dict, rhythm: dict, outloo
         scored.append((priority, text))
 
     prev_word = _PREV_WORD.get(period_type, "이전 기간보다")
+
+    # [손익분기] 매출이 잘한 건지 못한 건지 판단할 기준선. 못 넘겼으면 '지금 손대야 할 일'이라
+    # 우선순위 1, 넘겼으면 상태 정보(3)로 둔다.
+    if breakeven and breakeven.get("computed") and "gap" in breakeven:
+        gap = breakeven["gap"]
+        if gap > 0:
+            add(1, f"손익분기까지 {gap:,}원 남았어요 "
+                   f"— {breakeven['label']} 목표 {breakeven['target_revenue']:,}원 "
+                   f"(달성률 {breakeven['achieved_pct']}%)")
+        else:
+            add(3, f"손익분기 {breakeven['target_revenue']:,}원을 넘겼어요 "
+                   f"— {abs(gap):,}원 초과 달성")
 
     # [매출 변동] 리포트의 머리글 — 정렬에서 빼고 항상 첫 줄에 둔다
     if sales["change_pct"] is not None:
@@ -699,31 +722,34 @@ def _build_highlights(sales: dict, cogs: dict, labor: dict, rhythm: dict, outloo
 
 _ADVICE_PROMPT = """당신은 카페 사장님 곁에서 일을 돕는 친근한 AI 비서 '브루'입니다.
 아래는 사장님 카페의 {label} 경영 집계 데이터(JSON)입니다.
-이 숫자들만 근거로 사장님께 건넬 조언(summary)과, 지금 손댈 수 있는 일(actions)을 한국어로 작성하세요.
+이 숫자들만 근거로 사장님께 건넬 조언(summary_points)과, 지금 손댈 수 있는 일(actions)을 한국어로 작성하세요.
 
 [actions 작성 규칙]
 - 0~3건. 데이터에서 실제로 짚이는 게 없으면 빈 배열로 둘 것. 억지로 채우지 말 것.
 - title: 무엇을 할지 12자 안팎으로 (예: "카라멜 마끼아또 원가 점검").
 - evidence: 그렇게 판단한 근거 숫자 한 문장. 반드시 아래 데이터에 있는 값만 쓸 것.
-- action: 사장님이 할 일 한 문장. 해요체로 부드럽게.
+- action: 사장님이 할 일 한 문장, 25자 안팎으로 짧게. 해요체로 부드럽게.
 - screen: 그 일을 하러 갈 화면. 아래 중 하나만 고를 것.
     Menu(메뉴·레시피·판매가 수정), Cost(원가 분석), Inventory(재고·발주),
     Staff(직원 근무 일정), Document(서류·세무), Marketing(홍보), SalesInput(매출 입력)
   해당하는 화면이 없으면 그 action은 빼는 게 낫다.
 - 우선순위: 돈이 새는 것(적자·원가율·로스·빈 시간 인건비) > 놓치면 손해인 것(재고·서류) > 기회(홍보).
 
-[summary 작성 규칙]
-- 2~3문장. 옆에서 말을 건네듯 부드러운 해요체로 쓸 것 (예: "~했어요", "~해 보세요").
+[summary_points 작성 규칙]
+- 짧은 문장 1~3개의 배열. 한 항목에 이야기 하나만 담고, 항목마다 완결된 한 문장으로 쓸 것.
+- 각 항목은 50자를 넘기지 말 것. 접속사로 길게 잇지 말고 핵심만 남길 것.
+- 중요한 것부터 순서대로: 돈이 새는 사실 → 그 원인 → 해 볼 일.
+- 옆에서 말을 건네듯 부드러운 해요체로 쓸 것 (예: "~했어요", "~해 보세요").
   '권해드립니다', '~하시기 바랍니다', '운영 효율', '지출 항목을 점검' 같은 딱딱한 보고서 말투는 금지.
 - 사장님을 가르치려 들지 말 것. '잊지 말고 챙기세요', '~하셔야 해요' 같은 훈계조 대신
   '~해 두시면 좋을 것 같아요'처럼 조심스럽게 제안할 것.
 - 적자·매출 하락 같은 나쁜 숫자는 밝게 포장하지 말고 담담하게 짚을 것. 느낌표는 쓰지 말 것.
-- 한 문장에 이야기 하나씩만 담고 짧게 끊을 것. 길게 이어 붙이지 말 것.
 - 숫자 근거를 반드시 포함하되 읽기 쉽게 반올림할 것 (예: 34,925원 → 약 3만 5천 원).
 - '안전재고', '수지', '원가율', '%p' 같은 전문 용어는 쓰지 말고 누구나 바로 이해하는 쉬운 말로 쓸 것
   (예: '재고가 곧 떨어지는 재료', '재료값', '남는 돈').
-- '무엇이 그랬는지 → 왜 그런지 → 그래서 뭘 해 보면 좋을지' 흐름으로 쓸 것.
-  예시: "이번 주 재료값이 12만 원 늘었어요. 우유를 많이 쓰는 라떼가 잘 팔린 영향이에요. 우유 납품 단가를 한번 확인해 보세요."
+- 예시: ["이번 주 재료값이 약 12만 원 늘었어요", "우유를 많이 쓰는 라떼가 잘 팔린 영향이에요",
+  "우유 납품 단가를 한번 확인해 보세요"]
+- actions에 이미 담은 내용을 그대로 반복하지 말 것 — 겹치면 조언에서는 상황 설명 쪽을 남길 것.
 - 데이터에 없는 사실(단가 인상 이유 등)을 지어내지 말 것. 근거가 부족하면 눈에 띄는 수치 하나를 짚고 확인을 제안할 것.
 - 인사말·서론 없이 조언 본문만 쓸 것.
 
@@ -743,7 +769,7 @@ _ADVICE_PROMPT = """당신은 카페 사장님 곁에서 일을 돕는 친근한
 _ADVICE_SCHEMA = {
     "type": "object",
     "properties": {
-        "summary": {"type": "string"},
+        "summary_points": {"type": "array", "items": {"type": "string"}},
         "actions": {
             "type": "array",
             "items": {
@@ -760,7 +786,7 @@ _ADVICE_SCHEMA = {
             },
         },
     },
-    "required": ["summary", "actions"],
+    "required": ["summary_points", "actions"],
 }
 
 # 스키마의 enum을 어겨서 돌아온 화면 이름은 버튼을 못 만드므로 액션째로 떨군다
@@ -774,7 +800,7 @@ _ADVICE_MIN_INTERVAL = timedelta(minutes=30)
 # 조언의 형식(프롬프트·응답 구조) 버전. 형식을 바꿀 때마다 올린다.
 # 데이터 동일성(해시)과 분리해 둔 이유: 형식이 바뀐 건 30분을 기다릴 일이 아니다.
 # 해시에 섞어 두면 위 재사용 간격에 걸려, 새로 추가한 필드가 30분 동안 빈 채로 나간다.
-_ADVICE_VERSION = 2
+_ADVICE_VERSION = 3  # v3: 조언을 번호 매긴 짧은 문장(summary_points)으로
 
 
 def _advice_source(content: dict[str, Any]) -> str:
@@ -784,6 +810,8 @@ def _advice_source(content: dict[str, Any]) -> str:
     """
     slim = {
         "period": content["period"],
+        # 조언이 '얼마를 더 팔아야 하는지'를 근거 있게 말하려면 손익분기 목표를 알아야 한다
+        "breakeven": content.get("breakeven"),
         "sales": {k: v for k, v in content["sales"].items() if k != "daily_trend"},
         "cogs": content["cogs"],
         "rhythm": content["rhythm"],
@@ -841,7 +869,17 @@ def _generate_ai_advice(source: str, period_type: str) -> tuple[Optional[str], l
         raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
         parsed = json.loads(raw)
 
-        summary = (parsed.get("summary") or "").strip() or None
+        # 조언은 짧은 문장 배열로 받아 "1. …\n2. …" 한 줄씩으로 합친다.
+        # 문자열 하나로 저장하는 이유: 홈 카드·챗봇 카드·구버전 앱(OTA 전)이 전부
+        # ai_advice를 문자열로 그리므로, 배열로 바꾸면 옛 번들에서 조언이 통째로 사라진다.
+        points = [p.strip() for p in (parsed.get("summary_points") or [])
+                  if isinstance(p, str) and p.strip()][:3]
+        if not points:
+            summary = None
+        elif len(points) == 1:
+            summary = points[0]
+        else:
+            summary = "\n".join(f"{i}. {p}" for i, p in enumerate(points, 1))
         actions = []
         for a in (parsed.get("actions") or [])[:3]:
             if not isinstance(a, dict):
@@ -879,7 +917,7 @@ def generate_management_report(store_id: str, period_type: str = "weekly",
     (문서가 기간마다 하나씩만 쌓이도록). force_refresh=False면 있던 문서를 그대로 돌려준다.
     """
     try:
-        ref = date.fromisoformat(reference_date) if reference_date else date.today()
+        ref = date.fromisoformat(reference_date) if reference_date else _today_kst()
     except ValueError:
         raise ReportError(f"reference_date 형식 오류: '{reference_date}' (YYYY-MM-DD로 입력)")
     start, end, prev_start, prev_end, display = _period_range(period_type, ref)
@@ -950,9 +988,19 @@ def generate_management_report(store_id: str, period_type: str = "weekly",
         "fixed_cost_missing": fixed_cost_missing,
     }
 
+    # 손익분기점 — "그래서 이번 기간에 얼마를 팔아야 본전인가".
+    # 매출·순이익만 있으면 잘한 건지 못한 건지 판단할 기준선이 없다. 기간에 맞춰 환산해
+    # 넣는다 (일간 리포트에 월 목표를 그대로 실으면 하루에 그만큼 팔라는 말로 읽힌다).
+    try:
+        breakeven = breakeven_service.period_target(store_id, period_type, sales["total"])
+    except Exception:
+        logger.exception("리포트: 손익분기점 계산 실패 — 그 섹션 없이 계속한다")
+        breakeven = None
+
     content = {
         "period_type": period_type,
         "period": display,
+        "breakeven": breakeven,
         "sales": sales,
         "cogs": cogs,
         "purchases": purchases,
@@ -965,7 +1013,7 @@ def generate_management_report(store_id: str, period_type: str = "weekly",
         "orders": orders,
         "compliance_alerts": compliance,
         "highlights": _build_highlights(sales, cogs, labor, rhythm, outlook, inventory,
-                                        compliance, profit, period_type),
+                                        compliance, profit, period_type, breakeven),
         "note": _build_note(use_recipe, cogs, fixed_cost_missing, overlap),
     }
     # AI 조언 — 근거 숫자가 지난 리포트와 같으면 Gemini를 부르지 않고 이전 조언을 재사용하고,
@@ -1027,7 +1075,7 @@ def get_cached_management_report(store_id: str, period_type: str = "weekly",
     refresh_management_report_background로 백그라운드에서 처리한다.
     """
     try:
-        ref = date.fromisoformat(reference_date) if reference_date else date.today()
+        ref = date.fromisoformat(reference_date) if reference_date else _today_kst()
         *_, display = _period_range(period_type, ref)
     except (ValueError, ReportError):
         return None

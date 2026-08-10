@@ -51,10 +51,16 @@ async def sync_pos_now(store_id: str, hours: float = 0) -> str:
     hours를 주면 그 시간만큼 거슬러 조회(최대 72), 0이면 마지막 동기화 이후분만 가져온다.
     결과로 반영된 주문 수·매출 건수·총액과, 메뉴에 없어 반영 못 한 미매칭 품목을 준다 —
     미매칭 품목이 있으면 메뉴 등록 후 다시 동기화하라고 안내한다."""
+    import asyncio
+
     from app.core.database import SessionLocal
 
     with SessionLocal() as db:
-        conn = db.query(PosConnection).filter(PosConnection.store_id == store_id).first()
+        # async 도구는 이벤트 루프에서 그대로 돌므로 동기 DB 조회를 스레드로 민다 —
+        # Neon 왕복이 0.4~0.6초라 루프에서 직접 부르면 그동안 서버 전체가 멈춘다
+        # (sync_connection 내부는 이미 to_thread 처리돼 있다).
+        conn = await asyncio.to_thread(
+            lambda: db.query(PosConnection).filter(PosConnection.store_id == store_id).first())
         if conn is None:
             return "POS가 연결돼 있지 않습니다. 매출 입력 화면의 'POS 실시간 연동' 카드에서 먼저 연결해 주세요."
         try:

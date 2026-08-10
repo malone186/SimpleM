@@ -412,6 +412,33 @@ class ChatQuota(Base):
     )
 
 
+class AdRewardGrant(Base):
+    """광고 충전 원장 — 챗봇 턴을 충전한 '광고 시청 1건'을 한 줄씩 남긴다
+
+    왜 필요한가: 충전은 chat_quotas.granted를 올리는 것뿐이라, 예전엔 그 증가가
+    어디서 왔는지(진짜 광고인지, 앱을 뜯어 엔드포인트를 직접 때린 건지) 남지 않았다.
+    AdMob 서버 사이드 검증(SSV) 콜백을 붙이면서 '무엇을 근거로 충전했는가'를
+    행으로 남긴다 — 운영자는 source='ssv' 비율을 보고 검증 경로가 실제로 살아 있는지
+    확인한 뒤에야 강제 모드(CHAT_AD_SSV_REQUIRED=1)로 올릴 수 있다.
+
+    transaction_id를 PK로 둔 이유가 핵심이다. AdMob이 같은 콜백을 재전송하거나
+    누군가 같은 URL을 그대로 다시 때려도 두 번째 INSERT가 PK 충돌로 튕겨,
+    한 번의 광고 시청이 두 번 충전되지 않는다 (애플리케이션 조건문은 동시 요청에서 뚫린다).
+    """
+
+    __tablename__ = "ad_reward_grants"
+
+    # SSV 경로는 AdMob이 준 거래 id, 클라이언트 보고 경로는 "client:<uuid4>"
+    transaction_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    store_id: Mapped[str] = mapped_column(String(100), index=True)
+    date: Mapped[str] = mapped_column(String(10))  # KST 기준 YYYY-MM-DD (하루 상한과 같은 기준)
+    source: Mapped[str] = mapped_column(String(16))  # ssv | client
+    turns: Mapped[int] = mapped_column(Integer, default=0)  # 이 건으로 충전한 턴 수
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=True
+    )
+
+
 class PointLedger(Base):
     """포인트 원장 — 적립·사용을 한 줄씩 남긴다 (게임화 보상)
 

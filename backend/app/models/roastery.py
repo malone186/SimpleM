@@ -4,7 +4,7 @@
 """
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Boolean, Float, ForeignKey, Text, JSON, DateTime, func
+from sqlalchemy import Column, Integer, String, Boolean, Float, ForeignKey, Index, Text, JSON, DateTime, UniqueConstraint, func
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -111,6 +111,11 @@ class RoasteryBean(Base):
 class BeanReview(Base):
     """외부 상품 사이트 리뷰 수집 및 감성 분석 모델"""
     __tablename__ = "bean_reviews"
+    # 마이그레이션(c8f12a345678)과 같은 이름·정의 — 모델(create_all)로 만든 DB와
+    # 마이그레이션으로 만든 DB의 스키마가 갈라지지 않게 메타데이터를 단일 진실로 둔다.
+    __table_args__ = (
+        UniqueConstraint("source_url", name="uq_bean_reviews_source_url"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     bean_id = Column(Integer, ForeignKey("roastery_beans.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -166,6 +171,14 @@ class BeanReview(Base):
 class ProductOffer(Base):
     """판매처별 실시간 원두 가격 및 재고 오퍼 모델"""
     __tablename__ = "product_offers"
+    # 마이그레이션(c8f12a345678·d9f12a345679)과 같은 이름·정의 — 수집 upsert의 멱등성을
+    # 지키는 유니크 제약과 조회 인덱스가 create_all로 만든 DB에도 똑같이 생기게 한다.
+    __table_args__ = (
+        UniqueConstraint("bean_id", "source_site", name="uq_product_offers_bean_source"),
+        Index("ix_product_offers_price_stock", "price", "in_stock"),
+        Index("ix_product_offers_review_rating", "review_count", "rating"),
+        Index("ix_product_offers_bean_updated", "bean_id", "updated_at"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     bean_id = Column(Integer, ForeignKey("roastery_beans.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -223,3 +236,54 @@ class BeanPriceHistory(Base):
     recorded_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
 
     bean = relationship("RoasteryBean")
+
+
+def ensure_roastery_constraints(engine) -> None:
+    """[자가치유] 기존 DB의 product_offers·bean_reviews에 유니크/조회 인덱스 보강.
+
+    이 제약들은 옛 마이그레이션에만 있었고 모델에는 없어서, create_all로 만들어진
+    운영 DB에는 빠져 있었다 — 수집 upsert(select-then-insert)가 동시 실행되면 같은
+    (원두, 판매처) 오퍼가 중복으로 쌓였다. 모델 __table_args__로 선언을 옮겼고(신규 DB),
+    기존 DB는 여기서 중복 정리 후 걸어 준다. 실패해도 서비스는 계속 뜬다.
+    """
+    import logging
+    from sqlalchemy import inspect, text
+    logger = logging.getLogger(__name__)
+    try:
+        insp = inspect(engine)
+        with engine.begin() as conn:
+            if insp.has_table("product_offers"):
+                conn.execute(text(
+                    "DELETE FROM product_offers WHERE id NOT IN ("
+                    " SELECT MAX(id) FROM product_offers GROUP BY bean_id, source_site)"
+                ))
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_product_offers_bean_source"
+                    " ON product_offers (bean_id, source_site)"
+                ))
+                conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_product_offers_price_stock"
+                    " ON product_offers (price, in_stock)"
+                ))
+                conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_product_offers_review_rating"
+                    " ON product_offers (review_count, rating)"
+                ))
+                conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_product_offers_bean_updated"
+                    " ON product_offers (bean_id, updated_at)"
+                ))
+            if insp.has_table("bean_reviews"):
+                # source_url이 NULL인 행은 유니크 대상이 아니다 (표준 SQL: NULL은 중복 아님)
+                conn.execute(text(
+                    "DELETE FROM bean_reviews WHERE source_url IS NOT NULL AND id NOT IN ("
+                    " SELECT MAX(id) FROM bean_reviews WHERE source_url IS NOT NULL"
+                    " GROUP BY source_url)"
+                ))
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_bean_reviews_source_url"
+                    " ON bean_reviews (source_url)"
+                ))
+        logger.info("product_offers·bean_reviews 제약 보강 완료")
+    except Exception:
+        logger.exception("로스터리 제약 보강 실패 — 다음 기동 때 재시도")

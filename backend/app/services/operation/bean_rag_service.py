@@ -268,7 +268,8 @@ def generate_grounded_answer_service(db: Session, req: BeanRAGChatRequest) -> Be
     if gemini_api_key:
         try:
             from langchain_google_genai import ChatGoogleGenerativeAI
-            llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=gemini_api_key, temperature=0.2)
+            # 모델은 env(GEMINI_MODEL) 한 곳에서 통일 관리한다 — 하드코딩이 여기만 2.5로 남아 있었다
+            llm = ChatGoogleGenerativeAI(model=os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite"), google_api_key=gemini_api_key, temperature=0.2)
             prompt_formatted = PROMPT_TEMPLATE.format(context=context_str, question=req.question)
             response = llm.invoke(prompt_formatted)
             answer_text = response.content if hasattr(response, 'content') else str(response)

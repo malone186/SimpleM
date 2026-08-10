@@ -22,6 +22,7 @@ import logging
 import time
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
+from app.utils.datetime_kst import today_kst
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,12 @@ def _gather(store_id: str) -> tuple[list[dict], list[dict]]:
                 if cur <= threshold:
                     stocks.append({"id": ing_id, "name": name, "unit": unit,
                                    "current": cur, "safety": threshold})
-            stocks.sort(key=lambda s: s["current"] / (s["safety"] or 1))
+            # 재료 id를 두 번째 기준으로 둔다 — 다 떨어진 재료는 비율이 전부 0이라 동점인데,
+            # 여기서 순서가 흔들리면 앱이 자기 재고 목록으로 고른 상위 4개와 어긋난다.
+            # 어긋나면 한쪽에만 남은 재료를 소진 예측 인사이트가 다시 집어 와서 같은 줄이
+            # 두 번 뜬다 (실제로 '바닐라 시럽 발주'가 두 줄로 뜨던 원인).
+            # 앱도 같은 기준으로 정렬한다 — DashboardScreen.buildDashboard 참고.
+            stocks.sort(key=lambda s: (s["current"] / (s["safety"] or 1), s["id"]))
             stocks = stocks[:4]  # 홈 투두와 같은 상한
     except Exception:
         logger.debug("AI 투두: 재고 수집 실패", exc_info=True)
@@ -132,7 +138,7 @@ def _first_clause(body: str, limit: int = 42) -> str:
     return text[:limit].rstrip() + ("…" if len(text) > limit else "")
 
 
-def _insight_todos(store_id: str, stock_ids: set[str]) -> list[dict[str, Any]]:
+def _insight_todos(store_id: str, stock_ids: set[int]) -> list[dict[str, Any]]:
     """선제 인사이트(모든 기능의 발동 조건) → 홈 할 일.
 
     insight_service가 정산·단골·발주·홍보·POS·센서·메뉴 원가·수요 전망까지 전부 검사하므로,
@@ -161,11 +167,15 @@ def _insight_todos(store_id: str, stock_ids: set[str]) -> list[dict[str, Any]]:
         label = (label or str(ins.get("title", ""))).strip()
         if not label:
             continue
-        # 재고 투두(안전재고 기준)와 소진 예측이 같은 재료를 두 줄로 만들지 않게
+        # 재고 투두(안전재고 기준)와 소진 예측이 같은 재료를 두 줄로 만들지 않게 —
+        # 둘 다 제목이 '<재료명> 발주'라 화면에선 똑같은 줄이다.
+        # (stock_ids는 위 _gather가 고른 상위 4개. 앱도 같은 기준으로 같은 4개를 고른다)
         if ins["key"].startswith("stock_runout:"):
-            ing_id = ins["key"].split(":")[1]
-            if f"stock-{ing_id}" in stock_ids:
-                continue
+            try:
+                if int(ins["key"].split(":")[1]) in stock_ids:
+                    continue
+            except (IndexError, ValueError):
+                pass
         todos.append({
             "id_hint": f"insight-{ins['key']}"[:120],
             "title": label[:40],
@@ -182,14 +192,39 @@ def _insight_todos(store_id: str, stock_ids: set[str]) -> list[dict[str, Any]]:
     return todos
 
 
+def _breakeven_todo(store_id: str) -> Optional[dict[str, Any]]:
+    """오늘의 손익분기 미션 — "얼마 팔면 본전인가"를 하루치 목표로.
+
+    id_hint를 'breakeven-daily'로 고정해 두면 매일 같은 id라 완료·숨김 기록이 유지되고,
+    앱에서 누르면 손익분기점 화면으로 보낼 수 있다 (DashboardScreen.openTodoTarget).
+    목표 금액은 매일 바뀌지만 '오늘의 목표'라는 항목 자체는 하나면 된다.
+    """
+    from app.services.ai import breakeven_service
+
+    mission = breakeven_service.daily_mission(store_id)
+    if not mission:
+        return None
+    return {
+        "id_hint": "breakeven-daily",
+        "title": mission["title"][:40],
+        "subtitle": mission["subtitle"],
+        "kind": "breakeven",
+        # 목표를 못 채운 게 '급한 일'은 아니다 — 빨간 배지는 재료가 떨어진 것 같은 데 쓴다
+        "urgent": False,
+        "menu": None,
+    }
+
+
 def suggest_todos(store_id: str) -> dict[str, Any]:
     """오늘의 브루 추천 투두. 반환: {engine, todos:[{id_hint,title,subtitle,kind,urgent,menu}]}
 
     ① 부족 재고 발주  ② 선제 인사이트(정산·단골·발주서·POS·메뉴 원가·수요 전망…)
     ③ 홍보 — 이 셋이 홈 '오늘 할 일' 한 곳에 모인다.
     """
-    today = date.today().isoformat()
-    key = f"{store_id}:v3"   # v3 = 인사이트 기반 항목 추가. 형식을 바꾸면 올려서 캐시를 버린다
+    today = today_kst().isoformat()
+    # v5 = 소진 예측 중복 제거 기준을 '부족 재고 전체'로 + 손익분기 미션 추가.
+    # (양쪽이 각자 v4를 쓰던 걸 합치면서 올렸다 — 형식이 바뀌면 올려서 캐시를 버린다)
+    key = f"{store_id}:v5"
     hit = _cache.get(key)
     if hit and hit[1] == today and time.time() - hit[0] < _TTL:
         return {**hit[2], "cached": True}
@@ -199,9 +234,30 @@ def suggest_todos(store_id: str) -> dict[str, Any]:
 
     # 인사이트는 재고·메뉴가 비어 있어도 나올 수 있다 (서류·세무·정산·POS…)
     try:
-        todos += _insight_todos(store_id, {t["id_hint"] for t in todos})
+        todos += _insight_todos(store_id, {s["id"] for s in stocks})
     except Exception:
         logger.exception("AI 투두: 인사이트 수집 실패 — 재고·홍보 항목만 내보낸다")
+
+    # 손익분기 미션 — 하루 목표 하나. 재료·인사이트 다음, 홍보 앞에 둔다
+    # (오늘 얼마를 팔아야 하는지는 홍보보다 먼저 알아야 할 숫자다)
+    try:
+        mission = _breakeven_todo(store_id)
+        if mission:
+            todos.append(mission)
+    except Exception:
+        logger.exception("AI 투두: 손익분기 미션 생성 실패 — 나머지 항목은 그대로 내보낸다")
+
+    # 마지막 방어선 — 어떤 경로로 들어왔든 같은 id_hint가 두 번 나가지 않게.
+    # (앱은 id_hint를 목록 key로 쓴다 — 겹치면 화면에도 두 줄로 그려진다)
+    # 미션까지 담은 뒤에 돌려야 새로 들어온 항목도 걸러진다.
+    seen_hints: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for t in todos:
+        if t["id_hint"] in seen_hints:
+            continue
+        seen_hints.add(t["id_hint"])
+        deduped.append(t)
+    todos = deduped
 
     # 홍보 투두 — 등록된 메뉴가 있으면 항상 붙는 고정 항목 (메뉴 선택은 앱에서)
     if menus:

@@ -11,11 +11,13 @@ import json
 import logging
 import os
 import secrets
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, UploadFile
+from fastapi import (
+    APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Request, UploadFile,
+)
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel, Field
@@ -23,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.services.ai.agents import main_agent
 
-from app.core.auth import get_current_user
+from app.core.auth import get_current_admin, get_current_user
 from app.core.database import get_db
 from app.models.ai import ChatSession
 from app.models.user import User
@@ -43,6 +45,8 @@ from app.schemas.ai import (
     MarketingCopyRequest,
     MarketingImageRequest,
     MarketingOverlayRequest,
+    MenuChangeApplyRequest,
+    MenuReviewRequest,
     NotificationSettingBody,
     NotificationSettingResponse,
     OcrConfirmRequest,
@@ -55,7 +59,9 @@ from app.schemas.ai import (
     TodoResponse,
     TodoUpdate,
 )
+from app.utils.datetime_kst import today_kst
 from app.services.ai import (
+    admob_ssv,
     briefing_service,
     cafe_similarity_service,
     chat_quota_service,
@@ -65,6 +71,7 @@ from app.services.ai import (
     insight_service,
     marketing_service,
     menu_ocr_service,
+    menu_review_service,
     nearby_cafe_service,
     nearby_event_service,
     nearby_watch_service,
@@ -207,7 +214,7 @@ async def analyze_menu_board(
 
 
 @router.post("/ocr/menu-board/confirm")
-async def confirm_menu_board(
+def confirm_menu_board(
     body: dict,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -222,8 +229,88 @@ async def confirm_menu_board(
     return menu_ocr_service.confirm_menu_board(db, current_user.email, menus)
 
 
+@router.get("/menu/suggestions")
+def suggest_menu_improvements(
+    include_new: bool = True,
+    current_user: User = Depends(get_current_user),
+):
+    """AI가 지금 매장 숫자를 훑어 '바꾸면 좋을 것'을 찾아 준다. 저장하지 않는다.
+
+    팔수록 손해인 메뉴의 적정 가격, 재료비 비중이 높은 메뉴의 인상 폭, 안 나가는 메뉴 정리,
+    신메뉴 아이디어까지. 각 제안은 /menu/review와 같은 채점기를 통과하므로 숫자가 어긋나지 않는다.
+    """
+    try:
+        return menu_review_service.recommend(current_user.email, include_new=include_new)
+    except menu_review_service.MenuReviewError as e:
+        raise HTTPException(422, str(e))
+
+
+@router.post("/menu/review")
+def review_menu_changes(
+    body: MenuReviewRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """메뉴 개선안을 실제 판매·원가로 점검한다. 아무것도 저장하지 않는다.
+
+    가격을 올릴 때 사장님이 진짜 궁금한 건 "손님이 얼마나 빠져도 괜찮나"라서,
+    항목마다 '버틸 수 있는 판매 감소폭'(breakeven_drop_pct)을 함께 돌려준다.
+    """
+    try:
+        return menu_review_service.review(
+            current_user.email,
+            [c.model_dump(exclude_none=True) for c in body.changes],
+            days=body.days,
+            comment=body.comment,
+        )
+    except menu_review_service.MenuReviewError as e:
+        raise HTTPException(422, str(e))
+
+
+@router.post("/menu/review/board")
+async def review_menu_board(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """새로 만든 메뉴판 사진 → 지금 등록된 메뉴와 대조해 바뀐 점을 찾아 점검한다.
+
+    사장님은 무엇을 바꿨는지 일일이 적지 않는다 — 새 메뉴판을 찍는 것으로 끝나야 한다.
+    등록(/ocr/menu-board)과 달리 여기서는 아무것도 저장하지 않는다.
+    """
+    content_type = _resolve_content_type(file)
+    image_bytes = await file.read()
+    if len(image_bytes) > MAX_IMAGE_BYTES:
+        raise HTTPException(413, "파일이 15MB를 초과합니다")
+    if not image_bytes:
+        raise HTTPException(400, "빈 파일입니다")
+    try:
+        return await menu_review_service.review_menu_board(
+            db, current_user.email, image_bytes, mime_type=content_type)
+    except menu_ocr_service.MenuOcrError as e:
+        raise HTTPException(502, str(e))
+    except menu_review_service.MenuReviewError as e:
+        raise HTTPException(422, str(e))
+
+
+@router.post("/menu/review/apply")
+def apply_menu_changes(
+    body: MenuChangeApplyRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """점검을 마친 개선안을 실제 메뉴에 반영한다 (사장님이 눌렀을 때만).
+
+    빼기는 삭제가 아니라 숨김이다 — 지우면 지난달 리포트의 메뉴 이름까지 사라진다.
+    """
+    try:
+        return menu_review_service.apply_changes(
+            db, current_user.email, [c.model_dump(exclude_none=True) for c in body.changes])
+    except menu_review_service.MenuReviewError as e:
+        raise HTTPException(422, str(e))
+
+
 @router.get("/ocr/documents", response_model=list[OcrDocumentResponse])
-async def list_documents(
+def list_documents(
     status: Optional[OcrStatus] = None,
     store_id: Optional[str] = Depends(_optional_store_id),
 ) -> list[OcrDocumentResponse]:
@@ -232,7 +319,7 @@ async def list_documents(
 
 
 @router.get("/ocr/documents/{doc_id}", response_model=OcrDocumentResponse)
-async def get_document(
+def get_document(
     doc_id: str, store_id: Optional[str] = Depends(_optional_store_id)
 ) -> OcrDocumentResponse:
     try:
@@ -242,7 +329,7 @@ async def get_document(
 
 
 @router.patch("/ocr/documents/{doc_id}", response_model=OcrDocumentResponse)
-async def update_document(
+def update_document(
     doc_id: str,
     patch: OcrDocumentUpdate,
     store_id: Optional[str] = Depends(_optional_store_id),
@@ -257,7 +344,7 @@ async def update_document(
 
 
 @router.post("/ocr/documents/{doc_id}/confirm", response_model=OcrConfirmResponse)
-async def confirm_document(
+def confirm_document(
     doc_id: str,
     body: OcrConfirmRequest,
     store_id: Optional[str] = Depends(_optional_store_id),
@@ -282,7 +369,7 @@ async def confirm_document(
 
 
 @router.post("/ocr/documents/{doc_id}/reject", response_model=OcrDocumentResponse)
-async def reject_document(
+def reject_document(
     doc_id: str, store_id: Optional[str] = Depends(_optional_store_id)
 ) -> OcrDocumentResponse:
     try:
@@ -565,11 +652,16 @@ def cafe_similarity_api(
     current_user: User = Depends(get_current_user),
 ):
     """주변 카페들을 내 카페와 5축(메뉴30·가격25·컨셉20·분위기15·고객층10) 비교해
-    유사도 0~100%를 매긴다. 내 카페 프로필 = DB(메뉴·가격·업태) + 내 매장 리뷰 분석."""
+    유사도 0~100%를 매긴다. 내 카페 프로필 = DB(메뉴·가격·업태) + 내 매장 리뷰 분석.
+
+    리뷰 평판은 '내 카페'로 지정한 네이버 장소가 있을 때만 쓴다 — 상호만으로 검색하면
+    이름이 같은 남의 카페 후기가 내 분위기·고객층으로 둔갑한다(my-cafe/analysis와 같은 규칙).
+    """
     return cafe_similarity_service.score_nearby(
         current_user.email,
         [c.model_dump() for c in body.cafes],
         region=body.region,
+        linked_place=_linked_place(current_user.email),
     )
 
 
@@ -946,6 +1038,107 @@ def get_nearby_event_plan_api(
     return _build_event_plan(db, current_user, name, start_date)
 
 
+class EventTodoRequest(BaseModel):
+    """행사 준비 플랜의 '해 둘 일'을 그대로 할 일 목록에 담는다 (지도 화면 → 홈 '오늘 할 일')."""
+
+    items: list[str] = Field(..., min_length=1, max_length=12,
+                             description="담을 할 일 제목들 (플랜의 prep_actions 등)")
+    event_name: str = Field("", max_length=120, description="어느 행사 준비인지 — 부제로 붙는다")
+    start_date: str = Field("", description="행사 시작일 YYYY-MM-DD — 기한 계산에 쓴다")
+
+
+def _prep_due_date(start_date: str) -> Optional[str]:
+    """행사 준비의 기한 — '행사 전날'. 단, 오늘보다 이르면 오늘로 당긴다.
+
+    행사 당일을 기한으로 잡으면 이미 늦다(재료·안내문은 전날까지 끝나야 한다).
+    이미 진행 중이거나 내일 시작하는 행사면 오늘이 기한이다.
+
+    '오늘'은 반드시 KST다 — 운영 서버(Cloud Run)는 UTC라 date.today()를 쓰면
+    한국 시간 오전 9시 전에 기한이 하루 이르게 잡힌다.
+    """
+    today = datetime.now(nearby_watch_service.KST).date()
+    if not start_date:
+        return None
+    try:
+        start = date.fromisoformat(start_date[:10])
+    except ValueError:
+        return None
+    return max(start - timedelta(days=1), today).isoformat()
+
+
+@router.post("/nearby-events/plan/todos", status_code=201)
+def add_event_prep_todos_api(
+    body: EventTodoRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """행사 준비 항목을 할 일 목록에 담는다 — 한 번의 호출로 여러 개.
+
+    사장님이 준비 플랜을 보고 "이거 해야지" 하고 화면을 닫으면 그대로 잊힌다. 여기서 담으면
+    홈 화면 '오늘 할 일'에 기한(행사 전날)과 함께 올라오고, 완료하면 코인도 쌓인다.
+    이미 같은 할 일이 열려 있으면 중복으로 만들지 않고 skipped로 돌려준다.
+    """
+    due = _prep_due_date(body.start_date)
+    # 부제는 '왜 이 할 일이 생겼는지' — 목록에서 행사 준비인 걸 알아볼 수 있어야 한다
+    event_name = body.event_name.strip()
+    note = f"{event_name} 준비"[:255] if event_name else "주변 행사 준비"
+    items = [
+        TodoCreate(title=text.strip()[:200], note=note, due_date=due)
+        for text in body.items if text and text.strip()
+    ]
+    try:
+        result = todo_service.add_todos_bulk(current_user.email, items, source="ai")
+    except todo_service.TodoError as e:
+        raise HTTPException(422, str(e))
+    return {**result, "due_date": due}
+
+
+class EventPromoRequest(BaseModel):
+    """행사에 맞춘 홍보물(문구 세트) 생성 요청 — 준비 플랜 시트의 '홍보물 만들기'.
+
+    플랜 값(이벤트·한정 메뉴·홍보 문구)을 함께 보내면 카피가 그 플랜과 같은 이야기를 한다.
+    비워 보내면 행사 정보만으로 만든다.
+    """
+
+    event: NearbyEventEcho
+    promotion_title: str = Field("", max_length=60)
+    promotion_detail: str = Field("", max_length=200)
+    menu_idea: str = Field("", max_length=120)
+    busy_window: str = Field("", max_length=60)
+    promo_copy: str = Field("", max_length=200)
+    channel: str = Field("instagram", description="instagram | blog | banner | sms")
+    tone: str = Field("", max_length=60, description="비우면 '설레고 활기차게'")
+
+
+@router.post("/nearby-events/promo", status_code=201)
+def create_event_promotion_api(
+    body: EventPromoRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """행사 홍보 문구 세트를 만든다 — 인스타 캡션·해시태그·이미지에 새길 슬로건까지.
+
+    준비 플랜의 promo_copy는 '한 줄'이라 그대로는 게시물이 되지 않는다. 여기서 그 한 줄을
+    씨앗 삼아 채널에 맞는 홍보물 한 세트로 부풀리고, 홍보 보관함(kind=marketing_content)에
+    저장한다. 이미지는 앱이 이어서 POST /marketing/image?doc_id=... 로 만든다
+    (문구는 몇 초, 이미지는 수십 초라 한 요청에 묶으면 문구까지 늦게 보인다).
+    """
+    event = _echo_to_event(body.event)
+    plan = {
+        "promotions": [{"title": body.promotion_title, "detail": body.promotion_detail}],
+        "menu_idea": body.menu_idea,
+        "busy_window": body.busy_window,
+        "promo_copy": body.promo_copy,
+    }
+    topic = nearby_watch_service.event_promo_topic(event, plan)
+    try:
+        doc = marketing_service.generate_promotion_copy(
+            current_user.email, topic=topic, channel=body.channel,
+            tone=body.tone or "설레고 활기차게, 행사 나들이 분위기에 어울리게",
+            menu=body.menu_idea)
+    except marketing_service.MarketingError as e:
+        raise HTTPException(429 if "사용량" in str(e) else 502, str(e))
+    return {"doc": doc, "event": event}
+
+
 class SaleItemIn(BaseModel):
     menu_id: int
     quantity: int = Field(1, ge=1)
@@ -1114,7 +1307,7 @@ def get_sales_calendar_api(
 
     일별 매출·잔 수·베스트 메뉴·피크 시간대와 월 합계·전월 대비 증감을 준다.
     """
-    today = date.today()
+    today = today_kst()
     return forecast_service.sales_calendar(
         current_user.email, year or today.year, month or today.month)
 
@@ -1654,10 +1847,12 @@ class ChatResponse(BaseModel):
 
 
 @router.get("/agents")
-def get_agent_overview_api() -> dict:
+def get_agent_overview_api(admin: User = Depends(get_current_admin)) -> dict:
     """멀티에이전트 편성 현황 — 관리자 콘솔(3000) AI 에이전트 탭 표시용.
 
     메인 오케스트레이터(브루)와 서브에이전트(전문가)별 활성 여부·보유 도구 목록을 돌려준다.
+    최근 턴 기록에 전 매장의 store_id(이메일)·질문 원문이 담기므로 관리자 전용이다
+    — 콘솔 app.js의 fetch 래퍼가 이 경로에도 관리자 토큰을 자동 첨부한다.
     """
     return main_agent.get_agent_overview()
 
@@ -1680,34 +1875,42 @@ async def chat_message(
     # 쿼터는 동기 SQLAlchemy(FOR UPDATE 포함)라 async 엔드포인트에서 그대로 부르면
     # Neon 왕복(0.4~0.6초) 동안 이벤트 루프 전체가 멈춘다 — 스레드로 내린다.
     try:
-        await asyncio.to_thread(chat_quota_service.consume, store_key)
+        quota_snap = await asyncio.to_thread(chat_quota_service.consume, store_key)
     except chat_quota_service.QuotaExhausted as e:
         # detail을 dict로 넘겨 프론트가 '할당량 소진'과 다른 429를 구분할 수 있게 한다
         raise HTTPException(429, {"quota_exhausted": True, "quota": e.args[0]})
+    # 환불은 '차감된 그 날' 행에 해야 한다 — 자정 직전 차감 → 직후 실패면 day 없이는
+    # 오늘(used=0) 행에서 빼려다 어제 턴이 영영 차감된 채 남는다.
+    quota_day = quota_snap.get("date")
+
+    # [비용 상한] history는 클라이언트가 그대로 보내는 무제한 리스트라, 한 턴에 수 MB를
+    # 실어 보내면 메인+전문가 모든 모델 호출의 토큰 비용·지연이 배로 뛴다. 최근 40개(20턴)면
+    # 대화 맥락으로 충분하다.
+    history = (body.history or [])[-40:]
 
     # [자동 감사] 이번 발화가 "아니 그게 아니라" 같은 부정이면 직전 턴을 사고 후보로 남긴다.
     # 숫자가 그럴듯하게 틀린 오답은 감시 규칙이 못 잡고, 그걸 아는 사람은 사장님뿐이다.
     # 정규식 판정이라 LLM 호출은 없지만, 부정 발화로 판정되면 사고 기록 DB 쓰기가
     # 생기므로 이것도 스레드에서 돌린다.
     from app.services.ai import answer_audit
-    await asyncio.to_thread(answer_audit.check_followup, store_key, body.message, body.history)
+    await asyncio.to_thread(answer_audit.check_followup, store_key, body.message, history)
 
     try:
         # [한글 주석] 챗봇 에이전트의 대화 처리 루프 실행 — 답변 텍스트 + 이번 턴에 만든 문서 전문
         result = await main_agent.generate_response(
             user_message=body.message,
             store_id=store_key,
-            history=body.history
+            history=history
         )
         # generate_response는 내부에서 예외를 전부 삼켜 정상 dict로 돌려주므로(사과 문구),
         # 아래 except로는 AI 실패가 안 잡힌다. ok=False면 실질 답변을 못 만든 턴이니
         # 차감한 쿼터를 여기서 되돌린다 (안 그러면 실패한 턴도 사장님 쿼터가 깎인다).
         if not result.get("ok", True):
-            await asyncio.to_thread(chat_quota_service.refund, store_key)
+            await asyncio.to_thread(chat_quota_service.refund, store_key, quota_day)
         return ChatResponse(response=result["text"], documents=result["documents"])
     except Exception as e:
         # 답을 못 준 턴까지 차감하면 부당하다 — 되돌린다 (예외가 여기까지 올라온 드문 경우)
-        await asyncio.to_thread(chat_quota_service.refund, store_key)
+        await asyncio.to_thread(chat_quota_service.refund, store_key, quota_day)
         # [한글 주석] 장애 추적을 위해 로컬 콘솔에 상세 예외 Traceback을 기록합니다.
         logger.exception("챗봇 서비스 실행 중 장애 발생")
         raise HTTPException(500, f"챗봇 서비스 실행 중 장애 발생: {str(e)}")
@@ -1725,16 +1928,61 @@ def get_chat_quota(store_id: Optional[str] = Depends(_optional_store_id)) -> dic
 
 @router.post("/quota/ad-reward")
 def grant_chat_quota(store_id: Optional[str] = Depends(_optional_store_id)) -> dict:
-    """광고 시청 완료 → 턴 충전.
+    """광고 시청 완료 보고 → 턴 충전. 로그인 계정만 가능.
 
-    지금은 클라이언트의 '봤다'는 보고를 믿는다. 앱을 뜯으면 광고 없이 이 엔드포인트를
-    때려 무한 충전이 가능하므로, 실제 서비스에서는 AdMob 서버 사이드 검증(SSV) 콜백으로
-    바꿔야 한다 — MAX_ADS_PER_DAY가 그때까지의 피해 상한 역할을 한다.
+    이 경로는 앱의 자기 보고다. 근거로서는 약하므로 두 겹으로 막아 둔다.
+      1) 충전 1건이 ad_reward_grants에 원장으로 남는다 — 중복 호출은 거래 id 충돌로 무시.
+      2) CHAT_AD_SSV_REQUIRED=1이면 이 경로로는 아예 충전하지 않고, 구글이 서명해
+         보내는 SSV 콜백(GET /quota/ad-ssv)만 인정한다. 그때 이 API는 오류 대신
+         pending_verification=true를 돌려주고, 앱은 잠시 뒤 쿼터를 다시 조회한다.
+    어느 모드든 MAX_ADS_PER_DAY가 하루 상한으로 남는다.
+
+    비로그인은 401 — 익명은 전 세계가 데모 계정(owner@cafe.com)의 쿼터 행 하나를
+    공유하므로, 열어 두면 curl 루프 하나로 무한 충전되거나 반대로 한 명이 다 써서
+    모든 비로그인 사용자의 체험이 막힌다. (앱은 로그인 후에만 챗봇에 진입한다.)
     """
+    if store_id is None:
+        raise HTTPException(401, "로그인 후 이용할 수 있습니다.")
     try:
-        return chat_quota_service.grant_from_ad(store_id or "owner@cafe.com")
+        return chat_quota_service.grant_from_ad(store_id)
     except chat_quota_service.AdLimitReached as e:
         raise HTTPException(429, {"ad_limit_reached": True, "quota": e.args[0]})
+    except chat_quota_service.AdVerificationPending as e:
+        # 실패가 아니라 '아직'이다 — 200으로 돌려줘야 앱이 오류 문구 대신 재조회를 한다
+        return {**e.args[0], "pending_verification": True}
+
+
+@router.get("/quota/ad-ssv")
+def admob_ssv_callback(request: Request) -> dict:
+    """AdMob 서버 사이드 검증(SSV) 콜백 — 구글이 직접 호출한다. 앱은 호출하지 않는다.
+
+    인증(토큰)이 없는 이유: 부르는 쪽이 구글 서버라 우리 토큰을 들고 있지 않다. 대신
+    요청 자체에 구글의 ECDSA 서명이 붙어 있어, 서명 검증을 통과한 요청만 진짜다.
+    서명 대상은 쿼리스트링 원문이므로 `request.url.query`를 그대로 넘긴다 —
+    파싱된 query_params로 다시 조립하면 순서·인코딩이 달라져 검증이 깨진다.
+
+    설정: AdMob 콘솔 > 해당 보상형 광고 단위 > 서버 사이드 검증 > 콜백 URL에
+    `https://<서버>/api/v1/chatbot/quota/ad-ssv`를 등록한다. 앱은 광고를 요청할 때
+    serverSideVerificationOptions.userId에 매장 식별자(로그인 이메일)를 심는다.
+    """
+    try:
+        params = admob_ssv.verify(request.url.query)
+    except admob_ssv.SsvInvalid as e:
+        # 위조 시도이거나 설정이 틀린 것이다. 어느 쪽이든 충전하지 않는다.
+        logger.warning("AdMob SSV 콜백 거절: %s", e)
+        raise HTTPException(403, "서명 검증에 실패했습니다.")
+
+    try:
+        chat_quota_service.grant_from_ssv(params)
+    except chat_quota_service.AdLimitReached:
+        # 상한 초과는 정상 동작이다 — 구글에는 200을 돌려줘야 재전송이 반복되지 않는다
+        logger.info("AdMob SSV 충전 생략 — 하루 상한 도달 (%s)", params.get("user_id"))
+    except ValueError as e:
+        logger.warning("AdMob SSV 콜백 형식 오류: %s", e)
+        raise HTTPException(400, "콜백 파라미터가 올바르지 않습니다.")
+
+    # 구글은 본문을 보지 않는다 — 2xx면 성공으로 처리한다
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------
@@ -1808,13 +2056,16 @@ def list_chat_incidents_api(
     확정/기각하기 위한 창구다.
 
     status: pending(미검증) / confirmed / registered / rejected. 빈 문자열이면 전부.
-    mine_only=true면 내 매장에서 난 것만 본다.
+    mine_only=true면 내 매장에서 난 것만 본다. 질문·답변 발췌에 매장 데이터가
+    담기므로 전체 열람(mine_only=false)은 관리자만 가능 — 일반 사용자는 항상 내 매장만.
     """
+    from app.core.auth import ADMIN_EMAILS
     from app.services.ai import answer_audit
 
+    is_admin = current_user.email in ADMIN_EMAILS
+    scope = "" if (is_admin and not mine_only) else current_user.email
     return {
-        "incidents": answer_audit.list_incidents(
-            status=status, store_id=current_user.email if mine_only else "", limit=limit),
+        "incidents": answer_audit.list_incidents(status=status, store_id=scope, limit=limit),
     }
 
 
@@ -1829,11 +2080,16 @@ def update_chat_incident_api(
     body: IncidentStatusUpdate,
     current_user: User = Depends(get_current_user),
 ):
-    """사고 후보 상태를 사람이 바꾼다 — 기계가 재현하지 못한 건을 직접 확정하거나 기각한다."""
+    """사고 후보 상태를 사람이 바꾼다 — 기계가 재현하지 못한 건을 직접 확정하거나 기각한다.
+
+    일반 사용자는 내 매장의 사고만 바꿀 수 있다 (관리자는 전체).
+    """
+    from app.core.auth import ADMIN_EMAILS
     from app.services.ai import answer_audit
 
+    scope = "" if current_user.email in ADMIN_EMAILS else current_user.email
     try:
-        found = answer_audit.set_status(incident_id, body.status, body.note)
+        found = answer_audit.set_status(incident_id, body.status, body.note, store_id=scope)
     except ValueError as e:
         raise HTTPException(400, str(e))
     if not found:

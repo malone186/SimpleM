@@ -1,7 +1,7 @@
 # c:\STUDY\SimpleM\backend\app\models\operation.py
 """운영/예측 모델 (백엔드 C) - 백엔드 A가 SQLAlchemy 표준 ORM 규격으로 수정"""
 import logging
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Date, Float, inspect, text
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Date, Float, UniqueConstraint, inspect, text
 from sqlalchemy.sql import func
 from app.core.database import Base
 
@@ -51,11 +51,11 @@ class Schedule(Base):
     id = Column(Integer, primary_key=True, index=True)
     
     # 이 스케줄이 어떤 직원(Employee)을 뜻하는지 외래키로 연결합니다.
-    employee_id = Column(Integer, ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
-    
+    employee_id = Column(Integer, ForeignKey("employees.id", ondelete="CASCADE"), nullable=False, index=True)
+
     start_time = Column(DateTime, nullable=False)  # 근무 시작 시간
     end_time = Column(DateTime, nullable=False)    # 근무 종료 시간
-    date = Column(String(20), nullable=False)      # 근무 일자 (YYYY-MM-DD)
+    date = Column(String(20), nullable=False, index=True)  # 근무 일자 (YYYY-MM-DD)
     actual_start_time = Column(DateTime, nullable=True)  # 실제 출근 시간 (신규 추가)
     actual_end_time = Column(DateTime, nullable=True)    # 실제 퇴근 시간 (신규 추가)
 
@@ -66,7 +66,7 @@ class Expense(Base):
     __tablename__ = "expenses"
 
     id = Column(Integer, primary_key=True, index=True)
-    store_id = Column(String(100), nullable=False)                   # 매장 식별 아이디
+    store_id = Column(String(100), nullable=False, index=True)       # 매장 식별 아이디
     amount = Column(Integer, nullable=False, default=0)              # 지출 금액 (원)
     category = Column(String(50), nullable=False)                    # 지출 카테고리 (예: 원두매입, 소모품비 등)
     description = Column(String(255), nullable=True)                 # 상세 설명
@@ -78,6 +78,13 @@ class Expense(Base):
 class EstimatedPayroll(Base):
     """예상 급여 결과 저장 모델"""
     __tablename__ = "estimated_payrolls"
+    # (직원, 기간)당 한 행 — 이 제약이 없으면 조회 경로의 select-then-insert 업서트가
+    # 동시 요청에서 중복 행을 만들고, 이후 읽기가 어느 행을 집을지 실행마다 달라진다.
+    # 기존 DB는 main.py 자가치유(ensure_estimated_payroll_unique)가 중복 정리 후 걸어 준다.
+    __table_args__ = (
+        UniqueConstraint("employee_id", "period_start", "period_end",
+                         name="uq_estimated_payroll_period"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     # 어떤 직원의 급여인지 설정 (외래키 연결)
@@ -138,3 +145,31 @@ class EmployeeUnavailability(Base):
     # 생성 일시
     created_at = Column(DateTime, nullable=False, server_default=func.now())
 
+
+
+def ensure_estimated_payroll_unique(engine) -> None:
+    """[자가치유] estimated_payrolls (employee_id, period) 유니크 보강.
+
+    이 테이블은 조회 경로가 select-then-insert로 업서트해 왔는데 유니크 제약이 없어
+    동시 조회 두 개가 중복 행을 만들었다 (대시보드 + 정산 카드가 같은 급여를 동시에
+    요청하는 흔한 상황). create_all은 이미 있는 테이블을 건드리지 않으므로, 기존 DB엔
+    여기서 중복을 정리한 뒤 유니크 인덱스를 걸어 준다. 실패해도 서비스는 계속 뜬다.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        with engine.begin() as conn:
+            # 1) 같은 (직원, 기간)의 중복 행은 최신(id 최대)만 남긴다
+            conn.execute(text(
+                "DELETE FROM estimated_payrolls WHERE id NOT IN ("
+                " SELECT MAX(id) FROM estimated_payrolls"
+                " GROUP BY employee_id, period_start, period_end)"
+            ))
+            # 2) 유니크 인덱스 (postgres·sqlite 모두 IF NOT EXISTS 지원)
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_estimated_payroll_period"
+                " ON estimated_payrolls (employee_id, period_start, period_end)"
+            ))
+        logger.info("estimated_payrolls 유니크 보강 완료")
+    except Exception:
+        logger.exception("estimated_payrolls 유니크 보강 실패 — 다음 기동 때 재시도")

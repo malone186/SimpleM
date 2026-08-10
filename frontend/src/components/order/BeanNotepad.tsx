@@ -2,6 +2,7 @@
 // 사장님이 현재 사용 중인 원두와 이전에 주문/발주해본 원두를 기록하는 깔끔한 대장 UI입니다.
 // AsyncStorage에 로컬 저장되므로 백엔드 없이도 동작합니다.
 import { useEffect, useState, useRef } from 'react';
+import { dateKey } from '../../lib/dateKey';
 import {
   Alert,
   Animated,
@@ -34,6 +35,7 @@ import {
 } from '../../lib/api/sensor';
 import SensorSetupModal from './SensorSetupModal';
 import { SwipeDownModal } from '../ui/SwipeDownModal';
+import { startLoop } from '../../lib/animLoop';
 
 // 대시보드 지표 → 센서 스테이션 기기 id 매핑 (설비 칩 탭 시 해당 가이드로 바로 진입)
 const METRIC_TO_DEVICE: Record<keyof LiveMetrics, string> = {
@@ -54,7 +56,9 @@ const LivePulseBadge: React.FC<{
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    const animation = Animated.loop(
+    // Animated.loop을 쓰지 않는다 — useNativeDriver:true면 웹에서 한 번 깜빡이고 멈춰
+    // '연결 중' 표시가 죽은 것처럼 보인다(lib/animLoop.ts에 이유).
+    return startLoop(() =>
       Animated.sequence([
         Animated.timing(pulseAnim, {
           toValue: 0.3,
@@ -66,10 +70,8 @@ const LivePulseBadge: React.FC<{
           duration: 900,
           useNativeDriver: true,
         }),
-      ])
-    );
-    animation.start();
-    return () => animation.stop();
+      ]),
+    ).stop;
   }, [pulseAnim]);
 
   if (variant === 'connecting') {
@@ -157,7 +159,11 @@ interface NotepadData {
 }
 
 const STORAGE_KEY = 'simplem:bean_notepad';
-const today = () => new Date().toISOString().split('T')[0];
+// 기기 로컬(=KST) 날짜 — toISOString()은 UTC라 오전 9시 전엔 어제 날짜가 찍힌다
+const today = () => {
+  const d = new Date();
+  return dateKey(d);
+};
 
 // 🎚️ 양옆으로 부드럽게 드래그되는 제스처 기반의 커스냅 슬라이더 컴포넌트 [NEW]
 interface CurationSliderProps {

@@ -12,7 +12,7 @@ import { s, useResponsive, useTopInset } from '../../theme/responsive';
 import { useTranslation } from '../../i18n/translations';
 import { useAuth } from '../../auth/AuthContext';
 import Brew from '../../components/brew/Brew';
-import RoomBackdrop from '../../components/brew/RoomBackdrop';
+import RoomBackdrop, { ROOM_TEXT_SHADOW, useSheetTop } from '../../components/brew/RoomBackdrop';
 import { getRoomTint } from '../../components/brew/roomBackgrounds';
 import { useEquipped } from '../../rewards/EquippedContext';
 
@@ -129,6 +129,8 @@ export default function ManagementScreen() {
   // 작아지고(scale) 반듯해지며(rotate→0) 뒤처지다(translateY) 다음 카드에 덮여 사라진다(opacity)
   // 하단 경계(탭 메뉴에 가려지는 지점)에서도 같은 효과가 거울상으로 걸린다.
   const scrollY = useRef(new Animated.Value(0)).current;
+  // 착용 배경 사진이 헤더를 꽉 채우도록, 크림 시트가 시작하는 y를 실측해 넘긴다 (네 탭 공통)
+  const { sheetTop, onSheetLayout } = useSheetTop();
   // 아래 경계 계산에 필요한 스크롤 뷰포트 높이 — onLayout 전에는 통상치로 대체
   const [sheetH, setSheetH] = useState(0);
   const H = Math.max(sheetH, 300);
@@ -158,7 +160,7 @@ export default function ManagementScreen() {
 
       {/* 착용한 카페 배경 '사진' — 브루룸과 같은 그림을 그대로 깐다.
           미착용이면 null이라 위 오로라가 그대로 보인다 (RoomBackdrop.tsx) */}
-      <RoomBackdrop roomBgId={roomBgId} fadeAt={0.3} />
+      <RoomBackdrop roomBgId={roomBgId} sheetTop={sheetTop} fadeAt={0.32} />
 
       {/* 헤더 — ScrollView 밖에 있어 카드가 흘러도 제자리에 고정된다 */}
       <View style={[styles.header, { paddingTop: topInset }]}>
@@ -188,8 +190,9 @@ export default function ManagementScreen() {
         </View>
       </View>
 
-      {/* [둥근 크림 시트] 시트 자체는 고정, 그 안에서 카드만 스크롤한다 */}
-      <View style={styles.body}>
+      {/* [둥근 크림 시트] 시트 자체는 고정, 그 안에서 카드만 스크롤한다.
+          onLayout은 배경 사진이 어디까지 보일지 정하는 기준선이다 (RoomBackdrop) */}
+      <View style={styles.body} onLayout={onSheetLayout}>
         <Animated.ScrollView
           style={styles.scroll}
           // [한글 주석] 탭 바는 시트 아래 별도 영역이라 겹치지 않는다 — 하단은 deck 기본 여백(24)만 사용
@@ -310,12 +313,13 @@ const styles = StyleSheet.create({
   },
   headerLeft: { flex: 1, justifyContent: 'center' },
   headerRight: { alignItems: 'flex-end', gap: 6 },
-  bigTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5 },
-  sub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2 },
+  // 배경 사진 위에 얹히므로 글자 그림자를 준다 (RoomBackdrop.ROOM_TEXT_SHADOW)
+  bigTitle: { fontSize: 24, fontWeight: '900', color: colors.creamSand, letterSpacing: -0.5, ...ROOM_TEXT_SHADOW },
+  sub: { fontSize: 11.5, color: '#D4C9C1', marginTop: 4, fontWeight: '500', letterSpacing: -0.2, ...ROOM_TEXT_SHADOW },
   // 직원 모드임을 헤더에서 바로 알 수 있게 — 색을 달리해 눈에 띄게 둔다
   staffBadge: {
     fontSize: 11, color: '#F0C9A8', marginTop: 5, fontWeight: '600',
-    letterSpacing: -0.2, lineHeight: 16,
+    letterSpacing: -0.2, lineHeight: 16, ...ROOM_TEXT_SHADOW,
   },
   gearBtn: {
     flexDirection: 'row',

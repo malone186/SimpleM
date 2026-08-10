@@ -13,13 +13,18 @@ if (-not (Test-Path "$root\backend\deploy\env.yaml")) {
 # 환경변수를 통째로 갈아치우면서 푸시 설정이 사라진다.
 # 최초 1회만 시크릿을 만들어 두면 이후 재배포는 그대로 굴러간다:
 #   gcloud secrets create fcm-sa --data-file=backend\secrets\firebase-adminsdk-simplem-72f8d.json
+# 플래그는 CI 배포(.github/workflows/deploy_backend.yml)와 반드시 같게 유지한다 —
+# 여기서 1Gi로 배포하면 CI가 올린 2Gi 리비전을 절반 메모리로 조용히 갈아치워
+# 이미지 생성(rembg/Pillow) 경로가 부하에서 OOM으로 죽는다.
 gcloud run deploy brewnote-api `
     --source "$root\backend" `
     --region $region `
     --allow-unauthenticated `
-    --memory 1Gi `
+    --memory 2Gi `
     --cpu 1 `
     --timeout 300 `
+    --min-instances 1 `
+    --cpu-boost `
     --env-vars-file "$root\backend\deploy\env.yaml" `
     --set-secrets "FCM_SERVICE_ACCOUNT_JSON=fcm-sa:latest"
 

@@ -1,6 +1,7 @@
 // 서류 자동화 (ERP-12) — 백엔드 /chatbot/documents·compliance 실연동
 // 문서 초안 생성(발주서·실사표·장부·부가세·임금명세서·근로계약서) + 생성 문서 열람 + 갱신 만료 알림
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { dateKey, monthKey } from '../../lib/dateKey';
 import { ActivityIndicator, LayoutAnimation, Platform, StyleSheet, Text, TextInput, TouchableOpacity, UIManager, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -397,7 +398,7 @@ export default function DocumentScreen() {
     const end = new Date(now.getFullYear(), q * 3 + 3, 1);
     // toISOString()은 UTC 기준이라 KST 자정이 전날로 밀린다 — 로컬 날짜로 직접 포맷
     const iso = (d: Date) =>
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      dateKey(d);
     return [iso(start), iso(end)] as const;
   };
 
@@ -806,7 +807,7 @@ const styles = StyleSheet.create({
 // [백엔드 연동] 세금 관리 탭 — 부가세+종합소득세+원천징수 예상 및 신고 일정
 const nowYearMonth = () => {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return monthKey(d);
 };
 const wonFmt = (n: number) => '₩' + Math.round(n || 0).toLocaleString('ko-KR');
 const ddayText = (d: number) => (d > 0 ? `D-${d}` : d === 0 ? 'D-DAY' : `D+${Math.abs(d)}`);

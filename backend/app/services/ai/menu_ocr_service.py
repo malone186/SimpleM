@@ -152,10 +152,8 @@ async def _ask_gemini(parts: list[dict], schema: dict) -> dict[str, Any]:
         "maxOutputTokens": 8192,
     }
     # OCR과 같은 이유로 추론을 끈다 — 읽어 적는 일에 사고 예산을 쓰면 출력이 잘린다
-    if GEMINI_MODEL.startswith("gemini-2.5"):
-        generation_config["thinkingConfig"] = {"thinkingBudget": 0}
-    elif GEMINI_MODEL.startswith("gemini-3"):
-        generation_config["thinkingConfig"] = {"thinkingLevel": "low"}
+    from app.services.ai.gemini_config import apply_thinking
+    apply_thinking(generation_config, GEMINI_MODEL)
 
     payload = {"contents": [{"parts": parts}], "generationConfig": generation_config}
     last: Exception | None = None
@@ -242,26 +240,14 @@ def _store_ingredients(db, store_id: str) -> list[dict[str, Any]]:
     return [{"id": iid, "name": name, "unit": unit or ""} for iid, name, unit in rows]
 
 
-async def analyze_menu_board(db, store_id: str, image_bytes: bytes,
-                             mime_type: str = "image/jpeg") -> dict[str, Any]:
-    """메뉴판 사진 → 등록 초안. 저장하지 않는다 (사람이 확인한 뒤 confirm에서 저장).
+async def read_menu_board(image_bytes: bytes, mime_type: str = "image/jpeg") -> list[dict[str, Any]]:
+    """메뉴판 사진에서 '메뉴명 + 가격'만 읽는다 — [{"name", "price"}] (가격은 못 읽으면 None).
 
-    반환:
-      {
-        "menus": [
-          {"name","price","exists",           # exists=이미 등록된 메뉴인가
-           "recipe_source": "preset|ai|none", # 레시피를 어디서 가져왔나
-           "recipes": [
-             {"ingredient","quantity","unit",
-              "ingredient_id",                # 매칭된 매장 재료 (없으면 None → 새로 등록 필요)
-              "candidates": [...]}            # 후보가 여럿이면 화면에서 고르게 한다
-           ]}
-        ],
-        "unknown_ingredients": [...]          # 매장에 없어 새로 만들어야 하는 재료
-      }
+    등록(analyze_menu_board)과 개선안 점검(menu_review_service)이 함께 쓴다.
+    점검 쪽은 레시피가 필요 없다 — 이름과 가격만 있으면 기존 메뉴와 대조할 수 있는데,
+    등록용 흐름을 그대로 부르면 쓰지도 않을 표준 레시피를 AI에게 또 물어보게 된다
+    (호출 1회·수 초가 통째로 낭비된다).
     """
-    from app.models.inventory import Menu
-
     parts = [
         {"inline_data": {"mime_type": mime_type, "data": base64.b64encode(image_bytes).decode()}},
         {"text": _MENU_PROMPT},
@@ -284,6 +270,32 @@ async def analyze_menu_board(db, store_id: str, image_bytes: bytes,
             continue
         seen.add(key)
         menus.append({"name": name, "price": _normalize_price(m.get("price"))})
+    if not menus:
+        raise MenuOcrError("메뉴를 찾지 못했습니다. 메뉴판이 화면에 꽉 차게 다시 찍어 주세요.")
+    return menus
+
+
+async def analyze_menu_board(db, store_id: str, image_bytes: bytes,
+                             mime_type: str = "image/jpeg") -> dict[str, Any]:
+    """메뉴판 사진 → 등록 초안. 저장하지 않는다 (사람이 확인한 뒤 confirm에서 저장).
+
+    반환:
+      {
+        "menus": [
+          {"name","price","exists",           # exists=이미 등록된 메뉴인가
+           "recipe_source": "preset|ai|none", # 레시피를 어디서 가져왔나
+           "recipes": [
+             {"ingredient","quantity","unit",
+              "ingredient_id",                # 매칭된 매장 재료 (없으면 None → 새로 등록 필요)
+              "candidates": [...]}            # 후보가 여럿이면 화면에서 고르게 한다
+           ]}
+        ],
+        "unknown_ingredients": [...]          # 매장에 없어 새로 만들어야 하는 재료
+      }
+    """
+    from app.models.inventory import Menu
+
+    menus = await read_menu_board(image_bytes, mime_type=mime_type)
 
     existing = {
         recipe_presets.normalize(n)

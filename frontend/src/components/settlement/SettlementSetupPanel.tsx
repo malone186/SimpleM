@@ -13,6 +13,7 @@
 //   ③ 미리보기 계산기 — 설정을 바꿀 때마다 "10만원 결제 → 수수료 400원 → 99,600원이
 //      8/4(화)에 입금"이 같이 바뀐다. 숫자가 눈앞에서 움직여야 뜻이 이해된다.
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { dateKey } from '../../lib/dateKey';
 import {
   ActivityIndicator,
   LayoutAnimation,
@@ -79,7 +80,7 @@ function localPreview(
   const pct = cardType === 'check' ? s.check_fee_pct : s.credit_fee_pct;
   const fee = Math.round((amount * pct) / 100);
   const iso = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    dateKey(d);
 
   const start = new Date();
   start.setHours(0, 0, 0, 0);

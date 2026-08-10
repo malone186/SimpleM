@@ -3,8 +3,11 @@
 [한글 주석] 원두 상품 상세 검색/정렬, 리뷰 수집/조회 및 공개 라우트 REST API 전담 창구
 """
 
+import os
+import secrets as _secrets
+
 from typing import Optional, List
-from fastapi import APIRouter, Depends, Query, status, HTTPException
+from fastapi import APIRouter, Depends, Header, Query, status, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -34,6 +37,19 @@ from app.services.operation.unspecialty_collect_service import collect_unspecial
 from app.services.operation.bean_alternative_service import find_alternatives
 
 router = APIRouter(prefix="/roastery", tags=["로스터리 원두 마켓 & 리뷰 검색 (Roastery Search)"])
+
+# 수집·스냅숏 같은 유지보수 파이프라인의 공유 비밀 — operation.py의 관문과 같은 값.
+# 예전엔 인증 없이 열려 있어 curl 반복만으로 네이버 API 쿼터·크롤링·DB 쓰기를
+# 마음대로 돌릴 수 있었다 (앱 화면에서는 부르지 않는 경로들이다).
+_MAINTENANCE_SECRET = os.getenv("NOTIFICATION_CRON_SECRET", "")
+
+
+def _require_maintenance_secret(x_cron_secret: str = Header(default="")) -> None:
+    """유지보수 엔드포인트 관문 — 시크릿 미설정이면 존재 자체를 숨긴다(404)."""
+    if not _MAINTENANCE_SECRET:
+        raise HTTPException(status_code=404, detail="Not Found")
+    if not _secrets.compare_digest(x_cron_secret, _MAINTENANCE_SECRET):
+        raise HTTPException(status_code=403, detail="invalid maintenance secret")
 
 
 # --- [1. 원두 상품 상세 검색 및 정렬 API] ---
@@ -144,7 +160,8 @@ def get_bean_reviews_api(
 def trigger_collect_reviews_api(
     bean_id: int,
     payload: ReviewCollectRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: None = Depends(_require_maintenance_secret),
 ):
     """
     [한글 주석: 백그라운드 리뷰 수집 파이프라인 트리거 API]
@@ -213,6 +230,7 @@ def collect_blog_reviews_api(
     include_cafe: bool = Query(True, description="카페 글도 함께 수집"),
     exclude_ads: bool = Query(True, description="협찬·광고 글 제외"),
     db: Session = Depends(get_db),
+    _: None = Depends(_require_maintenance_secret),
 ):
     """[한글 주석] 원두 1건의 후기를 네이버 공식 검색 API(블로그·카페)로 수집합니다.
 
@@ -234,6 +252,7 @@ def collect_blog_reviews_bulk_api(
     display: int = Query(20, ge=1, le=100, description="원두당 검색 결과 개수"),
     only_missing: bool = Query(True, description="리뷰가 없는 원두만 대상으로"),
     db: Session = Depends(get_db),
+    _: None = Depends(_require_maintenance_secret),
 ):
     """[한글 주석] 리뷰가 비어 있는 원두부터 순차적으로 후기를 채웁니다.
 
@@ -273,6 +292,7 @@ def bean_alternatives_api(
 def collect_unspecialty_api(
     dry_run: bool = Query(True, description="true면 DB에 쓰지 않고 파싱 결과만 미리보기"),
     db: Session = Depends(get_db),
+    _: None = Depends(_require_maintenance_secret),
 ):
     """[한글 주석] 언스페셜티(카페24 쇼핑몰)에서 원두 목록을 수집합니다.
 
@@ -293,6 +313,7 @@ def collect_unspecialty_api(
 def market_snapshot_api(
     force: bool = Query(False, description="같은 날 중복 기록 허용 여부"),
     db: Session = Depends(get_db),
+    _: None = Depends(_require_maintenance_secret),
 ):
     """[한글 주석] 전체 원두의 현재 가격을 이력 테이블에 append합니다.
 

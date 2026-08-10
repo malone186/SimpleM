@@ -234,7 +234,7 @@ def get_admin_users(db: Session = Depends(get_db), _admin: User = Depends(get_cu
         logger.exception("관리자 회원 목록 조회 중 서버 에러 발생")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"데이터베이스 조회 중 오류가 발생했습니다: {str(e)}"
+            detail="데이터베이스 조회 중 오류가 발생했습니다."
         )
 
 
@@ -264,7 +264,7 @@ def delete_admin_user(user_id: int, db: Session = Depends(get_db), _admin: User 
         logger.exception(f"회원 ID {user_id} 삭제 중 데이터베이스 에러 발생")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"회원 삭제 처리에 실패했습니다: {str(e)}"
+            detail="회원 삭제 처리에 실패했습니다."
         )
 
 
@@ -399,7 +399,7 @@ def get_dashboard_stats(db: Session = Depends(get_db), _admin: User = Depends(ge
         logger.exception("대시보드 통계 산출 중 오류 발생")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"통계 집계 오류: {str(e)}"
+            detail="통계 집계 중 오류가 발생했습니다."
         )
 
 
@@ -844,7 +844,7 @@ def get_acquisition_breakdown(db: Session = Depends(get_db), _admin: User = Depe
         logger.exception("유입 경로 집계 중 오류 발생")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"유입 경로 집계 오류: {str(e)}"
+            detail="유입 경로 집계 중 오류가 발생했습니다."
         )
 
 
@@ -932,5 +932,5 @@ def get_activity_breakdown(db: Session = Depends(get_db), _admin: User = Depends
         logger.exception("활동 분석 집계 중 오류 발생")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"활동 분석 집계 오류: {str(e)}"
+            detail="활동 분석 집계 중 오류가 발생했습니다."
         )

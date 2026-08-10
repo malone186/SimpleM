@@ -77,6 +77,22 @@ const IMAGE_STYLES: { key: string; label: string }[] = [
   { key: 'vivid neon color palette, glowing light effects, energetic pop mood', label: '네온 팝' },
 ];
 
+// 만드는 방식 — 결과물이 완전히 다르므로 한 번에 하나만 고르게 한다.
+const MODES: { key: 'ai' | 'photo'; icon: string; label: string; hint: string }[] = [
+  {
+    key: 'ai',
+    icon: 'sparkles',
+    label: 'AI가 그리기',
+    hint: '주제만 적으면 문구와 이미지를 통째로 만들어 드려요.',
+  },
+  {
+    key: 'photo',
+    icon: 'camera',
+    label: '내 사진으로',
+    hint: '메뉴 사진을 올리면 메뉴는 그대로 두고 배경만 감성 컷으로 바꿔 드려요.',
+  },
+];
+
 /** 생성 진행 단계 — 문구와 이미지가 순차로 만들어지는 걸 사장님이 볼 수 있게 */
 type Phase = 'idle' | 'copy' | 'image' | 'restyle';
 
@@ -91,6 +107,10 @@ export default function MarketingScreen() {
   const [menu, setMenu] = useState('');
   const [imageStyle, setImageStyle] = useState(''); // IMAGE_STYLES의 key (빈 값 = 자동)
   const [photoBgStyle, setPhotoBgStyle] = useState('wood'); // 실물 사진 합성 배경
+  // 만드는 방식 — 'ai'(그림까지 AI가) / 'photo'(내 메뉴 사진에 배경만).
+  // 둘은 고르는 항목도 결과도 다르다. 한 카드에 같이 쌓아 두면 뭘 누르는지 헷갈려서
+  // 위쪽 탭으로 하나만 보여준다.
+  const [mode, setMode] = useState<'ai' | 'photo'>('ai');
 
   // [브루 추천 연결] 투두의 '홍보하러 가기'로 들어오면 홍보할 메뉴·주제가 자동 입력된다.
   // ts를 의존성에 둬서 같은 메뉴를 다시 눌러도(파라미터 갱신) 다시 채워진다.
@@ -251,7 +271,10 @@ export default function MarketingScreen() {
         } as any, img.image_id);
       }
       refreshHistory();
-      toast('내 사진으로 만들었어요', '실물 메뉴에 감성 배경을 입혔어요!');
+      // 메뉴 하나가 뚜렷하지 않은 사진(매장 전경 등)은 배경을 바꾸지 않고 보정만 한다.
+      // 그 사실을 알려 주지 않으면 '배경이 왜 그대로지?'로 보인다.
+      if (img.note) toast('사진만 다듬었어요', img.note);
+      else toast('내 사진으로 만들었어요', '실물 메뉴에 감성 배경을 입혔어요!');
     } catch (e) {
       toast('사진 합성 실패', describeApiFailure(e, '사진 합성').message);
     } finally {
@@ -437,7 +460,33 @@ export default function MarketingScreen() {
       </View>
 
       <Card style={{ marginTop: 12 }}>
-        <Text style={styles.fieldLabel}>홍보 주제</Text>
+        {/* 만드는 방식 선택 — AI가 그림까지 그리는 쪽과 내 사진의 배경만 바꾸는 쪽은
+            고를 항목도 결과도 다르다. 한 번에 하나만 보여준다. */}
+        <View style={styles.modeTabs}>
+          {MODES.map((m) => {
+            const active = mode === m.key;
+            return (
+              <PressableScale
+                key={m.key}
+                style={[styles.modeTab, active && styles.modeTabActive]}
+                onPress={() => setMode(m.key)}
+                to={0.97}
+              >
+                <Ionicons
+                  name={m.icon as any}
+                  size={15}
+                  color={active ? colors.white : colors.mochaBrown}
+                />
+                <Text style={[styles.modeTabText, active && styles.modeTabTextActive]}>
+                  {m.label}
+                </Text>
+              </PressableScale>
+            );
+          })}
+        </View>
+        <Text style={styles.modeHint}>{MODES.find((m) => m.key === mode)!.hint}</Text>
+
+        <Text style={[styles.fieldLabel, { marginTop: 12 }]}>홍보 주제</Text>
         <TextInput
           style={styles.input}
           value={topic}
@@ -445,15 +494,18 @@ export default function MarketingScreen() {
           placeholder="예: 신메뉴 딸기라떼 출시 (비우면 매장 일반 홍보)"
           placeholderTextColor={colors.mochaBrown + '88'}
         />
-        <Text style={[styles.fieldLabel, { marginTop: 10 }]}>이미지 느낌</Text>
+
+        <Text style={[styles.fieldLabel, { marginTop: 10 }]}>
+          {mode === 'ai' ? '이미지 느낌' : '배경 느낌'}
+        </Text>
         <View style={styles.styleRow}>
-          {IMAGE_STYLES.map((s) => {
-            const active = imageStyle === s.key;
+          {(mode === 'ai' ? IMAGE_STYLES : PHOTO_BG_STYLES).map((s) => {
+            const active = (mode === 'ai' ? imageStyle : photoBgStyle) === s.key;
             return (
               <PressableScale
                 key={s.label}
                 style={[styles.styleChip, active && styles.styleChipActive]}
-                onPress={() => setImageStyle(s.key)}
+                onPress={() => (mode === 'ai' ? setImageStyle(s.key) : setPhotoBgStyle(s.key))}
                 to={0.93}
               >
                 <Text style={[styles.styleText, active && styles.styleTextActive]}>
@@ -487,52 +539,20 @@ export default function MarketingScreen() {
           </View>
         </View>
 
-        <Button
-          label={
-            phase === 'copy'
-              ? '눈길 끄는 문구를 쓰는 중...'
-              : phase === 'image'
-                ? '홍보 이미지를 그리는 중...'
-                : '✨ AI 홍보물 만들기 (문구 + 이미지)'
-          }
-          onPress={() => generate()}
-          disabled={busy}
-          style={{ marginTop: 14 }}
-        />
-
-        {/* ── 실물 사진으로 만들기 — AI가 '전체'를 그리는 위 버튼과 달리,
-              여기는 올린 사진의 메뉴는 그대로 두고 '배경만' 만들어 합성한다 ── */}
-        <View style={styles.photoDividerRow}>
-          <View style={styles.photoDividerLine} />
-          <Text style={styles.photoDividerText}>또는</Text>
-          <View style={styles.photoDividerLine} />
-        </View>
-        <View style={styles.photoBox}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-            <Ionicons name="camera" size={17} color={colors.espressoBrown} />
-            <Text style={styles.photoBoxTitle}>실물 사진으로 만들기</Text>
-          </View>
-          <Text style={styles.photoHint}>
-            메뉴 사진을 올리면 <Text style={{ fontWeight: '800' }}>메뉴는 그대로 두고 배경만</Text> 감성
-            컷으로 바꿔 드려요. AI가 그린 가짜 메뉴가 아니라 진짜 우리 메뉴가 담깁니다.
-          </Text>
-          <View style={styles.styleRow}>
-            {PHOTO_BG_STYLES.map((s2) => {
-              const active = photoBgStyle === s2.key;
-              return (
-                <PressableScale
-                  key={s2.key}
-                  style={[styles.styleChip, active && styles.styleChipActive]}
-                  onPress={() => setPhotoBgStyle(s2.key)}
-                  to={0.93}
-                >
-                  <Text style={[styles.styleText, active && styles.styleTextActive]}>
-                    {s2.label}
-                  </Text>
-                </PressableScale>
-              );
-            })}
-          </View>
+        {mode === 'ai' ? (
+          <Button
+            label={
+              phase === 'copy'
+                ? '눈길 끄는 문구를 쓰는 중...'
+                : phase === 'image'
+                  ? '홍보 이미지를 그리는 중...'
+                  : '✨ 문구 + 이미지 만들기'
+            }
+            onPress={() => generate()}
+            disabled={busy}
+            style={{ marginTop: 14 }}
+          />
+        ) : (
           <PressableScale
             style={[styles.photoUploadBtn, busy && { opacity: 0.55 }]}
             onPress={makeFromPhoto}
@@ -541,17 +561,23 @@ export default function MarketingScreen() {
           >
             <Ionicons name="image-outline" size={17} color={colors.white} />
             <Text style={styles.photoUploadBtnText}>
-              {phase === 'image' ? '내 사진에 배경 입히는 중…' : '📷 메뉴 사진 올려서 만들기'}
+              {phase === 'copy'
+                ? '눈길 끄는 문구를 쓰는 중…'
+                : phase === 'image'
+                  ? '내 사진에 배경 입히는 중…'
+                  : '메뉴 사진 올리고 만들기'}
             </Text>
           </PressableScale>
-        </View>
+        )}
         {busy && phase !== 'restyle' && (
           <View style={styles.progressRow}>
             <ActivityIndicator size="small" color={colors.pointOrange} />
             <Text style={styles.progressText}>
               {phase === 'copy'
                 ? '매장 정보(베스트 메뉴·위치)를 바탕으로 작성하고 있어요'
-                : '구도·조명까지 지시한 고화질 이미지를 그리고 슬로건을 얹는 중이에요 (15초 안팎)'}
+                : mode === 'photo'
+                  ? '메뉴는 그대로 두고 주변만 카페 분위기로 다시 그리는 중이에요 (15초 안팎)'
+                  : '구도·조명까지 지시한 고화질 이미지를 그리고 슬로건을 얹는 중이에요 (15초 안팎)'}
             </Text>
           </View>
         )}
@@ -933,21 +959,31 @@ const styles = StyleSheet.create({
   },
   styleText: { fontSize: 11.5, fontWeight: '700', color: colors.mochaBrown },
   styleTextActive: { color: colors.white },
-  photoHint: { fontSize: 11, color: colors.mochaBrown, marginTop: 6, lineHeight: 16 },
-  photoDividerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16, marginBottom: 10 },
-  photoDividerLine: { flex: 1, height: 1, backgroundColor: colors.mutedSand },
-  photoDividerText: { fontSize: 11, fontWeight: '700', color: colors.mochaBrown },
-  photoBox: {
-    backgroundColor: colors.coffeeCream,
+
+  modeTabs: {
+    flexDirection: 'row',
+    gap: 4,
+    backgroundColor: 'rgba(140,111,86,0.09)',
     borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: colors.mutedSand,
+    padding: 4,
   },
-  photoBoxTitle: { fontSize: 14.5, fontWeight: '900', color: colors.espressoBrown },
+  modeTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 11,
+  },
+  modeTabActive: { backgroundColor: colors.espressoBrown },
+  modeTabText: { fontSize: 13, fontWeight: '800', color: colors.mochaBrown },
+  modeTabTextActive: { color: colors.white },
+  modeHint: { fontSize: 11.5, color: colors.mochaBrown, marginTop: 8, lineHeight: 16 },
+
   photoUploadBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    backgroundColor: colors.espressoBrown, borderRadius: 12, paddingVertical: 13, marginTop: 10,
+    backgroundColor: colors.espressoBrown, borderRadius: 12, paddingVertical: 13, marginTop: 14,
   },
   photoUploadBtnText: { color: colors.white, fontSize: 13.5, fontWeight: '800' },
 

@@ -4,6 +4,7 @@
 // 네이버 뉴스·블로그 검색을 Gemini가 정리한 결과. 예측은 '날짜별 보정 행'을 쓰지만
 // 여기서는 백엔드가 같은 행사를 하나로 묶어 기간(start_date~end_date)으로 내려 준다.
 import { apiFetch } from './client';
+import type { PromotionDoc } from './marketing';
 
 export type NearbyEventItem = {
   name: string;
@@ -66,6 +67,11 @@ export type EventPlanResult = {
 
 const auth = (token: string) => ({ headers: { Authorization: `Bearer ${token}` } });
 
+const jsonAuth = (token: string) => ({
+  Authorization: `Bearer ${token}`,
+  'Content-Type': 'application/json',
+});
+
 /** 매장 주변 행사 목록 + AI 대비 조언. 좌표는 계정에 등록된 매장 고정 위치를 쓴다. */
 export const getNearbyEvents = (token: string, days = 14) =>
   apiFetch<NearbyEventsResult>(`/api/v1/chatbot/nearby-events?days=${days}`, auth(token));
@@ -109,4 +115,103 @@ export const getEventPlan = async (token: string, event: NearbyEventItem) => {
       auth(token),
     );
   }
+};
+
+/** 행사 준비 항목을 홈 '오늘 할 일'에 담은 결과 */
+export type EventTodoResult = {
+  added: { id: number; title: string; due_date?: string | null }[];
+  /** 이미 같은 할 일이 열려 있어 새로 만들지 않은 제목들 */
+  skipped: string[];
+  /** 서버가 잡아 준 기한 — 행사 전날(이미 지났으면 오늘) */
+  due_date: string | null;
+};
+
+/**
+ * 준비 플랜의 '해 둘 일'을 할 일 목록에 담는다 (여러 개를 한 번의 호출로).
+ *
+ * 시트를 닫으면 잊히던 준비 항목이 홈 화면 '오늘 할 일'에 기한과 함께 남는다.
+ * 서버가 같은 할 일을 중복 생성하지 않으므로 두 번 눌러도 안전하다.
+ */
+export const addEventPrepTodos = (
+  token: string,
+  req: { items: string[]; eventName: string; startDate?: string },
+) =>
+  apiFetch<EventTodoResult>('/api/v1/chatbot/nearby-events/plan/todos', {
+    method: 'POST',
+    headers: jsonAuth(token),
+    body: JSON.stringify({
+      items: req.items,
+      event_name: req.eventName,
+      start_date: req.startDate ?? '',
+    }),
+  });
+
+/**
+ * 행사에 맞춘 홍보 문구 세트를 만든다 — 인스타 캡션·해시태그·이미지에 새길 슬로건까지.
+ *
+ * 플랜의 이벤트·한정 메뉴·한 줄 문구를 함께 보내야 홍보물이 방금 본 플랜과 같은 이야기를 한다
+ * (안 보내면 카피라이터가 다른 이벤트를 지어낸다). 결과 문서는 홍보 보관함에도 남는다.
+ * 이미지는 이어서 marketing.ts의 createPromotionImage(doc_id)로 만든다.
+ */
+export const createEventPromotion = (
+  token: string,
+  event: NearbyEventItem,
+  plan: EventPlan | null,
+  channel: 'instagram' | 'banner' = 'instagram',
+) => {
+  const promo = plan?.promotions?.[0];
+  return apiFetch<{ doc: PromotionDoc; event: NearbyEventItem }>('/api/v1/chatbot/nearby-events/promo', {
+    method: 'POST',
+    headers: jsonAuth(token),
+    body: JSON.stringify({
+      event: {
+        name: event.name,
+        place: event.place ?? '',
+        host: event.host ?? '',
+        source: event.source ?? '',
+        start_date: event.start_date ?? '',
+        end_date: event.end_date ?? '',
+        day_count: event.day_count ?? 1,
+        distance_km: event.distance_km,
+        boost_pct: event.boost_pct ?? 0,
+        d_day: event.d_day ?? 0,
+        ongoing: !!event.ongoing,
+      },
+      promotion_title: promo?.title ?? '',
+      promotion_detail: promo?.detail ?? '',
+      menu_idea: plan?.menu_idea ?? '',
+      busy_window: plan?.busy_window ?? '',
+      promo_copy: plan?.promo_copy ?? '',
+      channel,
+    }),
+  });
+};
+
+/** 준비 플랜을 그대로 복사·공유할 수 있는 글로 (직원 단톡방에 붙여넣는 용도) */
+export const planToText = (event: NearbyEventItem, plan: EventPlan) => {
+  const period = [event.start_date, event.end_date].filter(Boolean).join(' ~ ');
+  // 빈 문자열은 '문단 사이 빈 줄', null은 '내용이 없어 빠진 줄' — 둘을 구분해야
+  // 인력·재료가 없는 플랜에서도 문단 나눔이 살아남는다.
+  const lines: (string | null)[] = [
+    `[${event.name}] 행사 준비`,
+    [period, event.place].filter(Boolean).join(' · '),
+    '',
+    plan.headline || null,
+    plan.expected_change || null,
+    plan.busy_window ? `붐빌 때: ${plan.busy_window}` : null,
+    '',
+    ...(plan.promotions ?? []).map((p) => `· ${p.title} — ${p.detail}`),
+    plan.menu_idea ? `· 한정 메뉴: ${plan.menu_idea}` : null,
+    '',
+    '[행사 전에 해 둘 일]',
+    ...(plan.prep_actions ?? []).map((t, i) => `${i + 1}. ${t}`),
+    (plan.stock_prep ?? []).length ? `재료: ${(plan.stock_prep ?? []).join(', ')}` : null,
+    plan.staffing ? `인력: ${plan.staffing}` : null,
+    plan.promo_copy ? `\n홍보 문구: ${plan.promo_copy}` : null,
+  ];
+  return lines
+    .filter((l): l is string => l !== null)
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 };

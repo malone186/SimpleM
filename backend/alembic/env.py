@@ -32,20 +32,24 @@ import app.models
 target_metadata = Base.metadata
 
 
-# [한글 주석] 타 서비스 테이블 자동 삭제(DROP TABLE)를 방지하는 안전 필터 함수
-def include_object(object, name, type_, reflected, compare_to):
-    """
-    - type_ == 'table' 인 경우, 스키마가 'simplem'이 아닌 다른 서비스/public 스키마의 테이블은 autogenerate에서 배제합니다.
-    """
-    if type_ == "table":
-        # object의 schema가 simplem이 아니거나 None이면 제외 (simplem 스키마 전용 대상)
-        if getattr(object, 'schema', None) != "simplem":
-            return False
-    return True
-
-
 import os
 db_schema = os.getenv("DB_SCHEMA", None)
+
+
+# [한글 주석] 타 서비스 테이블 자동 삭제(DROP TABLE)를 방지하는 안전 필터 함수
+def include_object(object, name, type_, reflected, compare_to):
+    """이 서비스의 스키마에 속한 테이블만 autogenerate 대상으로 삼는다.
+
+    [주의] 예전엔 스키마를 'simplem' 문자열로 고정 비교했는데, 모델은 DB_SCHEMA 환경변수를
+    설정했을 때만 스키마가 붙는다(core/database.py). 기본 설정(미설정=None)에서는 모든
+    테이블이 schema=None이라 전부 걸러져 autogenerate가 항상 '빈 마이그레이션'을 만들었다
+    — 컬럼을 추가하고 autogenerate를 돌려도 no-op 파일이 나오는 함정. 이제 모델과 같은
+    기준(DB_SCHEMA 값, 미설정이면 None)과 비교한다.
+    """
+    if type_ == "table":
+        if getattr(object, 'schema', None) != db_schema:
+            return False
+    return True
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""

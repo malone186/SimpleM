@@ -103,3 +103,29 @@ def test_차단목록은_허용목록보다_우선한다():
                for a in STAFF_ALLOWED_PREFIXES), "차단 규칙이 허용 범위 안에 있어야 의미가 있다"
     assert is_blocked_for_staff("/api/v1/inventory/menus")
     assert not is_blocked_for_staff("/api/v1/inventory/ingredients")
+
+
+def test_파괴적_메서드는_직원에게_막힌다():
+    """재료 삭제(cascade로 재고·레시피 소멸)와 발주 승인(돈 나가는 결정)은 사장님 몫.
+
+    조회·입고 찍기는 직원 업무라 열어 두되, 같은 경로라도 메서드로 가른다 (2026-08-07 감사).
+    """
+    assert is_blocked_for_staff("/api/v1/inventory/ingredients/3", "DELETE")
+    assert is_blocked_for_staff("/api/v1/inventory/orders/7", "PATCH")
+    # 같은 경로의 안전한 메서드는 그대로 열려 있어야 계산대 업무가 된다
+    assert not is_blocked_for_staff("/api/v1/inventory/ingredients/3", "GET")
+    assert not is_blocked_for_staff("/api/v1/inventory/ingredients/3", "PATCH")
+    assert not is_blocked_for_staff("/api/v1/inventory/orders", "GET")
+
+
+def test_직원은_사장님_계정을_건드릴_수_없다():
+    """[보안 회귀] 직원 토큰의 sub는 사장님 이메일이라 get_current_user가 사장님으로 풀린다.
+
+    /auth가 화이트리스트에 있어서, 아래가 열려 있으면 알바생이 사장님 비밀번호를 바꿔
+    계정을 넘겨받거나(PATCH /auth/profile) 사장님 계정을 탈퇴시킬 수 있었다(DELETE /auth/me).
+    """
+    assert is_blocked_for_staff("/api/v1/auth/profile", "PATCH")
+    assert is_blocked_for_staff("/api/v1/auth/me", "DELETE")
+    # 조회·로그인은 그대로 열려 있어야 한다
+    assert not is_blocked_for_staff("/api/v1/auth/me", "GET")
+    assert not is_blocked_for_staff("/api/v1/auth/login", "POST")

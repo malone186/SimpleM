@@ -33,6 +33,7 @@ from datetime import date, datetime, time as dtime, timedelta
 from typing import Any, Callable, Optional
 
 from app.services.ai import warm_cache
+from app.utils.datetime_kst import today_kst
 
 logger = logging.getLogger(__name__)
 
@@ -1039,58 +1040,85 @@ def _scan_demand_outlook(db, store_id: str, today: date) -> list[dict[str, Any]]
 
 
 # ---------------------------------------------------------------------------
-# 메뉴 수익성 — 팔수록 손해인 메뉴를 그냥 두지 않는다
+# 메뉴 개선 — '점검해 보세요'가 아니라 '얼마로 올리세요'까지 말한다
 # ---------------------------------------------------------------------------
 
+# 안 나가는 메뉴가 이만큼 쌓이면 '메뉴판 정리'를 할 일로 올린다.
+# 한두 개는 시즌 메뉴일 수 있어 굳이 손댈 일이 아니다.
+MENU_DEAD_TODO_COUNT = 3
+
+
 def _scan_menu_margin(db, store_id: str, today: date) -> list[dict[str, Any]]:
-    """원가율이 위험한 메뉴 (레시피가 등록된 메뉴만 — 없으면 원가를 알 수 없다)."""
-    from app.services.ai import sales_service
+    """메뉴 개선 추천을 홈 할 일·알림으로 올린다.
 
-    rows = [
-        m for m in sales_service.menu_contribution(store_id, days=30).get("menus", [])
-        if not m.get("recipe_missing") and m.get("cost_ratio") is not None and m.get("sold_qty", 0) > 0
-    ]
-    if not rows:
+    예전엔 "원가율 45%예요, 점검해 보세요"까지만 말했다. 그건 사장님에게 숙제만 넘기는
+    말이라, 열어 보고도 무엇을 얼마로 바꿀지 몰라 그대로 닫는다. 지금은 메뉴 개선 화면과
+    **같은 계산기**로 '얼마를 받아야 하는지'와 '손님이 얼마나 줄어도 괜찮은지'까지 만들어 준다.
+
+    신메뉴 아이디어(Gemini)는 빼고 부른다 — 이 스캐너는 매장마다 수시로 돌아서
+    여기서 LLM을 부르면 팀 공유 쿼터가 하루도 못 간다.
+    """
+    from app.services.ai import menu_review_service
+
+    try:
+        rec = menu_review_service.recommend(store_id, include_new=False)
+    except menu_review_service.MenuReviewError:
+        return []  # 메뉴가 없는 매장 — 알릴 것도 없다
+    except Exception:
+        logger.warning("메뉴 개선 추천 실패 — 이 항목만 건너뜁니다 (%s)", store_id, exc_info=True)
         return []
 
-    losing = [m for m in rows if m["margin_per_cup"] <= 0]
-    if losing:
-        head = max(losing, key=lambda m: m["sold_qty"])
-        names = ", ".join(m["name"] for m in losing[:3])
-        return [_insight(
-            key=f"menu_loss:{','.join(sorted(str(m['menu_id']) for m in losing))}",
+    out: list[dict[str, Any]] = []
+
+    # 가격은 한 번에 하나씩 올리는 게 맞다 — 세 메뉴를 같은 날 올리면 손님이 먼저 알아챈다
+    price = next((s for s in rec["suggestions"] if s["kind"] == "price" and s.get("after")), None)
+    if price:
+        before, after = price["before"], price["after"]
+        losing = (before.get("margin") or 0) <= 0
+        drop = price.get("breakeven_drop_pct")
+        body = f"지금 {before['price']:,}원인데 재료비가 {before['cost']:,}원이에요. "
+        if losing:
+            body += f"한 잔 팔 때마다 {-(before['margin']):,}원씩 손해입니다. "
+        body += f"{after['price']:,}원으로 올리면 "
+        if drop is not None:
+            body += (f"손님이 {drop}%({price.get('breakeven_drop_cups', 0)}잔) 줄어도 "
+                     f"지금만큼 남아요.")
+        else:
+            body += f"한 잔에 {after['margin']:,}원이 남아요."
+        if isinstance(price.get("monthly_delta"), int) and price["monthly_delta"] > 0:
+            body += f" 판매가 그대로면 한 달에 {price['monthly_delta']:,}원이 늘어요."
+
+        out.append(_insight(
+            key=f"menu_price:{price['menu_id']}:{after['price']}",
             category="menu",
-            severity="high",
-            title=f"{head['name']}은(는) 팔수록 손해예요",
-            body=(
-                f"판매가 {head['selling_price']:,}원인데 재료 원가가 {head['cost_price']:,}원입니다"
-                f"(최근 30일 {head['sold_qty']}잔 판매). "
-                + (f"같은 상태인 메뉴: {names}. " if len(losing) > 1 else "")
-                + "판매가·레시피 용량·재료 단가 중 하나가 잘못 입력됐을 수도 있으니 먼저 확인해 보세요."
-            ),
-            action=f"{head['name']} 원가 분석해줘",
-            todo=f"{head['name']} 판매가 점검",
-        )]
+            severity="high" if losing else "medium",
+            title=(f"{price['name']}은(는) 팔수록 손해예요"
+                   if losing else f"{price['name']}, {after['price']:,}원은 받아야 해요"),
+            body=body,
+            # 챗봇에 그대로 말하면 같은 계산을 다시 보여준다 (menu_expert 담당)
+            action=f"{price['name']} {after['price']}원으로 올리면 어때?",
+            todo=f"{price['name']} 가격 올리기",
+        ))
 
-    risky = sorted([m for m in rows if m["cost_ratio"] >= COST_RATIO_WARN],
-                   key=lambda m: -m["cost_ratio"])
-    if not risky:
-        return []
-    head = risky[0]
-    return [_insight(
-        key=f"menu_cost:{head['menu_id']}:{int(head['cost_ratio'])}",
-        category="menu",
-        severity="medium",
-        title=f"{head['name']} 원가율 {head['cost_ratio']}%",
-        body=(
-            f"판매가 {head['selling_price']:,}원 대비 재료비가 {head['cost_price']:,}원입니다. "
-            f"한 잔 남는 돈은 {head['margin_per_cup']:,}원이에요"
-            + (f" (같은 기준 40% 초과 메뉴 {len(risky)}종). " if len(risky) > 1 else ". ")
-            + "재료를 더 싸게 사거나 판매가를 조정할 여지가 있는지 보시면 좋겠어요."
-        ),
-        action=f"{head['name']} 재료 최저가 비교해줘",
-        todo=f"{head['name']} 원가 낮추기",
-    )]
+    # 안 나가는 메뉴 — 묶어서 한 줄. 개별로 올리면 할 일 칸을 혼자 다 먹는다
+    dead = [s for s in rec["suggestions"] if s["kind"] == "remove"
+            and not (s.get("before") or {}).get("sold_qty_30d")]
+    if dead:
+        names = ", ".join(s["name"] for s in dead[:3])
+        out.append(_insight(
+            key=f"menu_dead:{','.join(sorted(str(s['menu_id']) for s in dead))}",
+            category="menu",
+            # 한두 개는 시즌 메뉴일 수 있다. 쌓였을 때만 할 일로 올린다
+            severity="medium" if len(dead) >= MENU_DEAD_TODO_COUNT else "low",
+            title=f"30일 동안 한 잔도 안 나간 메뉴가 {len(dead)}개 있어요",
+            body=(f"{names}{' 외 ' + str(len(dead) - 3) + '개' if len(dead) > 3 else ''}. "
+                  f"메뉴가 많으면 손님이 고르기 어려워져요. 메뉴판에서 빼도 지난 판매 기록은 "
+                  f"그대로 남습니다."),
+            action="안 나가는 메뉴 정리 추천해줘",
+            todo="안 팔리는 메뉴 정리",
+        ))
+
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1238,6 +1266,10 @@ _SCANNERS: list[tuple[str, Callable]] = [
     ("stale_ocr", _scan_stale_ocr_drafts),
     ("price_surge", _scan_price_surge),
     ("sales_anomaly", _scan_sales_anomaly),
+    # 메뉴 개선은 '매달 새고 있는 돈'이라 같은 등급 안에서는 앞에 둔다.
+    # 목록은 등급으로만 정렬되고 같은 등급끼리는 이 순서를 따르는데, 뒤에 있으면
+    # 할 일 네 칸(영역당 하나)이 다 차서 사장님 눈에 영영 닿지 않는다.
+    ("menu_margin", _scan_menu_margin),
     ("staff_hours", _scan_staff_hours),
     ("missing_contracts", _scan_missing_contracts),
     ("periodic_documents", _scan_periodic_documents),
@@ -1251,7 +1283,6 @@ _SCANNERS: list[tuple[str, Callable]] = [
     ("stale_orders", _scan_stale_orders),
     ("payslips", _scan_payslips),
     ("demand_outlook", _scan_demand_outlook),
-    ("menu_margin", _scan_menu_margin),
     ("rewards", _scan_rewards),
     ("setup_gaps", _scan_setup_gaps),
 ]
@@ -1425,7 +1456,7 @@ def scan(store_id: str, include_dismissed: bool = False,
     """
     from app.models.ai import InsightAck
 
-    today = date.today()
+    today = today_kst()
     found, failed = _fast_insights(store_id, today, deep=deep)
 
     with _db() as db:

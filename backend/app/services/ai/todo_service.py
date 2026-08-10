@@ -140,6 +140,67 @@ def add_todo(store_id: str, req: TodoCreate, source: str = "owner") -> dict[str,
         return _to_dict(row)
 
 
+def add_todos_bulk(store_id: str, items: list[TodoCreate],
+                   source: str = "ai") -> dict[str, Any]:
+    """여러 할 일을 한 번에 추가한다 (행사 준비 목록처럼 '통째로 담기'용).
+
+    add_todo를 목록만큼 반복하면 DB 왕복이 항목 수만큼 늘어난다 — 공유 DB가 원격(Neon)이라
+    한 번에 0.2초씩 붙어 5개만 담아도 1초가 넘는다. 여기서는 기존 미완료 목록을 한 번만
+    읽고, 추가도 한 트랜잭션에서 끝낸다.
+
+    중복 판정은 add_todo와 같은 기준(_normalize_title)이되, **이번 묶음 안의 중복도**
+    함께 걸러낸다 (AI가 "얼음 넉넉히 준비하기"를 두 곳에서 뽑아 오는 일이 있다).
+
+    반환: {"added": [할 일...], "skipped": ["이미 있던 제목"...]}
+    """
+    from app.models.ai import TodoItem
+
+    cleaned: list[TodoCreate] = []
+    for req in items:
+        title = (req.title or "").strip()
+        if not title:
+            continue
+        if req.due_date:
+            try:
+                date.fromisoformat(req.due_date)
+            except ValueError:
+                raise TodoError(f"기한 형식 오류: '{req.due_date}' (YYYY-MM-DD로 입력)")
+        cleaned.append(req.model_copy(update={"title": title}))
+    if not cleaned:
+        raise TodoError("추가할 할 일이 없습니다")
+
+    added: list[dict[str, Any]] = []
+    skipped: list[str] = []
+    with _session() as db:
+        open_rows = (
+            db.query(TodoItem)
+            .filter(TodoItem.store_id == store_id, TodoItem.done.is_(False))
+            .all()
+        )
+        seen = {_normalize_title(r.title) for r in open_rows}
+        rows: list[Any] = []
+        for req in cleaned:
+            norm = _normalize_title(req.title)
+            if norm in seen:
+                skipped.append(req.title)
+                continue
+            seen.add(norm)
+            row = TodoItem(store_id=store_id, title=req.title,
+                           note=(req.note or "").strip() or None,
+                           source=source, due_date=req.due_date)
+            db.add(row)
+            rows.append(row)
+        if rows:
+            db.commit()
+            for row in rows:
+                db.refresh(row)
+                added.append(_to_dict(row))
+
+    logger.info("할 일 일괄 추가 (%s, source=%s): 추가 %d건 / 중복 %d건",
+                store_id, source, len(added), len(skipped))
+    return {"added": added, "skipped": skipped}
+
+
 # ---------------------------------------------------------------------------
 # 수정 · 완료 · 삭제
 # ---------------------------------------------------------------------------

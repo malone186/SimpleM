@@ -39,6 +39,17 @@ class IngredientPriceUpdate(BaseModel):
     price: int = Field(..., ge=0, description="새로운 단가 (KRW, 0원 이상)")
 
 
+# 1-4. [백엔드 B 추가] 재료 전체 수정 신청서 — 재고 화면에서 이름·단위·단가·수량을 한 번에 고칠 때 쓴다.
+# 보내지 않은(None) 항목은 건드리지 않는다(부분 수정). current_quantity는 '변동량'이 아니라
+# '고쳐 넣을 최종 수량'이다 — 사장님이 실사한 값을 그대로 적는 칸이라, 차액은 서버가 계산해 장부에 남긴다.
+class IngredientUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=100, description="새 재료명")
+    unit: str | None = Field(None, min_length=1, max_length=20, description="새 단위 (예: 팩, kg)")
+    current_price: int | None = Field(None, ge=0, description="새 단가 (KRW, 0원 이상)")
+    current_quantity: float | None = Field(None, ge=0, description="실사한 현재 수량 (최종값)")
+    safety_quantity: float | None = Field(None, ge=0, description="부족 알림 기준 수량")
+
+
 # --- [재고(Stock) 및 변동 장부 관련 규격] ---
 
 # 3. 재고 입고 및 수동 조정 신청서
