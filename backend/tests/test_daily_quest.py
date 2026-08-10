@@ -154,3 +154,40 @@ def test_단골_선불_결제가_실시간_반영된다(monkeypatch):
     assert cups["prepaid"] == 3, "단골 선불 사용만 — 충전은 빠져야 한다"
     assert cups["total"] == 5
     db.close(); eng.dispose()
+
+
+def test_매출_올리는_순간_본전_보상(monkeypatch):
+    """업로드한 날짜 중 본전 넘긴 날에 코인을 준다. 같은 날 다시 올려도 이중 지급 안 됨.
+    일일 퀘스트 수령과 같은 원장(ref)을 써서 한쪽에서 받으면 다른 쪽은 no-op."""
+    from datetime import date
+    _stub_breakeven(monkeypatch, daily_cups=50)
+    # 8/6은 본전 넘김(60잔), 8/7은 미달(20잔)
+    counts = {date(2026, 8, 6): 60, date(2026, 8, 7): 20}
+    monkeypatch.setattr(R, "_cups_on",
+                        lambda db, s, day, avg_ticket=None: {"sale": counts.get(day, 0),
+                                                             "prepaid": 0, "total": counts.get(day, 0)})
+
+    res = R.reward_breakeven_on_dates(STORE, [date(2026, 8, 6), date(2026, 8, 7)])
+    assert res["achieved"] == ["2026-08-06"], "본전 넘긴 날만"
+    assert res["coins"] == R.DAILY_BE_REWARD and res["count"] == 1
+
+    # 같은 날 다시 올려도 재지급 안 됨
+    again = R.reward_breakeven_on_dates(STORE, [date(2026, 8, 6)])
+    assert again["coins"] == 0 and again["achieved"] == []
+
+    # 브루룸 일일 퀘스트 수령도 같은 ref라 no-op (이미 받음)
+    monkeypatch.setattr(R, "_today_cups",
+                        lambda db, s, avg_ticket=None: {"sale": 60, "prepaid": 0, "total": 60})
+    # 오늘=8/6로 맞추긴 어려우니, 원장에 8/6 quest_daily가 1건뿐인지로 공유를 확인
+    with R._session() as db:
+        n = db.query(PointLedger).filter(
+            PointLedger.store_id == STORE, PointLedger.reason == "quest_daily",
+            PointLedger.ref == f"{R.DAILY_BE_ID}:2026-08-06").count()
+    assert n == 1, "업로드 보상과 일일 퀘스트가 같은 원장을 공유해 하루 1회"
+
+
+def test_손익분기_설정_전엔_보상_없음(monkeypatch):
+    from datetime import date
+    _stub_breakeven(monkeypatch, computed=False, daily_cups=None)
+    res = R.reward_breakeven_on_dates(STORE, [date(2026, 8, 6)])
+    assert res["coins"] == 0 and res["achieved"] == []

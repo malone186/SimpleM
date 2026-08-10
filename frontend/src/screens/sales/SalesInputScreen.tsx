@@ -23,6 +23,7 @@ import {
   type PosConnection,
 } from '../../lib/api/pos';
 import { confirmSalesImport, previewSalesImport, registerImportMenus, type ImportPreview } from '../../lib/api/sales';
+import { celebrateBreakeven } from '../../lib/breakevenCelebrate';
 import { listStocks, type StockItem } from '../../lib/api/inventory';
 import { colors, typography } from '../../theme';
 
@@ -361,6 +362,10 @@ export default function SalesInputScreen() {
       const result = await confirmSalesImport(token, rows);
       const dropped = discardedRows > 0 ? ` · 버리기 ${discardedRows}행 제외` : '';
       toast('매출을 저장했어요', `${result.created}건 · ${result.total.toLocaleString()}원 반영 (재고 자동 차감)${dropped}`);
+      // 올린 매출 중 본전 넘긴 날이 있으면 잠시 뒤 축하가 뜬다 (저장 안내 토스트 다음)
+      if (result.breakeven_reward?.count) {
+        setTimeout(() => celebrateBreakeven(result.breakeven_reward), 1200);
+      }
       setImportPreview(null);
       setImportedName('');
       setDiscardedMenus(new Set());

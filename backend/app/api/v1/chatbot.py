@@ -74,6 +74,7 @@ from app.services.ai import (
     price_service,
     push_service,
     report_service,
+    reward_service,
     sales_import_service,
     sales_service,
     todo_service,
@@ -981,6 +982,22 @@ class MenuRegisterRequest(BaseModel):
     menus: list[MenuRegisterItem]
 
 
+def _reward_breakeven_safe(store_id: str, dates) -> dict:
+    """본전 달성 보상 확인 — 매출 저장 응답에 실을 수 있게 안전하게 감싼다.
+
+    dates=None이면 '오늘'(reward_service가 KST로 계산). 보상 계산이 실패해도 매출 저장
+    자체는 이미 끝났으므로 조용히 빈 결과를 준다 — 게임 보상 때문에 매출이 안 들어가면 안 된다.
+    """
+    try:
+        from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+        if dates is None:
+            dates = [(_dt.now(_tz(_td(hours=9)))).date()]
+        return reward_service.reward_breakeven_on_dates(store_id, dates)
+    except Exception:
+        logger.exception("본전 보상 확인 실패 — 매출 저장은 정상")
+        return {"achieved": [], "coins": 0, "count": 0}
+
+
 @router.post("/sales", status_code=201)
 def record_sales_api(
     body: SalesRecordRequest,
@@ -997,6 +1014,8 @@ def record_sales_api(
         raise HTTPException(400, str(e))
     # 오늘 실적이 바뀌었으므로 예측 캐시를 비운다 — 대시보드 그래프가 바로 최신을 본다
     forecast_service.invalidate_forecast_cache(current_user.email)
+    # 매출을 올린 '그 순간' 본전 달성을 확인해 코인을 준다 (수동 입력은 오늘 매출)
+    result["breakeven_reward"] = _reward_breakeven_safe(current_user.email, None)
     return result
 
 
@@ -1055,12 +1074,20 @@ def sales_import_confirm_api(
     current_user: User = Depends(get_current_user),
 ):
     """미리보기에서 확인·수정한 행을 실제 Sale로 저장하고 레시피 기준 재고를 차감한다."""
+    rows = [r.model_dump() for r in body.rows]
     try:
-        result = sales_import_service.save_import(
-            current_user.email, [r.model_dump() for r in body.rows])
+        result = sales_import_service.save_import(current_user.email, rows)
     except sales_import_service.SalesImportError as e:
         raise HTTPException(400, str(e))
     forecast_service.invalidate_forecast_cache(current_user.email)
+    # 업로드한 파일에 담긴 날짜들 중 본전 넘긴 날에 보상 (과거 몰아 올려도 날짜당 1회)
+    dates = []
+    for r in rows:
+        if not r.get("menu_id"):
+            continue
+        d = sales_import_service._coerce_dt(r.get("sold_at"))
+        dates.append(d.date() if hasattr(d, "date") else None)
+    result["breakeven_reward"] = _reward_breakeven_safe(current_user.email, dates)
     return result
 
 

@@ -659,8 +659,8 @@ def _weekly_todo_stats(db, store_id: str):
 # 일일 퀘스트 — 오늘 본전 넘기기 (손익분기점 연동)
 # ---------------------------------------------------------------------------
 
-def _today_cups(db, store_id: str, avg_ticket: Optional[int] = None) -> dict[str, int]:
-    """오늘(KST) 판매 잔 수를 출처별로 돌려준다.
+def _cups_on(db, store_id: str, day, avg_ticket: Optional[int] = None) -> dict[str, int]:
+    """특정 날짜(KST)의 판매 잔 수를 출처별로 돌려준다.
 
     두 갈래로 나눠 센다:
       · sale   — POS 연동/파일 업로드로 들어온 Sale 행. POS 연동 매장은 실시간,
@@ -672,19 +672,21 @@ def _today_cups(db, store_id: str, avg_ticket: Optional[int] = None) -> dict[str
     from app.models.inventory import Sale
     from app.models.membership import BalanceTransaction
 
-    today = datetime.now(KST).date()
     # KST 자정 경계의 저장 편차를 흡수하려 하루 여유로 당겨오고 KST 날짜로 정확히 거른다
-    start = (datetime.combine(today, datetime.min.time(), tzinfo=KST)
+    start = (datetime.combine(day, datetime.min.time(), tzinfo=KST)
              - timedelta(days=1)).astimezone(timezone.utc)
+    end = (datetime.combine(day, datetime.min.time(), tzinfo=KST)
+           + timedelta(days=2)).astimezone(timezone.utc)
 
-    def _is_today(ts):
+    def _on_day(ts):
         d = ts.astimezone(KST).date() if ts.tzinfo else ts.date()
-        return d == today
+        return d == day
 
     sale = sum(int(q or 0) for q, ts in
                db.query(Sale.quantity, Sale.sold_at)
-               .filter(Sale.store_id == store_id, Sale.sold_at >= start).all()
-               if _is_today(ts))
+               .filter(Sale.store_id == store_id,
+                       Sale.sold_at >= start, Sale.sold_at < end).all()
+               if _on_day(ts))
 
     # 단골 선불 '사용'만 — 사용 1건 = 1잔(메뉴 탭), 메뉴 없이 금액만이면 객단가로 환산
     prepaid = 0
@@ -693,9 +695,10 @@ def _today_cups(db, store_id: str, avg_ticket: Optional[int] = None) -> dict[str
                  BalanceTransaction.created_at)
         .filter(BalanceTransaction.store_id == store_id,
                 BalanceTransaction.tx_type == "USE",
-                BalanceTransaction.created_at >= start).all()
+                BalanceTransaction.created_at >= start,
+                BalanceTransaction.created_at < end).all()
     ):
-        if not _is_today(ts):
+        if not _on_day(ts):
             continue
         if menu_id is not None:
             prepaid += 1
@@ -704,6 +707,11 @@ def _today_cups(db, store_id: str, avg_ticket: Optional[int] = None) -> dict[str
         else:
             prepaid += 1
     return {"sale": sale, "prepaid": prepaid, "total": sale + prepaid}
+
+
+def _today_cups(db, store_id: str, avg_ticket: Optional[int] = None) -> dict[str, int]:
+    """오늘(KST) 판매 잔 수 — _cups_on의 오늘 버전(일일 퀘스트 카드가 쓴다)."""
+    return _cups_on(db, store_id, datetime.now(KST).date(), avg_ticket)
 
 
 def _daily_breakeven_quest(store_id: str) -> dict[str, Any]:
@@ -780,6 +788,57 @@ def claim_daily_quest(store_id: str) -> dict[str, Any]:
     result["awarded"] = DAILY_BE_REWARD if awarded else 0
     result["balance"] = get_balance(store_id)
     return result
+
+
+def reward_breakeven_on_dates(store_id: str, dates) -> dict[str, Any]:
+    """매출이 들어온 날짜들 중 본전을 넘긴 날에 코인을 준다 (하루 1회).
+
+    매출을 '올리는 순간' 본전 달성을 알려주는 게 목적이다 — 이 앱의 가장 큰 약점이
+    '사장님이 매출을 안 올려서 예측·원가·리포트가 다 무너지는 것'이라, 업로드라는
+    행동 자체에 보상을 걸어 습관을 만든다.
+
+    일일 퀘스트 수령과 같은 원장(ref="dq-breakeven:날짜")을 쓴다 — 그래서 여기서 먼저
+    받든 브루룸에서 눌러 받든 하루당 한 번만 지급되고, 서로 중복되지 않는다.
+
+    과거 날짜를 몰아 올려도(첫 온보딩 시 한 달치 업로드) 각 날짜별 1회로 자연히 막힌다.
+    """
+    from app.models.ai import PointLedger
+    from app.services.ai import breakeven_service
+
+    uniq = sorted({d for d in dates if d is not None})
+    if not uniq:
+        return {"achieved": [], "coins": 0, "count": 0}
+
+    try:
+        be = breakeven_service.compute_breakeven(store_id)
+    except Exception:
+        logger.exception("본전 보상 계산 실패 — 매출 저장은 정상")
+        return {"achieved": [], "coins": 0, "count": 0}
+
+    target = be.get("breakeven_daily_cups")
+    if not be.get("computed") or not target:
+        # 손익분기 설정 전 — 보상할 기준이 없다(매출 저장 자체엔 영향 없음)
+        return {"achieved": [], "coins": 0, "count": 0, "needs_setup": True}
+
+    achieved: list[str] = []
+    with _session() as db:
+        for day in uniq:
+            cups = _cups_on(db, store_id, day, avg_ticket=be.get("avg_ticket"))
+            if cups["total"] < target:
+                continue
+            ref = f"{DAILY_BE_ID}:{day.isoformat()}"
+            if award(store_id, DAILY_BE_REWARD, "quest_daily", ref,
+                     f"본전 달성 ({day.isoformat()})"):
+                achieved.append(day.isoformat())
+
+    return {
+        "achieved": achieved,
+        "count": len(achieved),
+        "coins": len(achieved) * DAILY_BE_REWARD,
+        "goal": target,
+        "latest": achieved[-1] if achieved else None,
+        "balance": get_balance(store_id) if achieved else None,
+    }
 
 
 def get_quests(store_id: str) -> dict[str, Any]:

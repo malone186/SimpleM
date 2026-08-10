@@ -19,10 +19,22 @@ export type RecentSale = {
   sold_at: string;
 };
 
+// 매출을 올린 '그 순간' 본전 달성을 확인해 준다 — 넘긴 날짜에 코인이 지급된다.
+// 손익분기 미설정이거나 본전 미달이면 achieved가 빈 배열(coins 0).
+export type BreakevenReward = {
+  achieved: string[];   // 본전 넘긴 날짜(YYYY-MM-DD) 목록
+  count: number;
+  coins: number;
+  goal?: number;
+  latest?: string | null;
+  balance?: number | null;
+};
+
 export type SalesRecordResult = {
   created: { menu_id: number; name: string; quantity: number; total_price: number }[];
   count: number;
   total: number;
+  breakeven_reward?: BreakevenReward;
 };
 
 /** 판매 가능한 메뉴 목록 (백엔드 A의 /inventory/menus) */
@@ -165,8 +177,9 @@ export const confirmSalesImport = (
   token: string,
   rows: { menu_id: number; quantity: number; total_price: number | null; sold_at: string | null }[],
 ) =>
-  apiFetch<{ created: number; total: number }>('/api/v1/chatbot/sales/import/confirm', {
-    method: 'POST',
-    headers: auth(token),
-    body: JSON.stringify({ rows }),
-  });
+  apiFetch<{ created: number; total: number; breakeven_reward?: BreakevenReward }>(
+    '/api/v1/chatbot/sales/import/confirm', {
+      method: 'POST',
+      headers: auth(token),
+      body: JSON.stringify({ rows }),
+    });

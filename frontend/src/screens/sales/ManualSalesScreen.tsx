@@ -35,6 +35,7 @@ import { PressableScale } from '../../components/motion';
 import { toast } from '../../components/toast';
 import { Badge, Card, Screen, ScreenTitle, SectionTitle } from '../../components/ui';
 import { listMenus, listRecentSales, recordSales, type MenuItem, type RecentSale } from '../../lib/api/sales';
+import { celebrateBreakeven } from '../../lib/breakevenCelebrate';
 import {
   getDaySales,
   getDeposits,
@@ -276,10 +277,13 @@ export default function ManualSalesScreen() {
     if (items.length === 0) return;
     setSubmitting(true);
     try {
-      await recordSales(token, items);
+      const res = await recordSales(token, items);
       setCart({});
       setRecent(await listRecentSales(token, 5));
-      toast('판매를 등록했어요', '레시피 기준으로 재고가 자동 차감됩니다.');
+      // 본전을 넘겼으면 축하가 먼저, 아니면 평소 안내
+      if (!celebrateBreakeven(res.breakeven_reward)) {
+        toast('판매를 등록했어요', '레시피 기준으로 재고가 자동 차감됩니다.');
+      }
     } catch (e) {
       console.error('판매 등록 실패:', e);
       toast('등록 실패', '잠시 후 다시 시도해 주세요.');
