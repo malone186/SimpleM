@@ -228,6 +228,11 @@ export function claimQuest(questId: string, token?: string | null): Promise<Ques
   });
 }
 
+/** 오늘의 목표(일일 퀘스트) 단독 조회 — 홈 본전 카드가 쓴다 */
+export function getDailyQuest(token?: string | null): Promise<DailyQuest> {
+  return apiFetch<DailyQuest>('/api/v1/rewards/quests/daily', { headers: authHeader(token) });
+}
+
 /** 오늘의 목표(일일 퀘스트) 보상 수령 — 하루 1회 */
 export function claimDailyQuest(token?: string | null): Promise<DailyQuest> {
   return apiFetch<DailyQuest>('/api/v1/rewards/quests/daily/claim', {

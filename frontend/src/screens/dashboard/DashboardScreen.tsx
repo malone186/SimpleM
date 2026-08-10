@@ -6,6 +6,7 @@ import Svg, { Defs, LinearGradient, Stop, Path, Circle, Filter, FeGaussianBlur }
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../auth/AuthContext';
+import BreakevenTodayCard from '../../components/dashboard/BreakevenTodayCard';
 import CardDepositCard from '../../components/dashboard/CardDepositCard';
 import ManagementReportCard from '../../components/dashboard/ManagementReportCard';
 import SalesCard from '../../components/dashboard/SalesCard';
@@ -891,6 +892,11 @@ export default function DashboardScreen() {
               onRestoreAiTodos={handleRestoreAiTodos}
               refreshToken={runId}
             />
+          </FadeInUp>
+
+          {/* 오늘 본전 — 사장님이 매일 제일 먼저 봐야 할 숫자를 게임룸에서 홈으로 끌어왔다 */}
+          <FadeInUp delay={95}>
+            <BreakevenTodayCard refreshToken={runId} />
           </FadeInUp>
 
           {/* 카드 대금 입금 예정 — 카드사마다 입금일이 달라 직접 세기 번거로운 숫자 */}
