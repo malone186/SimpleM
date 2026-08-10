@@ -38,6 +38,7 @@ const POSES = {
   heart: require('../../../assets/mascot/anim/heart/f00.webp'), // 손가락 하트로 마무리하는 브루 (상점 판매)
   celeb: require('../../../assets/mascot/anim/celeb/f00.webp'), // 카메라 앞에 선 연예인 브루 (상점 판매)
   dance2: require('../../../assets/mascot/anim/dance2/f00.webp'), // 스텝 댄스 브루 (상점 판매, 임시명 2번)
+  redred: require('../../../assets/mascot/anim/redred/f00.webp'), // red red 챌린지 브루 (상점 판매)
 } as const;
 
 export type BrewMood = keyof typeof POSES;
@@ -56,11 +57,12 @@ const FLIP_KEY: Partial<Record<BrewMood, string>> = {
   heart: 'heart',
   celeb: 'celeb',
   dance2: 'dance2',
+  redred: 'redred',
 };
 
 // 홈 마스코트(이스터에그 래퍼)처럼 자체 모션을 끄는 곳에서도, 플립북 포즈만은
 // 재생을 허용할지 판단할 수 있게 공개한다 — 이 포즈들은 '움직임 자체가 상품'이라서.
-export const FLIPBOOK_MOODS = new Set<BrewMood>(['jump', 'dance', 'hello', 'dab', 'workout', 'bad', 'heart', 'celeb', 'dance2']);
+export const FLIPBOOK_MOODS = new Set<BrewMood>(['jump', 'dance', 'hello', 'dab', 'workout', 'bad', 'heart', 'celeb', 'dance2', 'redred']);
 
 /** 발까지 그려진 전신 포즈.
  *
@@ -68,7 +70,7 @@ export const FLIPBOOK_MOODS = new Set<BrewMood>(['jump', 'dance', 'hello', 'dab'
  * 반신 컷이다. 무대에서 바닥 그림자를 깔거나 걸어 다니게 하는 건 발이 있는 포즈에서만 말이
  * 된다 — 반신에 그림자를 달면 상반신이 공중에 떠서 그림자를 끌고 다니는 꼴이 된다. */
 export const FULL_BODY_MOODS = new Set<BrewMood>([
-  'hero', 'pouring', 'jump', 'dance', 'hello', 'dab', 'workout', 'bad', 'heart', 'celeb', 'dance2',
+  'hero', 'pouring', 'jump', 'dance', 'hello', 'dab', 'workout', 'bad', 'heart', 'celeb', 'dance2', 'redred',
 ]);
 
 // ── 부위 애니메이션 (레이어 분리) ──────────────────────────────────────────
@@ -145,10 +147,11 @@ const MOTION_BY_MOOD: Record<BrewMood, Motion> = {
   heart: 'flip',
   celeb: 'flip',
   dance2: 'flip',
+  redred: 'flip',
 };
 
 /** 한 번 재생 요청 — token이 바뀔 때마다 해당 모션을 처음부터 1회 재생한다 (게임 허브 탭 반응) */
-export type BrewOneShot = { key: 'wave' | 'jump' | 'dance' | 'dab' | 'jacks' | 'bad' | 'heart' | 'celeb' | 'dance2'; token: number };
+export type BrewOneShot = { key: 'wave' | 'jump' | 'dance' | 'dab' | 'jacks' | 'bad' | 'heart' | 'celeb' | 'dance2' | 'redred'; token: number };
 
 export default function Brew({
   mood = 'welcome',
