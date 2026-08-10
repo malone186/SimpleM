@@ -205,6 +205,10 @@ export default function WelcomeHeader({
   const { notices, unreadCount, readMaxId, markAllRead } = useNoticeInbox(refreshTrigger);
   const { announce, dismiss } = useAdminAnnouncement(notices);
   const [inboxOpen, setInboxOpen] = useState(false);
+  // 홈 브루 2단계: 처음엔 매장 상태 표정(정보) → 한 번 만지면 게임 룸에서 꾸민 모습·행동(애착).
+  // 표정은 '오늘 장사 어떤가'를 전하는 정보라 첫 화면에선 유지하고, 사장님이 만진 순간부터는
+  // 정보 전달이 끝났다고 보고 산 포즈·전신 모션(게임 룸과 동일 설정)으로 넘어간다.
+  const [roomMode, setRoomMode] = useState(false);
   // 모달을 열 때의 읽음 기준선을 스냅샷 — 그 이후 id는 목록에서 'NEW'로 표시
   const [newBaseline, setNewBaseline] = useState(0);
   // 한 건만 골라 보는 상세 화면 — 알림이 여러 개 와도 하나씩 집중해서 읽을 수 있게 한다
@@ -393,16 +397,34 @@ export default function WelcomeHeader({
             autonomous: 가끔 끄덕·갸웃·두리번을 스스로 얹는다. 전신 모션(점프·댄스)은 여기선
             안 나온다 — 그건 무대가 넓은 게임 룸 몫이다(interactiveMotions가 꺼져 있어 자동으로 제외).
             Animated 기반이라 8/6에 잡았던 SalesCard식 '초당 60회 setState' 부류가 아니다. */}
-        <MascotEasterEgg
-          mood={mood}
-          moodOverridesPose={moodOverridesPose}
-          // 나쁜 소식일 때만 배경 효과를 감춘다 (좋은 날의 하트·반짝이는 그대로 둔다)
-          suppressAccessories={moodTone === 'bad'}
-          size={190}
-          style={styles.mascot}
-          motion
-          autonomous
-        />
+        {roomMode ? (
+          // 게임 룸과 같은 설정 — 산 포즈가 표정을 이기고, 탭마다 전신 모션이 나온다 (BrewStage 참고)
+          <MascotEasterEgg
+            mood={mood}
+            size={190}
+            style={styles.mascot}
+            motion
+            interactiveMotions
+            autonomous
+          />
+        ) : (
+          // 첫 터치를 여기서 가로챈다 — pointerEvents="none"으로 내부 이스터에그(쓰다듬기 등)가
+          // 이 탭을 먼저 소비하지 않게 하고, 다음 렌더부터 게임 룸 모드로 넘긴다
+          <Pressable onPress={() => setRoomMode(true)}>
+            <View pointerEvents="none">
+              <MascotEasterEgg
+                mood={mood}
+                moodOverridesPose={moodOverridesPose}
+                // 나쁜 소식일 때만 배경 효과를 감춘다 (좋은 날의 하트·반짝이는 그대로 둔다)
+                suppressAccessories={moodTone === 'bad'}
+                size={190}
+                style={styles.mascot}
+                motion
+                autonomous
+              />
+            </View>
+          </Pressable>
+        )}
       </Animated.View>
 
       {/* 알림함 모달 — 목록(스택 카드) ↔ 한 건 상세 두 단계로 동작한다 */}
