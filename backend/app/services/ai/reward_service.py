@@ -73,8 +73,12 @@ SHOP_ITEMS: list[dict[str, Any]] = [
      "desc": "손을 들어 반갑게 인사해요 (움직이는 포즈!)", "min_level": 6},
     {"id": "pose_dance", "slot": "pose", "mood": "dance", "name": "댄스 타임 브루", "emoji": "🕺", "price": 1000,
      "desc": "리듬 타며 춤춰요 (움직이는 포즈!)", "min_level": 7},
+    {"id": "pose_celeb", "slot": "pose", "mood": "celeb", "name": "연예인 브루", "emoji": "🌟", "price": 1100,
+     "desc": "카메라 앞에 선 것처럼 도도하게 서 있어요 (움직이는 포즈!)", "min_level": 8},
     {"id": "pose_bad", "slot": "pose", "mood": "bad", "name": "BAD 브루", "emoji": "🔥", "price": 1200,
-     "desc": "유행하는 BAD 챌린지 안무 (움직이는 포즈!)", "min_level": 8},
+     "desc": "유행하는 BAD 챌린지 안무를 끝까지 춰요 (움직이는 포즈!)", "min_level": 8},
+    {"id": "pose_heart", "slot": "pose", "mood": "heart", "name": "손가락 하트 브루", "emoji": "🫰", "price": 1400,
+     "desc": "신나게 춤추다 손가락 하트로 마무리해요 (움직이는 포즈!)", "min_level": 9},
     # 배경 효과 — 캐릭터 위가 아니라 뒤에 깔리므로 어떤 포즈와도 겹치지 않는다.
     {"id": "bg_sparkle", "slot": "background", "name": "반짝임", "emoji": "✨", "price": 300,
      "desc": "가만히 있어도 빛나는 중"},
