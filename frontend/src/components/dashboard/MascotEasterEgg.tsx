@@ -234,7 +234,7 @@ export default function MascotEasterEgg({
     shotToken.current += 1;
     setOneShot({ key, token: shotToken.current });
   };
-  const playRandomMotion = () => playMotion(pick<BrewOneShot['key']>(['wave', 'jump', 'dance', 'dab', 'jacks', 'bad', 'heart', 'celeb']));
+  const playRandomMotion = () => playMotion(pick<BrewOneShot['key']>(['wave', 'jump', 'dance', 'dab', 'jacks', 'bad', 'heart', 'celeb', 'dance2']));
 
   const triggerSingle = () => {
     if (interactiveMotions) playRandomMotion(); // 쓰다듬으면 폴짝 뛰거나 춤추거나 인사한다
