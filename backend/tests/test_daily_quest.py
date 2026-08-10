@@ -41,8 +41,11 @@ def _stub_breakeven(monkeypatch, *, computed=True, daily_cups=80, avg_ticket=450
     monkeypatch.setattr(breakeven_service, "compute_breakeven", fake)
 
 
-def _stub_cups(monkeypatch, n):
-    monkeypatch.setattr(R, "_today_cups", lambda db, store_id: n)
+def _stub_cups(monkeypatch, n, *, prepaid=0):
+    # 새 _today_cups는 출처별 dict를 돌려준다: sale(업로드/POS) + prepaid(단골 실시간)
+    sale = n - prepaid
+    monkeypatch.setattr(R, "_today_cups",
+                        lambda db, store_id, avg_ticket=None: {"sale": sale, "prepaid": prepaid, "total": n})
 
 
 def test_손익분기_없으면_설정_안내(monkeypatch):
@@ -112,3 +115,42 @@ def test_get_quests에_daily가_실린다(monkeypatch):
     board = R.get_quests(STORE)
     assert "daily" in board
     assert board["daily"]["goal"] == 70 and board["daily"]["progress"] == 30
+
+
+def test_단골_선불_결제가_실시간_반영된다(monkeypatch):
+    """단골 선불 '사용'은 계산대에서 앱으로 찍히니 실시간으로 잔 수에 잡힌다.
+    충전(CHARGE)은 판매가 아니라 제외한다 — 이게 어긋나면 5만원 충전이 매출로 둔갑한다.
+
+    _today_cups는 db를 인자로 받으므로 인메모리 세션을 직접 넘겨 격리 검증한다.
+    """
+    from datetime import datetime, timezone
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from app.core.database import Base
+    from app.models.inventory import Menu, Sale
+    from app.models.membership import BalanceTransaction, Customer
+
+    eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(eng)
+    db = sessionmaker(bind=eng)()
+    now = datetime.now(timezone.utc)
+
+    menu = Menu(name="아메리카노", selling_price=4500, store_id=STORE); db.add(menu); db.commit()
+    cust = Customer(store_id=STORE, phone="01000000000", name="단골", balance=50000); db.add(cust); db.commit()
+    # 업로드/POS 판매 2잔
+    db.add(Sale(menu_id=menu.id, quantity=2, total_price=9000, store_id=STORE, sold_at=now))
+    # 단골 선불 사용 3건(=3잔) + 충전 1건(제외돼야)
+    for _ in range(3):
+        db.add(BalanceTransaction(customer_id=cust.id, store_id=STORE, tx_type="USE",
+                                  amount=-4500, balance_after=0, menu_id=menu.id, created_at=now))
+    db.add(BalanceTransaction(customer_id=cust.id, store_id=STORE, tx_type="CHARGE",
+                              amount=50000, balance_after=50000, paid_amount=50000, created_at=now))
+    db.commit()
+
+    cups = R._today_cups(db, STORE, avg_ticket=4500)
+    assert cups["sale"] == 2, "POS/업로드 판매"
+    assert cups["prepaid"] == 3, "단골 선불 사용만 — 충전은 빠져야 한다"
+    assert cups["total"] == 5
+    db.close(); eng.dispose()

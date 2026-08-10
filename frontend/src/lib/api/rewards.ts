@@ -179,7 +179,9 @@ export type DailyQuest = {
   desc?: string;
   goal?: number;          // 하루 목표 잔수
   progress?: number;      // 오늘 판매량(목표에서 멈춤)
-  sold_cups?: number;     // 오늘 실제 판매 잔 수
+  sold_cups?: number;     // 오늘 실제 판매 잔 수 (sale + prepaid)
+  prepaid_cups?: number;  // 단골 선불 결제로 '팔면 바로' 잡힌 실시간 잔 수
+  sale_cups?: number;     // POS 연동/파일 업로드로 잡힌 잔 수
   avg_ticket?: number;
   target_daily_revenue?: number;
   done?: boolean;

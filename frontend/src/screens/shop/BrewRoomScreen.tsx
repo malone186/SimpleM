@@ -178,7 +178,10 @@ export default function BrewRoomScreen() {
                 <>
                   <Text style={styles.dailyTitle}>{quests.daily.title}</Text>
                   <Text style={styles.sectionHint}>
-                    {quests.daily.desc} · 매출을 입력하면 채워져요
+                    {quests.daily.desc}
+                    {(quests.daily.prepaid_cups ?? 0) > 0
+                      ? ` · 단골 결제 ${quests.daily.prepaid_cups}잔 실시간 반영 중`
+                      : ' · 매출을 입력하면 채워져요'}
                   </Text>
                   <View style={styles.questTrack}>
                     <View style={[styles.questFill, {

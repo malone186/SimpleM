@@ -659,22 +659,51 @@ def _weekly_todo_stats(db, store_id: str):
 # 일일 퀘스트 — 오늘 본전 넘기기 (손익분기점 연동)
 # ---------------------------------------------------------------------------
 
-def _today_cups(db, store_id: str) -> int:
-    """오늘(KST) 판매된 잔 수 합. 매출을 입력해야 채워진다(실시간 판매가 아님)."""
+def _today_cups(db, store_id: str, avg_ticket: Optional[int] = None) -> dict[str, int]:
+    """오늘(KST) 판매 잔 수를 출처별로 돌려준다.
+
+    두 갈래로 나눠 센다:
+      · sale   — POS 연동/파일 업로드로 들어온 Sale 행. POS 연동 매장은 실시간,
+                 파일 업로드 매장은 올릴 때 채워진다.
+      · prepaid — 단골 선불 결제(BalanceTransaction USE). 계산대에서 앱으로 직접
+                 찍으므로 '팔면 바로' 실시간으로 잡힌다. 충전(CHARGE)은 판매가 아니라 제외.
+    화면에서 실시간분(prepaid)을 따로 보여주려고 합쳐서가 아니라 나눠서 준다.
+    """
     from app.models.inventory import Sale
+    from app.models.membership import BalanceTransaction
 
     today = datetime.now(KST).date()
     # KST 자정 경계의 저장 편차를 흡수하려 하루 여유로 당겨오고 KST 날짜로 정확히 거른다
-    start = datetime.combine(today, datetime.min.time(), tzinfo=KST) - timedelta(days=1)
-    rows = db.query(Sale.quantity, Sale.sold_at).filter(
-        Sale.store_id == store_id, Sale.sold_at >= start.astimezone(timezone.utc),
-    ).all()
-    total = 0
-    for qty, sold_at in rows:
-        d = sold_at.astimezone(KST).date() if sold_at.tzinfo else sold_at.date()
-        if d == today:
-            total += int(qty or 0)
-    return total
+    start = (datetime.combine(today, datetime.min.time(), tzinfo=KST)
+             - timedelta(days=1)).astimezone(timezone.utc)
+
+    def _is_today(ts):
+        d = ts.astimezone(KST).date() if ts.tzinfo else ts.date()
+        return d == today
+
+    sale = sum(int(q or 0) for q, ts in
+               db.query(Sale.quantity, Sale.sold_at)
+               .filter(Sale.store_id == store_id, Sale.sold_at >= start).all()
+               if _is_today(ts))
+
+    # 단골 선불 '사용'만 — 사용 1건 = 1잔(메뉴 탭), 메뉴 없이 금액만이면 객단가로 환산
+    prepaid = 0
+    for menu_id, amount, ts in (
+        db.query(BalanceTransaction.menu_id, BalanceTransaction.amount,
+                 BalanceTransaction.created_at)
+        .filter(BalanceTransaction.store_id == store_id,
+                BalanceTransaction.tx_type == "USE",
+                BalanceTransaction.created_at >= start).all()
+    ):
+        if not _is_today(ts):
+            continue
+        if menu_id is not None:
+            prepaid += 1
+        elif avg_ticket and avg_ticket > 0:
+            prepaid += max(1, round(abs(int(amount or 0)) / avg_ticket))
+        else:
+            prepaid += 1
+    return {"sale": sale, "prepaid": prepaid, "total": sale + prepaid}
 
 
 def _daily_breakeven_quest(store_id: str) -> dict[str, Any]:
@@ -704,7 +733,7 @@ def _daily_breakeven_quest(store_id: str) -> dict[str, Any]:
                 "message": be.get("message") or "손익분기를 설정하면 오늘의 목표가 생겨요."}
 
     with _session() as db:
-        cups = _today_cups(db, store_id)
+        cups = _today_cups(db, store_id, avg_ticket=be.get("avg_ticket"))
         from app.models.ai import PointLedger
         claimed = db.query(PointLedger.id).filter(
             PointLedger.store_id == store_id,
@@ -712,14 +741,17 @@ def _daily_breakeven_quest(store_id: str) -> dict[str, Any]:
             PointLedger.ref == f"{DAILY_BE_ID}:{today}",
         ).first() is not None
 
-    done = cups >= target
+    total = cups["total"]
+    done = total >= target
     return {
         **base,
         "available": True,
         "needs_setup": False,
         "goal": target,
-        "progress": min(cups, target),
-        "sold_cups": cups,
+        "progress": min(total, target),
+        "sold_cups": total,
+        "prepaid_cups": cups["prepaid"],   # 단골 선불 결제로 '팔면 바로' 잡힌 실시간 잔 수
+        "sale_cups": cups["sale"],         # POS 연동/파일 업로드로 잡힌 잔 수
         "avg_ticket": be.get("avg_ticket"),
         "target_daily_revenue": be.get("breakeven_daily_revenue"),
         "done": done,
