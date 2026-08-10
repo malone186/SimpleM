@@ -372,6 +372,9 @@ class ShopItemResponse(BaseModel):
     affordable: bool
     # 포즈 상품일 때만 채워진다 — 프론트 Brew의 mood 값
     mood: Optional[str] = None
+    # 레벨 잠금 — 선언이 빠지면 response_model이 응답에서 떨어뜨려 프론트 잠금 UI가 죽는다
+    min_level: int = 0
+    locked: bool = False
 
 
 class ShopResponse(BaseModel):
