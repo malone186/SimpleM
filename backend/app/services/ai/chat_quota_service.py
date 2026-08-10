@@ -10,6 +10,7 @@
 
 import logging
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -32,6 +33,16 @@ TURNS_PER_AD = int(os.getenv("CHAT_TURNS_PER_AD", "5"))
 # 짧은 시간에 같은 사용자가 광고를 과다 노출받아 AdMob 쪽에서도 문제가 된다.
 MAX_ADS_PER_DAY = int(os.getenv("CHAT_MAX_ADS_PER_DAY", "6"))
 
+# 앱의 '광고 다 봤어요' 보고만으로 충전할지 여부.
+#
+# 1로 올리면 구글이 직접 보내는 서명된 SSV 콜백만 충전 근거로 인정한다 — 앱을 뜯어
+# 엔드포인트를 때리는 경로가 완전히 막힌다. 기본값이 0인 이유는 AdMob 콘솔에
+# 콜백 URL(GET /api/v1/chatbot/quota/ad-ssv)을 등록하기 **전에** 1로 켜면 정상적으로
+# 광고를 본 사장님도 충전을 못 받기 때문이다. 순서는 이렇다:
+#   1) 콘솔에 콜백 URL 등록 → 2) ad_reward_grants에 source='ssv' 행이 쌓이는지 확인
+#   → 3) 이 값을 1로 올린다 (그때부터 source='client' 충전은 거절된다)
+SSV_REQUIRED = os.getenv("CHAT_AD_SSV_REQUIRED", "0") == "1"
+
 
 class QuotaExhausted(RuntimeError):
     """남은 턴이 없다 — 광고를 보면 충전할 수 있다"""
@@ -39,6 +50,14 @@ class QuotaExhausted(RuntimeError):
 
 class AdLimitReached(RuntimeError):
     """오늘 광고 시청 상한에 도달했다 — 내일까지 충전 불가"""
+
+
+class AdVerificationPending(RuntimeError):
+    """앱 보고만으로는 충전하지 않는 모드다 — 구글 SSV 콜백이 도착해야 한다.
+
+    오류라기보다 '아직'에 가깝다. 호출부는 이걸 실패로 보여주지 말고 잠시 뒤
+    쿼터를 다시 조회하게 해야 한다 (콜백은 보통 몇 초 안에 온다).
+    """
 
 
 def _session():
@@ -142,8 +161,34 @@ def refund(store_id: str, day: str | None = None) -> None:
         db.commit()
 
 
-def grant_from_ad(store_id: str) -> dict[str, Any]:
-    """광고 시청 완료 → 턴을 충전한다. 하루 상한을 넘으면 AdLimitReached."""
+def grant_from_ad(
+    store_id: str, *, source: str = "client", transaction_id: str | None = None
+) -> dict[str, Any]:
+    """광고 시청 1건 → 턴을 충전한다. 하루 상한을 넘으면 AdLimitReached.
+
+    source:
+      - "ssv"    구글이 서명해 보낸 서버 사이드 검증 콜백. 앱을 거치지 않아 위조 불가.
+      - "client" 앱의 '다 봤어요' 보고. SSV_REQUIRED면 거절한다(AdVerificationPending).
+
+    transaction_id는 '이 광고 시청 1건'의 식별자다. 같은 값으로 두 번 들어오면
+    (구글 콜백 재전송, 같은 URL 재요청, 앱의 중복 호출) 두 번째는 충전 없이 현재
+    상태만 돌려준다 — 판정을 조건문이 아니라 원장 PK 충돌로 하기 때문에 동시 요청에서도
+    뚫리지 않는다.
+    """
+    if source == "client" and SSV_REQUIRED:
+        # 앱 보고는 근거가 못 된다. 구글 콜백이 도착하면 그쪽 경로로 충전된다.
+        with _session() as db:
+            snap = _snapshot(_get_or_create(db, store_id))
+            db.commit()
+        raise AdVerificationPending(snap)
+
+    from sqlalchemy.exc import IntegrityError
+
+    from app.models.ai import AdRewardGrant
+
+    txn = transaction_id or f"client:{uuid.uuid4()}"
+    today = _today()
+
     with _session() as db:
         row = _get_or_create(db, store_id, lock=True)
         if row.ads_watched >= MAX_ADS_PER_DAY:
@@ -151,11 +196,45 @@ def grant_from_ad(store_id: str) -> dict[str, Any]:
             db.commit()
             raise AdLimitReached(snap)
 
+        # 원장을 먼저 쓴다 — 충전은 이 INSERT가 성공한 건에 대해서만 한다.
+        db.add(AdRewardGrant(
+            transaction_id=txn, store_id=store_id, date=today,
+            source=source, turns=TURNS_PER_AD,
+        ))
+        try:
+            db.flush()
+        except IntegrityError:
+            # 이미 처리한 거래다. 롤백 후 현재 상태만 돌려준다 (중복 충전 방지).
+            db.rollback()
+            snap = _snapshot(_get_or_create(db, store_id))
+            db.commit()
+            logger.info("챗봇 광고 충전 무시 — %s: 이미 처리된 거래(%s)", store_id, txn)
+            return snap
+
         row.granted += TURNS_PER_AD
         row.ads_watched += 1
         snap = _snapshot(row)
         db.commit()
         logger.info(
-            "챗봇 광고 충전 — %s: +%d턴 (오늘 %d회째)", store_id, TURNS_PER_AD, row.ads_watched
+            "챗봇 광고 충전 — %s: +%d턴 (오늘 %d회째, 근거=%s)",
+            store_id, TURNS_PER_AD, row.ads_watched, source,
         )
         return snap
+
+
+def grant_from_ssv(params: dict[str, str]) -> dict[str, Any]:
+    """검증이 끝난 SSV 콜백 파라미터로 충전한다.
+
+    누구에게 줄지는 `user_id`가 정한다 — 앱이 광고를 요청할 때 심어 보낸 매장 식별자로,
+    구글 서명 안에 들어 있어 중간에서 바꿀 수 없다. (앱을 뜯어 남의 매장 id를 심으면
+    그 매장에 턴을 '주는' 것은 가능하지만, 하루 상한이 있어 피해가 아니라 선물이 된다.)
+    """
+    store_id = (params.get("user_id") or "").strip()
+    if not store_id:
+        raise ValueError("user_id가 비어 있는 콜백입니다")
+
+    txn = (params.get("transaction_id") or "").strip()
+    if not txn:
+        raise ValueError("transaction_id가 비어 있는 콜백입니다")
+
+    return grant_from_ad(store_id, source="ssv", transaction_id=f"ssv:{txn}")

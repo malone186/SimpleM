@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.auth import get_current_admin, get_current_user, get_current_user_optional
+from app.core.auth import get_current_admin, get_current_user
 from app.core.database import get_db
 from app.models.inquiry import Inquiry
 from app.models.user import User
@@ -25,11 +25,11 @@ class InquiryCreate(BaseModel):
     앱이 값을 못 보내면 조용히 남의 계정 문의로 저장돼, 정작 보낸 사장님의 '나의 문의
     내역'에는 안 보이고 관리자 화면에는 엉뚱한 매장 이름이 찍혔다.
 
-    지금은 토큰이 있으면 토큰의 주인이 보낸 사람이다. user_email은 토큰이 없을 때만
-    쓰는 구버전 앱 호환용 폴백이다 (OTA를 아직 못 받은 앱은 인증 없이 보낸다).
+    보낸 사람은 토큰이 정한다 — 본문에는 이메일 항목 자체가 없다. 구버전 앱 호환으로
+    본문 이메일을 받아 주던 폴백은 2026-08-10에 닫았다(아래 create_inquiry 참고).
+    구버전 앱이 보내는 user_email 키가 섞여 와도 pydantic이 무시하므로 422가 나지 않는다.
     """
 
-    user_email: Optional[str] = None  # 토큰이 없을 때만 쓰는 폴백 (구버전 앱 호환)
     store_name: Optional[str] = None  # 비면 users 테이블에서 찾아 채운다
     category: str
     title: str
@@ -133,35 +133,24 @@ def _resolve_store_name(db: Session, email: str, given: Optional[str]) -> str:
 @router.post("")
 def create_inquiry(
     req: InquiryCreate,
-    current_user: Optional[User] = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """[한글 주석] 사장님 앱에서 1대1 문의 등록 — DB 저장 후 관리자 CS 리스트에 실시간 연동
 
-    보낸 사람은 토큰이 있으면 토큰에서 정한다. 본문의 user_email보다 토큰이 우선이다 —
-    본문을 그대로 믿으면 아무나 남의 이름으로 문의를 넣고, 관리자가 엉뚱한 사람에게
-    답변하게 된다.
+    보낸 사람은 토큰이 정한다. 본문에서 이메일을 받지 않는 이유는, 받으면 서버 주소만
+    아는 누구나 남의 이메일로 문의를 넣을 수 있어서다 — 관리자는 엉뚱한 사람에게 답변하게
+    되고, 그 글은 사장님이 "내 문의 답변 왔어?"라고 물을 때 챗봇 컨텍스트로도 들어간다.
 
-    토큰이 없으면 본문의 user_email을 쓴다. 인증을 필수로 걸었더니 OTA를 아직 못 받은
-    앱(문의를 인증 없이 보낸다)에서 접수가 통째로 막혔다 — 조회(GET)와 달리 등록은
-    남의 데이터를 읽는 경로가 아니라서, 구버전 호환을 열어 두는 편이 낫다.
-
-    ┌─ [갚아야 할 빚] 이 폴백은 임시다 ─────────────────────────────────────────
-    │ 열려 있는 동안은 서버 주소만 알면 남의 이메일로 문의를 넣을 수 있다.
-    │ 그 글은 사장님이 "내 문의 답변 왔어?"라고 물을 때 챗봇 컨텍스트로 들어간다.
-    │ (그 경로의 방어는 services/ai/untrusted.py — 지시가 아니라 자료로 격리한다)
-    │
-    │ 닫아도 되는 조건: 2026-07-29 OTA(update group b16a172b) 이전 버전을 쓰는
-    │   앱이 사실상 없어졌을 때. Expo 대시보드에서 runtimeVersion 1.0.0의 구버전
-    │   활성 사용자를 확인하거나, 스토어 빌드가 versionCode 6 이상으로 올라가
-    │   그 이전 설치본을 신경 쓰지 않아도 될 때.
-    │ 닫는 법: 아래 Depends를 get_current_user로 되돌리고 email 폴백 분기를 지운다.
-    │   (tests/test_inquiry_admin_flow.py의 legacy 테스트 2건도 함께 정리)
-    └────────────────────────────────────────────────────────────────────────
+    [닫힌 폴백] 예전엔 토큰 없이 본문 user_email만으로 접수할 수 있었다. OTA를 아직 못
+    받은 구버전 앱에서 접수가 막히는 걸 피하려던 임시 조치였고, 다음 조건이 채워져
+    2026-08-10에 닫았다:
+      - 앱이 토큰으로만 접수하도록 고친 OTA가 2026-07-29(0e4c810)에 runtimeVersion
+        1.0.0으로 배포됐고, 그 뒤 12일이 지나 활성 앱은 사실상 전부 받았다.
+      - 2026-07-31 스토어 빌드부터 앱 버전이 1.0.1이라 새 설치본에는 처음부터 들어 있다.
+    지금 토큰 없이 들어오는 요청은 구버전 앱이 아니라 외부에서 직접 때리는 호출로 본다.
     """
-    email = (current_user.email if current_user else (req.user_email or "").strip())
-    if not email:
-        raise HTTPException(status_code=422, detail="문의를 보낸 사장님 이메일이 필요합니다.")
+    email = current_user.email
     store_name = _resolve_store_name(db, email, req.store_name)
 
     inq_id = None

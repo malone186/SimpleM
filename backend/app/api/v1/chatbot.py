@@ -15,7 +15,9 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, UploadFile
+from fastapi import (
+    APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Request, UploadFile,
+)
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel, Field
@@ -59,6 +61,7 @@ from app.schemas.ai import (
 )
 from app.utils.datetime_kst import today_kst
 from app.services.ai import (
+    admob_ssv,
     briefing_service,
     cafe_similarity_service,
     chat_quota_service,
@@ -1898,11 +1901,15 @@ def get_chat_quota(store_id: Optional[str] = Depends(_optional_store_id)) -> dic
 
 @router.post("/quota/ad-reward")
 def grant_chat_quota(store_id: Optional[str] = Depends(_optional_store_id)) -> dict:
-    """광고 시청 완료 → 턴 충전. 로그인 계정만 가능.
+    """광고 시청 완료 보고 → 턴 충전. 로그인 계정만 가능.
 
-    지금은 클라이언트의 '봤다'는 보고를 믿는다. 앱을 뜯으면 광고 없이 이 엔드포인트를
-    때려 무한 충전이 가능하므로, 실제 서비스에서는 AdMob 서버 사이드 검증(SSV) 콜백으로
-    바꿔야 한다 — MAX_ADS_PER_DAY가 그때까지의 피해 상한 역할을 한다.
+    이 경로는 앱의 자기 보고다. 근거로서는 약하므로 두 겹으로 막아 둔다.
+      1) 충전 1건이 ad_reward_grants에 원장으로 남는다 — 중복 호출은 거래 id 충돌로 무시.
+      2) CHAT_AD_SSV_REQUIRED=1이면 이 경로로는 아예 충전하지 않고, 구글이 서명해
+         보내는 SSV 콜백(GET /quota/ad-ssv)만 인정한다. 그때 이 API는 오류 대신
+         pending_verification=true를 돌려주고, 앱은 잠시 뒤 쿼터를 다시 조회한다.
+    어느 모드든 MAX_ADS_PER_DAY가 하루 상한으로 남는다.
+
     비로그인은 401 — 익명은 전 세계가 데모 계정(owner@cafe.com)의 쿼터 행 하나를
     공유하므로, 열어 두면 curl 루프 하나로 무한 충전되거나 반대로 한 명이 다 써서
     모든 비로그인 사용자의 체험이 막힌다. (앱은 로그인 후에만 챗봇에 진입한다.)
@@ -1913,6 +1920,42 @@ def grant_chat_quota(store_id: Optional[str] = Depends(_optional_store_id)) -> d
         return chat_quota_service.grant_from_ad(store_id)
     except chat_quota_service.AdLimitReached as e:
         raise HTTPException(429, {"ad_limit_reached": True, "quota": e.args[0]})
+    except chat_quota_service.AdVerificationPending as e:
+        # 실패가 아니라 '아직'이다 — 200으로 돌려줘야 앱이 오류 문구 대신 재조회를 한다
+        return {**e.args[0], "pending_verification": True}
+
+
+@router.get("/quota/ad-ssv")
+def admob_ssv_callback(request: Request) -> dict:
+    """AdMob 서버 사이드 검증(SSV) 콜백 — 구글이 직접 호출한다. 앱은 호출하지 않는다.
+
+    인증(토큰)이 없는 이유: 부르는 쪽이 구글 서버라 우리 토큰을 들고 있지 않다. 대신
+    요청 자체에 구글의 ECDSA 서명이 붙어 있어, 서명 검증을 통과한 요청만 진짜다.
+    서명 대상은 쿼리스트링 원문이므로 `request.url.query`를 그대로 넘긴다 —
+    파싱된 query_params로 다시 조립하면 순서·인코딩이 달라져 검증이 깨진다.
+
+    설정: AdMob 콘솔 > 해당 보상형 광고 단위 > 서버 사이드 검증 > 콜백 URL에
+    `https://<서버>/api/v1/chatbot/quota/ad-ssv`를 등록한다. 앱은 광고를 요청할 때
+    serverSideVerificationOptions.userId에 매장 식별자(로그인 이메일)를 심는다.
+    """
+    try:
+        params = admob_ssv.verify(request.url.query)
+    except admob_ssv.SsvInvalid as e:
+        # 위조 시도이거나 설정이 틀린 것이다. 어느 쪽이든 충전하지 않는다.
+        logger.warning("AdMob SSV 콜백 거절: %s", e)
+        raise HTTPException(403, "서명 검증에 실패했습니다.")
+
+    try:
+        chat_quota_service.grant_from_ssv(params)
+    except chat_quota_service.AdLimitReached:
+        # 상한 초과는 정상 동작이다 — 구글에는 200을 돌려줘야 재전송이 반복되지 않는다
+        logger.info("AdMob SSV 충전 생략 — 하루 상한 도달 (%s)", params.get("user_id"))
+    except ValueError as e:
+        logger.warning("AdMob SSV 콜백 형식 오류: %s", e)
+        raise HTTPException(400, "콜백 파라미터가 올바르지 않습니다.")
+
+    # 구글은 본문을 보지 않는다 — 2xx면 성공으로 처리한다
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------

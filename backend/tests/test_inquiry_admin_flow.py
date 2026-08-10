@@ -14,10 +14,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from fastapi import HTTPException
+
 from app.core.auth import (
     get_current_admin,
     get_current_user,
-    get_current_user_optional,
     get_password_hash,
 )
 from app.core.database import Base, get_db
@@ -54,6 +55,11 @@ def client():
         db.commit()
 
     def current_user():
+        # _signed_in["email"]을 None으로 두면 '토큰 없는 요청'을 재현한다 — 진짜
+        # get_current_user와 같이 401로 막아야 한다 (None을 돌려주면 500이 나서
+        # '거절됐다'는 사실만 맞고 이유가 달라진다).
+        if not _signed_in["email"]:
+            raise HTTPException(status_code=401, detail="인증이 필요합니다.")
         with TestSession() as db:
             return db.query(User).filter(User.email == _signed_in["email"]).first()
 
@@ -61,11 +67,6 @@ def client():
     # 관리자 인증은 이 테스트의 관심사가 아니다 (test_admin_login.py가 따로 검증한다)
     app.dependency_overrides[get_current_admin] = lambda: User(id=99, email="admin@simplem.com")
     app.dependency_overrides[get_current_user] = current_user
-    # 문의 등록은 선택적 인증을 쓴다 (구버전 앱 호환) — 로그인 상태를 흉내 내려면 이쪽도 덮어야 한다.
-    # _signed_in["email"]을 None으로 두면 '토큰 없는 구버전 앱'을 재현할 수 있다.
-    app.dependency_overrides[get_current_user_optional] = lambda: (
-        current_user() if _signed_in["email"] else None
-    )
     _signed_in["email"] = OWNER
     yield TestClient(app), TestSession
     app.dependency_overrides.clear()
@@ -212,24 +213,24 @@ def test_user_counts_are_counted_not_invented(client):
     assert next(u for u in c.get("/api/v1/admin/users").json() if u["email"] == OTHER)["stockCount"] == 0
 
 
-def test_legacy_app_without_token_can_still_submit(client):
-    """토큰 없이 보내는 구버전 앱도 문의를 접수할 수 있다.
+def test_submitting_without_token_is_rejected(client):
+    """토큰 없이 보낸 문의는 본문에 이메일을 실어도 접수되지 않는다.
 
-    인증을 필수로 걸었더니 OTA를 아직 못 받은 앱에서 접수가 통째로 막혔다(401).
-    등록은 남의 데이터를 읽는 경로가 아니라서 본문 이메일 폴백을 열어 둔다.
-    조회(GET)는 여전히 토큰이 필요하다 — 그쪽이 실제 유출 경로였다.
+    구버전 앱 호환으로 열어 뒀던 본문 이메일 폴백을 2026-08-10에 닫았다. 열려 있는 동안은
+    서버 주소만 알면 남의 이메일로 문의를 넣을 수 있었고, 그 글은 관리자 답변 대상이 되고
+    사장님이 "내 문의 답변 왔어?"라고 물을 때 챗봇 컨텍스트로도 들어갔다.
     """
     c, _ = client
-    _signed_in["email"] = None  # 토큰 없음 = 구버전 앱
+    _signed_in["email"] = None  # 토큰 없음
     res = c.post("/api/v1/inquiries", json={
-        "user_email": OWNER, "category": "❓ 사용 문의",
-        "title": "구버전 앱에서 보낸 문의", "content": "...",
+        "user_email": OWNER,  # 남의 이름으로 넣으려는 시도
+        "category": "❓ 사용 문의", "title": "무기명 문의", "content": "...",
     })
-    assert res.status_code == 200, res.text
-    assert res.json()["user_email"] == OWNER
+    assert res.status_code == 401, res.text
 
-    # 관리자 화면에는 정상적으로 뜬다
-    assert any(x["title"] == "구버전 앱에서 보낸 문의" for x in c.get("/api/v1/admin/cs").json())
+    # 관리자 화면에도 흔적이 남지 않는다
+    _signed_in["email"] = OWNER
+    assert not any(x["title"] == "무기명 문의" for x in c.get("/api/v1/admin/cs").json())
 
 
 def test_reception_time_is_shown_in_kst(client):
@@ -296,9 +297,9 @@ def test_db_write_failure_still_reaches_both_screens(client, monkeypatch):
         mock_cs_list.clear()
 
 
-def test_no_token_and_no_email_is_rejected(client):
-    """토큰도 이메일도 없으면 누가 보냈는지 알 수 없으므로 거절한다."""
+def test_no_token_is_rejected(client):
+    """토큰이 없으면 누가 보냈는지 확정할 수 없으므로 거절한다."""
     c, _ = client
     _signed_in["email"] = None
     res = c.post("/api/v1/inquiries", json={"category": "문의", "title": "무기명", "content": "..."})
-    assert res.status_code == 422
+    assert res.status_code == 401

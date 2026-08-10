@@ -32,6 +32,7 @@ import {
   grantChatQuotaFromAd,
   isChatQuotaExhausted,
   sendChatMessage,
+  waitForAdQuota,
   type ChatHistoryItem,
 } from '../../lib/api/chatbot';
 import { isRewardedReady, preloadRewarded, showRewarded } from '../../lib/ads';
@@ -97,7 +98,7 @@ export default function ChatbotScreen() {
   const { sheetTop, onSheetLayout } = useSheetTop();
   // [한글 주석: 전역 다국어 번역 훅 연동]
   const { t, language } = useTranslation();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   // [한글 주석] 노치 실측 여백 + 하단 제스처 바 + 화면 급수 (좁은 화면에서 헤더를 접는다)
   const topInset = useTopInset();
   const bottomInset = useBottomInset();
@@ -179,7 +180,13 @@ export default function ChatbotScreen() {
             botSay('광고를 끝까지 보지 않아서 충전되지 않았어요.');
             return;
           }
-          await grantChatQuotaFromAd(token);
+          // 서버가 SSV 강제 모드면 이 호출로 바로 충전되지 않는다 — 구글 검증 콜백이
+          // 도착할 때까지 몇 초 기다린 뒤 재질문한다 (안 기다리면 또 소진 오류가 난다).
+          const quota = await waitForAdQuota(await grantChatQuotaFromAd(token), token);
+          if (quota.remaining <= 0) {
+            botSay('충전 확인이 조금 늦어지고 있어요. 잠시 후 다시 물어봐 주세요.');
+            return;
+          }
           await askBrew(q, history);
         } catch {
           botSay('앗, 충전에 실패했어요. 잠시 후 다시 시도해 주세요.');
@@ -270,9 +277,13 @@ export default function ChatbotScreen() {
 
   // 무료 턴이 소진되는 순간 광고가 준비돼 있어야 한다 (로드에 1~3초).
   // 실패하면 광고 없이 "내일 다시" 안내로 떨어진다.
+  //
+  // 로그인 이메일을 함께 넘기는 이유: 서버 사이드 검증(SSV) 식별자는 광고를 요청할 때만
+  // 심을 수 있다. 이 값이 있어야 구글이 "이 계정이 광고를 끝까지 봤다"를 서명해 우리
+  // 서버로 직접 알려주고, 서버가 앱 보고 대신 그 통보를 근거로 충전할 수 있다.
   useEffect(() => {
-    preloadRewarded();
-  }, []);
+    preloadRewarded(user?.email);
+  }, [user?.email]);
 
   // 경영 리포트 등에서 버튼으로 넘어오면 그 질문을 자동으로 전송한다 (입력만 채우지 않고 바로 물어봄).
   // ts가 함께 바뀌므로 같은 질문 버튼을 다시 눌러도 매번 새로 전송된다.
