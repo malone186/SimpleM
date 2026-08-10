@@ -136,7 +136,7 @@ def recolor_image(rgba: np.ndarray, ramp: np.ndarray) -> Image.Image:
 
 def recolor(args) -> int:
     ramps = _ramps()
-    src = Path(args.src)
+    src = Path(args.src).resolve()  # 상대경로 입력 시 relative_to(ROOT)가 죽지 않게
     targets = [src] if src.is_file() else sorted(src.glob("*.webp")) + sorted(src.glob("*.png"))
     if not targets:
         sys.exit(f"입력이 없다: {src}")
