@@ -147,6 +147,8 @@ def recolor(args) -> int:
             continue
         out_dir = Path(args.out) / color if args.out else src.parent / f"{src.name}__{color}"
         out_dir.mkdir(parents=True, exist_ok=True)
+        for stale in out_dir.glob("f*.webp"):  # 원본 프레임 수가 바뀌어도 꼬리가 남지 않게
+            stale.unlink()
         for path in targets:
             img = recolor_image(_load(path), ramps[color])
             dst = out_dir / f"{path.stem}.webp"
@@ -301,10 +303,14 @@ def loop(args) -> int:
     print(f"  루프 탐지: f{i:03d} ~ f{j - 1:03d} ({len(cycle)}장, "
           f"이음새 {seam:.4f} / 움직임 {motion:.4f} = {seam / (motion + 1e-4):.2f})")
 
-    if args.count:
-        idx = np.linspace(0, len(cycle), args.count, endpoint=False).astype(int)
-        cycle = [cycle[k] for k in idx]
-        print(f"  리샘플: {args.count}장")
+    # 프레임 수를 억지로 맞추지 않는다 — 복제(같은 그림 2틱)와 불균일 간격(2·3장 섞임)이
+    # 재생 시 '뚝뚝 끊김'으로 바로 보인다. --count는 균일 간격 솎아내기 상한일 뿐이다.
+    stride = 1
+    if args.count and args.count < len(cycle):
+        stride = -(-len(cycle) // args.count)  # ceil — 정수 간격만 허용
+        cycle = cycle[::stride]
+        print(f"  솎아내기: {stride}장 간격 → {len(cycle)}장")
+    eff_fps = args.fps / stride
 
     # 사이클 전체의 알파 합집합 bbox로 크롭 — 프레임마다 따로 자르면 캐릭터가 덜컹거린다
     imgs = [np.array(Image.open(p).convert("RGBA")) for p in cycle]
@@ -321,6 +327,8 @@ def loop(args) -> int:
     side = max(y1 - y0, x1 - x0)
     out = Path(args.out) if args.out else ANIM / src.parent.name
     out.mkdir(parents=True, exist_ok=True)
+    for stale in out.glob("f*.webp"):  # 프레임 수가 줄었을 때 옛 꼬리가 남지 않게
+        stale.unlink()
     for k, im in enumerate(imgs):
         crop = Image.fromarray(im[y0:y1, x0:x1])
         square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
@@ -328,7 +336,9 @@ def loop(args) -> int:
         square.resize((args.size, args.size), Image.LANCZOS).save(
             out / f"f{k:02d}.webp", "WEBP", quality=92, method=6
         )
-    print(f"  → {out} ({len(imgs)}장, {args.size}x{args.size})")
+    # 원본 속도 메타 — index가 flipbookFrames.ts에 실어 재생기가 실제 속도로 돌린다
+    (out / "meta.json").write_text(json.dumps({"fps": round(eff_fps, 2)}), encoding="utf-8")
+    print(f"  → {out} ({len(imgs)}장, {args.size}x{args.size}, 재생 {eff_fps:.1f}fps)")
     return 0
 
 
@@ -342,6 +352,14 @@ def index(args) -> int:
         frames = sorted(f.name for f in d.glob("f*.webp"))
         if frames:
             sets[d.name] = frames
+    # 영상 파이프라인 세트는 원본 속도 메타(loop가 남긴 meta.json)를 함께 싣는다 —
+    # 색 변형은 기본 세트의 메타를 따른다 (recolor는 프레임만 굽는다).
+    fps_map: dict[str, float] = {}
+    for key in sets:
+        meta = ANIM / key.split("__")[0] / "meta.json"
+        if meta.exists():
+            fps_map[key] = json.loads(meta.read_text(encoding="utf-8"))["fps"]
+
     lines = [
         "// [자동 생성] 전신 플립북 프레임 — (모션, 앞치마 색)별 WebP 스프라이트 세트",
         "// 키: 'wave' | 'wave__navy' | ... 기본(갈색)은 색 접미사 없음.",
@@ -354,6 +372,13 @@ def index(args) -> int:
         for fr in frames:
             lines.append(f"    require('../../../assets/mascot/anim/{key}/{fr}'),")
         lines.append("  ],")
+    lines += ["};", ""]
+    lines += [
+        "// 영상 파이프라인 세트의 원본 재생 속도(fps). 여기 없는 키는 재생기 기본값을 쓴다.",
+        "export const FLIP_FPS: Record<string, number> = {",
+    ]
+    for key, fps in fps_map.items():
+        lines.append(f"  '{key}': {fps},")
     lines += ["};", ""]
     dst = ROOT / "frontend" / "src" / "components" / "brew" / "flipbookFrames.ts"
     dst.write_text("\n".join(lines), encoding="utf-8")
@@ -389,7 +414,7 @@ def main() -> int:
 
     p = sub.add_parser("frames", help="영상 → 프레임 추출 + 배경 제거")
     p.add_argument("src", help="mp4 등 영상 파일")
-    p.add_argument("--fps", type=int, default=12, help="추출 fps (기본 12)")
+    p.add_argument("--fps", type=int, default=24, help="추출 fps (기본 24 — 생성 영상 원본 그대로)")
     p.add_argument("--model", default="isnet-anime", help="rembg 모델 (기본 isnet-anime)")
     p.add_argument("--out", help="출력 루트 (기본: 영상 이름 폴더 — raw/, cutout/ 생성)")
     p.set_defaults(fn=frames)
@@ -398,7 +423,8 @@ def main() -> int:
     p.add_argument("src", help="cutout PNG 폴더")
     p.add_argument("--out", help="출력 폴더 (기본: assets/mascot/anim/<모션이름>)")
     p.add_argument("--size", type=int, default=360, help="한 변 픽셀 (기본 360)")
-    p.add_argument("--count", type=int, help="프레임 수 리샘플 (기본: 사이클 그대로)")
+    p.add_argument("--count", type=int, help="프레임 수 상한 — 균일 간격 솎아내기만, 복제 없음 (기본: 사이클 전체)")
+    p.add_argument("--fps", type=int, default=24, help="입력 프레임의 원래 초당 장수 (meta.json으로 저장)")
     p.add_argument("--min-len", type=int, default=8, dest="min_len", help="최소 사이클 길이 (기본 8)")
     p.set_defaults(fn=loop)
 

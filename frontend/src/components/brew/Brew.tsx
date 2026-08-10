@@ -9,7 +9,7 @@ import { BLINK_OVERLAY } from './blinkOverlays';
 import { startLoop } from '../../lib/animLoop';
 import { MOTIONS, startMotion, type MotionName } from './brewMotions';
 import Flipbook from './Flipbook';
-import { FLIP_FRAMES } from './flipbookFrames';
+import { FLIP_FRAMES, FLIP_FPS } from './flipbookFrames';
 
 // 캐릭터 시트에서 잘라낸 포즈들 (표정 매칭 표)
 const POSES = {
@@ -331,7 +331,8 @@ export default function Brew({
   // (source를 주기적으로 갈아끼우면 웹에서 첫 사이클에 로딩 깜빡임이 생긴다)
   const flipLayer = (dim: number) =>
     motion === 'flip' && flipFrames && !shotActive ? (
-      <Flipbook frames={flipFrames} size={dim} />
+      // 영상에서 구운 세트는 원본 속도(FLIP_FPS)로 — 없으면 재생기 기본값(구운 20장 세트)
+      <Flipbook frames={flipFrames} size={dim} fps={flipKey ? FLIP_FPS[flipKey] : undefined} />
     ) : null;
 
   // 한 번 재생 레이어 — 재생 중엔 몸통·루프 플립북 대신 이 프레임들이 보인다.
@@ -342,6 +343,7 @@ export default function Brew({
         key={oneShot.token}
         frames={shotFrames}
         size={dim}
+        fps={FLIP_FPS[oneShot.key]}
         loop={false}
         onEnd={() => setShotPlaying(false)}
       />
