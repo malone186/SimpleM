@@ -114,7 +114,9 @@ def _signed_query(payload: str, key_id: str = "1111") -> str:
 
     # 구글은 패딩 없는 웹세이프 base64로 보낸다
     encoded = base64.urlsafe_b64encode(signature).decode().rstrip("=")
-    admob_ssv._cache.update({"fetched_at": float("inf"), "keys": {key_id: pem.decode()}})
+    admob_ssv._cache.update({
+        "fetched_at": float("inf"), "attempted_at": 0.0, "keys": {key_id: pem.decode()},
+    })
     return f"{payload}&signature={encoded}&key_id={key_id}"
 
 
@@ -140,10 +142,29 @@ def test_tampered_payload_fails_verification():
 def test_unknown_key_id_fails_without_network(monkeypatch):
     """모르는 key_id면 키를 다시 받아 보고, 그래도 없으면 거절한다."""
     query = _signed_query(f"transaction_id=abc&user_id=x&timestamp={_now_ms()}")
-    monkeypatch.setattr(admob_ssv, "_fetch_keys", lambda: {})  # 네트워크를 타지 않는다
+    fetches = []
+    monkeypatch.setattr(admob_ssv, "_fetch_keys", lambda: fetches.append(1) or {})
 
     with pytest.raises(admob_ssv.SsvInvalid):
         admob_ssv.verify(query.replace("key_id=1111", "key_id=9999"))
+    assert fetches == [1]
+
+
+def test_unknown_key_id_does_not_refetch_every_time(monkeypatch):
+    """모르는 key_id를 연타해도 구글로 나가는 재조회는 간격을 지킨다.
+
+    이 엔드포인트는 인증이 없다(구글이 부르므로). 요청마다 키를 받으러 나가면
+    위조 요청 폭주가 그대로 gstatic 대상 증폭 공격이 된다.
+    """
+    query = _signed_query(f"transaction_id=abc&user_id=x&timestamp={_now_ms()}")
+    fetches = []
+    monkeypatch.setattr(admob_ssv, "_fetch_keys", lambda: fetches.append(1) or {})
+
+    for _ in range(20):
+        with pytest.raises(admob_ssv.SsvInvalid):
+            admob_ssv.verify(query.replace("key_id=1111", "key_id=9999"))
+
+    assert len(fetches) == 1  # 첫 번째만 나갔다
 
 
 def test_missing_signature_is_rejected():

@@ -42,7 +42,14 @@ _KEYS_TTL_SEC = 12 * 3600
 # 유니크로 이미 막히지만, 원장을 오래 뒤에 정리하더라도 그 틈이 다시 열리지 않게 한다.
 _MAX_AGE_SEC = 24 * 3600
 
-_cache: dict[str, Any] = {"fetched_at": 0.0, "keys": {}}
+# 키 목록을 다시 받으러 나가는 최소 간격.
+#
+# 이 엔드포인트는 인증이 없다(구글이 부르므로). 모르는 key_id를 넣은 요청을 초당 수백 개
+# 던지면, 그때마다 gstatic으로 나가는 요청이 따라 붙어 우리 서버가 증폭기가 된다.
+# 진짜 키 교체는 몇 달에 한 번이라 1분 간격이면 충분하다.
+_MIN_REFETCH_SEC = 60
+
+_cache: dict[str, Any] = {"fetched_at": 0.0, "attempted_at": 0.0, "keys": {}}
 
 
 class SsvInvalid(ValueError):
@@ -72,7 +79,7 @@ def _fetch_keys() -> dict[str, str]:
 
 
 def _public_key_pem(key_id: str) -> str | None:
-    """key_id에 해당하는 공개키 PEM. 캐시에 없으면 한 번 다시 받아 본다."""
+    """key_id에 해당하는 공개키 PEM. 캐시에 없으면 (간격을 두고) 다시 받아 본다."""
     now = time.time()
     stale = now - float(_cache["fetched_at"]) > _KEYS_TTL_SEC
     cached: dict[str, str] = _cache["keys"]
@@ -80,7 +87,12 @@ def _public_key_pem(key_id: str) -> str | None:
     if key_id in cached and not stale:
         return cached[key_id]
 
-    # 캐시에 없는 key_id = 키 교체 직후일 수 있다. 새로 받아 본다.
+    # 캐시에 없는 key_id = 키 교체 직후일 수 있다. 다만 위조 요청도 같은 모양이라,
+    # 재조회는 _MIN_REFETCH_SEC 간격으로만 나간다 (증폭 방지).
+    if now - float(_cache["attempted_at"]) < _MIN_REFETCH_SEC:
+        return cached.get(key_id)
+
+    _cache["attempted_at"] = now
     fresh = _fetch_keys()
     if fresh:
         _cache["keys"] = fresh

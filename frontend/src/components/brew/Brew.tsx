@@ -34,6 +34,7 @@ const POSES = {
   hello: require('../../../assets/mascot/anim/wave/f00.webp'), // 손 흔들며 인사하는 브루 (상점 판매)
   dab: require('../../../assets/mascot/anim/dab/f00.webp'), // 스웩 dab 브루 (상점 판매)
   workout: require('../../../assets/mascot/anim/jacks/f00.webp'), // 팔벌려뛰기 브루 (상점 판매)
+  bad: require('../../../assets/mascot/anim/bad/f00.webp'), // BAD 챌린지 안무 브루 (상점 판매)
 } as const;
 
 export type BrewMood = keyof typeof POSES;
@@ -48,11 +49,12 @@ const FLIP_KEY: Partial<Record<BrewMood, string>> = {
   dance: 'dance',
   dab: 'dab',
   workout: 'jacks',
+  bad: 'bad',
 };
 
 // 홈 마스코트(이스터에그 래퍼)처럼 자체 모션을 끄는 곳에서도, 플립북 포즈만은
 // 재생을 허용할지 판단할 수 있게 공개한다 — 이 포즈들은 '움직임 자체가 상품'이라서.
-export const FLIPBOOK_MOODS = new Set<BrewMood>(['jump', 'dance', 'hello', 'dab', 'workout']);
+export const FLIPBOOK_MOODS = new Set<BrewMood>(['jump', 'dance', 'hello', 'dab', 'workout', 'bad']);
 
 /** 발까지 그려진 전신 포즈.
  *
@@ -60,7 +62,7 @@ export const FLIPBOOK_MOODS = new Set<BrewMood>(['jump', 'dance', 'hello', 'dab'
  * 반신 컷이다. 무대에서 바닥 그림자를 깔거나 걸어 다니게 하는 건 발이 있는 포즈에서만 말이
  * 된다 — 반신에 그림자를 달면 상반신이 공중에 떠서 그림자를 끌고 다니는 꼴이 된다. */
 export const FULL_BODY_MOODS = new Set<BrewMood>([
-  'hero', 'pouring', 'jump', 'dance', 'hello', 'dab', 'workout',
+  'hero', 'pouring', 'jump', 'dance', 'hello', 'dab', 'workout', 'bad',
 ]);
 
 // ── 부위 애니메이션 (레이어 분리) ──────────────────────────────────────────
@@ -133,10 +135,11 @@ const MOTION_BY_MOOD: Record<BrewMood, Motion> = {
   hello: 'flip',
   dab: 'flip',
   workout: 'flip',
+  bad: 'flip',
 };
 
 /** 한 번 재생 요청 — token이 바뀔 때마다 해당 모션을 처음부터 1회 재생한다 (게임 허브 탭 반응) */
-export type BrewOneShot = { key: 'wave' | 'jump' | 'dance' | 'dab' | 'jacks'; token: number };
+export type BrewOneShot = { key: 'wave' | 'jump' | 'dance' | 'dab' | 'jacks' | 'bad'; token: number };
 
 export default function Brew({
   mood = 'welcome',
