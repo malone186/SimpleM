@@ -3,7 +3,7 @@
 검증하는 것:
   · 사장님이 항목을 만들고 직원이 그걸 본다(같은 매장 공유).
   · 직원이 체크하면 사장님도 '오늘 됐음 + 누가 했는지'를 본다(연동).
-  · 항목 등록·수정·삭제는 사장님만(require_owner).
+  · 항목 추가는 직원도 하고(현장에서 발견한 할 일), 수정·삭제는 사장님만(require_owner).
   · 체크 상태는 날짜로 관리돼 다음 날 초기화된다.
 """
 from datetime import timedelta
@@ -104,17 +104,24 @@ def test_체크는_토글이다(client, owner, staff):
     assert client.get("/api/v1/checklist", headers=owner).json()[0]["done"] is False
 
 
-def test_항목_관리는_사장만(client, owner, staff):
-    """등록·수정·삭제는 사장님 몫 — 직원이 루틴을 바꾸면 안 된다."""
-    assert client.post("/api/v1/checklist/items",
-                       json={"label": "몰래 추가"}, headers=staff).status_code == 403
-
+def test_항목_수정_삭제는_사장만(client, owner, staff):
+    """수정·삭제는 사장님 몫 — 직원이 기존 루틴을 바꾸거나 지우면 안 된다.
+    (추가는 직원도 한다 — 아래 test_직원도_항목을_추가할_수_있다)"""
     item_id = client.post("/api/v1/checklist/items",
                           json={"label": "정상 항목"}, headers=owner).json()["id"]
     assert client.patch(f"/api/v1/checklist/items/{item_id}",
                         json={"label": "바꿔치기"}, headers=staff).status_code == 403
     assert client.delete(f"/api/v1/checklist/items/{item_id}",
                          headers=staff).status_code == 403
+
+
+def test_직원도_항목을_추가할_수_있다(client, owner, staff):
+    """근무 중 발견한 할 일(가스 점검 등)을 그 자리에서 올린다 — 사장님 목록에도 보인다."""
+    r = client.post("/api/v1/checklist/items",
+                    json={"label": "제빙기 필터 점검"}, headers=staff)
+    assert r.status_code == 201
+    labels = [row["label"] for row in client.get("/api/v1/checklist", headers=owner).json()]
+    assert "제빙기 필터 점검" in labels
 
 
 def test_직원은_체크만_할_수_있다(client, owner, staff):

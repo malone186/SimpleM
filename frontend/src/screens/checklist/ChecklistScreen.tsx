@@ -2,7 +2,8 @@
 //
 // 사장님 '할 일'과 다른 화면인 이유: 할 일은 일회성 경영 업무(발주·세무·급여)라 대부분
 // 알바가 할 수 없다. 여기 담기는 건 매일 반복되는 근무 루틴이고, 날짜로 관리돼 다음 날
-// 자동 초기화된다. 직원은 체크만, 사장님은 항목 등록·수정·삭제까지 한다(같은 화면, isOwner로 분기).
+// 자동 초기화된다. 직원은 체크·추가(근무 중 발견한 할 일을 그 자리에서 올린다),
+// 사장님은 수정·삭제까지 한다(같은 화면, isOwner로 분기 — 루틴 원본 관리는 사장님 몫).
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView,
@@ -130,7 +131,7 @@ export default function ChecklistScreen() {
             <Text style={styles.emptyText}>
               {isOwner
                 ? '오픈·마감·위생 루틴을 등록해 두면\n직원이 매일 체크할 수 있어요.'
-                : '아직 등록된 체크리스트가 없어요.\n사장님이 항목을 추가하면 여기 떠요.'}
+                : '아직 등록된 체크리스트가 없어요.\n아래 추가 버튼으로 직접 올릴 수도 있어요.'}
             </Text>
           </View>
         ) : (
@@ -164,12 +165,12 @@ export default function ChecklistScreen() {
         )}
       </ScrollView>
 
-      {isOwner && (
-        <PressableScale style={[styles.fab, { bottom: bottomInset + s(16) }]} onPress={openAdd} to={0.94}>
-          <Ionicons name="add" size={20} color={colors.white} />
-          <Text style={styles.fabText}>항목 추가</Text>
-        </PressableScale>
-      )}
+      {/* 추가는 직원에게도 열려 있다 — 근무 중 발견한 할 일을 그 자리에서 올리게.
+          수정·삭제는 위 목록의 사장님 전용 버튼(isOwner) 그대로다. */}
+      <PressableScale style={[styles.fab, { bottom: bottomInset + s(16) }]} onPress={openAdd} to={0.94}>
+        <Ionicons name="add" size={20} color={colors.white} />
+        <Text style={styles.fabText}>항목 추가</Text>
+      </PressableScale>
 
       <Modal visible={editOpen} transparent animationType="fade" onRequestClose={() => setEditOpen(false)}>
         <View style={styles.modalBg}>

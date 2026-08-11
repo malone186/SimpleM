@@ -158,6 +158,11 @@ const StaffTab = createBottomTabNavigator();
 
 function StaffApp({ userName }: { userName: string }) {
   const { logout } = useAuth();
+  // 사장님 앱 탭바와 같은 높이 계산 — 명시 높이가 없으면 웹(폰 프레임)·제스처바 기기에서
+  // 라벨 아랫단이 잘린다 (2026-08-11 스크린샷). 아래 본 탭바의 주석 참고.
+  const staffInsets = useSafeAreaInsets();
+  const staffVisualPad = 8;
+  const staffTabHeight = 54 + staffVisualPad * 2 + staffInsets.bottom;
   const logoutBtn = () => (
     <PressableScale
       onPress={logout}
@@ -181,7 +186,13 @@ function StaffApp({ userName }: { userName: string }) {
           headerRight: logoutBtn,
           tabBarActiveTintColor: colors.pointOrange,
           tabBarInactiveTintColor: colors.mochaBrown,
-          tabBarStyle: { backgroundColor: 'rgba(250, 249, 246, 0.98)', borderTopColor: 'rgba(140,111,86,0.08)' },
+          tabBarStyle: {
+            backgroundColor: 'rgba(250, 249, 246, 0.98)',
+            borderTopColor: 'rgba(140,111,86,0.08)',
+            height: staffTabHeight,
+            paddingBottom: staffVisualPad + staffInsets.bottom,
+            paddingTop: staffVisualPad,
+          },
           tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
         }}
       >

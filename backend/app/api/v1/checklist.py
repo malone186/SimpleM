@@ -1,6 +1,7 @@
 """근무 체크리스트 API — 매일 반복 루틴 (직원·사장 공유)
 
-조회·토글은 직원도 한다(계산대 근무 루틴). 항목 등록·수정·삭제는 사장님만(require_owner).
+조회·토글·항목 추가는 직원도 한다(계산대 근무 루틴 + 현장에서 발견한 할 일).
+항목 수정·삭제는 사장님만(require_owner) — 루틴의 원본 관리는 사장님 몫.
 직원 토큰도 store_id가 사장님 이메일이라, 두 사람이 같은 체크리스트를 본다.
 """
 from fastapi import APIRouter, Depends, HTTPException
@@ -43,7 +44,9 @@ def toggle_checklist(item_id: int, db: Session = Depends(get_db),
 
 @router.post("/items", response_model=ChecklistItemRow, status_code=201, summary="항목 추가")
 def create_item(body: ChecklistItemCreate, db: Session = Depends(get_db),
-                user: User = Depends(require_owner)):
+                # 추가는 직원도 한다 — 근무 중 발견한 할 일(가스 점검 등)을 그 자리에서
+                # 올리게. 수정·삭제는 여전히 사장님만(루틴의 원본은 사장님이 관리한다).
+                user: User = Depends(get_current_user)):
     try:
         item = svc.add_item(db, user.email, body.label)
     except ValueError as e:
