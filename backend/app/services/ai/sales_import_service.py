@@ -175,8 +175,8 @@ async def infer_mapping(grid: list[list[str]]) -> dict[str, Any]:
     try:
         async with httpx.AsyncClient(timeout=GEMINI_TIMEOUT) as client:
             resp = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
-                json=payload, headers={"x-goog-api-key": GEMINI_API_KEY})
+                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}",
+                json=payload)
             resp.raise_for_status()
             content = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
             content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip(), flags=re.DOTALL)

@@ -849,7 +849,7 @@ def _generate_ai_advice(source: str, period_type: str) -> tuple[Optional[str], l
         # 한 번은 짧게 쉬고 다시 시도한다 — 그 이상은 공유 쿼터만 태우므로 포기.
         for attempt in (1, 2):
             resp = httpx.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}",
                 json={
                     "contents": [{"parts": [{"text": prompt}]}],
                     "generationConfig": {
@@ -858,7 +858,6 @@ def _generate_ai_advice(source: str, period_type: str) -> tuple[Optional[str], l
                         "responseSchema": _ADVICE_SCHEMA,
                     },
                 },
-                headers={"x-goog-api-key": GEMINI_API_KEY},
                 timeout=20.0,
             )
             if resp.status_code in (429, 500, 503) and attempt == 1:

@@ -241,9 +241,8 @@ def synthesize_ex(text: str, voice_type: str = DEFAULT_VOICE_TYPE) -> tuple[byte
     for attempt in (1, 2):
         try:
             resp = httpx.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{TTS_MODEL}:generateContent",
+                f"https://generativelanguage.googleapis.com/v1beta/models/{TTS_MODEL}:generateContent?key={key}",
                 json=payload,
-                headers={"x-goog-api-key": key},
                 timeout=TTS_TIMEOUT,
             )
             if resp.status_code == 429:

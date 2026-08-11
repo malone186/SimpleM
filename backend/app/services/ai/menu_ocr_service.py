@@ -161,9 +161,8 @@ async def _ask_gemini(parts: list[dict], schema: dict) -> dict[str, Any]:
     for attempt in (1, 2, 3):
         try:
             resp = await _get_gemini_client().post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}",
                 json=payload,
-                headers={"x-goog-api-key": GEMINI_API_KEY},
             )
             if resp.status_code == 429 or resp.status_code >= 500:
                 quota_hit = quota_hit or resp.status_code == 429

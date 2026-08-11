@@ -558,10 +558,9 @@ def _ai_comment(summary: dict[str, Any], items: list[dict[str, Any]]) -> tuple[s
         from app.services.ai.gemini_config import apply_thinking
         apply_thinking(config, model)
         resp = httpx.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}",
             json={"contents": [{"parts": [{"text": _COMMENT_PROMPT.format(
                 data=json.dumps(slim, ensure_ascii=False))}]}], "generationConfig": config},
-            headers={"x-goog-api-key": api_key},
             timeout=15.0,
         )
         resp.raise_for_status()
@@ -844,10 +843,9 @@ def _ai_new_menus(menus: list[dict[str, Any]], month: int, count: int = 2) -> li
         from app.services.ai.gemini_config import apply_thinking
         apply_thinking(config, model)
         resp = httpx.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}",
             json={"contents": [{"parts": [{"text": _NEW_MENU_PROMPT.format(
                 count=count, menus=listing, month=month)}]}], "generationConfig": config},
-            headers={"x-goog-api-key": api_key},
             timeout=20.0,
         )
         resp.raise_for_status()

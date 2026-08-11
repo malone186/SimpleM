@@ -468,9 +468,8 @@ async def _call_gemini(image_bytes: bytes, mime_type: str = "image/jpeg") -> dic
     for attempt in (1, 2, 3):
         try:
             resp = await _get_gemini_client().post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}",
                 json=payload,
-                headers={"x-goog-api-key": GEMINI_API_KEY},
             )
             if resp.status_code == 429 or resp.status_code >= 500:
                 last_error = OcrError(f"Gemini HTTP {resp.status_code}: {resp.text[:200]}")

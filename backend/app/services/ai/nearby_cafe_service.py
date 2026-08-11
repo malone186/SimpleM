@@ -378,10 +378,9 @@ def _gemini_json(prompt: str, schema: dict[str, Any], timeout: float = 25.0) -> 
     for attempt in (1, 2):
         try:
             resp = httpx.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}",
                 json={"contents": [{"parts": [{"text": prompt}]}],
                       "generationConfig": generation_config},
-                headers={"x-goog-api-key": GEMINI_API_KEY},
                 timeout=timeout,
             )
             resp.raise_for_status()

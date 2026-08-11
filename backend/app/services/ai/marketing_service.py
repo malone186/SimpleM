@@ -154,9 +154,8 @@ def _gemini_call(model: str, payload: dict[str, Any], timeout: float,
     for attempt in (1, 2, 3):
         try:
             resp = httpx.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}",
                 json=payload,
-                headers={"x-goog-api-key": key},
                 timeout=timeout,
             )
             if resp.status_code == 429:
