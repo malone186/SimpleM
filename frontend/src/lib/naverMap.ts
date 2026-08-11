@@ -10,6 +10,26 @@
 //   3) frontend/eas.json (preview·production) — 신규 빌드용
 export const NAVER_CLIENT_ID = process.env.EXPO_PUBLIC_NAVER_CLIENT_ID || 'gdszkjaod1';
 
+// [지도 페이지 오리진] 네이티브(WebView)가 여는 지도 HTML(/map/, /map/picker.html)을
+// 어느 서버에서 받아올지. **API 주소와 일부러 분리한다.**
+//
+// 네이버 지도는 페이지의 origin(Referer)으로 인증한다 — NCP 콘솔 Maps Application의
+// 'Web 서비스 URL'에 등록된 도메인이 아니면 navermap_authFailure로 지도가 통째로 안 뜬다.
+// 개발 중에는 .env의 EXPO_PUBLIC_API_BASE_URL이 http://<사내 IP>:8000 같은 LAN 주소라,
+// 지도 페이지도 그 주소에서 열려 매번 인증 실패였다 (등록된 건 배포 도메인과 localhost뿐).
+// iOS는 여기에 ATS까지 겹쳐 http 페이지 로드 자체가 막혀 빈 화면이 된다.
+//
+// 지도 HTML은 정적 파일이라 어느 서버에서 받아도 내용이 같다. 그래서 API 주소가
+// https가 아니면(= 로컬 개발) 등록된 공개 도메인에서 지도만 따로 받아온다.
+// 개발용으로 다른 배포본을 쓰고 싶으면 EXPO_PUBLIC_MAP_ORIGIN으로 덮어쓸 수 있다.
+const PUBLIC_MAP_ORIGIN =
+  process.env.EXPO_PUBLIC_MAP_ORIGIN ||
+  'https://brewnote-api-915817944047.asia-northeast3.run.app';
+
+export function mapPageOrigin(apiBaseUrl: string): string {
+  return /^https:\/\//i.test(apiBaseUrl) ? apiBaseUrl : PUBLIC_MAP_ORIGIN;
+}
+
 // 문서당 하나만 쓰는 스크립트 태그 id.
 // [중요] 예전에는 화면마다 다른 id로 각자 스크립트를 넣었다(-direct / -geocoder).
 // 그러면 회원가입에서 한 번, 대시보드 매장 지도에서 또 한 번 — v3 SDK가 두 번 로드돼

@@ -14,7 +14,7 @@ import { WebView } from 'react-native-webview';
 import { API_BASE_URL } from '../../lib/api/client';
 import type { NearbyEvent } from '../../lib/api/forecast';
 import type { NearbyCafe } from '../../lib/api/nearbyCafes';
-import { NAVER_CLIENT_ID, NAVER_MAP_ERROR, loadNaverMaps } from '../../lib/naverMap';
+import { NAVER_CLIENT_ID, NAVER_MAP_ERROR, loadNaverMaps, mapPageOrigin } from '../../lib/naverMap';
 import { colors } from '../../theme';
 
 /** 행사 이름·장소는 뉴스·공공데이터에서 온 남의 글이다 — 지도 말풍선에 그대로 넣지 않는다 */
@@ -209,30 +209,66 @@ export default function StoreLocationMap({
       <Ionicons name="locate" size={20} color={colors.espressoBrown} />
     </TouchableOpacity>
   );
+  // 지도 페이지 주소에는 '지도를 띄우는 데 꼭 필요한 값'만 싣는다.
+  //
+  // [중요] 카페·행사 목록을 여기 실으면 안 된다. 네이버 지도 SDK는 인증할 때 페이지 주소를
+  // 통째로 oapi.map.naver.com/v3/auth 의 url 파라미터로 넘기는데, 목록까지 실으면 주소가
+  // 8KB를 넘겨 그 인증 요청이 414(URI Too Long)로 끊긴다. SDK는 이를 인증 실패로 보고
+  // navermap_authFailure를 불러, 타일이 잠깐 그려지다 지도가 통째로 꺼진다.
+  // (웹은 앱 자신의 짧은 주소에서 SDK를 부르므로 이 문제를 겪지 않는다 — 앱에서만 났던 이유.)
+  //
+  // 목록은 아래 injectMapData()가 페이지 로드 후 주입한다. 덤으로 카페·행사 응답이
+  // 도착할 때마다 WebView를 새로 읽던 깜빡임도 사라진다 (주소가 안 바뀌므로).
   const mapUri = useMemo(() => {
-    const payload = encodeURIComponent(
-      JSON.stringify({
-        lat,
-        lon,
-        regionName,
-        shopLabel,
-        radius,
-        events: nearbyEvents,
-        cafes: nearbyCafes.slice(0, 25).map((c) => ({
-          name: c.name,
-          lat: c.lat,
-          lon: c.lon,
-          category: c.category,
-          distance_m: c.distance_m,
-        })),
-      }),
-    );
-    return `${API_BASE_URL}/map/?key=${encodeURIComponent(NAVER_CLIENT_ID)}&d=${payload}`;
-    // serializedEvents·serializedCafes가 빠져 있었다 — 그래서 네이티브에서는 행사 핀이
-    // 영영 안 떴다. 카페는 지역명(regionName)과 같은 응답으로 함께 와서 URL이 다시 만들어졌지만,
-    // 행사는 별도 호출이라 그 뒤에 도착하고, URL이 안 바뀌니 WebView는 옛 payload를 계속 썼다.
+    const payload = encodeURIComponent(JSON.stringify({ lat, lon, regionName, shopLabel, radius }));
+    // 지도 페이지는 API 주소가 아니라 '네이버에 등록된 도메인'에서 받아온다 —
+    // 로컬 개발(LAN http 주소)에서 열면 네이버가 인증을 거부해 지도가 안 뜬다.
+    return `${mapPageOrigin(API_BASE_URL)}/map/?key=${encodeURIComponent(NAVER_CLIENT_ID)}&d=${payload}`;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lat, lon, regionName, shopLabel, radius, serializedEvents, serializedCafes, NAVER_CLIENT_ID]);
+  }, [lat, lon, regionName, shopLabel, radius, NAVER_CLIENT_ID]);
+
+  // [네이티브] 카페·행사 목록은 주소가 아니라 주입으로 넘긴다 (이유는 mapUri 주석 참고).
+  // 지도 페이지의 window.applyMapData(정식 창구)를 부른다. 아직 첫 그리기 전이면 false가
+  // 오므로 true가 될 때까지만 다시 부른다.
+  // 그 함수가 없는 옛 배포본을 만나면 페이지 전역(D·gMap·initNaver)을 직접 갈아끼운다 —
+  // 앱은 OTA로 먼저 바뀌고 서버는 나중에 배포될 수 있어서, 그 사이에도 핀이 떠야 한다.
+  const injectedOnceRef = useRef(false);
+  const injectMapData = () => {
+    if (Platform.OS === 'web') return;
+    // 아직 아무 데이터도 없는 첫 로드에서는 그냥 둔다 (괜히 한 번 더 그릴 필요가 없다).
+    // 한 번이라도 넣은 뒤에는 빈 목록도 넣어야 지난 핀이 남지 않는다.
+    if (!nearbyCafes.length && !nearbyEvents.length && !injectedOnceRef.current) return;
+    // 행사·카페 이름은 외부(공공데이터·네이버)에서 온 남의 글이다. JSON.stringify가 따옴표를
+    // 막아 주지만, 줄바꿈으로 취급되는 U+2028/2029만은 따로 빼 준다.
+    const lit = (v: unknown) =>
+      JSON.stringify(v).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+    const cafes = nearbyCafes.slice(0, 25).map((c) => ({
+      name: c.name,
+      lat: c.lat,
+      lon: c.lon,
+      category: c.category,
+      distance_m: c.distance_m,
+    }));
+    injectedOnceRef.current = true;
+    webviewRef.current?.injectJavaScript(`(function(){try{
+      var d={cafes:${lit(cafes)},events:${lit(nearbyEvents)}};
+      var n=0;(function draw(){
+        if(window.applyMapData){ if(window.applyMapData(d)) return; if(n++<60) setTimeout(draw,150); return; }
+        // 폴백(옛 배포본): 전역을 직접 갈아끼운다.
+        // 페이지가 스스로 첫 그리기를 마칠 때까지 기다린다 — 먼저 끼어들면 지도가 두 번 그려진다
+        D.cafes=d.cafes; D.events=d.events;
+        if(!window.gMap){ if(n++<60) setTimeout(draw,150); return; }
+        try{ if(gMap.destroy) gMap.destroy(); }catch(e){}
+        var c=document.getElementById('map'); if(c) c.innerHTML='';
+        gMap=null; initNaver();
+      })();
+    }catch(e){}})(); true;`);
+  };
+
+  useEffect(() => {
+    injectMapData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serializedCafes, serializedEvents, mapUri]);
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -466,6 +502,12 @@ export default function StoreLocationMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lat, lon, regionName, shopLabel, radius, serializedEvents, serializedCafes, containerId]);
 
+  // 주소가 바뀌면(좌표·반경·행사 갱신) 지난 실패는 잊고 다시 시도한다 —
+  // 안 그러면 한 번 실패한 뒤로는 화면을 나갔다 오기 전까지 안내 문구만 남는다.
+  useEffect(() => {
+    if (Platform.OS !== 'web') setMapError(null);
+  }, [mapUri]);
+
   // 화면을 떠나면 말풍선 버튼의 통로도 걷는다 (전역에 남겨 두면 죽은 콜백이 쌓인다)
   useEffect(
     () => () => {
@@ -475,12 +517,46 @@ export default function StoreLocationMap({
     [containerId],
   );
 
+  // 지도를 못 불러왔을 때 보여 줄 안내 — 네이티브·웹 공용.
+  // 예전엔 네이티브가 실패해도 빈 상자만 남아서 "지도가 안 나온다"는 말밖에 할 수 없었다.
+  const ErrorBox = ({ message }: { message: string }) => (
+    <View
+      style={{
+        width: '100%',
+        height: '100%',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 16,
+        backgroundColor: colors.creamSand,
+      }}
+    >
+      <Text style={{ fontSize: 12, fontWeight: '700', color: colors.mochaBrown, textAlign: 'center', lineHeight: 18 }}>
+        {message}
+      </Text>
+    </View>
+  );
+
   if (Platform.OS !== 'web') {
+    // [중요] 실패 안내는 '지도 페이지 자체'가 실패했을 때만 띄운다.
+    // onError·onHttpError는 지도 타일·폰트 같은 하위 요청이 한 번 실패해도 불린다.
+    // 그것까지 잡아서 WebView를 안내 문구로 갈아치웠더니, 멀쩡히 그려지던 지도가
+    // 떴다가 꺼졌다("반짝거리다 꺼진다"). 주소가 지도 페이지와 같을 때만 실패로 본다.
+    const isMapPage = (url?: string) => !!url && url.split('?')[0] === mapUri.split('?')[0];
     return (
       <View style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
         <WebView
           ref={webviewRef}
           originWhitelist={['*']}
+          // 페이지 자체를 못 받아온 경우(주소 오타·서버 다운·iOS ATS의 http 차단 등)만
+          // 화면에 드러낸다. 네이버 인증 실패는 지도 페이지가 스스로 안내를 그린다.
+          onError={({ nativeEvent }) => {
+            if (!isMapPage(nativeEvent.url)) return;
+            setMapError(`지도 페이지를 열지 못했습니다.\n${nativeEvent.description ?? NAVER_MAP_ERROR}`);
+          }}
+          onHttpError={({ nativeEvent }) => {
+            if (!isMapPage(nativeEvent.url)) return;
+            setMapError(`지도 페이지 응답 오류 (${nativeEvent.statusCode}).\n잠시 후 다시 시도해 주세요.`);
+          }}
           // [중요] HTML 문자열 + baseUrl 방식(loadHTMLString)은 iOS가 하위 리소스에 Referer를
           // 붙이지 않아, Referer로 도메인을 검증하는 네이버 지도가 인증을 거부한다.
           // 그래서 지도 HTML을 백엔드가 실제 URL로 서빙하고 여기서는 그 URL을 로드한다.
@@ -489,10 +565,21 @@ export default function StoreLocationMap({
           javaScriptEnabled
           domStorageEnabled
           scrollEnabled={false}
+          // 페이지가 준비되면 카페·행사 목록을 넣어 준다 (주소로는 못 보낸다 — mapUri 주석 참고)
+          onLoadEnd={injectMapData}
           // 지도 페이지가 마커 탭을 알려 준다 → 앱이 카페 리뷰 분석 / 행사 상세 시트를 연다
           onMessage={(event) => {
+            const raw = event.nativeEvent.data;
+            // 지도 페이지는 실패하면 'naver-FAILED: 사유'를 보내 준다. 사유에 페이지 origin이
+            // 들어 있어 "어느 주소에서 열린 지도가 거부됐는지"가 바로 드러난다 —
+            // 지금까지는 이 메시지를 통째로 무시해서, 지도가 왜 꺼졌는지 알 길이 없었다.
+            if (typeof raw === 'string' && raw.startsWith('naver-FAILED')) {
+              const reason = raw.replace(/^naver-FAILED:?\s*/, '');
+              setMapError(`네이버 지도를 불러오지 못했습니다.\n${reason}\n(지도 주소: ${mapUri.split('/map/')[0]})`);
+              return;
+            }
             try {
-              const msg = JSON.parse(event.nativeEvent.data);
+              const msg = JSON.parse(raw);
               if (msg?.type === 'cafe') {
                 // 인덱스를 먼저 쓴다 — 이름으로 찾으면 '메가커피'가 반경 안에 둘일 때
                 // 먼 쪽 핀을 눌러도 가까운 쪽이 열린다 (웹은 이미 인덱스를 쓴다)
@@ -508,30 +595,20 @@ export default function StoreLocationMap({
           }}
           style={{ flex: 1, backgroundColor: '#F8F6F2' }}
         />
+        {/* 안내는 지도 위에 덮어 씌운다 — WebView를 통째로 떼어내면 다시 붙을 때
+            페이지를 처음부터 다시 받아, 실패↔재시도가 화면 깜빡임으로 보인다. */}
+        {mapError ? (
+          <View style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }}>
+            <ErrorBox message={mapError} />
+          </View>
+        ) : null}
         <RecenterButton />
       </View>
     );
   }
 
   // 웹에서 네이버 지도가 실패하면 다른 지도로 대체하지 않고 사유를 그대로 보여 준다
-  if (mapError) {
-    return (
-      <View
-        style={{
-          width: '100%',
-          height: '100%',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: 16,
-          backgroundColor: colors.creamSand,
-        }}
-      >
-        <Text style={{ fontSize: 12, fontWeight: '700', color: colors.mochaBrown, textAlign: 'center', lineHeight: 18 }}>
-          {mapError}
-        </Text>
-      </View>
-    );
-  }
+  if (mapError) return <ErrorBox message={mapError} />;
 
   return (
     <View style={{ width: '100%', height: '100%' }}>

@@ -19,7 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 
 import { API_BASE_URL } from '../../lib/api/client';
-import { NAVER_CLIENT_ID, NAVER_MAP_ERROR, loadNaverMaps } from '../../lib/naverMap';
+import { NAVER_CLIENT_ID, NAVER_MAP_ERROR, loadNaverMaps, mapPageOrigin } from '../../lib/naverMap';
 import { colors, shadows, typography } from '../../theme';
 import { useResponsive } from '../../theme/responsive';
 
@@ -185,7 +185,8 @@ export default function StoreLocationPicker({
                 ref={webRef}
                 originWhitelist={['*']}
                 source={{
-                  uri: `${API_BASE_URL}/map/picker.html?key=${encodeURIComponent(
+                  // 지도 페이지만은 네이버에 등록된 도메인에서 받아온다 (mapPageOrigin 주석 참고)
+                  uri: `${mapPageOrigin(API_BASE_URL)}/map/picker.html?key=${encodeURIComponent(
                     NAVER_CLIENT_ID,
                   )}&lat=${picked?.lat ?? startLat}&lon=${picked?.lon ?? startLon}`,
                 }}

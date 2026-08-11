@@ -288,6 +288,34 @@ function initNaver() {
   } catch (err) { showError('초기화 예외: ' + err); }
 }
 
+/* [앱 연동 창구] 주변 카페·행사 목록은 주소가 아니라 이 함수로 받는다.
+ *
+ * 왜 주소로 못 받나: 네이버 지도 SDK는 인증할 때 페이지 주소를 통째로
+ * oapi.map.naver.com/v3/auth 의 url 파라미터에 실어 보낸다. 목록까지 주소에 담으면
+ * 8KB를 넘겨 그 인증 요청이 414(URI Too Long)로 끊기고, SDK는 인증 실패로 보고
+ * navermap_authFailure를 부른다 — 타일이 잠깐 그려지다 지도가 통째로 꺼진다.
+ *
+ * 앱(WebView)은 페이지가 뜬 뒤 injectJavaScript로 이 함수를 부른다.
+ * 아직 첫 그리기 전이면 값만 넣어 두고 false를 돌려준다 — 그 그리기가 새 값을 쓰므로
+ * 앱은 true가 올 때까지만 다시 부르면 된다.
+ * 반환: true = 다시 그렸음, false = 값만 저장(아직 지도 없음) */
+window.applyMapData = function (data) {
+  try {
+    if (!data) return false;
+    if (Array.isArray(data.cafes)) D.cafes = data.cafes;
+    if (Array.isArray(data.events)) D.events = data.events;
+    if (!window.naver || !window.naver.maps || !gMap) return false;
+    try { if (gMap.destroy) gMap.destroy(); } catch (e) {}
+    var c = document.getElementById('map');
+    if (c) c.innerHTML = '';
+    gMap = null;
+    initNaver();
+    return true;
+  } catch (e) {
+    return false;
+  }
+};
+
 function showError(reason) {
   reportEngine('naver-FAILED: ' + reason);
   var c = document.getElementById('map');

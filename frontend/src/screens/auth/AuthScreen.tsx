@@ -20,7 +20,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { usePreferences } from '../../preferences/PreferencesContext';
 import { API_BASE_URL } from '../../lib/api/client';
 import { getGpsPosition } from '../../lib/api/forecast';
-import { NAVER_CLIENT_ID, NAVER_MAP_ERROR, loadNaverMaps } from '../../lib/naverMap';
+import { NAVER_CLIENT_ID, NAVER_MAP_ERROR, loadNaverMaps, mapPageOrigin } from '../../lib/naverMap';
 import { FadeInUp, PressableScale } from '../../components/motion';
 import { IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
@@ -1157,7 +1157,8 @@ export default function AuthScreen() {
                   ref={mapWebViewRef}
                   originWhitelist={['*']}
                   source={{
-                    uri: `${API_BASE_URL}/map/picker.html?key=${encodeURIComponent(
+                    // 지도 페이지만은 네이버에 등록된 도메인에서 받아온다 (mapPageOrigin 주석 참고)
+                    uri: `${mapPageOrigin(API_BASE_URL)}/map/picker.html?key=${encodeURIComponent(
                       NAVER_CLIENT_ID,
                     )}&lat=${coords?.lat ?? 37.5665}&lon=${coords?.lon ?? 126.978}`,
                   }}
