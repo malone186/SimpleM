@@ -342,6 +342,14 @@ class TodoResponse(BaseModel):
     # 이번 요청으로 완료 처리되며 적립된 코인. 이미 적립된 할 일을 다시 완료 처리하면 없음.
     # 프론트가 "+10코인" 토스트를 띄울지 판단하는 데 쓴다.
     points_awarded: Optional[int] = Field(default=None, description="이번에 적립된 코인 수")
+    # 알바에게 보낸 할 일 — 받은 직원 이름과 그쪽(체크리스트)에서의 완료 여부.
+    # forwarded_done이 None이면 아직 미완료이거나 보낸 항목이 삭제된 것.
+    forwarded_to: Optional[str] = Field(default=None, description="전달받은 직원 이름 (안 보냈으면 없음)")
+    forwarded_done: Optional[bool] = Field(default=None, description="체크리스트 쪽 완료 여부")
+
+
+class TodoForwardRequest(BaseModel):
+    staff_id: int = Field(description="전달받을 직원 계정 id (staff_accounts.id)")
 
 
 class PointHistoryItem(BaseModel):

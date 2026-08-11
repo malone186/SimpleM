@@ -19,11 +19,25 @@ export type ServerTodo = {
   created_at?: string | null;
   /** 이번 완료로 쌓인 코인. 이미 받은 할 일을 다시 완료하면 없다 (완료 응답에만 온다) */
   points_awarded?: number | null;
+  /** 알바에게 보낸 할 일 — 받은 직원 이름 (안 보냈으면 없음) */
+  forwarded_to?: string | null;
+  /** 체크리스트 쪽 완료 여부 — null이면 미완료이거나 보낸 항목이 지워진 것 */
+  forwarded_done?: boolean | null;
 };
 
 /** 미완료가 먼저, 기한 임박 순. 완료 항목은 12시간까지만 함께 온다 */
 export async function listTodos(token: string): Promise<ServerTodo[]> {
   return apiFetch<ServerTodo[]>('/api/v1/chatbot/todos', { headers: auth(token) });
+}
+
+/** 할 일을 알바의 근무 체크리스트로 보낸다 (사장님 전용) — 담당 지정 + 일회성.
+ *  성공하면 할 일에 전달 흔적이 남아 홈에서 완료 여부를 추적할 수 있다. */
+export async function forwardTodo(token: string, id: number, staffId: number): Promise<ServerTodo> {
+  return apiFetch<ServerTodo>(`/api/v1/chatbot/todos/${id}/forward`, {
+    method: 'POST',
+    headers: auth(token),
+    body: JSON.stringify({ staff_id: staffId }),
+  });
 }
 
 export async function createTodo(

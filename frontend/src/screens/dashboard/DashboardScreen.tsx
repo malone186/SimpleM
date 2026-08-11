@@ -403,6 +403,9 @@ function buildDashboard(
           done: completedSet.has(serverIdStr) || t.done,
           source: t.source,
           dateKey: parsedKey,
+          // 알바에게 보낸 흔적 — 항목 아래 "○○에게 전달됨 / ○○ 완료"로 보인다
+          forwardedTo: t.forwarded_to ?? null,
+          forwardedDone: t.forwarded_done ?? null,
         });
       }
     });

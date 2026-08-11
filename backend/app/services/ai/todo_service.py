@@ -9,6 +9,7 @@
 """
 
 import logging
+import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -43,6 +44,10 @@ def _to_dict(row) -> dict[str, Any]:
         "done": row.done,
         "due_date": row.due_date,
         "created_at": row.created_at.isoformat() if row.created_at else None,
+        # 알바 전달 흔적 — 완료 여부(forwarded_done)는 체크리스트를 조인해야 알 수 있어
+        # 목록 조회(list_todos)에서만 채운다. 단건 응답에서는 이름만 실린다.
+        "forwarded_to": row.forwarded_staff_name,
+        "forwarded_done": None,
     }
 
 
@@ -64,6 +69,17 @@ def list_todos(store_id: str, include_done: bool = True) -> list[dict[str, Any]]
             q = q.filter(TodoItem.done.is_(False))
         rows = q.all()
 
+        # 알바에게 보낸 항목의 완료 여부 — 보낸 항목은 one_off라 완료되면 active=False로
+        # 은퇴하므로, active만 보면 된다 (당일 체크 여부를 따로 조인할 필요가 없다).
+        fwd_ids = [r.forwarded_item_id for r in rows if r.forwarded_item_id]
+        fwd_done: dict[int, bool] = {}
+        if fwd_ids:
+            from app.models.checklist import ChecklistItem
+            fwd_done = {
+                i.id: (not i.active)
+                for i in db.query(ChecklistItem).filter(ChecklistItem.id.in_(fwd_ids))
+            }
+
     cutoff = datetime.now(timezone.utc) - timedelta(hours=DONE_VISIBLE_HOURS)
     visible = [
         r for r in rows
@@ -78,7 +94,14 @@ def list_todos(store_id: str, include_done: bool = True) -> list[dict[str, Any]]
             -(r.created_at.timestamp() if r.created_at else 0),
         )
 
-    return [_to_dict(r) for r in sorted(visible, key=_sort_key)]
+    out = []
+    for r in sorted(visible, key=_sort_key):
+        d = _to_dict(r)
+        if r.forwarded_item_id:
+            # 보낸 항목이 체크리스트에서 지워졌으면 None — 화면엔 '전달됨'만 남는다
+            d["forwarded_done"] = fwd_done.get(r.forwarded_item_id)
+        out.append(d)
+    return out
 
 
 def _aware(dt: datetime) -> datetime:
@@ -272,6 +295,43 @@ def delete_todo(store_id: str, todo_id: int) -> None:
         row = _own_row(db, store_id, todo_id)
         db.delete(row)
         db.commit()
+
+
+def forward_todo(db, store_id: str, todo_id: int, staff_id: int):
+    """할 일을 알바의 근무 체크리스트로 보낸다 (담당 지정 + 일회성 one_off).
+
+    체크리스트 항목 생성과 할 일에 흔적 남기기를 같은 세션에서 처리한다.
+    같은 할 일을 다시 보내는 것은 막지 않는다 — 다른 알바에게 재전달하는 경우가
+    실제로 있어서다(흔적은 마지막 전달 기준으로 덮어쓴다).
+
+    반환: (할 일 dict, 생성된 체크리스트 항목, 직원 이름) — 항목·이름은 푸시 문구에 쓴다.
+    """
+    from app.models.ai import TodoItem
+    from app.services import checklist_service
+
+    row = (
+        db.query(TodoItem)
+        .filter(TodoItem.id == todo_id, TodoItem.store_id == store_id)
+        .first()
+    )
+    if row is None:
+        raise TodoError("할 일을 찾을 수 없습니다.")
+    if row.done:
+        raise TodoError("이미 완료된 할 일은 보낼 수 없습니다.")
+
+    # 홈 화면 제목 규칙과 동일하게 "[서류·행정] " 태그를 떼고 보낸다 — 체크리스트에선 소음이다
+    label = re.sub(r"^\[[^\]]{1,8}\]\s*", "", row.title).strip() or row.title
+    # 직원 검증(우리 매장의 활성 계정인지)은 checklist_service.add_item이 한다 (ValueError)
+    item, staff_name = checklist_service.add_item(
+        db, store_id, label, assigned_staff_id=staff_id, one_off=True)
+
+    row.forwarded_item_id = item.id
+    row.forwarded_staff_name = staff_name
+    db.commit()
+
+    d = _to_dict(row)
+    d["forwarded_done"] = False
+    return d, item, staff_name
 
 
 def find_by_title(store_id: str, text: str) -> Optional[dict[str, Any]]:

@@ -5,9 +5,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 
 import { useAuth } from '../../auth/AuthContext';
-import { addChecklistItem } from '../../lib/api/checklist';
+import {
+  addChecklistItem, listChecklist, toggleChecklist, type ChecklistItem,
+} from '../../lib/api/checklist';
 import { listMenus, type MenuItem } from '../../lib/api/sales';
 import { fetchStaffAccounts, type StaffAccount } from '../../lib/api/staffAccounts';
+import { forwardTodo } from '../../lib/api/todo';
 import { colors, spacing, typography, shadows } from '../../theme';
 import { useResponsive } from '../../theme/responsive';
 import { PopIn, PressableScale, SlideUp } from '../motion';
@@ -39,6 +42,10 @@ export type Todo = {
   // [한글 주석] 재료가 다 떨어졌거나 서류 기한이 지난 급한 항목 — 제목 옆 빨간 배지 문구
   // ('없음'·'지남'처럼 어려운 말 없이 짧게)
   urgentLabel?: string;
+  // 알바에게 보낸 할 일 — 받은 직원 이름과 그쪽(체크리스트)에서의 완료 여부.
+  // 서버 저장 항목(server-*)에만 붙는다. forwardedDone이 없으면(null) 아직 미완료.
+  forwardedTo?: string | null;
+  forwardedDone?: boolean | null;
 };
 
 const CATEGORIES: { id: TodoCategory; label: string; icon: string; tag: string }[] = [
@@ -182,15 +189,86 @@ export default function TodoList({
       .catch(() => {});
   }, [token, user?.isStaff]);
 
+  // [내 할 일 | 직원 할 일] 탭 — 사장님이 홈에서 직원 체크리스트까지 한눈에 본다.
+  // 직원 할 일은 '오늘' 기준(체크리스트는 날짜 개념이 자정 리셋뿐)이라 날짜 스트립과 무관하다.
+  const [viewTab, setViewTab] = useState<'mine' | 'staff'>('mine');
+  const [staffTasks, setStaffTasks] = useState<ChecklistItem[] | null>(null); // null = 아직 안 불러옴
+  const [staffTaskBusyId, setStaffTaskBusyId] = useState<number | null>(null);
+  // 직원별 모아보기 — null=전체, '공용'=담당 없는 루틴, 그 외=그 직원 이름
+  const [staffPanelFilter, setStaffPanelFilter] = useState<string | null>(null);
+
+  // 직원별 완료 현황 — "박알바 2/3"처럼 누가 얼마나 했는지 한눈에. 공용 루틴은 맨 뒤.
+  const staffProgress = useMemo(() => {
+    if (!staffTasks) return [] as { name: string; done: number; total: number }[];
+    const acc = new Map<string, { done: number; total: number }>();
+    for (const it of staffTasks) {
+      const key = it.assigned_staff_name ?? '공용';
+      const cur = acc.get(key) ?? { done: 0, total: 0 };
+      cur.total += 1;
+      if (it.done) cur.done += 1;
+      acc.set(key, cur);
+    }
+    return Array.from(acc.entries())
+      .map(([name, v]) => ({ name, ...v }))
+      .sort((a, b) => (a.name === '공용' ? 1 : b.name === '공용' ? -1 : a.name.localeCompare(b.name)));
+  }, [staffTasks]);
+
+  const visibleStaffTasks = useMemo(() => {
+    if (!staffTasks) return null;
+    if (staffPanelFilter === null) return staffTasks;
+    if (staffPanelFilter === '공용') return staffTasks.filter((it) => !it.assigned_staff_name);
+    return staffTasks.filter((it) => it.assigned_staff_name === staffPanelFilter);
+  }, [staffTasks, staffPanelFilter]);
+
+  const openStaffTab = async () => {
+    setViewTab('staff');
+    if (!token) return;
+    try {
+      setStaffTasks(await listChecklist(token)); // 탭을 열 때마다 최신으로 — 알바가 방금 체크한 게 보여야 한다
+    } catch {
+      setStaffTasks((prev) => prev ?? []);
+      toast('직원 할 일 불러오기 실패', '잠시 후 다시 시도해 주세요.');
+    }
+  };
+
+  // 사장님도 홈에서 바로 체크할 수 있다 (체크리스트 화면과 같은 권한 규칙 — 토글은 모두 가능)
+  const toggleStaffTask = async (it: ChecklistItem) => {
+    if (!token || staffTaskBusyId !== null) return;
+    setStaffTaskBusyId(it.id);
+    setStaffTasks((prev) => prev?.map((x) => (x.id === it.id ? { ...x, done: !x.done } : x)) ?? prev);
+    try {
+      const r = await toggleChecklist(token, it.id);
+      setStaffTasks((prev) =>
+        prev?.map((x) => (x.id === it.id ? { ...x, done: r.done, done_by: r.done_by ?? null } : x)) ?? prev,
+      );
+    } catch (e) {
+      setStaffTasks((prev) => prev?.map((x) => (x.id === it.id ? { ...x, done: it.done } : x)) ?? prev);
+      toast('체크 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+    } finally {
+      setStaffTaskBusyId(null);
+    }
+  };
+
   const sendTodoToStaff = async (staff: StaffAccount) => {
     if (!token || !sendTarget || sendingStaffId !== null) return;
     setSendingStaffId(staff.id);
-    // 화면 제목과 같은 규칙으로 정리해서 보낸다 — "[서류·행정] " 태그는 체크리스트에선 소음이다
-    const label = sendTarget.title.replace(/^\[[^\]]{1,8}\]\s*/, '').trim();
     try {
-      await addChecklistItem(token, label, staff.id, true);
+      const serverId = sendTarget.id.startsWith('server-')
+        ? Number(sendTarget.id.slice('server-'.length))
+        : null;
+      if (serverId) {
+        // 서버 저장 할 일은 전용 API로 — 할 일에 전달 흔적이 남아 홈에서 완료를 추적한다
+        await forwardTodo(token, serverId, staff.id);
+      } else {
+        // 재고·손익분기처럼 조건에서 파생된 항목은 서버에 원본이 없어 흔적을 못 남긴다.
+        // 체크리스트에 넣는 것까지만 한다 (제목의 "[서류·행정] " 태그는 소음이라 뗀다).
+        const label = sendTarget.title.replace(/^\[[^\]]{1,8}\]\s*/, '').trim();
+        await addChecklistItem(token, label, staff.id, true);
+      }
       setSendTarget(null);
-      toast('알바에게 보냈어요', `${staff.name}님의 근무 체크리스트에 담았어요. 완료하면 오늘만 표시되고 사라져요.`);
+      toast('알바에게 보냈어요', `${staff.name}님의 근무 체크리스트에 담았어요. 완료하면 여기서도 표시돼요.`);
+      // 직원 할 일 탭을 이미 열어 봤다면 방금 보낸 항목이 바로 보이게 갱신
+      if (staffTasks !== null) listChecklist(token).then(setStaffTasks).catch(() => {});
     } catch (e) {
       toast('보내기 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
     } finally {
@@ -333,7 +411,122 @@ export default function TodoList({
 
   return (
     <View style={{ gap: 8 }}>
+      {/* ── [내 할 일 | 직원 할 일] 탭 — 사장님 계정에서만. 직원 탭은 오늘 체크리스트를 그대로 비춘다 ── */}
+      {!user?.isStaff && (
+        <View style={styles.viewTabRow}>
+          <Pressable
+            onPress={() => setViewTab('mine')}
+            style={[styles.viewTab, viewTab === 'mine' && styles.viewTabOn]}
+          >
+            <Ionicons name="person-outline" size={12} color={viewTab === 'mine' ? '#FFFFFF' : '#8C6F56'} />
+            <Text style={[styles.viewTabText, viewTab === 'mine' && styles.viewTabTextOn]}>내 할 일</Text>
+          </Pressable>
+          <Pressable
+            onPress={openStaffTab}
+            style={[styles.viewTab, viewTab === 'staff' && styles.viewTabOn]}
+          >
+            <Ionicons name="people-outline" size={12} color={viewTab === 'staff' ? '#FFFFFF' : '#8C6F56'} />
+            <Text style={[styles.viewTabText, viewTab === 'staff' && styles.viewTabTextOn]}>
+              직원 할 일
+              {staffTasks ? ` ${staffTasks.filter((t) => t.done).length}/${staffTasks.length}` : ''}
+            </Text>
+          </Pressable>
+        </View>
+      )}
+
+      {/* ── [직원 할 일 패널] 오늘 체크리스트 — 담당·완료·누가 했는지까지 홈에서 바로 ── */}
+      {viewTab === 'staff' && (
+        <View style={{ gap: 6 }}>
+          {staffTasks === null ? (
+            <Text style={styles.staffTaskHint}>불러오는 중…</Text>
+          ) : staffTasks.length === 0 ? (
+            <View style={styles.emptyStateContainer}>
+              <Ionicons name="checkmark-done-outline" size={24} color="#A1A1AA" />
+              <Text style={styles.emptyStateText}>
+                등록된 근무 체크리스트가 없어요.{'\n'}체크리스트 화면에서 루틴을 등록해 보세요.
+              </Text>
+            </View>
+          ) : (
+            <>
+            {/* 직원별 완료 현황 — 누르면 그 직원 항목만 모아 본다 (다시 누르면 해제).
+                다 끝낸 직원은 초록으로 바뀌어 "오늘 몫을 끝냈다"가 멀리서도 보인다. */}
+            {staffProgress.length > 1 && (
+              <View style={styles.staffProgRow}>
+                {staffProgress.map((p) => {
+                  const on = staffPanelFilter === p.name;
+                  const complete = p.done === p.total;
+                  return (
+                    <Pressable
+                      key={p.name}
+                      onPress={() => setStaffPanelFilter(on ? null : p.name)}
+                      style={[
+                        styles.staffProgChip,
+                        complete && styles.staffProgChipDone,
+                        on && styles.staffProgChipOn,
+                      ]}
+                    >
+                      <Text style={[styles.staffProgName, on && styles.staffProgTextOn]}>{p.name}</Text>
+                      <Text
+                        style={[
+                          styles.staffProgCount,
+                          complete && { color: '#3E9B4F' },
+                          on && styles.staffProgTextOn,
+                        ]}
+                      >
+                        {p.done}/{p.total}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+            {(visibleStaffTasks ?? []).map((it) => (
+              <Pressable
+                key={it.id}
+                onPress={() => toggleStaffTask(it)}
+                disabled={staffTaskBusyId === it.id}
+                style={[styles.taskCardItem, it.done && styles.itemDone]}
+              >
+                <Ionicons
+                  name={it.done ? 'checkmark-circle' : 'ellipse-outline'}
+                  size={23}
+                  color={it.done ? colors.espressoBrown : '#C4B5A5'}
+                />
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <Text style={[styles.taskItemTitle, it.done && styles.strike]} numberOfLines={2}>
+                    {it.label}
+                  </Text>
+                  {(!!it.assigned_staff_name || it.one_off || (it.done && !!it.done_by)) && (
+                    <Text style={styles.taskItemMeta} numberOfLines={1}>
+                      {[
+                        it.assigned_staff_name && `담당 · ${it.assigned_staff_name}`,
+                        it.one_off && '오늘만',
+                        it.done && it.done_by && `✓ ${it.done_by}`,
+                      ]
+                        .filter(Boolean)
+                        .join('  ·  ')}
+                    </Text>
+                  )}
+                </View>
+              </Pressable>
+            ))}
+            </>
+          )}
+          {/* 항목 관리(추가·수정·담당 변경)는 체크리스트 화면이 원본 — 여기선 보기·체크만 */}
+          <TouchableOpacity
+            onPress={() => navigation.navigate('Checklist')}
+            style={styles.moreRow}
+            hitSlop={{ top: 6, bottom: 6 }}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.moreText}>근무 체크리스트 관리</Text>
+            <Ionicons name="chevron-forward" size={12} color="#8C6F56" />
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* ── [통합 업무 목록 (날짜 변경 시 부드러운 패이드+슬라이딩 전환)] ── */}
+      {viewTab === 'mine' && (
       <Animated.View style={{ opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
         {dateFilteredTodos.length === 0 ? (
           /* [한글 주석] 해당 날짜에 등록된 업무가 없을 때 깔끔하게 안내하는 빈 뷰 */
@@ -390,9 +583,10 @@ export default function TodoList({
           </TouchableOpacity>
         )}
       </Animated.View>
+      )}
 
       {/* ── [한 줄 가로 정렬: 메인 새 업무 등록하기 + ✨ 브루 추천 미니 칩] ── */}
-      {!isPastDate && (
+      {viewTab === 'mine' && !isPastDate && (
         <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', marginTop: 4 }}>
           <PressableScale
             onPress={openCreateModal}
@@ -771,6 +965,21 @@ function TodoItem({
               <Text style={styles.promoLinkText}>손익분기점 보기 ›</Text>
             </View>
           )}
+          {/* 알바에게 보낸 항목 — 전달·완료 상태를 사장님이 여기서 바로 본다.
+              완료(체크리스트 쪽에서 체크됨)면 초록으로 바뀐다. */}
+          {!!todo.forwardedTo && (
+            <View style={styles.promoLink} pointerEvents="none">
+              <Ionicons
+                name={todo.forwardedDone ? 'checkmark-circle' : 'paper-plane-outline'}
+                size={11}
+                color={todo.forwardedDone ? '#3E9B4F' : '#8C9BAB'}
+              />
+              <Text style={[styles.promoLinkText, { color: todo.forwardedDone ? '#3E9B4F' : '#8C9BAB' }]}>
+                {todo.forwardedTo}
+                {todo.forwardedDone ? ' 완료' : '에게 전달됨'}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* [3. 우측 액션: 수정·삭제 — 지난 날짜(isPastDate)일 때만 숨김] */}
@@ -801,6 +1010,30 @@ function TodoItem({
 }
 
 const styles = StyleSheet.create({
+  // [내 할 일 | 직원 할 일] 탭 — 카테고리 칩과 구분되게 알약 두 개만 나란히
+  viewTabRow: { flexDirection: 'row', gap: 6 },
+  viewTab: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 12, paddingVertical: 7, borderRadius: 14,
+    backgroundColor: 'rgba(245, 239, 232, 0.9)',
+    borderWidth: 1, borderColor: 'rgba(226, 215, 199, 0.9)',
+  },
+  viewTabOn: { backgroundColor: colors.espressoBrown, borderColor: colors.espressoBrown },
+  viewTabText: { fontSize: 11.5, fontWeight: '700', color: '#5B4333' },
+  viewTabTextOn: { color: '#FFFFFF' },
+  staffTaskHint: { fontSize: 12, color: '#8C827A', textAlign: 'center', paddingVertical: 16 },
+  // 직원별 완료 현황 칩 — 이름 + n/m. 완료(n=m)면 초록 테두리, 선택하면 갈색 채움.
+  staffProgRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 2 },
+  staffProgChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12,
+    backgroundColor: '#FFFDF9', borderWidth: 1, borderColor: '#E9E2D8',
+  },
+  staffProgChipDone: { borderColor: 'rgba(62,155,79,0.45)', backgroundColor: 'rgba(62,155,79,0.06)' },
+  staffProgChipOn: { backgroundColor: colors.espressoBrown, borderColor: colors.espressoBrown },
+  staffProgName: { fontSize: 11.5, fontWeight: '700', color: '#5B4333' },
+  staffProgCount: { fontSize: 11.5, fontWeight: '800', color: '#8C6F56' },
+  staffProgTextOn: { color: '#FFFFFF' },
   emptyStateContainer: {
     alignItems: 'center',
     justifyContent: 'center',

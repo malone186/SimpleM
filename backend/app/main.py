@@ -92,6 +92,10 @@ def _startup_db_selfheal() -> None:
     from app.models.ai import ensure_device_token_staff_column
     ensure_device_token_staff_column(engine)
 
+    # [자가치유] todo_items에 알바 전달 흔적(forwarded_*) 컬럼을 보강한다 — 전달·완료 상태 표시용.
+    from app.models.ai import ensure_todo_forward_columns
+    ensure_todo_forward_columns(engine)
+
     # [한글 주석] 로그인 데모를 즉시 하실 수 있게 테스트용 사장님 계정을 자동으로 생성(시딩)해 둡니다.
     #
     # 비밀번호는 앱 로그인 화면의 '데모 로그인' 버튼이 그대로 보내는 값이다

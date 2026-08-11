@@ -4,7 +4,7 @@
 // 알바가 할 수 없다. 여기 담기는 건 매일 반복되는 근무 루틴이고, 날짜로 관리돼 다음 날
 // 자동 초기화된다. 직원은 체크·추가(근무 중 발견한 할 일을 그 자리에서 올린다),
 // 사장님은 수정·삭제까지 한다(같은 화면, isOwner로 분기 — 루틴 원본 관리는 사장님 몫).
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView,
   StyleSheet, Text, TextInput, View,
@@ -38,6 +38,24 @@ export default function ChecklistScreen() {
   // 사장님 전용 — 새 항목의 담당 직원 지정 (null = 공용 루틴)
   const [staffList, setStaffList] = useState<StaffAccount[]>([]);
   const [assigneeId, setAssigneeId] = useState<number | null>(null);
+
+  // 담당별 모아보기 — null=전체, '공용'=담당 없는 루틴, 그 외=그 직원 담당만.
+  // 선택지는 지금 목록에 실제로 있는 담당 이름에서 만든다 (직원 목록 API는 사장님 전용이라,
+  // 직원 계정으로 봐도 필터가 똑같이 동작하게 항목 데이터에서 뽑는다).
+  const [staffFilter, setStaffFilter] = useState<string | null>(null);
+  const assigneeNames = useMemo(
+    () => Array.from(new Set(items.map((i) => i.assigned_staff_name).filter(Boolean))) as string[],
+    [items],
+  );
+  const visibleItems = useMemo(
+    () =>
+      staffFilter === null
+        ? items
+        : staffFilter === '공용'
+          ? items.filter((i) => !i.assigned_staff_id)
+          : items.filter((i) => i.assigned_staff_name === staffFilter),
+    [items, staffFilter],
+  );
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -136,6 +154,24 @@ export default function ChecklistScreen() {
           </View>
         )}
 
+        {/* 담당별 모아보기 — 담당 지정 항목이 하나라도 있을 때만 보인다.
+            알바가 여럿이면 공용 루틴과 각자 담당이 섞여 보이던 걸 여기서 가른다. */}
+        {assigneeNames.length > 0 && (
+          <View style={[styles.assignChips, { marginBottom: 10 }]}>
+            {([null, '공용', ...assigneeNames] as (string | null)[]).map((f) => (
+              <Pressable
+                key={f ?? '전체'}
+                onPress={() => setStaffFilter(f)}
+                style={[styles.chip, staffFilter === f && styles.chipOn]}
+              >
+                <Text style={[styles.chipText, staffFilter === f && styles.chipTextOn]}>
+                  {f ?? '전체'}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+
         {loading ? (
           <ActivityIndicator color={colors.pointOrange} style={{ marginTop: 40 }} />
         ) : items.length === 0 ? (
@@ -147,8 +183,13 @@ export default function ChecklistScreen() {
                 : '아직 등록된 체크리스트가 없어요.\n아래 추가 버튼으로 직접 올릴 수도 있어요.'}
             </Text>
           </View>
+        ) : visibleItems.length === 0 ? (
+          <View style={styles.empty}>
+            <Ionicons name="funnel-outline" size={24} color={colors.mochaBrown} />
+            <Text style={styles.emptyText}>이 담당에 해당하는 항목이 없어요.</Text>
+          </View>
         ) : (
-          items.map((it) => (
+          visibleItems.map((it) => (
             <View key={it.id} style={[styles.row, it.done && styles.rowDone]}>
               {/* 줄 전체를 눌러 체크한다 — 계산대에서 작은 동그라미만 노리게 하면 불편하다.
                   편집·삭제(사장님)는 이 영역 바깥의 별도 버튼이라 토글과 겹치지 않는다. */}

@@ -721,6 +721,36 @@ def ensure_device_token_staff_column(engine) -> None:
         logger.warning(f"[알림 스키마] staff_id 보강 실패 — 직원 지정 푸시가 막힐 수 있습니다: {e}")
 
 
+def ensure_todo_forward_columns(engine) -> None:
+    """[자가치유 스키마] todo_items에 알바 전달 흔적 컬럼 2개를 멱등하게 추가한다.
+
+    '사장님 할 일 → 알바에게 보내기'에서 어느 체크리스트 항목으로 보냈는지(forwarded_item_id)와
+    받은 직원 이름 스냅샷(forwarded_staff_name)을 남겨, 사장님 홈에서 전달·완료 상태를 보여준다.
+    기존 행은 NULL(전달 안 함)로 남는다 ([[create-all-no-alter-trap]]).
+    """
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("todo_items"):
+            return  # 테이블 자체가 없으면 create_all이 스키마째로 만든다
+        existing = {c["name"] for c in insp.get_columns("todo_items")}
+    except Exception as e:
+        logger.warning(f"[할 일 스키마] todo_items 점검 실패 — 건너뜁니다: {e}")
+        return
+    patches = {
+        "forwarded_item_id": "ALTER TABLE todo_items ADD COLUMN forwarded_item_id INTEGER",
+        "forwarded_staff_name": "ALTER TABLE todo_items ADD COLUMN forwarded_staff_name VARCHAR(50)",
+    }
+    for col, ddl in patches.items():
+        if col in existing:
+            continue
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info(f"[할 일 스키마] todo_items.{col} 컬럼 추가 완료")
+        except Exception as e:
+            logger.warning(f"[할 일 스키마] {col} 보강 실패 — 전달 상태 표시가 막힐 수 있습니다: {e}")
+
+
 class NearbyCafeWatch(Base):
     """주변 경쟁 카페 관측 대장 — '어제 있던 카페'를 기억해 개업·폐업을 알아낸다.
 
@@ -790,6 +820,12 @@ class TodoItem(Base):
     due_date: Mapped[str | None] = mapped_column(String(10), nullable=True)  # YYYY-MM-DD
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 알바에게 전달한 흔적 — 근무 체크리스트로 보낸 항목(checklist_items.id)과 직원 이름 스냅샷.
+    # 완료 여부는 체크리스트가 원본이다: 보낸 항목은 one_off라 완료되면 active=False로 은퇴하므로
+    # active만 보면 된다. 이름을 스냅샷하는 이유는 직원 계정이 지워져도 "누구에게 보냈었는지"가
+    # 사장님 화면에 남아야 해서다. FK를 걸지 않는 것도 같은 이유(항목 삭제가 할 일을 건드리면 안 됨).
+    forwarded_item_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    forwarded_staff_name: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
 
 # ---------------------------------------------------------------------------

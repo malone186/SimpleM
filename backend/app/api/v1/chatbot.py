@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.services.ai.agents import main_agent
 
-from app.core.auth import get_current_admin, get_current_user
+from app.core.auth import get_current_admin, get_current_user, require_owner
 from app.core.database import get_db
 from app.models.ai import ChatSession
 from app.models.user import User
@@ -56,6 +56,7 @@ from app.schemas.ai import (
     OcrStatus,
     PayslipRequest,
     TodoCreate,
+    TodoForwardRequest,
     TodoResponse,
     TodoUpdate,
 )
@@ -2039,6 +2040,35 @@ def delete_todo(todo_id: int, current_user: User = Depends(get_current_user)):
         todo_service.delete_todo(current_user.email, todo_id)
     except todo_service.TodoError as e:
         raise HTTPException(404, str(e))
+
+
+@router.post("/todos/{todo_id}/forward", response_model=TodoResponse)
+def forward_todo(todo_id: int, body: TodoForwardRequest,
+                 db: Session = Depends(get_db),
+                 current_user: User = Depends(require_owner)):
+    """할 일을 알바의 근무 체크리스트로 보낸다 — 담당 지정 + 일회성(one_off).
+
+    사장님 전용. 성공하면 그 직원 기기로 푸시가 가고, 할 일에는 전달 흔적이 남아
+    사장님 홈에서 완료 여부를 추적할 수 있다 (완료 = 체크리스트 쪽에서 체크됨).
+    """
+    try:
+        result, item, staff_name = todo_service.forward_todo(
+            db, current_user.email, todo_id, body.staff_id)
+    except ValueError as e:  # TodoError(할 일 없음)·직원 검증 실패 둘 다 ValueError 계열
+        raise HTTPException(400, str(e))
+
+    # 푸시 — 체크리스트에 직접 추가할 때와 같은 문구·대상 규칙 (실패해도 전달은 성공으로 남긴다)
+    try:
+        from app.services.ai import push_service
+        push_service.send_to_staff(
+            db, current_user.email, "담당 업무가 도착했어요",
+            f"{staff_name}님 담당 · {item.label}",
+            staff_id=item.assigned_staff_id,
+            data={"screen": "Checklist"},
+        )
+    except Exception:  # noqa: BLE001 — 푸시 실패가 전달 실패로 번지면 안 된다
+        pass
+    return result
 
 
 # ---------------------------------------------------------------------------
