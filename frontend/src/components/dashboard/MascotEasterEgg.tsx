@@ -4,7 +4,7 @@
 //  - 꾹 누르기(롱프레스): 풍선처럼 점점 부풀다가 끝까지 부풀면 펑! 터짐 (중간에 떼면 바람 빠지듯 복귀)
 // 모두 RN 내장 Animated + 이모지로 처리 (추가 이미지 에셋 없음), 진동은 expo-haptics.
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Animated, Easing, Image, Platform, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 // [한글 주석] 웹(Web) 환경 및 Haptics 모듈 미지원 환경에서 번들링 에러가 나는 것을 방지합니다.
 let Haptics: any = null;
 try {
@@ -13,7 +13,7 @@ try {
   // 모듈 로드 불가 시 예외를 내지 않고 넘어갑니다.
 }
 
-import Brew, { FLIPBOOK_MOODS, type BrewAccessory, type BrewMood, type BrewOneShot } from '../brew/Brew';
+import Brew, { FLIPBOOK_MOODS, flipSheetSrcFor, type BrewAccessory, type BrewMood, type BrewOneShot } from '../brew/Brew';
 import type { MotionName } from '../brew/brewMotions';
 import { useBrewBrain, type BrewContext } from '../brew/useBrewBrain';
 import { useEquipped } from '../../rewards/EquippedContext';
@@ -141,6 +141,35 @@ export default function MascotEasterEgg({
   // 앞치마 색은 어느 쪽이든 유지된다 — 옷 색은 감정과 무관하기 때문이다.
   const { accessories, poseMood, apronColor } = useEquipped();
   const shownMood = moodOverridesPose ? mood : (poseMood ?? mood);
+
+  // ── 변신 팝: '보이는 모습'이 바뀌는 순간(표정 → 착용 포즈 등)을 부드럽게 ──
+  // 즉시 갈아끼우면 반신·전신처럼 실루엣이 다른 그림이라 깜빡여 보인다. 그래서
+  // 쪼그라드는 동안은 이전 모습을 유지하고, 가장 작아진 순간(시선이 덜 가는 정점)에
+  // 그림을 바꾼 뒤 스프링으로 튀어오르며 새 모습이 등장한다.
+  const [displayMood, setDisplayMood] = useState(shownMood);
+  const morphScale = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (shownMood === displayMood) return;
+    Animated.timing(morphScale, {
+      toValue: 0.8,
+      duration: 110,
+      easing: Easing.in(Easing.quad),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (!alive.current) return;
+      setDisplayMood(shownMood);
+      if (!finished) {
+        // 연타로 끊겼으면 튀어오르기 생략 — 다음 변신이 이어받는다
+        morphScale.setValue(1);
+        return;
+      }
+      Animated.spring(morphScale, { toValue: 1, useNativeDriver: true, speed: 16, bounciness: 14 }).start();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownMood]);
+
+  // 착용한 플립북 시트를 몰래 미리 디코딩 — 변신 순간의 디코딩 지연(깜빡임의 절반)을 없앤다
+  const preloadSrc = poseMood && poseMood !== displayMood ? flipSheetSrcFor(poseMood, apronColor) : null;
 
   // ── 배경 효과(하트·반짝이)는 나쁜 소식과 같이 띄우지 않는다 ──
   // 매출이 반 토막 났는데 시무룩한 브루 주위로 하트가 날아다니면 화면이 농담처럼 읽힌다.
@@ -337,14 +366,21 @@ export default function MascotEasterEgg({
 
   return (
     <View style={[{ position: 'relative', alignItems: 'center' }, style]}>
+      {/* 변신 예정인 시트를 1px 투명으로 깔아 미리 디코딩 — 화면에는 안 보인다 */}
+      {preloadSrc && (
+        <Image source={preloadSrc} style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }} />
+      )}
       <Pressable onPress={onPress} onPressIn={onPressIn} onPressOut={onPressOut} hitSlop={6}>
-        <Animated.View style={{ transform: [{ scale: combinedScale }, { rotate }] }}>
+        <Animated.View
+          style={{ transform: [{ scale: Animated.multiply(combinedScale, morphScale) }, { rotate }] }}
+        >
           {/* 상점에서 산 포즈·배경을 홈 마스코트에 그대로 반영한다 */}
           {/* 플립북 포즈(점프·댄스)는 움직임 자체가 상품이라 홈에서도 재생을 허용한다 */}
+          {/* displayMood: 변신 팝 중에는 이전 모습을 유지한다 (shownMood를 바로 쓰면 깜빡인다) */}
           <Brew
-            mood={shownMood}
+            mood={displayMood}
             size={size}
-            disableMotion={!motion && !FLIPBOOK_MOODS.has(shownMood)}
+            disableMotion={!motion && !FLIPBOOK_MOODS.has(displayMood)}
             accessories={shownAccessories}
             apronColor={apronColor}
             oneShot={oneShot}

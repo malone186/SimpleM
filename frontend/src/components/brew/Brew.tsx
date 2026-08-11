@@ -62,6 +62,15 @@ const FLIP_KEY: Partial<Record<BrewMood, string>> = {
 // 재생을 허용할지 판단할 수 있게 공개한다 — 이 포즈들은 '움직임 자체가 상품'이라서.
 export const FLIPBOOK_MOODS = new Set<BrewMood>(['jump', 'dance', 'hello', 'dab', 'workout', 'bad', 'heart', 'celeb', 'redred']);
 
+/** 착용 포즈의 스프라이트 시트 소스 — 화면 전환 전에 몰래 미리 디코딩해 두는 용도.
+ *  (전환 순간에 처음 디코딩하면 그 지연이 '깜빡임'으로 보인다 — 홈 변신 팝 참고) */
+export function flipSheetSrcFor(mood: BrewMood, apronColor?: string): any | null {
+  const key = FLIP_KEY[mood];
+  if (!key) return null;
+  const sheet = (apronColor && FLIP_SHEETS[`${key}__${apronColor}`]) || FLIP_SHEETS[key];
+  return sheet?.src ?? null;
+}
+
 /** 발까지 그려진 전신 포즈.
  *
  * 나머지(welcome·happy·resting·clipboard·serving·top·greet·coffee)는 앞치마 언저리에서 잘린

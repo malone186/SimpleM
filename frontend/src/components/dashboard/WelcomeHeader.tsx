@@ -399,34 +399,27 @@ export default function WelcomeHeader({
             autonomous: 가끔 끄덕·갸웃·두리번을 스스로 얹는다. 전신 모션(점프·댄스)은 여기선
             안 나온다 — 그건 무대가 넓은 게임 룸 몫이다(interactiveMotions가 꺼져 있어 자동으로 제외).
             Animated 기반이라 8/6에 잡았던 SalesCard식 '초당 60회 setState' 부류가 아니다. */}
-        {roomMode ? (
-          // 게임 룸과 같은 설정 — 산 포즈가 표정을 이기고, 탭마다 전신 모션이 나온다 (BrewStage 참고)
+        {/* 마스코트는 항상 같은 인스턴스 하나다 — 예전처럼 roomMode에서 다른 트리로 갈아끼우면
+            리마운트되면서 그림이 뚝 바뀐다(깜빡임). 같은 인스턴스에서 props만 바꾸면
+            MascotEasterEgg 내부의 '변신 팝'(쪼그라들며 교체 → 튀어오르며 등장)이 이어받는다.
+            첫 터치는 위에 깐 투명 오버레이가 가로챈다 — 내부 이스터에그(쓰다듬기 등)가
+            그 탭을 먼저 소비하지 않게 하고, 다음 렌더부터 게임 룸 모드로 넘긴다 */}
+        <View>
           <MascotEasterEgg
             mood={mood}
+            moodOverridesPose={!roomMode && moodOverridesPose}
+            // 나쁜 소식일 때만 배경 효과를 감춘다 (좋은 날의 하트·반짝이는 그대로 둔다)
+            suppressAccessories={!roomMode && moodTone === 'bad'}
             size={190}
             style={styles.mascot}
             motion
-            interactiveMotions
+            interactiveMotions={roomMode}
             autonomous
           />
-        ) : (
-          // 첫 터치를 여기서 가로챈다 — pointerEvents="none"으로 내부 이스터에그(쓰다듬기 등)가
-          // 이 탭을 먼저 소비하지 않게 하고, 다음 렌더부터 게임 룸 모드로 넘긴다
-          <Pressable onPress={() => setRoomMode(true)}>
-            <View pointerEvents="none">
-              <MascotEasterEgg
-                mood={mood}
-                moodOverridesPose={moodOverridesPose}
-                // 나쁜 소식일 때만 배경 효과를 감춘다 (좋은 날의 하트·반짝이는 그대로 둔다)
-                suppressAccessories={moodTone === 'bad'}
-                size={190}
-                style={styles.mascot}
-                motion
-                autonomous
-              />
-            </View>
-          </Pressable>
-        )}
+          {!roomMode && (
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => setRoomMode(true)} />
+          )}
+        </View>
       </Animated.View>
 
       {/* 알림함 모달 — 목록(스택 카드) ↔ 한 건 상세 두 단계로 동작한다 */}
