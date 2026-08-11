@@ -15,6 +15,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, spacing, typography } from '../../theme';
+import { glassSurface, glassSurfaceCream } from '../../theme/glass';
 import { fs, s, useResponsive } from '../../theme/responsive';
 import { FadeInUp, PressableScale } from '../motion';
 
@@ -227,8 +228,9 @@ const styles = StyleSheet.create({
   screenTitle: { ...typography.L1, color: colors.espressoBrown },
   screenSubtitle: { ...typography.L5, color: colors.mochaBrown, marginTop: 4 },
   card: { borderRadius: s(20), padding: spacing.globalPadding, borderWidth: 1 },
-  cardWhite: { backgroundColor: colors.white, borderColor: 'rgba(140,111,86,0.18)' },
-  cardCream: { backgroundColor: colors.coffeeCream, borderColor: colors.mutedSand },
+  // 리퀴드 글라스 — 단색 카드 대신 유리 표면 (theme/glass.ts). 앱 전역 카드가 함께 바뀐다.
+  cardWhite: { ...glassSurface },
+  cardCream: { ...glassSurfaceCream },
   sectionTitle: {
     ...typography.L3,
     fontSize: fs(15), // 본문 텍스트보다 명확히 돋보이는 가독성 크기
@@ -254,7 +256,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   btnPrimary: { backgroundColor: colors.pointOrange },
-  btnSecondary: { backgroundColor: colors.white, borderWidth: 1.5, borderColor: colors.mutedSand },
+  // 보조 버튼도 유리로 — 주 버튼(오렌지 CTA)은 단색 유지: 행동 유도는 뚜렷해야 한다
+  btnSecondary: { borderWidth: 1.5, ...glassSurface, borderColor: colors.mutedSand },
   btnGhost: { backgroundColor: 'transparent' },
   btnDisabled: { opacity: 0.4 },
   btnText: { ...typography.L3 },

@@ -15,6 +15,7 @@ import { colors, spacing, typography, shadows } from '../../theme';
 import { useResponsive } from '../../theme/responsive';
 import { PopIn, PressableScale, SlideUp } from '../motion';
 import { toast } from '../toast';
+import { glassSurface } from '../../theme/glass';
 import { type DateInfo } from './SalesCard';
 
 export type TodoCategory = 'order' | 'hygiene' | 'admin' | 'daily';
@@ -1231,7 +1232,7 @@ const styles = StyleSheet.create({
   taskCardItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFDF9', // 클래식 아날로그 크림 메모지 톤
+    ...glassSurface, // 리퀴드 글라스 — 크림 메모지 단색 대신 유리 표면
     borderRadius: 14,
     paddingVertical: 10,
     paddingHorizontal: 12,
@@ -1339,10 +1340,11 @@ const styles = StyleSheet.create({
   promoPickerCard: {
     width: '86%',
     maxWidth: 360,
-    backgroundColor: '#FFFFFF',
     borderRadius: 18,
     padding: 18,
     ...shadows.medium,
+    borderWidth: 1,
+    ...glassSurface, // 리퀴드 글라스 — 모달 카드도 유리 표면
   },
   promoPickerTitle: { fontSize: 15.5, fontWeight: '900', color: colors.espressoBrown },
   promoPickerSub: { fontSize: 11.5, fontWeight: '600', color: colors.mochaBrown, marginBottom: 10 },

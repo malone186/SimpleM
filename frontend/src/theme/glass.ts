@@ -24,6 +24,30 @@ export const liquidGlass = {
     : null),
 } as const;
 
+// 카드·시트 표면용 유리 — 흰 단색 카드를 대신하는 밝은 유리. 뒤 배경(방 사진·오로라·크림
+// 시트)이 은은하게 비친다. 위에 본문 텍스트가 앉는 표면이라 버튼(liquidGlass)보다 불투명도를
+// 높게 잡는다 — 유리 느낌은 내되 글이 배경과 싸우면 안 된다.
+export const glassSurface = {
+  borderColor: 'rgba(255,255,255,0.6)',
+  ...(Platform.OS === 'web'
+    ? ({
+        backgroundColor: 'rgba(255,255,255,0.62)',
+        backdropFilter: 'blur(18px) saturate(160%)',
+      } as object)
+    : ({ backgroundColor: 'rgba(255,255,255,0.86)' } as object)), // 네이티브는 블러가 없어 얕게만
+} as const;
+
+// 크림 톤 표면용 — coffeeCream(#F2ECE0) 단색 카드의 유리판
+export const glassSurfaceCream = {
+  borderColor: 'rgba(255,255,255,0.5)',
+  ...(Platform.OS === 'web'
+    ? ({
+        backgroundColor: 'rgba(242,236,224,0.6)',
+        backdropFilter: 'blur(18px) saturate(160%)',
+      } as object)
+    : ({ backgroundColor: 'rgba(242,236,224,0.88)' } as object)),
+} as const;
+
 // 탭 바용 유리 — 어두운 헤더 위 흰 유리(liquidGlass)와 달리, 밝은 크림 콘텐츠 위에 얹는
 // 오프화이트 틴트 유리다. 웹은 스크롤되는 콘텐츠가 비쳐 보이고, 네이티브는 블러가 없어
 // 반투명을 얕게 잡는다(너무 투명하면 글자 위로 콘텐츠가 겹쳐 읽기 나빠진다).

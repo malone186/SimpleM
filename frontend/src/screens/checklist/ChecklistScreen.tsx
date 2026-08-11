@@ -20,6 +20,7 @@ import {
 } from '../../lib/api/checklist';
 import { fetchStaffAccounts, type StaffAccount } from '../../lib/api/staffAccounts';
 import { colors } from '../../theme';
+import { glassSurface } from '../../theme/glass';
 import { s, useBottomInset } from '../../theme/responsive';
 
 export default function ChecklistScreen() {
@@ -302,10 +303,11 @@ const styles = StyleSheet.create({
   summaryHint: { fontSize: 12, color: colors.mochaBrown, marginTop: 3 },
   empty: { alignItems: 'center', gap: 12, marginTop: 60 },
   emptyText: { fontSize: 13, color: colors.mochaBrown, textAlign: 'center', lineHeight: 20 },
+  // 리퀴드 글라스 — 단색 흰 카드 대신 유리 표면 (theme/glass.ts)
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: colors.white, borderRadius: 14, padding: 15, marginBottom: 8,
-    borderWidth: 1, borderColor: colors.mutedSand,
+    borderRadius: 14, padding: 15, marginBottom: 8,
+    borderWidth: 1, ...glassSurface, borderColor: colors.mutedSand,
   },
   rowDone: { backgroundColor: 'rgba(62,155,79,0.06)', borderColor: 'rgba(62,155,79,0.18)' },
   rowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -334,8 +336,9 @@ const styles = StyleSheet.create({
   modalBg: { flex: 1, backgroundColor: 'rgba(30,22,18,0.4)', justifyContent: 'center', padding: 28 },
   // 웹(넓은 창)에서 화면 폭만큼 늘어나지 않게 모바일 크기로 고정 — 다른 모달들과 같은 관례(340~360)
   modalCard: {
-    backgroundColor: colors.white, borderRadius: 18, padding: 20, gap: 14,
+    borderRadius: 18, padding: 20, gap: 14,
     width: '100%', maxWidth: 360, alignSelf: 'center',
+    borderWidth: 1, ...glassSurface, // 리퀴드 글라스 모달
   },
   modalTitle: { fontSize: 16, fontWeight: '700', color: colors.espressoBrown },
   input: {
