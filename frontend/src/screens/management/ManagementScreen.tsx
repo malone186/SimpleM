@@ -8,6 +8,7 @@ import Svg, { Circle, Defs, FeGaussianBlur, Filter, LinearGradient, Path, Stop }
 
 import { FadeInUp, PressableScale } from '../../components/motion';
 import { colors } from '../../theme';
+import { liquidGlass } from '../../theme/glass';
 import { s, useResponsive, useTopInset } from '../../theme/responsive';
 import { useTranslation } from '../../i18n/translations';
 import { useAuth } from '../../auth/AuthContext';
@@ -321,17 +322,16 @@ const styles = StyleSheet.create({
     fontSize: 11, color: '#F0C9A8', marginTop: 5, fontWeight: '600',
     letterSpacing: -0.2, lineHeight: 16, ...ROOM_TEXT_SHADOW,
   },
+  // 리퀴드 글라스 — 웹은 배경 블러, 네이티브는 하이라이트 유리 (theme/glass.ts)
   gearBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(255,255,255,0.08)',
     borderRadius: 999,
     paddingLeft: 9,
     paddingRight: 12,
     paddingVertical: 5,
-    borderWidth: 0.8,
-    borderColor: 'rgba(255,255,255,0.14)',
+    ...liquidGlass,
   },
   gearText: { color: colors.creamSand, fontSize: 11.5, fontWeight: '700' },
 

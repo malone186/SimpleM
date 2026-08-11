@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 
 import { colors, spacing, shadows } from '../../theme';
+import { liquidGlass } from '../../theme/glass';
 import { useTopInset } from '../../theme/responsive';
 import { type BrewMood } from '../brew/Brew';
 import { type BrewOutlook } from '../brew/forecastMood';
@@ -554,15 +555,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  // 리퀴드 글라스 — 웹은 배경 블러, 네이티브는 하이라이트 유리 (theme/glass.ts)
   iconBtn: {
     alignItems: 'center',
     justifyContent: 'center',
     width: 36,
     height: 36,
-    backgroundColor: 'rgba(255,255,255,0.12)',
     borderRadius: 18,
-    borderWidth: 0.8,
-    borderColor: 'rgba(255,255,255,0.18)',
+    ...liquidGlass,
   },
   // 안 읽은 알림 개수 배지
   badge: {
