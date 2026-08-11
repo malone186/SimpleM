@@ -124,6 +124,27 @@ def test_직원도_항목을_추가할_수_있다(client, owner, staff):
     assert "제빙기 필터 점검" in labels
 
 
+def test_특정_직원에게_업무를_지정한다(client, owner, staff):
+    """사장님이 담당 직원을 지정하면 응답·목록에 담당 이름이 실린다 (직원 화면에도 동일)."""
+    staff_id = client.get("/api/v1/staff-accounts", headers=owner).json()[0]["id"]
+    r = client.post("/api/v1/checklist/items",
+                    json={"label": "우유 발주 확인", "assigned_staff_id": staff_id}, headers=owner)
+    assert r.status_code == 201
+    assert r.json()["assigned_staff_name"] == "박알바"
+
+    rows = client.get("/api/v1/checklist", headers=staff).json()
+    mine = next(row for row in rows if row["label"] == "우유 발주 확인")
+    assert mine["assigned_staff_id"] == staff_id
+    assert mine["assigned_staff_name"] == "박알바"
+
+
+def test_남의_매장_직원은_담당으로_지정할_수_없다(client, owner, staff):
+    """존재하지 않거나 우리 매장이 아닌 staff id는 400 — 임의 id 꽂기 방지."""
+    r = client.post("/api/v1/checklist/items",
+                    json={"label": "이상한 지정", "assigned_staff_id": 999999}, headers=owner)
+    assert r.status_code == 400
+
+
 def test_직원은_체크만_할_수_있다(client, owner, staff):
     """관리는 막지만 체크 자체는 직원의 일이라 열려 있어야 한다."""
     item_id = client.post("/api/v1/checklist/items",

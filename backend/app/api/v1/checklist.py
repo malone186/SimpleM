@@ -48,11 +48,31 @@ def create_item(body: ChecklistItemCreate, db: Session = Depends(get_db),
                 # 올리게. 수정·삭제는 여전히 사장님만(루틴의 원본은 사장님이 관리한다).
                 user: User = Depends(get_current_user)):
     try:
-        item = svc.add_item(db, user.email, body.label)
+        item, staff_name = svc.add_item(db, user.email, body.label,
+                                        assigned_staff_id=body.assigned_staff_id)
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+    # 새 할 일 푸시 — 지정 항목이면 그 직원 기기로만, 공용이면 직원 기기 전부.
+    # 올린 사람이 직원이면 본인은 뺀다. 실패해도 항목 추가 자체는 성공으로 남긴다
+    # (푸시는 부가 통보지 트랜잭션의 일부가 아니다).
+    creator = getattr(user, "acting_staff", None)
+    try:
+        from app.services.ai import push_service
+        title = "담당 업무가 도착했어요" if item.assigned_staff_id else "새 근무 체크리스트"
+        who = f"{staff_name}님 담당 · " if staff_name else ""
+        push_service.send_to_staff(
+            db, user.email, title, f"{who}{item.label}",
+            staff_id=item.assigned_staff_id,
+            exclude_staff_id=creator.id if creator else None,
+            data={"screen": "Checklist"},
+        )
+    except Exception:  # noqa: BLE001 — 푸시 실패가 추가 실패로 번지면 안 된다
+        pass
+
     return {"id": item.id, "label": item.label, "sort_order": item.sort_order,
-            "done": False, "done_by": None, "checked_at": None}
+            "done": False, "done_by": None, "checked_at": None,
+            "assigned_staff_id": item.assigned_staff_id, "assigned_staff_name": staff_name}
 
 
 @router.patch("/items/{item_id}", response_model=ChecklistItemRow, summary="항목 수정")

@@ -1551,8 +1551,11 @@ def register_push_token(
     프론트는 로그인 직후와 토큰 갱신 이벤트(addPushTokenListener)마다 다시 호출한다.
     FCM 토큰은 앱 재설치·데이터 삭제로 언제든 바뀌므로 영구 식별자가 아니다.
     """
+    # 직원 로그인 기기면 누구인지 함께 적는다 — '특정 알바 지정 업무' 푸시를 그 기기로만 보내게
+    staff = getattr(current_user, "acting_staff", None)
     push_service.register_token(db, current_user.email, body.token,
-                                platform=body.platform, device_name=body.device_name)
+                                platform=body.platform, device_name=body.device_name,
+                                staff_id=staff.id if staff else None)
 
 
 @router.delete("/push/tokens", status_code=204)

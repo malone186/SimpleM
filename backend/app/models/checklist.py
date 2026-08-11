@@ -16,11 +16,16 @@
   어제 체크는 딸려 오지 않는다. 크론으로 리셋할 필요가 없다.
 """
 
+import logging
+
 from sqlalchemy import (
-    Boolean, Column, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint, func,
+    Boolean, Column, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint,
+    func, inspect, text,
 )
 
 from app.core.database import Base
+
+logger = logging.getLogger(__name__)
 
 
 class ChecklistItem(Base):
@@ -34,6 +39,10 @@ class ChecklistItem(Base):
     sort_order = Column(Integer, nullable=False, default=0)
     # 지우는 대신 끄면 지난 체크 기록이 보존된다 (통계·근태 확인용)
     active = Column(Boolean, nullable=False, default=True)
+    # 담당 직원(staff_accounts.id). 없으면 공용 루틴 — 사장님이 특정 알바에게 지시할 때만 채운다.
+    # FK를 걸지 않는 이유: 직원 계정을 지워도 항목은 남아야 하고(담당만 해제된 셈),
+    # staff_accounts는 membership 도메인이라 테이블 생성 순서에 묶이고 싶지 않다.
+    assigned_staff_id = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -52,3 +61,28 @@ class ChecklistCheck(Base):
     # 누가 체크했는지 — 사장님 화면에서 '오늘 마감을 누가 했나' 확인용 (직원 이름 또는 '사장님')
     done_by = Column(String(50), nullable=True)
     checked_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+def ensure_checklist_assignee_column(engine) -> None:
+    """[자가치유 스키마] 기존 checklist_items에 assigned_staff_id(담당 직원)를 멱등 보강한다.
+
+    담당 지정은 나중에 도입된 기능이라 그 전에 만들어진 DB에는 컬럼이 없다.
+    create_all은 기존 테이블을 ALTER하지 않으므로 여기서 직접 보강한다.
+    nullable이라 기존 항목은 전부 '공용 루틴'으로 남는다.
+    """
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("checklist_items"):
+            return  # 테이블 자체가 없으면 create_all이 스키마째로 생성한다
+        existing = {c["name"] for c in insp.get_columns("checklist_items")}
+    except Exception as e:
+        logger.warning(f"[체크리스트 스키마] checklist_items 점검 실패 — 건너뜁니다: {e}")
+        return
+    if "assigned_staff_id" in existing:
+        return
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE checklist_items ADD COLUMN assigned_staff_id INTEGER"))
+        logger.info("[체크리스트 스키마] checklist_items.assigned_staff_id 컬럼 추가 완료")
+    except Exception as e:
+        logger.warning(f"[체크리스트 스키마] assigned_staff_id 보강 실패 — 담당 지정이 막힐 수 있습니다: {e}")

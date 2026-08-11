@@ -21,6 +21,18 @@ def _today() -> date:
     return datetime.now(KST).date()
 
 
+def _staff_names(db: Session, staff_ids: set[int]) -> dict[int, str]:
+    """담당 직원 이름 표 — 계정이 지워진 id는 빠진다(화면엔 담당 표시 없이 나감)."""
+    if not staff_ids:
+        return {}
+    from app.models.membership import StaffAccount
+    return dict(
+        db.query(StaffAccount.id, StaffAccount.name)
+        .filter(StaffAccount.id.in_(staff_ids))
+        .all()
+    )
+
+
 def list_today(db: Session, store_id: str) -> list[dict[str, Any]]:
     """활성 항목을 정렬 순서대로, 오늘 체크 상태를 붙여 돌려준다."""
     items = (
@@ -38,6 +50,7 @@ def list_today(db: Session, store_id: str) -> list[dict[str, Any]]:
         .filter(ChecklistCheck.store_id == store_id, ChecklistCheck.check_date == today)
         .all()
     }
+    names = _staff_names(db, {it.assigned_staff_id for it in items if it.assigned_staff_id})
     rows = []
     for it in items:
         c = checks.get(it.id)
@@ -48,6 +61,8 @@ def list_today(db: Session, store_id: str) -> list[dict[str, Any]]:
             "done": c is not None,
             "done_by": c.done_by if c else None,
             "checked_at": c.checked_at if c else None,
+            "assigned_staff_id": it.assigned_staff_id,
+            "assigned_staff_name": names.get(it.assigned_staff_id) if it.assigned_staff_id else None,
         })
     return rows
 
@@ -90,10 +105,28 @@ def toggle(db: Session, store_id: str, item_id: int, done_by: Optional[str]) -> 
 
 # --- 사장님 전용: 항목 템플릿 관리 ---------------------------------------------
 
-def add_item(db: Session, store_id: str, label: str) -> ChecklistItem:
+def add_item(db: Session, store_id: str, label: str,
+             assigned_staff_id: Optional[int] = None) -> tuple[ChecklistItem, Optional[str]]:
+    """항목을 추가하고 (항목, 담당 직원 이름)을 돌려준다 — 이름은 응답·푸시 문구에 쓴다."""
     label = label.strip()
     if not label:
         raise ValueError("항목 이름을 입력해 주세요.")
+
+    staff_name: Optional[str] = None
+    if assigned_staff_id is not None:
+        # 담당은 우리 매장의 살아 있는 직원 계정이어야 한다 — 남의 매장 id를 꽂는 것을 막는다
+        from app.models.membership import StaffAccount
+        staff = (
+            db.query(StaffAccount)
+            .filter(StaffAccount.id == assigned_staff_id,
+                    StaffAccount.store_id == store_id,
+                    StaffAccount.is_active.is_(True))
+            .first()
+        )
+        if staff is None:
+            raise ValueError("담당으로 지정할 직원을 찾을 수 없습니다.")
+        staff_name = staff.name
+
     # 새 항목은 맨 아래로 — 기존 최대 정렬값 +1
     max_order = (
         db.query(ChecklistItem.sort_order)
@@ -102,11 +135,12 @@ def add_item(db: Session, store_id: str, label: str) -> ChecklistItem:
         .first()
     )
     item = ChecklistItem(store_id=store_id, label=label,
-                         sort_order=(max_order[0] + 1) if max_order else 0)
+                         sort_order=(max_order[0] + 1) if max_order else 0,
+                         assigned_staff_id=assigned_staff_id)
     db.add(item)
     db.commit()
     db.refresh(item)
-    return item
+    return item, staff_name
 
 
 def update_item(db: Session, store_id: str, item_id: int,

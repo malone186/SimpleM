@@ -14,6 +14,9 @@ export type ChecklistItem = {
   /** 오늘 체크한 사람 (직원 이름 또는 '사장님') */
   done_by?: string | null;
   checked_at?: string | null;
+  /** 담당 직원 — 사장님이 특정 알바에게 지정한 항목만 채워진다 */
+  assigned_staff_id?: number | null;
+  assigned_staff_name?: string | null;
 };
 
 /** 오늘 기준 체크리스트. 자정이 지나면 서버가 저절로 새 목록을 준다(날짜 기준). */
@@ -29,10 +32,16 @@ export async function toggleChecklist(
   return apiFetch(`/api/v1/checklist/${itemId}/toggle`, { method: 'POST', headers: auth(token) });
 }
 
-// --- 사장님 전용: 항목 관리 ---
-export async function addChecklistItem(token: string, label: string): Promise<ChecklistItem> {
+/** 항목 추가 (직원·사장 공용). assignedStaffId는 사장님이 특정 알바에게 지시할 때만. */
+export async function addChecklistItem(
+  token: string,
+  label: string,
+  assignedStaffId?: number | null,
+): Promise<ChecklistItem> {
   return apiFetch<ChecklistItem>('/api/v1/checklist/items', {
-    method: 'POST', headers: auth(token), body: JSON.stringify({ label }),
+    method: 'POST',
+    headers: auth(token),
+    body: JSON.stringify({ label, assigned_staff_id: assignedStaffId ?? null }),
   });
 }
 

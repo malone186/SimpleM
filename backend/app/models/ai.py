@@ -600,6 +600,10 @@ class DeviceToken(Base):
     token: Mapped[str] = mapped_column(String(255), unique=True, index=True)  # FCM registration token
     platform: Mapped[str] = mapped_column(String(16), default="android")
     device_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 관리 화면 표시용
+    # 직원 계정으로 로그인한 기기면 그 직원(staff_accounts.id). 사장님 기기는 NULL.
+    # '특정 알바에게 지정한 업무' 푸시를 그 직원 기기로만 보내는 데 쓴다.
+    # 같은 기기에서 사장님으로 다시 로그인하면 재등록 때 NULL로 덮인다 (기기 주인 추종).
+    staff_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     # 마지막으로 앱이 이 토큰을 다시 등록한 시각 — 오래 갱신되지 않은 토큰 정리 기준
     last_seen_at: Mapped[datetime] = mapped_column(
@@ -688,6 +692,33 @@ def ensure_notification_setting_columns(engine) -> None:
             logger.info("[알림 스키마] notification_settings.%s 컬럼 추가 완료", column)
         except Exception as e:
             logger.warning(f"[알림 스키마] {column} 보강 실패 — 알림 설정 조회가 막힐 수 있습니다: {e}")
+
+
+def ensure_device_token_staff_column(engine) -> None:
+    """[자가치유 스키마] device_tokens에 staff_id(직원 기기 구분)를 멱등하게 추가한다.
+
+    '특정 알바에게 지정한 업무' 푸시를 그 직원 기기로만 보내려면 토큰이 누구
+    로그인인지 알아야 한다. 기존 행은 NULL(사장님 기기 취급)로 남고, 직원이
+    다음에 앱을 열면 재등록(upsert) 때 채워진다 ([[create-all-no-alter-trap]]).
+    """
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("device_tokens"):
+            return  # 테이블 자체가 없으면 create_all이 스키마째로 만든다
+        existing = {c["name"] for c in insp.get_columns("device_tokens")}
+    except Exception as e:
+        logger.warning(f"[알림 스키마] device_tokens 점검 실패 — 건너뜁니다: {e}")
+        return
+    if "staff_id" in existing:
+        return
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE device_tokens ADD COLUMN staff_id INTEGER"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_device_tokens_staff_id "
+                              "ON device_tokens (staff_id)"))
+        logger.info("[알림 스키마] device_tokens.staff_id 컬럼 추가 완료")
+    except Exception as e:
+        logger.warning(f"[알림 스키마] staff_id 보강 실패 — 직원 지정 푸시가 막힐 수 있습니다: {e}")
 
 
 class NearbyCafeWatch(Base):

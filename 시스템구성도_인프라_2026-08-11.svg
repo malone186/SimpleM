@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="830" viewBox="0 0 1400 830" font-family="Apple SD Gothic Neo, Noto Sans KR, Malgun Gothic, sans-serif">
+<defs><marker id="ah" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0.7 L8.5,4.5 L0,8.3" fill="none" stroke="#6E6E6E" stroke-width="1.3"/></marker><marker id="ahs" markerWidth="9" markerHeight="9" refX="1" refY="4.5" orient="auto"><path d="M8.5,0.7 L0,4.5 L8.5,8.3" fill="none" stroke="#6E6E6E" stroke-width="1.3"/></marker></defs>
+<rect width="1400" height="830" fill="#FFFFFF"/>
+<text x="30" y="30" font-size="18" font-weight="700" fill="#1A1A1A">SimpleM · BrewNote — 시스템 구성도 (초안, 2026-08-11)</text>
+<rect x="30" y="74" width="175" height="78" rx="3" fill="#F0F0F0" stroke="#8C8C8C" stroke-width="1.3"/>
+<text x="117.5" y="112.75" font-size="14.5" font-weight="600" text-anchor="middle" fill="#1A1A1A">웹 앱 (Expo Web)</text>
+<text x="117.5" y="129.25" font-size="11.5" text-anchor="middle" fill="#5A5A5A">Cloud Run · brewnote-web</text>
+<rect x="245" y="74" width="180" height="78" rx="3" fill="#F0F0F0" stroke="#8C8C8C" stroke-width="1.3"/>
+<text x="335.0" y="112.75" font-size="14.5" font-weight="600" text-anchor="middle" fill="#1A1A1A">Firebase Auth</text>
+<text x="335.0" y="129.25" font-size="11.5" text-anchor="middle" fill="#5A5A5A">구글 소셜 로그인</text>
+<rect x="470" y="74" width="180" height="78" rx="3" fill="#F0F0F0" stroke="#8C8C8C" stroke-width="1.3"/>
+<text x="560.0" y="112.75" font-size="14.5" font-weight="600" text-anchor="middle" fill="#1A1A1A">Firebase 알림 (FCM)</text>
+<text x="560.0" y="129.25" font-size="11.5" text-anchor="middle" fill="#5A5A5A">서버 발송 → 앱 알림 수신</text>
+<rect x="690" y="74" width="165" height="78" rx="3" fill="#F0F0F0" stroke="#8C8C8C" stroke-width="1.3"/>
+<text x="772.5" y="112.75" font-size="14.5" font-weight="600" text-anchor="middle" fill="#1A1A1A">관리자 콘솔</text>
+<text x="772.5" y="129.25" font-size="11.5" text-anchor="middle" fill="#5A5A5A">/console (동일 서버)</text>
+<rect x="30" y="249" width="175" height="120" rx="3" fill="#F0F0F0" stroke="#8C8C8C" stroke-width="1.3"/>
+<text x="117.5" y="301.25" font-size="14.5" font-weight="600" text-anchor="middle" fill="#1A1A1A">안드로이드 앱</text>
+<text x="117.5" y="317.75" font-size="11.5" text-anchor="middle" fill="#5A5A5A">Expo 54 · RN 0.81</text>
+<text x="117.5" y="332.75" font-size="11.5" text-anchor="middle" fill="#5A5A5A">EAS 빌드 + OTA 업데이트</text>
+<rect x="320" y="239" width="300" height="140" rx="3" fill="#F0F0F0" stroke="#8C8C8C" stroke-width="2.0"/>
+<text x="470.0" y="293.75" font-size="14.5" font-weight="600" text-anchor="middle" fill="#1A1A1A">백엔드 서버</text>
+<text x="470.0" y="310.25" font-size="11.5" text-anchor="middle" fill="#5A5A5A">FastAPI · GCP Cloud Run</text>
+<text x="470.0" y="325.25" font-size="11.5" text-anchor="middle" fill="#5A5A5A">brewnote-api (asia-northeast3)</text>
+<text x="470.0" y="340.25" font-size="11.5" text-anchor="middle" fill="#5A5A5A">AI 에이전트 &#x27;브루&#x27; 오케스트레이션</text>
+<rect x="30" y="464" width="175" height="100" rx="3" fill="#F0F0F0" stroke="#8C8C8C" stroke-width="1.3"/>
+<text x="117.5" y="506.25" font-size="14.5" font-weight="600" text-anchor="middle" fill="#1A1A1A">ESP32 센서 허브</text>
+<text x="117.5" y="522.75" font-size="11.5" text-anchor="middle" fill="#5A5A5A">로드셀 · 온도 · 전류</text>
+<text x="117.5" y="537.75" font-size="11.5" text-anchor="middle" fill="#5A5A5A">· 수위 · RFID</text>
+<rect x="255" y="484" width="170" height="95" rx="3" fill="#F0F0F0" stroke="#8C8C8C" stroke-width="1.3"/>
+<text x="340.0" y="523.75" font-size="14.5" font-weight="600" text-anchor="middle" fill="#1A1A1A">Neon PostgreSQL</text>
+<text x="340.0" y="540.25" font-size="11.5" text-anchor="middle" fill="#5A5A5A">클라우드 메인 DB</text>
+<text x="340.0" y="555.25" font-size="11.5" text-anchor="middle" fill="#5A5A5A">SQLAlchemy 2.0</text>
+<rect x="445" y="484" width="175" height="95" rx="3" fill="#F0F0F0" stroke="#8C8C8C" stroke-width="1.3"/>
+<text x="532.5" y="523.75" font-size="14.5" font-weight="600" text-anchor="middle" fill="#1A1A1A">Chroma 벡터 인덱스</text>
+<text x="532.5" y="540.25" font-size="11.5" text-anchor="middle" fill="#5A5A5A">백엔드 컨테이너 내장</text>
+<text x="532.5" y="555.25" font-size="11.5" text-anchor="middle" fill="#5A5A5A">(로컬 디스크 · 휘발성)</text>
+<rect x="645" y="484" width="175" height="95" rx="3" fill="#F0F0F0" stroke="#8C8C8C" stroke-width="1.3"/>
+<text x="732.5" y="531.25" font-size="14.5" font-weight="600" text-anchor="middle" fill="#1A1A1A">GCS 버킷</text>
+<text x="732.5" y="547.75" font-size="11.5" text-anchor="middle" fill="#5A5A5A">홍보 이미지 영구 보관</text>
+<rect x="30" y="674" width="175" height="95" rx="3" fill="#F0F0F0" stroke="#8C8C8C" stroke-width="1.3"/>
+<text x="117.5" y="721.25" font-size="14.5" font-weight="600" text-anchor="middle" fill="#1A1A1A">GitHub Actions</text>
+<text x="117.5" y="737.75" font-size="11.5" text-anchor="middle" fill="#5A5A5A">main push → 자동 배포</text>
+<rect x="255" y="674" width="170" height="95" rx="3" fill="#F0F0F0" stroke="#8C8C8C" stroke-width="1.3"/>
+<text x="340.0" y="721.25" font-size="14.5" font-weight="600" text-anchor="middle" fill="#1A1A1A">EAS Build</text>
+<text x="340.0" y="737.75" font-size="11.5" text-anchor="middle" fill="#5A5A5A">Android APK · OTA</text>
+<rect x="445" y="674" width="375" height="95" rx="3" fill="#FFFFFF" stroke="#C9C9C9" stroke-width="1.2"/>
+<text x="461" y="700" font-size="12" font-weight="700" fill="#1A1A1A">설계 원칙</text>
+<text x="461" y="720" font-size="11" fill="#5A5A5A">· 앱↔서버 HTTPS + Bearer 토큰, store_id는 서버가 강제로 덮어씀</text>
+<text x="461" y="737" font-size="11" fill="#5A5A5A">· 금전 액션(발주·지급·신고)은 propose_ / draft_ 초안만 반환</text>
+<text x="461" y="754" font-size="11" fill="#5A5A5A">· 로직 *_service.py ↔ 챗봇 등록 *_tools.py 파일 분리</text>
+<rect x="880" y="74" width="490" height="652" rx="3" fill="#ECECEC" stroke="#8C8C8C" stroke-width="1.3"/>
+<text x="1125.0" y="104" font-size="15" font-weight="700" text-anchor="middle" fill="#1A1A1A">외부 API</text>
+<rect x="902" y="126" width="446" height="52" rx="3" fill="#FFFFFF" stroke="#B4B4B4" stroke-width="1.1"/>
+<text x="1125.0" y="147" font-size="13" font-weight="600" text-anchor="middle" fill="#1A1A1A">Google Gemini API</text>
+<text x="1125.0" y="165" font-size="11" text-anchor="middle" fill="#5A5A5A">챗봇 두뇌 · OCR · 리포트 · 메뉴 분석 · TTS</text>
+<rect x="902" y="184" width="446" height="52" rx="3" fill="#FFFFFF" stroke="#B4B4B4" stroke-width="1.1"/>
+<text x="1125.0" y="205" font-size="13" font-weight="600" text-anchor="middle" fill="#1A1A1A">네이버 오픈 API</text>
+<text x="1125.0" y="223" font-size="11" text-anchor="middle" fill="#5A5A5A">지역(local) · 블로그(blog) · 쇼핑(shop) 검색</text>
+<rect x="902" y="242" width="446" height="52" rx="3" fill="#FFFFFF" stroke="#B4B4B4" stroke-width="1.1"/>
+<text x="1125.0" y="263" font-size="13" font-weight="600" text-anchor="middle" fill="#1A1A1A">네이버 클라우드 Maps</text>
+<text x="1125.0" y="281" font-size="11" text-anchor="middle" fill="#5A5A5A">지오코딩 · 역지오코딩</text>
+<rect x="902" y="300" width="446" height="52" rx="3" fill="#FFFFFF" stroke="#B4B4B4" stroke-width="1.1"/>
+<text x="1125.0" y="321" font-size="13" font-weight="600" text-anchor="middle" fill="#1A1A1A">Tavily</text>
+<text x="1125.0" y="339" font-size="11" text-anchor="middle" fill="#5A5A5A">웹 검색 (시장 · 트렌드)</text>
+<rect x="902" y="358" width="446" height="52" rx="3" fill="#FFFFFF" stroke="#B4B4B4" stroke-width="1.1"/>
+<text x="1125.0" y="379" font-size="13" font-weight="600" text-anchor="middle" fill="#1A1A1A">행사 · 공공 데이터</text>
+<text x="1125.0" y="397" font-size="11" text-anchor="middle" fill="#5A5A5A">TourAPI(축제) · 서울열린데이터(문화행사)</text>
+<rect x="902" y="416" width="446" height="52" rx="3" fill="#FFFFFF" stroke="#B4B4B4" stroke-width="1.1"/>
+<text x="1125.0" y="437" font-size="13" font-weight="600" text-anchor="middle" fill="#1A1A1A">Open-Meteo</text>
+<text x="1125.0" y="455" font-size="11" text-anchor="middle" fill="#5A5A5A">날씨 예보 · 과거 기상 (판매 예측 보정)</text>
+<rect x="902" y="474" width="446" height="52" rx="3" fill="#FFFFFF" stroke="#B4B4B4" stroke-width="1.1"/>
+<text x="1125.0" y="495" font-size="13" font-weight="600" text-anchor="middle" fill="#1A1A1A">Square POS</text>
+<text x="1125.0" y="513" font-size="11" text-anchor="middle" fill="#5A5A5A">매출 자동 동기화</text>
+<rect x="902" y="532" width="446" height="52" rx="3" fill="#FFFFFF" stroke="#B4B4B4" stroke-width="1.1"/>
+<text x="1125.0" y="553" font-size="13" font-weight="600" text-anchor="middle" fill="#1A1A1A">웹 수집 (크롤링)</text>
+<text x="1125.0" y="571" font-size="11" text-anchor="middle" fill="#5A5A5A">다나와 · 네이버쇼핑 가격, 언스페셜티 · 생두모아 시세</text>
+<rect x="902" y="590" width="446" height="52" rx="3" fill="#FFFFFF" stroke="#B4B4B4" stroke-width="1.1"/>
+<text x="1125.0" y="611" font-size="13" font-weight="600" text-anchor="middle" fill="#1A1A1A">Pollinations</text>
+<text x="1125.0" y="629" font-size="11" text-anchor="middle" fill="#5A5A5A">홍보 이미지 생성 (Gemini 폴백)</text>
+<rect x="902" y="648" width="446" height="52" rx="3" fill="#FFFFFF" stroke="#B4B4B4" stroke-width="1.1"/>
+<text x="1125.0" y="669" font-size="13" font-weight="600" text-anchor="middle" fill="#1A1A1A">Google AdMob SSV</text>
+<text x="1125.0" y="687" font-size="11" text-anchor="middle" fill="#5A5A5A">보상형 광고 서버 검증</text>
+<polyline points="150,249 300,154" fill="none" stroke="#6E6E6E" stroke-width="1.4" marker-end="url(#ah)" marker-start="url(#ahs)"/>
+<text x="232" y="192" font-size="11" text-anchor="end" fill="#5A5A5A" stroke="#FFFFFF" stroke-width="3.2" paint-order="stroke fill">로그인 · ID 토큰</text>
+<polyline points="360,239 368,156" fill="none" stroke="#6E6E6E" stroke-width="1.4" marker-end="url(#ah)"/>
+<text x="375" y="209" font-size="11" text-anchor="start" fill="#5A5A5A" stroke="#FFFFFF" stroke-width="3.2" paint-order="stroke fill">토큰 서명 검증</text>
+<polyline points="520,239 548,156" fill="none" stroke="#6E6E6E" stroke-width="1.4" marker-end="url(#ah)"/>
+<text x="556" y="209" font-size="11" text-anchor="start" fill="#5A5A5A" stroke="#FFFFFF" stroke-width="3.2" paint-order="stroke fill">푸시 발송</text>
+<polyline points="205,306 316,306" fill="none" stroke="#6E6E6E" stroke-width="1.4" marker-end="url(#ah)"/>
+<text x="261" y="296" font-size="11" text-anchor="middle" fill="#5A5A5A" stroke="#FFFFFF" stroke-width="3.2" paint-order="stroke fill">HTTPS · Bearer 토큰</text>
+<polyline points="140,152 330,246" fill="none" stroke="#6E6E6E" stroke-width="1.4" marker-end="url(#ah)"/>
+<polyline points="625,266 762,156" fill="none" stroke="#6E6E6E" stroke-width="1.4" marker-end="url(#ah)"/>
+<polyline points="620,306 874,306" fill="none" stroke="#6E6E6E" stroke-width="1.4" marker-end="url(#ah)"/>
+<text x="747" y="296" font-size="11" text-anchor="middle" fill="#5A5A5A" stroke="#FFFFFF" stroke-width="3.2" paint-order="stroke fill">HTTPS 호출</text>
+<polyline points="117,464 117,373" fill="none" stroke="#6E6E6E" stroke-width="1.4" marker-end="url(#ah)"/>
+<text x="126" y="424" font-size="11" text-anchor="start" fill="#5A5A5A" stroke="#FFFFFF" stroke-width="3.2" paint-order="stroke fill">BLE notify</text>
+<polyline points="205,496 326,386" fill="none" stroke="#6E6E6E" stroke-width="1.4" marker-end="url(#ah)"/>
+<text x="268" y="434" font-size="11" text-anchor="middle" fill="#5A5A5A" stroke="#FFFFFF" stroke-width="3.2" paint-order="stroke fill">WiFi 업링크 /sensor/ingest</text>
+<polyline points="400,383 352,480" fill="none" stroke="#6E6E6E" stroke-width="1.4" marker-end="url(#ah)"/>
+<polyline points="492,383 515,480" fill="none" stroke="#6E6E6E" stroke-width="1.4" marker-end="url(#ah)"/>
+<polyline points="580,383 700,480" fill="none" stroke="#6E6E6E" stroke-width="1.4" marker-end="url(#ah)"/>
+<polyline points="205,721 240,721 240,429 322,384" fill="none" stroke="#6E6E6E" stroke-width="1.4" marker-end="url(#ah)"/>
+<text x="240" y="624" font-size="11" text-anchor="middle" fill="#5A5A5A" stroke="#FFFFFF" stroke-width="3.2" paint-order="stroke fill">코드 push 시 재배포</text>
+<polyline points="300,670 192,374" fill="none" stroke="#6E6E6E" stroke-width="1.4" marker-end="url(#ah)"/>
+<text x="340" y="649" font-size="11" text-anchor="middle" fill="#5A5A5A" stroke="#FFFFFF" stroke-width="3.2" paint-order="stroke fill">APK · OTA 배포</text>
+</svg>

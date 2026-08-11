@@ -104,21 +104,27 @@ def _access_token() -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 def register_token(db, store_id: str, token: str, platform: str = "android",
-                   device_name: Optional[str] = None) -> None:
+                   device_name: Optional[str] = None,
+                   staff_id: Optional[int] = None) -> None:
     """기기 토큰을 등록/갱신한다 (upsert).
 
     같은 토큰이 다른 매장에 남아 있을 수 있다 — 한 기기에서 로그아웃 후 다른 계정으로
     로그인한 경우다. 이때 행을 새로 만들면 이전 사장님 알림이 이 기기로 계속 가므로
     소유자를 옮긴다.
+
+    staff_id는 '지금 이 기기에 누가 로그인해 있나'다 — 조건 없이 덮는다. 직원→사장님으로
+    갈아탄 기기에 직원 지정 푸시가 계속 가면 안 되기 때문(None으로 덮여야 맞다).
     """
     from app.models.ai import DeviceToken
 
     row = db.query(DeviceToken).filter(DeviceToken.token == token).first()
     if row is None:
-        db.add(DeviceToken(store_id=store_id, token=token, platform=platform, device_name=device_name))
+        db.add(DeviceToken(store_id=store_id, token=token, platform=platform,
+                           device_name=device_name, staff_id=staff_id))
     else:
         row.store_id = store_id
         row.platform = platform
+        row.staff_id = staff_id
         if device_name:
             row.device_name = device_name
         from sqlalchemy import func as _f
@@ -250,6 +256,49 @@ def send_to_store(db, store_id: str, title: str, body: str,
     sent = 0
     for token in tokens:
         ok, invalid = _send_one(access_token, project_id, token, title, body, payload, urgent)
+        if ok:
+            sent += 1
+        elif invalid:
+            _drop_token(db, token, invalid)
+    return sent
+
+
+def send_to_staff(db, store_id: str, title: str, body: str,
+                  staff_id: Optional[int] = None,
+                  exclude_staff_id: Optional[int] = None,
+                  data: Optional[dict[str, Any]] = None) -> int:
+    """직원 로그인 기기로만 발송한다 — '특정 알바에게 지정한 업무' 알림용.
+
+    staff_id를 주면 그 직원의 기기만, 없으면 직원 로그인 기기 전부(staff_id NOT NULL).
+    exclude_staff_id는 '방금 그 일을 만든 직원'을 빼는 용도 — 자기가 올린 할 일을
+    자기 폰으로 통보받으면 우스워진다. 사장님 기기(staff_id NULL)에는 보내지 않는다.
+    """
+    from app.models.ai import DeviceToken
+
+    creds, project_id = _load_credentials()
+    if creds is None or not project_id:
+        logger.info("FCM 미설정 — 발송 건너뜀 (%s: %s)", store_id, title)
+        return 0
+
+    q = db.query(DeviceToken).filter(DeviceToken.store_id == store_id)
+    if staff_id is not None:
+        q = q.filter(DeviceToken.staff_id == staff_id)
+    else:
+        q = q.filter(DeviceToken.staff_id.isnot(None))
+    if exclude_staff_id is not None:
+        q = q.filter(DeviceToken.staff_id != exclude_staff_id)
+    tokens = [r.token for r in q.all()]
+    if not tokens:
+        return 0
+
+    access_token = _access_token()
+    if not access_token:
+        return 0
+
+    payload = {k: str(v) for k, v in (data or {}).items()}
+    sent = 0
+    for token in tokens:
+        ok, invalid = _send_one(access_token, project_id, token, title, body, payload)
         if ok:
             sent += 1
         elif invalid:

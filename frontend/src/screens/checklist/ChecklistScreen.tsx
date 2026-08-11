@@ -18,6 +18,7 @@ import {
   addChecklistItem, deleteChecklistItem, listChecklist, toggleChecklist, updateChecklistItem,
   type ChecklistItem,
 } from '../../lib/api/checklist';
+import { fetchStaffAccounts, type StaffAccount } from '../../lib/api/staffAccounts';
 import { colors } from '../../theme';
 import { s, useBottomInset } from '../../theme/responsive';
 
@@ -34,6 +35,9 @@ export default function ChecklistScreen() {
   const [editTarget, setEditTarget] = useState<ChecklistItem | null>(null); // null이면 새 항목
   const [labelText, setLabelText] = useState('');
   const [saving, setSaving] = useState(false);
+  // 사장님 전용 — 새 항목의 담당 직원 지정 (null = 공용 루틴)
+  const [staffList, setStaffList] = useState<StaffAccount[]>([]);
+  const [assigneeId, setAssigneeId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -48,6 +52,15 @@ export default function ChecklistScreen() {
   }, [token]);
 
   useEffect(() => { load(); }, [load]);
+
+  // 담당 지정용 직원 목록 — 사장님만 조회 권한이 있다. 실패해도 화면은 그대로 쓴다
+  // (지정 칩만 안 보일 뿐, 공용 항목 추가는 된다).
+  useEffect(() => {
+    if (!token || !isOwner) return;
+    fetchStaffAccounts(token)
+      .then((rows) => setStaffList(rows.filter((r) => r.is_active)))
+      .catch(() => {});
+  }, [token, isOwner]);
 
   const toggle = async (it: ChecklistItem) => {
     if (!token || busyId) return;
@@ -65,7 +78,7 @@ export default function ChecklistScreen() {
     }
   };
 
-  const openAdd = () => { setEditTarget(null); setLabelText(''); setEditOpen(true); };
+  const openAdd = () => { setEditTarget(null); setLabelText(''); setAssigneeId(null); setEditOpen(true); };
   const openRename = (it: ChecklistItem) => { setEditTarget(it); setLabelText(it.label); setEditOpen(true); };
 
   const saveItem = async () => {
@@ -77,7 +90,7 @@ export default function ChecklistScreen() {
         const up = await updateChecklistItem(token, editTarget.id, { label });
         setItems((prev) => prev.map((x) => (x.id === up.id ? { ...x, label: up.label } : x)));
       } else {
-        const created = await addChecklistItem(token, label);
+        const created = await addChecklistItem(token, label, isOwner ? assigneeId : null);
         setItems((prev) => [...prev, created]);
       }
       setEditOpen(false);
@@ -145,6 +158,9 @@ export default function ChecklistScreen() {
                           color={it.done ? '#3E9B4F' : colors.mochaBrown} />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.label, it.done && styles.labelDone]}>{it.label}</Text>
+                  {!!it.assigned_staff_name && (
+                    <Text style={styles.assignee}>담당 · {it.assigned_staff_name}</Text>
+                  )}
                   {it.done && !!it.done_by && (
                     <Text style={styles.doneBy}>✓ {it.done_by}</Text>
                   )}
@@ -186,6 +202,30 @@ export default function ChecklistScreen() {
               onSubmitEditing={saveItem}
               returnKeyType="done"
             />
+            {/* 담당 지정 — 사장님이 새 항목을 만들 때만. 기본은 공용(전체) 루틴이고,
+                직원 칩을 고르면 그 직원 기기로 푸시가 간다. */}
+            {isOwner && !editTarget && staffList.length > 0 && (
+              <View style={styles.assignWrap}>
+                <Text style={styles.assignLabel}>담당 지정</Text>
+                <View style={styles.assignChips}>
+                  <Pressable
+                    style={[styles.chip, assigneeId === null && styles.chipOn]}
+                    onPress={() => setAssigneeId(null)}
+                  >
+                    <Text style={[styles.chipText, assigneeId === null && styles.chipTextOn]}>공용</Text>
+                  </Pressable>
+                  {staffList.map((st) => (
+                    <Pressable
+                      key={st.id}
+                      style={[styles.chip, assigneeId === st.id && styles.chipOn]}
+                      onPress={() => setAssigneeId(assigneeId === st.id ? null : st.id)}
+                    >
+                      <Text style={[styles.chipText, assigneeId === st.id && styles.chipTextOn]}>{st.name}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            )}
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <Pressable style={[styles.modalBtn, styles.cancelBtn]} onPress={() => setEditOpen(false)}>
                 <Text style={styles.cancelText}>취소</Text>
@@ -219,7 +259,18 @@ const styles = StyleSheet.create({
   rowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
   label: { fontSize: 15.5, fontWeight: '600', color: colors.espressoBrown },
   labelDone: { color: '#6E8A72' },
+  assignee: { fontSize: 12, color: colors.pointOrange, marginTop: 3, fontWeight: '700' },
   doneBy: { fontSize: 12, color: '#3E9B4F', marginTop: 3, fontWeight: '600' },
+  assignWrap: { gap: 8 },
+  assignLabel: { fontSize: 12.5, color: colors.mochaBrown, fontWeight: '700' },
+  assignChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  chip: {
+    paddingHorizontal: 12, paddingVertical: 7, borderRadius: 16,
+    backgroundColor: '#F2EFEC', borderWidth: 1, borderColor: 'transparent',
+  },
+  chipOn: { backgroundColor: 'rgba(224,122,58,0.12)', borderColor: colors.pointOrange },
+  chipText: { fontSize: 13, color: '#7A6E65', fontWeight: '600' },
+  chipTextOn: { color: colors.pointOrange, fontWeight: '700' },
   manage: { flexDirection: 'row', gap: 4 },
   iconBtn: { padding: 4 },
   fab: {

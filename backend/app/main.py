@@ -84,6 +84,14 @@ def _startup_db_selfheal() -> None:
     from app.models.roastery import ensure_roastery_constraints
     ensure_roastery_constraints(engine)
 
+    # [자가치유] checklist_items에 담당 직원(assigned_staff_id) 컬럼을 보강한다.
+    from app.models.checklist import ensure_checklist_assignee_column
+    ensure_checklist_assignee_column(engine)
+
+    # [자가치유] device_tokens에 직원 기기 구분(staff_id) 컬럼을 보강한다 — 직원 지정 푸시용.
+    from app.models.ai import ensure_device_token_staff_column
+    ensure_device_token_staff_column(engine)
+
     # [한글 주석] 로그인 데모를 즉시 하실 수 있게 테스트용 사장님 계정을 자동으로 생성(시딩)해 둡니다.
     #
     # 비밀번호는 앱 로그인 화면의 '데모 로그인' 버튼이 그대로 보내는 값이다
