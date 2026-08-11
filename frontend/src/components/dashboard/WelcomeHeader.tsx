@@ -7,6 +7,7 @@ import { useNavigation } from '@react-navigation/native';
 
 import { colors, spacing, shadows } from '../../theme';
 import { liquidGlass } from '../../theme/glass';
+import { SlideUp } from '../motion';
 import { useTopInset } from '../../theme/responsive';
 import { type BrewMood } from '../brew/Brew';
 import { type BrewOutlook } from '../brew/forecastMood';
@@ -431,6 +432,8 @@ export default function WelcomeHeader({
       {/* 알림함 모달 — 목록(스택 카드) ↔ 한 건 상세 두 단계로 동작한다 */}
       <Modal visible={inboxOpen} transparent animationType="fade" onRequestClose={selected ? () => setSelectedId(null) : closeInbox}>
         <Pressable style={styles.inboxBackdrop} onPress={closeInbox}>
+          {/* 패널이 아래에서 스프링으로 솟아오른다 — 배경 페이드(Modal)와 겹쳐 부드럽게 */}
+          <SlideUp>
           <Pressable style={styles.inboxPanel} onPress={(e) => e.stopPropagation()}>
             <View style={styles.inboxHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
@@ -529,6 +532,7 @@ export default function WelcomeHeader({
               </ScrollView>
             )}
           </Pressable>
+          </SlideUp>
         </Pressable>
       </Modal>
 

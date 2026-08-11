@@ -15,7 +15,7 @@ import WelcomeHeader from '../../components/dashboard/WelcomeHeader';
 import BriefingButton from '../../components/voice/BriefingButton';
 import VoiceCommandButton from '../../components/voice/VoiceCommandButton';
 import { toast } from '../../components/toast';
-import { FadeInUp, PressableScale } from '../../components/motion';
+import { FadeInUp, PressableScale, SlideUp } from '../../components/motion';
 import { listCompliance } from '../../lib/api/documents';
 import { listStocks } from '../../lib/api/inventory';
 import { createTodo, deleteTodo, getAiTodoSuggestions, listTodos, updateTodo, type AiSuggestedTodo } from '../../lib/api/todo';
@@ -1109,6 +1109,8 @@ export default function DashboardScreen() {
       {pushModalOpen && (
         <View style={styles.appModalOverlay}>
           <Pressable style={styles.appModalBackdrop} onPress={() => setPushModalOpen(false)}>
+            {/* 카드가 아래에서 스프링으로 솟아오른다 — 즉시 뜨던 창을 부드럽게 */}
+            <SlideUp>
             <Pressable style={styles.appModalContent} onPress={(e: any) => e.stopPropagation()}>
               {/* [한글 주석: 사장님 요청 — X 닫기 버튼과 내부 알림 카드 겹침을 100% 방지하는 독립 상단 패널 툴바] */}
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingHorizontal: 2 }}>
@@ -1146,6 +1148,7 @@ export default function DashboardScreen() {
                 />
               </ScrollView>
             </Pressable>
+            </SlideUp>
           </Pressable>
         </View>
       )}
