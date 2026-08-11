@@ -34,15 +34,12 @@ def _staff_names(db: Session, staff_ids: set[int]) -> dict[int, str]:
 
 
 def list_today(db: Session, store_id: str) -> list[dict[str, Any]]:
-    """활성 항목을 정렬 순서대로, 오늘 체크 상태를 붙여 돌려준다."""
-    items = (
-        db.query(ChecklistItem)
-        .filter(ChecklistItem.store_id == store_id, ChecklistItem.active.is_(True))
-        .order_by(ChecklistItem.sort_order, ChecklistItem.id)
-        .all()
-    )
-    if not items:
-        return []
+    """활성 항목을 정렬 순서대로, 오늘 체크 상태를 붙여 돌려준다.
+
+    일회성(one_off) 항목은 체크되는 순간 active=False로 은퇴하는데, 그날만큼은
+    '했다'가 줄 그어진 채 보여야 한다 — 그래서 오늘 체크된 항목은 비활성이어도 싣는다.
+    내일이 되면 오늘 체크가 조회에서 빠지므로 저절로 목록에서 사라진다.
+    """
     today = _today()
     checks = {
         c.item_id: c
@@ -50,6 +47,18 @@ def list_today(db: Session, store_id: str) -> list[dict[str, Any]]:
         .filter(ChecklistCheck.store_id == store_id, ChecklistCheck.check_date == today)
         .all()
     }
+    items = (
+        db.query(ChecklistItem)
+        .filter(
+            ChecklistItem.store_id == store_id,
+            ChecklistItem.active.is_(True) | ChecklistItem.id.in_(checks.keys())
+            if checks else ChecklistItem.active.is_(True),
+        )
+        .order_by(ChecklistItem.sort_order, ChecklistItem.id)
+        .all()
+    )
+    if not items:
+        return []
     names = _staff_names(db, {it.assigned_staff_id for it in items if it.assigned_staff_id})
     rows = []
     for it in items:
@@ -63,6 +72,7 @@ def list_today(db: Session, store_id: str) -> list[dict[str, Any]]:
             "checked_at": c.checked_at if c else None,
             "assigned_staff_id": it.assigned_staff_id,
             "assigned_staff_name": names.get(it.assigned_staff_id) if it.assigned_staff_id else None,
+            "one_off": bool(it.one_off),
         })
     return rows
 
@@ -88,11 +98,18 @@ def toggle(db: Session, store_id: str, item_id: int, done_by: Optional[str]) -> 
     )
     if existing:
         db.delete(existing)
+        # 일회성 항목의 체크를 되돌리면 은퇴도 되돌린다 — 실수 탭이 영구 삭제가 되면 안 된다
+        if item.one_off:
+            item.active = True
         db.commit()
         return {"id": item_id, "done": False, "done_by": None}
 
     row = ChecklistCheck(store_id=store_id, item_id=item_id, check_date=today, done_by=done_by)
     db.add(row)
+    # 일회성 항목은 완료와 동시에 은퇴 — 내일 루틴처럼 되살아나지 않는다.
+    # (오늘은 list_today가 '오늘 체크된 항목'을 비활성이어도 실어 줘서 줄 그어진 채 보인다)
+    if item.one_off:
+        item.active = False
     try:
         db.commit()
     except IntegrityError:
@@ -106,7 +123,8 @@ def toggle(db: Session, store_id: str, item_id: int, done_by: Optional[str]) -> 
 # --- 사장님 전용: 항목 템플릿 관리 ---------------------------------------------
 
 def add_item(db: Session, store_id: str, label: str,
-             assigned_staff_id: Optional[int] = None) -> tuple[ChecklistItem, Optional[str]]:
+             assigned_staff_id: Optional[int] = None,
+             one_off: bool = False) -> tuple[ChecklistItem, Optional[str]]:
     """항목을 추가하고 (항목, 담당 직원 이름)을 돌려준다 — 이름은 응답·푸시 문구에 쓴다."""
     label = label.strip()
     if not label:
@@ -136,7 +154,8 @@ def add_item(db: Session, store_id: str, label: str,
     )
     item = ChecklistItem(store_id=store_id, label=label,
                          sort_order=(max_order[0] + 1) if max_order else 0,
-                         assigned_staff_id=assigned_staff_id)
+                         assigned_staff_id=assigned_staff_id,
+                         one_off=one_off)
     db.add(item)
     db.commit()
     db.refresh(item)

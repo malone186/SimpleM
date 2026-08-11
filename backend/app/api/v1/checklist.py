@@ -49,7 +49,8 @@ def create_item(body: ChecklistItemCreate, db: Session = Depends(get_db),
                 user: User = Depends(get_current_user)):
     try:
         item, staff_name = svc.add_item(db, user.email, body.label,
-                                        assigned_staff_id=body.assigned_staff_id)
+                                        assigned_staff_id=body.assigned_staff_id,
+                                        one_off=body.one_off)
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -72,7 +73,8 @@ def create_item(body: ChecklistItemCreate, db: Session = Depends(get_db),
 
     return {"id": item.id, "label": item.label, "sort_order": item.sort_order,
             "done": False, "done_by": None, "checked_at": None,
-            "assigned_staff_id": item.assigned_staff_id, "assigned_staff_name": staff_name}
+            "assigned_staff_id": item.assigned_staff_id, "assigned_staff_name": staff_name,
+            "one_off": bool(item.one_off)}
 
 
 @router.patch("/items/{item_id}", response_model=ChecklistItemRow, summary="항목 수정")

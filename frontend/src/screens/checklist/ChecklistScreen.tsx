@@ -158,8 +158,13 @@ export default function ChecklistScreen() {
                           color={it.done ? '#3E9B4F' : colors.mochaBrown} />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.label, it.done && styles.labelDone]}>{it.label}</Text>
-                  {!!it.assigned_staff_name && (
-                    <Text style={styles.assignee}>담당 · {it.assigned_staff_name}</Text>
+                  {(!!it.assigned_staff_name || it.one_off) && (
+                    <Text style={styles.assignee}>
+                      {/* 일회성 = 사장님 할 일에서 넘어온 것 — 루틴과 달리 완료하면 사라진다는 걸 알린다 */}
+                      {[it.assigned_staff_name && `담당 · ${it.assigned_staff_name}`, it.one_off && '오늘만']
+                        .filter(Boolean)
+                        .join('  ·  ')}
+                    </Text>
                   )}
                   {it.done && !!it.done_by && (
                     <Text style={styles.doneBy}>✓ {it.done_by}</Text>

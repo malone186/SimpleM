@@ -5,10 +5,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 
 import { useAuth } from '../../auth/AuthContext';
+import { addChecklistItem } from '../../lib/api/checklist';
 import { listMenus, type MenuItem } from '../../lib/api/sales';
+import { fetchStaffAccounts, type StaffAccount } from '../../lib/api/staffAccounts';
 import { colors, spacing, typography, shadows } from '../../theme';
 import { useResponsive } from '../../theme/responsive';
 import { PopIn, PressableScale, SlideUp } from '../motion';
+import { toast } from '../toast';
 import { type DateInfo } from './SalesCard';
 
 export type TodoCategory = 'order' | 'hygiene' | 'admin' | 'daily';
@@ -161,6 +164,38 @@ export default function TodoList({
   const pickPromoMenu = (name: string) => {
     setPromoPickerOpen(false);
     navigation.navigate('Marketing', { prefillMenu: name, ts: Date.now() });
+  };
+
+  // [알바에게 보내기] 할 일을 담당 지정 일회성 항목으로 근무 체크리스트에 넘긴다.
+  // 알바 계정이 등록된 사장님에게만 보이는 기능 — 직원 계정이나 알바 없는 매장에선
+  // staffList가 비어 버튼 자체가 안 나온다. 원본 할 일은 그대로 둔다(사장님이 추적할 수
+  // 있게). 알바가 끝내면 체크리스트 쪽에 '누가 했는지'가 남는다.
+  const { user } = useAuth();
+  const [staffList, setStaffList] = useState<StaffAccount[]>([]);
+  const [sendTarget, setSendTarget] = useState<Todo | null>(null);
+  const [sendingStaffId, setSendingStaffId] = useState<number | null>(null);
+  useEffect(() => {
+    if (!token || user?.isStaff) return;
+    // 실패해도 화면은 그대로 쓴다 — 보내기 버튼만 안 보일 뿐이다
+    fetchStaffAccounts(token)
+      .then((rows) => setStaffList(rows.filter((r) => r.is_active)))
+      .catch(() => {});
+  }, [token, user?.isStaff]);
+
+  const sendTodoToStaff = async (staff: StaffAccount) => {
+    if (!token || !sendTarget || sendingStaffId !== null) return;
+    setSendingStaffId(staff.id);
+    // 화면 제목과 같은 규칙으로 정리해서 보낸다 — "[서류·행정] " 태그는 체크리스트에선 소음이다
+    const label = sendTarget.title.replace(/^\[[^\]]{1,8}\]\s*/, '').trim();
+    try {
+      await addChecklistItem(token, label, staff.id, true);
+      setSendTarget(null);
+      toast('알바에게 보냈어요', `${staff.name}님의 근무 체크리스트에 담았어요. 완료하면 오늘만 표시되고 사라져요.`);
+    } catch (e) {
+      toast('보내기 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+    } finally {
+      setSendingStaffId(null);
+    }
   };
   // [한글 주석] 초기 카테고리는 선택되지 않은 null 상태 (아무 카테고리 칩도 누르지 않고 등록 시 태그 없이 생성)
   const [selectedCategory, setSelectedCategory] = useState<TodoCategory | null>(null);
@@ -329,6 +364,7 @@ export default function TodoList({
                   disabled={disabled}
                   startEdit={startEdit}
                   onPromoPress={openPromoPicker}
+                  onSendToStaff={staffList.length > 0 ? (t) => setSendTarget(t) : undefined}
                 />
               </SlideUp>
             );
@@ -437,6 +473,49 @@ export default function TodoList({
         </View>
       </Modal>
 
+      {/* ── [알바에게 보내기 모달] 담당 알바를 고르면 그 알바의 근무 체크리스트로 넘어간다 ── */}
+      <Modal
+        visible={sendTarget !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSendTarget(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackdropPress} onPress={() => setSendTarget(null)} />
+          <SlideUp style={styles.promoPickerCard}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+              <Ionicons name="paper-plane" size={15} color="#8C6F56" />
+              <Text style={styles.promoPickerTitle}>알바에게 보내기</Text>
+            </View>
+            <Text style={styles.promoPickerSub} numberOfLines={2}>
+              “{(sendTarget?.title ?? '').replace(/^\[[^\]]{1,8}\]\s*/, '')}” — 고른 알바의 근무
+              체크리스트에 담겨요. 완료하면 다음 날 자동으로 사라져요.
+            </Text>
+            <ScrollView style={{ maxHeight: Math.min(vh(42), 320) }} showsVerticalScrollIndicator={false}>
+              {staffList.map((st) => (
+                <TouchableOpacity
+                  key={st.id}
+                  style={styles.promoMenuRow}
+                  onPress={() => sendTodoToStaff(st)}
+                  activeOpacity={0.8}
+                  disabled={sendingStaffId !== null}
+                >
+                  <Ionicons name="person-circle-outline" size={18} color="#8C6F56" />
+                  <Text style={[styles.promoMenuName, { marginLeft: 6 }]} numberOfLines={1}>
+                    {st.name}
+                  </Text>
+                  {sendingStaffId === st.id ? (
+                    <Text style={styles.promoMenuPrice}>보내는 중…</Text>
+                  ) : (
+                    <Ionicons name="chevron-forward" size={14} color="#8C6F56" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </SlideUp>
+        </View>
+      </Modal>
+
       {/* ── [iOS 팝업 모달 다이얼로그: 새 업무 등록 / 업무 수정 통합 모달] ── */}
       <Modal
         visible={modalVisible}
@@ -531,6 +610,7 @@ function TodoItem({
   disabled,
   startEdit,
   onPromoPress,
+  onSendToStaff,
 }: {
   todo: Todo;
   isPastDate?: boolean;
@@ -540,6 +620,8 @@ function TodoItem({
   disabled: boolean;
   startEdit: (todo: Todo) => void;
   onPromoPress?: () => void;
+  // 알바에게 보내기 — 사장님 계정에서만 내려온다 (없으면 버튼 자체가 안 보인다)
+  onSendToStaff?: (todo: Todo) => void;
 }) {
   const animX = useRef(new Animated.Value(0)).current;
   const animOpacity = useRef(new Animated.Value(1)).current;
@@ -694,6 +776,14 @@ function TodoItem({
         {/* [3. 우측 액션: 수정·삭제 — 지난 날짜(isPastDate)일 때만 숨김] */}
         {!isPastDate && (
           <View style={styles.actionsRight}>
+            {/* 알바에게 보내기 — 이 할 일을 담당 지정해 근무 체크리스트로 넘긴다.
+                핸들러가 있을 때만 보인다 (사장님 계정 + 등록된 알바 계정이 있을 때) */}
+            {onSendToStaff && !disabled && (
+              <PressableScale onPress={() => onSendToStaff(todo)} style={styles.iconBtn} to={0.85}>
+                <Ionicons name="paper-plane-outline" size={14} color="#8C9BAB" />
+              </PressableScale>
+            )}
+
             {/* 수정 — 브루가 만든 항목도 고칠 수 있다. 고치는 순간 내 업무로 바뀌어 서버에 저장된다 */}
             <PressableScale onPress={() => startEdit(todo)} style={styles.iconBtn} to={0.85}>
               <Ionicons name="pencil-outline" size={14} color="#A79C92" />

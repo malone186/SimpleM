@@ -43,6 +43,10 @@ class ChecklistItem(Base):
     # FK를 걸지 않는 이유: 직원 계정을 지워도 항목은 남아야 하고(담당만 해제된 셈),
     # staff_accounts는 membership 도메인이라 테이블 생성 순서에 묶이고 싶지 않다.
     assigned_staff_id = Column(Integer, nullable=True)
+    # 일회성 항목 — 사장님 '할 일'을 알바에게 보낸 것처럼 한 번 하면 끝나는 일.
+    # 체크되는 순간 active=False로 은퇴시켜 다음 날 루틴처럼 되살아나지 않게 한다.
+    # (체크를 되돌리면 다시 active로 살린다 — 실수로 누른 게 영영 사라지면 안 된다)
+    one_off = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -64,11 +68,12 @@ class ChecklistCheck(Base):
 
 
 def ensure_checklist_assignee_column(engine) -> None:
-    """[자가치유 스키마] 기존 checklist_items에 assigned_staff_id(담당 직원)를 멱등 보강한다.
+    """[자가치유 스키마] 기존 checklist_items에 나중에 도입된 컬럼들을 멱등 보강한다.
 
-    담당 지정은 나중에 도입된 기능이라 그 전에 만들어진 DB에는 컬럼이 없다.
+    - assigned_staff_id: 담당 직원 지정 기능과 함께 추가됨 (nullable → 기존 항목은 공용 루틴)
+    - one_off: '사장님 할 일 → 알바에게 보내기' 기능과 함께 추가됨 (기본 FALSE → 기존 항목은 반복 루틴)
+
     create_all은 기존 테이블을 ALTER하지 않으므로 여기서 직접 보강한다.
-    nullable이라 기존 항목은 전부 '공용 루틴'으로 남는다.
     """
     try:
         insp = inspect(engine)
@@ -78,11 +83,16 @@ def ensure_checklist_assignee_column(engine) -> None:
     except Exception as e:
         logger.warning(f"[체크리스트 스키마] checklist_items 점검 실패 — 건너뜁니다: {e}")
         return
-    if "assigned_staff_id" in existing:
-        return
-    try:
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE checklist_items ADD COLUMN assigned_staff_id INTEGER"))
-        logger.info("[체크리스트 스키마] checklist_items.assigned_staff_id 컬럼 추가 완료")
-    except Exception as e:
-        logger.warning(f"[체크리스트 스키마] assigned_staff_id 보강 실패 — 담당 지정이 막힐 수 있습니다: {e}")
+    patches = {
+        "assigned_staff_id": "ALTER TABLE checklist_items ADD COLUMN assigned_staff_id INTEGER",
+        "one_off": "ALTER TABLE checklist_items ADD COLUMN one_off BOOLEAN NOT NULL DEFAULT FALSE",
+    }
+    for col, ddl in patches.items():
+        if col in existing:
+            continue
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info(f"[체크리스트 스키마] checklist_items.{col} 컬럼 추가 완료")
+        except Exception as e:
+            logger.warning(f"[체크리스트 스키마] {col} 보강 실패 — 관련 기능이 막힐 수 있습니다: {e}")
