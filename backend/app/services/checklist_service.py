@@ -47,13 +47,13 @@ def list_today(db: Session, store_id: str) -> list[dict[str, Any]]:
         .filter(ChecklistCheck.store_id == store_id, ChecklistCheck.check_date == today)
         .all()
     }
+    alive = ChecklistItem.active.is_(True)
+    if checks:
+        # 오늘 체크된 항목은 은퇴(비활성)했어도 함께 싣는다 — 일회성 항목의 '오늘 완료' 표시용
+        alive = alive | ChecklistItem.id.in_(list(checks))
     items = (
         db.query(ChecklistItem)
-        .filter(
-            ChecklistItem.store_id == store_id,
-            ChecklistItem.active.is_(True) | ChecklistItem.id.in_(checks.keys())
-            if checks else ChecklistItem.active.is_(True),
-        )
+        .filter(ChecklistItem.store_id == store_id, alive)
         .order_by(ChecklistItem.sort_order, ChecklistItem.id)
         .all()
     )

@@ -154,7 +154,7 @@ export default function TodoList({
 
   // [홍보할 메뉴 고르기] '주 메뉴를 홍보하세요' 투두에서 열리는 메뉴 선택 모달 —
   // 메뉴 관리에 등록된 전체 메뉴 중 하나를 고르면 홍보 스튜디오로 이동하며 자동 입력된다.
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const navigation = useNavigation<any>();
   const [promoPickerOpen, setPromoPickerOpen] = useState(false);
   const [promoMenus, setPromoMenus] = useState<MenuItem[] | null>(null);
@@ -177,7 +177,6 @@ export default function TodoList({
   // 알바 계정이 등록된 사장님에게만 보이는 기능 — 직원 계정이나 알바 없는 매장에선
   // staffList가 비어 버튼 자체가 안 나온다. 원본 할 일은 그대로 둔다(사장님이 추적할 수
   // 있게). 알바가 끝내면 체크리스트 쪽에 '누가 했는지'가 남는다.
-  const { user } = useAuth();
   const [staffList, setStaffList] = useState<StaffAccount[]>([]);
   const [sendTarget, setSendTarget] = useState<Todo | null>(null);
   const [sendingStaffId, setSendingStaffId] = useState<number | null>(null);
@@ -219,6 +218,13 @@ export default function TodoList({
     if (staffPanelFilter === '공용') return staffTasks.filter((it) => !it.assigned_staff_name);
     return staffTasks.filter((it) => it.assigned_staff_name === staffPanelFilter);
   }, [staffTasks, staffPanelFilter]);
+
+  // 고른 담당이 목록에서 사라지면(재조회로 항목 소멸 등) 필터를 풀어 빈 화면에 갇히지 않게
+  useEffect(() => {
+    if (staffPanelFilter && !staffProgress.some((p) => p.name === staffPanelFilter)) {
+      setStaffPanelFilter(null);
+    }
+  }, [staffProgress, staffPanelFilter]);
 
   const openStaffTab = async () => {
     setViewTab('staff');

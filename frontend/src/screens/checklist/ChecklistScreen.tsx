@@ -56,6 +56,12 @@ export default function ChecklistScreen() {
           : items.filter((i) => i.assigned_staff_name === staffFilter),
     [items, staffFilter],
   );
+  // 고른 담당이 목록에서 사라지면(다음 날 일회성 항목 소멸 등) 필터를 풀어 빈 화면에 갇히지 않게
+  useEffect(() => {
+    if (staffFilter && staffFilter !== '공용' && !assigneeNames.includes(staffFilter)) {
+      setStaffFilter(null);
+    }
+  }, [assigneeNames, staffFilter]);
 
   const load = useCallback(async () => {
     if (!token) return;

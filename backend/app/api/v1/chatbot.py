@@ -2054,7 +2054,9 @@ def forward_todo(todo_id: int, body: TodoForwardRequest,
     try:
         result, item, staff_name = todo_service.forward_todo(
             db, current_user.email, todo_id, body.staff_id)
-    except ValueError as e:  # TodoError(할 일 없음)·직원 검증 실패 둘 다 ValueError 계열
+    except todo_service.TodoError as e:  # 할 일이 없거나 이미 완료 — 리소스 문제
+        raise HTTPException(404, str(e))
+    except ValueError as e:  # 직원 검증 실패(남의 매장·비활성 계정) — 요청 문제
         raise HTTPException(400, str(e))
 
     # 푸시 — 체크리스트에 직접 추가할 때와 같은 문구·대상 규칙 (실패해도 전달은 성공으로 남긴다)

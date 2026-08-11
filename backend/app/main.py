@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 # 그 탓에 "FCM 자격증명 로드 완료" 같은 기동 확인용 로그를 Cloud Run에서 grep해도 안 잡혀,
 # 기능은 정상인데 미설정으로 오판하게 된다. INFO까지 내보낸다 (uvicorn 자체 로거는 그대로).
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+# httpx는 INFO에서 요청 URL 전체를 찍는다 — Gemini 인증이 ?key= 쿼리 방식이라(AQ. 형식 키는
+# 헤더 인증 불가) URL에 API 키가 실려, 이대로 두면 로그에 키가 그대로 남는다. WARNING으로 올려 막는다.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # [안전장치] 서버가 처음 기동할 때, 우리가 설계한 DB 테이블(User 등)이 실제 DB에 없으면 자동으로 생성해 줍니다.
 # DB가 꺼져 있어도 서버 자체는 뜨도록 한다 — DB와 무관한 기능(OCR 등)은 독립 동작해야 함 (PRD §7)
