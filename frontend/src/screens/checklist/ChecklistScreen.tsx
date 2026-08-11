@@ -285,7 +285,11 @@ const styles = StyleSheet.create({
   },
   fabText: { color: colors.white, fontSize: 14, fontWeight: '700' },
   modalBg: { flex: 1, backgroundColor: 'rgba(30,22,18,0.4)', justifyContent: 'center', padding: 28 },
-  modalCard: { backgroundColor: colors.white, borderRadius: 18, padding: 20, gap: 14 },
+  // 웹(넓은 창)에서 화면 폭만큼 늘어나지 않게 모바일 크기로 고정 — 다른 모달들과 같은 관례(340~360)
+  modalCard: {
+    backgroundColor: colors.white, borderRadius: 18, padding: 20, gap: 14,
+    width: '100%', maxWidth: 360, alignSelf: 'center',
+  },
   modalTitle: { fontSize: 16, fontWeight: '700', color: colors.espressoBrown },
   input: {
     borderWidth: 1, borderColor: colors.mutedSand, borderRadius: 12,
