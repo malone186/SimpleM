@@ -36,6 +36,7 @@ import StaffScreen from '../screens/staff/StaffScreen';
 import ChecklistScreen from '../screens/checklist/ChecklistScreen';
 import TaxDraftDetailScreen from '../screens/document/TaxDraftDetailScreen';
 import { colors, typography } from '../theme';
+import { liquidGlassBar } from '../theme/glass';
 import type { TaxEstimate } from '../lib/api/operation';
 
 export type RootTabParamList = {
@@ -186,12 +187,12 @@ function StaffApp({ userName }: { userName: string }) {
           headerRight: logoutBtn,
           tabBarActiveTintColor: colors.pointOrange,
           tabBarInactiveTintColor: colors.mochaBrown,
+          // 리퀴드 글라스 — 사장님 탭 바와 같은 유리 (theme/glass.ts)
           tabBarStyle: {
-            backgroundColor: 'rgba(250, 249, 246, 0.98)',
-            borderTopColor: 'rgba(140,111,86,0.08)',
             height: staffTabHeight,
             paddingBottom: staffVisualPad + staffInsets.bottom,
             paddingTop: staffVisualPad,
+            ...liquidGlassBar,
           },
           tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
         }}
@@ -346,25 +347,12 @@ function TabsNavigator() {
         animation: 'shift', // 탭 전환 시 콘텐츠가 스르륵 밀려 들어옴
         tabBarActiveTintColor: colors.pointOrange, // [아이폰 스타일] 웰컴 테마와 매칭되는 활기찬 포인트 오렌지 적용
         tabBarInactiveTintColor: colors.mochaBrown,
+        // 리퀴드 글라스 — 배경·블러·빛맺힘은 theme/glass.ts의 liquidGlassBar가 담당
         tabBarStyle: {
-          backgroundColor: 'rgba(250, 249, 246, 0.96)', // [아이폰 스타일] 맑고 투명도가 살짝 도는 오프화이트 틴트
-          borderTopWidth: 0.8,
-          borderTopColor: 'rgba(140, 111, 86, 0.08)', // 은은하고 세련된 초슬림 엣지
           height: tabBarHeight, // [한글 주석: 안드로이드 소프트키 및 노치 대응 동적 높이]
           paddingBottom: visualPad + sysInset, // [한글 주석: 시스템 바 인셋 + 위와 동일한 대칭 여백]
           paddingTop: visualPad,
-          shadowColor: '#4E3629',
-          shadowOffset: { width: 0, height: -3 },
-          shadowOpacity: 0.04,
-          shadowRadius: 10,
-          elevation: 8,
-          // 웹 브라우저 등에서 하단 스크롤이 비치도록 블러 추가
-          ...Platform.select({
-            web: {
-              backdropFilter: 'blur(20px)',
-              WebkitBackdropFilter: 'blur(20px)',
-            }
-          })
+          ...liquidGlassBar,
         },
         tabBarLabelStyle: { 
           fontSize: 10.5, // [가독성 보강] 너무 뚱뚱하지 않고 콤팩트한 폰트 사이즈

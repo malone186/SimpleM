@@ -60,6 +60,13 @@ const isDark = (hex: string) => {
   return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.55;
 };
 
+// 카드색을 반투명 유리로 — 뒤의 방 배경 사진·크림 시트가 은은하게 비친다 (리퀴드 글라스 톤).
+// 글자 대비(scheme)는 원색 기준 그대로 계산하므로 투명해져도 가독성 규칙은 유지된다.
+const glassify = (hex: string, alpha = 0.72) => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+};
+
 function scheme(color: string) {
   if (isDark(color)) {
     return {
@@ -266,7 +273,7 @@ export default function ManagementScreen() {
                       styles.card,
                       {
                         height: CARD_H,
-                        backgroundColor: it.color,
+                        backgroundColor: glassify(it.color),
                         borderColor: s.border,
                         borderWidth: s.border === 'transparent' ? 0 : 1.5,
                       },
@@ -359,6 +366,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 16,
     elevation: 8,
+    // 웹은 카드 뒤 배경까지 블러 — 반투명과 합쳐져 색유리처럼 보인다 (네이티브는 반투명만)
+    ...(Platform.OS === 'web'
+      ? ({ backdropFilter: 'blur(14px) saturate(160%)' } as object)
+      : null),
   },
   cardGhost: {
     position: 'absolute',

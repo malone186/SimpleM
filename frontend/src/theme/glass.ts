@@ -23,3 +23,18 @@ export const liquidGlass = {
     ? ({ backdropFilter: 'blur(24px) saturate(190%) brightness(1.08)' } as object)
     : null),
 } as const;
+
+// 탭 바용 유리 — 어두운 헤더 위 흰 유리(liquidGlass)와 달리, 밝은 크림 콘텐츠 위에 얹는
+// 오프화이트 틴트 유리다. 웹은 스크롤되는 콘텐츠가 비쳐 보이고, 네이티브는 블러가 없어
+// 반투명을 얕게 잡는다(너무 투명하면 글자 위로 콘텐츠가 겹쳐 읽기 나빠진다).
+export const liquidGlassBar = {
+  borderTopWidth: 0,
+  // 위 모서리 빛맺힘 한 줄 + 위쪽으로 은은하게 뜨는 그림자 (RN 0.76+ boxShadow, 네이티브 포함)
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.75), 0 -4px 16px rgba(78,54,41,0.10)',
+  ...(Platform.OS === 'web'
+    ? ({
+        backgroundColor: 'rgba(250,249,246,0.55)',
+        backdropFilter: 'blur(24px) saturate(180%)',
+      } as object)
+    : ({ backgroundColor: 'rgba(250,249,246,0.92)' } as object)),
+} as const;
