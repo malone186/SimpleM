@@ -53,6 +53,16 @@ def _load(path: Path) -> np.ndarray:
     return np.array(Image.open(path).convert("RGBA")).astype(float)
 
 
+def _frames_in_order(d: Path, suffix: str = ".webp") -> list[Path]:
+    """f0, f1, … 를 '번호 순'으로 돌려준다.
+
+    문자열 정렬을 쓰면 안 된다 — 프레임이 100장을 넘으면 f100이 f10 바로 뒤로 끼어들어
+    (f10, f100, f101, …, f11) 시트가 뒤죽박죽 순서로 구워진다. 실제로 heart·bad·redred가
+    이렇게 구워져 재생이 끊겨 보였다(2026-08-11).
+    """
+    return sorted(d.glob(f"f*{suffix}"), key=lambda p: int(p.stem[1:]))
+
+
 def apron_mask(rgba: np.ndarray) -> np.ndarray:
     """앞치마일 확률(0~1). 경계에서 급격히 끊기지 않도록 페더링한다."""
     rgb = rgba[..., :3] / 255.0
@@ -172,7 +182,7 @@ def pack(args) -> int:
     개수와 요청 수, 그리고 크로스페이드용 두 번째 인스턴스가 같은 텍스처를 재사용한다는 점.
     """
     src = Path(args.src)
-    frames = sorted(src.glob("f*.webp"))
+    frames = _frames_in_order(src)
     if not frames:
         sys.exit(f"프레임이 없다: {src}")
     imgs = [Image.open(f).convert("RGBA") for f in frames]
@@ -282,7 +292,7 @@ def loop(args) -> int:
     그래서 이음새 오차를 사이클 내부 움직임량으로 나눈 비율로 채점한다: 많이 움직였는데도
     처음과 끝이 닮은 구간이 진짜 루프다. 길이 벌점은 기본 주기(1사이클)를 고르게 한다."""
     src = Path(args.src)
-    paths = sorted(src.glob("f*.png")) or sorted(src.glob("*.png"))
+    paths = _frames_in_order(src, ".png") or sorted(src.glob("*.png"))
     if len(paths) < args.min_len + 1:
         sys.exit(f"프레임이 부족하다: {len(paths)}장 (최소 {args.min_len + 1})")
     thumbs = np.stack([_thumb(p) for p in paths])
@@ -379,7 +389,7 @@ def index(args) -> int:
     for d in sorted(ANIM.iterdir()):
         if not d.is_dir():
             continue
-        frames = sorted(f.name for f in d.glob("f*.webp"))
+        frames = [f.name for f in _frames_in_order(d)]
         if frames:
             sets[d.name] = frames
     # 영상 파이프라인 세트는 원본 속도 메타(loop가 남긴 meta.json)를 함께 싣는다 —
