@@ -77,10 +77,11 @@ SHOP_ITEMS: list[dict[str, Any]] = [
      "desc": "카메라 앞에 선 것처럼 도도하게 서 있어요 (움직이는 포즈!)", "min_level": 8},
     {"id": "pose_bad", "slot": "pose", "mood": "bad", "name": "BAD 브루", "emoji": "🔥", "price": 1200,
      "desc": "유행하는 BAD 챌린지 안무를 끝까지 춰요 (움직이는 포즈!)", "min_level": 8},
-    {"id": "pose_heart", "slot": "pose", "mood": "heart", "name": "하트 댄스 브루", "emoji": "🫰", "price": 1400,
+    # [주의] 한 영상 = 한 상품. pose_dance2(같은 영상의 부분 발췌)를 별도 상품으로 팔았다가
+    # 상점에 같은 모습이 두 개 생겨 회수했다 (2026-08-11). 새 모션을 올리기 전에 기존
+    # 세트와 같은 영상인지부터 확인할 것 — scripts/bake_mascot.py 결과물 비교.
+    {"id": "pose_heart", "slot": "pose", "mood": "heart", "name": "손가락 하트 브루", "emoji": "🫰", "price": 1400,
      "desc": "신나게 춤추다 손가락 하트로 마무리해요 (움직이는 포즈!)", "min_level": 9},
-    {"id": "pose_dance2", "slot": "pose", "mood": "dance2", "name": "손가락 하트 브루", "emoji": "🎵", "price": 1000,
-     "desc": "경쾌한 스텝 댄스 (움직이는 포즈!)", "min_level": 7},
     {"id": "pose_redred", "slot": "pose", "mood": "redred", "name": "red red 브루", "emoji": "❤️", "price": 1300,
      "desc": "유행하는 red red 챌린지 안무 (움직이는 포즈!)", "min_level": 8},
     # 배경 효과 — 캐릭터 위가 아니라 뒤에 깔리므로 어떤 포즈와도 겹치지 않는다.
