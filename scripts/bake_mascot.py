@@ -288,20 +288,32 @@ def loop(args) -> int:
     thumbs = np.stack([_thumb(p) for p in paths])
     cons = np.abs(thumbs[1:] - thumbs[:-1]).mean(axis=(1, 2, 3))  # 인접 프레임 간 움직임
 
-    best, best_score = None, float("inf")
-    for i in range(len(paths) - args.min_len):
-        for j in range(i + args.min_len, len(paths)):
-            seam = float(np.abs(thumbs[j] - thumbs[i]).mean())
-            motion = float(cons[i:j].mean())
-            score = seam / (motion + 1e-4) + 0.002 * (j - i)
-            if score < best_score:
-                best, best_score = (i, j), score
-    i, j = best  # type: ignore[misc]
-    cycle = paths[i:j]
-    seam = float(np.abs(thumbs[j] - thumbs[i]).mean())
-    motion = float(cons[i:j].mean())
-    print(f"  루프 탐지: f{i:03d} ~ f{j - 1:03d} ({len(cycle)}장, "
-          f"이음새 {seam:.4f} / 움직임 {motion:.4f} = {seam / (motion + 1e-4):.2f})")
+    if args.full:
+        # 루프를 찾지 않고 영상 전체를 쓴다 — 안무가 한 번 쭉 흐르는 영상에서 루프 탐지는
+        # 잘 붙는 '한 구절'만 남기고 나머지 안무를 날려 버린다 (redred에서 실제로 그랬다).
+        # 생성 영상은 앞뒤가 몇 프레임 정지 상태라 그 부분만 잘라낸다.
+        MOVING = 0.002
+        idx = np.where(cons > MOVING)[0]
+        if len(idx) == 0:
+            sys.exit("움직임이 감지되지 않는다 — cutout 폴더가 맞는지 확인")
+        i, j = int(idx[0]), int(idx[-1]) + 2  # cons[k]는 k→k+1 변화라 끝 프레임 +1
+        cycle = paths[i:j]
+        print(f"  전체 사용: f{i:03d} ~ f{j - 1:03d} ({len(cycle)}장 — 정지 머리·꼬리만 제거)")
+    else:
+        best, best_score = None, float("inf")
+        for i in range(len(paths) - args.min_len):
+            for j in range(i + args.min_len, len(paths)):
+                seam = float(np.abs(thumbs[j] - thumbs[i]).mean())
+                motion = float(cons[i:j].mean())
+                score = seam / (motion + 1e-4) + 0.002 * (j - i)
+                if score < best_score:
+                    best, best_score = (i, j), score
+        i, j = best  # type: ignore[misc]
+        cycle = paths[i:j]
+        seam = float(np.abs(thumbs[j] - thumbs[i]).mean())
+        motion = float(cons[i:j].mean())
+        print(f"  루프 탐지: f{i:03d} ~ f{j - 1:03d} ({len(cycle)}장, "
+              f"이음새 {seam:.4f} / 움직임 {motion:.4f} = {seam / (motion + 1e-4):.2f})")
 
     # 프레임 수를 억지로 맞추지 않는다 — 복제(같은 그림 2틱)와 불균일 간격(2·3장 섞임)이
     # 재생 시 '뚝뚝 끊김'으로 바로 보인다. --count는 균일 간격 솎아내기 상한일 뿐이다.
@@ -311,6 +323,24 @@ def loop(args) -> int:
         cycle = cycle[::stride]
         print(f"  솎아내기: {stride}장 간격 → {len(cycle)}장")
     eff_fps = args.fps / stride
+
+    # 시트 한 장(최대 4096px)에 들어가야 한다. 프레임을 솎아 fps를 잃는 대신 변을 줄여
+    # 장수를 지킨다 — 표시 크기(84~240px)보다 훨씬 크므로 288px도 화질 손해가 없고,
+    # 부드러움(프레임 수)은 눈에 바로 보인다. 그래도 안 들어가면 그때만 솎는다.
+    size = args.size
+    for cand in (args.size, 320, 288):
+        if (4096 // cand) ** 2 >= len(cycle):
+            size = cand
+            break
+    else:
+        size = 288
+        cap = (4096 // size) ** 2
+        stride2 = -(-len(cycle) // cap)
+        cycle = cycle[::stride2]
+        eff_fps /= stride2
+        print(f"  시트 상한 초과 — {stride2}장 간격 솎아내기 → {len(cycle)}장")
+    if size != args.size:
+        print(f"  프레임 {size}px (시트 4096px 안에 {len(cycle)}장을 담기 위해 축소)")
 
     # 사이클 전체의 알파 합집합 bbox로 크롭 — 프레임마다 따로 자르면 캐릭터가 덜컹거린다
     imgs = [np.array(Image.open(p).convert("RGBA")) for p in cycle]
@@ -333,12 +363,12 @@ def loop(args) -> int:
         crop = Image.fromarray(im[y0:y1, x0:x1])
         square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
         square.paste(crop, ((side - crop.width) // 2, (side - crop.height) // 2))
-        square.resize((args.size, args.size), Image.LANCZOS).save(
+        square.resize((size, size), Image.LANCZOS).save(
             out / f"f{k:02d}.webp", "WEBP", quality=92, method=6
         )
     # 원본 속도 메타 — index가 flipbookFrames.ts에 실어 재생기가 실제 속도로 돌린다
     (out / "meta.json").write_text(json.dumps({"fps": round(eff_fps, 2)}), encoding="utf-8")
-    print(f"  → {out} ({len(imgs)}장, {args.size}x{args.size}, 재생 {eff_fps:.1f}fps)")
+    print(f"  → {out} ({len(imgs)}장, {size}x{size}, 재생 {eff_fps:.1f}fps)")
     return 0
 
 
@@ -435,8 +465,10 @@ def main() -> int:
 
     p = sub.add_parser("loop", help="누끼 프레임 → 루프 절단 + f00.webp… 규격 저장")
     p.add_argument("src", help="cutout PNG 폴더")
+    p.add_argument("--full", action="store_true",
+                   help="루프 탐지 없이 영상 전체 사용 (정지 머리·꼬리만 제거) — 안무가 한 번 쭉 흐르는 영상용")
     p.add_argument("--out", help="출력 폴더 (기본: assets/mascot/anim/<모션이름>)")
-    p.add_argument("--size", type=int, default=360, help="한 변 픽셀 (기본 360)")
+    p.add_argument("--size", type=int, default=360, help="한 변 픽셀 상한 (장수가 많으면 자동 축소)")
     p.add_argument("--count", type=int, help="프레임 수 상한 — 균일 간격 솎아내기만, 복제 없음 (기본: 사이클 전체)")
     p.add_argument("--fps", type=int, default=24, help="입력 프레임의 원래 초당 장수 (meta.json으로 저장)")
     p.add_argument("--min-len", type=int, default=8, dest="min_len", help="최소 사이클 길이 (기본 8)")
