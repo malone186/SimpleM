@@ -19,7 +19,7 @@ import {
   type ChecklistItem,
 } from '../../lib/api/checklist';
 import { fetchStaffAccounts, type StaffAccount } from '../../lib/api/staffAccounts';
-import { colors } from '../../theme';
+import { colors, radius, shadows } from '../../theme';
 import { glassSurface } from '../../theme/glass';
 import { s, useBottomInset } from '../../theme/responsive';
 
@@ -303,11 +303,11 @@ const styles = StyleSheet.create({
   summaryHint: { fontSize: 12, color: colors.mochaBrown, marginTop: 3 },
   empty: { alignItems: 'center', gap: 12, marginTop: 60 },
   emptyText: { fontSize: 13, color: colors.mochaBrown, textAlign: 'center', lineHeight: 20 },
-  // 리퀴드 글라스 — 단색 흰 카드 대신 유리 표면 (theme/glass.ts)
+  // 리퀴드 글라스 — 단색 흰 카드 대신 유리 표면. 테두리 없이 여백·그림자로 구분 (radius·shadows 토큰)
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    borderRadius: 14, padding: 15, marginBottom: 8,
-    borderWidth: 1, ...glassSurface, borderColor: colors.mutedSand,
+    borderRadius: radius.sm, padding: 15, marginBottom: 8,
+    ...glassSurface, ...shadows.soft,
   },
   rowDone: { backgroundColor: 'rgba(62,155,79,0.06)', borderColor: 'rgba(62,155,79,0.18)' },
   rowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -330,15 +330,15 @@ const styles = StyleSheet.create({
   fab: {
     position: 'absolute', right: 16, flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: colors.espressoBrown, paddingHorizontal: 18, paddingVertical: 13, borderRadius: 26,
-    shadowColor: '#4E3629', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.18, shadowRadius: 10, elevation: 6,
+    ...shadows.medium, // 자체 그림자 대신 공용 토큰 — 화면마다 무게가 다르던 것을 통일
   },
   fabText: { color: colors.white, fontSize: 14, fontWeight: '700' },
   modalBg: { flex: 1, backgroundColor: 'rgba(30,22,18,0.4)', justifyContent: 'center', padding: 28 },
   // 웹(넓은 창)에서 화면 폭만큼 늘어나지 않게 모바일 크기로 고정 — 다른 모달들과 같은 관례(340~360)
   modalCard: {
-    borderRadius: 18, padding: 20, gap: 14,
+    borderRadius: radius.md, padding: 20, gap: 14,
     width: '100%', maxWidth: 360, alignSelf: 'center',
-    borderWidth: 1, ...glassSurface, // 리퀴드 글라스 모달
+    ...glassSurface, ...shadows.medium, // 리퀴드 글라스 모달 (테두리 없음)
   },
   modalTitle: { fontSize: 16, fontWeight: '700', color: colors.espressoBrown },
   input: {

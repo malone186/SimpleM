@@ -18,6 +18,10 @@ export const colors = {
 
 // [iOS 스타일 은은한 섀도우 시스템]
 // 카드가 배경 위에 부드럽게 떠 있는 듯한 입체감을 연출하여 투박한 보더라인을 보완합니다.
+// 모서리 반경 3단계 — 화면마다 14/18/22가 제각각이던 것을 통일한다 (토스·애플식 시스템 토큰).
+// sm: 목록 항목·칩, md: 모달·시트, lg: 화면급 카드. 새 스타일은 반드시 여기서 골라 쓴다.
+export const radius = { sm: 12, md: 16, lg: 20 } as const;
+
 export const shadows = {
   soft: {
     shadowColor: '#4E3629',

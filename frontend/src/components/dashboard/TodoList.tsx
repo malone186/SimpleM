@@ -11,7 +11,7 @@ import {
 import { listMenus, type MenuItem } from '../../lib/api/sales';
 import { fetchStaffAccounts, type StaffAccount } from '../../lib/api/staffAccounts';
 import { forwardTodo } from '../../lib/api/todo';
-import { colors, spacing, typography, shadows } from '../../theme';
+import { colors, radius, shadows, spacing, typography } from '../../theme';
 import { useResponsive } from '../../theme/responsive';
 import { PopIn, PressableScale, SlideUp } from '../motion';
 import { toast } from '../toast';
@@ -1233,19 +1233,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     ...glassSurface, // 리퀴드 글라스 — 크림 메모지 단색 대신 유리 표면
-    borderRadius: 14,
+    borderRadius: radius.sm,
     paddingVertical: 10,
     paddingHorizontal: 12,
     marginBottom: 6,   // 줄 사이를 좁혀 목록이 한눈에 들어오게
-    borderWidth: 1,
-    borderColor: '#EFECE6', // 따뜻하고 은은한 메모지 테두리
+    // 테두리 없음(radius·shadows 토큰 통일) — 좌측 마진 라인만 메모지 정체성으로 남긴다
     borderLeftWidth: 3,
-    borderLeftColor: colors.espressoBrown, // 메모지 좌측 감성 마진 라인
-    shadowColor: '#4E3629',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    elevation: 1,
+    borderLeftColor: colors.espressoBrown,
+    ...shadows.soft,
   },
   itemUrgent: {
     borderLeftColor: '#DC2626',   // 다 떨어짐 · 기한 지남
@@ -1340,11 +1335,10 @@ const styles = StyleSheet.create({
   promoPickerCard: {
     width: '86%',
     maxWidth: 360,
-    borderRadius: 18,
+    borderRadius: radius.md,
     padding: 18,
     ...shadows.medium,
-    borderWidth: 1,
-    ...glassSurface, // 리퀴드 글라스 — 모달 카드도 유리 표면
+    ...glassSurface, // 리퀴드 글라스 — 모달 카드도 유리 표면 (테두리 없음)
   },
   promoPickerTitle: { fontSize: 15.5, fontWeight: '900', color: colors.espressoBrown },
   promoPickerSub: { fontSize: 11.5, fontWeight: '600', color: colors.mochaBrown, marginBottom: 10 },

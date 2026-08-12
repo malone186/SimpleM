@@ -7,7 +7,7 @@ import { useIsFocused, useNavigation } from '@react-navigation/native';
 import Svg, { Circle, Defs, FeGaussianBlur, Filter, LinearGradient, Path, Stop } from 'react-native-svg';
 
 import { FadeInUp, PressableScale } from '../../components/motion';
-import { colors } from '../../theme';
+import { colors, radius, shadows } from '../../theme';
 import { liquidGlass } from '../../theme/glass';
 import { s, useResponsive, useTopInset } from '../../theme/responsive';
 import { useTranslation } from '../../i18n/translations';
@@ -274,8 +274,7 @@ export default function ManagementScreen() {
                       {
                         height: CARD_H,
                         backgroundColor: glassify(it.color),
-                        borderColor: s.border,
-                        borderWidth: s.border === 'transparent' ? 0 : 1.5,
+                        // 테두리 제거 — 색유리·그림자·여백이 구분을 담당한다 (토스·애플식)
                       },
                     ]}
                     onPress={() => navigation.navigate(it.route, it.params)}
@@ -357,15 +356,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    borderRadius: 22,
+    borderRadius: radius.lg, // 반경·그림자 토큰 통일 (무거운 자체 그림자 → 공용 medium)
     paddingHorizontal: 20,
     paddingVertical: 16,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    elevation: 8,
+    ...shadows.medium,
     // 웹은 카드 뒤 배경까지 블러 — 반투명과 합쳐져 색유리처럼 보인다 (네이티브는 반투명만)
     ...(Platform.OS === 'web'
       ? ({ backdropFilter: 'blur(14px) saturate(160%)' } as object)

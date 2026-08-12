@@ -14,7 +14,7 @@ import {
 import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, spacing, typography } from '../../theme';
+import { colors, radius, shadows, spacing, typography } from '../../theme';
 import { glassSurface, glassSurfaceCream } from '../../theme/glass';
 import { fs, s, useResponsive } from '../../theme/responsive';
 import { FadeInUp, PressableScale } from '../motion';
@@ -227,10 +227,11 @@ const styles = StyleSheet.create({
   screenTitleWrap: { marginBottom: 4 },
   screenTitle: { ...typography.L1, color: colors.espressoBrown },
   screenSubtitle: { ...typography.L5, color: colors.mochaBrown, marginTop: 4 },
-  card: { borderRadius: s(20), padding: spacing.globalPadding, borderWidth: 1 },
+  // 테두리 없음 — 표면 구분은 유리 배경·여백이 담당한다 (토스·애플식). 반경은 radius 토큰.
+  card: { borderRadius: s(radius.lg), padding: spacing.globalPadding },
   // 리퀴드 글라스 — 단색 카드 대신 유리 표면 (theme/glass.ts). 앱 전역 카드가 함께 바뀐다.
-  cardWhite: { ...glassSurface },
-  cardCream: { ...glassSurfaceCream },
+  cardWhite: { ...glassSurface, ...shadows.soft },
+  cardCream: { ...glassSurfaceCream, ...shadows.soft },
   sectionTitle: {
     ...typography.L3,
     fontSize: fs(15), // 본문 텍스트보다 명확히 돋보이는 가독성 크기

@@ -27,8 +27,9 @@ export const liquidGlass = {
 // 카드·시트 표면용 유리 — 흰 단색 카드를 대신하는 밝은 유리. 뒤 배경(방 사진·오로라·크림
 // 시트)이 은은하게 비친다. 위에 본문 텍스트가 앉는 표면이라 버튼(liquidGlass)보다 불투명도를
 // 높게 잡는다 — 유리 느낌은 내되 글이 배경과 싸우면 안 된다.
+// 테두리 없음 — 토스·애플식으로 표면 구분은 여백·배경 대비가 담당한다.
+// (버튼용 liquidGlass는 테두리가 '유리의 빛맺힘'이라 유지 — 표면과 역할이 다르다)
 export const glassSurface = {
-  borderColor: 'rgba(255,255,255,0.6)',
   ...(Platform.OS === 'web'
     ? ({
         backgroundColor: 'rgba(255,255,255,0.62)',
@@ -37,9 +38,8 @@ export const glassSurface = {
     : ({ backgroundColor: 'rgba(255,255,255,0.86)' } as object)), // 네이티브는 블러가 없어 얕게만
 } as const;
 
-// 크림 톤 표면용 — coffeeCream(#F2ECE0) 단색 카드의 유리판
+// 크림 톤 표면용 — coffeeCream(#F2ECE0) 단색 카드의 유리판 (테두리 없음, 위와 동일한 이유)
 export const glassSurfaceCream = {
-  borderColor: 'rgba(255,255,255,0.5)',
   ...(Platform.OS === 'web'
     ? ({
         backgroundColor: 'rgba(242,236,224,0.6)',
