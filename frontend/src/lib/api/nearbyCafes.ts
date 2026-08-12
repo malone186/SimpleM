@@ -108,6 +108,9 @@ export type CafeChangesResult = {
   opened: CafeChange[];
   closed: CafeChange[];
   count: number;
+  /** '지금 다시 확인'이 실패했다는 표시 — 목록은 옛 기록 그대로다.
+   *  이게 없으면 '확인했는데 변화 없음'과 구분되지 않는다. */
+  scan_failed?: boolean;
 };
 
 const auth = (token: string) => ({ headers: { Authorization: `Bearer ${token}` } });

@@ -737,6 +737,7 @@ def get_nearby_cafe_changes_api(
 
     if refresh and has_point:
         # 앞에서 훑는다 — 네이버 목록은 6시간 캐시라 대개 재검색 없이 대장만 다시 판정한다
+        scan_failed = False
         try:
             nearby_watch_service.scan_if_stale(
                 db, current_user.email,
@@ -745,7 +746,13 @@ def get_nearby_cafe_changes_api(
         except Exception:
             logger.exception("주변 카페 변화 즉시 스캔 실패: %s", current_user.email)
             db.rollback()
-        return nearby_watch_service.recent_changes(db, current_user.email, days=days)
+            scan_failed = True
+        # 실패를 삼키면 '눌렀는데 변화가 없다'와 구분되지 않는다 — 이 버튼이 존재하는
+        # 이유 자체가 그 상태를 없애는 것이었다. 옛 대장은 그대로 주되 실패는 밝힌다.
+        result = nearby_watch_service.recent_changes(db, current_user.email, days=days)
+        if scan_failed and isinstance(result, dict):
+            result["scan_failed"] = True
+        return result
 
     result = nearby_watch_service.recent_changes(db, current_user.email, days=days)
 
