@@ -74,13 +74,26 @@ def _row_to_dict(row) -> dict[str, Any]:
             "status": row.status, "content": json.loads(row.content), "created_at": row.created_at}
 
 
+# 홍보물(marketing_service.DOC_KIND)도 같은 generated_documents 표를 쓴다.
+# marketing_service를 import하면 순환이라 값만 적어 둔다 — 저쪽을 바꾸면 여기도 바꿔야 한다.
+_MARKETING_KIND = "marketing_content"
+
+
 def list_documents(store_id: str, kind: Optional[str] = None) -> list[dict[str, Any]]:
+    """생성 문서 목록. kind가 없으면 '서류' 만 준다 (홍보물은 제외).
+
+    홍보물은 서류 자동화 화면의 렌더러가 다룰 수 있는 모양이 아니다 — 배지에 영문
+    kind가 그대로 찍히고, 내부 필드(prompt·seed)가 표로 새어 나온다. 홍보물을 원하는
+    쪽은 모두 kind="marketing_content"를 명시해서 부른다(marketing_tools).
+    """
     from app.models.ai import GeneratedDocument
 
     with _session() as db:
         query = db.query(GeneratedDocument).filter(GeneratedDocument.store_id == store_id)
         if kind:
             query = query.filter(GeneratedDocument.kind == kind)
+        else:
+            query = query.filter(GeneratedDocument.kind != _MARKETING_KIND)
         return [_row_to_dict(r) for r in query.order_by(GeneratedDocument.created_at.desc()).all()]
 
 
