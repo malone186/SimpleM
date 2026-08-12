@@ -10,7 +10,7 @@
 //      충전액을 매출로 착각하면 나중에 커피가 나갈 때 매출이 안 잡혀 혼란스럽다.
 //
 //   3. 검색은 번호 뒷자리로 한다. 계산대에서 이름을 묻는 것보다 빠르다.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
     Modal,
@@ -111,7 +111,8 @@ export default function MembershipScreen() {
   const planDiscount = creditNum > 0 ? ((creditNum - payNum) / creditNum) * 100 : 0;
   const planValid = payNum > 0 && creditNum >= payNum;
 
-  const load = useCallback(async () => {
+  // seq: 이 호출의 순번. 응답이 돌아왔을 때 최신 순번이 아니면 화면에 반영하지 않는다.
+  const load = useCallback(async (seq?: number) => {
     // [한글 주석] 토큰이 아직 복원되지 않은 첫 렌더에서 호출하면 401이 뜬다.
     // 로딩 상태를 유지하고 토큰이 들어온 뒤 다시 시도한다.
     if (!token) return;
@@ -133,6 +134,8 @@ export default function MembershipScreen() {
             fetchChurnRisk(token, 20),
             fetchCostAnalysis(token, 90).catch(() => null),
           ]);
+      // 내가 뒤처진 요청이면 조용히 버린다 (늦게 온 옛 응답이 새 결과를 덮지 않게)
+      if (seq !== undefined && seq !== loadSeq.current) return;
       setSummary(s);
       setChurn(c);
       setPlans(p.filter((x) => x.is_active));
@@ -148,9 +151,20 @@ export default function MembershipScreen() {
     }
   }, [token, query, isStaff]);
 
+  // 검색은 한 글자마다 화면 전체(최대 7개 API)를 다시 부르므로 잠깐 모았다 보낸다.
+  // 그리고 늦게 온 응답이 최신 결과를 덮지 않게 순번을 매겨 검사한다 — 예전엔 둘 다 없어서
+  // "1234"를 치는 동안 4번의 요청이 겹치고, "1"의 응답이 마지막에 도착하면 화면이 "1"의
+  // 결과로 되돌아갔다(사장님 눈엔 '번호를 다 쳤는데 엉뚱한 손님이 뜬다').
+  const loadSeq = useRef(0);
   useEffect(() => {
-    load();
-  }, [load]);
+    const mySeq = ++loadSeq.current;
+    // 첫 진입(검색어 없음)은 기다릴 이유가 없다. 타이핑 중일 때만 350ms 모은다.
+    const delay = query ? 350 : 0;
+    const t = setTimeout(() => {
+      if (mySeq === loadSeq.current) void load(mySeq);
+    }, delay);
+    return () => clearTimeout(t);
+  }, [load, query]);
 
   const notify = async (phone: string, text: string) => {
     const r = await sendNotification(phone, text);
