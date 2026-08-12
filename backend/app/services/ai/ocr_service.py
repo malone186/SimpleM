@@ -1133,6 +1133,19 @@ def _apply_sales(draft: dict[str, Any], store_id: str) -> tuple[bool, str]:
         by_norm = {_normalize_item_name(m.name): m for m in menus}
         by_jamo = {_to_jamo(k): v for k, v in by_norm.items()}
 
+        # 레시피·재고도 메뉴처럼 앞에서 한 번씩만 읽는다. 품목마다 따로 읽으면
+        # 왕복이 품목 수만큼 곱절로 늘어, 일마감표 한 장(품목 20줄)이면 수십 번이 된다
+        # (DB가 싱가포르라 왕복 하나가 약 74ms 실측).
+        recipes_by_menu: dict[int, list] = {}
+        if menus:
+            for rc in db.query(Recipe).filter(Recipe.menu_id.in_([m.id for m in menus])).all():
+                recipes_by_menu.setdefault(rc.menu_id, []).append(rc)
+        stock_by_ing: dict[int, Any] = {}
+        ing_ids = [rc.ingredient_id for rcs in recipes_by_menu.values() for rc in rcs]
+        if ing_ids:
+            for st in db.query(Stock).filter(Stock.ingredient_id.in_(ing_ids)).all():
+                stock_by_ing.setdefault(st.ingredient_id, st)  # 예전 .first()와 같게 첫 행만
+
         for item in result.items:
             qty = int(item.quantity or 0)
             if not item.name or qty <= 0:
@@ -1157,9 +1170,9 @@ def _apply_sales(draft: dict[str, Any], store_id: str) -> tuple[bool, str]:
             total_applied += total
 
             # 수동 판매 입력(sales_service)과 동일한 레시피 기준 재고 차감 + 이력 기록
-            for recipe in db.query(Recipe).filter(Recipe.menu_id == menu.id).all():
+            for recipe in recipes_by_menu.get(menu.id, []):
                 use = recipe.quantity * qty
-                stock = db.query(Stock).filter(Stock.ingredient_id == recipe.ingredient_id).first()
+                stock = stock_by_ing.get(recipe.ingredient_id)
                 if stock is not None:
                     stock.current_quantity = max(0.0, stock.current_quantity - use)
                 db.add(StockTransaction(ingredient_id=recipe.ingredient_id,
