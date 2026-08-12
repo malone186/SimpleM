@@ -468,17 +468,18 @@ export default function MenuScreen() {
     [allIngredients],
   );
 
-  // 6. [실시간 단가 계산 공식]
-  // 단재료의 단위(unit)가 kg이나 L인 대용량 벌크 제품이면, 그람(g)/밀리리터(ml) 환산을 위해 단가를 1,000으로 나눈 뒤 소요량을 곱합니다.
+  // 6. [실시간 단가 계산 공식] 단가 × 소요량. 소요량은 재료 자기 단위로 적는다
+  //    (재료 선택칸이 "원두 (kg)"처럼 단위를 같이 보여 준다).
+  //
+  //    예전엔 kg·L·팩·병이면 단가를 1000으로 나눴다 — 소요량이 g으로 적혔다고 본 것인데,
+  //    입력 단위는 kg이라 100배가 아니라 1000배 어긋났다. 서버는 나누지 않으므로
+  //    같은 카드에서 재료 줄은 "원두 ₩1", 바로 아래 원가 합계는 "₩600"으로 찍혔다
+  //    (원두 kg당 3만원, 소요량 0.02kg). 서버 값이 원가 분석·손익분기점·리포트·챗봇이
+  //    모두 쓰는 기준이라 그쪽에 맞춘다.
   const getIngredientCost = (ingId: number, qty: number) => {
     const ing = ingredientById.get(ingId);
     if (!ing) return 0;
-    const unitLower = (ing.unit ?? '').toLowerCase();
-
-    if (unitLower === 'kg' || unitLower === 'l' || unitLower === '팩' || unitLower === '병') {
-      return Math.round((ing.current_price / 1000) * qty);
-    }
-    return Math.round(ing.current_price * qty);
+    return Math.round((ing.current_price ?? 0) * qty);
   };
 
   // 디저트로 표시된 메뉴는 디저트 탭에서만 보여 준다 (메뉴 탭은 음료·일반 메뉴)

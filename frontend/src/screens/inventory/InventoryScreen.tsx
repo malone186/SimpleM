@@ -1100,8 +1100,13 @@ export default function InventoryScreen() {
         ) : (
           filteredStocks.map((s) => {
             // 홈 카드·푸시(AlertsWatcher)와 같은 기준 — 다르면 알림 받고 들어왔는데 '정상' 배지가 보인다
-            const low = s.current_quantity <= (s.safety_quantity > 0 ? s.safety_quantity : 3);
-            const denominator = Math.max(s.current_quantity, s.safety_quantity * 2, 1);
+            // 기준을 안 정한 재료는 3개로 본다 — 배지·문구·막대가 모두 같은 값을 써야 한다.
+            // 예전엔 배지만 이 폴백을 쓰고 문구는 원값(0)을 찍어 "재고 부족 · 최소 0개 필요"에
+            // 100% 찬 빨간 막대가 함께 떴다. 그 카드를 눌러 들어간 재고 확인 화면은 폴백을
+            // 제대로 적용해 "최소 3개"라고 해서, 두 화면이 서로 다른 말을 했다.
+            const safety = s.safety_quantity > 0 ? s.safety_quantity : 3;
+            const low = s.current_quantity <= safety;
+            const denominator = Math.max(s.current_quantity, safety * 2, 1);
             const editing = editStockId === s.ingredient_id;
             // 조정칸에 적힌 '바뀔 수량'과 지금 수량의 차이 — 반영 전에 미리 보여 준다
             const adjusting = adjustId === s.ingredient_id;
@@ -1219,7 +1224,7 @@ export default function InventoryScreen() {
                         </Text>
                         <Text style={styles.safetyText}>
                           {s.current_price > 0 ? `단가 ₩${s.current_price.toLocaleString()} · ` : ''}
-                          최소 {s.safety_quantity}{s.unit} 필요
+                          최소 {safety}{s.unit} 필요
                         </Text>
                       </View>
                       <ProgressBar ratio={s.current_quantity / denominator} tone={low ? 'danger' : 'mocha'} />
