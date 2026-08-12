@@ -329,11 +329,39 @@ def _scan_price_surge(db, store_id: str, today: date) -> list[dict[str, Any]]:
             prices[ing_id].append(int(h.price))
             names[ing_id] = name
 
+    # 창 이전의 마지막 단가 = '인상 전 가격'.
+    #
+    # IngredientPriceHistory에는 **바뀐 뒤의 단가만** 쌓인다(등록 시 1건, 이후 변경마다 1건).
+    # 그래서 창 안의 첫 행은 '인상 전'이 아니라 '첫 인상 후' 가격이다. 이걸 기준으로 삼으면
+    # 가장 흔한 경우 — 30일 안에 인상이 딱 한 번(5,000→6,000, 20%) — 은 창 안 행이 하나뿐이라
+    # len(series) < 2로 걸러져 **영원히 알림이 안 떴다**. 두 번 올랐어도(5,000→5,500→6,000)
+    # 5,500과 6,000만 비교해 9.09%로 잡혀 임계치(10%)에 미달했다.
+    baseline: dict[int, int] = {}
+    if prices:
+        for h, ing_id in (
+            db.query(IngredientPriceHistory, Ingredient.id)
+            .join(Ingredient, IngredientPriceHistory.ingredient_id == Ingredient.id)
+            .filter(Ingredient.store_id == store_id,
+                    IngredientPriceHistory.ingredient_id.in_(list(prices.keys())),
+                    IngredientPriceHistory.changed_at < since)
+            .order_by(IngredientPriceHistory.changed_at)
+            .all()
+        ):
+            if h.price and h.price > 0:
+                baseline[ing_id] = int(h.price)  # 시간순이라 마지막 것이 남는다
+
     out = []
     for ing_id, series in prices.items():
-        if len(series) < 2:
+        # 창 이전 값이 있으면 그것이 인상 전 가격. 없으면(창 안에서 처음 등록된 재료)
+        # 창 안 첫 행이 최초 단가이므로 예전처럼 2건 이상일 때만 비교한다.
+        anchor = baseline.get(ing_id)
+        if anchor is None:
+            if len(series) < 2:
+                continue
+            anchor = series[0]
+        oldest, newest = anchor, series[-1]
+        if oldest <= 0 or newest == oldest:
             continue
-        oldest, newest = series[0], series[-1]
         change = (newest - oldest) / oldest * 100
         if change < PRICE_SURGE_PCT:
             continue
