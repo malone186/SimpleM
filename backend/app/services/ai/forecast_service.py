@@ -27,7 +27,7 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time as dtime, timedelta, timezone
 from typing import Any, Optional
 
 from app.services.ai import warm_cache
@@ -1268,8 +1268,14 @@ def _day_adjustment(day_iso: str, weather: dict, events: list[dict],
 # 5) 발주 추천 — 예측 판매량 → 레시피 소요량 → 재고 대비 부족분
 # ---------------------------------------------------------------------------
 
-def _order_recommendations(db, store_id: str, week_cups: float) -> list[dict[str, Any]]:
-    """금주 예상 잔 수를 메뉴 비중으로 나누고 레시피로 재료 소요량을 계산해 발주를 추천한다."""
+def _order_recommendations(db, store_id: str, week_cups: float, days: int = 7) -> list[dict[str, Any]]:
+    """예상 잔 수를 메뉴 비중으로 나누고 레시피로 재료 소요량을 계산해 발주를 추천한다.
+
+    days는 week_cups가 **며칠치 합계인지**다. 예전엔 이 값을 받지 않고 무조건 7로 나눠서,
+    forecast(days=14)로 부르면 소진일이 절반으로(재고 10,000g·실제 5일치가 2.5일로) 나오고
+    발주량은 14일치가 추천됐다. days=1이면 반대로 소요가 1일치라 shortage가 0 이하가 되어
+    발주 추천이 통째로 사라졌다. 화면·챗봇 모두 days를 사용자가 1~14로 지정할 수 있다.
+    """
     from app.models.inventory import Ingredient, Menu, Recipe, Sale, Stock
 
     since = (today_kst() - timedelta(days=MENU_MIX_WINDOW_DAYS)).isoformat()
@@ -1300,7 +1306,7 @@ def _order_recommendations(db, store_id: str, week_cups: float) -> list[dict[str
         if ing is None or stock is None:
             continue
         current, safety = stock.current_quantity, stock.safety_quantity
-        daily_use = needed / 7
+        daily_use = needed / max(days, 1)
         shortage = needed + safety - current
         if shortage <= 0:
             continue  # 금주 소요 + 안전재고를 지금 재고로 감당 가능
@@ -1312,11 +1318,15 @@ def _order_recommendations(db, store_id: str, week_cups: float) -> list[dict[str
             "unit": ing.unit,
             "current_quantity": current,
             "safety_quantity": safety,
+            # 이름은 프론트 계약(forecast.ts)이라 유지한다. days≠7이면 7일치가 아니므로
+            # 실제 며칠치인지 forecast_days로 함께 준다 — 화면·챗봇이 문구를 맞출 수 있게.
             "forecast_usage_7d": round(needed, 1),
+            "forecast_days": days,
             "days_until_stockout": round(current / daily_use, 1) if daily_use > 0 else None,
             "suggested_quantity": suggested,
             "estimated_amount": round(suggested * ing.current_price),
-            "reason": f"금주 예상 소요 {round(needed, 1)}{ing.unit} 대비 재고 {current}{ing.unit}",
+            "reason": (f"{days}일 예상 소요 {round(needed, 1)}{ing.unit} "
+                       f"대비 재고 {current}{ing.unit}"),
         })
     recs.sort(key=lambda r: (r["days_until_stockout"] is None, r["days_until_stockout"]))
     return recs
@@ -1428,7 +1438,12 @@ def _today_actuals(db, store_id: str) -> dict[str, Any]:
 
     rows = (
         db.query(Sale.sold_at, Sale.quantity, Sale.total_price)
-        .filter(Sale.store_id == store_id, Sale.sold_at >= last_week.isoformat())
+        # sold_at은 timestamptz라 날짜 문자열을 주면 UTC 자정으로 캐스팅된다 — 그러면
+        # 그날 KST 00:00~08:59 판매가 아예 조회되지 않아 '지난주 같은 요일' 비교 기준선만
+        # 한쪽으로 눌린다(07시 오픈 카페는 오늘과 매출이 같아도 +33% 증가로 표시).
+        # 이 파일 265행 주석이 같은 함정을 이미 지적하고 있다.
+        .filter(Sale.store_id == store_id,
+                Sale.sold_at >= datetime.combine(last_week, dtime.min, tzinfo=KST))
         .all()
     )
     hourly = [{"hour": h, "cups": 0, "revenue": 0} for h in range(24)]
@@ -1770,8 +1785,11 @@ def sales_calendar(store_id: str, year: int, month: int) -> dict[str, Any]:
             .outerjoin(Menu, Sale.menu_id == Menu.id)
             .filter(
                 Sale.store_id == store_id,
-                Sale.sold_at >= prev_first.isoformat(),
-                Sale.sold_at < next_first.isoformat(),
+                # 위와 같은 이유로 KST 경계를 명시한다. 예전엔 UTC 자정으로 잘려
+                # 다음 달 1일 오전(KST) 매출이 조회에 섞이고, 아래 버킷 루프에 상한
+                # 검사가 없어 '1일' 칸에 그대로 가산됐다(지난달을 볼 때만 터진다).
+                Sale.sold_at >= datetime.combine(prev_first, dtime.min, tzinfo=KST),
+                Sale.sold_at < datetime.combine(next_first, dtime.min, tzinfo=KST),
             )
             .all()
         )
@@ -1789,7 +1807,10 @@ def sales_calendar(store_id: str, year: int, month: int) -> dict[str, Any]:
             continue
         dt = _to_kst(dt)
         d = dt.date()
-        if d >= first:
+        # 상한(next_first)도 반드시 본다 — 하한만 검사하면 다음 달 1일 판매가 d.day == 1로
+        # 이번 달 1일 칸에 얹힌다. 쿼리 경계를 KST로 고쳤어도 이 검사는 남겨 둔다
+        # (조회 범위와 버킷 범위는 각각 스스로 옳아야 한다).
+        if first <= d < next_first:
             day = days.setdefault(d.day, {"date": d.isoformat(), "cups": 0.0, "revenue": 0.0,
                                           "menus": {}, "hours": {}})
             day["cups"] += qty
@@ -1977,7 +1998,7 @@ def forecast(store_id: str, lat: Optional[float] = None, lon: Optional[float] = 
             })
 
         week_cups = sum(d["cups"] for d in week)
-        recommendations = _order_recommendations(db, store_id, week_cups)
+        recommendations = _order_recommendations(db, store_id, week_cups, days=len(week))
 
         # 내일의 시간대별 예측 (Top-down 분배)
         tomorrow_date = start
