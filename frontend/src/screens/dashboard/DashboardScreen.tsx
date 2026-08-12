@@ -1,6 +1,6 @@
 // 대시보드 (프론트 A) — Design Spec 기반
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import Svg, { Defs, LinearGradient, Stop, Path, Circle, Filter, FeGaussianBlur } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -16,7 +16,7 @@ import WelcomeHeader from '../../components/dashboard/WelcomeHeader';
 import BriefingButton from '../../components/voice/BriefingButton';
 import VoiceCommandButton from '../../components/voice/VoiceCommandButton';
 import { toast } from '../../components/toast';
-import { FadeInUp, PressableScale, SlideUp } from '../../components/motion';
+import { FadeIn, FadeInUp, PressableScale, SlideUp } from '../../components/motion';
 import { listCompliance } from '../../lib/api/documents';
 import { listStocks } from '../../lib/api/inventory';
 import { createTodo, deleteTodo, getAiTodoSuggestions, listTodos, updateTodo, type AiSuggestedTodo } from '../../lib/api/todo';
@@ -1118,7 +1118,8 @@ export default function DashboardScreen() {
 
       {/* [한글 주석: 사장님 요청 — 핸드폰 전체 화면 위에 떠올라 잘림 없이 5종 알림 카드가 쫘라락 시원하게 펼쳐지는 최상위 오버레이 모달] */}
       {pushModalOpen && (
-        <View style={styles.appModalOverlay}>
+        // 딤이 순간적으로 탁 나타나지 않고 카드와 함께 차오른다 (웹에선 배경 블러도 같이)
+        <FadeIn style={styles.appModalOverlay}>
           <Pressable style={styles.appModalBackdrop} onPress={() => setPushModalOpen(false)}>
             {/* 카드가 아래에서 스프링으로 솟아오른다 — 즉시 뜨던 창을 부드럽게 */}
             <SlideUp>
@@ -1161,7 +1162,7 @@ export default function DashboardScreen() {
             </Pressable>
             </SlideUp>
           </Pressable>
-        </View>
+        </FadeIn>
       )}
     </View>
   );
@@ -1187,6 +1188,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 16,
+    // 웹: 딤과 함께 배경 블러가 차오른다 (FadeIn의 opacity를 따라 유리처럼 스며듦)
+    ...(Platform.OS === 'web' ? ({ backdropFilter: 'blur(10px)' } as object) : null),
     paddingTop: 45,
     paddingBottom: 45,
   },

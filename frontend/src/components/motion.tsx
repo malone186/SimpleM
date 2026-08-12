@@ -119,6 +119,17 @@ export function FadeInUp({
 }
 
 // ── 스프링으로 팝하며 나타나기 (배지/체크마크 강조용) ──
+// ── 순수 페이드 등장 — 모달 딤(어두운 막)처럼 '움직이면 안 되는' 전면 레이어용.
+// FadeInUp을 쓰면 전체 화면 막이 위로 이동하며 가장자리가 비어 보인다. 딤은 제자리에서
+// 차오르기만 해야 한다 (딤에 backdropFilter가 있으면 블러도 함께 차오른다 — 웹 유리 효과).
+export function FadeIn({ children, duration = 180, style }: { children: ReactNode; duration?: number; style?: StyleProp<ViewStyle> }) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(opacity, { toValue: 1, duration, useNativeDriver: true }).start();
+  }, [opacity, duration]);
+  return <Animated.View style={[style, { opacity }]}>{children}</Animated.View>;
+}
+
 export function PopIn({ children, delay = 0, style }: { children: ReactNode; delay?: number; style?: StyleProp<ViewStyle> }) {
   const v = useRef(new Animated.Value(0)).current;
   useEffect(() => {
