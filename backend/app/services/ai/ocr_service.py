@@ -138,7 +138,12 @@ def _check_db() -> bool:
 
 
 def _row_to_draft(row) -> dict[str, Any]:
-    """DB 행(문서+품목)을 서비스 표준 draft dict로 복원한다. 검증 경고는 재계산."""
+    """DB 행(문서+품목)을 서비스 표준 draft dict로 복원한다. 검증 경고는 재계산.
+
+    한계: 절단 복구 표식(result.truncated)은 저장하지 않아 다시 불러오면 False가 된다
+    (ocr_documents에 컬럼이 없고, 마이그레이션은 백엔드 A 소관이라 함께 논의 필요).
+    업로드 직후 검토 화면에는 경고가 뜨므로 확정 전에는 볼 수 있다.
+    """
     result = OcrResult(
         doc_type=row.doc_type,
         vendor={"name": row.vendor_name, "biz_no": None, "phone": None},
@@ -356,6 +361,8 @@ def _parse_model_json(content: str) -> dict[str, Any]:
             try:
                 result = json.loads(repaired)
                 logger.warning("모델 응답 꼬리 절단 복구 — 품목 일부 유실 가능 (원본 %d자)", len(content))
+                if isinstance(result, dict):
+                    result["truncated"] = True  # 검증 단계가 경고를 낼 수 있게 표식을 남긴다
                 return result
             except json.JSONDecodeError:
                 pass
@@ -555,6 +562,12 @@ def _validate_result(result: OcrResult) -> list[str]:
             doc_warnings.append(
                 f"{sum_desc}이(가) {label}({v:,.0f})과 다릅니다 — 누락되거나 잘못 읽은 품목·할인이 있을 수 있습니다"
             )
+    if result.truncated:
+        # 잘린 응답은 합계·공급가액이 통째로 없어 아래 총액 대조가 아예 돌지 않는다.
+        # 조용히 넘어가면 품목이 빠진 문서가 정상으로 보이므로 여기서 직접 알린다.
+        doc_warnings.append(
+            "인식 결과가 중간에 잘려 일부 품목이 빠졌을 수 있습니다 — 품목 수와 금액을 확인하세요"
+        )
     if result.subtotal is not None and result.tax is not None and result.total is not None:
         if abs(result.subtotal + result.tax - result.total) > max(abs(result.total) * AMOUNT_TOLERANCE, AMOUNT_TOLERANCE_ABS):
             # 면세+과세 혼합 영수증(마트·편의점)은 '과세물품(공급가액)+부가세'가 합계보다

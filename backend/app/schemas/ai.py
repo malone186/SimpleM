@@ -49,6 +49,10 @@ class OcrResult(BaseModel):
     subtotal: Optional[float] = Field(None, description="공급가액")
     tax: Optional[float] = Field(None, description="세액")
     total: Optional[float] = Field(None, description="합계 금액")
+    # 모델 응답 꼬리가 잘려 복구한 경우. 잘린 뒤쪽엔 합계·공급가액이 있어서 전부 None이
+    # 되고, 그러면 총액 대조가 비교 기준을 못 찾아 통째로 건너뛴다 — 품목을 몇 개
+    # 잃어도 아무 경고가 안 뜬다. 그 사실을 검증 단계까지 들고 가려고 둔 표식이다.
+    truncated: bool = Field(False, description="응답 절단 복구 여부 (품목 유실 가능)")
 
 
 class OcrDocumentResponse(BaseModel):
