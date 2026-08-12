@@ -344,14 +344,21 @@ def score_nearby(store_id: str, cafes: list[dict[str, Any]], region: str = "",
 
     engine = "ai"
     if raw and raw.get("results"):
-        by_name = {r["name"]: r for r in raw["results"]}
+        # AI 응답은 잘리거나 모양이 어긋날 수 있다 — name이 없는 항목이나 축 값이
+        # null인 항목에서 KeyError/TypeError가 나면, 폴백(_heuristic)으로 내려가라고
+        # 만든 아래 else가 무색하게 화면 전체가 500으로 죽었다.
+        by_name = {
+            r["name"]: r
+            for r in raw["results"]
+            if isinstance(r, dict) and r.get("name")
+        }
         results = []
         for c in cafes:
             r = by_name.get(c["name"])
             if not r:  # AI가 빠뜨린 카페는 간이 추정으로 메꾼다
                 results.append(_heuristic([c], profile)[0])
                 continue
-            axes = {k: max(0, min(100, int(r.get(k, 50)))) for k in WEIGHTS}
+            axes = {k: max(0, min(100, int(r.get(k) or 50))) for k in WEIGHTS}
             total = _weighted_total(axes)
             results.append({"name": c["name"], "axes": axes, "total": total,
                             "tier": _tier(total), "reason": str(r.get("reason", ""))[:120]})

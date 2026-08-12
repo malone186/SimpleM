@@ -19,7 +19,7 @@ import logging
 import random
 import threading
 from collections import defaultdict
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time as dtime, timedelta, timezone
 
 from app.models.inventory import Menu, Sale
 from app.models.operation import Employee, Expense, Schedule
@@ -87,8 +87,12 @@ def _analyze(db, store_id: str):
 
 
 def _hours_with_sales_today(db, store_id: str, today: date) -> set[int]:
+    # timestamptz 컬럼을 날짜 문자열과 비교하면 Postgres가 UTC 자정(=09:00 KST)으로
+    # 캐스팅해서, 오늘 00~09시 KST에 이미 들어간 판매가 안 잡힌다 — 시더가 '아직 판매
+    # 없음'으로 보고 오전 매출을 한 번 더 만들어 중복 누적됐다.
     rows = (db.query(Sale.sold_at)
-            .filter(Sale.store_id == store_id, Sale.sold_at >= today.isoformat()).all())
+            .filter(Sale.store_id == store_id,
+                    Sale.sold_at >= datetime.combine(today, dtime.min, tzinfo=KST)).all())
     out = set()
     for (sold_at,) in rows:
         dt = sold_at if isinstance(sold_at, datetime) else datetime.fromisoformat(str(sold_at))

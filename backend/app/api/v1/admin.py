@@ -507,19 +507,29 @@ def get_cs_list(db: Session = Depends(get_db), _admin: User = Depends(get_curren
 
 
 @router.post("/cs")
-def create_cs_from_app(req: dict, db: Session = Depends(get_db)):
+def create_cs_from_app(
+    req: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """
     [CS 문의 직접 수신] 사장님 앱에서 전달된 문의글을 DB에 영구 등록합니다.
 
     앱의 정식 접수 경로는 POST /api/v1/inquiries다. 이 엔드포인트는 예전 앱 버전과의
     호환을 위해 남겨 두며, 같은 DB 테이블에 쓴다. (예전엔 앱이 두 경로에 동시에 쏴서
     문의 1건당 DB 행이 2개씩 생겼다 — 지금은 앱이 한 곳에만 보낸다.)
+
+    보낸 사람은 토큰이 정한다 — inquiry.py가 2026-08-10에 닫은 구멍과 같은 것이
+    이 옛 경로에 그대로 남아 있었다(2026-08-12). 본문 user_email을 믿으면 서버 주소만
+    아는 누구나 남의 이메일로 문의를 넣을 수 있고, 그 글은 피해자 앱의 문의 목록에
+    뜨고(GET /inquiries는 이메일로 거른다) 관리자는 엉뚱한 사람에게 답하게 된다.
+    현재 앱은 이 경로를 호출하지 않는다.
     """
     title = req.get("title", "")
     content = req.get("content", "")
     category = req.get("category", "문의")
     store_name = req.get("store_name") or "-"
-    user_email = req.get("user_email", "")
+    user_email = current_user.email
 
     new_inq_id = None
     created_at = None

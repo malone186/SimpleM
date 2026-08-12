@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, Modal, Platform, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { dateKey, monthKey } from '../../lib/dateKey';
+import { dateKey, fromDateKey, monthKey } from '../../lib/dateKey';
 
 import { Badge, Button, Card, Divider, Screen, ScreenTitle, SectionTitle, WeekdayButtonGroup, IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
@@ -141,7 +141,12 @@ function ScheduleCalendarCard({
   const month = currentDate.getMonth(); // 0-11
 
   // 직원 데이터 로드
+  // 달을 빠르게 넘기면 이전 달 요청이 아직 날아가는 중이다. 늦게 온 옛 달 응답이
+  // 새 달 상태를 덮으면, 그 달에 급여가 잡힌 직원만 남기는 필터(knownEmpIds)가
+  // 옛 달 기준으로 정해져 근무가 통째로 사라져 보인다.
+  const calSeq = useRef(0);
   const loadCalendarData = useCallback(async () => {
+    const mySeq = ++calSeq.current;
     setLoading(true);
     try {
       // 토큰을 안 넘기면 백엔드가 매장 구분 없이 전 직원·전 급여를 돌려준다
@@ -162,6 +167,7 @@ function ScheduleCalendarCard({
         token ? listStaff(token).catch(() => null) : Promise.resolve(null),
         reloadSchedules(),
       ]);
+      if (mySeq !== calSeq.current) return; // 더 최근 달 요청이 있다 — 이 응답은 버린다
       const profileMap = new Map(
         (staffList?.staff ?? []).map((m) => [m.id, m.profile] as const),
       );
@@ -186,7 +192,7 @@ function ScheduleCalendarCard({
     } catch (e) {
       console.error('달력 데이터 조회 오류:', e);
     } finally {
-      setLoading(false);
+      if (mySeq === calSeq.current) setLoading(false);
     }
   }, [year, month, reloadSchedules]);
 
@@ -299,13 +305,41 @@ function ScheduleCalendarCard({
     (dateStr: string, empId: number) => {
       if (workKeySet.has(`${dateStr}|${empId}`)) return true;
       const DAY_CODES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-      const dObj = new Date(dateStr);
+      const dObj = fromDateKey(dateStr);
       const dayCode = DAY_CODES[dObj.getDay()];
       const emp = dbEmployees.find((e: any) => e.id === empId) as any;
       const profileWorkDays = (emp?.profile?.work_days ?? []) as string[];
       return profileWorkDays.includes(dayCode);
     },
     [workKeySet, dbEmployees],
+  );
+
+  // 달력 색 띠의 줄 순서를 날짜와 무관하게 고정하기 위한 공통 순서 (직원 id 오름차순).
+  // 이 순서가 없으면 날마다 줄이 뒤바뀌어, 옆 날짜의 다른 직원 바와 맞닿은 띠가
+  // 한 사람의 연속 근무처럼 보인다.
+  const empOrder = useMemo(
+    () => [...dbEmployees].map((e: any) => e.id as number).sort((a, b) => a - b),
+    [dbEmployees],
+  );
+
+  /** 그 날짜에 색 띠를 그릴 직원들을 '그리는 순서대로' 돌려준다.
+   *  달력 셀 렌더와 옆 날짜 비교가 반드시 같은 목록을 봐야 하므로 한 곳에서 만든다. */
+  const dayRowIds = useCallback(
+    (dateStr: string, scheduled?: number[]) => {
+      const DAY_CODES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+      const dayCode = DAY_CODES[fromDateKey(dateStr).getDay()];
+      const scheduledIds =
+        scheduled ??
+        empOrder.filter((id) => isKnownEmp(id) && workKeySet.has(`${dateStr}|${id}`));
+      const availableOnly = dbEmployees
+        .filter((emp: any) => ((emp.profile?.work_days ?? []) as string[]).includes(dayCode))
+        .map((emp: any) => emp.id as number)
+        .filter((id: number) => !scheduledIds.includes(id));
+      return [...scheduledIds, ...availableOnly].sort(
+        (a, b) => empOrder.indexOf(a) - empOrder.indexOf(b),
+      );
+    },
+    [empOrder, workKeySet, dbEmployees, isKnownEmp],
   );
 
   // 부드러운 월 전환 애니메이션 트랜지션
@@ -330,16 +364,35 @@ function ScheduleCalendarCard({
   // 이전 값에서 계산한다(함수형 setter) — 갱신이 110ms 뒤로 미뤄지는 동안 한 번 더 누르면
   // 두 콜백이 모두 렌더 시점의 year/month로 계산해서, 두 번 눌렀는데 한 달만 넘어갔다.
   // 여러 달을 빠르게 넘길 때 탭이 계속 유실된다.
-  const handlePrevMonth = () => {
+  // 달을 옮기면 선택 날짜도 그 달로 데려온다. 예전엔 currentDate만 바뀌어서, 9월로
+  // 넘긴 뒤 아무 칸도 안 누르고 '근무 추가'를 하면 머리글은 9월인데 8월 12일에
+  // 저장됐다 (아래 패널·합계도 옛 달을 보여줬다). 오늘이 있는 달로 돌아오면 오늘을,
+  // 아니면 같은 날짜를 고르되 그 달에 없는 날(31일 등)이면 말일로 맞춘다.
+  const moveSelectedInto = (target: Date) => {
+    const today = new Date();
+    if (target.getFullYear() === today.getFullYear() && target.getMonth() === today.getMonth()) {
+      return dateKey(today);
+    }
+    const day = Number(selectedDate.slice(8, 10)) || 1;
+    const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+    return dateKey(new Date(target.getFullYear(), target.getMonth(), Math.min(day, lastDay)));
+  };
+  // 화살표를 연타하면 갱신이 110ms 뒤로 미뤄지는 사이 두 콜백이 모두 렌더 시점의
+  // currentDate로 계산해 두 번 눌렀는데 한 달만 넘어갔다. 목표 달을 ref로 들고 가
+  // 연타해도 누른 만큼 넘어가게 한다 (예전 함수형 setter가 하던 역할).
+  const pendingMonth = useRef<Date | null>(null);
+  const shiftMonth = (delta: number) => {
+    const base = pendingMonth.current ?? currentDate;
+    const next = new Date(base.getFullYear(), base.getMonth() + delta, 1);
+    pendingMonth.current = next;
+    const nextSelected = moveSelectedInto(next);
     animateTransition(() => {
-      setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+      setCurrentDate(next);
+      setSelectedDate(nextSelected);
     });
   };
-  const handleNextMonth = () => {
-    animateTransition(() => {
-      setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
-    });
-  };
+  const handlePrevMonth = () => shiftMonth(-1);
+  const handleNextMonth = () => shiftMonth(1);
 
   // 근무 등록 핸들러 (로컬 우선 반영)
   const handleAddSchedule = async () => {
@@ -428,7 +481,7 @@ function ScheduleCalendarCard({
 
   // 이 요일에 '가능'으로 등록된 직원 (직원·인건비 화면의 근무 가능 시간에서 파생)
   const availableToday = useMemo(() => {
-    const code = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date(selectedDate).getDay()];
+    const code = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][fromDateKey(selectedDate).getDay()];
     return dbEmployees.filter((e: any) => ((e.profile?.work_days ?? []) as string[]).includes(code));
   }, [dbEmployees, selectedDate]);
 
@@ -514,9 +567,7 @@ function ScheduleCalendarCard({
           const dayScheds = schedulesByDate[item.dateStr] || [];
 
           // [한글 주석: 실제 등록된 스케줄 + 직원의 설정된 주 근무 요일(work_days)에 맞춘 달력 색상 선 그리기]
-          const DAY_CODES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-          const dateObj = new Date(item.dateStr);
-          const currentDayCode = DAY_CODES[dateObj.getDay()];
+          const dateObj = fromDateKey(item.dateStr);
 
           // 실제로 등록된 근무와 '가능 요일'을 구분한다 — 둘을 같은 굵기로 그리면
           // 아직 아무도 안 넣은 날이 이미 다 짜인 날처럼 보인다.
@@ -526,12 +577,10 @@ function ScheduleCalendarCard({
               scheduledIds.push(s.employee_id);
             }
           });
-          const availableOnlyIds = dbEmployees
-            .filter((emp: any) => ((emp.profile?.work_days ?? []) as string[]).includes(currentDayCode))
-            .map((emp: any) => emp.id as number)
-            .filter((id: number) => !scheduledIds.includes(id));
-
-          const uniqueEmpIds = [...scheduledIds, ...availableOnlyIds];
+          // 줄 순서를 전 직원 공통 순서로 고정한다. 예전엔 [배정됨, 가능만] 순이라
+          // 날짜마다 순서가 달라졌고, 월요일 0번 줄의 A와 화요일 0번 줄의 B가 맞닿아
+          // 한 사람의 근무가 이어진 것처럼 보이는 잘못된 띠가 생겼다.
+          const uniqueEmpIds = dayRowIds(item.dateStr, scheduledIds);
           const hasSched = uniqueEmpIds.length > 0;
 
           const prevItem = index > 0 ? (calendarDays[index - 1] as any) : null;
@@ -632,12 +681,18 @@ function ScheduleCalendarCard({
 
                     // 좌우로 이어진 바를 그릴지 판단 — '요일 추정'이 아니라 옆 날짜에
                     // 그 직원의 근무가 실제로 등록돼 있는지로 본다
+                    // 옆 날짜에서도 '같은 줄'일 때만 이어 붙인다 — 그 사람이 옆 날에
+                    // 있더라도 줄 위치가 다르면, 이어 그린 띠가 그 자리에 있는 다른
+                    // 직원의 바와 맞닿아 남의 근무처럼 보인다.
+                    const myRow = uniqueEmpIds.indexOf(empId);
+                    const sameRowOn = (dateStr: string) =>
+                      worksOn(dateStr, empId) && dayRowIds(dateStr).indexOf(empId) === myRow;
                     const isPrevSame =
                       !!prevItem && prevItem.type === 'day' && !isSunday &&
-                      worksOn(prevItem.dateStr, empId);
+                      sameRowOn(prevItem.dateStr);
                     const isNextSame =
                       !!nextItem && nextItem.type === 'day' && !isSaturday &&
-                      worksOn(nextItem.dateStr, empId);
+                      sameRowOn(nextItem.dateStr);
 
                     // 주 단위로 뚝뚝 끊기지 않고 100% 매끄럽게 연결되는 주차 스트립 바 스타일
                     const lineBorderStyle = isPrevSame && isNextSame
@@ -693,7 +748,7 @@ function ScheduleCalendarCard({
           {/* minWidth 0 + 한 줄 고정 — 안 그러면 설명이 접히면서 버튼을 밀어낸다 */}
           <View style={{ flex: 1, minWidth: 0, paddingRight: 10 }}>
             <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '800', color: colors.espressoBrown }}>
-              {Number(selectedDate.slice(5, 7))}월 {Number(selectedDate.slice(8, 10))}일 ({WEEK_LABEL[new Date(selectedDate).getDay()]})
+              {Number(selectedDate.slice(5, 7))}월 {Number(selectedDate.slice(8, 10))}일 ({WEEK_LABEL[fromDateKey(selectedDate).getDay()]})
             </Text>
             <Text numberOfLines={1} style={{ fontSize: 12.5, color: '#8C7E74', marginTop: 3 }}>
               근무 {selectedDateSchedules.length}명 · 합계 {selectedDayHours}시간
@@ -855,7 +910,10 @@ function ScheduleCalendarCard({
                     </Text>
                   ) : dbEmployees.length > 0 ? (
                     dbEmployees.map((emp) => {
-                      const empColor = getEmployeeColor(emp.id);
+                      // 달력·범례와 같은 색 지도를 넘긴다 — 예전엔 여기 두 곳만 빼먹어서
+                      // 직원이 고른 대표 색 대신 순번 팔레트 색이 떠, 같은 사람이
+                      // 화면마다 다른 색으로 보였다.
+                      const empColor = getEmployeeColor(emp.id, dynamicColorMap);
                       const active = selectedEmpId === emp.id;
                       return (
                         <PressableScale
@@ -872,7 +930,7 @@ function ScheduleCalendarCard({
                     })
                   ) : (
                     payrollEmployees.map((p) => {
-                      const empColor = getEmployeeColor(p.employee_id);
+                      const empColor = getEmployeeColor(p.employee_id, dynamicColorMap);
                       const active = selectedEmpId === p.employee_id;
                       return (
                         <PressableScale

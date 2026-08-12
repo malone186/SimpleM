@@ -877,7 +877,20 @@ def remove_shift(store_id: str, schedule_id: int) -> None:
         db.close()
 
 
-def _payroll_rows(employees: list, schedules: list) -> list[dict[str, Any]]:
+def _profiles_by_employee(db, emp_ids: list[int]) -> dict[int, Any]:
+    """직원 id → EmployeeProfile 한 번에 (급여 계산이 고용 조건을 보기 위해)."""
+    if not emp_ids:
+        return {}
+    from app.models.ai import EmployeeProfile
+
+    return {
+        p.employee_id: p
+        for p in db.query(EmployeeProfile).filter(EmployeeProfile.employee_id.in_(emp_ids)).all()
+    }
+
+
+def _payroll_rows(employees: list, schedules: list,
+                  profiles: Optional[dict[int, Any]] = None) -> list[dict[str, Any]]:
     """직원별 월 예상 급여 행 — /operation/payroll/all과 같은 모양·같은 계산 기준.
 
     기존 경로는 직원 한 명마다 (직원 조회 + 스케줄 조회 + 저장 조회 + commit)을 반복해
@@ -915,9 +928,20 @@ def _payroll_rows(employees: list, schedules: list) -> list[dict[str, Any]]:
         # 주휴수당 — 주 평균 15시간 이상이면 포함. /operation/payroll/all(calculate_payroll_from_db)
         # 및 직원 목록의 예상 인건비(estimate_labor_cost)와 같은 규칙 — 화면마다 월급이
         # 다르게 보이던 불일치의 해소. 이 목록은 월 단위라 월 평균 주 수(WEEKS_PER_MONTH)를 쓴다.
+        #
+        # 시간만 보면 안 된다 (2026-08-12). estimate_labor_cost는 고용 조건 두 가지를
+        # 같이 보는데 여기만 빠져 있었다: 월급제는 주휴수당이 월급에 이미 포함돼 있고,
+        # 포괄산정 계약(weekly_holiday_pay=False)은 시급에 포함시켜 따로 주지 않는다.
+        # 그래서 월 174시간 월급제 직원이 한 화면에선 250만원, 다른 화면에선 209만원으로
+        # 41만원 넘게 갈렸고, 월 정산의 순이익도 그만큼 틀어졌다.
+        prof = (profiles or {}).get(e.id)
+        pays_holiday = True
+        if prof is not None:
+            pays_holiday = (getattr(prof, "pay_type", "hourly") != "monthly"
+                            and bool(getattr(prof, "weekly_holiday_pay", True)))
         weekly_avg = h / WEEKS_PER_MONTH
         holiday = 0
-        if weekly_avg >= 15.0:
+        if pays_holiday and weekly_avg >= 15.0:
             holiday = int(round(min(1.0, weekly_avg / 40.0) * 8 * rate * WEEKS_PER_MONTH))
         rows.append({
             "employee_id": e.id,
@@ -952,10 +976,13 @@ def monthly_payroll(store_id: str, year_month: Optional[str] = None) -> list[dic
             .filter(Schedule.employee_id.in_(emp_ids), Schedule.date.like(f"{target}%"))
             .all()
         ) if emp_ids else []
+        # 고용 조건(월급제·포괄산정)을 봐야 주휴수당을 estimate_labor_cost와 같게 낼 수 있다.
+        # 한 번에 모아 읽어 이 함수의 'N+1 없음' 원칙은 유지한다.
+        profiles = _profiles_by_employee(db, emp_ids)
     finally:
         db.close()
 
-    rows = _payroll_rows(employees, schedules)
+    rows = _payroll_rows(employees, schedules, profiles)
     # 말일은 달마다 다르다 — "-31" 고정은 2월이면 2026-02-31 같은 존재하지 않는 날짜가
     # 응답에 실려 클라이언트 날짜 파서가 깨질 수 있다.
     y, m = int(target[:4]), int(target[5:7])
@@ -1014,10 +1041,11 @@ def month_settlement(store_id: str, year_month: Optional[str] = None) -> dict[st
             .filter(Schedule.employee_id.in_(emp_ids), Schedule.date.like(f"{target}%"))
             .all()
         ) if emp_ids else []
+        profiles = _profiles_by_employee(db, emp_ids)
     finally:
         db.close()
 
-    payroll = _payroll_rows(employees, schedules)
+    payroll = _payroll_rows(employees, schedules, profiles)
     labor_cost = sum(r["estimated_salary"] for r in payroll)
     total_cost = cost + labor_cost
     profit = revenue - total_cost
@@ -1078,8 +1106,12 @@ def weekly_payroll(store_id: str, week_start: Optional[str] = None) -> dict[str,
 
     hours_by_emp: dict[int, float] = {}
     for s in schedules:
-        st = s.actual_start_time or s.start_time
-        et = s.actual_end_time or s.end_time
+        # 출퇴근 둘 다 찍혔을 때만 실제 시각을 쓴다 — 한쪽만 찍힌 근무에 실제+계획을 섞으면
+        # 이 주간 급여만 다른 화면(월 급여·스케줄)과 시간이 어긋난다. _scheduled_hours_by_employee,
+        # _payroll_rows와 같은 규칙 (2026-08-12: 여기만 예전 규칙이 남아 있었다)
+        use_actual = bool(s.actual_start_time and s.actual_end_time)
+        st = s.actual_start_time if use_actual else s.start_time
+        et = s.actual_end_time if use_actual else s.end_time
         if not st or not et:
             continue
         delta = (et - st).total_seconds() / 3600

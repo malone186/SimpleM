@@ -37,6 +37,26 @@ import { s, useBottomInset, useResponsive } from '../../theme/responsive';
 const DISMISSED_TODOS_KEY = '@simplem_dismissed_todos';
 // [한글 주석: 완료 처리(체크 표시)된 투두 항목 ID 저장 키 (AsyncStorage 영구 보관)]
 const COMPLETED_TODOS_KEY = '@simplem_completed_todos';
+
+// 보관소 쓰기 직렬화 — 예전에는 지울 때마다 getItem→수정→setItem을 각자 돌려서,
+// 두세 개를 빠르게 지우면 마지막 쓰기가 앞선 것들을 덮었다. 세션 중에는 메모리
+// 기록으로 정상으로 보이다가 앱을 껐다 켜면 지웠던 줄이 되살아났다.
+// 메모리 기록(prefsRef)은 읽어들인 보관소 값과 이미 합쳐져 있으므로 그대로 쓰면 된다.
+let storageChain: Promise<void> = Promise.resolve();
+function writeSet(key: string, values: Set<string>): Promise<void> {
+  const snapshot = Array.from(values);
+  storageChain = storageChain
+    .catch(() => {})
+    .then(() => AsyncStorage.setItem(key, JSON.stringify(snapshot)).then(() => undefined));
+  return storageChain;
+}
+function writeMap(key: string, value: Record<string, string>): Promise<void> {
+  const snapshot = JSON.stringify(value);
+  storageChain = storageChain
+    .catch(() => {})
+    .then(() => AsyncStorage.setItem(key, snapshot).then(() => undefined));
+  return storageChain;
+}
 // [한글 주석: 사장님이 지운 스마트 알림 센터 ID 저장 키 (AsyncStorage 영구 보관)]
 const DISMISSED_ALERTS_KEY = '@simplem_dismissed_alerts';
 
@@ -45,8 +65,11 @@ const DISMISSED_ALERTS_KEY = '@simplem_dismissed_alerts';
 const PENDING_KEEP_MS = 90_000;
 
 // [한글 주석: 알림 카드 하단 우측에 '실시간' 고정 문구 대신 실제 알림 감지 시각(예: 오전 08:30)을 노출하는 시각 포맷 함수]
-function getFormattedTimeText(): string {
-  const now = new Date();
+// at을 안 주면 지금 시각 — 예전엔 늘 그랬는데, 이 함수는 화면을 '그릴 때'마다 다시
+// 도는 자리다. 10분 지난 캐시로 그려도 재고 알림에 지금 시각이 찍혀, 방금 확인한
+// 것처럼 보였다. 그 알림을 만든 자료가 언제 온 것인지를 넘기자.
+function getFormattedTimeText(at?: number): string {
+  const now = at ? new Date(at) : new Date();
   const hours = now.getHours();
   const minutes = now.getMinutes();
   const ampm = hours >= 12 ? '오후' : '오전';
@@ -188,6 +211,7 @@ const CACHE_KEYS = {
 function buildDashboard(
   sources: DashboardSources,
   prefs: DashboardPrefs,
+  sourcesAt: Partial<Record<keyof DashboardSources, number>> = {},
 ): { todos: Todo[]; alerts: AlertItem[] } {
   const { dismissed: dismissedSet, completed: completedSet, dismissedAlerts: dismissedAlertSet } = prefs;
   const next: Todo[] = [];
@@ -297,7 +321,7 @@ function buildDashboard(
         body: soldOut
           ? `지금 0${s.unit} · 최소 ${need}${s.unit} 필요`
           : `${s.current_quantity}${s.unit} 남음 · 최소 ${need}${s.unit} 필요`,
-        timeText: getFormattedTimeText(),
+        timeText: getFormattedTimeText(sourcesAt.stocks),
         actionText: '재고 보기',
         target: { screen: 'Inventory' },
       });
@@ -534,11 +558,14 @@ export default function DashboardScreen() {
     let cancelled = false;
 
     const sources: DashboardSources = {};
+    // 각 자료가 '언제 받아진 것인지' — 알림에 찍는 시각을 그릴 때가 아니라
+    // 자료가 온 때로 맞추기 위해서다 (캐시로 그리면 그 캐시가 저장된 시각).
+    const sourcesAt: Partial<Record<keyof DashboardSources, number>> = {};
 
     // 숨김·완료 기록을 읽기 전에는 그리지 않는다 — 먼저 그리면 지운 항목이 잠깐 되살아난다
     const paint = () => {
       if (cancelled || !prefsLoadedRef.current) return;
-      const built = buildDashboard(sources, prefsRef.current);
+      const built = buildDashboard(sources, prefsRef.current, sourcesAt);
 
       // 방금 만든 줄은 서버 목록이 따라올 때까지만 얹는다. 서버가 같은 id를 돌려주기
       // 시작하면(=따라잡았으면) 즉시 놓아준다 — 계속 들고 있으면 서버에서 지워진
@@ -595,6 +622,7 @@ export default function DashboardScreen() {
       promise
         .then((value) => {
           sources[name] = value;
+          sourcesAt[name] = Date.now();   // 방금 받은 자료
           void saveCache(CACHE_KEYS[name], value);
           // 재고 부족 푸시는 '방금 받은' 재고에서만 — 캐시로 그린 화면이 지난 알림을 다시 쏘면 안 된다
           if (name === 'stocks' && !cancelled) {
@@ -636,7 +664,7 @@ export default function DashboardScreen() {
 
       const cached = await Promise.all(
         (Object.keys(CACHE_KEYS) as (keyof DashboardSources)[]).map((name) =>
-          loadCache<any>(CACHE_KEYS[name]).then((hit) => [name, hit?.data] as const),
+          loadCache<any>(CACHE_KEYS[name]).then((hit) => [name, hit?.data, hit?.at] as const),
         ),
       );
       if (cancelled) return;
@@ -645,7 +673,10 @@ export default function DashboardScreen() {
       // 방금 지운 줄이 되살아나면 안 된다 (지움 기록은 늘 더해지기만 한다)
       prefsRef.current = {
         dismissed: new Set([...parseSet(rawDismissed), ...prefsRef.current.dismissed]),
-        completed: todayCompletedSet(rawCompleted),
+        // 완료 체크도 같은 이유로 합친다. 예전엔 이것만 통째로 갈아 끼워서, 보관소
+        // 읽기가 끝나기 전에 누른 체크가 스스로 풀렸다 (저장은 돼 있어 다음 새로고침에
+        // 되살아나는 바람에 더 헷갈렸다). 메모리 쪽은 이번 세션 = 오늘 것뿐이다.
+        completed: new Set([...todayCompletedSet(rawCompleted), ...prefsRef.current.completed]),
         dismissedAlerts: new Set([
           ...parseSet(rawDismissedAlerts),
           ...prefsRef.current.dismissedAlerts,
@@ -653,8 +684,11 @@ export default function DashboardScreen() {
       };
       prefsLoadedRef.current = true;
       // 이미 서버 응답이 온 항목은 캐시로 덮지 않는다
-      cached.forEach(([name, data]) => {
-        if (data !== undefined && sources[name] === undefined) sources[name] = data;
+      cached.forEach(([name, data, at]) => {
+        if (data !== undefined && sources[name] === undefined) {
+          sources[name] = data;
+          sourcesAt[name] = at;   // 이 자료는 캐시가 저장된 시각의 것이다
+        }
       });
       paint();
     })();
@@ -679,10 +713,7 @@ export default function DashboardScreen() {
     setAlerts((prev) => prev.filter((a) => a.id !== id));
     prefsRef.current.dismissedAlerts.add(id);   // 늦게 도착한 응답이 되살리지 않게
     try {
-      const raw = await AsyncStorage.getItem(DISMISSED_ALERTS_KEY);
-      const set = new Set<string>(raw ? JSON.parse(raw) : []);
-      set.add(id);
-      await AsyncStorage.setItem(DISMISSED_ALERTS_KEY, JSON.stringify(Array.from(set)));
+      await writeSet(DISMISSED_ALERTS_KEY, prefsRef.current.dismissedAlerts);
     } catch (e) {
       console.error('알림 닫기 기록 실패:', e);
     }
@@ -773,6 +804,19 @@ export default function DashboardScreen() {
         const realServerId = `server-${created.id}`;
         // [한글 주석] 서버 등록 완료 후 local- ID를 server- ID로 교체하여 삭제 시 서버 연동이 정상 동작하게 함
         pendingTodosRef.current.delete(tempLocalId);
+        if (prefsRef.current.dismissed.has(tempLocalId)) {
+          // 등록 응답을 기다리는 사이에 사장님이 그 줄을 지웠다. 예전엔 그대로 다시
+          // 붙들어서 지운 줄이 되살아났고, 서버에도 남아 새로고침·재실행 후에도 보였다
+          // (지움 기록에는 local- id만 있어 걸러지지도 않았다). 서버에서도 지운다.
+          await rememberDismissed(realServerId);
+          setTodos((prev) => prev.filter((t) => t.id !== tempLocalId && t.id !== realServerId));
+          try {
+            await deleteTodo(token, created.id);
+          } catch (err) {
+            console.error('등록 중 삭제한 할 일의 서버 삭제 실패:', err);
+          }
+          return;
+        }
         holdPending({ ...newTodo, id: realServerId });
         setTodos((prev) =>
           prev.map((t) => (t.id === tempLocalId ? { ...t, id: realServerId } : t))
@@ -791,10 +835,7 @@ export default function DashboardScreen() {
     // 방금 지운 줄이 그대로 되살아난다
     prefsRef.current.dismissed.add(id);
     try {
-      const raw = await AsyncStorage.getItem(DISMISSED_TODOS_KEY);
-      const set = new Set<string>(raw ? JSON.parse(raw) : []);
-      set.add(id);
-      await AsyncStorage.setItem(DISMISSED_TODOS_KEY, JSON.stringify(Array.from(set)));
+      await writeSet(DISMISSED_TODOS_KEY, prefsRef.current.dismissed);
     } catch (e) {
       console.error('숨김 항목 보관 실패:', e);
     }
@@ -944,7 +985,7 @@ export default function DashboardScreen() {
       } else {
         delete pruned[id];
       }
-      await AsyncStorage.setItem(COMPLETED_TODOS_KEY, JSON.stringify(pruned));
+      await writeMap(COMPLETED_TODOS_KEY, pruned);
     } catch (e) {
       console.error('완료 상태 보관소 저장 실패:', e);
     }

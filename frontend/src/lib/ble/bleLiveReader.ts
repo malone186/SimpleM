@@ -15,6 +15,7 @@ import {
 
 export interface LiveReaderTarget {
   store: string;
+  token: string;   // 업링크 인증 — 서버가 이 토큰으로 매장을 정한다 (lib/api/sensor.ts 주석)
   catalogId: string;
   bleId: string;   // BLE MAC(안드로이드) / 기기 UUID(iOS)
   bleName: string;
@@ -55,7 +56,7 @@ export function startBleLiveReader(target: LiveReaderTarget): void {
     const now = Date.now();
     if (now - lastPostAt < MIN_POST_INTERVAL_MS) return;
     lastPostAt = now;
-    postSensorReadings(target.store, readings).catch(() => { });
+    postSensorReadings(target.token, target.store, readings).catch(() => { });
   };
 
   const run = async () => {

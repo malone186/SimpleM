@@ -222,13 +222,38 @@ def _norm_menu(s: str) -> str:
 
 
 def _to_int(s: str) -> Optional[int]:
+    """POS 파일의 금액·수량 칸을 정수로 읽는다.
+
+    예전엔 숫자가 아닌 문자를 전부 지웠는데, 그러면 소수점까지 지워져
+    "3,500.00"이 350000(100배)으로 들어갔다. 매출이 통째로 100배가 되는 사고라
+    소수점과 천 단위 구분자를 구분해서 읽는다. 어느 쪽이 소수점인지는 나라마다
+    달라서(한국·미국 "3,500.00" / 유럽 "3.500,00") 마지막에 나오는 기호를
+    소수점으로 보고, 세 자리씩 끊긴 기호는 천 단위로 본다.
+    """
     if s is None:
         return None
-    m = re.sub(r"[^\d-]", "", str(s))  # 통화기호·콤마 제거
-    if m in ("", "-"):
+    raw = re.sub(r"[^\d.,-]", "", str(s)).strip()  # 통화기호·공백 제거
+    if raw in ("", "-", ".", ","):
         return None
+
+    neg = raw.startswith("-")
+    body = raw.lstrip("-")
+    has_dot, has_comma = "." in body, "," in body
+
+    if has_dot and has_comma:
+        # 둘 다 있으면 뒤에 오는 쪽이 소수점, 앞쪽은 천 단위 구분자
+        dec = "." if body.rfind(".") > body.rfind(",") else ","
+        body = body.replace("," if dec == "." else ".", "").replace(dec, ".")
+    elif has_dot or has_comma:
+        sep = "." if has_dot else ","
+        # 3,500 / 1.234.567 처럼 세 자리씩 끊겼으면 천 단위 구분자 → 그냥 지운다
+        if re.fullmatch(rf"\d{{1,3}}(\{sep}\d{{3}})+", body):
+            body = body.replace(sep, "")
+        else:
+            body = body.replace(sep, ".")
+
     try:
-        return int(m)
+        return int(round(float(body))) * (-1 if neg else 1)
     except ValueError:
         return None
 
@@ -410,6 +435,12 @@ def register_menus(store_id: str, items: list[dict[str, Any]]) -> dict[str, Any]
         store_ing_ids = {
             i.id for i in db.query(Ingredient).filter(Ingredient.store_id == store_id).all()
         }
+        # 기존 메뉴의 레시피 연결도 한 번에 읽어 둔다 — 메뉴마다 따로 읽으면 등록하는
+        # 메뉴 수만큼 왕복이 붙는다 (save_import가 이미 같은 방식으로 처리한다).
+        pairs_by_menu: dict[int, set[int]] = {}
+        if existing:
+            for rc in db.query(Recipe).filter(Recipe.menu_id.in_([m.id for m in existing.values()])).all():
+                pairs_by_menu.setdefault(rc.menu_id, set()).add(rc.ingredient_id)
         for it in items:
             name = str(it.get("name") or "").strip()
             if not name:
@@ -426,11 +457,8 @@ def register_menus(store_id: str, items: list[dict[str, Any]]) -> dict[str, Any]
                 existing[key] = menu
                 created = True
 
-            # 레시피 연결 (선택)
-            existing_pairs = {
-                rc.ingredient_id
-                for rc in db.query(Recipe).filter(Recipe.menu_id == menu.id).all()
-            }
+            # 레시피 연결 (선택) — 새로 만든 메뉴는 연결이 아직 없으니 빈 집합
+            existing_pairs = pairs_by_menu.setdefault(menu.id, set())
             added, skipped = 0, []
             for line in (it.get("recipe") or []):
                 try:

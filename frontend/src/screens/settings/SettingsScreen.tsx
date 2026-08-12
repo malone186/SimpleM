@@ -319,10 +319,10 @@ export default function SettingsScreen() {
         // 네이티브는 Pretendard 파일 직접 지정 — 안드로이드 헤더가 Noto로 갈라지지 않게 (RootNavigator erpHeader와 동일)
         ...(Platform.OS === 'web'
           ? {
-              fontWeight: '500' as const,
+              fontWeight: '600' as const,
               fontFamily: 'Pretendard, -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, sans-serif',
             }
-          : { fontFamily: fonts.medium }),
+          : { fontFamily: fonts.semibold }),
       },
       headerLeftContainerStyle: { paddingLeft: 10 },
       headerTitleContainerStyle: { marginLeft: 4 },

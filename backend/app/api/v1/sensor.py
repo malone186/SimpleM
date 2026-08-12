@@ -7,19 +7,28 @@
 - GET  /sensor/devices          : 센서 스테이션 마법사 — 기기 카탈로그 + 페어링 상태
 - POST /sensor/devices/{id}/pair   : 기기 페어링 (BLE 스캔 결과 실기기 등록 / 데모 등록)
 - POST /sensor/devices/{id}/unpair : 기기 연결 해제
-- POST /sensor/ingest           : ESP32 허브·브라우저 BLE 리더의 측정값 업링크 (JWT 없음)
+- POST /sensor/ingest           : ESP32 허브·브라우저 BLE 리더의 측정값 업링크
+                                  (앱은 로그인 토큰, 허브는 X-Sensor-Secret 헤더)
 """
 
+import os
+import secrets
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
+from app.core.database import get_db
 from app.models.user import User
 from app.services.ai import sensor_service
 
 router = APIRouter(prefix="/sensor", tags=["Sensor"])
+
+# 측정값 업링크는 앱(토큰)과 임베디드 허브(공유 시크릿) 둘 다 받는다 — /ingest 주석 참고
+_oauth2_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 
 class BeanTagUpdate(BaseModel):
@@ -97,11 +106,33 @@ class IngestPayload(BaseModel):
 
 
 @router.post("/ingest")
-def ingest(payload: IngestPayload):
+def ingest(
+    payload: IngestPayload,
+    token: Optional[str] = Depends(_oauth2_optional),
+    x_sensor_secret: str = Header(default=""),
+    db: Session = Depends(get_db),
+):
     """[한글 주석] ESP32 허브/브라우저 BLE 리더 측정값 수신 — 페어링된 기기의 값만 반영.
-    임베디드 기기가 JWT를 못 쓰므로 인증 대신 '해당 매장에 페어링 존재' 검증으로 제한한다."""
+
+    두 가지 경로를 받는다:
+      · 앱(BLE 리더) — 로그인 토큰. 대상 매장은 토큰이 정하고 본문 store는 무시한다.
+      · 임베디드 허브 — JWT를 못 쓰므로 X-Sensor-Secret 헤더(SENSOR_INGEST_SECRET).
+
+    예전엔 아무 인증 없이 본문 store를 그대로 믿었다(2026-08-12 수정). 사장님 이메일은
+    로그인 아이디라 비밀이 아니어서, 남의 이메일만 알면 냉장고 온도를 정상값으로 계속
+    밀어 넣어 진짜 고장 알림을 덮거나(라이브 실측이 판매 추정 폴백보다 우선한다),
+    반대로 새벽에 거짓 긴급 알림을 울릴 수 있었다. 긴급 알림은 방해 금지도 뚫는다.
+    '페어링된 기기가 있는 매장인지'만 보는 검사는 공격자를 전혀 막지 못한다.
+    """
+    if token:
+        store = get_current_user(token=token, db=db).email
+    else:
+        secret = os.getenv("SENSOR_INGEST_SECRET", "")
+        if not secret or not secrets.compare_digest(x_sensor_secret, secret):
+            raise HTTPException(status_code=401, detail="센서 인증이 필요합니다.")
+        store = payload.store
     try:
-        return sensor_service.ingest_readings(payload.store, payload.readings)
+        return sensor_service.ingest_readings(store, payload.readings)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

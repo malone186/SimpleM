@@ -46,14 +46,27 @@ def _visit_stats_bulk(db, customer_ids: list) -> Dict[int, Dict[str, Any]]:
 
     if not customer_ids:
         return {}
+    # created_at은 timestamptz라 그냥 date()로 자르면 세션 기본 시간대(UTC) 기준이 된다.
+    # 그러면 오늘 아침 KST 07:30 결제가 어제 22:30(UTC)로 잘려 '어제 온 손님'이 되고,
+    # 아래에서 KST 오늘(svc._now())과 빼기 때문에 방문 간격·이탈 판정까지 흔들린다.
+    # 카페 오픈 러시(00:00~09:00 KST)가 정확히 이 구간이다.
+    # SQLite에는 timezone()이 없으므로 그때는 파이썬에서 KST로 옮긴다.
+    is_pg = db.bind.dialect.name == "postgresql"
+    day_col = (sa_func.date(sa_func.timezone("Asia/Seoul", BalanceTransaction.created_at))
+               if is_pg else BalanceTransaction.created_at)
     rows = (
-        db.query(BalanceTransaction.customer_id,
-                 sa_func.date(BalanceTransaction.created_at))
+        db.query(BalanceTransaction.customer_id, day_col)
         .filter(BalanceTransaction.customer_id.in_(customer_ids),
                 BalanceTransaction.tx_type == svc.TX_USE)
         .distinct()
         .all()
     )
+    if not is_pg:
+        # 원본 시각을 그대로 받았으므로 KST로 옮겨 날짜로 자르고, 같은 날 중복을 없앤다
+        # (Postgres 경로의 date() + distinct와 결과를 맞춘다).
+        from app.utils.datetime_kst import to_kst
+
+        rows = sorted({(cid, to_kst(v).date()) for cid, v in rows if v is not None})
     dates_by_id: Dict[int, list] = {}
     for cid, d in rows:
         if d is None:

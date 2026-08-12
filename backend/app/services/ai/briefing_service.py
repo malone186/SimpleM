@@ -239,7 +239,14 @@ def build(store_id: str, force_refresh: bool = False, deep: bool = False) -> dic
     }
 
     engine = "ai"
-    text = _ai_text(facts, priorities, today)
+    # AI 응답이 예상과 다른 모양이면(예: 배열이 통째로 오면) 여기서 예외가 나
+    # 아침 브리핑이 통째로 사라졌다 — 숫자는 이미 다 모아 놨는데도.
+    # 규칙 기반 문구로 내려가는 게 원래 설계다.
+    try:
+        text = _ai_text(facts, priorities, today)
+    except Exception:
+        logger.warning("브리핑 AI 문구 생성 실패 — 규칙 문구로 대체", exc_info=True)
+        text = None
     if text is None:
         engine = "rule"
         text = _fallback_text(facts, priorities)

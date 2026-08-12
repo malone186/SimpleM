@@ -29,8 +29,22 @@ def record_sales(store_id: str, items: list[dict[str, Any]]) -> dict[str, Any]:
 
     created: list[dict[str, Any]] = []
     with _session() as db:
+        # 메뉴·레시피·재고를 품목마다 따로 읽으면 왕복이 품목 수만큼 곱절로 는다.
+        # DB가 싱가포르라 왕복 하나가 약 74ms(실측)여서, 5품목 판매 한 건에 1초 넘게
+        # 걸리던 자리다. 필요한 것을 앞에서 한 번씩만 읽어 둔다.
+        menu_ids = [int(it["menu_id"]) for it in items]
+        menus = {m.id: m for m in db.query(Menu).filter(Menu.id.in_(menu_ids)).all()}
+        recipes_by_menu: dict[int, list] = {}
+        for rc in db.query(Recipe).filter(Recipe.menu_id.in_(menu_ids)).all():
+            recipes_by_menu.setdefault(rc.menu_id, []).append(rc)
+        ing_ids = [rc.ingredient_id for rcs in recipes_by_menu.values() for rc in rcs]
+        stock_by_ing: dict[int, Any] = {}
+        if ing_ids:
+            for st in db.query(Stock).filter(Stock.ingredient_id.in_(ing_ids)).all():
+                stock_by_ing.setdefault(st.ingredient_id, st)  # 예전 .first()와 같게 첫 행만
+
         for it in items:
-            menu = db.get(Menu, int(it["menu_id"]))
+            menu = menus.get(int(it["menu_id"]))
             if menu is None or menu.store_id != store_id:
                 raise SalesError(f"메뉴(id={it.get('menu_id')})를 찾을 수 없습니다.")
             qty = int(it.get("quantity", 1))
@@ -42,9 +56,9 @@ def record_sales(store_id: str, items: list[dict[str, Any]]) -> dict[str, Any]:
                         store_id=store_id, sold_at=datetime.now(KST)))
 
             # 레시피 기준 재고 자동 차감 + 이력 기록 (재고 미등록 재료는 이력만 남긴다)
-            for recipe in db.query(Recipe).filter(Recipe.menu_id == menu.id).all():
+            for recipe in recipes_by_menu.get(menu.id, []):
                 use = recipe.quantity * qty
-                stock = db.query(Stock).filter(Stock.ingredient_id == recipe.ingredient_id).first()
+                stock = stock_by_ing.get(recipe.ingredient_id)
                 if stock is not None:
                     stock.current_quantity = max(0.0, stock.current_quantity - use)
                 db.add(StockTransaction(ingredient_id=recipe.ingredient_id,

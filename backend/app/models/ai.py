@@ -36,6 +36,9 @@ class OcrDocument(Base):
     # 등록 대상 (inventory_inbound | expense | sales) — draft 상태면 AI 추천값, confirmed면 사람이 확정한 값
     target: Mapped[str | None] = mapped_column(String(32), nullable=True)
     applied: Mapped[bool] = mapped_column(Boolean, default=False)  # 확정 후 대상 시스템 반영 여부 (A의 재고 반영 훅이 사용)
+    # 모델 응답 꼬리가 잘려 복구한 문서. 잘린 뒤쪽에 합계가 있어 총액 대조가 통째로
+    # 건너뛰므로, 이 표식이 없으면 품목이 빠진 문서가 아무 경고 없이 정상으로 보인다.
+    truncated: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     # 원본 사진은 uploads/ocr/{id}.jpg 규칙으로 저장되므로 경로 컬럼 불필요
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -45,6 +48,34 @@ class OcrDocument(Base):
     items: Mapped[list["OcrItem"]] = relationship(
         back_populates="document", cascade="all, delete-orphan", order_by="OcrItem.position"
     )
+
+
+def ensure_ocr_truncated_column(engine) -> None:
+    """[자가치유] ocr_documents에 truncated 컬럼이 없으면 멱등하게 보강한다.
+
+    정식 경로는 alembic 리비전 0002_ocr_truncated이고 배포 파이프라인이 그걸 돌린다.
+    다만 마이그레이션이 아직 안 돈 DB(로컬·팀원 환경)에 새 코드가 붙으면 OCR 조회가
+    통째로 깨지므로, create_all과 같은 자리에서 한 번 더 받쳐 준다.
+    """
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("ocr_documents"):
+            return  # 테이블이 아직 없으면 create_all이 컬럼째로 만든다
+        if any(c["name"] == "truncated" for c in insp.get_columns("ocr_documents")):
+            return
+    except Exception as e:
+        logger.warning(f"[OCR 스키마] ocr_documents 점검 실패 — 건너뜁니다: {e}")
+        return
+
+    default = "FALSE" if engine.dialect.name == "postgresql" else "0"
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(
+                f"ALTER TABLE ocr_documents ADD COLUMN truncated BOOLEAN NOT NULL DEFAULT {default}"))
+        logger.info("[OCR 스키마] ocr_documents.truncated 컬럼을 보강했습니다.")
+    except Exception as e:
+        logger.warning(f"[OCR 스키마] truncated 컬럼 추가 실패 — 건너뜁니다: {e}")
+
 
 
 class OcrItem(Base):

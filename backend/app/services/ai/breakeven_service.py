@@ -420,7 +420,12 @@ def compute_breakeven(
         result["message"] = _needs_message(result["needs"], estimate)
         return result
 
-    if ratio >= 100:
+    # 공헌이익률을 먼저 구하고 그 값으로 판정한다. 예전엔 ratio >= 100 만 봤는데,
+    # 표시용으로 소수 둘째 자리에서 반올림한 cm_ratio 가 0이 되는 구간
+    # (99.995 <= ratio < 100)이 그 검사를 통과해 아래에서 0으로 나눴다.
+    # 화면이 500으로 죽고, 저장된 값을 지우기 전까지 계속 죽는다.
+    cm_ratio = round(100 - ratio, 2)                       # 공헌이익률 (%)
+    if cm_ratio <= 0:
         result["message"] = (
             f"변동비율이 {ratio}%라 한 잔 팔 때마다 손해가 납니다. "
             "지금 구조로는 아무리 팔아도 본전을 넘길 수 없어요 — 재료 단가나 판매가를 먼저 손봐야 합니다."
@@ -433,7 +438,6 @@ def compute_breakeven(
             "재료 단가나 레시피 소요량이 잘못 입력되지 않았는지 확인해 주세요."
         )
 
-    cm_ratio = round(100 - ratio, 2)                       # 공헌이익률 (%)
     breakeven_revenue = round(fixed_total / (cm_ratio / 100))
     target_revenue = round((fixed_total + target_profit) / (cm_ratio / 100)) if target_profit else breakeven_revenue
 

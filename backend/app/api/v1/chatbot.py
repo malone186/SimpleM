@@ -737,6 +737,7 @@ def get_nearby_cafe_changes_api(
 
     if refresh and has_point:
         # 앞에서 훑는다 — 네이버 목록은 6시간 캐시라 대개 재검색 없이 대장만 다시 판정한다
+        scan_failed = False
         try:
             nearby_watch_service.scan_if_stale(
                 db, current_user.email,
@@ -745,7 +746,13 @@ def get_nearby_cafe_changes_api(
         except Exception:
             logger.exception("주변 카페 변화 즉시 스캔 실패: %s", current_user.email)
             db.rollback()
-        return nearby_watch_service.recent_changes(db, current_user.email, days=days)
+            scan_failed = True
+        # 실패를 삼키면 '눌렀는데 변화가 없다'와 구분되지 않는다 — 이 버튼이 존재하는
+        # 이유 자체가 그 상태를 없애는 것이었다. 옛 대장은 그대로 주되 실패는 밝힌다.
+        result = nearby_watch_service.recent_changes(db, current_user.email, days=days)
+        if scan_failed and isinstance(result, dict):
+            result["scan_failed"] = True
+        return result
 
     result = nearby_watch_service.recent_changes(db, current_user.email, days=days)
 
@@ -1904,12 +1911,19 @@ async def chat_message(
     store_id: Optional[str] = Depends(_optional_store_id),
 ) -> ChatResponse:
     """[한글 주석] 챗봇 대화 엔드포인트
-    
+
     사용자의 질문을 챗봇 에이전트에게 전달해 적절한 도구 호출 및 답변 완성을 비동기로 수행합니다.
-    로그인하지 않은 상태로 호출되는 경우, 안전하게 데모 매장 계정(owner@cafe.com)으로 우회하여 가동합니다.
+
+    비로그인은 401 — 예전엔 데모 매장(owner@cafe.com)으로 우회했는데, 챗봇에는 조회만
+    있는 게 아니라 재고 조정·재료 삭제·문서 수정/삭제·OCR 확정·매출 기록 같은 쓰기
+    도구가 함께 묶여 나간다. 즉 인증 없는 외부 호출자가 데모 매장 데이터를 바꿀 수
+    있었고, 데모 계정의 하루 쿼터를 혼자 다 써서 다른 사람의 체험을 막을 수도 있었다.
+    바로 아래 /quota/ad-reward가 같은 이유로 이미 401을 낸다. 앱은 로그인 후에만
+    챗봇 화면에 들어가므로 정상 사용에는 영향이 없다.
     """
-    # [한글 주석] 매장 고유 식별자가 없을 경우를 위한 대비책 설정
-    store_key = store_id or "owner@cafe.com"
+    if store_id is None:
+        raise HTTPException(401, "로그인 후 이용할 수 있습니다.")
+    store_key = store_id
 
     # 무료 할당량을 Gemini 호출 전에 차감한다. 호출 후에 세면 한도를 넘긴 요청이
     # 이미 비용을 쓴 뒤가 된다. 실패하면 아래 except에서 되돌린다.
@@ -1963,8 +1977,13 @@ def get_chat_quota(store_id: Optional[str] = Depends(_optional_store_id)) -> dic
 
     챗봇 화면 진입 시 불러 "오늘 남은 대화 N회"를 표시하거나, 광고를 미리 받아둘지
     판단하는 데 쓴다.
+
+    비로그인은 401 — 데모 계정의 쿼터 행 하나를 전 세계가 공유하게 되므로,
+    /chat·/quota/ad-reward와 같은 기준으로 막는다.
     """
-    return chat_quota_service.get_quota(store_id or "owner@cafe.com")
+    if store_id is None:
+        raise HTTPException(401, "로그인 후 이용할 수 있습니다.")
+    return chat_quota_service.get_quota(store_id)
 
 
 @router.post("/quota/ad-reward")

@@ -161,7 +161,9 @@ _DOMAINS: list[dict[str, Any]] = [
             "생성된 문서 조회·수정, 보건증·위생교육·계약 갱신 만료 알림."
         ),
         "modules": ["app.services.ai.document_tools"],
-        "extra": "- 문서를 수정할 때는 먼저 목록/조회 도구로 현재 내용을 확인한 뒤 전체 본문을 보내세요.",
+        "extra": ("- 문서를 수정할 때는 반드시 get_generated_document로 현재 본문을 먼저 읽고,"
+                  " 그 JSON에서 바꿀 값만 고쳐 전체를 그대로 돌려보내세요."
+                  " 본문을 읽지 않고 update를 부르면 원래 품목·금액이 지워집니다."),
     },
     {
         "name": "ocr_expert",

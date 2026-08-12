@@ -138,7 +138,10 @@ def _check_db() -> bool:
 
 
 def _row_to_draft(row) -> dict[str, Any]:
-    """DB 행(문서+품목)을 서비스 표준 draft dict로 복원한다. 검증 경고는 재계산."""
+    """DB 행(문서+품목)을 서비스 표준 draft dict로 복원한다. 검증 경고는 재계산.
+
+    절단 복구 표식(truncated)도 함께 복원한다 — 목록을 다시 불러도 경고가 유지된다.
+    """
     result = OcrResult(
         doc_type=row.doc_type,
         vendor={"name": row.vendor_name, "biz_no": None, "phone": None},
@@ -158,6 +161,7 @@ def _row_to_draft(row) -> dict[str, Any]:
         subtotal=float(row.subtotal) if row.subtotal is not None else None,
         tax=float(row.tax) if row.tax is not None else None,
         total=float(row.total) if row.total is not None else None,
+        truncated=bool(getattr(row, "truncated", False)),
     )
     warnings = _validate_result(result)  # 저장하지 않으므로 조회 시 재계산 (항상 최신 로직 기준)
     return {
@@ -212,6 +216,7 @@ def _save_draft(draft: dict[str, Any]) -> None:
         row.total = result.total
         row.target = draft["confirmed_target"] or draft["suggested_target"]
         row.applied = draft["applied"]
+        row.truncated = bool(result.truncated)
         row.created_at = draft["created_at"]
         row.updated_at = draft["updated_at"]
         # 품목은 통째로 교체 (수정 시 추가/삭제/변경을 한 번에 반영)
@@ -356,6 +361,8 @@ def _parse_model_json(content: str) -> dict[str, Any]:
             try:
                 result = json.loads(repaired)
                 logger.warning("모델 응답 꼬리 절단 복구 — 품목 일부 유실 가능 (원본 %d자)", len(content))
+                if isinstance(result, dict):
+                    result["truncated"] = True  # 검증 단계가 경고를 낼 수 있게 표식을 남긴다
                 return result
             except json.JSONDecodeError:
                 pass
@@ -555,6 +562,12 @@ def _validate_result(result: OcrResult) -> list[str]:
             doc_warnings.append(
                 f"{sum_desc}이(가) {label}({v:,.0f})과 다릅니다 — 누락되거나 잘못 읽은 품목·할인이 있을 수 있습니다"
             )
+    if result.truncated:
+        # 잘린 응답은 합계·공급가액이 통째로 없어 아래 총액 대조가 아예 돌지 않는다.
+        # 조용히 넘어가면 품목이 빠진 문서가 정상으로 보이므로 여기서 직접 알린다.
+        doc_warnings.append(
+            "인식 결과가 중간에 잘려 일부 품목이 빠졌을 수 있습니다 — 품목 수와 금액을 확인하세요"
+        )
     if result.subtotal is not None and result.tax is not None and result.total is not None:
         if abs(result.subtotal + result.tax - result.total) > max(abs(result.total) * AMOUNT_TOLERANCE, AMOUNT_TOLERANCE_ABS):
             # 면세+과세 혼합 영수증(마트·편의점)은 '과세물품(공급가액)+부가세'가 합계보다
@@ -579,6 +592,11 @@ def _merge_duplicate_items(result: OcrResult) -> None:
         return
 
     merged: dict[tuple[str, str], OcrItem] = {}
+    # 합쳐 넣은 줄 중에 '수량은 있는데 금액을 못 읽은' 줄이 있었는지. 그런 줄이 섞이면
+    # 수량만 늘고 금액은 안 늘어서, 아래에서 단가를 역산하면 실제보다 싸게 나온다
+    # (실측 모양: 1,500원짜리가 1개+2개로 흩어졌는데 뒤 줄 금액을 못 읽으면 단가가 500원).
+    # 그 단가는 그럴듯해서 검증도 통과하고, 확정하면 재료 단가를 그 값으로 덮어쓴다.
+    incomplete: dict[tuple[str, str], bool] = {}
 
     for item in result.items:
         if not item.name:
@@ -601,7 +619,10 @@ def _merge_duplicate_items(result: OcrResult) -> None:
         
         if key not in merged:
             merged[key] = item
+            incomplete[key] = item.quantity is not None and item.amount is None
         else:
+            incomplete[key] = incomplete.get(key, False) or (
+                item.quantity is not None and item.amount is None)
             existing = merged[key]
             # 1. 수량 합산
             if item.quantity is not None:
@@ -617,7 +638,12 @@ def _merge_duplicate_items(result: OcrResult) -> None:
                 
             # 4. 단가 재조정
             # 총액과 수량이 존재하면 단가를 역산하고, 그렇지 않으면 기존 단가를 유지합니다.
-            if existing.amount is not None and existing.quantity and existing.quantity > 0:
+            # 단, 금액을 못 읽은 줄이 섞였으면 역산하지 않는다 — 합쳐진 금액이 수량과
+            # 짝이 안 맞아 단가가 실제보다 낮게 나온다. 원래 읽은 단가를 그대로 두면
+            # 수량×단가와 금액이 어긋나 _validate_result가 '확인 필요' 경고를 띄운다.
+            if (not incomplete.get(key)
+                    and existing.amount is not None
+                    and existing.quantity and existing.quantity > 0):
                 existing.unit_price = round(existing.amount / existing.quantity, 2)
             elif item.unit_price is not None and existing.unit_price is None:
                 existing.unit_price = item.unit_price
@@ -1000,6 +1026,17 @@ def _apply_inventory_inbound(draft: dict[str, Any], store_id: str) -> tuple[bool
                 description=f"영수증 OCR 입고 (문서 {draft['id']})",
             ))
             applied_names.append(item.name)
+
+        if not applied_names:
+            # 한 품목도 못 넣었는데 True를 주면 문서가 applied=True로 굳어 다시 반영할
+            # 방법이 없어진다 (수량을 고쳐도 이미 반영된 문서로 보인다).
+            # 바로 아래 _apply_sales가 같은 상황에서 롤백 후 False를 주는 것과 맞춘다.
+            db.rollback()
+            return False, (
+                "확정 완료. 수량을 인식한 품목이 없어 재고에 반영하지 못했습니다"
+                + (f" (제외: {', '.join(skipped_names[:3])})" if skipped_names else "")
+                + " — 품목 수량을 수정한 뒤 다시 시도해 주세요."
+            )
         db.commit()
 
     # 재고가 바뀌면 대시보드 발주 추천이 달라진다 — 예측 캐시 무효화
@@ -1096,6 +1133,19 @@ def _apply_sales(draft: dict[str, Any], store_id: str) -> tuple[bool, str]:
         by_norm = {_normalize_item_name(m.name): m for m in menus}
         by_jamo = {_to_jamo(k): v for k, v in by_norm.items()}
 
+        # 레시피·재고도 메뉴처럼 앞에서 한 번씩만 읽는다. 품목마다 따로 읽으면
+        # 왕복이 품목 수만큼 곱절로 늘어, 일마감표 한 장(품목 20줄)이면 수십 번이 된다
+        # (DB가 싱가포르라 왕복 하나가 약 74ms 실측).
+        recipes_by_menu: dict[int, list] = {}
+        if menus:
+            for rc in db.query(Recipe).filter(Recipe.menu_id.in_([m.id for m in menus])).all():
+                recipes_by_menu.setdefault(rc.menu_id, []).append(rc)
+        stock_by_ing: dict[int, Any] = {}
+        ing_ids = [rc.ingredient_id for rcs in recipes_by_menu.values() for rc in rcs]
+        if ing_ids:
+            for st in db.query(Stock).filter(Stock.ingredient_id.in_(ing_ids)).all():
+                stock_by_ing.setdefault(st.ingredient_id, st)  # 예전 .first()와 같게 첫 행만
+
         for item in result.items:
             qty = int(item.quantity or 0)
             if not item.name or qty <= 0:
@@ -1120,9 +1170,9 @@ def _apply_sales(draft: dict[str, Any], store_id: str) -> tuple[bool, str]:
             total_applied += total
 
             # 수동 판매 입력(sales_service)과 동일한 레시피 기준 재고 차감 + 이력 기록
-            for recipe in db.query(Recipe).filter(Recipe.menu_id == menu.id).all():
+            for recipe in recipes_by_menu.get(menu.id, []):
                 use = recipe.quantity * qty
-                stock = db.query(Stock).filter(Stock.ingredient_id == recipe.ingredient_id).first()
+                stock = stock_by_ing.get(recipe.ingredient_id)
                 if stock is not None:
                     stock.current_quantity = max(0.0, stock.current_quantity - use)
                 db.add(StockTransaction(ingredient_id=recipe.ingredient_id,

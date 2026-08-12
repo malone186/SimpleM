@@ -28,6 +28,8 @@ import threading
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Optional
 
+from sqlalchemy import or_
+
 from app.services import cost_basis
 from app.services.ai import breakeven_service, document_service
 
@@ -191,6 +193,16 @@ def _purchase_summary(db, store_id: str, start: date, end: date,
             db.query(OcrDocument)
             .filter(OcrDocument.store_id == store_id)  # 내 매장 매입만 — 다른 매장 문서 섞임 방지
             .filter(OcrDocument.status == "confirmed")
+            # 매입이 아닌 문서는 뺀다 (2026-08-12). 확정된 OCR 문서를 target 구분 없이
+            # 전부 매입으로 세고 있었다:
+            #  · target="sales"(매출 일마감표)는 이미 Sale로 반영돼 매출에 잡히는데
+            #    매입에도 더해져, 레시피 커버리지가 낮은 매장은 그 금액이 그대로
+            #    재료비가 됐다 — 잘 판 주가 "적자, 비용 점검 필요"로 나왔다.
+            #  · target="expense"는 확정할 때 Expense 행이 자동 생성되므로
+            #    (ocr_service._apply_expense) 매입·지출에 같은 돈이 두 번 들어가
+            #    현금 기준 비용이 두 배가 됐다. 85만원 명세서 한 장이 170만원.
+            .filter(or_(OcrDocument.target.is_(None),
+                        OcrDocument.target.notin_(["expense", "sales"])))
             # created_at은 timestamptz — 날짜 문자열을 주면 UTC 자정으로 잘려 매입이
             # 9시간 밀린다 (KST 새벽 확정분이 전날로, 아침 확정분이 창 밖으로).
             # 레시피 커버리지가 낮은 매장은 이 매입액이 곧 재료비라 손익 전체가 따라간다.

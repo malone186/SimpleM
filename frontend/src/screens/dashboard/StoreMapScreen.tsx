@@ -362,8 +362,15 @@ export default function StoreMapScreen() {
         // 늦게 온 30일 결과가 90일 화면을 덮어썼다 — 칩과 목록이 어긋난다.
         if (seq.current.changes !== my || !alive.current) return;
         setChanges(data);
+        // 서버가 훑기에 실패하면 목록은 옛 기록 그대로다 — 그걸 안 알리면
+        // '확인했는데 변화 없음'으로 읽힌다 (이 버튼이 없애려던 바로 그 상태)
+        if (refresh && data.scan_failed) {
+          toast('지금은 확인할 수 없어요', '주변 카페 정보를 못 불러왔어요. 잠시 뒤 다시 눌러 주세요.');
+        }
       } catch {
-        // 조용히 — 카드는 '아직 확인 전' 상태로 남는다
+        if (refresh && alive.current && seq.current.changes === my) {
+          toast('지금은 확인할 수 없어요', '주변 카페 정보를 못 불러왔어요. 잠시 뒤 다시 눌러 주세요.');
+        }
       } finally {
         if (seq.current.changes === my && alive.current) {
           setRescanning(false);

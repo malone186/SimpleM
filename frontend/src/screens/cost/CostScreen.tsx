@@ -206,11 +206,18 @@ export default function CostScreen() {
   // 평균 원가율 — 백엔드 계산값(cost_ratio) 우선, 없으면 cost_price/판매가로 산출
   const rateOf = (m: MenuRow) =>
     m.cost_ratio !== undefined ? m.cost_ratio : ((m.cost_price ?? 0) / m.selling_price) * 100;
-  const avg = rows.length ? Math.round(rows.reduce((s, m) => s + rateOf(m), 0) / rows.length) : null;
+  // 레시피가 없는 메뉴는 평균에서 뺀다. 서버는 레시피가 없으면 원가율 0%를 주는데,
+  // 그걸 섞으면 '원가를 모르는 메뉴'가 '원가가 안 드는 메뉴'로 계산된다 — 디저트 5개
+  // (레시피 없음) + 음료 3개(30%)면 평균이 11%로 나와 "양호"라고 안심시킨다.
+  // 메뉴 등록 화면이 디저트를 레시피 없이 만들 수 있어 실제로 흔한 상태다.
+  const priced = rows.filter((m) => (m.cost_price ?? 0) > 0);
+  const avg = priced.length
+    ? Math.round(priced.reduce((s, m) => s + rateOf(m), 0) / priced.length)
+    : null;
   // 평균 등급은 음료 기준으로 본다 — 카페 매출의 대부분이 음료라 그 기준이 체감에 맞다
   const avgGrade = avg !== null ? gradeOf(avg, 'drink') : null;
   // 위험 구간 메뉴 수 — 목록 위에 먼저 알려준다
-  const riskyCount = rows.filter((m) => gradeOf(rateOf(m), categoryOfMenu(m.name)) === 'bad').length;
+  const riskyCount = priced.filter((m) => gradeOf(rateOf(m), categoryOfMenu(m.name)) === 'bad').length;
   // 판매량 정보를 메뉴 카드에 얹기 위한 조회용 맵
   const contribByMenu = new Map((contribution?.menus ?? []).map((c) => [c.menu_id, c]));
 

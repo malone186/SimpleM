@@ -71,7 +71,12 @@ export default function BreakEvenScreen() {
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
-    if (!token) return;
+    // 로딩 해제를 finally에 맡기면 여기서 빠져나갈 때 영영 안 풀린다 (스피너 고정)
+    if (!token) {
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
     try {
       const [f, r] = await Promise.all([getFixedCosts(token), getBreakeven(token)]);
       setFixed(f);

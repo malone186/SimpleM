@@ -1,5 +1,5 @@
 // 공용 UI 킷 — 디자인 스펙 색상/타이포/간격 기반. 모든 화면에서 재사용.
-import { Children, useCallback, useEffect, useState, type ReactNode } from 'react';
+import { Children, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   RefreshControl,
   ScrollView,
@@ -56,8 +56,17 @@ export function Screen({
   const [runId, setRunId] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
 
+  // 다시 들어왔을 때만 등장 애니메이션을 재생한다. useIsFocused()는 첫 렌더에서 이미
+  // true라, 그냥 두면 마운트 직후 runId가 1로 올라 자식 key가 전부 바뀐다 → 방금 그린
+  // 카드를 통째로 버리고 다시 만든다(첫 화면 요청이 두 번씩 나가고, 입력 중이던 값도 날아간다).
+  const firstFocus = useRef(true);
   useEffect(() => {
-    if (isFocused) setRunId((x) => x + 1);
+    if (!isFocused) return;
+    if (firstFocus.current) {
+      firstFocus.current = false;
+      return;
+    }
+    setRunId((x) => x + 1);
   }, [isFocused]);
 
   const onRefresh = useCallback(() => {
@@ -92,6 +101,10 @@ export function Screen({
         // 기본값('never')이면 키보드가 떠 있을 때의 첫 탭이 키보드를 내리는 데 쓰이고 버려진다.
         // 금액을 입력한 뒤 바로 옆 선택지를 누르면 "눌러도 선택이 안 된다"고 느끼던 원인.
         keyboardShouldPersistTaps="handled"
+        // 키보드가 뜨면 그만큼 스크롤 여유를 더 준다 — 없으면 화면 아래쪽 입력칸이
+        // 키보드에 덮인 채 이미 스크롤 끝이라 손이 닿지 않는다(매출 입력의 토큰 칸,
+        // 설정의 문의 내용 칸). iOS 전용 prop이고 안드로이드·웹에서는 무시된다.
+        automaticallyAdjustKeyboardInsets
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

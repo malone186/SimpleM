@@ -46,7 +46,11 @@ export default function StaffAccountScreen() {
   const [issued, setIssued] = useState<{ name: string; loginId: string; password: string } | null>(null);
 
   const load = useCallback(async () => {
-    if (!token) return;
+    // 로딩 해제를 finally에 맡기면 여기서 빠져나갈 때 영영 안 풀린다 (스피너 고정)
+    if (!token) {
+      setLoading(false);
+      return;
+    }
     setError(null);
     try {
       setList(await fetchStaffAccounts(token));
@@ -69,7 +73,13 @@ export default function StaffAccountScreen() {
       setAddOpen(false);
       setName('');
       setLoginId('');
-      setIssued({ name: r.name, loginId: r.login_id, password: r.initial_password });
+      // 등록 시트를 닫는 것과 비밀번호 시트를 여는 것을 한 번에 하면 안 된다 —
+      // 같은 렌더에 모달 둘이 겹치면 iOS가 두 번째 표시를 통째로 무시한다.
+      // 초기 비밀번호는 서버에 해시만 남아 다시 볼 수 없어서, 그러면 그 계정은
+      // 영영 못 쓰게 된다. 닫힘 애니메이션이 끝난 뒤에 연다.
+      setTimeout(() => {
+        setIssued({ name: r.name, loginId: r.login_id, password: r.initial_password });
+      }, 400);
       await load();
     } catch (e) {
       showAlert('계정 생성 실패', e instanceof Error ? e.message : String(e));
