@@ -24,6 +24,10 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npx tsc --noEmit
+      # 타입체크는 '컴파일되는가'만 본다. 실제로 깨지는 건 런타임 쪽이라 테스트도 돌린다.
+      # (실제 사고: 훅을 조기 return 뒤에서 부르는 코드가 tsc를 통과하고 홈 화면을 통째로
+      #  죽였다 — 2026-08-12.) jest 182개가 1~2초라 파이프라인이 느려지지 않는다.
+      - run: npx jest --ci
 
   backend-compile:
     name: 백엔드 컴파일 체크
