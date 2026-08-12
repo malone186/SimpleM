@@ -1295,17 +1295,27 @@ def _order_recommendations(db, store_id: str, week_cups: float, days: int = 7) -
     for menu_id, qty in mix_rows:
         menu_share[menu_id] = menu_share.get(menu_id, 0) + (qty or 0) / total
 
-    # 메뉴별 예상 잔 수 × 레시피 소요량 → 재료별 7일 예상 소요량
+    # 메뉴별 예상 잔 수 × 레시피 소요량 → 재료별 예상 소요량.
+    # 레시피·재료·재고를 한 번씩만 읽는다. 예전엔 메뉴마다 레시피를, 재료마다 재료행과
+    # 재고행을 따로 조회해서 메뉴 20개·재료 15개면 왕복이 50번이었다 — DB가 싱가포르라
+    # 왕복 하나가 약 74ms(실측)라서 그것만으로 3초 넘게 걸렸다.
     usage: dict[int, float] = {}
-    for menu_id, share in menu_share.items():
-        cups = week_cups * share
-        for recipe in db.query(Recipe).filter(Recipe.menu_id == menu_id).all():
-            usage[recipe.ingredient_id] = usage.get(recipe.ingredient_id, 0) + cups * recipe.quantity
+    for recipe in db.query(Recipe).filter(Recipe.menu_id.in_(list(menu_share))).all():
+        cups = week_cups * menu_share.get(recipe.menu_id, 0.0)
+        usage[recipe.ingredient_id] = usage.get(recipe.ingredient_id, 0) + cups * recipe.quantity
+
+    if not usage:
+        return []
+    ing_ids = list(usage)
+    ing_by_id = {i.id: i for i in db.query(Ingredient).filter(Ingredient.id.in_(ing_ids)).all()}
+    stock_by_id: dict[int, Any] = {}
+    for st in db.query(Stock).filter(Stock.ingredient_id.in_(ing_ids)).all():
+        stock_by_id.setdefault(st.ingredient_id, st)  # 예전 .first()와 같게 첫 행만 쓴다
 
     recs = []
     for ing_id, needed in usage.items():
-        ing = db.get(Ingredient, ing_id)
-        stock = db.query(Stock).filter(Stock.ingredient_id == ing_id).first()
+        ing = ing_by_id.get(ing_id)
+        stock = stock_by_id.get(ing_id)
         if ing is None or stock is None:
             continue
         current, safety = stock.current_quantity, stock.safety_quantity

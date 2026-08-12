@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, Modal, Platform, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { dateKey, monthKey } from '../../lib/dateKey';
+import { dateKey, fromDateKey, monthKey } from '../../lib/dateKey';
 
 import { Badge, Button, Card, Divider, Screen, ScreenTitle, SectionTitle, WeekdayButtonGroup, IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
@@ -141,7 +141,12 @@ function ScheduleCalendarCard({
   const month = currentDate.getMonth(); // 0-11
 
   // 직원 데이터 로드
+  // 달을 빠르게 넘기면 이전 달 요청이 아직 날아가는 중이다. 늦게 온 옛 달 응답이
+  // 새 달 상태를 덮으면, 그 달에 급여가 잡힌 직원만 남기는 필터(knownEmpIds)가
+  // 옛 달 기준으로 정해져 근무가 통째로 사라져 보인다.
+  const calSeq = useRef(0);
   const loadCalendarData = useCallback(async () => {
+    const mySeq = ++calSeq.current;
     setLoading(true);
     try {
       // 토큰을 안 넘기면 백엔드가 매장 구분 없이 전 직원·전 급여를 돌려준다
@@ -162,6 +167,7 @@ function ScheduleCalendarCard({
         token ? listStaff(token).catch(() => null) : Promise.resolve(null),
         reloadSchedules(),
       ]);
+      if (mySeq !== calSeq.current) return; // 더 최근 달 요청이 있다 — 이 응답은 버린다
       const profileMap = new Map(
         (staffList?.staff ?? []).map((m) => [m.id, m.profile] as const),
       );
@@ -186,7 +192,7 @@ function ScheduleCalendarCard({
     } catch (e) {
       console.error('달력 데이터 조회 오류:', e);
     } finally {
-      setLoading(false);
+      if (mySeq === calSeq.current) setLoading(false);
     }
   }, [year, month, reloadSchedules]);
 
@@ -299,7 +305,7 @@ function ScheduleCalendarCard({
     (dateStr: string, empId: number) => {
       if (workKeySet.has(`${dateStr}|${empId}`)) return true;
       const DAY_CODES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-      const dObj = new Date(dateStr);
+      const dObj = fromDateKey(dateStr);
       const dayCode = DAY_CODES[dObj.getDay()];
       const emp = dbEmployees.find((e: any) => e.id === empId) as any;
       const profileWorkDays = (emp?.profile?.work_days ?? []) as string[];
@@ -330,16 +336,35 @@ function ScheduleCalendarCard({
   // 이전 값에서 계산한다(함수형 setter) — 갱신이 110ms 뒤로 미뤄지는 동안 한 번 더 누르면
   // 두 콜백이 모두 렌더 시점의 year/month로 계산해서, 두 번 눌렀는데 한 달만 넘어갔다.
   // 여러 달을 빠르게 넘길 때 탭이 계속 유실된다.
-  const handlePrevMonth = () => {
+  // 달을 옮기면 선택 날짜도 그 달로 데려온다. 예전엔 currentDate만 바뀌어서, 9월로
+  // 넘긴 뒤 아무 칸도 안 누르고 '근무 추가'를 하면 머리글은 9월인데 8월 12일에
+  // 저장됐다 (아래 패널·합계도 옛 달을 보여줬다). 오늘이 있는 달로 돌아오면 오늘을,
+  // 아니면 같은 날짜를 고르되 그 달에 없는 날(31일 등)이면 말일로 맞춘다.
+  const moveSelectedInto = (target: Date) => {
+    const today = new Date();
+    if (target.getFullYear() === today.getFullYear() && target.getMonth() === today.getMonth()) {
+      return dateKey(today);
+    }
+    const day = Number(selectedDate.slice(8, 10)) || 1;
+    const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+    return dateKey(new Date(target.getFullYear(), target.getMonth(), Math.min(day, lastDay)));
+  };
+  // 화살표를 연타하면 갱신이 110ms 뒤로 미뤄지는 사이 두 콜백이 모두 렌더 시점의
+  // currentDate로 계산해 두 번 눌렀는데 한 달만 넘어갔다. 목표 달을 ref로 들고 가
+  // 연타해도 누른 만큼 넘어가게 한다 (예전 함수형 setter가 하던 역할).
+  const pendingMonth = useRef<Date | null>(null);
+  const shiftMonth = (delta: number) => {
+    const base = pendingMonth.current ?? currentDate;
+    const next = new Date(base.getFullYear(), base.getMonth() + delta, 1);
+    pendingMonth.current = next;
+    const nextSelected = moveSelectedInto(next);
     animateTransition(() => {
-      setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+      setCurrentDate(next);
+      setSelectedDate(nextSelected);
     });
   };
-  const handleNextMonth = () => {
-    animateTransition(() => {
-      setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
-    });
-  };
+  const handlePrevMonth = () => shiftMonth(-1);
+  const handleNextMonth = () => shiftMonth(1);
 
   // 근무 등록 핸들러 (로컬 우선 반영)
   const handleAddSchedule = async () => {
@@ -428,7 +453,7 @@ function ScheduleCalendarCard({
 
   // 이 요일에 '가능'으로 등록된 직원 (직원·인건비 화면의 근무 가능 시간에서 파생)
   const availableToday = useMemo(() => {
-    const code = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date(selectedDate).getDay()];
+    const code = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][fromDateKey(selectedDate).getDay()];
     return dbEmployees.filter((e: any) => ((e.profile?.work_days ?? []) as string[]).includes(code));
   }, [dbEmployees, selectedDate]);
 
@@ -515,7 +540,7 @@ function ScheduleCalendarCard({
 
           // [한글 주석: 실제 등록된 스케줄 + 직원의 설정된 주 근무 요일(work_days)에 맞춘 달력 색상 선 그리기]
           const DAY_CODES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-          const dateObj = new Date(item.dateStr);
+          const dateObj = fromDateKey(item.dateStr);
           const currentDayCode = DAY_CODES[dateObj.getDay()];
 
           // 실제로 등록된 근무와 '가능 요일'을 구분한다 — 둘을 같은 굵기로 그리면
@@ -693,7 +718,7 @@ function ScheduleCalendarCard({
           {/* minWidth 0 + 한 줄 고정 — 안 그러면 설명이 접히면서 버튼을 밀어낸다 */}
           <View style={{ flex: 1, minWidth: 0, paddingRight: 10 }}>
             <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '800', color: colors.espressoBrown }}>
-              {Number(selectedDate.slice(5, 7))}월 {Number(selectedDate.slice(8, 10))}일 ({WEEK_LABEL[new Date(selectedDate).getDay()]})
+              {Number(selectedDate.slice(5, 7))}월 {Number(selectedDate.slice(8, 10))}일 ({WEEK_LABEL[fromDateKey(selectedDate).getDay()]})
             </Text>
             <Text numberOfLines={1} style={{ fontSize: 12.5, color: '#8C7E74', marginTop: 3 }}>
               근무 {selectedDateSchedules.length}명 · 합계 {selectedDayHours}시간
@@ -855,7 +880,10 @@ function ScheduleCalendarCard({
                     </Text>
                   ) : dbEmployees.length > 0 ? (
                     dbEmployees.map((emp) => {
-                      const empColor = getEmployeeColor(emp.id);
+                      // 달력·범례와 같은 색 지도를 넘긴다 — 예전엔 여기 두 곳만 빼먹어서
+                      // 직원이 고른 대표 색 대신 순번 팔레트 색이 떠, 같은 사람이
+                      // 화면마다 다른 색으로 보였다.
+                      const empColor = getEmployeeColor(emp.id, dynamicColorMap);
                       const active = selectedEmpId === emp.id;
                       return (
                         <PressableScale
@@ -872,7 +900,7 @@ function ScheduleCalendarCard({
                     })
                   ) : (
                     payrollEmployees.map((p) => {
-                      const empColor = getEmployeeColor(p.employee_id);
+                      const empColor = getEmployeeColor(p.employee_id, dynamicColorMap);
                       const active = selectedEmpId === p.employee_id;
                       return (
                         <PressableScale

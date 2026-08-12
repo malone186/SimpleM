@@ -153,10 +153,21 @@ def delete_renewal_reminder(store_id: str, item_id: int) -> str:
 
 
 @tool
+def get_generated_document(store_id: str, doc_id: str) -> str:
+    """문서 하나의 전체 본문을 조회한다. 목록(list_generated_documents)은 제목·종류만 주므로,
+    내용을 고치거나 사람에게 읽어 주려면 반드시 이 도구로 본문을 먼저 확인해야 한다."""
+    try:
+        return _dump(document_service.get_document(store_id, doc_id))
+    except document_service.DocumentError as e:
+        return str(e)
+
+
+@tool
 def update_generated_document(store_id: str, doc_id: str, content_json: str) -> str:
     """생성된 문서의 내용을 수정한다. content_json은 수정된 전체 본문 JSON 문자열 —
-    먼저 list_generated_documents/get으로 현재 content를 확인한 뒤, 바꿀 값을 반영한
-    전체 JSON을 보내야 한다 (부분 수정 아님)."""
+    반드시 get_generated_document로 현재 본문을 먼저 읽고, 그 JSON에서 바꿀 값만 고쳐
+    전체를 그대로 돌려보내야 한다 (부분 수정이 아니라 통째로 교체된다).
+    본문을 읽지 않은 채 호출하면 원래 품목·금액이 지워진다."""
     try:
         content = json.loads(content_json)
         if not isinstance(content, dict):
@@ -180,6 +191,7 @@ TOOLS = [
     draft_employment_contract_document,
     draft_payslip_document,
     draft_purchase_order,
+    get_generated_document,
     get_upcoming_renewals,
     get_wage_ledger,
     list_generated_documents,

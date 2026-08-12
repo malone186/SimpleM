@@ -435,6 +435,12 @@ def register_menus(store_id: str, items: list[dict[str, Any]]) -> dict[str, Any]
         store_ing_ids = {
             i.id for i in db.query(Ingredient).filter(Ingredient.store_id == store_id).all()
         }
+        # 기존 메뉴의 레시피 연결도 한 번에 읽어 둔다 — 메뉴마다 따로 읽으면 등록하는
+        # 메뉴 수만큼 왕복이 붙는다 (save_import가 이미 같은 방식으로 처리한다).
+        pairs_by_menu: dict[int, set[int]] = {}
+        if existing:
+            for rc in db.query(Recipe).filter(Recipe.menu_id.in_([m.id for m in existing.values()])).all():
+                pairs_by_menu.setdefault(rc.menu_id, set()).add(rc.ingredient_id)
         for it in items:
             name = str(it.get("name") or "").strip()
             if not name:
@@ -451,11 +457,8 @@ def register_menus(store_id: str, items: list[dict[str, Any]]) -> dict[str, Any]
                 existing[key] = menu
                 created = True
 
-            # 레시피 연결 (선택)
-            existing_pairs = {
-                rc.ingredient_id
-                for rc in db.query(Recipe).filter(Recipe.menu_id == menu.id).all()
-            }
+            # 레시피 연결 (선택) — 새로 만든 메뉴는 연결이 아직 없으니 빈 집합
+            existing_pairs = pairs_by_menu.setdefault(menu.id, set())
             added, skipped = 0, []
             for line in (it.get("recipe") or []):
                 try:
