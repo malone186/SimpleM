@@ -441,7 +441,14 @@ def _scan_staff_hours(db, store_id: str, today: date) -> list[dict[str, Any]]:
         name = names.get(emp_id, "")
         if h < WEEKLY_ALLOWANCE_HOURS - 1.5:
             continue
-        weekly_pay = int(rates.get(emp_id, 0) * (h / 40) * 8) if h >= WEEKLY_ALLOWANCE_HOURS else 0
+        # (주 소정시간 ÷ 40) × 8시간 × 시급, **8시간분 상한**.
+        # min()이 빠져 있어서 주 40시간을 넘는 직원의 주휴수당이 부풀려 알림에 나갔다
+        # (시급 12,000원 · 주 45시간이면 108,000원으로 계산 — 정답은 96,000원).
+        # 급여 화면(staff_service의 두 계산)은 처음부터 상한을 걸고 있어 숫자가 서로 달랐다.
+        weekly_pay = (
+            int(rates.get(emp_id, 0) * min(h / 40, 1.0) * 8)
+            if h >= WEEKLY_ALLOWANCE_HOURS else 0
+        )
         if h >= WEEKLY_ALLOWANCE_HOURS:
             out.append(_insight(
                 key=f"weekly_allowance:{emp_id}:{monday.isoformat()}",
