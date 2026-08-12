@@ -330,16 +330,35 @@ function ScheduleCalendarCard({
   // 이전 값에서 계산한다(함수형 setter) — 갱신이 110ms 뒤로 미뤄지는 동안 한 번 더 누르면
   // 두 콜백이 모두 렌더 시점의 year/month로 계산해서, 두 번 눌렀는데 한 달만 넘어갔다.
   // 여러 달을 빠르게 넘길 때 탭이 계속 유실된다.
-  const handlePrevMonth = () => {
+  // 달을 옮기면 선택 날짜도 그 달로 데려온다. 예전엔 currentDate만 바뀌어서, 9월로
+  // 넘긴 뒤 아무 칸도 안 누르고 '근무 추가'를 하면 머리글은 9월인데 8월 12일에
+  // 저장됐다 (아래 패널·합계도 옛 달을 보여줬다). 오늘이 있는 달로 돌아오면 오늘을,
+  // 아니면 같은 날짜를 고르되 그 달에 없는 날(31일 등)이면 말일로 맞춘다.
+  const moveSelectedInto = (target: Date) => {
+    const today = new Date();
+    if (target.getFullYear() === today.getFullYear() && target.getMonth() === today.getMonth()) {
+      return dateKey(today);
+    }
+    const day = Number(selectedDate.slice(8, 10)) || 1;
+    const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+    return dateKey(new Date(target.getFullYear(), target.getMonth(), Math.min(day, lastDay)));
+  };
+  // 화살표를 연타하면 갱신이 110ms 뒤로 미뤄지는 사이 두 콜백이 모두 렌더 시점의
+  // currentDate로 계산해 두 번 눌렀는데 한 달만 넘어갔다. 목표 달을 ref로 들고 가
+  // 연타해도 누른 만큼 넘어가게 한다 (예전 함수형 setter가 하던 역할).
+  const pendingMonth = useRef<Date | null>(null);
+  const shiftMonth = (delta: number) => {
+    const base = pendingMonth.current ?? currentDate;
+    const next = new Date(base.getFullYear(), base.getMonth() + delta, 1);
+    pendingMonth.current = next;
+    const nextSelected = moveSelectedInto(next);
     animateTransition(() => {
-      setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+      setCurrentDate(next);
+      setSelectedDate(nextSelected);
     });
   };
-  const handleNextMonth = () => {
-    animateTransition(() => {
-      setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
-    });
-  };
+  const handlePrevMonth = () => shiftMonth(-1);
+  const handleNextMonth = () => shiftMonth(1);
 
   // 근무 등록 핸들러 (로컬 우선 반영)
   const handleAddSchedule = async () => {
