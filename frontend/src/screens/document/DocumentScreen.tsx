@@ -556,6 +556,14 @@ export default function DocumentScreen() {
                 const m = toNumber(payMonth);
                 if (y < 2000 || y > 2100) return toast('입력 확인', `연도를 확인하세요: "${payYear}" — 예: 2026`);
                 if (m < 1 || m > 12) return toast('입력 확인', `월을 확인하세요: "${payMonth}" — 1~12 사이 숫자`);
+                // 0은 서버도 막지만(422), 여기서 먼저 잡아 무엇이 잘못됐는지 알려준다.
+                // 임금명세서는 보관 의무라 삭제가 안 되므로 0원짜리를 만들면 되돌릴 수 없다.
+                if (payWage.trim() && toNumber(payWage) <= 0) {
+                  return toast('입력 확인', `시급을 확인하세요: "${payWage}" — 비워 두면 등록된 직원 시급을 씁니다`);
+                }
+                if (payHours.trim() && toNumber(payHours) <= 0) {
+                  return toast('입력 확인', `근무시간을 확인하세요: "${payHours}" — 비워 두면 근무 스케줄에서 자동 집계합니다`);
+                }
                 run('pay', () => createPayslip(token!, {
                   employee_name: empName.trim(), year: y, month: m,
                   ...(payWage.trim() ? { hourly_wage: toNumber(payWage) } : {}),

@@ -138,7 +138,12 @@ def _check_db() -> bool:
 
 
 def _row_to_draft(row) -> dict[str, Any]:
-    """DB 행(문서+품목)을 서비스 표준 draft dict로 복원한다. 검증 경고는 재계산."""
+    """DB 행(문서+품목)을 서비스 표준 draft dict로 복원한다. 검증 경고는 재계산.
+
+    한계: 절단 복구 표식(result.truncated)은 저장하지 않아 다시 불러오면 False가 된다
+    (ocr_documents에 컬럼이 없고, 마이그레이션은 백엔드 A 소관이라 함께 논의 필요).
+    업로드 직후 검토 화면에는 경고가 뜨므로 확정 전에는 볼 수 있다.
+    """
     result = OcrResult(
         doc_type=row.doc_type,
         vendor={"name": row.vendor_name, "biz_no": None, "phone": None},
@@ -356,6 +361,8 @@ def _parse_model_json(content: str) -> dict[str, Any]:
             try:
                 result = json.loads(repaired)
                 logger.warning("모델 응답 꼬리 절단 복구 — 품목 일부 유실 가능 (원본 %d자)", len(content))
+                if isinstance(result, dict):
+                    result["truncated"] = True  # 검증 단계가 경고를 낼 수 있게 표식을 남긴다
                 return result
             except json.JSONDecodeError:
                 pass
@@ -555,6 +562,12 @@ def _validate_result(result: OcrResult) -> list[str]:
             doc_warnings.append(
                 f"{sum_desc}이(가) {label}({v:,.0f})과 다릅니다 — 누락되거나 잘못 읽은 품목·할인이 있을 수 있습니다"
             )
+    if result.truncated:
+        # 잘린 응답은 합계·공급가액이 통째로 없어 아래 총액 대조가 아예 돌지 않는다.
+        # 조용히 넘어가면 품목이 빠진 문서가 정상으로 보이므로 여기서 직접 알린다.
+        doc_warnings.append(
+            "인식 결과가 중간에 잘려 일부 품목이 빠졌을 수 있습니다 — 품목 수와 금액을 확인하세요"
+        )
     if result.subtotal is not None and result.tax is not None and result.total is not None:
         if abs(result.subtotal + result.tax - result.total) > max(abs(result.total) * AMOUNT_TOLERANCE, AMOUNT_TOLERANCE_ABS):
             # 면세+과세 혼합 영수증(마트·편의점)은 '과세물품(공급가액)+부가세'가 합계보다
@@ -579,6 +592,11 @@ def _merge_duplicate_items(result: OcrResult) -> None:
         return
 
     merged: dict[tuple[str, str], OcrItem] = {}
+    # 합쳐 넣은 줄 중에 '수량은 있는데 금액을 못 읽은' 줄이 있었는지. 그런 줄이 섞이면
+    # 수량만 늘고 금액은 안 늘어서, 아래에서 단가를 역산하면 실제보다 싸게 나온다
+    # (실측 모양: 1,500원짜리가 1개+2개로 흩어졌는데 뒤 줄 금액을 못 읽으면 단가가 500원).
+    # 그 단가는 그럴듯해서 검증도 통과하고, 확정하면 재료 단가를 그 값으로 덮어쓴다.
+    incomplete: dict[tuple[str, str], bool] = {}
 
     for item in result.items:
         if not item.name:
@@ -601,7 +619,10 @@ def _merge_duplicate_items(result: OcrResult) -> None:
         
         if key not in merged:
             merged[key] = item
+            incomplete[key] = item.quantity is not None and item.amount is None
         else:
+            incomplete[key] = incomplete.get(key, False) or (
+                item.quantity is not None and item.amount is None)
             existing = merged[key]
             # 1. 수량 합산
             if item.quantity is not None:
@@ -617,7 +638,12 @@ def _merge_duplicate_items(result: OcrResult) -> None:
                 
             # 4. 단가 재조정
             # 총액과 수량이 존재하면 단가를 역산하고, 그렇지 않으면 기존 단가를 유지합니다.
-            if existing.amount is not None and existing.quantity and existing.quantity > 0:
+            # 단, 금액을 못 읽은 줄이 섞였으면 역산하지 않는다 — 합쳐진 금액이 수량과
+            # 짝이 안 맞아 단가가 실제보다 낮게 나온다. 원래 읽은 단가를 그대로 두면
+            # 수량×단가와 금액이 어긋나 _validate_result가 '확인 필요' 경고를 띄운다.
+            if (not incomplete.get(key)
+                    and existing.amount is not None
+                    and existing.quantity and existing.quantity > 0):
                 existing.unit_price = round(existing.amount / existing.quantity, 2)
             elif item.unit_price is not None and existing.unit_price is None:
                 existing.unit_price = item.unit_price

@@ -1364,6 +1364,21 @@ def generate_promotion_image(store_id: str, doc_id: str = "", request: str = "",
         images.append(entry)
         content["images"] = images
         doc = document_service.update_document(store_id, doc_id, content)
+    else:
+        # 문구 문서 없이 만든 이미지(문구 생성이 쿼터로 실패했을 때 등)도 문서에 담아 저장한다.
+        # 예전엔 그냥 entry만 돌려줘서 이미지가 어느 문서에도 기록되지 않았다 — 보관함에
+        # 안 뜨고, 화면을 새로 그리거나 '문구 다시 쓰기'를 누르면 영구 소실됐다.
+        # 게다가 화면이 임시로 만든 빈 id를 그대로 다시 보내면 '이미지 다시 그리기'가
+        # 여기 else로 들어와 응답의 doc이 계속 비어, 눌러도 아무 일이 없어 보였다.
+        content = {
+            "channel": "", "channel_label": "", "topic": (request or "").strip()[:200],
+            "tone": "", "focus_menu": "", "store_name": "",
+            "headline": "", "sub_headline": "", "body": "", "sns_caption": "",
+            "hashtags": [], "short_slogan": "", "image_prompt": base, "posting_tip": "",
+            "images": [entry],
+        }
+        doc = document_service._save_document(
+            store_id, DOC_KIND, f"홍보 이미지 — {content['topic'] or '직접 생성'}"[:200], content)
 
     return {**entry, "doc": doc}
 

@@ -978,6 +978,20 @@ def _finish(final, store_id: str, aspect_ratio: str, style: str, provider: str,
         images.append(entry)
         doc["content"]["images"] = images
         doc = document_service.update_document(store_id, doc_id, doc["content"])
+    else:
+        # 문구 문서 없이 만든 합성물도 문서에 담아 저장한다. 예전엔 entry만 돌려줘서
+        # 사진을 올려 누끼·배경까지 기다려 만든 결과물이 서버 어디에도 기록되지 않았다
+        # (보관함에 안 뜨고, 화면을 다시 그리면 사라짐). marketing_service의
+        # generate_promotion_image와 같은 이유·같은 처리다.
+        content = {
+            "channel": "", "channel_label": "", "topic": "", "tone": "",
+            "focus_menu": "", "store_name": "",
+            "headline": "", "sub_headline": "", "body": "", "sns_caption": "",
+            "hashtags": [], "short_slogan": "", "image_prompt": "", "posting_tip": "",
+            "images": [entry],
+        }
+        doc = document_service._save_document(
+            store_id, M.DOC_KIND, "홍보 이미지 — 내 사진", content)
     return {**entry, "doc": doc}
 
 
