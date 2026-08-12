@@ -898,14 +898,19 @@ def _visit_dates(db: Session, customer_id: int) -> List[datetime]:
     [한글 주석] 아메리카노 2잔을 따로 결제하면 거래는 2건이지만 방문은 1회다.
     이걸 2회로 세면 방문 주기가 실제보다 짧게 나와 이탈 판정이 빨라진다.
     """
+    # visit_stats_bulk와 같은 이유로 KST 기준으로 자른다 — UTC로 자르면 오늘 아침
+    # 07:30 결제가 어제로 밀려 방문 주기·이탈 판정이 하루 어긋난다.
+    _day = (func.date(func.timezone("Asia/Seoul", BalanceTransaction.created_at))
+            if db.bind.dialect.name == "postgresql"
+            else func.date(BalanceTransaction.created_at))
     rows = (
-        db.query(func.date(BalanceTransaction.created_at))
+        db.query(_day)
         .filter(
             BalanceTransaction.customer_id == customer_id,
             BalanceTransaction.tx_type == TX_USE,
         )
         .distinct()
-        .order_by(func.date(BalanceTransaction.created_at))
+        .order_by(_day)
         .all()
     )
     # [한글 주석] func.date()의 반환 타입이 DB마다 다르다.

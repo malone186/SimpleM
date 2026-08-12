@@ -250,10 +250,15 @@ def suggest_tier(store_id: str, lookback_days: int = 90) -> dict[str, Any]:
         # sold_at은 timestamp라 날짜로 잘라 묶는다. 필터는 타입 이슈가 없는
         # timestamp 비교로 걸어 SQLite/Postgres 양쪽에서 같게 동작하게 했다.
         since_dt = datetime.combine(since, time.min, tzinfo=KST)
+        # 날짜로 자를 때도 KST 기준이어야 한다 — 그냥 date()를 쓰면 세션 기본(UTC)이라
+        # 오전 00~09시 KST 매출이 전날 몫으로 잡혀 일자별 카드 매출이 어긋난다.
+        # SQLite에는 timezone()이 없어 테스트에서는 예전 방식으로 떨어진다.
+        day_col = (sa_func.date(sa_func.timezone("Asia/Seoul", Sale.sold_at))
+                   if db.bind.dialect.name == "postgresql" else sa_func.date(Sale.sold_at))
         pos = (
-            db.query(sa_func.date(Sale.sold_at), sa_func.sum(Sale.total_price))
+            db.query(day_col, sa_func.sum(Sale.total_price))
             .filter(Sale.store_id == store_id, Sale.sold_at >= since_dt)
-            .group_by(sa_func.date(Sale.sold_at))
+            .group_by(day_col)
             .all()
         )
         for d, amount in pos:
