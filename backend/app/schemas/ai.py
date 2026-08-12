@@ -174,10 +174,13 @@ class PayslipRequest(BaseModel):
     """임금명세서 초안 생성 입력 — 근무시간은 스케줄 테이블에서 자동 집계, 없으면 직접 입력"""
 
     employee_name: str
-    year: int
+    year: int = Field(ge=2000, le=2100)
     month: int = Field(ge=1, le=12)
-    hourly_wage: Optional[int] = Field(None, description="미입력 시 직원 테이블의 시급 사용")
-    work_hours: Optional[float] = Field(None, description="미입력 시 근무 스케줄에서 자동 집계")
+    # 0을 막는 게 핵심이다. 임금명세서는 임금대장이라 서버가 삭제를 거부하므로(3년 보관),
+    # 0원짜리가 한 번 만들어지면 지울 수 없고 집계에도 계속 남는다.
+    # 자동 집계 경로는 0시간을 이미 막아 두었는데(document_service), 직접 입력 경로만 뚫려 있었다.
+    hourly_wage: Optional[int] = Field(None, gt=0, description="미입력 시 직원 테이블의 시급 사용")
+    work_hours: Optional[float] = Field(None, gt=0, le=744, description="미입력 시 근무 스케줄에서 자동 집계")
     withholding_rate: float = Field(3.3, description="원천징수율 % (프리랜서 3.3, 0이면 공제 없음)")
     include_weekly_holiday_pay: bool = Field(True, description="주휴수당 포함 여부 (주 15시간 이상 시)")
 
