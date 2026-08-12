@@ -7,7 +7,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../auth/AuthContext';
 import BreakevenTodayCard from '../../components/dashboard/BreakevenTodayCard';
-import CardDepositCard from '../../components/dashboard/CardDepositCard';
 import ManagementReportCard from '../../components/dashboard/ManagementReportCard';
 import SalesCard from '../../components/dashboard/SalesCard';
 import Disclosure from '../../components/ui/Disclosure';
@@ -1096,14 +1095,7 @@ export default function DashboardScreen() {
             <BreakevenTodayCard refreshToken={runId} />
           </FadeInUp>
 
-          {/* 카드 대금 입금 예정 — 부가 정보라 기본은 접어 둔다 (탭하면 펼침, 선택은 기억) */}
-          <FadeInUp delay={110}>
-            <Disclosure id="home-deposit" title="카드 대금 입금 예정" icon="card-outline">
-              <CardDepositCard refreshToken={runId} />
-            </Disclosure>
-          </FadeInUp>
-
-          {/* AI 경영 리포트 — 역시 기본 접힘. 매출·본전·할 일만 첫 화면의 주인공으로 남긴다 */}
+          {/* AI 경영 리포트 — 기본 접힘. 매출·본전·할 일만 첫 화면의 주인공으로 남긴다 */}
           <FadeInUp delay={140}>
             <Disclosure id="home-report" title="AI 경영 리포트" icon="sparkles-outline">
               <ManagementReportCard refreshToken={runId} />
