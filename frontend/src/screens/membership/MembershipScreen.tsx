@@ -111,8 +111,13 @@ export default function MembershipScreen() {
   const planDiscount = creditNum > 0 ? ((creditNum - payNum) / creditNum) * 100 : 0;
   const planValid = payNum > 0 && creditNum >= payNum;
 
+  const loadSeq = useRef(0);
   // seq: 이 호출의 순번. 응답이 돌아왔을 때 최신 순번이 아니면 화면에 반영하지 않는다.
+  // seq를 안 주고 부르면(결제·충전·환불 뒤 새로고침 등) 여기서 새 순번을 뽑는다 —
+  // 예전엔 그런 호출이 순번 검사를 통째로 건너뛰어서, 검색어 없이 시작된 새로고침이
+  // 뒤늦게 도착하면 방금 친 검색 결과를 전체 명단으로 되돌려 놨다.
   const load = useCallback(async (seq?: number) => {
+    const mySeq = seq ?? ++loadSeq.current;
     // [한글 주석] 토큰이 아직 복원되지 않은 첫 렌더에서 호출하면 401이 뜬다.
     // 로딩 상태를 유지하고 토큰이 들어온 뒤 다시 시도한다.
     if (!token) return;
@@ -135,7 +140,7 @@ export default function MembershipScreen() {
             fetchCostAnalysis(token, 90).catch(() => null),
           ]);
       // 내가 뒤처진 요청이면 조용히 버린다 (늦게 온 옛 응답이 새 결과를 덮지 않게)
-      if (seq !== undefined && seq !== loadSeq.current) return;
+      if (mySeq !== loadSeq.current) return;
       setSummary(s);
       setChurn(c);
       setPlans(p.filter((x) => x.is_active));
@@ -155,7 +160,6 @@ export default function MembershipScreen() {
   // 그리고 늦게 온 응답이 최신 결과를 덮지 않게 순번을 매겨 검사한다 — 예전엔 둘 다 없어서
   // "1234"를 치는 동안 4번의 요청이 겹치고, "1"의 응답이 마지막에 도착하면 화면이 "1"의
   // 결과로 되돌아갔다(사장님 눈엔 '번호를 다 쳤는데 엉뚱한 손님이 뜬다').
-  const loadSeq = useRef(0);
   useEffect(() => {
     const mySeq = ++loadSeq.current;
     // 첫 진입(검색어 없음)은 기다릴 이유가 없다. 타이핑 중일 때만 350ms 모은다.
@@ -691,8 +695,14 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
       <View style={styles.card}>
         <View style={styles.cardHead}>
           <Ionicons name="people-outline" size={16} color={colors.mochaBrown} />
-          {/* 직원은 요약(summary)을 못 불러오므로 검색 목록 수로 대신 표시한다 */}
-          <Text style={styles.cardTitle}>회원 {summary?.customer_count ?? customers.length}명</Text>
+          {/* 검색 중에는 아래 목록이 걸러진 결과이므로 제목도 그렇게 밝힌다.
+              예전엔 직원 계정에서 요약(summary)을 못 불러와 늘 목록 수를 썼는데,
+              검색하면 "회원 40명"이 "회원 1명"으로 바뀌어 전체 회원이 줄어든 것처럼 보였다. */}
+          <Text style={styles.cardTitle}>
+            {query.trim()
+              ? `검색 결과 ${customers.length}명`
+              : `회원 ${summary?.customer_count ?? customers.length}명`}
+          </Text>
           <Pressable style={styles.addBtn} onPress={() => setRegisterOpen(true)}>
             <Ionicons name="add" size={13} color="#FFF" />
             <Text style={styles.addBtnText}>회원 등록</Text>
