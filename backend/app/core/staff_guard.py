@@ -20,7 +20,7 @@ import jwt
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from app.core.auth import ALGORITHM, SECRET_KEY
+from app.core.auth import ALGORITHM, CLOCK_SKEW_LEEWAY, SECRET_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +99,12 @@ def _staff_id_from_request(request: Request):
         return None
     token = auth[7:].strip()
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        # leeway는 get_current_user와 반드시 같아야 한다. 예전엔 여기만 없어서, 토큰이
+        # 만료된 뒤 60초 동안 이 함수는 ExpiredSignatureError로 None(=직원 아님)을
+        # 돌려주는데 get_current_user는 같은 토큰을 받아들였다. 직원 토큰의 sub는
+        # 사장님 이메일이라, 그 60초는 알바가 매출·정산·급여까지 다 열리는 창이었다.
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM],
+                             leeway=CLOCK_SKEW_LEEWAY)
     except jwt.PyJWTError:
         # 사장님은 Firebase 토큰을 쓸 수도 있다 — 여기서 못 읽으면 직원이 아니다.
         # 실제 인증 여부는 get_current_user가 판단하므로 통과시킨다.
