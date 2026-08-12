@@ -373,8 +373,15 @@ def _scheduled_hours_by_employee(db, emp_ids: list[int], month: str) -> dict[int
     )
     hours: dict[int, float] = {}
     for s in rows:
-        st = s.actual_start_time or s.start_time
-        et = s.actual_end_time or s.end_time
+        # 실제 출퇴근은 **둘 다 있을 때만** 쓴다 — _payroll_rows와 같은 규칙이어야 한다.
+        #
+        # 예전엔 필드별로 `actual or 계획`을 섞어서, 출근만 찍고 퇴근을 안 찍은 근무
+        # (현업에서 흔하다)에 실제 시작시각 + 계획 종료시각이 조합됐다. 계획 09:00–18:00에
+        # 08:30 출근만 찍히면 여기선 9.5시간, 급여 화면은 9.0시간 — 시급 12,000원 기준
+        # 한 번에 6,000원, 월 20회면 12만원이 두 화면에서 어긋났다. 지각이면 반대로 벌어진다.
+        use_actual = bool(s.actual_start_time and s.actual_end_time)
+        st = s.actual_start_time if use_actual else s.start_time
+        et = s.actual_end_time if use_actual else s.end_time
         if not st or not et:
             continue
         delta = (et - st).total_seconds() / 3600
