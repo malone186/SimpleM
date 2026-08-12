@@ -51,9 +51,15 @@ FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "simplem-app")
 # 판정도 그만큼 늦춰지지만, 토큰 수명이 1시간이라 보안상 의미 있는 손해가 아니다.
 CLOCK_SKEW_LEEWAY = int(os.getenv("AUTH_CLOCK_SKEW_LEEWAY", "60"))
 
-# 관리자 이메일 허용목록 — 프론트 RootNavigator의 ADMIN_EMAILS와 동일하게 맞춘다.
-# 콤마로 여러 명 지정 가능: ADMIN_EMAILS=a@x.com,b@y.com
-ADMIN_EMAILS = [e.strip() for e in os.getenv("ADMIN_EMAILS", "admin@simplem.com").split(",") if e.strip()]
+# 관리자 이메일 허용목록 — 프론트 RootNavigator의 ADMIN_EMAILS(EXPO_PUBLIC_ADMIN_EMAILS)와
+# 같은 값을 넣는다. 콤마로 여러 명 지정 가능: ADMIN_EMAILS=a@x.com,b@y.com
+#
+# 소문자로 눕혀 두는 이유: 앱은 로그인할 때 이메일을 소문자로 만들어 보내는데(AuthContext),
+# 여기서 대소문자를 구분하면 환경변수에 'Admin@…'처럼 적힌 순간 앱은 관리자 화면을 열어 주고
+# 서버는 403을 내는 어긋난 상태가 된다. 이메일은 원래 대소문자를 안 가리는 값이기도 하다.
+ADMIN_EMAILS = [
+    e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "admin@simplem.com").split(",") if e.strip()
+]
 # 관리자 웹 콘솔 로그인용 비밀번호 (env 필수). 없으면 관리자 로그인이 비활성화된다.
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 
@@ -278,7 +284,7 @@ def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
     - 1단계: get_current_user가 토큰(Firebase RS256 또는 로컬 HS256)을 검증
     - 2단계: 그 이메일이 관리자인지 확인 — 아니면 403
     """
-    if current_user.email not in ADMIN_EMAILS:
+    if (current_user.email or "").strip().lower() not in ADMIN_EMAILS:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="관리자 권한이 필요합니다.",

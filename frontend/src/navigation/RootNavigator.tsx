@@ -51,7 +51,16 @@ export type RootTabParamList = {
   Management: undefined;
 };
 
-const ADMIN_EMAILS = ['admin@simplem.com'];
+// 관리자 이메일 — 백엔드 app/core/auth.py의 ADMIN_EMAILS와 반드시 같아야 한다.
+//
+// 예전엔 여기에 값을 박아 두고 "백엔드와 맞춘다"는 주석만 달아 뒀는데, 백엔드는
+// 환경변수로 바꿀 수 있고 여기는 못 바꿔서 구조적으로 어긋날 수 있었다 — 운영에서
+// 관리자를 추가하면 백엔드는 통과시키는데 앱은 관리자 화면을 안 열어 주는 상태가 된다.
+// 이제 양쪽 다 환경변수(ADMIN_EMAILS / EXPO_PUBLIC_ADMIN_EMAILS)로 같은 값을 받는다.
+const ADMIN_EMAILS = (process.env.EXPO_PUBLIC_ADMIN_EMAILS ?? 'admin@simplem.com')
+  .split(',')
+  .map((e: string) => e.trim().toLowerCase())
+  .filter(Boolean);
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
@@ -244,8 +253,9 @@ export default function RootNavigator() {
     return <AuthScreen />;
   }
 
-  // 관리자 → 하단 탭 없이 관리자 콘솔만 노출
-  if (ADMIN_EMAILS.includes(user.email)) {
+  // 관리자 → 하단 탭 없이 관리자 콘솔만 노출.
+  // 목록을 소문자로 만들어 두므로 비교 대상도 소문자로 맞춘다 (백엔드 auth.py도 동일).
+  if (ADMIN_EMAILS.includes(user.email.trim().toLowerCase())) {
     return <AdminScreen />;
   }
 
