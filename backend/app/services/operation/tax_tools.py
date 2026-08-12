@@ -13,17 +13,27 @@ except ImportError:
             return func
 
 
+# 예전엔 세 도구의 period 기본값이 "2026-07"로 박혀 있었다. 기한은 전부 period에서
+# 파생되고 D-day만 오늘로 재기 때문에, 인자 없이 부르면 달이 바뀌어도 영원히 2026년
+# 7월 기준으로 답했다 — 실측(2026-08-12): "원천징수세 2026-08-10, 기한 경과".
+# 사장님이 "세금 신고 기한 알려줘"라고만 물으면 정확히 이 경로를 탄다.
+def _this_month() -> str:
+    from app.utils.datetime_kst import today_kst
+
+    return today_kst().strftime("%Y-%m")
+
+
 @tool
 def estimate_tax_tool(
     total_revenue: int,
     total_expense: int,
-    period: str = "2026-07",
+    period: str = "",
     tax_type: str = "general"
 ) -> dict:
     """매출과 비용 금액을 바탕으로 참고용 예상 세금(부가세 + 종합소득세)을 계산합니다.
     - total_revenue: 총 매출액 (원 단위, 0 이상)
     - total_expense: 총 비용/경비액 (원 단위, 0 이상)
-    - period: 대상 연월 (기본 '2026-07', 포맷: YYYY-MM)
+    - period: 대상 연월 (비우면 이번 달, 포맷: YYYY-MM)
     - tax_type: 과세 유형 ('general' 일반과세자 | 'simplified' 간이과세자, 기본 'general')
     """
     try:
@@ -31,7 +41,7 @@ def estimate_tax_tool(
         result = TaxService.estimate_from_amounts(
             total_revenue=total_revenue,
             total_expense=total_expense,
-            period=period,
+            period=period or _this_month(),
             tax_type=tax_type
         )
 
@@ -62,7 +72,7 @@ def estimate_tax_tool(
 def build_tax_rag_documents_tool(
     total_revenue: int,
     total_expense: int,
-    period: str = "2026-07",
+    period: str = "",
     tax_type: str = "general"
 ) -> dict:
     """세무 시뮬레이션 결과를 AI 챗봇 참조용 RAG 문서 형태로 변환합니다.
@@ -76,7 +86,7 @@ def build_tax_rag_documents_tool(
         tax_result = TaxService.estimate_from_amounts(
             total_revenue=total_revenue,
             total_expense=total_expense,
-            period=period,
+            period=period or _this_month(),
             tax_type=tax_type
         )
 
@@ -107,16 +117,16 @@ def build_tax_rag_documents_tool(
 
 @tool
 def get_tax_schedule_tool(
-    period: str = "2026-07",
+    period: str = "",
     tax_type: str = "general"
 ) -> dict:
     """부가가치세, 종합소득세, 원천징수세 등의 주요 세무 신고 기한 및 일정(D-Day)을 조회합니다.
-    - period: 대상 연월 (기본 '2026-07', 포맷: YYYY-MM)
+    - period: 대상 연월 (비우면 이번 달, 포맷: YYYY-MM)
     - tax_type: 과세 유형 ('general' 일반과세자 | 'simplified' 간이과세자, 기본 'general')
     """
     try:
         # [한글 주석] 세무 신고 기한 및 일정 정보 서비스 함수 호출
-        schedule = TaxService.filing_deadlines(period=period, tax_type=tax_type)
+        schedule = TaxService.filing_deadlines(period=period or _this_month(), tax_type=tax_type)
 
         return {
             "success": True,
