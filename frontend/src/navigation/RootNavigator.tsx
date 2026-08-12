@@ -132,13 +132,14 @@ const erpHeader = (title: string, navigation: any) =>
       letterSpacing: -0.45, // [한글 주석: 자간을 쫀쫀하게 좁혀 가독성을 높임]
       // 네이티브는 로드해 둔 Pretendard 파일을 직접 지정 — 시스템 폰트에 맡기면
       // iOS(애플고딕)와 안드로이드(Noto Sans)가 서로 다르게 보인다. 파일 자체가
-      // 미디엄 굵기라 fontWeight는 웹에서만 준다(안드로이드는 파일=굵기).
+      // 굵기라 fontWeight는 웹에서만 준다(안드로이드는 파일=굵기).
+      // 굵기는 세미볼드 — 미디엄(500)은 진한 갈색 바 위에서 흐릿하게 떠 보인다 (2026-08-12)
       ...(Platform.OS === 'web'
         ? {
-            fontWeight: '500' as const,
+            fontWeight: '600' as const,
             fontFamily: 'Pretendard, -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, sans-serif',
           }
-        : { fontFamily: fonts.medium }),
+        : { fontFamily: fonts.semibold }),
     },
     // [한글 주석] 예전에는 35를 박아 뒀는데 기기마다 상태바 높이가 제각각이다
     // (아이폰 다이나믹 아일랜드 59pt, 갤럭시 펀치홀 24~40dp, 플립 커버 화면은 거의 0).
@@ -186,7 +187,7 @@ function SheetHeader({ navigation, options }: any) {
       {/* 아이폰(iOS 26)처럼 제목은 가운데 — 좌우 여백은 원형 버튼과 겹치지 않는 폭 */}
       <Text
         numberOfLines={1}
-        style={{ marginHorizontal: 64, textAlign: 'center', color: tint, fontSize: 17, letterSpacing: -0.45, fontFamily: fonts.medium }}
+        style={{ marginHorizontal: 64, textAlign: 'center', color: tint, fontSize: 17, letterSpacing: -0.45, fontFamily: fonts.semibold }}
       >
         {options.title}
       </Text>
@@ -272,7 +273,7 @@ function StaffApp({ userName }: { userName: string }) {
           headerStyle: { backgroundColor: colors.espressoBrown },
           headerTintColor: colors.creamSand,
           // 사장님 앱 헤더와 같은 Pretendard — 안드로이드가 Noto로 갈라지지 않게
-          headerTitleStyle: { fontSize: 17, letterSpacing: -0.45, ...(Platform.OS === 'web' ? { fontWeight: '500' as const } : { fontFamily: fonts.medium }) },
+          headerTitleStyle: { fontSize: 17, letterSpacing: -0.45, ...(Platform.OS === 'web' ? { fontWeight: '600' as const } : { fontFamily: fonts.semibold }) },
           headerStatusBarHeight: Platform.OS === 'web' ? 35 : undefined,
           headerRight: logoutBtn,
           tabBarActiveTintColor: colors.pointOrange,
