@@ -232,9 +232,13 @@ const asSheet = (options: Record<string, unknown>) =>
     ? {
         ...options,
         presentation: 'formSheet' as const,
-        // 1.0(전체 높이)로 하면 시트가 화면을 꽉 채워 일반 화면과 구분이 안 된다 —
-        // 아이폰 카드 모달처럼 위에 틈을 남겨 뒤 화면이 딤 처리된 채 보이게 한다
-        sheetAllowedDetents: [0.94],
+        // 0.94: 아이폰 카드 모달처럼 위에 틈을 남겨 뒤 화면이 딤 처리된 채 보이게 한다
+        //       (1.0 하나만 주면 화면을 꽉 채워 일반 화면과 구분이 안 된다)
+        // 1.0을 함께 두는 건 키보드 때문이다 — react-native-screens는 detent가 하나뿐이면
+        // 키보드가 떠도 시트를 넓히지 않아(SheetDelegate.kt의 KeyboardVisible 분기가
+        // 1개짜리는 콜백만 달고 끝낸다) 입력칸이 키보드에 덮인 채 손이 닿지 않는다.
+        // 두 개 이상이면 IME가 뜰 때 STATE_EXPANDED로 강제 확장된다.
+        sheetAllowedDetents: [0.94, 1.0],
         sheetCornerRadius: 20,
         // formSheet에는 네이티브 헤더가 없어 JS 헤더로 대체 (headerShown: false 화면이면 안 그려진다)
         header: (props: any) => <SheetHeader {...props} />,
