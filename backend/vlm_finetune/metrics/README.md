@@ -35,6 +35,31 @@ GGUF·병합 체크포인트·llama.cpp 도구는 삭제했고, **LoRA 어댑터
   품목 재현율이 0.94 대 0.66으로 벌어진다 — 두 수치를 섞어 인용하지 말 것.
 - 하드케이스 정성 테스트는 `hard_test_results.txt` (점수 없음, 원본 JSON 덤프만).
 
+## 확장 지표 (2026-08-12 재채점 — `rescore_metrics.py`, 재실행 없음)
+
+보존된 `detail[].pred/gt`에서 CER·필드 정확도·완전 일치·영수증 단위 정확도를
+추가 계산했다 (`rescore_extended.json`). 2B는 pred/gt가 없어 이미지별 scores에서
+파생되는 지표만 있다.
+
+| 지표 | Qwen3.5-0.8B v2 (Q8) | Qwen3-VL-2B (Q4@1024) |
+|---|---|---|
+| CER (품목명) | 0.307 | — (재실행 필요) |
+| Field Accuracy (name/qty/unit_price/amount) | 0.368 / 0.747 / 0.744 / 0.746 (평균 0.651) | — (재실행 필요) |
+| Exact Match — 품목 3필드 recall (macro) | 0.493 | 0.634 |
+| Exact Match — 품목 4필드 (micro) | 0.358 | — (재실행 필요) |
+| name F1 | 0.500 | 0.666 |
+| Complete Receipt Accuracy | 0.246 | 0.354 |
+| Inference Time (s/장) | 3.80 | 4.62 |
+
+- 정의는 `rescore_metrics.py` 도크스트링 참고. 핵심: CER은 품목 짝지음(완전일치
+  → 편집거리 그리디) 후 편집거리 합 ÷ gt 이름 글자수(570품목), 환각 품목은
+  CER 제외(F1/precision이 담당). Complete Receipt Accuracy는 품목 수 일치 +
+  전 품목 name·qty·amount 일치인 영수증 비율 — 양쪽 모두 3필드 기준이라 직접
+  비교 가능하다 (0.8B는 4필드로 조여도 0.246으로 동일).
+- 기존 표의 name recall/F1은 **이미지별 macro** 평균, 확장 지표의 필드 정확도·
+  4필드 exact match는 **570개 품목 micro**다. name 0.368(micro) vs 0.500(macro)이
+  다른 건 오류가 품목 많은 영수증에 몰려 있기 때문 — 섞어 인용하지 말 것.
+
 ## 왜 0.8B에서 2B로 갔나
 
 가장 가벼운 것부터 시작하는 게 로컬 서빙 전제에 맞았다. Qwen3.5-0.8B는 파인튜닝으로
