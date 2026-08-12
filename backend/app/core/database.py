@@ -30,7 +30,14 @@ def _create_db_engine():
     try:
         eng = create_engine(
             RAW_DB_URL,
-            pool_pre_ping=True,
+            # 체크아웃마다 살아있는지 확인하는 쿼리를 한 번 더 보낸다. Neon처럼 유휴 연결을
+            # 끊는 서버리스 DB에서 '끊긴 연결로 500' 사고를 막아 주는 안전장치다.
+            #
+            # 대신 왕복이 한 번 더 붙는다 — 실측(2026-08-12) 세션당 약 74ms, 요청 하나가
+            # 인증+서비스로 2개 세션을 열면 150ms 안팎이다. 끄고 싶으면 pool_recycle을
+            # Neon의 유휴 타임아웃보다 짧게 두어 연결이 먼저 재활용되게 한 뒤
+            # DB_POOL_PRE_PING=0 으로 내려야 한다. 기본값은 안전 쪽(켜짐)이다.
+            pool_pre_ping=os.getenv("DB_POOL_PRE_PING", "1") != "0",
             # 홈 화면 하나가 API를 십수 건 동시에 부른다(실측 2026-08-12: 로그인 직후 19건).
             # 풀이 5개면 나머지는 그때그때 새 연결을 맺는데, Neon까지 TLS 악수를 새로 하는
             # 비용이 커서 그 요청들만 눈에 띄게 느려진다. 15개면 그 몰림을 그대로 받아낸다
@@ -38,7 +45,10 @@ def _create_db_engine():
             # 연결 주소가 Neon '-pooler'(PgBouncer)라 클라이언트 연결 수에는 여유가 크다.
             pool_size=int(os.getenv("DB_POOL_SIZE", "15")),
             max_overflow=10,
-            pool_recycle=1800,
+            # 유휴 연결을 30분 만에 재활용한다. Neon은 그보다 먼저 끊을 수 있어서 지금은
+            # pool_pre_ping이 뒤를 받쳐 준다 — pre_ping을 끄려면 이 값을 Neon의 유휴
+            # 타임아웃보다 짧게(예: 240) 내려 연결이 먼저 갈리게 해야 한다.
+            pool_recycle=int(os.getenv("DB_POOL_RECYCLE", "1800")),
             connect_args={
                 "connect_timeout": connect_timeout,
                 "keepalives": 1,
