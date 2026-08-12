@@ -51,6 +51,14 @@ DEFAULT_OPEN_DAYS = 26
 # 변동비율이 이 값을 넘으면 입력 오류를 의심한다 (재료비가 매출의 90%인 카페는 없다)
 _MAX_SANE_VARIABLE_RATIO = 95.0
 
+# 계산 결과 캐시 (수명 180초).
+# 쿼리는 이미 배치돼 있는데도 느린 이유는 SQL이 아니라 Neon(싱가포르)까지의 왕복 지연이
+# 여러 번 쌓이는 것이다. 두 값 모두 자주 안 변한다(고정비=사장님이 가끔 수정, 변동비율=30일
+# 이동평균). 사장님이 고정비를 저장하면 save_fixed_costs가 drop_ratio_cache로 즉시 버린다.
+_RATIO_TTL_SEC = 180
+_ratio_cache: dict[str, tuple[float, dict[str, Any]]] = {}  # (store:days) → 변동비율 추정
+_fixed_cache: dict[str, tuple[float, dict[str, Any]]] = {}  # store → 고정비
+
 
 class BreakevenError(ValueError):
     """손익분기점 계산 불가 (잘못된 입력)"""
@@ -67,13 +75,23 @@ def _session():
 # ---------------------------------------------------------------------------
 
 def get_fixed_costs(store_id: str) -> dict[str, Any]:
-    """저장된 고정비. 한 번도 입력한 적 없으면 configured=False로 0을 돌려준다."""
+    """저장된 고정비. 한 번도 입력한 적 없으면 configured=False로 0을 돌려준다.
+
+    한 행짜리 조회인데도 370ms가 걸린다 — SQL이 아니라 Neon(싱가포르)까지의 왕복
+    지연이다. 홈에서만 손익분기·오늘 본전·리포트가 각자 이 값을 부르므로 캐시가 크게 듣는다.
+    사장님이 고정비를 저장하면 save_fixed_costs가 즉시 버린다(위 drop_ratio_cache와 같은 자리).
+    """
+    import time as _time
     from app.models.ai import FixedCostSetting
+
+    hit = _fixed_cache.get(store_id)
+    if hit and _time.time() - hit[0] < _RATIO_TTL_SEC:
+        return dict(hit[1])
 
     with _session() as db:
         row = db.get(FixedCostSetting, store_id)
         if row is None:
-            return {
+            out = {
                 "configured": False,
                 **{f: 0 for f in FIXED_COST_FIELDS},
                 "total": 0,
@@ -82,18 +100,21 @@ def get_fixed_costs(store_id: str) -> dict[str, Any]:
                 "memo": None,
                 "labels": FIXED_COST_LABELS,
             }
-        values = {f: int(getattr(row, f) or 0) for f in FIXED_COST_FIELDS}
-        return {
-            "configured": True,
-            **values,
-            "total": sum(values.values()),
-            "custom_variable_ratio": float(row.custom_variable_ratio)
-            if row.custom_variable_ratio is not None else None,
-            "open_days_per_month": int(row.open_days_per_month or DEFAULT_OPEN_DAYS),
-            "memo": row.memo,
-            "labels": FIXED_COST_LABELS,
-            "updated_at": row.updated_at,
-        }
+        else:
+            values = {f: int(getattr(row, f) or 0) for f in FIXED_COST_FIELDS}
+            out = {
+                "configured": True,
+                **values,
+                "total": sum(values.values()),
+                "custom_variable_ratio": float(row.custom_variable_ratio)
+                if row.custom_variable_ratio is not None else None,
+                "open_days_per_month": int(row.open_days_per_month or DEFAULT_OPEN_DAYS),
+                "memo": row.memo,
+                "labels": FIXED_COST_LABELS,
+                "updated_at": row.updated_at,
+            }
+    _fixed_cache[store_id] = (_time.time(), dict(out))
+    return out
 
 
 def save_fixed_costs(
@@ -137,6 +158,9 @@ def save_fixed_costs(
             row.memo = memo or None
         db.commit()
 
+    # 직접 입력한 변동비율이 캐시된 자동 추정값을 덮으므로, 저장 즉시 캐시를 버린다.
+    # (안 버리면 사장님이 값을 고쳐도 최대 3분간 옛 손익분기점이 보인다)
+    drop_ratio_cache(store_id)
     return get_fixed_costs(store_id)
 
 
@@ -209,12 +233,35 @@ def clear_custom_variable_ratio(store_id: str) -> dict[str, Any]:
         if row is not None:
             row.custom_variable_ratio = None
             db.commit()
+    drop_ratio_cache(store_id)  # save_fixed_costs와 같은 이유 — 안 버리면 지운 값이 계속 보인다
     return get_fixed_costs(store_id)
 
 
 # ---------------------------------------------------------------------------
 # 변동비율 — 실제 판매에서 뽑아낸다
 # ---------------------------------------------------------------------------
+
+# 변동비율 추정 결과 캐시 — (store, days) → (계산 시각, 결과)
+#
+# 이 계산은 30일치 판매를 메뉴별 레시피 원가와 맞춰 보고(menu_contribution) 28일치
+# 카드 정산까지 훑는다(period_summary). 쿼리 자체는 이미 배치돼 있는데도 1.3초가
+# 걸리는데, 원인은 SQL이 아니라 Neon(싱가포르)까지의 왕복 지연이 여러 번 쌓이는 것이다.
+#
+# 값의 성격상 자주 캐시해도 안전하다 — 30일 이동평균이라 판매 한 건으로는 거의 안 움직인다.
+# 홈의 '오늘 본전' 카드가 프론트에서 쓰는 캐시 수명(3분)과 같은 값을 쓴다.
+# 고정비를 저장하면 save_fixed_costs가 이 캐시를 즉시 버린다.
+
+
+def drop_ratio_cache(store_id: Optional[str] = None) -> None:
+    """변동비율 캐시를 버린다 (store_id 없으면 전체) — 설정이 바뀌었을 때 호출."""
+    if store_id is None:
+        _ratio_cache.clear()
+        _fixed_cache.clear()
+        return
+    for k in [k for k in _ratio_cache if k.startswith(f"{store_id}:")]:
+        _ratio_cache.pop(k, None)
+    _fixed_cache.pop(store_id, None)
+
 
 def estimate_variable_ratio(store_id: str, days: int = 30) -> dict[str, Any]:
     """최근 판매에서 변동비율(%)을 추정한다 — 재료비율 + 카드 수수료율.
@@ -225,7 +272,16 @@ def estimate_variable_ratio(store_id: str, days: int = 30) -> dict[str, Any]:
 
     레시피가 하나도 없으면 재료비를 알 수 없으므로 material_available=False로
     돌려준다 — 이때 자동 계산은 포기하고 직접 입력을 받아야 한다.
+
+    결과는 _RATIO_TTL_SEC 동안 캐시된다 (위 주석 참고).
     """
+    import time as _time
+
+    cache_key = f"{store_id}:{days}"
+    hit = _ratio_cache.get(cache_key)
+    if hit and _time.time() - hit[0] < _RATIO_TTL_SEC:
+        return dict(hit[1])  # 호출자가 손대도 캐시가 오염되지 않게 복사해 준다
+
     from app.services.ai import sales_service
 
     material_pct: Optional[float] = None
@@ -280,7 +336,7 @@ def estimate_variable_ratio(store_id: str, days: int = 30) -> dict[str, Any]:
         parts.append({"label": "카드 수수료", "pct": fee_pct, "source": "최근 28일 카드 매출"})
 
     ratio = round(sum(p["pct"] for p in parts), 2) if parts else None
-    return {
+    result = {
         "ratio": ratio,
         "material_pct": material_pct,
         "card_fee_pct": fee_pct,
@@ -292,6 +348,8 @@ def estimate_variable_ratio(store_id: str, days: int = 30) -> dict[str, Any]:
         "monthly_revenue": monthly_revenue,
         "days": days,
     }
+    _ratio_cache[cache_key] = (_time.time(), dict(result))
+    return result
 
 
 # ---------------------------------------------------------------------------

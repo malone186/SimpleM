@@ -33,6 +33,9 @@ def _clean():
         with bes._session() as db:
             db.query(FixedCostSetting).filter(FixedCostSetting.store_id == STORE).delete()
             db.commit()
+        # 서비스를 거치지 않고 행을 직접 지웠으니 캐시도 손으로 버려야 한다.
+        # (앱은 save_fixed_costs·clear_custom_variable_ratio가 알아서 버린다)
+        bes.drop_ratio_cache(STORE)
 
     _wipe()
     yield

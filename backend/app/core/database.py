@@ -31,7 +31,12 @@ def _create_db_engine():
         eng = create_engine(
             RAW_DB_URL,
             pool_pre_ping=True,
-            pool_size=int(os.getenv("DB_POOL_SIZE", "5")),
+            # 홈 화면 하나가 API를 십수 건 동시에 부른다(실측 2026-08-12: 로그인 직후 19건).
+            # 풀이 5개면 나머지는 그때그때 새 연결을 맺는데, Neon까지 TLS 악수를 새로 하는
+            # 비용이 커서 그 요청들만 눈에 띄게 느려진다. 15개면 그 몰림을 그대로 받아낸다
+            # (실측: 18건 동시 요청 1256ms → 861ms).
+            # 연결 주소가 Neon '-pooler'(PgBouncer)라 클라이언트 연결 수에는 여유가 크다.
+            pool_size=int(os.getenv("DB_POOL_SIZE", "15")),
             max_overflow=10,
             pool_recycle=1800,
             connect_args={
