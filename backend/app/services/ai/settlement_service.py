@@ -386,6 +386,11 @@ def save_day(
             store_id=store_id, entry_date=entry_date, method="cash", issuer="",
             card_type="credit", amount=int(cash), cups=cash_cups, memo=memo,
         ))
+    # 같은 카드사·같은 종류가 두 줄로 오면 합친다. 유니크 키가
+    # (매장, 날짜, 수단, 카드사, 종류)라 그대로 넣으면 IntegrityError가 나는데,
+    # 그 시점엔 이미 그날 기존 입력을 지운 뒤라 500과 함께 저장돼 있던 하루치가
+    # 통째로 날아갔다. 화면에서 '신한'을 두 번 추가하면 재현된다.
+    merged: dict[tuple[str, str], DailySalesEntry] = {}
     for c in cards or []:
         code = str(c.get("issuer") or "").strip()
         amount = int(c.get("amount") or 0)
@@ -394,11 +399,22 @@ def save_day(
         if code not in ISSUER_BY_CODE:
             raise SettlementError(f"알 수 없는 카드사입니다: {code}")
         card_type = "check" if c.get("card_type") == "check" else "credit"
-        rows.append(DailySalesEntry(
+        key = (code, card_type)
+        prev = merged.get(key)
+        if prev is not None:
+            prev.amount += amount
+            cups = c.get("cups")
+            if cups:
+                prev.cups = (prev.cups or 0) + int(cups)
+            if c.get("memo") and not prev.memo:
+                prev.memo = c.get("memo")
+            continue
+        merged[key] = DailySalesEntry(
             store_id=store_id, entry_date=entry_date, method="card", issuer=code,
             card_type=card_type, amount=amount,
             cups=c.get("cups"), memo=c.get("memo"),
-        ))
+        )
+    rows.extend(merged.values())
 
     db = _session()
     try:
