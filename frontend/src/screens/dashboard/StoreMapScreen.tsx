@@ -126,6 +126,11 @@ export default function StoreMapScreen() {
   const [savingPin, setSavingPin] = useState(false);
 
   const [radius, setRadius] = useState<number>(1000);
+  // 지도에 '지금 그려져 있는' 카페들이 어느 반경으로 받아온 것인지. 칩을 누르면 radius는
+  // 즉시 바뀌지만 목록은 수 초 뒤에 온다 — 그 사이 radius로 원을 그리면 500m 원 안에
+  // 2km 반경 카페 20곳이 찍혀 "500m에 카페가 20곳"으로 읽혔다. 원은 데이터가 도착한
+  // 뒤에 함께 바뀌어야 범례의 카페 수·지역명과도 앞뒤가 맞는다.
+  const [drawnRadius, setDrawnRadius] = useState<number>(1000);
   const [nearby, setNearby] = useState<NeighborhoodResult | null>(null);
   const [loadingNearby, setLoadingNearby] = useState(false);
   const [nearbyError, setNearbyError] = useState('');
@@ -278,6 +283,7 @@ export default function StoreMapScreen() {
         const data = await getNeighborhoodInsight(token, radiusM);
         if (seq.current.nearby !== my || !alive.current) return; // 더 최근 반경 요청이 있다
         setNearby(data);
+        setDrawnRadius(radiusM);
         // 유사도 채점은 뒤이어 비동기로 — 배지가 준비되는 대로 목록에 나타난다
         if (data.cafes.length > 0) {
           setSimState('loading');
@@ -731,7 +737,7 @@ export default function StoreMapScreen() {
             onCafePress={openCafe}
             onEventPress={openEventByName}
             containerId="standalone-store-map"
-            radius={radius}
+            radius={drawnRadius}
           />
         </View>
 
