@@ -426,7 +426,10 @@ def plan_event_promotion(event: dict[str, Any], store_name: str = "내 매장", 
         return None
 
     today = today or _today_kst().isoformat()
-    cache_key = f"{store_name}|{name}|{event.get('start_date')}|{today}"
+    # 프롬프트에 들어가는 값은 전부 키에 넣는다 — 예전엔 store_name만 넣어서, 상호를
+    # 등록 안 한 매장끼리(둘 다 기본값 '내 매장') 또는 같은 프랜차이즈끼리 남의 플랜을
+    # 그대로 받았다. 업종·지역·영업시간이 다른데 08시 오픈 기준 인력 계획이 내려오는 식.
+    cache_key = f"{store_name}|{biz_type}|{region}|{hours}|{name}|{event.get('start_date')}|{today}"
     hit = _plan_cache.get(cache_key)
     if hit and time.time() - hit[0] < _PLAN_TTL:
         return {**hit[1], "cached": True}

@@ -449,7 +449,12 @@ def confirm_menu_board(db, store_id: str, menus: list[dict[str, Any]]) -> dict[s
                     iid, qty = int(iid), float(qty)
                 except (TypeError, ValueError):
                     continue
-                if qty <= 0:
+                # prices는 이 매장 재료만 담고 있다 — 없는 id면 남의 매장 재료다.
+                # 예전엔 클라이언트가 보낸 ingredient_id를 그대로 레시피에 박아서,
+                # 그 메뉴가 팔릴 때마다 판매·OCR·예측이 재료 id만 보고 남의 매장
+                # 재고를 깎았다(다섯 경로가 전부 id만으로 Stock을 찾는다).
+                # sales_import_service.register_menus는 이미 같은 검사를 하고 있다.
+                if qty <= 0 or iid not in prices:
                     continue
                 db.add(Recipe(menu_id=menu.id, ingredient_id=iid, quantity=qty))
                 cost += qty * prices.get(iid, 0.0)

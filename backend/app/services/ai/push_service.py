@@ -155,10 +155,18 @@ def _drop_token(db, token: str, reason: str) -> None:
     logger.info("무효 토큰 삭제 (%s): ...%s", reason, token[-12:])
 
 
-def list_tokens(db, store_id: str) -> list[str]:
+def list_tokens(db, store_id: str, owner_only: bool = False) -> list[str]:
+    """매장에 등록된 기기 토큰.
+
+    owner_only=True면 사장님 기기(staff_id NULL)만 — 알바 폰에 매출·순이익·급여가
+    가지 않게 한다. 직원 기기로 보내는 알림은 send_to_staff가 따로 담당한다.
+    """
     from app.models.ai import DeviceToken
 
-    return [r.token for r in db.query(DeviceToken).filter(DeviceToken.store_id == store_id).all()]
+    q = db.query(DeviceToken).filter(DeviceToken.store_id == store_id)
+    if owner_only:
+        q = q.filter(DeviceToken.staff_id.is_(None))
+    return [r.token for r in q.all()]
 
 
 # 이 기간 넘게 앱이 한 번도 안 열린 기기는 등록을 지운다. FCM 토큰은 장기 미사용만으로도
@@ -235,16 +243,22 @@ def _send_one(access_token: str, project_id: str, token: str, title: str, body: 
 
 def send_to_store(db, store_id: str, title: str, body: str,
                   data: Optional[dict[str, Any]] = None, urgent: bool = False) -> int:
-    """매장에 등록된 모든 기기로 발송하고 성공 건수를 돌려준다.
+    """매장의 사장님 기기로 발송하고 성공 건수를 돌려준다.
 
     data에는 탭했을 때 열 화면을 담는다 (screen·params) — 프론트 pushRegistration이 읽는다.
+
+    직원 로그인 기기(staff_id NOT NULL)는 제외한다 (2026-08-12). 알바가 로그인하면
+    사장님 매장 이름으로 토큰이 등록되는데, 예전엔 여기서 그 기기까지 전부 보내서
+    마감 요약("오늘 매출 124만원"), 주간 리포트(순이익), 다른 직원의 주휴수당 상태가
+    알바 잠금화면에 떴다. 직원용 알림은 send_to_staff가 따로 있다 — 화면은 이미
+    RootNavigator·staff_guard가 막고 있는데 푸시만 새고 있었다.
     """
     creds, project_id = _load_credentials()
     if creds is None or not project_id:
         logger.info("FCM 미설정 — 발송 건너뜀 (%s: %s)", store_id, title)
         return 0
 
-    tokens = list_tokens(db, store_id)
+    tokens = list_tokens(db, store_id, owner_only=True)
     if not tokens:
         return 0
 
