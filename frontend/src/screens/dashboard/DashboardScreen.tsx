@@ -644,7 +644,10 @@ export default function DashboardScreen() {
       // 방금 지운 줄이 되살아나면 안 된다 (지움 기록은 늘 더해지기만 한다)
       prefsRef.current = {
         dismissed: new Set([...parseSet(rawDismissed), ...prefsRef.current.dismissed]),
-        completed: todayCompletedSet(rawCompleted),
+        // 완료 체크도 같은 이유로 합친다. 예전엔 이것만 통째로 갈아 끼워서, 보관소
+        // 읽기가 끝나기 전에 누른 체크가 스스로 풀렸다 (저장은 돼 있어 다음 새로고침에
+        // 되살아나는 바람에 더 헷갈렸다). 메모리 쪽은 이번 세션 = 오늘 것뿐이다.
+        completed: new Set([...todayCompletedSet(rawCompleted), ...prefsRef.current.completed]),
         dismissedAlerts: new Set([
           ...parseSet(rawDismissedAlerts),
           ...prefsRef.current.dismissedAlerts,
