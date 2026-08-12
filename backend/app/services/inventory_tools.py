@@ -21,14 +21,17 @@ def _dump(data) -> str:
 
 @tool
 def get_stock_status(store_id: str) -> str:
-    """내 매장의 재고 현황을 조회한다 — 재료별 현재 수량, 단위, 단가, 안전재고."""
+    """내 매장의 재고 현황을 조회한다 — 재료별 현재 수량, 단위, 단가, 안전재고.
+    재료 개수를 답할 때는 반드시 total_count 값을 그대로 쓴다 (items를 직접 세지 말 것)."""
     from app.services import inventory_service
 
     with _db() as db:
         stocks = inventory_service.get_stocks(db, store_id)
     if not stocks:
         return "등록된 재고가 없습니다. 영수증 촬영 입고나 재료 등록으로 시작할 수 있습니다."
-    return _dump(stocks)
+    # total_count를 같이 준다 — 예전엔 배열만 돌려줘서 "재료 몇 개야?"에 모델이 65개를
+    # 눈으로 세다 62로 답했다(2026-08-12 실측). 세어야 할 것을 숫자로 주면 안 틀린다.
+    return _dump({"total_count": len(stocks), "items": stocks})
 
 
 @tool
