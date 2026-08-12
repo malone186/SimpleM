@@ -55,6 +55,15 @@ function lowest(items: StockItem[]): number {
   return items.reduce((a, b) => (ratio(b) < ratio(a) ? b : a)).ingredient_id;
 }
 
+// 감시 폴링의 '첫 실행'을 늦추는 시간.
+//
+// 여기 있는 것들은 전부 배경 감시다 — 재고 경고·센서 이상·공지·음성 알림·인사이트·브리핑.
+// 첫 화면에 그려지는 내용이 아닌데도 로그인 즉시 한꺼번에 튀어 나가서, 정작 눈에 보이는
+// 카드(매출·본전·할 일)의 차례를 밀어냈다. 브라우저는 한 서버에 동시 연결이 6개뿐이라
+// 이 경합이 그대로 체감 지연이 된다(실측 2026-08-12: 홈 진입 19건 동시 호출).
+// 몇 초 늦게 시작해도 감시 목적에는 아무 손해가 없다.
+const WATCH_START_DELAY_MS = 4_000;
+
 const POLL_MS = 60_000;           // 감시 주기 (1분)
 // 문의 답변 감시 주기 — 관리자가 답을 다는 데 보통 수 분~수 시간 걸린다.
 // 15초로 두면 홈에 가만히 있어도 분당 4회 요청이 계속 나가 배터리·서버만 축낸다.
@@ -285,9 +294,9 @@ export default function AlertsWatcher() {
       }
     };
 
-    runOnce();
+    const first = setTimeout(runOnce, WATCH_START_DELAY_MS);
     const timer = setInterval(runOnce, NOTICE_POLL_MS);
-    return () => clearInterval(timer);
+    return () => { clearTimeout(first); clearInterval(timer); };
   }, [signedIn, user?.email, prefs.ready, prefs.dndEnabled, prefs.dndStart, prefs.dndEnd]);
 
   useEffect(() => {
@@ -416,9 +425,9 @@ export default function AlertsWatcher() {
       }
     };
 
-    check();
+    const first = setTimeout(check, WATCH_START_DELAY_MS);
     const timer = setInterval(check, POLL_MS);
-    return () => clearInterval(timer);
+    return () => { clearTimeout(first); clearInterval(timer); };
   }, [
     signedIn,
     token,
@@ -482,9 +491,9 @@ export default function AlertsWatcher() {
       }
     };
 
-    checkVoiceNotifications();
+    const first = setTimeout(checkVoiceNotifications, WATCH_START_DELAY_MS);
     const timer = setInterval(checkVoiceNotifications, VOICE_POLL_MS);
-    return () => clearInterval(timer);
+    return () => { clearTimeout(first); clearInterval(timer); };
   }, [signedIn, token, prefs.ready, prefs.dndEnabled, prefs.dndStart, prefs.dndEnd, prefs.voiceAlertEnabled]);
 
   // ⑦ 선제 인사이트 — 서버가 매장 DB를 훑어 찾아낸 "곧 할 일 · 놓친 일"을 알림으로 전한다.
@@ -541,9 +550,9 @@ export default function AlertsWatcher() {
       }
     };
 
-    checkInsights();
+    const first = setTimeout(checkInsights, WATCH_START_DELAY_MS);
     const timer = setInterval(checkInsights, INSIGHT_POLL_MS);
-    return () => clearInterval(timer);
+    return () => { clearTimeout(first); clearInterval(timer); };
   }, [
     token,
     prefs.ready,
@@ -583,10 +592,11 @@ export default function AlertsWatcher() {
       }
     };
 
-    run();
+    const first = setTimeout(run, WATCH_START_DELAY_MS);
     const timer = setInterval(run, BRIEFING_POLL_MS);
     return () => {
       alive = false;
+      clearTimeout(first);
       clearInterval(timer);
     };
   }, [signedIn, token, prefs.ready, prefs.proactiveInsights,
@@ -636,9 +646,9 @@ export default function AlertsWatcher() {
       }
     };
 
-    checkFaults();
+    const first = setTimeout(checkFaults, WATCH_START_DELAY_MS);
     const timer = setInterval(checkFaults, FAULT_POLL_MS);
-    return () => clearInterval(timer);
+    return () => { clearTimeout(first); clearInterval(timer); };
   }, [signedIn, token, prefs.ready]);
 
   return null;
