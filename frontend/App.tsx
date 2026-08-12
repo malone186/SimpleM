@@ -1,3 +1,4 @@
+import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -14,6 +15,18 @@ import WebAppearance from './src/components/WebAppearance';
 import RootNavigator from './src/navigation/RootNavigator';
 
 export default function App() {
+  // Pretendard — 토스류 앱들이 쓰는 한글 본문 폰트. theme/index.ts의 typography가 이 이름을 쓴다.
+  // 로드 전에 그리면 안드로이드가 '모르는 폰트'로 죽을 수 있어 잠깐(수십 ms) 빈 화면을 반환한다
+  // (첫 1초는 어차피 Splash가 덮는다).
+  const [fontsLoaded] = useFonts({
+    'Pretendard-Regular': require('./assets/fonts/Pretendard-Regular.otf'),
+    'Pretendard-Medium': require('./assets/fonts/Pretendard-Medium.otf'),
+    'Pretendard-SemiBold': require('./assets/fonts/Pretendard-SemiBold.otf'),
+    'Pretendard-Bold': require('./assets/fonts/Pretendard-Bold.otf'),
+    'Pretendard-ExtraBold': require('./assets/fonts/Pretendard-ExtraBold.otf'),
+  });
+  if (!fontsLoaded) return null;
+
   return (
     <SafeAreaProvider>
       <PreferencesProvider>

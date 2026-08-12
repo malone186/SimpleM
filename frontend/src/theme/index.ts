@@ -43,12 +43,25 @@ export const shadows = {
 // [한글 주석] 숫자를 fs()로 감싼 이유 — 시안(390dp)에서 뽑은 값이라 플립 커버 화면에서는 넘치고
 // 폴드 펼침에서는 빈약해 보인다. fs()가 기기 폭에 맞춰 완만히 조정하고, OS '글자 크게' 배율이
 // 1.3배를 넘으면 상한을 걸어 버튼 라벨이 두 줄로 터지는 것을 막는다.
+// Pretendard 가중치별 패밀리 — App.tsx의 useFonts가 로드한다.
+// 안드로이드는 fontWeight 대신 파일(패밀리)로 굵기를 정하므로 가중치마다 이름이 다르다.
+export const fonts = {
+  regular: 'Pretendard-Regular',
+  medium: 'Pretendard-Medium',
+  semibold: 'Pretendard-SemiBold',
+  bold: 'Pretendard-Bold',
+  extrabold: 'Pretendard-ExtraBold',
+} as const;
+
 export const typography = {
-  L1: { fontSize: fs(20), fontWeight: '900' as const }, // 대표 강조 헤더
-  L2: { fontSize: fs(30), fontWeight: '900' as const }, // 실시간 숫자 금액
-  L3: { fontSize: fs(16), fontWeight: '700' as const }, // 카드 내부 값
-  L4: { fontSize: fs(12), fontWeight: '700' as const }, // 주요 알림 타이틀
-  L5: { fontSize: fs(10), fontWeight: '500' as const }, // 캡션 & 서브 정보
+  L1: { fontSize: fs(20), fontWeight: '900' as const, fontFamily: fonts.extrabold }, // 대표 강조 헤더
+  L2: { fontSize: fs(30), fontWeight: '900' as const, fontFamily: fonts.extrabold }, // 실시간 숫자 금액
+  L3: { fontSize: fs(16), fontWeight: '700' as const, fontFamily: fonts.bold }, // 카드 내부 값
+  L4: { fontSize: fs(12), fontWeight: '700' as const, fontFamily: fonts.bold }, // 주요 알림 타이틀
+  L5: { fontSize: fs(10), fontWeight: '500' as const, fontFamily: fonts.medium }, // 캡션 & 서브 정보
+  // 히어로 숫자 (토스식) — 화면의 주인공 금액. 라벨(heroLabel)은 작고 연하게 위에 얹는다.
+  hero: { fontSize: fs(34), fontWeight: '800' as const, fontFamily: fonts.extrabold, letterSpacing: -0.8 },
+  heroLabel: { fontSize: fs(12), fontWeight: '600' as const, fontFamily: fonts.semibold, letterSpacing: -0.2 },
 } as const;
 
 // 간격 시스템 (§2)

@@ -70,9 +70,12 @@
           "androidAppId": "ca-app-pub-3940256099942544~3347511713",
           "iosAppId": "ca-app-pub-3940256099942544~1458002511",
           "userTrackingUsageDescription": "관심사에 맞는 광고를 보여드리기 위해 기기 식별자를 사용합니다.",
-          "skAdNetworkItems": ["cstr6suwn9.skadnetwork"]
+          "skAdNetworkItems": [
+            "cstr6suwn9.skadnetwork"
+          ]
         }
-      ]
+      ],
+      "expo-font"
     ],
     "extra": {
       "eas": {

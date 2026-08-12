@@ -1970,10 +1970,8 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(140, 111, 86, 0.08)',
   },
   modalAmountText: {
-    fontSize: 26,
-    fontWeight: '900',
+    ...typography.hero, // 토스식 히어로 숫자 — 금액이 화면의 주인공 (Pretendard ExtraBold 34)
     color: colors.espressoBrown,
-    letterSpacing: -0.6,
   },
   fullTabTrack: {
     flexDirection: 'row',

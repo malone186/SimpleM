@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 
 import { useAuth } from '../../auth/AuthContext';
-import { PressableScale } from '../motion';
+import { PressableScale, useCountUp } from '../motion';
 import { getDailyQuest, type DailyQuest } from '../../lib/api/rewards';
 import { useCachedResource } from '../../lib/cache';
 import { colors, shadows, spacing, typography } from '../../theme';
@@ -47,6 +47,8 @@ export default function BreakevenTodayCard({ refreshToken = 0 }: { refreshToken?
 
   const goal = data.goal ?? 0;
   const sold = data.sold_cups ?? 0;
+  // 판 잔 수가 촤르륵 차오른다 — 매출 카드 금액과 같은 카운트업 (토스식)
+  const soldAnim = useCountUp(sold, 800, [sold]);
   const pct = Math.min(100, goal > 0 ? (sold / goal) * 100 : 0);
   const remain = Math.max(0, goal - sold);
 
@@ -62,7 +64,7 @@ export default function BreakevenTodayCard({ refreshToken = 0 }: { refreshToken?
 
       <View style={styles.countRow}>
         <Text style={styles.count}>
-          <Text style={[styles.countNow, data.done && { color: '#3E9B4F' }]}>{sold}</Text>
+          <Text style={[styles.countNow, data.done && { color: '#3E9B4F' }]}>{soldAnim}</Text>
           <Text style={styles.countGoal}> / 약 {goal}잔</Text>
         </Text>
         <Text style={[styles.remain, data.done && { color: '#3E9B4F' }]}>
@@ -94,8 +96,9 @@ const styles = StyleSheet.create({
   doneTag: { ...typography.L5, fontWeight: '800', color: '#3E9B4F', marginLeft: 6 },
   countRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 },
   count: { ...typography.L3 },
-  countNow: { fontSize: 24, fontWeight: '900', color: colors.espressoBrown },
-  countGoal: { fontSize: 15, fontWeight: '700', color: colors.mochaBrown },
+  // 히어로 숫자 (토스식) — 판 잔 수가 주인공, 목표는 작고 연하게
+  countNow: { ...typography.hero, fontSize: 28, color: colors.espressoBrown },
+  countGoal: { ...typography.heroLabel, fontSize: 15, color: colors.mochaBrown },
   remain: { ...typography.L5, fontWeight: '700', color: colors.pointOrange },
   track: { height: 8, borderRadius: 4, backgroundColor: colors.mutedSand, overflow: 'hidden' },
   fill: { height: '100%', borderRadius: 4, backgroundColor: '#C07030' },
