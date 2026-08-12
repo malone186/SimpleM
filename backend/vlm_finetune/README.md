@@ -6,10 +6,13 @@
 > 학습 스크립트·손라벨 데이터만 남겨 재수출이 가능하다.
 
 CLOVA OCR + Gemini 2단계 파이프라인을 **파인튜닝한 Qwen VLM 하나**로 대체하기 위한
-데이터·학습·평가 일체 (Qwen3-VL-2B와 Qwen3.5-0.8B 두 크기를 학습·비교했다).
+데이터·학습·평가 일체 (2B와 0.8B 두 크기를 학습·비교했다).
 
-> 참고: 요구사항의 "qwen3.5 0.8b"는 존재하지 않는 모델이다 (Qwen3 0.6B/1.7B는 텍스트 전용).
-> 실존하는 가장 작은 Qwen 비전 모델인 **Qwen3-VL-2B-Instruct**를 사용했다.
+> **명칭 주의 (2026-08-12 교정)**: 아래 문서와 코드에 "Qwen3-VL-2B"로 적힌 것의 실제
+> 베이스는 **Qwen/Qwen3.5-2B**다 — `output/adapter2b/adapter_config.json`과 finish2b.sh
+> (qwen35 파이프라인)가 근거다. 초기 실험을 Qwen3-VL-2B-Instruct로 시작한 흔적(train.py)이
+> 이름에만 남았다. **밖에 인용할 때는 Qwen3.5-2B로 쓸 것.**
+> 자세한 근거: `metrics/README.md` 머리말, 저장소 루트 `OCR_정량평가지표_2026-08-12.md`.
 
 ## 구성
 

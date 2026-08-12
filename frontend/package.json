@@ -58,7 +58,9 @@
     "web": "expo start --web",
     "build:dev-apk": "eas build --platform android --profile development",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "ota": "EXPO_PUBLIC_API_BASE_URL=https://brewnote-api-915817944047.asia-northeast3.run.app eas update --branch production",
+    "ota:preview": "EXPO_PUBLIC_API_BASE_URL=https://brewnote-api-915817944047.asia-northeast3.run.app eas update --branch preview"
   },
   "private": true
 }
