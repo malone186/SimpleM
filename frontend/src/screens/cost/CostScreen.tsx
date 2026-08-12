@@ -16,6 +16,8 @@ import { PressableScale } from '../../components/motion'; // [한글 주석: 터
 import { apiFetch } from '../../lib/api/client';
 import { describeApiFailure, type ApiFailure } from '../../lib/api/errors';
 import { getMenuContribution, type ContributionResult } from '../../lib/api/sales';
+import { getBreakeven, type Breakeven } from '../../lib/api/breakeven';
+import { useNavigation } from '@react-navigation/native';
 import { toast } from '../../components/toast';
 import { colors, typography } from '../../theme';
 import {
@@ -123,6 +125,10 @@ export default function CostScreen() {
 
   // 메뉴별 기여이익(잔당 마진 × 실제 판매량) — 원가율만으로는 안 보이는 '재료비 뺀 총액'
   const [contribution, setContribution] = useState<ContributionResult | null>(null);
+  // 진짜 순이익 — 재료비 뺀 값에서 고정비·카드수수료까지 뺀 값. 계산은 손익분기 API가
+  // 이미 다 한다(compute_breakeven.estimated_profit). 여기선 그 결과만 끌어와 보여준다.
+  const [breakeven, setBreakeven] = useState<Breakeven | null>(null);
+  const navigation = useNavigation<any>();
   // 원가율 기준 설명 카드 펼침 여부 (원가율 개념이 없는 사장님·예비 창업자용)
   const [showGuide, setShowGuide] = useState(false);
 
@@ -178,6 +184,12 @@ export default function CostScreen() {
         if (!cancelled) setContribution(c);
       })
       .catch((e) => console.error('메뉴 기여이익 조회 실패:', e));
+    // 진짜 순이익 — 손익분기 계산(고정비·카드수수료 포함)을 그대로 가져온다. 독립 실패.
+    getBreakeven(token)
+      .then((b) => {
+        if (!cancelled) setBreakeven(b);
+      })
+      .catch((e) => console.error('순이익(손익분기) 조회 실패:', e));
     return () => {
       cancelled = true;
     };
@@ -352,6 +364,64 @@ export default function CostScreen() {
                 </View>
               ))}
           </Card>
+        )}
+
+        {/* 진짜 순이익 — 재료비 뺀 값에서 고정비·카드수수료까지 뺀 '실제 남는 돈'.
+            계산(estimated_profit)은 백엔드 손익분기가 이미 정확히 한 값을 그대로 쓴다
+            (재료비+카드수수료=변동비, 임대·인건·공과금=고정비 — 이중 차감/누락 없음). */}
+        {rows.length > 0 && breakeven && (
+          breakeven.computed && breakeven.estimated_profit !== undefined ? (
+            <Card tone="cream">
+              <View style={styles.head}>
+                <Text style={styles.contribTitle}>진짜 순이익 (월 기준)</Text>
+                <Text style={[styles.contribTotal, breakeven.estimated_profit < 0 && { color: GRADE_COLOR.bad }]}>
+                  {breakeven.estimated_profit < 0 ? '−' : ''}₩{Math.abs(breakeven.estimated_profit).toLocaleString()}
+                </Text>
+              </View>
+              <View style={styles.netRows}>
+                <View style={styles.netRow}>
+                  <Text style={styles.netLabel}>월 매출 (추정)</Text>
+                  <Text style={styles.netVal}>₩{(breakeven.current_monthly_revenue ?? 0).toLocaleString()}</Text>
+                </View>
+                <View style={styles.netRow}>
+                  <Text style={styles.netLabel}>
+                    − 재료비·카드수수료{breakeven.variable_cost_ratio != null ? ` (${breakeven.variable_cost_ratio}%)` : ''}
+                  </Text>
+                  <Text style={styles.netMinus}>
+                    −₩{Math.round((breakeven.current_monthly_revenue ?? 0) * (breakeven.variable_cost_ratio ?? 0) / 100).toLocaleString()}
+                  </Text>
+                </View>
+                <View style={styles.netRow}>
+                  <Text style={styles.netLabel}>− 고정비 (임대·인건·공과금)</Text>
+                  <Text style={styles.netMinus}>−₩{breakeven.fixed_cost_total.toLocaleString()}</Text>
+                </View>
+                <Divider />
+                <View style={styles.netRow}>
+                  <Text style={styles.netLabelBold}>= 진짜 남는 돈</Text>
+                  <Text style={[styles.netBold, { color: breakeven.estimated_profit < 0 ? GRADE_COLOR.bad : colors.trendGreenText }]}>
+                    {breakeven.estimated_profit < 0 ? '−' : ''}₩{Math.abs(breakeven.estimated_profit).toLocaleString()}
+                  </Text>
+                </View>
+              </View>
+              <PressableScale style={styles.netEdit} onPress={() => navigation.navigate('BreakEven')}>
+                <Ionicons name="options-outline" size={13} color={colors.pointOrange} />
+                <Text style={styles.netEditText}>고정비 수정 · 손익분기 보기</Text>
+              </PressableScale>
+            </Card>
+          ) : (
+            <Card tone="cream">
+              <Text style={styles.contribTitle}>💡 진짜 순이익을 보려면</Text>
+              <Text style={styles.contribHint}>
+                지금은 재료비만 뺀 값이에요. 임대료·인건비 같은 고정비를 한 번만 넣으면{'\n'}
+                카드수수료까지 빼고 ‘진짜 남는 돈’을 자동으로 계산해 드려요.
+              </Text>
+              <PressableScale style={styles.netCta} onPress={() => navigation.navigate('BreakEven')}>
+                <Ionicons name="calculator-outline" size={16} color={colors.white} />
+                <Text style={styles.netCtaText}>고정비 넣고 순이익 보기</Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.white} />
+              </PressableScale>
+            </Card>
+          )
         )}
 
         {/* (삭제됨) AI 메뉴 재구성 카드 — 안에 든 메뉴·판매량·원가율이 전부 지어낸 상수였다.
@@ -880,6 +950,21 @@ const styles = StyleSheet.create({
   contribTitle: { ...typography.L3, color: colors.espressoBrown },
   contribTotal: { fontSize: 18, fontWeight: '900', color: colors.trendGreenText },
   contribHint: { ...typography.L5, color: colors.mochaBrown, marginTop: -4, marginBottom: 12, lineHeight: 16 },
+  // 진짜 순이익 카드 — 매출 → 변동비 → 고정비 → 순이익 단계 표시
+  netRows: { gap: 9, marginTop: 2 },
+  netRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  netLabel: { ...typography.L4, color: colors.mochaBrown, flex: 1 },
+  netVal: { ...typography.L4, color: colors.espressoBrown, fontWeight: '700' },
+  netMinus: { ...typography.L4, color: colors.mochaBrown, fontWeight: '700' },
+  netLabelBold: { ...typography.L3, color: colors.espressoBrown, fontWeight: '800' },
+  netBold: { fontSize: 17, fontWeight: '900', color: colors.trendGreenText },
+  netEdit: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 12, alignSelf: 'flex-start' },
+  netEditText: { ...typography.L5, color: colors.pointOrange, fontWeight: '700' },
+  netCta: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    marginTop: 14, backgroundColor: colors.espressoBrown, paddingVertical: 13, borderRadius: 12,
+  },
+  netCtaText: { color: colors.white, fontSize: 14, fontWeight: '700' },
 
   contribCardItem: {
     backgroundColor: '#FFFDF9',

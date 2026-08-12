@@ -9,6 +9,7 @@ import { useAuth } from '../../auth/AuthContext';
 import BreakevenTodayCard from '../../components/dashboard/BreakevenTodayCard';
 import ManagementReportCard from '../../components/dashboard/ManagementReportCard';
 import SalesCard from '../../components/dashboard/SalesCard';
+import SetupGuideCard from '../../components/dashboard/SetupGuideCard';
 import Disclosure from '../../components/ui/Disclosure';
 import TodoList, { type Todo } from '../../components/dashboard/TodoList';
 import WelcomeHeader from '../../components/dashboard/WelcomeHeader';
@@ -1088,6 +1089,12 @@ export default function DashboardScreen() {
               onRestoreAiTodos={handleRestoreAiTodos}
               refreshToken={runId}
             />
+          </FadeInUp>
+
+          {/* 첫 원가 세팅 가이드 — 메뉴가 하나도 없는 신규 매장에만 뜬다(세팅되면 스스로 사라짐).
+              영수증→메뉴판→원가 순서를 딥링크로 꿰어, 가입 직후 '첫 원가'까지 안내한다. */}
+          <FadeInUp delay={88}>
+            <SetupGuideCard refreshToken={runId} />
           </FadeInUp>
 
           {/* 오늘 본전 — 사장님이 매일 제일 먼저 봐야 할 숫자를 게임룸에서 홈으로 끌어왔다 */}
