@@ -53,14 +53,18 @@ export const fonts = {
   extrabold: 'Pretendard-ExtraBold',
 } as const;
 
+// 변하는 숫자는 고정폭(tabular)으로 — 카운트업 중 자릿수마다 폭이 달라 좌우로 떨리던 것을
+// 애플처럼 착 고정시킨다 (Pretendard가 tnum 오픈타입 피처를 지원한다).
+const TABULAR = { fontVariant: ['tabular-nums'] as ('tabular-nums')[] };
+
 export const typography = {
   L1: { fontSize: fs(20), fontWeight: '900' as const, fontFamily: fonts.extrabold }, // 대표 강조 헤더
-  L2: { fontSize: fs(30), fontWeight: '900' as const, fontFamily: fonts.extrabold }, // 실시간 숫자 금액
+  L2: { fontSize: fs(30), fontWeight: '900' as const, fontFamily: fonts.extrabold, ...TABULAR }, // 실시간 숫자 금액
   L3: { fontSize: fs(16), fontWeight: '700' as const, fontFamily: fonts.bold }, // 카드 내부 값
   L4: { fontSize: fs(12), fontWeight: '700' as const, fontFamily: fonts.bold }, // 주요 알림 타이틀
   L5: { fontSize: fs(10), fontWeight: '500' as const, fontFamily: fonts.medium }, // 캡션 & 서브 정보
   // 히어로 숫자 (토스식) — 화면의 주인공 금액. 라벨(heroLabel)은 작고 연하게 위에 얹는다.
-  hero: { fontSize: fs(34), fontWeight: '800' as const, fontFamily: fonts.extrabold, letterSpacing: -0.8 },
+  hero: { fontSize: fs(34), fontWeight: '800' as const, fontFamily: fonts.extrabold, letterSpacing: -0.8, ...TABULAR },
   heroLabel: { fontSize: fs(12), fontWeight: '600' as const, fontFamily: fonts.semibold, letterSpacing: -0.2 },
 } as const;
 
