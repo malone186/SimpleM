@@ -157,24 +157,37 @@ def get_sales_history(store_id: str, days: int = 14,
     until = datetime.combine(end + timedelta(days=1), time.min, tzinfo=KST)
     span = (end - start).days + 1
 
-    with _db() as db:
-        rows = (
-            db.query(Sale, Menu.name)
-            .join(Menu, Sale.menu_id == Menu.id)
-            .filter(Sale.store_id == store_id, Sale.sold_at >= since, Sale.sold_at < until)
-            .order_by(Sale.sold_at.desc())
-            .limit(2000)
-            .all()
-        )
+    # 합계는 DB에서 집계한다. 예전엔 판매 행을 최근순 2000건만 가져와 파이썬에서
+    # 더했는데, 하루 150건이면 2주치가 이미 2000건을 넘는다. 그러면 구간 앞쪽 날짜가
+    # 통째로 빠진 채 start_date는 여전히 전체 기간을 주장해서, 챗봇이 실제보다 적은
+    # 매출을 사실처럼 보고했다 (잘렸다는 표시도 없었다).
+    # 날짜 구분은 KST 기준 — 이 저장소가 다른 곳에서 쓰는 timezone() 방식과 같다.
+    from sqlalchemy import func as sa_func
 
+    day_kst = sa_func.date(sa_func.timezone("Asia/Seoul", Sale.sold_at))
     by_day: dict[str, dict[str, int]] = defaultdict(lambda: {"revenue": 0, "cups": 0})
     by_menu: dict[str, dict[str, int]] = defaultdict(lambda: {"revenue": 0, "cups": 0})
-    for sale, menu_name in rows:
-        day = _d(sale.sold_at) or ""
-        by_day[day]["revenue"] += int(sale.total_price or 0)
-        by_day[day]["cups"] += int(sale.quantity or 0)
-        by_menu[menu_name]["revenue"] += int(sale.total_price or 0)
-        by_menu[menu_name]["cups"] += int(sale.quantity or 0)
+    with _db() as db:
+        base = (
+            db.query(Sale)
+            .filter(Sale.store_id == store_id, Sale.sold_at >= since, Sale.sold_at < until)
+        )
+        for day, revenue, cups in (
+            base.with_entities(day_kst.label("d"),
+                               sa_func.sum(Sale.total_price),
+                               sa_func.sum(Sale.quantity))
+            .group_by(day_kst).all()
+        ):
+            key = _d(day) or ""
+            by_day[key] = {"revenue": int(revenue or 0), "cups": int(cups or 0)}
+        for menu_name, revenue, cups in (
+            base.join(Menu, Sale.menu_id == Menu.id)
+            .with_entities(Menu.name,
+                           sa_func.sum(Sale.total_price),
+                           sa_func.sum(Sale.quantity))
+            .group_by(Menu.name).all()
+        ):
+            by_menu[menu_name] = {"revenue": int(revenue or 0), "cups": int(cups or 0)}
 
     daily = [{"date": d, **v} for d, v in sorted(by_day.items(), reverse=True)]
     menus = sorted(
