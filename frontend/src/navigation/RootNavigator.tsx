@@ -167,6 +167,50 @@ const erpHeader = (title: string, navigation: any) =>
     animation: 'slide_from_right' as const,
   });
 
+// [안드로이드 시트 헤더] 아래 asSheet가 쓰는 JS 헤더 — 안드로이드 formSheet은 네이티브 헤더
+// (AppBarLayout)를 아예 만들지 않아서(react-native-screens ScreenStackFragment.kt) 같은 모양을
+// JS로 그린다. options를 그대로 읽으므로 설정 화면처럼 setOptions로 제목·headerLeft를 바꾸는
+// 화면에서도 동작한다.
+function SheetHeader({ options }: any) {
+  const tint = options.headerTintColor ?? colors.creamSand;
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: options.headerStyle?.backgroundColor ?? colors.espressoBrown,
+        paddingLeft: 10,
+        paddingRight: 12,
+        paddingVertical: 11,
+      }}
+    >
+      {options.headerLeft ? options.headerLeft({ canGoBack: true, tintColor: tint }) : null}
+      <View style={{ marginLeft: 4, flex: 1 }}>
+        <Text numberOfLines={1} style={{ color: tint, fontSize: 17, letterSpacing: -0.45, fontFamily: fonts.medium }}>
+          {options.title}
+        </Text>
+      </View>
+      {options.headerRight ? options.headerRight({ canGoBack: true, tintColor: tint }) : null}
+    </View>
+  );
+}
+
+// '잠깐 딴 작업' 화면(설정·매출입력·상점 등)의 카드 시트 — iOS는 네이티브 카드 모달이
+// '아래로 스와이프해 닫기'까지 공짜로 주는데, 안드로이드 modal은 전체 화면으로만 떠서
+// 느낌이 갈라졌다. 안드로이드는 formSheet(전체 높이 바텀시트)로 스와이프 닫기·둥근
+// 모서리·뒤 화면 딤까지 아이폰과 같은 감각을 재현한다. 웹은 기존 modal 흉내 유지.
+const asSheet = (options: Record<string, unknown>) =>
+  Platform.OS === 'android'
+    ? {
+        ...options,
+        presentation: 'formSheet' as const,
+        sheetAllowedDetents: [1.0],
+        sheetCornerRadius: 20,
+        // formSheet에는 네이티브 헤더가 없어 JS 헤더로 대체 (headerShown: false 화면이면 안 그려진다)
+        header: (props: any) => <SheetHeader {...props} />,
+      }
+    : { ...options, presentation: 'modal' as const, animation: 'slide_from_bottom' as const };
+
 // 직원 전용 앱 — 하단 탭 둘: 근무 체크리스트 · 단골 충전. (사장님 앱의 4개 탭 대신 이 둘만)
 // 체크리스트는 매일 반복되는 오픈·마감·위생 루틴이다. 사장님이 항목을 등록해 두면 직원이
 // 매일 체크하고, 사장님도 '오늘 마감 됐나'를 같은 화면에서 확인한다(같은 매장 공유).
@@ -298,12 +342,12 @@ export default function RootNavigator() {
         />
         <Stack.Screen name="Ingredient" component={IngredientScreen} options={({ navigation }) => erpHeader('재료 관리', navigation)} />
         <Stack.Screen name="Menu" component={MenuScreen} options={({ navigation }) => erpHeader('메뉴 관리', navigation)} />
-        <Stack.Screen name="SalesInput" component={SalesInputScreen} options={({ navigation }) => ({ ...erpHeader('매출 입력', navigation), presentation: 'modal' as const, animation: 'slide_from_bottom' as const })} />
+        <Stack.Screen name="SalesInput" component={SalesInputScreen} options={({ navigation }) => asSheet(erpHeader('매출 입력', navigation))} />
         <Stack.Screen name="ManualSales" component={ManualSalesScreen} options={({ navigation }) => erpHeader('직접 입력', navigation)} />
         <Stack.Screen name="Marketing" component={MarketingScreen} options={({ navigation }) => erpHeader('홍보 스튜디오', navigation)} />
         <Stack.Screen name="Cost" component={CostScreen} options={({ navigation }) => erpHeader('원가 분석', navigation)} />
-        <Stack.Screen name="BreakEven" component={BreakEvenScreen} options={({ navigation }) => ({ ...erpHeader('손익분기점', navigation), presentation: 'modal' as const, animation: 'slide_from_bottom' as const })} />
-        <Stack.Screen name="Legal" component={LegalScreen} options={({ navigation }) => ({ ...erpHeader('약관 및 정책', navigation), presentation: 'modal' as const, animation: 'slide_from_bottom' as const })} />
+        <Stack.Screen name="BreakEven" component={BreakEvenScreen} options={({ navigation }) => asSheet(erpHeader('손익분기점', navigation))} />
+        <Stack.Screen name="Legal" component={LegalScreen} options={({ navigation }) => asSheet(erpHeader('약관 및 정책', navigation))} />
         <Stack.Screen name="Document" component={DocumentScreen} options={({ navigation }) => erpHeader('서류 자동화', navigation)} />
         <Stack.Screen name="TaxDraftDetail" component={TaxDraftDetailScreen} options={({ navigation }) => erpHeader('세금 신고 초안', navigation)} />
         <Stack.Screen name="Operation" component={OperationScreen} options={({ navigation }) => erpHeader('직원 · 스케줄', navigation)} />
@@ -313,12 +357,12 @@ export default function RootNavigator() {
         <Stack.Screen name="Checklist" component={ChecklistScreen} options={({ navigation }) => erpHeader('근무 체크리스트', navigation)} />
         <Stack.Screen name="StaffAccount" component={StaffAccountScreen} options={({ navigation }) => erpHeader('직원 계정', navigation)} />
 
-        <Stack.Screen name="Settings" component={SettingsScreen} options={({ navigation }) => ({ ...erpHeader('설정', navigation), presentation: 'modal' as const, animation: 'slide_from_bottom' as const })} />
+        <Stack.Screen name="Settings" component={SettingsScreen} options={({ navigation }) => asSheet(erpHeader('설정', navigation))} />
         <Stack.Screen name="StockDetail" component={StockDetailScreen} options={({ navigation }) => erpHeader('재고 확인', navigation)} />
-        <Stack.Screen name="StoreMap" component={StoreMapScreen} options={({ navigation }) => ({ ...erpHeader('매장 위치', navigation), presentation: 'modal' as const, animation: 'slide_from_bottom' as const })} />
-        <Stack.Screen name="Shop" component={ShopScreen} options={({ navigation }) => ({ ...erpHeader('포인트 상점', navigation), presentation: 'modal' as const, animation: 'slide_from_bottom' as const })} />
+        <Stack.Screen name="StoreMap" component={StoreMapScreen} options={({ navigation }) => asSheet(erpHeader('매장 위치', navigation))} />
+        <Stack.Screen name="Shop" component={ShopScreen} options={({ navigation }) => asSheet(erpHeader('포인트 상점', navigation))} />
         {/* 게임 룸 — 배경 그림에 몰입하도록 기본 헤더 없이 자체 상단 바를 쓴다 */}
-        <Stack.Screen name="BrewRoom" component={BrewRoomScreen} options={{ headerShown: false, presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="BrewRoom" component={BrewRoomScreen} options={asSheet({ headerShown: false })} />
       </Stack.Navigator>
     </NavigationContainer>
   );
