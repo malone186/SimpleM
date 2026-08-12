@@ -100,11 +100,17 @@ def _sales_summary(db, store_id: str, start: date, end: date,
     """매출: 총액·판매 잔 수·일별 추이·베스트 메뉴 + 이전 기간 비교."""
     from app.models.inventory import Menu, Sale
 
+    # sold_at은 timestamptz다. 날짜 문자열("2026-08-11")을 그대로 주면 DB가 **UTC 자정**으로
+    # 캐스팅해서, KST 00:00~08:59 매출(오픈 러시)이 통째로 앞뒤 날짜로 밀린다.
+    # 아래 버킷팅은 이미 KST 기준이라(astimezone(KST)) 필터와 집계 기준이 어긋나 있었다.
+    # staff_service.monthly_payroll이 같은 이유로 먼저 고쳐 둔 것과 기준을 맞춘다.
+    start_at = datetime.combine(start, time.min, tzinfo=KST)
+    end_at = datetime.combine(end, time.min, tzinfo=KST)
     rows = (
         db.query(Sale, Menu.name)
         .join(Menu, Sale.menu_id == Menu.id)
         .filter(Sale.store_id == store_id)
-        .filter(Sale.sold_at >= start.isoformat(), Sale.sold_at < end.isoformat())
+        .filter(Sale.sold_at >= start_at, Sale.sold_at < end_at)
         .all()
     )
     total = sum(s.total_price for s, _ in rows)
@@ -148,7 +154,10 @@ def _sales_summary(db, store_id: str, start: date, end: date,
     prev_total = sum(s.total_price for s in (
         db.query(Sale)
         .filter(Sale.store_id == store_id)
-        .filter(Sale.sold_at >= prev_start.isoformat(), Sale.sold_at < prev_cutoff)
+        # prev_cutoff는 이미 KST tz-aware인데 시작 경계만 UTC 자정이면 창 길이가
+        # 9시간 어긋나 이전 기간이 짧게 잡히고, 증감률이 허위로 부풀려진다.
+        .filter(Sale.sold_at >= datetime.combine(prev_start, time.min, tzinfo=KST),
+                Sale.sold_at < prev_cutoff)
         .all()
     ))
     return {
@@ -182,7 +191,11 @@ def _purchase_summary(db, store_id: str, start: date, end: date,
             db.query(OcrDocument)
             .filter(OcrDocument.store_id == store_id)  # 내 매장 매입만 — 다른 매장 문서 섞임 방지
             .filter(OcrDocument.status == "confirmed")
-            .filter(OcrDocument.created_at >= s.isoformat(), OcrDocument.created_at < e.isoformat())
+            # created_at은 timestamptz — 날짜 문자열을 주면 UTC 자정으로 잘려 매입이
+            # 9시간 밀린다 (KST 새벽 확정분이 전날로, 아침 확정분이 창 밖으로).
+            # 레시피 커버리지가 낮은 매장은 이 매입액이 곧 재료비라 손익 전체가 따라간다.
+            .filter(OcrDocument.created_at >= datetime.combine(s, time.min, tzinfo=KST),
+                    OcrDocument.created_at < datetime.combine(e, time.min, tzinfo=KST))
             .all()
         )
         return sum(float(d.total) for d in docs if d.total is not None), len(docs)
@@ -265,8 +278,9 @@ def _cogs_summary(db, store_id: str, start: date, end: date,
         .join(Ingredient, StockTransaction.ingredient_id == Ingredient.id)
         .filter(Ingredient.store_id == store_id)
         .filter(StockTransaction.type == "ADJUST", StockTransaction.quantity_change < 0)
-        .filter(StockTransaction.created_at >= start.isoformat(),
-                StockTransaction.created_at < end.isoformat())
+        # 위 매출·매입과 같은 이유로 KST 경계를 명시한다 (timestamptz + 날짜 문자열 = UTC 자정)
+        .filter(StockTransaction.created_at >= datetime.combine(start, time.min, tzinfo=KST),
+                StockTransaction.created_at < datetime.combine(end, time.min, tzinfo=KST))
         .all()
     ):
         amount = -(change or 0) * (price or 0)

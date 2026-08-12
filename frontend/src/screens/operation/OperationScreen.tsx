@@ -325,15 +325,19 @@ function ScheduleCalendarCard({
     setTimeout(callback, 110);
   };
 
-  // 이전/다음 월 이동
+  // 이전/다음 월 이동.
+  //
+  // 이전 값에서 계산한다(함수형 setter) — 갱신이 110ms 뒤로 미뤄지는 동안 한 번 더 누르면
+  // 두 콜백이 모두 렌더 시점의 year/month로 계산해서, 두 번 눌렀는데 한 달만 넘어갔다.
+  // 여러 달을 빠르게 넘길 때 탭이 계속 유실된다.
   const handlePrevMonth = () => {
     animateTransition(() => {
-      setCurrentDate(new Date(year, month - 1, 1));
+      setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
     });
   };
   const handleNextMonth = () => {
     animateTransition(() => {
-      setCurrentDate(new Date(year, month + 1, 1));
+      setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
     });
   };
 
@@ -345,14 +349,29 @@ function ScheduleCalendarCard({
     }
     setAdding(true);
     try {
+      // 시간 입력은 자유 텍스트라 "18"·"9"·"오후6시"처럼 뭐든 들어온다.
+      //
+      // 예전엔 padStart(5,'0')으로 길이만 맞췄는데, 그러면 "18"이 "00018"이 되어
+      // 2026-08-12T00018:00 이라는 존재할 수 없는 시각이 서버로 나갔다(422 또는 파싱
+      // 불가한 근무가 저장돼 달력·급여 계산이 깨진다). 숫자를 뽑아 직접 조립한다.
       const formatTime = (tStr: string) => {
-        const h = parseInt(tStr.split(':')[0] || '0', 10);
-        if (h >= 24) return '23:59:59';
-        return `${tStr.length === 5 ? tStr : tStr.padStart(5, '0')}:00`;
+        const m = String(tStr).match(/(\d{1,2})\s*:?\s*(\d{1,2})?/);
+        if (!m) return null; // 숫자가 하나도 없으면 입력 자체가 잘못된 것
+        const h = Math.min(23, Math.max(0, parseInt(m[1], 10)));
+        const min = Math.min(59, Math.max(0, parseInt(m[2] ?? '0', 10)));
+        if (parseInt(m[1], 10) >= 24) return '23:59:59'; // 24시 표기는 그날 끝으로
+        return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}:00`;
       };
+      const startHms = formatTime(startTimeStr);
+      const endHms = formatTime(endTimeStr);
+      if (!startHms || !endHms) {
+        toast('시간을 확인해 주세요', '시작·종료 시간을 09:00 형식으로 입력해 주세요.');
+        setAdding(false);
+        return;
+      }
 
-      const startIso = `${selectedDate}T${formatTime(startTimeStr)}`;
-      const endIso = `${selectedDate}T${formatTime(endTimeStr)}`;
+      const startIso = `${selectedDate}T${startHms}`;
+      const endIso = `${selectedDate}T${endHms}`;
 
       // [한글 주석: 백엔드 상태와 상관없이 화면에 즉시 등록 반영]
       // 예전엔 API를 부르기 전에 '등록 완료'를 띄우고 실패는 콘솔로만 삼켰다.

@@ -427,7 +427,17 @@ export default function SalesCard({
   const monthAnim = useRef(new Animated.Value(1)).current;
   const monthSlideAnim = useRef(new Animated.Value(0)).current;
 
+  // 전환이 끝나기 전에 다시 누르는 것을 막는다.
+  //
+  // 상태 갱신이 90ms 애니메이션 콜백으로 미뤄지는데, 그 사이 한 번 더 누르면 두 콜백이
+  // 모두 '갱신 전' selectedMonth0을 보고 분기한다 — 12월에서 연타하면 setSelectedYear가
+  // 두 번 실행돼 2026년 12월에서 **2028년 1월**로 날아갔다(기대값 2027년 2월).
+  // 연 경계에서만 터지던 버그라 눈치채기 어려웠다.
+  const monthBusy = useRef(false);
+
   const triggerMonthTransition = (updateFn: () => void, direction: 'prev' | 'next') => {
+    if (monthBusy.current) return;
+    monthBusy.current = true;
     Animated.parallel([
       Animated.timing(monthAnim, {
         toValue: 0,
@@ -441,6 +451,7 @@ export default function SalesCard({
       }),
     ]).start(() => {
       updateFn();
+      monthBusy.current = false;
       monthSlideAnim.setValue(direction === 'next' ? 24 : -24);
       Animated.parallel([
         Animated.timing(monthAnim, {
