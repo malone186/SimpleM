@@ -11,7 +11,34 @@ export function onAuthExpired(listener: AuthExpiredListener | null) {
 }
 const AUTH_EXEMPT = /\/auth\/(login|signup|find-email|reset-password)|\/staff-accounts\/login/;
 
+// 같은 GET이 동시에 두 번 나가는 것을 막는다 (진행 중인 요청을 공유).
+//
+// 홈은 한 화면에 카드가 여럿이고 AlertsWatcher까지 각자 필요한 걸 부른다. 그러다 보니
+// 같은 API를 두 곳에서 동시에 부르는 일이 생긴다 — 실측(2026-08-12) 로그인 직후 17건 중
+// forecast·insights·stocks·briefing·알림설정 5종이 정확히 두 번씩 나갔고, 그중 forecast는
+// 한 번에 4.3초씩 걸리는 무거운 예측이다. 서버 일이 두 배가 되는 것도 문제지만, 브라우저는
+// 호스트당 동시 연결이 6개뿐이라 중복 요청이 다른 요청의 차례까지 밀어낸다.
+//
+// 캐시가 아니다 — 응답이 오면 즉시 지운다. '지금 날아가고 있는 같은 요청'에만 올라탄다.
+// GET만 대상: POST·PATCH는 두 번 호출이 곧 두 번 실행이라 합치면 안 된다.
+const inflight = new Map<string, Promise<unknown>>();
+
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? 'GET').toUpperCase();
+  if (method === 'GET') {
+    // 토큰까지 키에 넣는다 — 사장님·직원 계정이 같은 경로를 불러도 응답이 다르다
+    const auth = (init?.headers as Record<string, string> | undefined)?.Authorization ?? '';
+    const key = `${path}|${auth}`;
+    const running = inflight.get(key);
+    if (running) return running as Promise<T>;
+    const p = rawFetch<T>(path, init).finally(() => inflight.delete(key));
+    inflight.set(key, p);
+    return p;
+  }
+  return rawFetch<T>(path, init);
+}
+
+async function rawFetch<T>(path: string, init?: RequestInit): Promise<T> {
   // headers를 ...init보다 뒤에 두어야 한다 — 반대로 두면 호출자가 headers를 넘길 때
   // (undefined여도) Content-Type이 통째로 사라져 FastAPI가 body를 JSON으로 읽지 못한다(422)
   const res = await fetch(`${API_BASE_URL}${path}`, {

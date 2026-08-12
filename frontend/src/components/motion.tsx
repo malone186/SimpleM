@@ -17,12 +17,15 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 export function PressableScale({
   children,
   onPress,
+  onLongPress,
   disabled,
   style,
   to = 0.95,
 }: {
   children: ReactNode;
   onPress?: (e: GestureResponderEvent) => void;
+  // 길게 눌러 컨텍스트 메뉴를 여는 iOS식 상호작용 — 눌림 스케일은 그대로 살아 있다
+  onLongPress?: (e: GestureResponderEvent) => void;
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
   to?: number;
@@ -71,6 +74,7 @@ export function PressableScale({
   return (
     <AnimatedPressable
       onPress={onPress}
+      onLongPress={onLongPress}
       onPressIn={pressIn}
       onPressOut={pressOut}
       disabled={disabled}
@@ -115,6 +119,17 @@ export function FadeInUp({
 }
 
 // ── 스프링으로 팝하며 나타나기 (배지/체크마크 강조용) ──
+// ── 순수 페이드 등장 — 모달 딤(어두운 막)처럼 '움직이면 안 되는' 전면 레이어용.
+// FadeInUp을 쓰면 전체 화면 막이 위로 이동하며 가장자리가 비어 보인다. 딤은 제자리에서
+// 차오르기만 해야 한다 (딤에 backdropFilter가 있으면 블러도 함께 차오른다 — 웹 유리 효과).
+export function FadeIn({ children, duration = 180, style }: { children: ReactNode; duration?: number; style?: StyleProp<ViewStyle> }) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(opacity, { toValue: 1, duration, useNativeDriver: true }).start();
+  }, [opacity, duration]);
+  return <Animated.View style={[style, { opacity }]}>{children}</Animated.View>;
+}
+
 export function PopIn({ children, delay = 0, style }: { children: ReactNode; delay?: number; style?: StyleProp<ViewStyle> }) {
   const v = useRef(new Animated.Value(0)).current;
   useEffect(() => {

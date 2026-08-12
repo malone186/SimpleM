@@ -39,6 +39,18 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 하루 유효한 로컬 토큰
 FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "simplem-app")
 
+# 토큰 시각 검증(iat·exp·nbf)에 허용할 시계 오차(초).
+#
+# 없으면 서버 시계가 1초만 뒤처져도 로그인이 통째로 막힌다. Firebase는 '발급 시각'을
+# 구글 시계로 찍는데, 서버가 그보다 느리면 갓 발급된 토큰이 "미래에 발급됨(iat)"으로
+# 거부된다 — 로그인 직후 홈 화면의 모든 API가 401이 되고, 전역 401 처리가 자동
+# 로그아웃을 걸어 사장님 눈에는 '로그인하면 로그인 화면으로 되돌아감'으로 보인다.
+# (2026-08-12 실제로 개발기 시계가 3초 느려 이 증상이 났다.)
+#
+# 60초는 Firebase Admin SDK를 비롯한 표준 구현들이 쓰는 수준의 여유값이다. 만료(exp)
+# 판정도 그만큼 늦춰지지만, 토큰 수명이 1시간이라 보안상 의미 있는 손해가 아니다.
+CLOCK_SKEW_LEEWAY = int(os.getenv("AUTH_CLOCK_SKEW_LEEWAY", "60"))
+
 # 관리자 이메일 허용목록 — 프론트 RootNavigator의 ADMIN_EMAILS와 동일하게 맞춘다.
 # 콤마로 여러 명 지정 가능: ADMIN_EMAILS=a@x.com,b@y.com
 ADMIN_EMAILS = [e.strip() for e in os.getenv("ADMIN_EMAILS", "admin@simplem.com").split(",") if e.strip()]
@@ -165,7 +177,8 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
             public_key,
             algorithms=["RS256"],
             audience=FIREBASE_PROJECT_ID,
-            issuer=f"https://securetoken.google.com/{FIREBASE_PROJECT_ID}"
+            issuer=f"https://securetoken.google.com/{FIREBASE_PROJECT_ID}",
+            leeway=CLOCK_SKEW_LEEWAY,  # 기기·서버 시계 오차 허용 (아래 상수 주석 참고)
         )
         email = payload.get("email")
         name = payload.get("name", email.split("@")[0] if email else "사장님")
@@ -175,7 +188,8 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         logger.debug(f"Firebase token verification failed: {e}")
         # [2단계: 디버그 폴백 모드] Firebase 검증 실패 시, 로컬 HS256 토큰 해독을 자동 시도합니다.
         try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM],
+                                 leeway=CLOCK_SKEW_LEEWAY)
             email = payload.get("sub")
             name = payload.get("name", email.split("@")[0] if email else "사장님")
             # 직원 토큰이면 sub에 매장(사장님) 이메일이 들어 있고 staff_id가 함께 온다

@@ -19,6 +19,7 @@ import {
   type ChecklistItem,
 } from '../../lib/api/checklist';
 import { fetchStaffAccounts, type StaffAccount } from '../../lib/api/staffAccounts';
+import * as haptics from '../../lib/haptics';
 import { colors, radius, shadows } from '../../theme';
 import { glassSurface } from '../../theme/glass';
 import { s, useBottomInset } from '../../theme/responsive';
@@ -89,6 +90,7 @@ export default function ChecklistScreen() {
 
   const toggle = async (it: ChecklistItem) => {
     if (!token || busyId) return;
+    haptics.tap(); // 체크의 가벼운 톡 — 홈 할 일과 같은 촉감 어휘
     setBusyId(it.id);
     setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, done: !x.done } : x)));
     try {

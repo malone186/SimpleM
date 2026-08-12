@@ -35,6 +35,7 @@ import ShopScreen from '../screens/shop/ShopScreen';
 import StaffScreen from '../screens/staff/StaffScreen';
 import ChecklistScreen from '../screens/checklist/ChecklistScreen';
 import TaxDraftDetailScreen from '../screens/document/TaxDraftDetailScreen';
+import * as haptics from '../lib/haptics';
 import { colors, typography } from '../theme';
 import { liquidGlassBar } from '../theme/glass';
 import type { TaxEstimate } from '../lib/api/operation';
@@ -268,7 +269,10 @@ export default function RootNavigator() {
         if (target) navigateToTarget(target);
       }}
     >
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+      {/* 전환 언어 (애플식) — 상세·목록은 오른쪽에서 밀려 들어오고(push), 설정·매출입력처럼
+          '잠깐 딴 작업'을 하는 화면은 카드로 아래에서 올라온다(modal). 안드로이드 기본 전환이
+          기기마다 제각각이라 여기서 통일한다. */}
+      <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
         <Stack.Screen name="Tabs" component={TabsNavigator} />
         <Stack.Screen
           name="Profile"
@@ -277,12 +281,12 @@ export default function RootNavigator() {
         />
         <Stack.Screen name="Ingredient" component={IngredientScreen} options={({ navigation }) => erpHeader('재료 관리', navigation)} />
         <Stack.Screen name="Menu" component={MenuScreen} options={({ navigation }) => erpHeader('메뉴 관리', navigation)} />
-        <Stack.Screen name="SalesInput" component={SalesInputScreen} options={({ navigation }) => erpHeader('매출 입력', navigation)} />
+        <Stack.Screen name="SalesInput" component={SalesInputScreen} options={({ navigation }) => ({ ...erpHeader('매출 입력', navigation), presentation: 'modal' as const, animation: 'slide_from_bottom' as const })} />
         <Stack.Screen name="ManualSales" component={ManualSalesScreen} options={({ navigation }) => erpHeader('직접 입력', navigation)} />
         <Stack.Screen name="Marketing" component={MarketingScreen} options={({ navigation }) => erpHeader('홍보 스튜디오', navigation)} />
         <Stack.Screen name="Cost" component={CostScreen} options={({ navigation }) => erpHeader('원가 분석', navigation)} />
-        <Stack.Screen name="BreakEven" component={BreakEvenScreen} options={({ navigation }) => erpHeader('손익분기점', navigation)} />
-        <Stack.Screen name="Legal" component={LegalScreen} options={({ navigation }) => erpHeader('약관 및 정책', navigation)} />
+        <Stack.Screen name="BreakEven" component={BreakEvenScreen} options={({ navigation }) => ({ ...erpHeader('손익분기점', navigation), presentation: 'modal' as const, animation: 'slide_from_bottom' as const })} />
+        <Stack.Screen name="Legal" component={LegalScreen} options={({ navigation }) => ({ ...erpHeader('약관 및 정책', navigation), presentation: 'modal' as const, animation: 'slide_from_bottom' as const })} />
         <Stack.Screen name="Document" component={DocumentScreen} options={({ navigation }) => erpHeader('서류 자동화', navigation)} />
         <Stack.Screen name="TaxDraftDetail" component={TaxDraftDetailScreen} options={({ navigation }) => erpHeader('세금 신고 초안', navigation)} />
         <Stack.Screen name="Operation" component={OperationScreen} options={({ navigation }) => erpHeader('직원 · 스케줄', navigation)} />
@@ -292,12 +296,12 @@ export default function RootNavigator() {
         <Stack.Screen name="Checklist" component={ChecklistScreen} options={({ navigation }) => erpHeader('근무 체크리스트', navigation)} />
         <Stack.Screen name="StaffAccount" component={StaffAccountScreen} options={({ navigation }) => erpHeader('직원 계정', navigation)} />
 
-        <Stack.Screen name="Settings" component={SettingsScreen} options={({ navigation }) => erpHeader('설정', navigation)} />
+        <Stack.Screen name="Settings" component={SettingsScreen} options={({ navigation }) => ({ ...erpHeader('설정', navigation), presentation: 'modal' as const, animation: 'slide_from_bottom' as const })} />
         <Stack.Screen name="StockDetail" component={StockDetailScreen} options={({ navigation }) => erpHeader('재고 확인', navigation)} />
-        <Stack.Screen name="StoreMap" component={StoreMapScreen} options={({ navigation }) => erpHeader('매장 위치', navigation)} />
-        <Stack.Screen name="Shop" component={ShopScreen} options={({ navigation }) => erpHeader('포인트 상점', navigation)} />
+        <Stack.Screen name="StoreMap" component={StoreMapScreen} options={({ navigation }) => ({ ...erpHeader('매장 위치', navigation), presentation: 'modal' as const, animation: 'slide_from_bottom' as const })} />
+        <Stack.Screen name="Shop" component={ShopScreen} options={({ navigation }) => ({ ...erpHeader('포인트 상점', navigation), presentation: 'modal' as const, animation: 'slide_from_bottom' as const })} />
         {/* 게임 룸 — 배경 그림에 몰입하도록 기본 헤더 없이 자체 상단 바를 쓴다 */}
-        <Stack.Screen name="BrewRoom" component={BrewRoomScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="BrewRoom" component={BrewRoomScreen} options={{ headerShown: false, presentation: 'modal', animation: 'slide_from_bottom' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
@@ -342,6 +346,8 @@ function TabsNavigator() {
   return (
     <Tab.Navigator
       initialRouteName="Dashboard"
+      // 탭 전환의 미세한 셀렉션 틱 — iOS 탭 바의 그 촉감 (웹에선 무시)
+      screenListeners={{ tabPress: () => haptics.tick() }}
       screenOptions={({ route }) => ({
         headerShown: false,
         animation: 'shift', // 탭 전환 시 콘텐츠가 스르륵 밀려 들어옴

@@ -1,0 +1,5963 @@
+{
+  "results": [
+    {
+      "model": "gemini-3.1-flash-lite",
+      "n": 15,
+      "repeat": 3,
+      "images": 5,
+      "cer": 0.3467963362201783,
+      "field_acc": 0.7833333333333333,
+      "exact": 0.8039160839160839,
+      "f1": 0.7366633366633367,
+      "complete": 0.0,
+      "sec": 12.37900942224854,
+      "sec_median": 10.265729749982711,
+      "failed_rate": 0.0,
+      "detail": [
+        {
+          "cer": 0.046296296296296294,
+          "field_acc": 0.75,
+          "exact": 0.6923076923076923,
+          "f1": 0.6923076923076923,
+          "complete": 0,
+          "precision": 0.6923076923076923,
+          "recall": 0.6923076923076923,
+          "n_gt": 13,
+          "n_pred": 13,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": false,
+            "total": true
+          },
+          "failed": false,
+          "sec": 61.669189457956236,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-44 001.jpeg",
+          "label": "약국 (13품목)",
+          "rep": 0,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2023-04-28",
+            "vendor_name": "남시약국",
+            "total": 84000.0,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "광동쌍화탕(신형)",
+                "spec": "광동제약",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4800.0,
+                "amount": 9600.0,
+                "warnings": []
+              },
+              {
+                "name": "콜민콜드20C",
+                "spec": "영진약품",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3500.0,
+                "amount": 3500.0,
+                "warnings": []
+              },
+              {
+                "name": "로이디펜 10C",
+                "spec": "라파엘",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "위속엔정20T",
+                "spec": "부광약품(주)",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 2500.0,
+                "warnings": []
+              },
+              {
+                "name": "덱스피드10캅셀",
+                "spec": "유한양행",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "동성정로완에프정",
+                "spec": "동성제약",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4500.0,
+                "amount": 9000.0,
+                "warnings": []
+              },
+              {
+                "name": "바세린 퓨어스킨",
+                "spec": "미래약품",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 5000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀정500mg",
+                "spec": "한국얀센",
+                "quantity": 5.0,
+                "unit": null,
+                "unit_price": 2200.0,
+                "amount": 11000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀산500mg",
+                "spec": "한국얀센",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 6500.0,
+                "amount": 13000.0,
+                "warnings": []
+              },
+              {
+                "name": "밴드닷컴(덕용)",
+                "spec": "대일제약",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 800.0,
+                "amount": 800.0,
+                "warnings": []
+              },
+              {
+                "name": "탁센연질캡슐 10c",
+                "spec": "녹십자",
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 1400.0,
+                "amount": 4200.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액 20ml",
+                "spec": "동아제약",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2700.0,
+                "amount": 5400.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액(신) 2",
+                "spec": "동아제약",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 16000.0,
+                "amount": 16000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.0,
+          "field_acc": 0.6666666666666666,
+          "exact": 1.0,
+          "f1": 1.0,
+          "complete": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "n_gt": 3,
+          "n_pred": 3,
+          "fields": {
+            "doc_type": true,
+            "issued_date": false,
+            "vendor_name": false,
+            "total": true,
+            "tax": true,
+            "subtotal": true
+          },
+          "failed": false,
+          "sec": 10.612293582991697,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 002.jpeg",
+          "label": "중식당 (3품목)",
+          "rep": 0,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2018-02-28",
+            "vendor_name": "참재반점",
+            "total": 18000.0,
+            "tax": 1635.0,
+            "subtotal": 16365.0,
+            "items": [
+              {
+                "name": "우동",
+                "spec": "000002",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              },
+              {
+                "name": "짬뽕",
+                "spec": "000003",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              },
+              {
+                "name": "볶음밥",
+                "spec": "000005",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 1.3636363636363635,
+          "field_acc": 1.0,
+          "exact": 1.0,
+          "f1": 0.5714285714285715,
+          "complete": 0,
+          "precision": 0.4,
+          "recall": 1.0,
+          "n_gt": 2,
+          "n_pred": 5,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": true,
+            "total": true
+          },
+          "failed": false,
+          "sec": 12.549477624997962,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 003.jpeg",
+          "label": "배달앱 영수증 (2품목)",
+          "rep": 0,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2025-05-06",
+            "vendor_name": "김충기 꽃삼겹",
+            "total": 16500.0,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "1인분 완전고기만",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 15500.0,
+                "amount": 15500.0,
+                "warnings": []
+              },
+              {
+                "name": "+ 삼겹살",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 0.0,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "+ 검은소스",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 0.0,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "+ 오리지날 맛",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 0.0,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "쌈 야채",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.03278688524590164,
+          "field_acc": 1.0,
+          "exact": 0.7272727272727273,
+          "f1": 0.7272727272727273,
+          "complete": 0,
+          "precision": 0.7272727272727273,
+          "recall": 0.7272727272727273,
+          "n_gt": 11,
+          "n_pred": 11,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "total": true,
+            "tax": true,
+            "subtotal": true
+          },
+          "failed": false,
+          "sec": 10.265729749982711,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 004.jpeg",
+          "label": "생활용품점 (11품목)",
+          "rep": 0,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2022-06-28",
+            "vendor_name": null,
+            "total": 13000.0,
+            "tax": 1183.0,
+            "subtotal": 11817.0,
+            "items": [
+              {
+                "name": "원형패드화장솜100매",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "금은박레터링풍선(PARTY",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "해피곰돌이조립풍선",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "명함화일(120포켓/케이스",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "스티커 보관파일(20포켓)",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "스티커 보관 6공 바인더(",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "생일 pick 캔들",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "캐릭터 자석 집게 3P",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "그리형 줄자 ( 약 150",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "사_다꾸_5단 스탬프",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "근컷터칼(2P) 1000",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.2912621359223301,
+          "field_acc": 0.5,
+          "exact": 0.6,
+          "f1": 0.6923076923076923,
+          "complete": 0,
+          "precision": 0.8181818181818182,
+          "recall": 0.6,
+          "n_gt": 15,
+          "n_pred": 11,
+          "fields": {
+            "doc_type": true,
+            "total": false
+          },
+          "failed": false,
+          "sec": 7.385716207965743,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 005.jpeg",
+          "label": "마트 (15품목, 상단 잘림)",
+          "rep": 0,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": null,
+            "vendor_name": null,
+            "total": null,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "테라캔 355ml",
+                "spec": "251",
+                "quantity": 48.0,
+                "unit": null,
+                "unit_price": 740.0,
+                "amount": 35520.0,
+                "warnings": []
+              },
+              {
+                "name": "스크류바",
+                "spec": "0556",
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 400.0,
+                "amount": 1200.0,
+                "warnings": []
+              },
+              {
+                "name": "월드콘XQ",
+                "spec": "0205",
+                "quantity": 4.0,
+                "unit": null,
+                "unit_price": 510.0,
+                "amount": 2040.0,
+                "warnings": []
+              },
+              {
+                "name": "본가찰옥수수",
+                "spec": "0213",
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 400.0,
+                "amount": 1200.0,
+                "warnings": []
+              },
+              {
+                "name": "둥근달 화이트크림",
+                "spec": "00035",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 490.0,
+                "amount": 490.0,
+                "warnings": []
+              },
+              {
+                "name": "전뽕꿀호떡",
+                "spec": "30061",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1050.0,
+                "amount": 1050.0,
+                "warnings": []
+              },
+              {
+                "name": "딸기 꿀딴지",
+                "spec": "70215",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 500.0,
+                "amount": 500.0,
+                "warnings": []
+              },
+              {
+                "name": "돌 오렌지 팝",
+                "spec": "10221",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1870.0,
+                "amount": 1870.0,
+                "warnings": []
+              },
+              {
+                "name": "홈스타 바이럭스 주방용",
+                "spec": "20051",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3900.0,
+                "amount": 3900.0,
+                "warnings": []
+              },
+              {
+                "name": "파스퇴르 바른목장 우유",
+                "spec": "20045",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2230.0,
+                "amount": 2230.0,
+                "warnings": []
+              },
+              {
+                "name": "코카콜라600ml",
+                "spec": "21978",
+                "quantity": 4.0,
+                "unit": null,
+                "unit_price": 990.0,
+                "amount": 3960.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.046296296296296294,
+          "field_acc": 0.75,
+          "exact": 0.6923076923076923,
+          "f1": 0.6923076923076923,
+          "complete": 0,
+          "precision": 0.6923076923076923,
+          "recall": 0.6923076923076923,
+          "n_gt": 13,
+          "n_pred": 13,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": false,
+            "total": true
+          },
+          "failed": false,
+          "sec": 11.362136291980278,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-44 001.jpeg",
+          "label": "약국 (13품목)",
+          "rep": 1,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2023-04-28",
+            "vendor_name": "남시약국",
+            "total": 84000.0,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "광동쌍화탕(신형)",
+                "spec": "광동제약",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4800.0,
+                "amount": 9600.0,
+                "warnings": []
+              },
+              {
+                "name": "콜민콜드20C",
+                "spec": "영진약품",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3500.0,
+                "amount": 3500.0,
+                "warnings": []
+              },
+              {
+                "name": "로이디펜 10C",
+                "spec": "라파엘",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "위속엔정20T",
+                "spec": "부광약품(주)",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 2500.0,
+                "warnings": []
+              },
+              {
+                "name": "덱스피드10캅셀",
+                "spec": "유한양행",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "동성정로완에프정",
+                "spec": "동성제약",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4500.0,
+                "amount": 9000.0,
+                "warnings": []
+              },
+              {
+                "name": "바세린 퓨어스킨",
+                "spec": "미래약품",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 5000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀정500mg",
+                "spec": "한국얀센",
+                "quantity": 5.0,
+                "unit": null,
+                "unit_price": 2200.0,
+                "amount": 11000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀산500mg",
+                "spec": "한국얀센",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 6500.0,
+                "amount": 13000.0,
+                "warnings": []
+              },
+              {
+                "name": "밴드닷컴(덕용)",
+                "spec": "대일제약",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 800.0,
+                "amount": 800.0,
+                "warnings": []
+              },
+              {
+                "name": "탁센연질캡슐 10c",
+                "spec": "녹십자",
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 1400.0,
+                "amount": 4200.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액 20ml",
+                "spec": "동아제약",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2700.0,
+                "amount": 5400.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액(신) 2",
+                "spec": "동아제약",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 16000.0,
+                "amount": 16000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.0,
+          "field_acc": 0.6666666666666666,
+          "exact": 1.0,
+          "f1": 1.0,
+          "complete": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "n_gt": 3,
+          "n_pred": 3,
+          "fields": {
+            "doc_type": true,
+            "issued_date": false,
+            "vendor_name": false,
+            "total": true,
+            "tax": true,
+            "subtotal": true
+          },
+          "failed": false,
+          "sec": 9.200922666001134,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 002.jpeg",
+          "label": "중식당 (3품목)",
+          "rep": 1,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2018-02-28",
+            "vendor_name": "참재반점",
+            "total": 18000.0,
+            "tax": 1635.0,
+            "subtotal": 16365.0,
+            "items": [
+              {
+                "name": "우동",
+                "spec": "000002",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              },
+              {
+                "name": "짬뽕",
+                "spec": "000003",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              },
+              {
+                "name": "볶음밥",
+                "spec": "000005",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 1.3636363636363635,
+          "field_acc": 1.0,
+          "exact": 1.0,
+          "f1": 0.5714285714285715,
+          "complete": 0,
+          "precision": 0.4,
+          "recall": 1.0,
+          "n_gt": 2,
+          "n_pred": 5,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": true,
+            "total": true
+          },
+          "failed": false,
+          "sec": 11.085339333978482,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 003.jpeg",
+          "label": "배달앱 영수증 (2품목)",
+          "rep": 1,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2025-05-06",
+            "vendor_name": "김충기 꽃삼겹",
+            "total": 16500.0,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "1인분 완전고기만",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 15500.0,
+                "amount": 15500.0,
+                "warnings": []
+              },
+              {
+                "name": "+ 삼겹살",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 0.0,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "+ 검은소스",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 0.0,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "+ 오리지날 맛",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 0.0,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "쌈 야채",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.03278688524590164,
+          "field_acc": 1.0,
+          "exact": 0.7272727272727273,
+          "f1": 0.7272727272727273,
+          "complete": 0,
+          "precision": 0.7272727272727273,
+          "recall": 0.7272727272727273,
+          "n_gt": 11,
+          "n_pred": 11,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "total": true,
+            "tax": true,
+            "subtotal": true
+          },
+          "failed": false,
+          "sec": 11.167880208988208,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 004.jpeg",
+          "label": "생활용품점 (11품목)",
+          "rep": 1,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2022-06-28",
+            "vendor_name": null,
+            "total": 13000.0,
+            "tax": 1183.0,
+            "subtotal": 11817.0,
+            "items": [
+              {
+                "name": "원형패드화장솜100매",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "금은박레터링풍선(PARTY",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "해피곰돌이조립풍선",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "명함화일(120포켓/케이스",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "스티커 보관파일(20포켓)",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "스티커 보관 6공 바인더(",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "생일 pick 캔들",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "캐릭터 자석 집게 3P",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "그리형 줄자 ( 약 150",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "사_다꾸_5단 스탬프",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "근컷터칼(2P) 1000",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.2912621359223301,
+          "field_acc": 0.5,
+          "exact": 0.6,
+          "f1": 0.6923076923076923,
+          "complete": 0,
+          "precision": 0.8181818181818182,
+          "recall": 0.6,
+          "n_gt": 15,
+          "n_pred": 11,
+          "fields": {
+            "doc_type": true,
+            "total": false
+          },
+          "failed": false,
+          "sec": 10.798898832988925,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 005.jpeg",
+          "label": "마트 (15품목, 상단 잘림)",
+          "rep": 1,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": null,
+            "vendor_name": null,
+            "total": null,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "테라캔 355ml",
+                "spec": "251",
+                "quantity": 48.0,
+                "unit": null,
+                "unit_price": 740.0,
+                "amount": 35520.0,
+                "warnings": []
+              },
+              {
+                "name": "스크류바",
+                "spec": "0556",
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 400.0,
+                "amount": 1200.0,
+                "warnings": []
+              },
+              {
+                "name": "월드콘XQ",
+                "spec": "0205",
+                "quantity": 4.0,
+                "unit": null,
+                "unit_price": 510.0,
+                "amount": 2040.0,
+                "warnings": []
+              },
+              {
+                "name": "본가찰옥수수",
+                "spec": "0213",
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 400.0,
+                "amount": 1200.0,
+                "warnings": []
+              },
+              {
+                "name": "둥근달 화이트크림",
+                "spec": "00035",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 490.0,
+                "amount": 490.0,
+                "warnings": []
+              },
+              {
+                "name": "전뽕꿀호떡",
+                "spec": "30061",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1050.0,
+                "amount": 1050.0,
+                "warnings": []
+              },
+              {
+                "name": "딸기 꿀딴지",
+                "spec": "70215",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 500.0,
+                "amount": 500.0,
+                "warnings": []
+              },
+              {
+                "name": "돌 오렌지 팝",
+                "spec": "10221",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1870.0,
+                "amount": 1870.0,
+                "warnings": []
+              },
+              {
+                "name": "홈스타 바이럭스 주방용",
+                "spec": "20051",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3900.0,
+                "amount": 3900.0,
+                "warnings": []
+              },
+              {
+                "name": "파스퇴르 바른목장 우유",
+                "spec": "20045",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2230.0,
+                "amount": 2230.0,
+                "warnings": []
+              },
+              {
+                "name": "코카콜라600ml",
+                "spec": "21978",
+                "quantity": 4.0,
+                "unit": null,
+                "unit_price": 990.0,
+                "amount": 3960.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.046296296296296294,
+          "field_acc": 0.75,
+          "exact": 0.6923076923076923,
+          "f1": 0.6923076923076923,
+          "complete": 0,
+          "precision": 0.6923076923076923,
+          "recall": 0.6923076923076923,
+          "n_gt": 13,
+          "n_pred": 13,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": false,
+            "total": true
+          },
+          "failed": false,
+          "sec": 8.049447249970399,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-44 001.jpeg",
+          "label": "약국 (13품목)",
+          "rep": 2,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2023-04-28",
+            "vendor_name": "남시약국",
+            "total": 84000.0,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "광동쌍화탕(신형)",
+                "spec": "광동제약",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4800.0,
+                "amount": 9600.0,
+                "warnings": []
+              },
+              {
+                "name": "콜민콜드20C",
+                "spec": "영진약품",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3500.0,
+                "amount": 3500.0,
+                "warnings": []
+              },
+              {
+                "name": "로이디펜 10C",
+                "spec": "라파엘",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "위속엔정20T",
+                "spec": "부광약품(주)",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 2500.0,
+                "warnings": []
+              },
+              {
+                "name": "덱스피드10캅셀",
+                "spec": "유한양행",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "동성정로완에프정",
+                "spec": "동성제약",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4500.0,
+                "amount": 9000.0,
+                "warnings": []
+              },
+              {
+                "name": "바세린 퓨어스킨",
+                "spec": "미래약품",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 5000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀정500mg",
+                "spec": "한국얀센",
+                "quantity": 5.0,
+                "unit": null,
+                "unit_price": 2200.0,
+                "amount": 11000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀산500mg",
+                "spec": "한국얀센",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 6500.0,
+                "amount": 13000.0,
+                "warnings": []
+              },
+              {
+                "name": "밴드닷컴(덕용)",
+                "spec": "대일제약",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 800.0,
+                "amount": 800.0,
+                "warnings": []
+              },
+              {
+                "name": "탁센연질캡슐 10c",
+                "spec": "녹십자",
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 1400.0,
+                "amount": 4200.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액 20ml",
+                "spec": "동아제약",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2700.0,
+                "amount": 5400.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액(신) 2",
+                "spec": "동아제약",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 16000.0,
+                "amount": 16000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.0,
+          "field_acc": 0.6666666666666666,
+          "exact": 1.0,
+          "f1": 1.0,
+          "complete": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "n_gt": 3,
+          "n_pred": 3,
+          "fields": {
+            "doc_type": true,
+            "issued_date": false,
+            "vendor_name": false,
+            "total": true,
+            "tax": true,
+            "subtotal": true
+          },
+          "failed": false,
+          "sec": 7.373454374959692,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 002.jpeg",
+          "label": "중식당 (3품목)",
+          "rep": 2,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2018-02-28",
+            "vendor_name": "참재반점",
+            "total": 18000.0,
+            "tax": 1635.0,
+            "subtotal": 16365.0,
+            "items": [
+              {
+                "name": "우동",
+                "spec": "000002",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              },
+              {
+                "name": "짬뽕",
+                "spec": "000003",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              },
+              {
+                "name": "볶음밥",
+                "spec": "000005",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 1.3636363636363635,
+          "field_acc": 1.0,
+          "exact": 1.0,
+          "f1": 0.5714285714285715,
+          "complete": 0,
+          "precision": 0.4,
+          "recall": 1.0,
+          "n_gt": 2,
+          "n_pred": 5,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": true,
+            "total": true
+          },
+          "failed": false,
+          "sec": 7.019900791987311,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 003.jpeg",
+          "label": "배달앱 영수증 (2품목)",
+          "rep": 2,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2025-05-06",
+            "vendor_name": "김충기 꽃삼겹",
+            "total": 16500.0,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "1인분 완전고기만",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 15500.0,
+                "amount": 15500.0,
+                "warnings": []
+              },
+              {
+                "name": "+ 삼겹살",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 0.0,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "+ 검은소스",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 0.0,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "+ 오리지날 맛",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 0.0,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "쌈 야채",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.03278688524590164,
+          "field_acc": 1.0,
+          "exact": 0.7272727272727273,
+          "f1": 0.7272727272727273,
+          "complete": 0,
+          "precision": 0.7272727272727273,
+          "recall": 0.7272727272727273,
+          "n_gt": 11,
+          "n_pred": 11,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "total": true,
+            "tax": true,
+            "subtotal": true
+          },
+          "failed": false,
+          "sec": 4.057126209023409,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 004.jpeg",
+          "label": "생활용품점 (11품목)",
+          "rep": 2,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2022-06-28",
+            "vendor_name": null,
+            "total": 13000.0,
+            "tax": 1183.0,
+            "subtotal": 11817.0,
+            "items": [
+              {
+                "name": "원형패드화장솜100매",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "금은박레터링풍선(PARTY",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "해피곰돌이조립풍선",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "명함화일(120포켓/케이스",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "스티커 보관파일(20포켓)",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "스티커 보관 6공 바인더(",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "생일 pick 캔들",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "캐릭터 자석 집게 3P",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "그리형 줄자 ( 약 150",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "사_다꾸_5단 스탬프",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "근컷터칼(2P) 1000",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.2912621359223301,
+          "field_acc": 0.5,
+          "exact": 0.6,
+          "f1": 0.6923076923076923,
+          "complete": 0,
+          "precision": 0.8181818181818182,
+          "recall": 0.6,
+          "n_gt": 15,
+          "n_pred": 11,
+          "fields": {
+            "doc_type": true,
+            "total": false
+          },
+          "failed": false,
+          "sec": 3.087628749955911,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 005.jpeg",
+          "label": "마트 (15품목, 상단 잘림)",
+          "rep": 2,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": null,
+            "vendor_name": null,
+            "total": null,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "테라캔 355ml",
+                "spec": "251",
+                "quantity": 48.0,
+                "unit": null,
+                "unit_price": 740.0,
+                "amount": 35520.0,
+                "warnings": []
+              },
+              {
+                "name": "스크류바",
+                "spec": "0556",
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 400.0,
+                "amount": 1200.0,
+                "warnings": []
+              },
+              {
+                "name": "월드콘XQ",
+                "spec": "0205",
+                "quantity": 4.0,
+                "unit": null,
+                "unit_price": 510.0,
+                "amount": 2040.0,
+                "warnings": []
+              },
+              {
+                "name": "본가찰옥수수",
+                "spec": "0213",
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 400.0,
+                "amount": 1200.0,
+                "warnings": []
+              },
+              {
+                "name": "둥근달 화이트크림",
+                "spec": "00035",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 490.0,
+                "amount": 490.0,
+                "warnings": []
+              },
+              {
+                "name": "전뽕꿀호떡",
+                "spec": "30061",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1050.0,
+                "amount": 1050.0,
+                "warnings": []
+              },
+              {
+                "name": "딸기 꿀딴지",
+                "spec": "70215",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 500.0,
+                "amount": 500.0,
+                "warnings": []
+              },
+              {
+                "name": "돌 오렌지 팝",
+                "spec": "10221",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1870.0,
+                "amount": 1870.0,
+                "warnings": []
+              },
+              {
+                "name": "홈스타 바이럭스 주방용",
+                "spec": "20051",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3900.0,
+                "amount": 3900.0,
+                "warnings": []
+              },
+              {
+                "name": "파스퇴르 바른목장 우유",
+                "spec": "20045",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2230.0,
+                "amount": 2230.0,
+                "warnings": []
+              },
+              {
+                "name": "코카콜라600ml",
+                "spec": "21978",
+                "quantity": 4.0,
+                "unit": null,
+                "unit_price": 990.0,
+                "amount": 3960.0,
+                "warnings": []
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "model": "gemini-3-flash-preview",
+      "n": 15,
+      "repeat": 3,
+      "images": 5,
+      "cer": 0.2862747409726029,
+      "field_acc": 0.6166666666666667,
+      "exact": 0.6026107226107226,
+      "f1": 0.6149184149184149,
+      "complete": 0.13333333333333333,
+      "sec": 14.338262186133457,
+      "sec_median": 6.373893374984618,
+      "failed_rate": 0.2,
+      "detail": [
+        {
+          "cer": 0.046296296296296294,
+          "field_acc": 0.75,
+          "exact": 0.6923076923076923,
+          "f1": 0.6923076923076923,
+          "complete": 0,
+          "precision": 0.6923076923076923,
+          "recall": 0.6923076923076923,
+          "n_gt": 13,
+          "n_pred": 13,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": false,
+            "total": true
+          },
+          "failed": false,
+          "sec": 81.20443074998911,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-44 001.jpeg",
+          "label": "약국 (13품목)",
+          "rep": 0,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2023-04-28",
+            "vendor_name": "남시약국",
+            "total": 84000.0,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "광동쌍화탕(신형)",
+                "spec": "광동제약",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4800.0,
+                "amount": 9600.0,
+                "warnings": []
+              },
+              {
+                "name": "콜민콜드20C",
+                "spec": "영진약품",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3500.0,
+                "amount": 3500.0,
+                "warnings": []
+              },
+              {
+                "name": "로이디펜 10C",
+                "spec": "라파엘",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "위속엔정20T",
+                "spec": "부광약품(주)",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 2500.0,
+                "warnings": []
+              },
+              {
+                "name": "덱스피드10캅셀",
+                "spec": "유한양행",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "동성정로환에프정",
+                "spec": "동성제약",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4500.0,
+                "amount": 9000.0,
+                "warnings": []
+              },
+              {
+                "name": "바세린 퓨어스킨",
+                "spec": "미래약품",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 5000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀정500mg",
+                "spec": "한국얀센",
+                "quantity": 5.0,
+                "unit": null,
+                "unit_price": 2200.0,
+                "amount": 11000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀산500mg",
+                "spec": "한국얀센",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 6500.0,
+                "amount": 13000.0,
+                "warnings": []
+              },
+              {
+                "name": "밴드닷컴(덕용)",
+                "spec": "대일제약",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 800.0,
+                "amount": 800.0,
+                "warnings": []
+              },
+              {
+                "name": "탁센연질캡슐 10c",
+                "spec": "녹십자",
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 1400.0,
+                "amount": 4200.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액 20ml/",
+                "spec": "동아제약",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2700.0,
+                "amount": 5400.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액(신) 2",
+                "spec": "동아제약",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 16000.0,
+                "amount": 16000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.0,
+          "field_acc": 0.6666666666666666,
+          "exact": 1.0,
+          "f1": 1.0,
+          "complete": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "n_gt": 3,
+          "n_pred": 3,
+          "fields": {
+            "doc_type": true,
+            "issued_date": false,
+            "vendor_name": false,
+            "total": true,
+            "tax": true,
+            "subtotal": true
+          },
+          "failed": false,
+          "sec": 2.7895353339845315,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 002.jpeg",
+          "label": "중식당 (3품목)",
+          "rep": 0,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2018-02-28",
+            "vendor_name": "장재반점",
+            "total": 18000.0,
+            "tax": 1635.0,
+            "subtotal": 16365.0,
+            "items": [
+              {
+                "name": "우동",
+                "spec": "000002",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              },
+              {
+                "name": "짬뽕",
+                "spec": "000003",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              },
+              {
+                "name": "볶음밥",
+                "spec": "000005",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.0,
+          "field_acc": 1.0,
+          "exact": 1.0,
+          "f1": 1.0,
+          "complete": 1,
+          "precision": 1.0,
+          "recall": 1.0,
+          "n_gt": 2,
+          "n_pred": 2,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": true,
+            "total": true
+          },
+          "failed": false,
+          "sec": 3.7362074170378037,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 003.jpeg",
+          "label": "배달앱 영수증 (2품목)",
+          "rep": 0,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2025-05-06",
+            "vendor_name": "김충기 꽃삼겹",
+            "total": 16500.0,
+            "tax": null,
+            "subtotal": 16500.0,
+            "items": [
+              {
+                "name": "1인분 완전고기만",
+                "spec": "+ 삼겹살, + 검은소스, + 오리지날 맛",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 15500.0,
+                "amount": 15500.0,
+                "warnings": []
+              },
+              {
+                "name": "쌈 야채",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.040983606557377046,
+          "field_acc": 1.0,
+          "exact": 0.7272727272727273,
+          "f1": 0.7272727272727273,
+          "complete": 0,
+          "precision": 0.7272727272727273,
+          "recall": 0.7272727272727273,
+          "n_gt": 11,
+          "n_pred": 11,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "total": true,
+            "tax": true,
+            "subtotal": true
+          },
+          "failed": false,
+          "sec": 3.8493227919680066,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 004.jpeg",
+          "label": "생활용품점 (11품목)",
+          "rep": 0,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2022-06-28",
+            "vendor_name": null,
+            "total": 13000.0,
+            "tax": 1183.0,
+            "subtotal": 11817.0,
+            "items": [
+              {
+                "name": "원형패드화장솜100매",
+                "spec": "1004335",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "금은박레터링풍선(PARTY",
+                "spec": "1009709",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "해피곰돌이조립풍선",
+                "spec": "1035738",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "명함화일(120포켓/케이스",
+                "spec": "1034647",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "스티커 보관파일(20포켓)",
+                "spec": "1029094",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "스티커 보관 6공 바인더(",
+                "spec": "1029095",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "생일 pick 캔들",
+                "spec": "98851",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "캐릭터 자석 집게 3P",
+                "spec": "1028492",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "그리형 줄자 ( 약 150",
+                "spec": "1036336",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "사_다꾸_5단 스탬프",
+                "spec": "1028949",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "근커터칼(2P) 1000",
+                "spec": "023438",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.2912621359223301,
+          "field_acc": 0.5,
+          "exact": 0.6,
+          "f1": 0.6923076923076923,
+          "complete": 0,
+          "precision": 0.8181818181818182,
+          "recall": 0.6,
+          "n_gt": 15,
+          "n_pred": 11,
+          "fields": {
+            "doc_type": true,
+            "total": false
+          },
+          "failed": false,
+          "sec": 2.709476582997013,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 005.jpeg",
+          "label": "마트 (15품목, 상단 잘림)",
+          "rep": 0,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": null,
+            "vendor_name": null,
+            "total": null,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "테라캔 355ml",
+                "spec": null,
+                "quantity": 48.0,
+                "unit": null,
+                "unit_price": 740.0,
+                "amount": 35520.0,
+                "warnings": []
+              },
+              {
+                "name": "스크류바",
+                "spec": null,
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 400.0,
+                "amount": 1200.0,
+                "warnings": []
+              },
+              {
+                "name": "월드콘XQ",
+                "spec": null,
+                "quantity": 4.0,
+                "unit": null,
+                "unit_price": 510.0,
+                "amount": 2040.0,
+                "warnings": []
+              },
+              {
+                "name": "본가찰옥수수",
+                "spec": null,
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 400.0,
+                "amount": 1200.0,
+                "warnings": []
+              },
+              {
+                "name": "둥근달 화이트크림",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 490.0,
+                "amount": 490.0,
+                "warnings": []
+              },
+              {
+                "name": "전통꿀호떡",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1050.0,
+                "amount": 1050.0,
+                "warnings": []
+              },
+              {
+                "name": "딸기 꿀딴지",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 500.0,
+                "amount": 500.0,
+                "warnings": []
+              },
+              {
+                "name": "둘 오렌지 팝",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1870.0,
+                "amount": 1870.0,
+                "warnings": []
+              },
+              {
+                "name": "홈스타 바이럭스 주방용",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3900.0,
+                "amount": 3900.0,
+                "warnings": []
+              },
+              {
+                "name": "파스퇴르 바른목장 우유",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2230.0,
+                "amount": 2230.0,
+                "warnings": []
+              },
+              {
+                "name": "코카콜라600ml",
+                "spec": null,
+                "quantity": 4.0,
+                "unit": null,
+                "unit_price": 990.0,
+                "amount": 3960.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.046296296296296294,
+          "field_acc": 0.75,
+          "exact": 0.6923076923076923,
+          "f1": 0.6923076923076923,
+          "complete": 0,
+          "precision": 0.6923076923076923,
+          "recall": 0.6923076923076923,
+          "n_gt": 13,
+          "n_pred": 13,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": false,
+            "total": true
+          },
+          "failed": false,
+          "sec": 6.373893374984618,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-44 001.jpeg",
+          "label": "약국 (13품목)",
+          "rep": 1,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2023-04-28",
+            "vendor_name": "남시약국",
+            "total": 84000.0,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "광동쌍화탕(신형)",
+                "spec": "광동제약",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4800.0,
+                "amount": 9600.0,
+                "warnings": []
+              },
+              {
+                "name": "콜민콜드20C",
+                "spec": "영진약품",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3500.0,
+                "amount": 3500.0,
+                "warnings": []
+              },
+              {
+                "name": "로이디펜 10C",
+                "spec": "라파엘",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "위속엔정20T",
+                "spec": "부광약품(주)",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 2500.0,
+                "warnings": []
+              },
+              {
+                "name": "덱스피드10캅셀",
+                "spec": "유한양행",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "동성정로환에프정",
+                "spec": "동성제약",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4500.0,
+                "amount": 9000.0,
+                "warnings": []
+              },
+              {
+                "name": "바세린 퓨어스킨",
+                "spec": "미래약품",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 5000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀정500mg",
+                "spec": "한국얀센",
+                "quantity": 5.0,
+                "unit": null,
+                "unit_price": 2200.0,
+                "amount": 11000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀산500mg",
+                "spec": "한국얀센",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 6500.0,
+                "amount": 13000.0,
+                "warnings": []
+              },
+              {
+                "name": "밴드닷컴(덕용)",
+                "spec": "대일제약",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 800.0,
+                "amount": 800.0,
+                "warnings": []
+              },
+              {
+                "name": "탁센연질캡슐 10c",
+                "spec": "녹십자",
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 1400.0,
+                "amount": 4200.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액 20ml/",
+                "spec": "동아제약",
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2700.0,
+                "amount": 5400.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액(신) 2",
+                "spec": "동아제약",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 16000.0,
+                "amount": 16000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.0,
+          "field_acc": 0.6666666666666666,
+          "exact": 1.0,
+          "f1": 1.0,
+          "complete": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "n_gt": 3,
+          "n_pred": 3,
+          "fields": {
+            "doc_type": true,
+            "issued_date": false,
+            "vendor_name": false,
+            "total": true,
+            "tax": true,
+            "subtotal": true
+          },
+          "failed": false,
+          "sec": 4.11470899998676,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 002.jpeg",
+          "label": "중식당 (3품목)",
+          "rep": 1,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2018-02-28",
+            "vendor_name": "장재반점",
+            "total": 18000.0,
+            "tax": 1635.0,
+            "subtotal": 16365.0,
+            "items": [
+              {
+                "name": "우동",
+                "spec": "000002",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              },
+              {
+                "name": "짬뽕",
+                "spec": "000003",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              },
+              {
+                "name": "볶음밥",
+                "spec": "000005",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 1.0,
+          "field_acc": 0.0,
+          "exact": 0.0,
+          "f1": 0.0,
+          "complete": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "n_gt": 2,
+          "n_pred": 0,
+          "fields": {},
+          "failed": true,
+          "sec": 6.8154979580431245,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 003.jpeg",
+          "label": "배달앱 영수증 (2품목)",
+          "rep": 1,
+          "pred": null
+        },
+        {
+          "cer": 1.0,
+          "field_acc": 0.0,
+          "exact": 0.0,
+          "f1": 0.0,
+          "complete": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "n_gt": 11,
+          "n_pred": 0,
+          "fields": {},
+          "failed": true,
+          "sec": 6.7994579169899225,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 004.jpeg",
+          "label": "생활용품점 (11품목)",
+          "rep": 1,
+          "pred": null
+        },
+        {
+          "cer": 0.2912621359223301,
+          "field_acc": 0.5,
+          "exact": 0.6,
+          "f1": 0.6923076923076923,
+          "complete": 0,
+          "precision": 0.8181818181818182,
+          "recall": 0.6,
+          "n_gt": 15,
+          "n_pred": 11,
+          "fields": {
+            "doc_type": true,
+            "total": false
+          },
+          "failed": false,
+          "sec": 6.6160424160188995,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 005.jpeg",
+          "label": "마트 (15품목, 상단 잘림)",
+          "rep": 1,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": null,
+            "vendor_name": null,
+            "total": null,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "테라캔 355ml",
+                "spec": null,
+                "quantity": 48.0,
+                "unit": null,
+                "unit_price": 740.0,
+                "amount": 35520.0,
+                "warnings": []
+              },
+              {
+                "name": "스크류바",
+                "spec": null,
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 400.0,
+                "amount": 1200.0,
+                "warnings": []
+              },
+              {
+                "name": "월드콘XQ",
+                "spec": null,
+                "quantity": 4.0,
+                "unit": null,
+                "unit_price": 510.0,
+                "amount": 2040.0,
+                "warnings": []
+              },
+              {
+                "name": "본가찰옥수수",
+                "spec": null,
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 400.0,
+                "amount": 1200.0,
+                "warnings": []
+              },
+              {
+                "name": "둥근달 화이트크림",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 490.0,
+                "amount": 490.0,
+                "warnings": []
+              },
+              {
+                "name": "전통꿀호떡",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1050.0,
+                "amount": 1050.0,
+                "warnings": []
+              },
+              {
+                "name": "딸기 꿀딴지",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 500.0,
+                "amount": 500.0,
+                "warnings": []
+              },
+              {
+                "name": "둘 오렌지 팝",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1870.0,
+                "amount": 1870.0,
+                "warnings": []
+              },
+              {
+                "name": "홈스타 바이럭스 주방용",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3900.0,
+                "amount": 3900.0,
+                "warnings": []
+              },
+              {
+                "name": "파스퇴르 바른목장 우유",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2230.0,
+                "amount": 2230.0,
+                "warnings": []
+              },
+              {
+                "name": "코카콜라600ml",
+                "spec": null,
+                "quantity": 4.0,
+                "unit": null,
+                "unit_price": 990.0,
+                "amount": 3960.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.5370370370370371,
+          "field_acc": 0.75,
+          "exact": 0.0,
+          "f1": 0.0,
+          "complete": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "n_gt": 13,
+          "n_pred": 13,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": false,
+            "total": true
+          },
+          "failed": false,
+          "sec": 8.720403708983213,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-44 001.jpeg",
+          "label": "약국 (13품목)",
+          "rep": 2,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2023-04-28",
+            "vendor_name": "남시약국",
+            "total": 84000.0,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "광동쌍화탕(신형) 광동제약",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4800.0,
+                "amount": 9600.0,
+                "warnings": []
+              },
+              {
+                "name": "콜민콜드20C 영진약품",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3500.0,
+                "amount": 3500.0,
+                "warnings": []
+              },
+              {
+                "name": "로이디펜 10C 라파엘",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "위속엔정20T 부광약품(주)",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 2500.0,
+                "warnings": []
+              },
+              {
+                "name": "덱스피드10캅셀 유한양행",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "동성정로환에프정 동성제약",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4500.0,
+                "amount": 9000.0,
+                "warnings": []
+              },
+              {
+                "name": "바세린 퓨어스킨 미래약품",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 5000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀정500mg 한국얀센",
+                "spec": null,
+                "quantity": 5.0,
+                "unit": null,
+                "unit_price": 2200.0,
+                "amount": 11000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀산500mg 한국얀센",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 6500.0,
+                "amount": 13000.0,
+                "warnings": []
+              },
+              {
+                "name": "밴드닷컴(덕용) 대일제약",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 800.0,
+                "amount": 800.0,
+                "warnings": []
+              },
+              {
+                "name": "탁센연질캡슐 10c 녹십자",
+                "spec": null,
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 1400.0,
+                "amount": 4200.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액 20ml/ 동아제약",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2700.0,
+                "amount": 5400.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액(신) 2 동아제약",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 16000.0,
+                "amount": 16000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.0,
+          "field_acc": 0.6666666666666666,
+          "exact": 1.0,
+          "f1": 1.0,
+          "complete": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "n_gt": 3,
+          "n_pred": 3,
+          "fields": {
+            "doc_type": true,
+            "issued_date": false,
+            "vendor_name": false,
+            "total": true,
+            "tax": true,
+            "subtotal": true
+          },
+          "failed": false,
+          "sec": 2.642066041007638,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 002.jpeg",
+          "label": "중식당 (3품목)",
+          "rep": 2,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2018-02-28",
+            "vendor_name": "장재반점",
+            "total": 18000.0,
+            "tax": 1635.0,
+            "subtotal": 16365.0,
+            "items": [
+              {
+                "name": "우동",
+                "spec": "000002",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              },
+              {
+                "name": "짬뽕",
+                "spec": "000003",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              },
+              {
+                "name": "볶음밥",
+                "spec": "000005",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.0,
+          "field_acc": 1.0,
+          "exact": 1.0,
+          "f1": 1.0,
+          "complete": 1,
+          "precision": 1.0,
+          "recall": 1.0,
+          "n_gt": 2,
+          "n_pred": 2,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": true,
+            "total": true
+          },
+          "failed": false,
+          "sec": 2.6499545829719864,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 003.jpeg",
+          "label": "배달앱 영수증 (2품목)",
+          "rep": 2,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2025-05-06",
+            "vendor_name": "김충기 꽃삼겹",
+            "total": 16500.0,
+            "tax": null,
+            "subtotal": 16500.0,
+            "items": [
+              {
+                "name": "1인분 완전고기만",
+                "spec": "+ 삼겹살, + 검은소스, + 오리지날 맛",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 15500.0,
+                "amount": 15500.0,
+                "warnings": []
+              },
+              {
+                "name": "쌈 야채",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.040983606557377046,
+          "field_acc": 1.0,
+          "exact": 0.7272727272727273,
+          "f1": 0.7272727272727273,
+          "complete": 0,
+          "precision": 0.7272727272727273,
+          "recall": 0.7272727272727273,
+          "n_gt": 11,
+          "n_pred": 11,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "total": true,
+            "tax": true,
+            "subtotal": true
+          },
+          "failed": false,
+          "sec": 15.19856200000504,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 004.jpeg",
+          "label": "생활용품점 (11품목)",
+          "rep": 2,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2022-06-28",
+            "vendor_name": null,
+            "total": 13000.0,
+            "tax": 1183.0,
+            "subtotal": 11817.0,
+            "items": [
+              {
+                "name": "원형패드화장솜100매",
+                "spec": "1004335",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "금은박레터링풍선(PARTY",
+                "spec": "1009709",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "해피곰돌이조립풍선",
+                "spec": "1035738",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "명함화일(120포켓/케이스",
+                "spec": "1034647",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "스티커 보관파일(20포켓)",
+                "spec": "1029094",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "스티커 보관 6공 바인더(",
+                "spec": "1029095",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "생일 pick 캔들",
+                "spec": "98851",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "캐릭터 자석 집게 3P",
+                "spec": "1028492",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "그리형 줄자 ( 약 150",
+                "spec": "1036336",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "사_다꾸_5단 스탬프",
+                "spec": "1028949",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "근커터칼(2P) 1000",
+                "spec": "023438",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 1.0,
+          "field_acc": 0.0,
+          "exact": 0.0,
+          "f1": 0.0,
+          "complete": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "n_gt": 15,
+          "n_pred": 0,
+          "fields": {},
+          "failed": true,
+          "sec": 60.8543729170342,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 005.jpeg",
+          "label": "마트 (15품목, 상단 잘림)",
+          "rep": 2,
+          "pred": null
+        }
+      ]
+    },
+    {
+      "model": "gemini-2.5-flash",
+      "n": 15,
+      "repeat": 3,
+      "images": 5,
+      "cer": 0.5340267852629251,
+      "field_acc": 0.46111111111111114,
+      "exact": 0.45833721833721836,
+      "f1": 0.4808524808524809,
+      "complete": 0.0,
+      "sec": 17.381881622213406,
+      "sec_median": 7.333328875014558,
+      "failed_rate": 0.3333333333333333,
+      "detail": [
+        {
+          "cer": 0.05555555555555555,
+          "field_acc": 0.75,
+          "exact": 0.6923076923076923,
+          "f1": 0.6923076923076923,
+          "complete": 0,
+          "precision": 0.6923076923076923,
+          "recall": 0.6923076923076923,
+          "n_gt": 13,
+          "n_pred": 13,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": false,
+            "total": true
+          },
+          "failed": false,
+          "sec": 7.265830458025448,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-44 001.jpeg",
+          "label": "약국 (13품목)",
+          "rep": 0,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2023-04-28",
+            "vendor_name": "팜 페이",
+            "total": 84000.0,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "광동쌍화탕 (신영)",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4800.0,
+                "amount": 9600.0,
+                "warnings": []
+              },
+              {
+                "name": "웰민골드20C",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3500.0,
+                "amount": 3500.0,
+                "warnings": []
+              },
+              {
+                "name": "로이디펜 10C",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "위속엔정20T",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 2500.0,
+                "warnings": []
+              },
+              {
+                "name": "덱스피드10캅셀",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "동성정로환에프정",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4500.0,
+                "amount": 9000.0,
+                "warnings": []
+              },
+              {
+                "name": "바세린 퓨어스킨",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 5000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀500mg",
+                "spec": null,
+                "quantity": 5.0,
+                "unit": null,
+                "unit_price": 2200.0,
+                "amount": 11000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀산500mg",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 6500.0,
+                "amount": 13000.0,
+                "warnings": []
+              },
+              {
+                "name": "밴드닷컴(덕용)",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 800.0,
+                "amount": 800.0,
+                "warnings": []
+              },
+              {
+                "name": "탁센연질캡슐 10c",
+                "spec": null,
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 1400.0,
+                "amount": 4200.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액 20ml/",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2700.0,
+                "amount": 5400.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액(신) 2",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 16000.0,
+                "amount": 16000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 1.0,
+          "field_acc": 0.0,
+          "exact": 0.0,
+          "f1": 0.0,
+          "complete": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "n_gt": 3,
+          "n_pred": 0,
+          "fields": {},
+          "failed": true,
+          "sec": 70.52931600000011,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 002.jpeg",
+          "label": "중식당 (3품목)",
+          "rep": 0,
+          "pred": null
+        },
+        {
+          "cer": 1.0909090909090908,
+          "field_acc": 0.75,
+          "exact": 1.0,
+          "f1": 0.5714285714285715,
+          "complete": 0,
+          "precision": 0.4,
+          "recall": 1.0,
+          "n_gt": 2,
+          "n_pred": 5,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": false,
+            "total": true
+          },
+          "failed": false,
+          "sec": 25.87212916702265,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 003.jpeg",
+          "label": "배달앱 영수증 (2품목)",
+          "rep": 0,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2025-05-06",
+            "vendor_name": "coupang eats",
+            "total": 16500.0,
+            "tax": null,
+            "subtotal": 16500.0,
+            "items": [
+              {
+                "name": "1인분 완전고기만",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": null,
+                "amount": 15500.0,
+                "warnings": []
+              },
+              {
+                "name": "삼겹살",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": null,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "검은소스",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": null,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "오리지날 맛",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": null,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "쌈 야채",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": null,
+                "amount": 1000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.04918032786885246,
+          "field_acc": 1.0,
+          "exact": 0.7272727272727273,
+          "f1": 0.7272727272727273,
+          "complete": 0,
+          "precision": 0.7272727272727273,
+          "recall": 0.7272727272727273,
+          "n_gt": 11,
+          "n_pred": 11,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "total": true,
+            "tax": true,
+            "subtotal": true
+          },
+          "failed": false,
+          "sec": 4.637761750025675,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 004.jpeg",
+          "label": "생활용품점 (11품목)",
+          "rep": 0,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2022-06-28",
+            "vendor_name": null,
+            "total": 13000.0,
+            "tax": 1183.0,
+            "subtotal": 11817.0,
+            "items": [
+              {
+                "name": "원형패드화장솜100매",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "금은박레터링풍선 (PARTY",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "해피곰돌이조립풍선",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "명함화일 (120포켓/케이스",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "스티커 보관파일 (20포켓)",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "스티커 보관 6공 바인더(",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "생일 pick 캔들",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "캐릭터 자석 집게 3P",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "그리영 줄자 ( 약 150",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "다꾸_5단 스탬프",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "근커터칼 (2P) 1000",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.2912621359223301,
+          "field_acc": 0.5,
+          "exact": 0.6,
+          "f1": 0.6923076923076923,
+          "complete": 0,
+          "precision": 0.8181818181818182,
+          "recall": 0.6,
+          "n_gt": 15,
+          "n_pred": 11,
+          "fields": {
+            "doc_type": true,
+            "total": false
+          },
+          "failed": false,
+          "sec": 5.246341084013693,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 005.jpeg",
+          "label": "마트 (15품목, 상단 잘림)",
+          "rep": 0,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": null,
+            "vendor_name": null,
+            "total": null,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "테라캔 355ml",
+                "spec": null,
+                "quantity": 48.0,
+                "unit": null,
+                "unit_price": 740.0,
+                "amount": 35520.0,
+                "warnings": []
+              },
+              {
+                "name": "스크류바",
+                "spec": null,
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 400.0,
+                "amount": 1200.0,
+                "warnings": []
+              },
+              {
+                "name": "월드콘XQ",
+                "spec": null,
+                "quantity": 4.0,
+                "unit": null,
+                "unit_price": 510.0,
+                "amount": 2040.0,
+                "warnings": []
+              },
+              {
+                "name": "본가찰옥수수",
+                "spec": null,
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 400.0,
+                "amount": 1200.0,
+                "warnings": []
+              },
+              {
+                "name": "둥근달 화이트크림",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 490.0,
+                "amount": 490.0,
+                "warnings": []
+              },
+              {
+                "name": "전통꿀호떡",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1050.0,
+                "amount": 1050.0,
+                "warnings": []
+              },
+              {
+                "name": "딸기 꿀딴지",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 500.0,
+                "amount": 500.0,
+                "warnings": []
+              },
+              {
+                "name": "오렌지 팝",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1870.0,
+                "amount": 1870.0,
+                "warnings": []
+              },
+              {
+                "name": "홈스타 바이럭스 주방용",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3900.0,
+                "amount": 3900.0,
+                "warnings": []
+              },
+              {
+                "name": "파스퇴르 바른목장 우유",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2230.0,
+                "amount": 2230.0,
+                "warnings": []
+              },
+              {
+                "name": "코카콜라600ml",
+                "spec": null,
+                "quantity": 4.0,
+                "unit": null,
+                "unit_price": 990.0,
+                "amount": 3960.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.05555555555555555,
+          "field_acc": 0.75,
+          "exact": 0.6923076923076923,
+          "f1": 0.6923076923076923,
+          "complete": 0,
+          "precision": 0.6923076923076923,
+          "recall": 0.6923076923076923,
+          "n_gt": 13,
+          "n_pred": 13,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": false,
+            "total": true
+          },
+          "failed": false,
+          "sec": 19.504267624986824,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-44 001.jpeg",
+          "label": "약국 (13품목)",
+          "rep": 1,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2023-04-28",
+            "vendor_name": "팜 페이",
+            "total": 84000.0,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "광동쌍화탕 (신영)",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4800.0,
+                "amount": 9600.0,
+                "warnings": []
+              },
+              {
+                "name": "웰민골드20C",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3500.0,
+                "amount": 3500.0,
+                "warnings": []
+              },
+              {
+                "name": "로이디펜 10C",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "위속엔정20T",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 2500.0,
+                "warnings": []
+              },
+              {
+                "name": "덱스피드10캅셀",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "동성정로환에프정",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4500.0,
+                "amount": 9000.0,
+                "warnings": []
+              },
+              {
+                "name": "바세린 퓨어스킨",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 5000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀500mg",
+                "spec": null,
+                "quantity": 5.0,
+                "unit": null,
+                "unit_price": 2200.0,
+                "amount": 11000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀산500mg",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 6500.0,
+                "amount": 13000.0,
+                "warnings": []
+              },
+              {
+                "name": "밴드닷컴(덕용)",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 800.0,
+                "amount": 800.0,
+                "warnings": []
+              },
+              {
+                "name": "탁센연질캡슐 10c",
+                "spec": null,
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 1400.0,
+                "amount": 4200.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액 20ml/",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2700.0,
+                "amount": 5400.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액(신) 2",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 16000.0,
+                "amount": 16000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.0,
+          "field_acc": 0.16666666666666666,
+          "exact": 0.0,
+          "f1": 1.0,
+          "complete": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "n_gt": 3,
+          "n_pred": 3,
+          "fields": {
+            "doc_type": true,
+            "issued_date": false,
+            "vendor_name": false,
+            "total": false,
+            "tax": false,
+            "subtotal": false
+          },
+          "failed": false,
+          "sec": 39.97576441697311,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 002.jpeg",
+          "label": "중식당 (3품목)",
+          "rep": 1,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2018-02-28",
+            "vendor_name": "\n\n창재반점",
+            "total": 18.0,
+            "tax": 1.635,
+            "subtotal": 16.365,
+            "items": [
+              {
+                "name": "우동",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6.0,
+                "amount": 6.0,
+                "warnings": []
+              },
+              {
+                "name": "짬뽕",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6.0,
+                "amount": 6.0,
+                "warnings": []
+              },
+              {
+                "name": "볶음밥",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6.0,
+                "amount": 6.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 1.0909090909090908,
+          "field_acc": 0.75,
+          "exact": 1.0,
+          "f1": 0.5714285714285715,
+          "complete": 0,
+          "precision": 0.4,
+          "recall": 1.0,
+          "n_gt": 2,
+          "n_pred": 5,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": false,
+            "total": true
+          },
+          "failed": false,
+          "sec": 6.1355812920373864,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 003.jpeg",
+          "label": "배달앱 영수증 (2품목)",
+          "rep": 1,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2025-05-06",
+            "vendor_name": "coupang eats",
+            "total": 16500.0,
+            "tax": null,
+            "subtotal": 16500.0,
+            "items": [
+              {
+                "name": "1인분 완전고기만",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": null,
+                "amount": 15500.0,
+                "warnings": []
+              },
+              {
+                "name": "삼겹살",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": null,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "검은소스",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": null,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "오리지날 맛",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": null,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "쌈 야채",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": null,
+                "amount": 1000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.04918032786885246,
+          "field_acc": 1.0,
+          "exact": 0.7272727272727273,
+          "f1": 0.7272727272727273,
+          "complete": 0,
+          "precision": 0.7272727272727273,
+          "recall": 0.7272727272727273,
+          "n_gt": 11,
+          "n_pred": 11,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "total": true,
+            "tax": true,
+            "subtotal": true
+          },
+          "failed": false,
+          "sec": 6.713952792051714,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 004.jpeg",
+          "label": "생활용품점 (11품목)",
+          "rep": 1,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2022-06-28",
+            "vendor_name": null,
+            "total": 13000.0,
+            "tax": 1183.0,
+            "subtotal": 11817.0,
+            "items": [
+              {
+                "name": "원형패드화장솜100매",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "금은박레터링풍선 (PARTY",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "해피곰돌이조립풍선",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "명함화일 (120포켓/케이스",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "스티커 보관파일 (20포켓)",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "스티커 보관 6공 바인더(",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "생일 pick 캔들",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "캐릭터 자석 집게 3P",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "그리영 줄자 ( 약 150",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "다꾸_5단 스탬프",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "근커터칼 (2P) 1000",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.2815533980582524,
+          "field_acc": 0.5,
+          "exact": 0.6666666666666666,
+          "f1": 0.7692307692307692,
+          "complete": 0,
+          "precision": 0.9090909090909091,
+          "recall": 0.6666666666666666,
+          "n_gt": 15,
+          "n_pred": 11,
+          "fields": {
+            "doc_type": true,
+            "total": false
+          },
+          "failed": false,
+          "sec": 4.725304541003425,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 005.jpeg",
+          "label": "마트 (15품목, 상단 잘림)",
+          "rep": 1,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": null,
+            "vendor_name": null,
+            "total": null,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "테라캔 355ml",
+                "spec": null,
+                "quantity": 48.0,
+                "unit": null,
+                "unit_price": 740.0,
+                "amount": 35520.0,
+                "warnings": []
+              },
+              {
+                "name": "스크류바",
+                "spec": null,
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 400.0,
+                "amount": 1200.0,
+                "warnings": []
+              },
+              {
+                "name": "월드콘XQ",
+                "spec": null,
+                "quantity": 4.0,
+                "unit": null,
+                "unit_price": 510.0,
+                "amount": 2040.0,
+                "warnings": []
+              },
+              {
+                "name": "본가찰옥수수",
+                "spec": null,
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 400.0,
+                "amount": 1200.0,
+                "warnings": []
+              },
+              {
+                "name": "둥근달 화이트크림",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 490.0,
+                "amount": 490.0,
+                "warnings": []
+              },
+              {
+                "name": "전통꿀호떡",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1050.0,
+                "amount": 1050.0,
+                "warnings": []
+              },
+              {
+                "name": "딸기 꿀딴지",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 500.0,
+                "amount": 500.0,
+                "warnings": []
+              },
+              {
+                "name": "돌 오렌지 팝",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1870.0,
+                "amount": 1870.0,
+                "warnings": []
+              },
+              {
+                "name": "홈스타 바이럭스 주방용",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3900.0,
+                "amount": 3900.0,
+                "warnings": []
+              },
+              {
+                "name": "파스퇴르 바른목장 우유",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2230.0,
+                "amount": 2230.0,
+                "warnings": []
+              },
+              {
+                "name": "코카콜라600ml",
+                "spec": null,
+                "quantity": 4.0,
+                "unit": null,
+                "unit_price": 990.0,
+                "amount": 3960.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.046296296296296294,
+          "field_acc": 0.75,
+          "exact": 0.7692307692307693,
+          "f1": 0.7692307692307693,
+          "complete": 0,
+          "precision": 0.7692307692307693,
+          "recall": 0.7692307692307693,
+          "n_gt": 13,
+          "n_pred": 13,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": false,
+            "total": true
+          },
+          "failed": false,
+          "sec": 8.104828083014581,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-44 001.jpeg",
+          "label": "약국 (13품목)",
+          "rep": 2,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2023-04-28",
+            "vendor_name": "팜 페이",
+            "total": 84000.0,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "광동쌍화탕 (신영)",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4800.0,
+                "amount": 9600.0,
+                "warnings": []
+              },
+              {
+                "name": "웰민골드20C",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3500.0,
+                "amount": 3500.0,
+                "warnings": []
+              },
+              {
+                "name": "로이디펜 10C",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "위속엔정20T",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 2500.0,
+                "warnings": []
+              },
+              {
+                "name": "덱스피드10캅셀",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "동성정로환에프정",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4500.0,
+                "amount": 9000.0,
+                "warnings": []
+              },
+              {
+                "name": "바세린 퓨어스킨",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 5000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀정500mg",
+                "spec": null,
+                "quantity": 5.0,
+                "unit": null,
+                "unit_price": 2200.0,
+                "amount": 11000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀산500mg",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 6500.0,
+                "amount": 13000.0,
+                "warnings": []
+              },
+              {
+                "name": "밴드닷컴(덕용)",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 800.0,
+                "amount": 800.0,
+                "warnings": []
+              },
+              {
+                "name": "탁센연질캡슐 10c",
+                "spec": null,
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 1400.0,
+                "amount": 4200.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액 20ml/",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2700.0,
+                "amount": 5400.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액(신) 2",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 16000.0,
+                "amount": 16000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 1.0,
+          "field_acc": 0.0,
+          "exact": 0.0,
+          "f1": 0.0,
+          "complete": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "n_gt": 3,
+          "n_pred": 0,
+          "fields": {},
+          "failed": true,
+          "sec": 40.627153958019335,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 002.jpeg",
+          "label": "중식당 (3품목)",
+          "rep": 2,
+          "pred": null
+        },
+        {
+          "cer": 1.0,
+          "field_acc": 0.0,
+          "exact": 0.0,
+          "f1": 0.0,
+          "complete": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "n_gt": 2,
+          "n_pred": 0,
+          "fields": {},
+          "failed": true,
+          "sec": 7.400398333033081,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 003.jpeg",
+          "label": "배달앱 영수증 (2품목)",
+          "rep": 2,
+          "pred": null
+        },
+        {
+          "cer": 1.0,
+          "field_acc": 0.0,
+          "exact": 0.0,
+          "f1": 0.0,
+          "complete": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "n_gt": 11,
+          "n_pred": 0,
+          "fields": {},
+          "failed": true,
+          "sec": 7.333328875014558,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 004.jpeg",
+          "label": "생활용품점 (11품목)",
+          "rep": 2,
+          "pred": null
+        },
+        {
+          "cer": 1.0,
+          "field_acc": 0.0,
+          "exact": 0.0,
+          "f1": 0.0,
+          "complete": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "n_gt": 15,
+          "n_pred": 0,
+          "fields": {},
+          "failed": true,
+          "sec": 6.656265957979485,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 005.jpeg",
+          "label": "마트 (15품목, 상단 잘림)",
+          "rep": 2,
+          "pred": null
+        }
+      ]
+    },
+    {
+      "model": "gemini-2.5-flash-lite",
+      "n": 15,
+      "repeat": 3,
+      "images": 5,
+      "cer": 0.41485910620877997,
+      "field_acc": 0.7333333333333333,
+      "exact": 0.4163636363636363,
+      "f1": 0.5043327043327044,
+      "complete": 0.0,
+      "sec": 9.169672966663105,
+      "sec_median": 8.158440333034378,
+      "failed_rate": 0.0,
+      "detail": [
+        {
+          "cer": 0.10185185185185185,
+          "field_acc": 0.75,
+          "exact": 0.0,
+          "f1": 0.5925925925925927,
+          "complete": 0,
+          "precision": 0.5714285714285714,
+          "recall": 0.6153846153846154,
+          "n_gt": 13,
+          "n_pred": 14,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": false,
+            "total": true
+          },
+          "failed": false,
+          "sec": 10.096218457969371,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-44 001.jpeg",
+          "label": "약국 (13품목)",
+          "rep": 0,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2023-04-28",
+            "vendor_name": "오 팜 페이",
+            "total": 84000.0,
+            "tax": 0.0,
+            "subtotal": 84000.0,
+            "items": [
+              {
+                "name": "광동쌍화탕(신명)",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4800.0,
+                "amount": 9600.0,
+                "warnings": []
+              },
+              {
+                "name": "광동제약",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3500.0,
+                "amount": 3500.0,
+                "warnings": []
+              },
+              {
+                "name": "콜민콜드20C",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "로디다펜 10C",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 2500.0,
+                "warnings": []
+              },
+              {
+                "name": "위속엔정20T",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "덱스피드10캅셀",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4500.0,
+                "amount": 9000.0,
+                "warnings": []
+              },
+              {
+                "name": "동성정로환에프정",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 5000.0,
+                "warnings": []
+              },
+              {
+                "name": "바세린 퓨어스킨",
+                "spec": null,
+                "quantity": 5.0,
+                "unit": null,
+                "unit_price": 2200.0,
+                "amount": 11000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀정500mg",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 6500.0,
+                "amount": 13000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀산500mg",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 800.0,
+                "amount": 800.0,
+                "warnings": []
+              },
+              {
+                "name": "밴드닷컴(덕용)",
+                "spec": null,
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 1400.0,
+                "amount": 4200.0,
+                "warnings": []
+              },
+              {
+                "name": "탁센연질캡슐 10c",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2700.0,
+                "amount": 5400.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액 20ml/",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 16000.0,
+                "amount": 16000.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액(신) 2",
+                "spec": null,
+                "quantity": null,
+                "unit": null,
+                "unit_price": null,
+                "amount": null,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.0,
+          "field_acc": 0.6666666666666666,
+          "exact": 1.0,
+          "f1": 1.0,
+          "complete": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "n_gt": 3,
+          "n_pred": 3,
+          "fields": {
+            "doc_type": true,
+            "issued_date": false,
+            "vendor_name": false,
+            "total": true,
+            "tax": true,
+            "subtotal": true
+          },
+          "failed": false,
+          "sec": 6.460491709003691,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 002.jpeg",
+          "label": "중식당 (3품목)",
+          "rep": 0,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2018-02-28",
+            "vendor_name": "창재반점",
+            "total": 18000.0,
+            "tax": 1635.0,
+            "subtotal": 16365.0,
+            "items": [
+              {
+                "name": "우동",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              },
+              {
+                "name": "짬뽕",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              },
+              {
+                "name": "볶음밥",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 1.1818181818181819,
+          "field_acc": 0.75,
+          "exact": 0.5,
+          "f1": 0.28571428571428575,
+          "complete": 0,
+          "precision": 0.2,
+          "recall": 0.5,
+          "n_gt": 2,
+          "n_pred": 5,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": false,
+            "total": true
+          },
+          "failed": false,
+          "sec": 6.14281408401439,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 003.jpeg",
+          "label": "배달앱 영수증 (2품목)",
+          "rep": 0,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2025-05-06",
+            "vendor_name": "coupaнg eats",
+            "total": 16500.0,
+            "tax": null,
+            "subtotal": 16500.0,
+            "items": [
+              {
+                "name": "1인분 완전고기만",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 15500.0,
+                "amount": 15500.0,
+                "warnings": []
+              },
+              {
+                "name": "삼격살",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 0.0,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "검은소스",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 0.0,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "오리지날 맓",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 0.0,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "쌖 야채",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.45081967213114754,
+          "field_acc": 1.0,
+          "exact": 0.18181818181818182,
+          "f1": 0.18181818181818182,
+          "complete": 0,
+          "precision": 0.18181818181818182,
+          "recall": 0.18181818181818182,
+          "n_gt": 11,
+          "n_pred": 11,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "total": true,
+            "tax": true,
+            "subtotal": true
+          },
+          "failed": false,
+          "sec": 26.98812083300436,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 004.jpeg",
+          "label": "생활용품점 (11품목)",
+          "rep": 0,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2022-06-28",
+            "vendor_name": "CCM 인증기업",
+            "total": 13000.0,
+            "tax": 1183.0,
+            "subtotal": 11817.0,
+            "items": [
+              {
+                "name": "원형패드화장솜",
+                "spec": "100매",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "금은박레터링풍선",
+                "spec": "(PARTY",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "해피곰돌이조립풍선",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "명함화일",
+                "spec": "(120포켓/케이스",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "스티커보관파우일",
+                "spec": "(20포켓)",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "스티커보관",
+                "spec": "6공 바인더(",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "생일 pick 캔들",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "캐릭터 자석 집게",
+                "spec": "3P",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "그리영 출자",
+                "spec": "( 약 150",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "식사_다꾸_5단 스탬프",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "근커터칼",
+                "spec": "(2P) 1000",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.33980582524271846,
+          "field_acc": 0.5,
+          "exact": 0.4,
+          "f1": 0.4615384615384615,
+          "complete": 0,
+          "precision": 0.5454545454545454,
+          "recall": 0.4,
+          "n_gt": 15,
+          "n_pred": 11,
+          "fields": {
+            "doc_type": true,
+            "total": false
+          },
+          "failed": false,
+          "sec": 8.298386583977845,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 005.jpeg",
+          "label": "마트 (15품목, 상단 잘림)",
+          "rep": 0,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": null,
+            "vendor_name": null,
+            "total": null,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "테라칸 355ml",
+                "spec": null,
+                "quantity": 48.0,
+                "unit": null,
+                "unit_price": 740.0,
+                "amount": 35520.0,
+                "warnings": []
+              },
+              {
+                "name": "스크류바",
+                "spec": null,
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 400.0,
+                "amount": 1200.0,
+                "warnings": []
+              },
+              {
+                "name": "월드콘XQ",
+                "spec": null,
+                "quantity": 4.0,
+                "unit": null,
+                "unit_price": 510.0,
+                "amount": 2040.0,
+                "warnings": []
+              },
+              {
+                "name": "본가찰옥수수",
+                "spec": null,
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 400.0,
+                "amount": 1200.0,
+                "warnings": []
+              },
+              {
+                "name": "통근달 화이트크림",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 490.0,
+                "amount": 490.0,
+                "warnings": []
+              },
+              {
+                "name": "전통꿀호떡",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1050.0,
+                "amount": 1050.0,
+                "warnings": []
+              },
+              {
+                "name": "딸기 꿀떡",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 500.0,
+                "amount": 500.0,
+                "warnings": []
+              },
+              {
+                "name": "돌 오렌지 팝",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1870.0,
+                "amount": 1870.0,
+                "warnings": []
+              },
+              {
+                "name": "홈스타 바이오틱스 주방용",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3900.0,
+                "amount": 3900.0,
+                "warnings": []
+              },
+              {
+                "name": "파스퇴르 바른목장 우유",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2230.0,
+                "amount": 2230.0,
+                "warnings": []
+              },
+              {
+                "name": "코카콜라600ml",
+                "spec": null,
+                "quantity": 4.0,
+                "unit": null,
+                "unit_price": 990.0,
+                "amount": 3960.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.10185185185185185,
+          "field_acc": 0.75,
+          "exact": 0.0,
+          "f1": 0.5925925925925927,
+          "complete": 0,
+          "precision": 0.5714285714285714,
+          "recall": 0.6153846153846154,
+          "n_gt": 13,
+          "n_pred": 14,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": false,
+            "total": true
+          },
+          "failed": false,
+          "sec": 8.982344792049844,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-44 001.jpeg",
+          "label": "약국 (13품목)",
+          "rep": 1,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2023-04-28",
+            "vendor_name": "오 팜 페이",
+            "total": 84000.0,
+            "tax": 0.0,
+            "subtotal": 84000.0,
+            "items": [
+              {
+                "name": "광동쌍화탕(신명)",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4800.0,
+                "amount": 9600.0,
+                "warnings": []
+              },
+              {
+                "name": "광동제약",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3500.0,
+                "amount": 3500.0,
+                "warnings": []
+              },
+              {
+                "name": "콜민콜드20C",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "로디다펜 10C",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 2500.0,
+                "warnings": []
+              },
+              {
+                "name": "위속엔정20T",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "덱스피드10캅셀",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4500.0,
+                "amount": 9000.0,
+                "warnings": []
+              },
+              {
+                "name": "동성정로환에프정",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 5000.0,
+                "warnings": []
+              },
+              {
+                "name": "바세린 퓨어스킨",
+                "spec": null,
+                "quantity": 5.0,
+                "unit": null,
+                "unit_price": 2200.0,
+                "amount": 11000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀정500mg",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 6500.0,
+                "amount": 13000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀산500mg",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 800.0,
+                "amount": 800.0,
+                "warnings": []
+              },
+              {
+                "name": "밴드닷컴(덕용)",
+                "spec": null,
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 1400.0,
+                "amount": 4200.0,
+                "warnings": []
+              },
+              {
+                "name": "탁센연질캡슐 10c",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2700.0,
+                "amount": 5400.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액 20ml/",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 16000.0,
+                "amount": 16000.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액(신) 2",
+                "spec": null,
+                "quantity": null,
+                "unit": null,
+                "unit_price": null,
+                "amount": null,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.0,
+          "field_acc": 0.6666666666666666,
+          "exact": 1.0,
+          "f1": 1.0,
+          "complete": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "n_gt": 3,
+          "n_pred": 3,
+          "fields": {
+            "doc_type": true,
+            "issued_date": false,
+            "vendor_name": false,
+            "total": true,
+            "tax": true,
+            "subtotal": true
+          },
+          "failed": false,
+          "sec": 5.70983729098225,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 002.jpeg",
+          "label": "중식당 (3품목)",
+          "rep": 1,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2018-02-28",
+            "vendor_name": "창재반점",
+            "total": 18000.0,
+            "tax": 1635.0,
+            "subtotal": 16365.0,
+            "items": [
+              {
+                "name": "우동",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              },
+              {
+                "name": "짬뽕",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              },
+              {
+                "name": "볶음밥",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 1.1818181818181819,
+          "field_acc": 0.75,
+          "exact": 0.5,
+          "f1": 0.28571428571428575,
+          "complete": 0,
+          "precision": 0.2,
+          "recall": 0.5,
+          "n_gt": 2,
+          "n_pred": 5,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": false,
+            "total": true
+          },
+          "failed": false,
+          "sec": 6.961168790992815,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 003.jpeg",
+          "label": "배달앱 영수증 (2품목)",
+          "rep": 1,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2025-05-06",
+            "vendor_name": "coupaнg eats",
+            "total": 16500.0,
+            "tax": null,
+            "subtotal": 16500.0,
+            "items": [
+              {
+                "name": "1인분 완전고기만",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 15500.0,
+                "amount": 15500.0,
+                "warnings": []
+              },
+              {
+                "name": "삼격살",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 0.0,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "검은소스",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 0.0,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "오리지날 맓",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 0.0,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "쌖 야채",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.45081967213114754,
+          "field_acc": 1.0,
+          "exact": 0.18181818181818182,
+          "f1": 0.18181818181818182,
+          "complete": 0,
+          "precision": 0.18181818181818182,
+          "recall": 0.18181818181818182,
+          "n_gt": 11,
+          "n_pred": 11,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "total": true,
+            "tax": true,
+            "subtotal": true
+          },
+          "failed": false,
+          "sec": 13.847561499977019,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 004.jpeg",
+          "label": "생활용품점 (11품목)",
+          "rep": 1,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2022-06-28",
+            "vendor_name": "CCM 인증기업",
+            "total": 13000.0,
+            "tax": 1183.0,
+            "subtotal": 11817.0,
+            "items": [
+              {
+                "name": "원형패드화장솜",
+                "spec": "100매",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "금은박레터링풍선",
+                "spec": "(PARTY",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "해피곰돌이조립풍선",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "명함화일",
+                "spec": "(120포켓/케이스",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "스티커보관파우일",
+                "spec": "(20포켓)",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "스티커보관",
+                "spec": "6공 바인더(",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "생일 pick 캔들",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "캐릭터 자석 집게",
+                "spec": "3P",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "그리영 출자",
+                "spec": "( 약 150",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "식사_다꾸_5단 스탬프",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "근커터칼",
+                "spec": "(2P) 1000",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.33980582524271846,
+          "field_acc": 0.5,
+          "exact": 0.4,
+          "f1": 0.4615384615384615,
+          "complete": 0,
+          "precision": 0.5454545454545454,
+          "recall": 0.4,
+          "n_gt": 15,
+          "n_pred": 11,
+          "fields": {
+            "doc_type": true,
+            "total": false
+          },
+          "failed": false,
+          "sec": 6.343860583030619,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 005.jpeg",
+          "label": "마트 (15품목, 상단 잘림)",
+          "rep": 1,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": null,
+            "vendor_name": null,
+            "total": null,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "테라칸 355ml",
+                "spec": null,
+                "quantity": 48.0,
+                "unit": null,
+                "unit_price": 740.0,
+                "amount": 35520.0,
+                "warnings": []
+              },
+              {
+                "name": "스크류바",
+                "spec": null,
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 400.0,
+                "amount": 1200.0,
+                "warnings": []
+              },
+              {
+                "name": "월드콘XQ",
+                "spec": null,
+                "quantity": 4.0,
+                "unit": null,
+                "unit_price": 510.0,
+                "amount": 2040.0,
+                "warnings": []
+              },
+              {
+                "name": "본가찰옥수수",
+                "spec": null,
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 400.0,
+                "amount": 1200.0,
+                "warnings": []
+              },
+              {
+                "name": "통근달 화이트크림",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 490.0,
+                "amount": 490.0,
+                "warnings": []
+              },
+              {
+                "name": "전통꿀호떡",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1050.0,
+                "amount": 1050.0,
+                "warnings": []
+              },
+              {
+                "name": "딸기 꿀떡",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 500.0,
+                "amount": 500.0,
+                "warnings": []
+              },
+              {
+                "name": "돌 오렌지 팝",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1870.0,
+                "amount": 1870.0,
+                "warnings": []
+              },
+              {
+                "name": "홈스타 바이오틱스 주방용",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3900.0,
+                "amount": 3900.0,
+                "warnings": []
+              },
+              {
+                "name": "파스퇴르 바른목장 우유",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2230.0,
+                "amount": 2230.0,
+                "warnings": []
+              },
+              {
+                "name": "코카콜라600ml",
+                "spec": null,
+                "quantity": 4.0,
+                "unit": null,
+                "unit_price": 990.0,
+                "amount": 3960.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.10185185185185185,
+          "field_acc": 0.75,
+          "exact": 0.0,
+          "f1": 0.5925925925925927,
+          "complete": 0,
+          "precision": 0.5714285714285714,
+          "recall": 0.6153846153846154,
+          "n_gt": 13,
+          "n_pred": 14,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": false,
+            "total": true
+          },
+          "failed": false,
+          "sec": 8.566329499997664,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-44 001.jpeg",
+          "label": "약국 (13품목)",
+          "rep": 2,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2023-04-28",
+            "vendor_name": "오 팜 페이",
+            "total": 84000.0,
+            "tax": 0.0,
+            "subtotal": 84000.0,
+            "items": [
+              {
+                "name": "광동쌍화탕(신명)",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4800.0,
+                "amount": 9600.0,
+                "warnings": []
+              },
+              {
+                "name": "광동제약",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3500.0,
+                "amount": 3500.0,
+                "warnings": []
+              },
+              {
+                "name": "콜민콜드20C",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "로디다펜 10C",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 2500.0,
+                "warnings": []
+              },
+              {
+                "name": "위속엔정20T",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "덱스피드10캅셀",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 4500.0,
+                "amount": 9000.0,
+                "warnings": []
+              },
+              {
+                "name": "동성정로환에프정",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2500.0,
+                "amount": 5000.0,
+                "warnings": []
+              },
+              {
+                "name": "바세린 퓨어스킨",
+                "spec": null,
+                "quantity": 5.0,
+                "unit": null,
+                "unit_price": 2200.0,
+                "amount": 11000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀정500mg",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 6500.0,
+                "amount": 13000.0,
+                "warnings": []
+              },
+              {
+                "name": "타이레놀산500mg",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 800.0,
+                "amount": 800.0,
+                "warnings": []
+              },
+              {
+                "name": "밴드닷컴(덕용)",
+                "spec": null,
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 1400.0,
+                "amount": 4200.0,
+                "warnings": []
+              },
+              {
+                "name": "탁센연질캡슐 10c",
+                "spec": null,
+                "quantity": 2.0,
+                "unit": null,
+                "unit_price": 2700.0,
+                "amount": 5400.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액 20ml/",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 16000.0,
+                "amount": 16000.0,
+                "warnings": []
+              },
+              {
+                "name": "판피린큐액(신) 2",
+                "spec": null,
+                "quantity": null,
+                "unit": null,
+                "unit_price": null,
+                "amount": null,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.0,
+          "field_acc": 0.6666666666666666,
+          "exact": 1.0,
+          "f1": 1.0,
+          "complete": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "n_gt": 3,
+          "n_pred": 3,
+          "fields": {
+            "doc_type": true,
+            "issued_date": false,
+            "vendor_name": false,
+            "total": true,
+            "tax": true,
+            "subtotal": true
+          },
+          "failed": false,
+          "sec": 4.237398166966159,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 002.jpeg",
+          "label": "중식당 (3품목)",
+          "rep": 2,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2018-02-28",
+            "vendor_name": "창재반점",
+            "total": 18000.0,
+            "tax": 1635.0,
+            "subtotal": 16365.0,
+            "items": [
+              {
+                "name": "우동",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              },
+              {
+                "name": "짬뽕",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              },
+              {
+                "name": "볶음밥",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 6000.0,
+                "amount": 6000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 1.1818181818181819,
+          "field_acc": 0.75,
+          "exact": 0.5,
+          "f1": 0.28571428571428575,
+          "complete": 0,
+          "precision": 0.2,
+          "recall": 0.5,
+          "n_gt": 2,
+          "n_pred": 5,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "vendor_name": false,
+            "total": true
+          },
+          "failed": false,
+          "sec": 8.158440333034378,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 003.jpeg",
+          "label": "배달앱 영수증 (2품목)",
+          "rep": 2,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2025-05-06",
+            "vendor_name": "coupaнg eats",
+            "total": 16500.0,
+            "tax": null,
+            "subtotal": 16500.0,
+            "items": [
+              {
+                "name": "1인분 완전고기만",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 15500.0,
+                "amount": 15500.0,
+                "warnings": []
+              },
+              {
+                "name": "삼격살",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 0.0,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "검은소스",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 0.0,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "오리지날 맓",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 0.0,
+                "amount": 0.0,
+                "warnings": []
+              },
+              {
+                "name": "쌖 야채",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.45081967213114754,
+          "field_acc": 1.0,
+          "exact": 0.18181818181818182,
+          "f1": 0.18181818181818182,
+          "complete": 0,
+          "precision": 0.18181818181818182,
+          "recall": 0.18181818181818182,
+          "n_gt": 11,
+          "n_pred": 11,
+          "fields": {
+            "doc_type": true,
+            "issued_date": true,
+            "total": true,
+            "tax": true,
+            "subtotal": true
+          },
+          "failed": false,
+          "sec": 10.694425874971785,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 004.jpeg",
+          "label": "생활용품점 (11품목)",
+          "rep": 2,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": "2022-06-28",
+            "vendor_name": "CCM 인증기업",
+            "total": 13000.0,
+            "tax": 1183.0,
+            "subtotal": 11817.0,
+            "items": [
+              {
+                "name": "원형패드화장솜",
+                "spec": "100매",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "금은박레터링풍선",
+                "spec": "(PARTY",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "해피곰돌이조립풍선",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "명함화일",
+                "spec": "(120포켓/케이스",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "스티커보관파우일",
+                "spec": "(20포켓)",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "스티커보관",
+                "spec": "6공 바인더(",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "생일 pick 캔들",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "캐릭터 자석 집게",
+                "spec": "3P",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "그리영 출자",
+                "spec": "( 약 150",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              },
+              {
+                "name": "식사_다꾸_5단 스탬프",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2000.0,
+                "amount": 2000.0,
+                "warnings": []
+              },
+              {
+                "name": "근커터칼",
+                "spec": "(2P) 1000",
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1000.0,
+                "amount": 1000.0,
+                "warnings": []
+              }
+            ]
+          }
+        },
+        {
+          "cer": 0.33980582524271846,
+          "field_acc": 0.5,
+          "exact": 0.4,
+          "f1": 0.4615384615384615,
+          "complete": 0,
+          "precision": 0.5454545454545454,
+          "recall": 0.4,
+          "n_gt": 15,
+          "n_pred": 11,
+          "fields": {
+            "doc_type": true,
+            "total": false
+          },
+          "failed": false,
+          "sec": 6.057695999974385,
+          "file": "KakaoTalk_Photo_2026-08-12-10-04-45 005.jpeg",
+          "label": "마트 (15품목, 상단 잘림)",
+          "rep": 2,
+          "pred": {
+            "doc_type": "receipt",
+            "issued_date": null,
+            "vendor_name": null,
+            "total": null,
+            "tax": null,
+            "subtotal": null,
+            "items": [
+              {
+                "name": "테라칸 355ml",
+                "spec": null,
+                "quantity": 48.0,
+                "unit": null,
+                "unit_price": 740.0,
+                "amount": 35520.0,
+                "warnings": []
+              },
+              {
+                "name": "스크류바",
+                "spec": null,
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 400.0,
+                "amount": 1200.0,
+                "warnings": []
+              },
+              {
+                "name": "월드콘XQ",
+                "spec": null,
+                "quantity": 4.0,
+                "unit": null,
+                "unit_price": 510.0,
+                "amount": 2040.0,
+                "warnings": []
+              },
+              {
+                "name": "본가찰옥수수",
+                "spec": null,
+                "quantity": 3.0,
+                "unit": null,
+                "unit_price": 400.0,
+                "amount": 1200.0,
+                "warnings": []
+              },
+              {
+                "name": "통근달 화이트크림",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 490.0,
+                "amount": 490.0,
+                "warnings": []
+              },
+              {
+                "name": "전통꿀호떡",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1050.0,
+                "amount": 1050.0,
+                "warnings": []
+              },
+              {
+                "name": "딸기 꿀떡",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 500.0,
+                "amount": 500.0,
+                "warnings": []
+              },
+              {
+                "name": "돌 오렌지 팝",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 1870.0,
+                "amount": 1870.0,
+                "warnings": []
+              },
+              {
+                "name": "홈스타 바이오틱스 주방용",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 3900.0,
+                "amount": 3900.0,
+                "warnings": []
+              },
+              {
+                "name": "파스퇴르 바른목장 우유",
+                "spec": null,
+                "quantity": 1.0,
+                "unit": null,
+                "unit_price": 2230.0,
+                "amount": 2230.0,
+                "warnings": []
+              },
+              {
+                "name": "코카콜라600ml",
+                "spec": null,
+                "quantity": 4.0,
+                "unit": null,
+                "unit_price": 990.0,
+                "amount": 3960.0,
+                "warnings": []
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
