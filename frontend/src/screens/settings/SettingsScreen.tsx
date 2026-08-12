@@ -326,7 +326,8 @@ export default function SettingsScreen() {
       },
       headerLeftContainerStyle: { paddingLeft: 10 },
       headerTitleContainerStyle: { marginLeft: 4 },
-      headerLeft: () => (
+      // tintColor: 안드로이드 시트 헤더의 크림 원형 버튼 안에서는 어두운 색이 내려온다 (RootNavigator SheetHeader)
+      headerLeft: ({ tintColor }: { tintColor?: string } = {}) => (
         <PressableScale
           style={{ marginLeft: 2, marginRight: 10, padding: 6 }}
           to={0.84}
@@ -338,7 +339,7 @@ export default function SettingsScreen() {
             }
           }}
         >
-          <Ionicons name="arrow-back" size={22} color={colors.creamSand} />
+          <Ionicons name="arrow-back" size={22} color={tintColor ?? colors.creamSand} />
         </PressableScale>
       ),
     });

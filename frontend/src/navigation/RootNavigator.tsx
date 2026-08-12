@@ -148,7 +148,9 @@ const erpHeader = (title: string, navigation: any) =>
     headerBackVisible: false, // 네이티브 백버튼 비활성화
     headerLeftContainerStyle: { paddingLeft: 10 },
     headerTitleContainerStyle: { marginLeft: 4 }, // [한글 주석: 화살표와 제목이 어색하게 붙지 않게 4px 여백 확보]
-    headerLeft: () => (
+    // tintColor: 기본(네이티브 헤더)은 크림색, 안드로이드 시트 헤더(SheetHeader)의
+    // 크림 원형 버튼 안에서는 어두운 에스프레소가 내려온다 — 하드코딩하면 원 안에서 안 보인다
+    headerLeft: ({ tintColor }: { tintColor?: string } = {}) => (
       <PressableScale
         onPress={() => {
           // [한글 주석: 뒤로가기 클릭 시 레이아웃 축소 및 화면 이탈 동작을 쫀득한 탄성 감도로 연출]
@@ -161,7 +163,7 @@ const erpHeader = (title: string, navigation: any) =>
         style={{ marginLeft: 2, marginRight: 10, padding: 4 }} // [한글 주석: 화살표와 제목 글자 사이에 10px 띄움 간격 조절]
         to={0.88}
       >
-        <Ionicons name="arrow-back" size={22} color={colors.creamSand} />
+        <Ionicons name="arrow-back" size={22} color={tintColor ?? colors.creamSand} />
       </PressableScale>
     ),
     animation: 'slide_from_right' as const,
@@ -171,26 +173,51 @@ const erpHeader = (title: string, navigation: any) =>
 // (AppBarLayout)를 아예 만들지 않아서(react-native-screens ScreenStackFragment.kt) 같은 모양을
 // JS로 그린다. options를 그대로 읽으므로 설정 화면처럼 setOptions로 제목·headerLeft를 바꾸는
 // 화면에서도 동작한다.
-function SheetHeader({ options }: any) {
+function SheetHeader({ navigation, options }: any) {
   const tint = options.headerTintColor ?? colors.creamSand;
   return (
     <View
       style={{
-        flexDirection: 'row',
-        alignItems: 'center',
+        height: 58,
+        justifyContent: 'center',
         backgroundColor: options.headerStyle?.backgroundColor ?? colors.espressoBrown,
-        paddingLeft: 10,
-        paddingRight: 12,
-        paddingVertical: 11,
       }}
     >
-      {options.headerLeft ? options.headerLeft({ canGoBack: true, tintColor: tint }) : null}
-      <View style={{ marginLeft: 4, flex: 1 }}>
-        <Text numberOfLines={1} style={{ color: tint, fontSize: 17, letterSpacing: -0.45, fontFamily: fonts.medium }}>
-          {options.title}
-        </Text>
+      {/* 아이폰(iOS 26)처럼 제목은 가운데 — 좌우 여백은 원형 버튼과 겹치지 않는 폭 */}
+      <Text
+        numberOfLines={1}
+        style={{ marginHorizontal: 64, textAlign: 'center', color: tint, fontSize: 17, letterSpacing: -0.45, fontFamily: fonts.medium }}
+      >
+        {options.title}
+      </Text>
+      {/* 크림색 원형 뒤로가기 — 화살표는 어두운 틴트를 내려보내 원 안에서 보이게 한다 */}
+      <View
+        style={{
+          position: 'absolute',
+          left: 10,
+          minWidth: 44,
+          minHeight: 44,
+          borderRadius: 22,
+          paddingLeft: 8,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: 'rgba(250,249,246,0.92)',
+        }}
+      >
+        {options.headerLeft ? (
+          options.headerLeft({ canGoBack: true, tintColor: colors.espressoBrown })
+        ) : (
+          <PressableScale onPress={() => navigation.goBack()} style={{ marginLeft: 2, marginRight: 10, padding: 4 }} to={0.88}>
+            <Ionicons name="arrow-back" size={22} color={colors.espressoBrown} />
+          </PressableScale>
+        )}
       </View>
-      {options.headerRight ? options.headerRight({ canGoBack: true, tintColor: tint }) : null}
+      {options.headerRight ? (
+        <View style={{ position: 'absolute', right: 12 }}>
+          {options.headerRight({ canGoBack: true, tintColor: tint })}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -204,7 +231,9 @@ const asSheet = (options: Record<string, unknown>) =>
     ? {
         ...options,
         presentation: 'formSheet' as const,
-        sheetAllowedDetents: [1.0],
+        // 1.0(전체 높이)로 하면 시트가 화면을 꽉 채워 일반 화면과 구분이 안 된다 —
+        // 아이폰 카드 모달처럼 위에 틈을 남겨 뒤 화면이 딤 처리된 채 보이게 한다
+        sheetAllowedDetents: [0.94],
         sheetCornerRadius: 20,
         // formSheet에는 네이티브 헤더가 없어 JS 헤더로 대체 (headerShown: false 화면이면 안 그려진다)
         header: (props: any) => <SheetHeader {...props} />,
