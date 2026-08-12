@@ -140,9 +140,7 @@ def _check_db() -> bool:
 def _row_to_draft(row) -> dict[str, Any]:
     """DB 행(문서+품목)을 서비스 표준 draft dict로 복원한다. 검증 경고는 재계산.
 
-    한계: 절단 복구 표식(result.truncated)은 저장하지 않아 다시 불러오면 False가 된다
-    (ocr_documents에 컬럼이 없고, 마이그레이션은 백엔드 A 소관이라 함께 논의 필요).
-    업로드 직후 검토 화면에는 경고가 뜨므로 확정 전에는 볼 수 있다.
+    절단 복구 표식(truncated)도 함께 복원한다 — 목록을 다시 불러도 경고가 유지된다.
     """
     result = OcrResult(
         doc_type=row.doc_type,
@@ -163,6 +161,7 @@ def _row_to_draft(row) -> dict[str, Any]:
         subtotal=float(row.subtotal) if row.subtotal is not None else None,
         tax=float(row.tax) if row.tax is not None else None,
         total=float(row.total) if row.total is not None else None,
+        truncated=bool(getattr(row, "truncated", False)),
     )
     warnings = _validate_result(result)  # 저장하지 않으므로 조회 시 재계산 (항상 최신 로직 기준)
     return {
@@ -217,6 +216,7 @@ def _save_draft(draft: dict[str, Any]) -> None:
         row.total = result.total
         row.target = draft["confirmed_target"] or draft["suggested_target"]
         row.applied = draft["applied"]
+        row.truncated = bool(result.truncated)
         row.created_at = draft["created_at"]
         row.updated_at = draft["updated_at"]
         # 품목은 통째로 교체 (수정 시 추가/삭제/변경을 한 번에 반영)

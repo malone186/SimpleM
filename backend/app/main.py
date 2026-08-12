@@ -53,8 +53,11 @@ def _startup_db_selfheal() -> None:
     ensure_menu_unique_constraint(engine)
 
     # [자가치유] 기존 ocr_documents 테이블에 store_id 컬럼이 없으면 보강한다 (매장별 OCR 조회용).
-    from app.models.ai import ensure_ocr_store_column
+    from app.models.ai import ensure_ocr_store_column, ensure_ocr_truncated_column
     ensure_ocr_store_column(engine)
+    # [자가치유] 응답 절단 표식 컬럼. 정식 경로는 alembic 0002_ocr_truncated이고
+    # 배포가 그걸 돌리지만, 아직 안 돈 DB에 새 코드가 붙어도 안 깨지게 받쳐 준다.
+    ensure_ocr_truncated_column(engine)
 
     # [자가치유] 기존 store_profiles 테이블에 configured 컬럼이 없으면 보강한다.
     from app.models.ai import ensure_store_profile_columns
