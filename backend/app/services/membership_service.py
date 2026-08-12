@@ -991,14 +991,21 @@ def visit_stats_bulk(db: Session, customer_ids: List[int]) -> Dict[int, Dict[str
     """
     if not customer_ids:
         return {}
+    # created_at은 timestamptz라 그냥 date()로 자르면 UTC 기준이 된다 — 오늘 아침
+    # KST 07:30 결제가 어제로 밀려, 아래에서 KST 오늘과 빼는 방문 간격이 하루 어긋난다.
+    # (SQLite에는 timezone()이 없어 그때는 원본 시각을 받아 파이썬에서 KST로 옮긴다.)
+    _is_pg = db.bind.dialect.name == "postgresql"
+    _day_col = (func.date(func.timezone("Asia/Seoul", BalanceTransaction.created_at))
+                if _is_pg else BalanceTransaction.created_at)
     rows = (
-        db.query(BalanceTransaction.customer_id, func.date(BalanceTransaction.created_at))
+        db.query(BalanceTransaction.customer_id, _day_col)
         .filter(
             BalanceTransaction.customer_id.in_(customer_ids),
             BalanceTransaction.tx_type == TX_USE,
         )
         .distinct()
-        .order_by(BalanceTransaction.customer_id, func.date(BalanceTransaction.created_at))
+        # DISTINCT일 때 ORDER BY 식은 선택 목록에 있는 것과 같아야 한다 (Postgres 규칙)
+        .order_by(BalanceTransaction.customer_id, _day_col)
         .all()
     )
     dates_by_customer: Dict[int, List[datetime]] = {}
