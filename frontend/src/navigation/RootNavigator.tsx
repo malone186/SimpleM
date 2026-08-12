@@ -117,7 +117,9 @@ const erpHeader = (title: string, navigation: any) =>
     headerStyle: { backgroundColor: colors.espressoBrown },
     headerTintColor: colors.creamSand,
     headerTitleStyle: {
-      fontSize: 16.5,
+      // 네이티브 스택 헤더의 titleFontSize는 iOS에서 정수(Int32)만 받는다 —
+      // 16.5 같은 소수를 주면 아이폰에서 화면 진입 즉시 렌더 크래시 (2026-08-12)
+      fontSize: 17,
       fontWeight: '500' as const, // [한글 주석: 투박한 900 굵기를 지우고 세련된 프리텐다드 미디엄 500 굵기 적용]
       letterSpacing: -0.45, // [한글 주석: 자간을 쫀쫀하게 좁혀 가독성을 높임]
       fontFamily: Platform.select({
@@ -183,7 +185,7 @@ function StaffApp({ userName }: { userName: string }) {
           headerTitleAlign: 'left',
           headerStyle: { backgroundColor: colors.espressoBrown },
           headerTintColor: colors.creamSand,
-          headerTitleStyle: { fontSize: 16.5, fontWeight: '500' },
+          headerTitleStyle: { fontSize: 17, fontWeight: '500' },
           headerStatusBarHeight: Platform.OS === 'web' ? 35 : undefined,
           headerRight: logoutBtn,
           tabBarActiveTintColor: colors.pointOrange,

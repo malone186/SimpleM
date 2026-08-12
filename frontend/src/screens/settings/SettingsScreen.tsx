@@ -313,7 +313,8 @@ export default function SettingsScreen() {
       title,
       headerTintColor: colors.creamSand,
       headerTitleStyle: {
-        fontSize: 16.5,
+        // 네이티브 헤더 폰트 크기는 iOS에서 정수만 허용 — 소수(16.5)는 크래시
+        fontSize: 17,
         fontWeight: '500',
         letterSpacing: -0.45, // [한글 주석: 자간을 쫀쫀하게 좁혀 깔끔한 미디엄 타이포 표현]
         fontFamily: Platform.select({
