@@ -5,9 +5,11 @@
 > qwen35 파이프라인). 초기 train.py(Qwen3-VL-2B-Instruct) 실험의 흔적이 이름에 남은 것.
 > 아래 표기는 원본 유지, 인용 시 Qwen3.5-2B로 쓸 것.
 >
-> **추가 세트 (2026-08-12)**: 바탕화면 실영수증 5장(타 도메인) 재추론 평가가
-> `eval_desktop5_{35,2b}.json`에 있다 — pred/gt 포함이라 **2B도 전 지표 산출됨**
-> (`rescore_extended.json`의 `desktop5_*` 키, 실행은 `eval_desktop5.py`).
+> **추가 세트 (2026-08-12)**: 바탕화면 실영수증 5장(타 도메인)을 0.8B·2B·**운영
+> Gemini API** 3자 재추론한 평가가 `eval_desktop5_{35,2b,gemini}.json`에 있다 —
+> pred/gt 포함이라 **전 지표 산출됨** (`rescore_extended.json`의 `desktop5_*` 키,
+> 실행은 `eval_desktop5.py`/`eval_desktop5_gemini.py`). 채점은 행 번호 접두어 무시
+> 정규화(Gemini가 "001 " 접두어를 떼고 출력하는 표기 차이 보정).
 > 종합 문서: 저장소 루트 `OCR_정량평가지표_2026-08-12.md`.
 
 2026-07 OCR 백엔드를 Gemini API로 전환하면서, 파인튜닝했던 Qwen 0.8B/2B의

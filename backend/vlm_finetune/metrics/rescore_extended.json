@@ -2,6 +2,7 @@
  "qwen35_0.8b_v2_llamacpp_q8": {
   "n_images": 130,
   "n_gt_items": 570,
+  "norm": "strict",
   "cer_name": 0.30746532900560636,
   "field_accuracy": {
    "name": 0.3684210526315789,
@@ -11,14 +12,17 @@
   },
   "field_accuracy_avg": 0.6513157894736842,
   "exact_match_item": 0.35789473684210527,
+  "exact_match_3field_macro": 0.4933802308802309,
   "complete_receipt_acc_3field": 0.24615384615384617,
   "complete_receipt_acc_4field": 0.24615384615384617,
-  "name_f1": 0.49998214124791884,
+  "name_f1_macro": 0.49998214124791884,
+  "name_f1_summary_strict": 0.49998214124791884,
   "avg_infer_sec": 3.7963361192307694
  },
  "qwen35_0.8b_v2_transformers_bf16": {
   "n_images": 130,
   "n_gt_items": 570,
+  "norm": "strict",
   "cer_name": 0.3008262024195928,
   "field_accuracy": {
    "name": 0.35964912280701755,
@@ -28,14 +32,17 @@
   },
   "field_accuracy_avg": 0.6495614035087719,
   "exact_match_item": 0.3368421052631579,
+  "exact_match_3field_macro": 0.4941945020791174,
   "complete_receipt_acc_3field": 0.27692307692307694,
   "complete_receipt_acc_4field": 0.26153846153846155,
-  "name_f1": 0.5074742059559874,
+  "name_f1_macro": 0.5074742059559874,
+  "name_f1_summary_strict": 0.5074742059559874,
   "avg_infer_sec": 10.547441875384875
  },
  "qwen35_0.8b_base": {
   "n_images": 130,
   "n_gt_items": 570,
+  "norm": "strict",
   "cer_name": 0.9021835349660667,
   "field_accuracy": {
    "name": 0.015789473684210527,
@@ -45,9 +52,11 @@
   },
   "field_accuracy_avg": 0.05043859649122807,
   "exact_match_item": 0.0,
+  "exact_match_3field_macro": 0.0,
   "complete_receipt_acc_3field": 0.0,
   "complete_receipt_acc_4field": 0.0,
-  "name_f1": 0.027495069033530575,
+  "name_f1_macro": 0.027495069033530575,
+  "name_f1_summary_strict": 0.027495069033530575,
   "avg_infer_sec": 29.005316531538288
  },
  "qwen3_vl_2b_q4_1024": {
@@ -60,7 +69,8 @@
  "desktop5_qwen35_0.8b_v2": {
   "n_images": 5,
   "n_gt_items": 47,
-  "cer_name": 0.4988558352402746,
+  "norm": "noprefix",
+  "cer_name": 0.5956284153005464,
   "field_accuracy": {
    "name": 0.1276595744680851,
    "quantity": 0.7021276595744681,
@@ -69,15 +79,18 @@
   },
   "field_accuracy_avg": 0.5478723404255319,
   "exact_match_item": 0.1276595744680851,
+  "exact_match_3field_macro": 0.08,
   "complete_receipt_acc_3field": 0.0,
   "complete_receipt_acc_4field": 0.0,
-  "name_f1": 0.08000000000000002,
+  "name_f1_macro": 0.08000000000000002,
+  "name_f1_summary_strict": 0.08000000000000002,
   "avg_infer_sec": 43.77320225997828
  },
- "desktop5_qwen3_vl_2b": {
+ "desktop5_qwen35_2b": {
   "n_images": 5,
   "n_gt_items": 47,
-  "cer_name": 0.17620137299771166,
+  "norm": "noprefix",
+  "cer_name": 0.2103825136612022,
   "field_accuracy": {
    "name": 0.19148936170212766,
    "quantity": 0.9361702127659575,
@@ -86,9 +99,31 @@
   },
   "field_accuracy_avg": 0.7340425531914894,
   "exact_match_item": 0.14893617021276595,
+  "exact_match_3field_macro": 0.15841491841491842,
   "complete_receipt_acc_3field": 0.0,
   "complete_receipt_acc_4field": 0.0,
-  "name_f1": 0.22586080586080587,
+  "name_f1_macro": 0.22586080586080587,
+  "name_f1_summary_strict": 0.22586080586080587,
   "avg_infer_sec": 26.643967280047946
+ },
+ "desktop5_gemini_api": {
+  "n_images": 5,
+  "n_gt_items": 47,
+  "norm": "noprefix",
+  "cer_name": 0.09562841530054644,
+  "field_accuracy": {
+   "name": 0.7659574468085106,
+   "quantity": 0.9148936170212766,
+   "unit_price": 0.8085106382978723,
+   "amount": 0.9148936170212766
+  },
+  "field_accuracy_avg": 0.851063829787234,
+  "exact_match_item": 0.6595744680851063,
+  "exact_match_3field_macro": 0.8298368298368299,
+  "complete_receipt_acc_3field": 0.4,
+  "complete_receipt_acc_4field": 0.2,
+  "name_f1_macro": 0.8503496503496504,
+  "name_f1_summary_strict": 0.5272727272727272,
+  "avg_infer_sec": 25.682701000012457
  }
 }

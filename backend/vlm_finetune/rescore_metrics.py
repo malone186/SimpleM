@@ -32,6 +32,13 @@ def norm_name(s):
     return re.sub(r"\s+", "", str(s or "")).lower()
 
 
+def norm_name_noprefix(s):
+    """번호 접두어("001 ", "13 ") 무시 정규화 — Gemini가 접두어를 떼고 출력해
+    표기 차이가 이름 오답으로 채점되는 것을 막는다. '1인분'처럼 숫자 뒤에
+    공백이 없으면 이름의 일부로 보고 보존한다."""
+    return norm_name(re.sub(r"^\s*\d+\s+", "", str(s or "")))
+
+
 def _eq_num(a, b):
     if a is None or b is None:
         return a == b
@@ -58,10 +65,10 @@ def lev(a: str, b: str) -> int:
 FIELDS = ("name", "quantity", "unit_price", "amount")
 
 
-def pair_items(gt_items, pred_items):
+def pair_items(gt_items, pred_items, norm=norm_name):
     """(gt_idx, pred_idx) 짝 목록. 이름 완전일치 우선, 나머지는 편집거리 그리디."""
-    gt_names = [norm_name(g.get("name")) for g in gt_items]
-    pr_names = [norm_name(p.get("name")) for p in pred_items]
+    gt_names = [norm(g.get("name")) for g in gt_items]
+    pr_names = [norm(p.get("name")) for p in pred_items]
     pairs, used_gt, used_pr = [], set(), set()
     # 1) 멀티셋 완전 일치 (eval35.score_one과 동일한 정신)
     by_name = {}
@@ -91,27 +98,32 @@ def pair_items(gt_items, pred_items):
     return pairs, unmatched_gt
 
 
-def rescore_35(path: Path):
+def rescore_35(path: Path, norm=norm_name):
     data = json.loads(path.read_text(encoding="utf-8"))
     ed_sum = ref_chars = 0
     field_hit = Counter()
     n_gt_items = exact_items = 0
     complete3 = complete4 = 0
+    recalls, precisions, f1s, full_recalls = [], [], [], []
     n_img = len(data["detail"])
     for row in data["detail"]:
         gt_items = row["gt"].get("items", [])
         pred = row["pred"]
         pred_items = [i for i in ((pred or {}).get("items") or []) if isinstance(i, dict)]
         n_gt_items += len(gt_items)
-        ref_chars += sum(len(norm_name(g.get("name"))) for g in gt_items)
+        ref_chars += sum(len(norm(g.get("name"))) for g in gt_items)
         if pred is None:
-            ed_sum += sum(len(norm_name(g.get("name"))) for g in gt_items)
+            ed_sum += sum(len(norm(g.get("name"))) for g in gt_items)
+            recalls.append(0.0)
+            precisions.append(0.0)
+            f1s.append(0.0)
+            full_recalls.append(0.0)
             continue
-        pairs, unmatched_gt = pair_items(gt_items, pred_items)
-        ok3 = ok4 = 0
+        pairs, unmatched_gt = pair_items(gt_items, pred_items, norm)
+        ok3 = ok4 = name_hit = 0
         for i, j in pairs:
             g, p = gt_items[i], pred_items[j]
-            gn, pn = norm_name(g.get("name")), norm_name(p.get("name"))
+            gn, pn = norm(g.get("name")), norm(p.get("name"))
             ed_sum += lev(gn, pn)
             f_ok = {
                 "name": gn == pn,
@@ -121,12 +133,20 @@ def rescore_35(path: Path):
             }
             for f, ok in f_ok.items():
                 field_hit[f] += ok
+            if f_ok["name"]:
+                name_hit += 1
             if f_ok["name"] and f_ok["quantity"] and f_ok["amount"]:
                 ok3 += 1
                 if f_ok["unit_price"]:
                     ok4 += 1
                     exact_items += 1
-        ed_sum += sum(len(norm_name(gt_items[i].get("name"))) for i in unmatched_gt)
+        ed_sum += sum(len(norm(gt_items[i].get("name"))) for i in unmatched_gt)
+        r = name_hit / max(len(gt_items), 1)
+        p = name_hit / max(len(pred_items), 1)
+        recalls.append(r)
+        precisions.append(p)
+        f1s.append(2 * p * r / (p + r) if p + r else 0.0)
+        full_recalls.append(ok3 / max(len(gt_items), 1))
         if len(pred_items) == len(gt_items) and ok3 == len(gt_items):
             complete3 += 1
             if ok4 == len(gt_items):
@@ -135,13 +155,16 @@ def rescore_35(path: Path):
     return {
         "n_images": n_img,
         "n_gt_items": n_gt_items,
+        "norm": "noprefix" if norm is norm_name_noprefix else "strict",
         "cer_name": ed_sum / max(ref_chars, 1),
         "field_accuracy": {f: field_hit[f] / nd for f in FIELDS},
         "field_accuracy_avg": sum(field_hit[f] for f in FIELDS) / (4 * nd),
         "exact_match_item": exact_items / nd,
+        "exact_match_3field_macro": sum(full_recalls) / n_img,
         "complete_receipt_acc_3field": complete3 / n_img,
         "complete_receipt_acc_4field": complete4 / n_img,
-        "name_f1": data["summary"]["name_f1"],
+        "name_f1_macro": sum(f1s) / n_img,
+        "name_f1_summary_strict": data["summary"]["name_f1"],
         "avg_infer_sec": data.get("avg_infer_sec") or data["summary"].get("avg_infer_sec"),
     }
 
@@ -169,11 +192,15 @@ def main():
         "qwen35_0.8b_base": rescore_35(METRICS / "eval35_base.json"),
         "qwen3_vl_2b_q4_1024": rescore_2b(METRICS / "eval_2b_q4_1024.json"),
     }
-    # 바탕화면 5장 세트 (eval_desktop5.py 산출물, pred/gt 포함 → 전 지표 가능)
-    for tag, key in (("35", "desktop5_qwen35_0.8b_v2"), ("2b", "desktop5_qwen3_vl_2b")):
+    # 바탕화면 5장 세트 (eval_desktop5*.py 산출물, pred/gt 포함 → 전 지표 가능).
+    # 접두어 무시 정규화로 세 시스템(0.8B·2B·Gemini)을 같은 코드로 채점한다 —
+    # Gemini가 "001 " 번호 접두어를 떼고 출력해 strict 채점은 표기 차이를 오답 처리함.
+    for tag, key in (("35", "desktop5_qwen35_0.8b_v2"),
+                     ("2b", "desktop5_qwen35_2b"),
+                     ("gemini", "desktop5_gemini_api")):
         p = METRICS / f"eval_desktop5_{tag}.json"
         if p.exists():
-            out[key] = rescore_35(p)
+            out[key] = rescore_35(p, norm=norm_name_noprefix)
     path = METRICS / "rescore_extended.json"
     path.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(out, ensure_ascii=False, indent=1))
