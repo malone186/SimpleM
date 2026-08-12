@@ -1,5 +1,15 @@
 # 파인튜닝 Qwen VLM OCR — 평가 지표 아카이브
 
+> **명칭 교정 (2026-08-12)**: 이 문서의 "Qwen3-VL-2B"는 실제로는 **Qwen3.5-2B**다
+> (`output/adapter2b/adapter_config.json`의 base가 Qwen/Qwen3.5-2B, finish2b.sh도
+> qwen35 파이프라인). 초기 train.py(Qwen3-VL-2B-Instruct) 실험의 흔적이 이름에 남은 것.
+> 아래 표기는 원본 유지, 인용 시 Qwen3.5-2B로 쓸 것.
+>
+> **추가 세트 (2026-08-12)**: 바탕화면 실영수증 5장(타 도메인) 재추론 평가가
+> `eval_desktop5_{35,2b}.json`에 있다 — pred/gt 포함이라 **2B도 전 지표 산출됨**
+> (`rescore_extended.json`의 `desktop5_*` 키, 실행은 `eval_desktop5.py`).
+> 종합 문서: 저장소 루트 `OCR_정량평가지표_2026-08-12.md`.
+
 2026-07 OCR 백엔드를 Gemini API로 전환하면서, 파인튜닝했던 Qwen 0.8B/2B의
 평가 결과를 여기에 보존한다 (원본은 gitignore된 `output/`에 있었음).
 GGUF·병합 체크포인트·llama.cpp 도구는 삭제했고, **LoRA 어댑터**(`output/adapter35*`,

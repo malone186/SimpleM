@@ -1,0 +1,761 @@
+{
+ "summary": {
+  "parsed": 0.8,
+  "item_count_acc": 0.6,
+  "name_recall": 0.08,
+  "full_recall": 0.08,
+  "name_precision": 0.08,
+  "name_f1": 0.08000000000000002
+ },
+ "avg_infer_sec": 43.77320225997828,
+ "n": 5,
+ "runtime": "transformers bf16 (merged adapter), RTX 5060",
+ "detail": [
+  {
+   "image": "파인튜닝 1.jpg",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.0,
+    "full_recall": 0.0,
+    "name_precision": 0.0,
+    "name_f1": 0.0
+   },
+   "pred": {
+    "doc_type": "receipt",
+    "items": [
+     {
+      "name": "000002",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 6000,
+      "amount": 6000
+     },
+     {
+      "name": "000003",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 6000,
+      "amount": 6000
+     },
+     {
+      "name": "000005",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 6000,
+      "amount": 6000
+     }
+    ]
+   },
+   "gt": {
+    "doc_type": "receipt",
+    "items": [
+     {
+      "name": "우동",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 6000,
+      "amount": 6000
+     },
+     {
+      "name": "짬뽕",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 6000,
+      "amount": 6000
+     },
+     {
+      "name": "볶음밥",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 6000,
+      "amount": 6000
+     }
+    ]
+   },
+   "raw": null
+  },
+  {
+   "image": "파인튜닝 2.jpeg",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 0,
+    "name_recall": 0.0,
+    "full_recall": 0.0,
+    "name_precision": 0.0,
+    "name_f1": 0.0
+   },
+   "pred": {
+    "doc_type": "receipt",
+    "items": [
+     {
+      "name": "1본 완전고기만",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": null,
+      "amount": 15500
+     },
+     {
+      "name": "삼 야채",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": null,
+      "amount": 1000
+     }
+    ]
+   },
+   "gt": {
+    "doc_type": "receipt",
+    "items": [
+     {
+      "name": "1인분 완전고기만",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": null,
+      "amount": 15500
+     },
+     {
+      "name": "+ 삼겹살",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": null,
+      "amount": 0
+     },
+     {
+      "name": "+ 검은소스",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": null,
+      "amount": 0
+     },
+     {
+      "name": "+ 오리지날 맛",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": null,
+      "amount": 0
+     },
+     {
+      "name": "쌈 야채",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": null,
+      "amount": 1000
+     }
+    ]
+   },
+   "raw": null
+  },
+  {
+   "image": "파인튜닝 3.jpg",
+   "scores": {
+    "parsed": 0,
+    "item_count_acc": 0,
+    "name_recall": 0.0,
+    "full_recall": 0.0,
+    "name_precision": 0.0,
+    "name_f1": 0.0
+   },
+   "pred": null,
+   "gt": {
+    "doc_type": "receipt",
+    "items": [
+     {
+      "name": "원형패드화장솜100매",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 1000,
+      "amount": 1000
+     },
+     {
+      "name": "금은박레터링풍선(PARTY",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 1000,
+      "amount": 1000
+     },
+     {
+      "name": "해피곰돌이조립풍선",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 1000,
+      "amount": 1000
+     },
+     {
+      "name": "명함화일(120포켓/케이스",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 1000,
+      "amount": 1000
+     },
+     {
+      "name": "스티커 보관파일(20포켓",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 1000,
+      "amount": 1000
+     },
+     {
+      "name": "스티커 보관 6공 바인더(",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 2000,
+      "amount": 2000
+     },
+     {
+      "name": "생일 pick 캔들",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 1000,
+      "amount": 1000
+     },
+     {
+      "name": "캐릭터 자석 집게 3P",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 1000,
+      "amount": 1000
+     },
+     {
+      "name": "고리형 줄자 ( 약 150",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 1000,
+      "amount": 1000
+     },
+     {
+      "name": "픽사_다꾸_5단 스탬프",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 2000,
+      "amount": 2000
+     },
+     {
+      "name": "당근컷터칼(2P)1000",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 1000,
+      "amount": 1000
+     }
+    ]
+   },
+   "raw": "{\"doc_type\": \"receipt\", \"items\": [{\"name\": \"성일 pick 캔들\", \"spec\": null, \"quantity\": 1, \"unit\": null, \"unit_price\": 1000, \"amount\": 1000}, {\"name\": \"성일 pick 캔들\", \"spec\": null, \"quantity\": 1, \"unit\": null, \"unit_price\": 1000, \"amount\": 1000}, {\"name\": \"성일 pick 캔들\", \"spec\": null, \"quantity\": 1, \"unit\": null, \"unit_price\": 1000, \"amount\": 1000}, {\"name\": \"성일 pick 캔들\", \"spec\": null, \"quantity\": 1, \"unit\": null, \"unit_price\": 1000, \"amount\": 1000}, {\"name\": \"성일 pick 캔들\", \"spec\": null, \"quantity\": 1, \"unit\": null, \"unit_price\": 1000, \"amount\": 1000}, {\"name\": \"성일 pick 캔들\", \"spec\": null, \"quantity\": 1, \"unit\": null, \"unit_price\": 1000, \"amount\": 1000}, {\"name\": \"성일 pick 캔들\", \"spec\": null, \"quantity\": 1, \"unit\": null, \"unit_price\": 1000, \"amount\": 1000}, {\"name\": \"성일 pick 캔들\", \"spec\": null, \"quantit"
+  },
+  {
+   "image": "파인튜닝 4.jpg",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.4,
+    "full_recall": 0.4,
+    "name_precision": 0.4,
+    "name_f1": 0.4000000000000001
+   },
+   "pred": {
+    "doc_type": "receipt",
+    "items": [
+     {
+      "name": "001 씨그램 (라임)",
+      "spec": null,
+      "quantity": 24,
+      "unit": null,
+      "unit_price": 380,
+      "amount": 9120
+     },
+     {
+      "name": "002 테라캔 355ml",
+      "spec": null,
+      "quantity": 48,
+      "unit": null,
+      "unit_price": 740,
+      "amount": 35520
+     },
+     {
+      "name": "003 스크류바",
+      "spec": null,
+      "quantity": 3,
+      "unit": null,
+      "unit_price": 400,
+      "amount": 1200
+     },
+     {
+      "name": "004 월드코른XQ",
+      "spec": null,
+      "quantity": 4,
+      "unit": null,
+      "unit_price": 510,
+      "amount": 2040
+     },
+     {
+      "name": "005 분기갈옥수수",
+      "spec": null,
+      "quantity": 3,
+      "unit": null,
+      "unit_price": 400,
+      "amount": 1200
+     },
+     {
+      "name": "006 동통달 화이트크림",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 490,
+      "amount": 490
+     },
+     {
+      "name": "007 전통꿀호떡",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 1050,
+      "amount": 1050
+     },
+     {
+      "name": "008 딸기 갈만지",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 500,
+      "amount": 500
+     },
+     {
+      "name": "009 들 오렌지 딸",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 1870,
+      "amount": 1870
+     },
+     {
+      "name": "010 폼스타 바이러스 주방용",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 3900,
+      "amount": 3900
+     },
+     {
+      "name": "011 파스퇴르 바르몬장 우유",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 2230,
+      "amount": 2230
+     },
+     {
+      "name": "012 코카콜라600ml",
+      "spec": null,
+      "quantity": 4,
+      "unit": null,
+      "unit_price": 990,
+      "amount": 3960
+     },
+     {
+      "name": "013 딸기 갈만지",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 500,
+      "amount": 500
+     },
+     {
+      "name": "014 무균무대 욕실용",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 2400,
+      "amount": 2400
+     },
+     {
+      "name": "015 서울우유 병1.8L",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 4090,
+      "amount": 4090
+     }
+    ]
+   },
+   "gt": {
+    "doc_type": "receipt",
+    "items": [
+     {
+      "name": "001 씨그램 (라임)",
+      "spec": null,
+      "quantity": 24,
+      "unit": null,
+      "unit_price": 380,
+      "amount": 9120
+     },
+     {
+      "name": "002 테라캔 355ml",
+      "spec": null,
+      "quantity": 48,
+      "unit": null,
+      "unit_price": 740,
+      "amount": 35520
+     },
+     {
+      "name": "003 스크류바",
+      "spec": null,
+      "quantity": 3,
+      "unit": null,
+      "unit_price": 400,
+      "amount": 1200
+     },
+     {
+      "name": "004 월드콘XQ",
+      "spec": null,
+      "quantity": 4,
+      "unit": null,
+      "unit_price": 510,
+      "amount": 2040
+     },
+     {
+      "name": "005 본가찰옥수수",
+      "spec": null,
+      "quantity": 3,
+      "unit": null,
+      "unit_price": 400,
+      "amount": 1200
+     },
+     {
+      "name": "006 둥근달 화이트크림",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 490,
+      "amount": 490
+     },
+     {
+      "name": "007 전통꿀호떡",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 1050,
+      "amount": 1050
+     },
+     {
+      "name": "008 딸기 꿀딴지",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 500,
+      "amount": 500
+     },
+     {
+      "name": "009 돌 오렌지 팝",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 1870,
+      "amount": 1870
+     },
+     {
+      "name": "010 홈스타 바이럭스 주방용",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 3900,
+      "amount": 3900
+     },
+     {
+      "name": "011 파스퇴르 바른목장 우유",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 2230,
+      "amount": 2230
+     },
+     {
+      "name": "012 코카콜라600ml",
+      "spec": null,
+      "quantity": 4,
+      "unit": null,
+      "unit_price": 990,
+      "amount": 3960
+     },
+     {
+      "name": "013 딸기 꿀딴지",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 500,
+      "amount": 500
+     },
+     {
+      "name": "014 무균무때 욕실용",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 2400,
+      "amount": 2400
+     },
+     {
+      "name": "015 서울우유 병1.8L",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 4090,
+      "amount": 4090
+     }
+    ]
+   },
+   "raw": null
+  },
+  {
+   "image": "파인튜닝 5.jpg",
+   "scores": {
+    "parsed": 1,
+    "item_count_acc": 1,
+    "name_recall": 0.0,
+    "full_recall": 0.0,
+    "name_precision": 0.0,
+    "name_f1": 0.0
+   },
+   "pred": {
+    "doc_type": "receipt",
+    "items": [
+     {
+      "name": "01 광동성향(신형)",
+      "spec": null,
+      "quantity": 2,
+      "unit": null,
+      "unit_price": 4800,
+      "amount": 9600
+     },
+     {
+      "name": "02 홈인플드20C",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 3500,
+      "amount": 3500
+     },
+     {
+      "name": "03 영진약물",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 2000,
+      "amount": 2000
+     },
+     {
+      "name": "04 라파엘",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 2000,
+      "amount": 2000
+     },
+     {
+      "name": "05 메스피드10길셀",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 2000,
+      "amount": 2000
+     },
+     {
+      "name": "06 동성정로맨에프정",
+      "spec": null,
+      "quantity": 2,
+      "unit": null,
+      "unit_price": 4500,
+      "amount": 9000
+     },
+     {
+      "name": "07 바세린 유어스킨",
+      "spec": null,
+      "quantity": 2,
+      "unit": null,
+      "unit_price": 2500,
+      "amount": 5000
+     },
+     {
+      "name": "08 타이레블정500mg",
+      "spec": null,
+      "quantity": 5,
+      "unit": null,
+      "unit_price": 2200,
+      "amount": 11000
+     },
+     {
+      "name": "09 타이레블산500mg",
+      "spec": null,
+      "quantity": 2,
+      "unit": null,
+      "unit_price": 6500,
+      "amount": 13000
+     },
+     {
+      "name": "10 밴드옷감(닥용)",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 800,
+      "amount": 800
+     },
+     {
+      "name": "11 락션연결랩슬 10c",
+      "spec": null,
+      "quantity": 3,
+      "unit": null,
+      "unit_price": 1400,
+      "amount": 4200
+     },
+     {
+      "name": "12 파피린규약 20ml/",
+      "spec": null,
+      "quantity": 2,
+      "unit": null,
+      "unit_price": 2700,
+      "amount": 5400
+     },
+     {
+      "name": "13 파피린규약(신) 2",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 16000,
+      "amount": 16000
+     }
+    ]
+   },
+   "gt": {
+    "doc_type": "receipt",
+    "items": [
+     {
+      "name": "01 광동쌍화탕(신영)",
+      "spec": null,
+      "quantity": 2,
+      "unit": null,
+      "unit_price": 4800,
+      "amount": 9600
+     },
+     {
+      "name": "02 콜민콜드20C",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 3500,
+      "amount": 3500
+     },
+     {
+      "name": "03 로이디펜 10C",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 2000,
+      "amount": 2000
+     },
+     {
+      "name": "04 위속엔정20T",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 2500,
+      "amount": 2500
+     },
+     {
+      "name": "05 덱스피드10캅셀",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 2000,
+      "amount": 2000
+     },
+     {
+      "name": "06 동성정로환에프정",
+      "spec": null,
+      "quantity": 2,
+      "unit": null,
+      "unit_price": 4500,
+      "amount": 9000
+     },
+     {
+      "name": "07 바세린 퓨어스킨",
+      "spec": null,
+      "quantity": 2,
+      "unit": null,
+      "unit_price": 2500,
+      "amount": 5000
+     },
+     {
+      "name": "08 타이레놀정500mg",
+      "spec": null,
+      "quantity": 5,
+      "unit": null,
+      "unit_price": 2200,
+      "amount": 11000
+     },
+     {
+      "name": "09 타이레놀산500mg",
+      "spec": null,
+      "quantity": 2,
+      "unit": null,
+      "unit_price": 6500,
+      "amount": 13000
+     },
+     {
+      "name": "10 밴드닷컴 (덕용)",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 800,
+      "amount": 800
+     },
+     {
+      "name": "11 탁센연질캡슐 10c",
+      "spec": null,
+      "quantity": 3,
+      "unit": null,
+      "unit_price": 1400,
+      "amount": 4200
+     },
+     {
+      "name": "12 판피린큐액 20ml",
+      "spec": null,
+      "quantity": 2,
+      "unit": null,
+      "unit_price": 2700,
+      "amount": 5400
+     },
+     {
+      "name": "13 판피린큐액 (신) 2",
+      "spec": null,
+      "quantity": 1,
+      "unit": null,
+      "unit_price": 16000,
+      "amount": 16000
+     }
+    ]
+   },
+   "raw": null
+  }
+ ]
+}

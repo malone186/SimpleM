@@ -56,5 +56,39 @@
   "name_f1": 0.6655710578925403,
   "avg_infer_sec": 4.618185306923876,
   "note": "pred/gt 미보존 — CER·필드별 정확도·4필드 지표는 GPU 재실행 필요"
+ },
+ "desktop5_qwen35_0.8b_v2": {
+  "n_images": 5,
+  "n_gt_items": 47,
+  "cer_name": 0.4988558352402746,
+  "field_accuracy": {
+   "name": 0.1276595744680851,
+   "quantity": 0.7021276595744681,
+   "unit_price": 0.6808510638297872,
+   "amount": 0.6808510638297872
+  },
+  "field_accuracy_avg": 0.5478723404255319,
+  "exact_match_item": 0.1276595744680851,
+  "complete_receipt_acc_3field": 0.0,
+  "complete_receipt_acc_4field": 0.0,
+  "name_f1": 0.08000000000000002,
+  "avg_infer_sec": 43.77320225997828
+ },
+ "desktop5_qwen3_vl_2b": {
+  "n_images": 5,
+  "n_gt_items": 47,
+  "cer_name": 0.17620137299771166,
+  "field_accuracy": {
+   "name": 0.19148936170212766,
+   "quantity": 0.9361702127659575,
+   "unit_price": 0.9148936170212766,
+   "amount": 0.8936170212765957
+  },
+  "field_accuracy_avg": 0.7340425531914894,
+  "exact_match_item": 0.14893617021276595,
+  "complete_receipt_acc_3field": 0.0,
+  "complete_receipt_acc_4field": 0.0,
+  "name_f1": 0.22586080586080587,
+  "avg_infer_sec": 26.643967280047946
  }
 }

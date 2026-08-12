@@ -169,6 +169,11 @@ def main():
         "qwen35_0.8b_base": rescore_35(METRICS / "eval35_base.json"),
         "qwen3_vl_2b_q4_1024": rescore_2b(METRICS / "eval_2b_q4_1024.json"),
     }
+    # 바탕화면 5장 세트 (eval_desktop5.py 산출물, pred/gt 포함 → 전 지표 가능)
+    for tag, key in (("35", "desktop5_qwen35_0.8b_v2"), ("2b", "desktop5_qwen3_vl_2b")):
+        p = METRICS / f"eval_desktop5_{tag}.json"
+        if p.exists():
+            out[key] = rescore_35(p)
     path = METRICS / "rescore_extended.json"
     path.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(out, ensure_ascii=False, indent=1))
