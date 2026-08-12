@@ -1,7 +1,7 @@
 // 관리 허브 (⑥ 탭) — 딥브라운 오로라 헤더는 고정, 그 아래 크림 시트 안에서 카드만 스크롤.
 // 카드는 좌우로 번갈아 기울인 지그재그 배치이며, 탭에 들어올 때마다 아래에서 순차로 떠오른다.
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Platform, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { Animated, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import Svg, { Circle, Defs, FeGaussianBlur, Filter, LinearGradient, Path, Stop } from 'react-native-svg';
@@ -60,13 +60,6 @@ const isDark = (hex: string) => {
   return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.55;
 };
 
-// 카드색을 반투명 유리로 — 뒤의 방 배경 사진·크림 시트가 은은하게 비친다 (리퀴드 글라스 톤).
-// 글자 대비(scheme)는 원색 기준 그대로 계산하므로 투명해져도 가독성 규칙은 유지된다.
-const glassify = (hex: string, alpha = 0.72) => {
-  const n = parseInt(hex.slice(1), 16);
-  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
-};
-
 function scheme(color: string) {
   if (isDark(color)) {
     return {
@@ -111,9 +104,9 @@ export default function ManagementScreen() {
   const allItems: Item[] = [
     // 직원·인건비는 별도 카드를 두지 않고 이 화면 안에서 들어간다 (진입로 하나로 통일)
     { label: language === 'en' ? 'Staff & Schedule' : '직원 · 스케줄', en: 'PAYROLL', desc: language === 'en' ? 'Roster · Labor cost · Calendar · Settlement' : '직원 명부 · 인건비 · 근무 달력 · 손익 정산', color: '#E7DED2', route: 'Operation' },
-    { label: t('taxDocsTitle'), en: 'DOCUMENTS', desc: t('taxDocsSub'), color: '#D6C8B8', route: 'Document' },
+    { label: t('costAnalysisTitle'), en: 'COST', desc: t('costAnalysisSub'), color: '#D6C8B8', route: 'Cost' },
     { label: t('salesInputTitle'), en: 'SALES', desc: language === 'en' ? 'Cash/Card · Payout schedule' : '현금·카드 입력 · 입금 예정일', color: '#C2B09C', route: 'SalesInput' },
-    { label: t('costAnalysisTitle'), en: 'COST', desc: t('costAnalysisSub'), color: '#A8927C', route: 'Cost' },
+    { label: t('taxDocsTitle'), en: 'DOCUMENTS', desc: t('taxDocsSub'), color: '#A8927C', route: 'Document' },
     { label: language === 'en' ? 'Break-even Point' : '손익분기점', en: 'BREAK-EVEN', desc: language === 'en' ? 'Fixed costs → how much to sell to break even' : '고정비 입력 → 본전 매출 · 하루 목표 잔 수', color: '#9A8368', route: 'BreakEven' },
     { label: language === 'en' ? 'Marketing Studio' : '홍보 스튜디오', en: 'MARKETING', desc: language === 'en' ? 'AI promo copy & SNS banner creator' : 'AI 홍보 문구 · SNS 이미지 원스톱 생성', color: '#8E7660', route: 'Marketing' },
     { label: language === 'en' ? 'Bean Analysis' : '원두 분석', en: 'OPERATION', desc: language === 'en' ? 'Bean market price & Reviews' : '원두 최저가 시세 · 실리뷰 분석', color: '#6F5A47', route: 'BeanOperation' },
@@ -273,8 +266,9 @@ export default function ManagementScreen() {
                       styles.card,
                       {
                         height: CARD_H,
-                        backgroundColor: glassify(it.color),
-                        // 테두리 제거 — 색유리·그림자·여백이 구분을 담당한다 (토스·애플식)
+                        // 투명도 0(완전 불투명) — 뒤 배경이 비치지 않게 원색을 그대로 쓴다
+                        backgroundColor: it.color,
+                        // 테두리 제거 — 색·그림자·여백이 구분을 담당한다 (토스·애플식)
                       },
                     ]}
                     onPress={() => navigation.navigate(it.route, it.params)}
@@ -361,10 +355,6 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     overflow: 'hidden',
     ...shadows.medium,
-    // 웹은 카드 뒤 배경까지 블러 — 반투명과 합쳐져 색유리처럼 보인다 (네이티브는 반투명만)
-    ...(Platform.OS === 'web'
-      ? ({ backdropFilter: 'blur(14px) saturate(160%)' } as object)
-      : null),
   },
   cardGhost: {
     position: 'absolute',
