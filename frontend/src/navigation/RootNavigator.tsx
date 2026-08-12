@@ -35,6 +35,7 @@ import ShopScreen from '../screens/shop/ShopScreen';
 import StaffScreen from '../screens/staff/StaffScreen';
 import ChecklistScreen from '../screens/checklist/ChecklistScreen';
 import TaxDraftDetailScreen from '../screens/document/TaxDraftDetailScreen';
+import * as haptics from '../lib/haptics';
 import { colors, typography } from '../theme';
 import { liquidGlassBar } from '../theme/glass';
 import type { TaxEstimate } from '../lib/api/operation';
@@ -342,6 +343,8 @@ function TabsNavigator() {
   return (
     <Tab.Navigator
       initialRouteName="Dashboard"
+      // 탭 전환의 미세한 셀렉션 틱 — iOS 탭 바의 그 촉감 (웹에선 무시)
+      screenListeners={{ tabPress: () => haptics.tick() }}
       screenOptions={({ route }) => ({
         headerShown: false,
         animation: 'shift', // 탭 전환 시 콘텐츠가 스르륵 밀려 들어옴

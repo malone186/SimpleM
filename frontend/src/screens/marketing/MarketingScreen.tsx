@@ -28,6 +28,7 @@ import { toast } from '../../components/toast';
 import { Button, Card, Divider, Screen, SectionTitle } from '../../components/ui';
 import { SwipeDownModal } from '../../components/ui/SwipeDownModal';
 import { describeApiFailure } from '../../lib/api/errors';
+import * as haptics from '../../lib/haptics';
 import {
   CHANNEL_META,
   OVERLAY_META,
@@ -277,9 +278,11 @@ export default function MarketingScreen() {
       refreshHistory();
       // 메뉴 하나가 뚜렷하지 않은 사진(매장 전경 등)은 배경을 바꾸지 않고 보정만 한다.
       // 그 사실을 알려 주지 않으면 '배경이 왜 그대로지?'로 보인다.
+      haptics.success();
       if (img.note) toast('사진만 다듬었어요', img.note);
       else toast('내 사진으로 만들었어요', '실물 메뉴에 감성 배경을 입혔어요!');
     } catch (e) {
+      haptics.warn();
       toast('사진 합성 실패', describeApiFailure(e, '사진 합성').message);
     } finally {
       setPhase('idle');
@@ -351,8 +354,10 @@ export default function MarketingScreen() {
         } as any, img.image_id);
       }
       refreshHistory();
+      haptics.success();
       toast('보관함 메뉴로 만들었어요', '누끼를 건너뛰고 바로 합성해서 훨씬 빨라요!');
     } catch (e) {
+      haptics.warn();
       toast('사진 합성 실패', describeApiFailure(e, '사진 합성').message);
     } finally {
       setPhase('idle');

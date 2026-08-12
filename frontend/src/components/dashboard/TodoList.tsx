@@ -15,6 +15,7 @@ import { colors, radius, shadows, spacing, typography } from '../../theme';
 import { useResponsive } from '../../theme/responsive';
 import { PopIn, PressableScale, SlideUp } from '../motion';
 import { toast } from '../toast';
+import * as haptics from '../../lib/haptics';
 import { glassSurface } from '../../theme/glass';
 import { type DateInfo } from './SalesCard';
 
@@ -241,6 +242,7 @@ export default function TodoList({
   // 사장님도 홈에서 바로 체크할 수 있다 (체크리스트 화면과 같은 권한 규칙 — 토글은 모두 가능)
   const toggleStaffTask = async (it: ChecklistItem) => {
     if (!token || staffTaskBusyId !== null) return;
+    haptics.tap();
     setStaffTaskBusyId(it.id);
     setStaffTasks((prev) => prev?.map((x) => (x.id === it.id ? { ...x, done: !x.done } : x)) ?? prev);
     try {
@@ -273,6 +275,7 @@ export default function TodoList({
         await addChecklistItem(token, label, staff.id, true);
       }
       setSendTarget(null);
+      haptics.success();
       toast('알바에게 보냈어요', `${staff.name}님의 근무 체크리스트에 담았어요. 완료하면 여기서도 표시돼요.`);
       // 직원 할 일 탭을 이미 열어 봤다면 방금 보낸 항목이 바로 보이게 갱신
       if (staffTasks !== null) listChecklist(token).then(setStaffTasks).catch(() => {});
@@ -876,10 +879,12 @@ function TodoItem({
       ]),
     ]).start();
 
+    haptics.tap(); // 체크의 가벼운 톡 — 스프링 반동과 함께 손끝으로도 확인된다
     onToggleDone?.(todo.id);
   };
 
   const handleDelete = () => {
+    haptics.warn(); // 삭제는 주의 진동 — 체크(tap)와 촉감부터 다르게
     Animated.parallel([
       Animated.timing(animX, {
         toValue: -400,
