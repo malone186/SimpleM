@@ -164,6 +164,103 @@ def flatten(result: Any) -> dict:
     }
 
 
+def load_qwen(model_id: str, adapter: Optional[str]):
+    """파인튜닝 Qwen을 로컬 GPU로 올린다 (CUDA 필요 — 맥에서는 못 돌린다).
+
+    GGUF·llama.cpp 경로는 2026-07 정리 때 삭제됐지만 transformers+LoRA 경로는 살아 있다.
+    어댑터(output/adapter35*, output/adapter2b)는 gitignore라 학습을 돌린 기계에만 있다.
+    """
+    import torch
+    from transformers import AutoProcessor
+
+    if "VL" in model_id or "vl" in model_id:
+        from transformers import Qwen3VLForConditionalGeneration as Cls
+    else:
+        from transformers import Qwen3_5ForConditionalGeneration as Cls
+
+    processor = AutoProcessor.from_pretrained(model_id)
+    model = Cls.from_pretrained(model_id, dtype=torch.bfloat16,
+                                attn_implementation="sdpa", device_map="cuda:0")
+    if adapter:
+        from peft import PeftModel
+        model = PeftModel.from_pretrained(model, adapter)
+        model = model.merge_and_unload()
+        print(f"    adapter: {adapter}")
+    model.eval()
+    return processor, model
+
+
+def qwen_infer(processor, model, img_path: Path, max_side: int, max_new_tokens: int) -> dict:
+    """이미지 1장 추론 → 파싱된 dict. 학습과 같은 리사이즈를 써야 train/serve skew가 없다."""
+    import torch
+    from PIL import Image
+    sys.path.insert(0, str(BACKEND / "vlm_finetune"))
+    from train35 import resize_pixel_budget  # noqa: E402
+    from app.services.ai.vlm_prompt import VLM_PROMPT  # noqa: E402
+
+    img = resize_pixel_budget(Image.open(img_path).convert("RGB"), max_side)
+    inputs = processor.apply_chat_template(
+        [{"role": "user", "content": [{"type": "image", "image": img},
+                                      {"type": "text", "text": VLM_PROMPT}]}],
+        tokenize=True, add_generation_prompt=True, return_dict=True, return_tensors="pt",
+    ).to(model.device)
+    with torch.inference_mode():
+        out = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+    text = processor.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+    # 모델이 코드펜스·잡설을 섞어 내도 JSON만 회수한다 (운영 파서와 같은 방침)
+    m = re.search(r"\{.*\}", text, re.S)
+    if not m:
+        raise ValueError(f"JSON 없음: {text[:120]}")
+    return json.loads(m.group(0))
+
+
+def run_qwen(model_id: str, adapter: Optional[str], images: list[Path], gt_by_file: dict,
+             repeat: int, max_side: int, max_new_tokens: int, tag: str) -> dict:
+    """Qwen 경로 — Gemini와 같은 채점 함수를 쓰므로 결과를 한 표에 놓을 수 있다."""
+    processor, model = load_qwen(model_id, adapter)
+    rows = []
+    for rep in range(repeat):
+        for img in images:
+            gt = gt_by_file[img.name]
+            started = time.perf_counter()
+            pred_dump = None
+            try:
+                raw = qwen_infer(processor, model, img, max_side, max_new_tokens)
+                elapsed = time.perf_counter() - started
+                # Qwen 출력은 운영 스키마와 키가 같다(vlm_prompt.py 공용) — 그대로 평탄화
+                pred = {
+                    "doc_type": raw.get("doc_type"),
+                    "issued_date": raw.get("issued_date"),
+                    "vendor_name": (raw.get("vendor") or {}).get("name") if isinstance(raw.get("vendor"), dict) else raw.get("vendor"),
+                    "total": raw.get("total"), "tax": raw.get("tax"), "subtotal": raw.get("subtotal"),
+                    "items": raw.get("items") or [],
+                }
+                pred_dump = pred
+                s = score_one(gt, pred)
+                s["failed"] = False
+            except Exception as e:
+                elapsed = time.perf_counter() - started
+                print(f"    ! {img.name}: {type(e).__name__}: {str(e)[:120]}")
+                s = {"cer": 1.0, "field_acc": 0.0, "exact": 0.0, "f1": 0.0, "complete": 0,
+                     "precision": 0.0, "recall": 0.0, "n_gt": len(gt["items"]), "n_pred": 0,
+                     "fields": {}, "failed": True}
+            s.update(sec=elapsed, file=img.name, label=gt.get("label"), rep=rep, pred=pred_dump)
+            rows.append(s)
+            print(f"    [{rep + 1}/{repeat}] {gt.get('label'):22s} F1 {s['f1']:.3f}  "
+                  f"CER {s['cer']:.3f}  필드 {s['field_acc']:.3f}  {elapsed:.1f}s")
+
+    n = len(rows)
+    avg = lambda k: sum(r[k] for r in rows) / max(n, 1)  # noqa: E731
+    secs = sorted(r["sec"] for r in rows)
+    return {
+        "model": tag, "n": n, "repeat": repeat, "images": len(images),
+        "cer": avg("cer"), "field_acc": avg("field_acc"), "exact": avg("exact"),
+        "f1": avg("f1"), "complete": avg("complete"),
+        "sec": avg("sec"), "sec_median": secs[len(secs) // 2] if secs else 0.0,
+        "failed_rate": avg("failed"), "detail": rows,
+    }
+
+
 async def run_model(model: str, images: list[Path], gt_by_file: dict, repeat: int = 1) -> dict:
     """모델 하나로 전체 이미지를 repeat회 처리하고 평균 지표를 낸다.
 
@@ -219,6 +316,11 @@ def main() -> int:
     ap.add_argument("--gt", default=str(Path(__file__).parent / "ground_truth.json"))
     ap.add_argument("--models", default="gemini-3.1-flash-lite",
                     help="쉼표로 구분한 Gemini 모델 목록")
+    ap.add_argument("--qwen", help="Qwen 베이스 모델 id (예: Qwen/Qwen3-VL-2B-Instruct) — 주면 Gemini 대신 이걸 평가")
+    ap.add_argument("--adapter", help="LoRA 어댑터 경로 (예: vlm_finetune/output/adapter2b). 생략하면 파인튜닝 전 베이스라인")
+    ap.add_argument("--tag", help="결과 표에 쓸 이름 (기본: 모델 id)")
+    ap.add_argument("--max-side", type=int, default=1024, dest="max_side", help="학습 max-side와 일치시킬 것")
+    ap.add_argument("--max-new-tokens", type=int, default=1024, dest="max_new_tokens")
     ap.add_argument("--repeat", type=int, default=3,
                     help="모델·이미지당 반복 횟수 (LLM 응답 변동을 평균으로 흡수, 기본 3)")
     ap.add_argument("--out", default=str(Path(__file__).parent / "results.json"))
@@ -235,10 +337,18 @@ def main() -> int:
     print(f"이미지 {len(images)}장 · 정답 품목 {sum(len(g['items']) for g in gt_by_file.values())}개\n")
 
     results = []
-    for model in [m.strip() for m in args.models.split(",") if m.strip()]:
-        print(f"[{model}]")
-        results.append(asyncio.run(run_model(model, images, gt_by_file, args.repeat)))
+    if args.qwen:
+        # 로컬 GPU 경로 — 같은 이미지·같은 정답·같은 지표라 Gemini 결과와 한 표에 합칠 수 있다
+        tag = args.tag or (args.qwen.split("/")[-1] + ("" if args.adapter else " (파인튜닝 전)"))
+        print(f"[{tag}]")
+        results.append(run_qwen(args.qwen, args.adapter, images, gt_by_file,
+                                args.repeat, args.max_side, args.max_new_tokens, tag))
         print()
+    else:
+        for model in [m.strip() for m in args.models.split(",") if m.strip()]:
+            print(f"[{model}]")
+            results.append(asyncio.run(run_model(model, images, gt_by_file, args.repeat)))
+            print()
 
     Path(args.out).write_text(json.dumps({"results": results}, ensure_ascii=False, indent=2),
                               encoding="utf-8")
