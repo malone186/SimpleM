@@ -1,0 +1,115 @@
+{
+  "_note": "실제 영수증 5장 수동 라벨링 (2026-08-12). 사람이 이미지를 직접 읽어 작성했고, 각 영수증의 품목 금액 합이 인쇄된 합계와 일치하는지 검산해 확정했다. 상단이 잘려 정보가 없는 필드는 null — 채점에서 제외된다(모델이 뭘 내든 감점하지 않는다).",
+  "_fields_scored": ["doc_type", "issued_date", "vendor_name", "total", "tax", "subtotal"],
+  "receipts": [
+    {
+      "file": "KakaoTalk_Photo_2026-08-12-10-04-44 001.jpeg",
+      "label": "약국 (13품목)",
+      "doc_type": "receipt",
+      "vendor_name": "남산약국",
+      "issued_date": "2023-04-28",
+      "total": 84000,
+      "tax": null,
+      "subtotal": null,
+      "_check": "품목 합계 84,000 = 인쇄 합계 84,000 ✓",
+      "items": [
+        {"name": "광동쌍화탕(신영)", "quantity": 2, "unit_price": 4800, "amount": 9600},
+        {"name": "콜미르드20C", "quantity": 1, "unit_price": 3500, "amount": 3500},
+        {"name": "로이디펜 10C", "quantity": 1, "unit_price": 2000, "amount": 2000},
+        {"name": "위속엔정20T", "quantity": 1, "unit_price": 2500, "amount": 2500},
+        {"name": "멕스피드10캅셀", "quantity": 1, "unit_price": 2000, "amount": 2000},
+        {"name": "동성정로환에프정", "quantity": 2, "unit_price": 4500, "amount": 9000},
+        {"name": "바세린 퓨어스킨", "quantity": 2, "unit_price": 2500, "amount": 5000},
+        {"name": "타이레놀정500mg", "quantity": 5, "unit_price": 2200, "amount": 11000},
+        {"name": "타이레놀산500mg", "quantity": 2, "unit_price": 6500, "amount": 13000},
+        {"name": "밴드닷컴(덕용)", "quantity": 1, "unit_price": 800, "amount": 800},
+        {"name": "탁센연질캡슐 10c", "quantity": 3, "unit_price": 1400, "amount": 4200},
+        {"name": "판피린큐액 20ml", "quantity": 2, "unit_price": 2700, "amount": 5400},
+        {"name": "판피린큐액(신) 2", "quantity": 1, "unit_price": 16000, "amount": 16000}
+      ]
+    },
+    {
+      "file": "KakaoTalk_Photo_2026-08-12-10-04-45 002.jpeg",
+      "label": "중식당 (3품목)",
+      "doc_type": "receipt",
+      "vendor_name": "잠재반점",
+      "issued_date": "2018-02-26",
+      "total": 18000,
+      "tax": 1635,
+      "subtotal": 16365,
+      "_check": "품목 합계 18,000 = 인쇄 합계 18,000 ✓ / 과세물품가액 16,365 + 부가세 1,635 = 18,000 ✓",
+      "items": [
+        {"name": "우동", "quantity": 1, "unit_price": 6000, "amount": 6000},
+        {"name": "짬뽕", "quantity": 1, "unit_price": 6000, "amount": 6000},
+        {"name": "볶음밥", "quantity": 1, "unit_price": 6000, "amount": 6000}
+      ]
+    },
+    {
+      "file": "KakaoTalk_Photo_2026-08-12-10-04-45 003.jpeg",
+      "label": "배달앱 영수증 (2품목)",
+      "doc_type": "receipt",
+      "vendor_name": "김충기 꽃삼겹",
+      "issued_date": "2025-05-06",
+      "total": 16500,
+      "tax": null,
+      "subtotal": null,
+      "_check": "품목 합계 16,500 = 총결제금액 16,500 ✓. 0원 옵션(삼겹살·검은소스·오리지날 맛)은 앞 품목의 부가 선택지라 품목으로 세지 않는다 — 재고·원가에 영향이 없기 때문. 모델이 이를 품목으로 뽑으면 정밀도에서 감점된다(의도된 채점 기준).",
+      "items": [
+        {"name": "1인분 완전고기만", "quantity": 1, "unit_price": 15500, "amount": 15500},
+        {"name": "쌈 야채", "quantity": 1, "unit_price": 1000, "amount": 1000}
+      ]
+    },
+    {
+      "file": "KakaoTalk_Photo_2026-08-12-10-04-45 004.jpeg",
+      "label": "생활용품점 (11품목)",
+      "doc_type": "receipt",
+      "vendor_name": null,
+      "issued_date": "2022-06-28",
+      "total": 13000,
+      "tax": 1183,
+      "subtotal": 11817,
+      "_check": "품목 합계 13,000 = 판매 합계 13,000 ✓ / 과세 11,817 + 부가세 1,183 = 13,000 ✓. 상호는 영수증 상단이 잘려 없음(null → 채점 제외). 품목명이 인쇄 폭에 잘린 것은 잘린 그대로가 정답이다.",
+      "items": [
+        {"name": "원형패드화장솜100매", "quantity": 1, "unit_price": 1000, "amount": 1000},
+        {"name": "금은박레터링풍선(PARTY", "quantity": 1, "unit_price": 1000, "amount": 1000},
+        {"name": "해피곰돌이조립풍선", "quantity": 1, "unit_price": 1000, "amount": 1000},
+        {"name": "명함화일(120포켓/케이스", "quantity": 1, "unit_price": 1000, "amount": 1000},
+        {"name": "스티커 보관파일(20포켓)", "quantity": 1, "unit_price": 1000, "amount": 1000},
+        {"name": "스티커 보관 6공 바인더(", "quantity": 1, "unit_price": 2000, "amount": 2000},
+        {"name": "생일 pick 캔들", "quantity": 1, "unit_price": 1000, "amount": 1000},
+        {"name": "캐릭터 자석 집게 3P", "quantity": 1, "unit_price": 1000, "amount": 1000},
+        {"name": "고리형 줄자 ( 약 150", "quantity": 1, "unit_price": 1000, "amount": 1000},
+        {"name": "픽사 다꾸_5단 스탬프", "quantity": 1, "unit_price": 2000, "amount": 2000},
+        {"name": "당근컷터칼(2P) 1000", "quantity": 1, "unit_price": 1000, "amount": 1000}
+      ]
+    },
+    {
+      "file": "KakaoTalk_Photo_2026-08-12-10-04-45 005.jpeg",
+      "label": "마트 (15품목, 상단 잘림)",
+      "doc_type": "receipt",
+      "vendor_name": null,
+      "issued_date": null,
+      "total": 70070,
+      "tax": null,
+      "subtotal": null,
+      "_check": "품목 합계 70,070 = 인쇄 합계 70,070 ✓. 상호·날짜는 상단이 잘려 이미지에 없음(null → 채점 제외).",
+      "items": [
+        {"name": "씨그램 (라임)", "quantity": 24, "unit_price": 380, "amount": 9120},
+        {"name": "테라캔 355ml", "quantity": 48, "unit_price": 740, "amount": 35520},
+        {"name": "스크루바", "quantity": 3, "unit_price": 400, "amount": 1200},
+        {"name": "월드콘XQ", "quantity": 4, "unit_price": 510, "amount": 2040},
+        {"name": "본가찰옥수수", "quantity": 3, "unit_price": 400, "amount": 1200},
+        {"name": "둥근달 화이트크림", "quantity": 1, "unit_price": 490, "amount": 490},
+        {"name": "전통꿀호떡", "quantity": 1, "unit_price": 1050, "amount": 1050},
+        {"name": "딸기 꿀딴지", "quantity": 1, "unit_price": 500, "amount": 500},
+        {"name": "돌 오렌지 팝", "quantity": 1, "unit_price": 1870, "amount": 1870},
+        {"name": "홈스타 바이럭스 주방용", "quantity": 1, "unit_price": 3900, "amount": 3900},
+        {"name": "파스퇴르 바른목장 우유", "quantity": 1, "unit_price": 2230, "amount": 2230},
+        {"name": "코카콜라600ml", "quantity": 4, "unit_price": 990, "amount": 3960},
+        {"name": "딸기 꿀딴지", "quantity": 1, "unit_price": 500, "amount": 500},
+        {"name": "무균무때 육실용", "quantity": 1, "unit_price": 2400, "amount": 2400},
+        {"name": "서울우유 병1.8L", "quantity": 1, "unit_price": 4090, "amount": 4090}
+      ]
+    }
+  ]
+}
