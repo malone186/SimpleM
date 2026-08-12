@@ -325,15 +325,19 @@ function ScheduleCalendarCard({
     setTimeout(callback, 110);
   };
 
-  // 이전/다음 월 이동
+  // 이전/다음 월 이동.
+  //
+  // 이전 값에서 계산한다(함수형 setter) — 갱신이 110ms 뒤로 미뤄지는 동안 한 번 더 누르면
+  // 두 콜백이 모두 렌더 시점의 year/month로 계산해서, 두 번 눌렀는데 한 달만 넘어갔다.
+  // 여러 달을 빠르게 넘길 때 탭이 계속 유실된다.
   const handlePrevMonth = () => {
     animateTransition(() => {
-      setCurrentDate(new Date(year, month - 1, 1));
+      setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
     });
   };
   const handleNextMonth = () => {
     animateTransition(() => {
-      setCurrentDate(new Date(year, month + 1, 1));
+      setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
     });
   };
 
