@@ -113,9 +113,18 @@ export interface SensorDevicesResponse extends SensorPairing {
 
 // 센서 측정값 업링크 (ESP32 허브와 같은 엔드포인트 — 브라우저 BLE 리더도 사용)
 // readings 예: { fridge_temp: { temp_c: 3.2 }, bean_scale: { caffeine_g: 923 } }
-export const postSensorReadings = (store: string, readings: Record<string, Record<string, unknown>>) =>
+//
+// 토큰을 반드시 실어야 한다 — 서버는 토큰에서 매장을 정하고 본문 store는 무시한다.
+// 예전엔 인증 없이 본문 store만 믿어서, 남의 이메일만 알면 그 매장 냉장고 온도를
+// 정상값으로 덮어 진짜 고장 알림을 묻을 수 있었다 (2026-08-12 수정).
+export const postSensorReadings = (
+  token: string,
+  store: string,
+  readings: Record<string, Record<string, unknown>>,
+) =>
   apiFetch<{ ok: boolean; accepted: string[]; ignored: string[] }>('/api/v1/sensor/ingest', {
     method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify({ store, readings }),
   });
 

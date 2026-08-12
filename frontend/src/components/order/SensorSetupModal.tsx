@@ -144,8 +144,8 @@ export default function SensorSetupModal({
         ...(ble.rssi != null ? { rssi: ble.rssi } : {}),
       });
       // 기기가 측정값 GATT(자체 허브 JSON·샤오미 온도계)를 지원하면 즉시 실측 수신 시작
-      if (storeId) {
-        startBleLiveReader({ store: storeId, catalogId: device.id, bleId: ble.id, bleName: ble.name });
+      if (storeId && token) {
+        startBleLiveReader({ store: storeId, token, catalogId: device.id, bleId: ble.id, bleName: ble.name });
       }
       setJustPairedId(device.id);
       setFoundDevices([]);

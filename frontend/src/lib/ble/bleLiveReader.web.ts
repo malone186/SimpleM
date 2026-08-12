@@ -16,6 +16,7 @@ import {
 
 export interface LiveReaderTarget {
   store: string;      // 업링크에 쓸 매장 식별자 (get_devices 응답의 store_id)
+  token: string;      // 업링크 인증 — 서버가 이 토큰으로 매장을 정한다 (lib/api/sensor.ts 주석)
   catalogId: string;  // 센서 카탈로그 슬롯 (bean_scale, fridge_temp, …)
   bleId: string;      // 스캔 때 브라우저가 발급한 기기 ID
   bleName: string;
@@ -54,7 +55,7 @@ export function startBleLiveReader(target: LiveReaderTarget): void {
     const now = Date.now();
     if (now - lastPostAt < MIN_POST_INTERVAL_MS) return;
     lastPostAt = now;
-    postSensorReadings(target.store, readings).catch(() => { });
+    postSensorReadings(target.token, target.store, readings).catch(() => { });
   };
 
   const subscribe = async (): Promise<void> => {

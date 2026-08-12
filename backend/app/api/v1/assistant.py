@@ -41,15 +41,22 @@ def _optional_store_id(
     token: Optional[str] = Depends(_oauth2_optional),
     db: Session = Depends(get_db),
 ) -> str:
-    """로그인했으면 매장 식별자(이메일)를, 토큰이 아예 없으면 데모 매장.
+    """로그인한 사장님의 매장 식별자(이메일). 토큰이 없거나 틀리면 401.
 
     절대 None을 돌려주지 않는다 — None이 서비스까지 내려가면 전 매장 무스코프 조회가 된다.
     토큰이 '있는데 틀린'(만료 등) 경우는 데모로 눙치지 않고 401을 그대로 던진다 —
     chatbot.py가 이미 같은 사고(만료 토큰 사용자에게 데모 매장 숫자를 "내 매장"처럼
     보여주고, 음성 명령은 데모 매장 기록을 바꿈)를 겪고 고친 정책과 동일하게 맞춘다.
+
+    토큰이 '아예 없는' 경우도 마찬가지로 막는다 (2026-08-12). 예전엔 데모 매장
+    owner@cafe.com을 돌려줬는데, 그건 시드가 아니라 공유 DB에 실재하는 계정이라
+    누구든 토큰 없이 POST /assistant/voice-command 를 던지면 그 매장의 스케줄·작업
+    기록이 실제로 바뀌었다(handle_voice_command → start_next_task 는 확인 절차 없이
+    즉시 실행된다). briefing·next-task·notifications 도 그 매장 직원 스케줄을 그대로
+    내보냈다. 앱은 모든 /assistant 호출에 토큰을 싣고 있어(lib/api/assistant.ts) 영향 없다.
     """
     if not token:
-        return "owner@cafe.com"
+        raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
     return get_current_user(token=token, db=db).email
 
 
