@@ -4,11 +4,13 @@
 // 사용자에게 묻지 않고 띄우지만, 보상형은 AdMob 정책상 반드시 사용자가 명시적으로
 // 동의한 뒤에만 띄울 수 있고 중간에 닫을 수 있어야 한다. 그래서 이 모듈은 광고만
 // 담당하고, "볼래요?" 확인은 호출부(기존 confirmDialog)가 맡는다.
-import { AdEventType, RewardedAd, RewardedAdEventType } from 'react-native-google-mobile-ads';
+import type { RewardedAd } from 'react-native-google-mobile-ads';
 
 import { adUnitId } from './ids';
 import { initAds } from './init';
 import { mockAvailable, showMockRewarded } from './mockRewarded';
+// SDK는 반드시 안전 로더를 거친다 — 직접 import하면 Expo Go에서 앱이 시작조차 못 한다.
+import { sdk } from './sdk';
 
 const SHOW_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -33,6 +35,12 @@ let sdkUnavailable = false;
  * 이 값은 광고를 **요청할 때만** 심을 수 있어서 show 시점에 붙일 수 없다.
  */
 export function preloadRewarded(ssvUserId?: string): void {
+  if (!sdk) {
+    // Expo Go 등 네이티브 모듈이 없는 환경 — 모의 광고 경로만 살려둔다
+    sdkUnavailable = true;
+    return;
+  }
+  const { AdEventType, RewardedAd, RewardedAdEventType } = sdk;
   // 다른 계정 앞으로 받아둔(또는 받는 중인) 광고는 충전이 그 계정으로 가버린다 — 버리고 다시 받는다.
   if ((ready || loading) && loadedForUser !== ssvUserId) {
     ready = null;
@@ -110,6 +118,8 @@ export async function showRewarded(): Promise<boolean> {
     return false;
   }
   ready = null;
+  // ad가 존재한다는 것 자체가 sdk가 로드됐다는 뜻이다 (preload에서만 생성됨)
+  const { AdEventType, RewardedAdEventType } = sdk!;
 
   const earned = await new Promise<boolean>((resolve) => {
     let settled = false;

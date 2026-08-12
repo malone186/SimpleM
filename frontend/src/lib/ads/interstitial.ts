@@ -2,10 +2,12 @@
 //
 // OCR처럼 서버 응답을 기다려야 하는 흐름에 쓴다. 광고와 작업을 순차로 실행하지 않고
 // 병렬로 굴리기 때문에, 광고 시간이 대기 시간을 잡아먹어 체감 지연이 늘지 않는다.
-import { AdEventType, InterstitialAd } from 'react-native-google-mobile-ads';
+import type { InterstitialAd } from 'react-native-google-mobile-ads';
 
 import { adUnitId } from './ids';
 import { initAds } from './init';
+// SDK는 반드시 안전 로더를 거친다 — 직접 import하면 Expo Go에서 앱이 시작조차 못 한다.
+import { sdk } from './sdk';
 
 // 명세서를 여러 장 연속으로 올리는 게 흔한 사용 패턴이라, 매번 광고가 뜨면 앱을 못 쓴다.
 const MIN_INTERVAL_MS = 3 * 60 * 1000;
@@ -23,8 +25,10 @@ let lastShownAt = 0;
  * 화면 진입 시점에 호출해 둘 것. 실패해도 조용히 넘어간다(광고는 부가 기능).
  */
 export function preloadInterstitial(): void {
+  if (!sdk) return; // Expo Go 등 — 광고 없이 동작
   if (ready || loading) return;
   loading = true;
+  const { AdEventType, InterstitialAd } = sdk;
 
   initAds()
     .then((allowed) => {
@@ -92,6 +96,8 @@ export async function showAdWhile<T>(task: Promise<T>): Promise<T> {
 }
 
 function showAndWaitForClose(ad: InterstitialAd): Promise<void> {
+  // ad가 존재한다는 것 자체가 sdk가 로드됐다는 뜻이다 (preload에서만 생성됨)
+  const { AdEventType } = sdk!;
   return new Promise<void>((resolve) => {
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
