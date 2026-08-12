@@ -36,6 +36,26 @@ import { s, useBottomInset, useResponsive } from '../../theme/responsive';
 const DISMISSED_TODOS_KEY = '@simplem_dismissed_todos';
 // [한글 주석: 완료 처리(체크 표시)된 투두 항목 ID 저장 키 (AsyncStorage 영구 보관)]
 const COMPLETED_TODOS_KEY = '@simplem_completed_todos';
+
+// 보관소 쓰기 직렬화 — 예전에는 지울 때마다 getItem→수정→setItem을 각자 돌려서,
+// 두세 개를 빠르게 지우면 마지막 쓰기가 앞선 것들을 덮었다. 세션 중에는 메모리
+// 기록으로 정상으로 보이다가 앱을 껐다 켜면 지웠던 줄이 되살아났다.
+// 메모리 기록(prefsRef)은 읽어들인 보관소 값과 이미 합쳐져 있으므로 그대로 쓰면 된다.
+let storageChain: Promise<void> = Promise.resolve();
+function writeSet(key: string, values: Set<string>): Promise<void> {
+  const snapshot = Array.from(values);
+  storageChain = storageChain
+    .catch(() => {})
+    .then(() => AsyncStorage.setItem(key, JSON.stringify(snapshot)).then(() => undefined));
+  return storageChain;
+}
+function writeMap(key: string, value: Record<string, string>): Promise<void> {
+  const snapshot = JSON.stringify(value);
+  storageChain = storageChain
+    .catch(() => {})
+    .then(() => AsyncStorage.setItem(key, snapshot).then(() => undefined));
+  return storageChain;
+}
 // [한글 주석: 사장님이 지운 스마트 알림 센터 ID 저장 키 (AsyncStorage 영구 보관)]
 const DISMISSED_ALERTS_KEY = '@simplem_dismissed_alerts';
 
@@ -681,10 +701,7 @@ export default function DashboardScreen() {
     setAlerts((prev) => prev.filter((a) => a.id !== id));
     prefsRef.current.dismissedAlerts.add(id);   // 늦게 도착한 응답이 되살리지 않게
     try {
-      const raw = await AsyncStorage.getItem(DISMISSED_ALERTS_KEY);
-      const set = new Set<string>(raw ? JSON.parse(raw) : []);
-      set.add(id);
-      await AsyncStorage.setItem(DISMISSED_ALERTS_KEY, JSON.stringify(Array.from(set)));
+      await writeSet(DISMISSED_ALERTS_KEY, prefsRef.current.dismissedAlerts);
     } catch (e) {
       console.error('알림 닫기 기록 실패:', e);
     }
@@ -775,6 +792,19 @@ export default function DashboardScreen() {
         const realServerId = `server-${created.id}`;
         // [한글 주석] 서버 등록 완료 후 local- ID를 server- ID로 교체하여 삭제 시 서버 연동이 정상 동작하게 함
         pendingTodosRef.current.delete(tempLocalId);
+        if (prefsRef.current.dismissed.has(tempLocalId)) {
+          // 등록 응답을 기다리는 사이에 사장님이 그 줄을 지웠다. 예전엔 그대로 다시
+          // 붙들어서 지운 줄이 되살아났고, 서버에도 남아 새로고침·재실행 후에도 보였다
+          // (지움 기록에는 local- id만 있어 걸러지지도 않았다). 서버에서도 지운다.
+          await rememberDismissed(realServerId);
+          setTodos((prev) => prev.filter((t) => t.id !== tempLocalId && t.id !== realServerId));
+          try {
+            await deleteTodo(token, created.id);
+          } catch (err) {
+            console.error('등록 중 삭제한 할 일의 서버 삭제 실패:', err);
+          }
+          return;
+        }
         holdPending({ ...newTodo, id: realServerId });
         setTodos((prev) =>
           prev.map((t) => (t.id === tempLocalId ? { ...t, id: realServerId } : t))
@@ -793,10 +823,7 @@ export default function DashboardScreen() {
     // 방금 지운 줄이 그대로 되살아난다
     prefsRef.current.dismissed.add(id);
     try {
-      const raw = await AsyncStorage.getItem(DISMISSED_TODOS_KEY);
-      const set = new Set<string>(raw ? JSON.parse(raw) : []);
-      set.add(id);
-      await AsyncStorage.setItem(DISMISSED_TODOS_KEY, JSON.stringify(Array.from(set)));
+      await writeSet(DISMISSED_TODOS_KEY, prefsRef.current.dismissed);
     } catch (e) {
       console.error('숨김 항목 보관 실패:', e);
     }
@@ -946,7 +973,7 @@ export default function DashboardScreen() {
       } else {
         delete pruned[id];
       }
-      await AsyncStorage.setItem(COMPLETED_TODOS_KEY, JSON.stringify(pruned));
+      await writeMap(COMPLETED_TODOS_KEY, pruned);
     } catch (e) {
       console.error('완료 상태 보관소 저장 실패:', e);
     }
