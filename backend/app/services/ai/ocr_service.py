@@ -1026,6 +1026,17 @@ def _apply_inventory_inbound(draft: dict[str, Any], store_id: str) -> tuple[bool
                 description=f"영수증 OCR 입고 (문서 {draft['id']})",
             ))
             applied_names.append(item.name)
+
+        if not applied_names:
+            # 한 품목도 못 넣었는데 True를 주면 문서가 applied=True로 굳어 다시 반영할
+            # 방법이 없어진다 (수량을 고쳐도 이미 반영된 문서로 보인다).
+            # 바로 아래 _apply_sales가 같은 상황에서 롤백 후 False를 주는 것과 맞춘다.
+            db.rollback()
+            return False, (
+                "확정 완료. 수량을 인식한 품목이 없어 재고에 반영하지 못했습니다"
+                + (f" (제외: {', '.join(skipped_names[:3])})" if skipped_names else "")
+                + " — 품목 수량을 수정한 뒤 다시 시도해 주세요."
+            )
         db.commit()
 
     # 재고가 바뀌면 대시보드 발주 추천이 달라진다 — 예측 캐시 무효화
