@@ -141,7 +141,12 @@ function ScheduleCalendarCard({
   const month = currentDate.getMonth(); // 0-11
 
   // 직원 데이터 로드
+  // 달을 빠르게 넘기면 이전 달 요청이 아직 날아가는 중이다. 늦게 온 옛 달 응답이
+  // 새 달 상태를 덮으면, 그 달에 급여가 잡힌 직원만 남기는 필터(knownEmpIds)가
+  // 옛 달 기준으로 정해져 근무가 통째로 사라져 보인다.
+  const calSeq = useRef(0);
   const loadCalendarData = useCallback(async () => {
+    const mySeq = ++calSeq.current;
     setLoading(true);
     try {
       // 토큰을 안 넘기면 백엔드가 매장 구분 없이 전 직원·전 급여를 돌려준다
@@ -162,6 +167,7 @@ function ScheduleCalendarCard({
         token ? listStaff(token).catch(() => null) : Promise.resolve(null),
         reloadSchedules(),
       ]);
+      if (mySeq !== calSeq.current) return; // 더 최근 달 요청이 있다 — 이 응답은 버린다
       const profileMap = new Map(
         (staffList?.staff ?? []).map((m) => [m.id, m.profile] as const),
       );
@@ -186,7 +192,7 @@ function ScheduleCalendarCard({
     } catch (e) {
       console.error('달력 데이터 조회 오류:', e);
     } finally {
-      setLoading(false);
+      if (mySeq === calSeq.current) setLoading(false);
     }
   }, [year, month, reloadSchedules]);
 
@@ -874,7 +880,10 @@ function ScheduleCalendarCard({
                     </Text>
                   ) : dbEmployees.length > 0 ? (
                     dbEmployees.map((emp) => {
-                      const empColor = getEmployeeColor(emp.id);
+                      // 달력·범례와 같은 색 지도를 넘긴다 — 예전엔 여기 두 곳만 빼먹어서
+                      // 직원이 고른 대표 색 대신 순번 팔레트 색이 떠, 같은 사람이
+                      // 화면마다 다른 색으로 보였다.
+                      const empColor = getEmployeeColor(emp.id, dynamicColorMap);
                       const active = selectedEmpId === emp.id;
                       return (
                         <PressableScale
@@ -891,7 +900,7 @@ function ScheduleCalendarCard({
                     })
                   ) : (
                     payrollEmployees.map((p) => {
-                      const empColor = getEmployeeColor(p.employee_id);
+                      const empColor = getEmployeeColor(p.employee_id, dynamicColorMap);
                       const active = selectedEmpId === p.employee_id;
                       return (
                         <PressableScale
