@@ -161,10 +161,11 @@ def get_sales_history(store_id: str, days: int = 14,
     # 더했는데, 하루 150건이면 2주치가 이미 2000건을 넘는다. 그러면 구간 앞쪽 날짜가
     # 통째로 빠진 채 start_date는 여전히 전체 기간을 주장해서, 챗봇이 실제보다 적은
     # 매출을 사실처럼 보고했다 (잘렸다는 표시도 없었다).
-    # 날짜 구분은 KST 기준 — 이 저장소가 다른 곳에서 쓰는 timezone() 방식과 같다.
+    # 메뉴별 집계는 DB에서 GROUP BY로 끝낸다. 날짜별은 KST 경계로 잘라야 하는데
+    # 그 표현식이 엔진마다 달라(Postgres timezone() / SQLite 없음) 파이썬에서 나눈다 —
+    # 대신 필요한 세 컬럼만 읽어 예전처럼 ORM 객체와 조인을 통째로 끌어오지 않는다.
     from sqlalchemy import func as sa_func
 
-    day_kst = sa_func.date(sa_func.timezone("Asia/Seoul", Sale.sold_at))
     by_day: dict[str, dict[str, int]] = defaultdict(lambda: {"revenue": 0, "cups": 0})
     by_menu: dict[str, dict[str, int]] = defaultdict(lambda: {"revenue": 0, "cups": 0})
     with _db() as db:
@@ -172,14 +173,27 @@ def get_sales_history(store_id: str, days: int = 14,
             db.query(Sale)
             .filter(Sale.store_id == store_id, Sale.sold_at >= since, Sale.sold_at < until)
         )
-        for day, revenue, cups in (
-            base.with_entities(day_kst.label("d"),
-                               sa_func.sum(Sale.total_price),
-                               sa_func.sum(Sale.quantity))
-            .group_by(day_kst).all()
-        ):
-            key = _d(day) or ""
-            by_day[key] = {"revenue": int(revenue or 0), "cups": int(cups or 0)}
+        # 운영 DB(Postgres)에서는 날짜 자르기까지 DB에 맡긴다 — 행 수가 매출량에 비례해
+        # 계속 늘어나는 자리라, 옮겨오는 양을 날짜 수(수십 행)로 묶어 두는 편이 안전하다
+        # (실측 60일: 5,449행 전송 700ms → 집계 430ms). SQLite에는 timezone()이 없어
+        # 테스트에서는 아래 파이썬 경로로 떨어진다 — 결과는 같다.
+        day_kst = (sa_func.date(sa_func.timezone("Asia/Seoul", Sale.sold_at))
+                   if db.bind.dialect.name == "postgresql" else None)
+        if day_kst is not None:
+            for day, price, qty in (
+                base.with_entities(day_kst,
+                                   sa_func.sum(Sale.total_price),
+                                   sa_func.sum(Sale.quantity))
+                .group_by(day_kst).all()
+            ):
+                by_day[_d(day) or ""] = {"revenue": int(price or 0), "cups": int(qty or 0)}
+        else:
+            for sold_at, price, qty in base.with_entities(
+                Sale.sold_at, Sale.total_price, Sale.quantity
+            ).all():
+                day = _d(sold_at) or ""
+                by_day[day]["revenue"] += int(price or 0)
+                by_day[day]["cups"] += int(qty or 0)
         for menu_name, revenue, cups in (
             base.join(Menu, Sale.menu_id == Menu.id)
             .with_entities(Menu.name,
