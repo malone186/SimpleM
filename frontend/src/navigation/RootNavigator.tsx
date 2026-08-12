@@ -36,7 +36,7 @@ import StaffScreen from '../screens/staff/StaffScreen';
 import ChecklistScreen from '../screens/checklist/ChecklistScreen';
 import TaxDraftDetailScreen from '../screens/document/TaxDraftDetailScreen';
 import * as haptics from '../lib/haptics';
-import { colors, typography } from '../theme';
+import { colors, fonts, typography } from '../theme';
 import { liquidGlassBar } from '../theme/glass';
 import type { TaxEstimate } from '../lib/api/operation';
 
@@ -120,12 +120,16 @@ const erpHeader = (title: string, navigation: any) =>
       // 네이티브 스택 헤더의 titleFontSize는 iOS에서 정수(Int32)만 받는다 —
       // 16.5 같은 소수를 주면 아이폰에서 화면 진입 즉시 렌더 크래시 (2026-08-12)
       fontSize: 17,
-      fontWeight: '500' as const, // [한글 주석: 투박한 900 굵기를 지우고 세련된 프리텐다드 미디엄 500 굵기 적용]
       letterSpacing: -0.45, // [한글 주석: 자간을 쫀쫀하게 좁혀 가독성을 높임]
-      fontFamily: Platform.select({
-        web: 'Pretendard, -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, sans-serif',
-        default: undefined,
-      }),
+      // 네이티브는 로드해 둔 Pretendard 파일을 직접 지정 — 시스템 폰트에 맡기면
+      // iOS(애플고딕)와 안드로이드(Noto Sans)가 서로 다르게 보인다. 파일 자체가
+      // 미디엄 굵기라 fontWeight는 웹에서만 준다(안드로이드는 파일=굵기).
+      ...(Platform.OS === 'web'
+        ? {
+            fontWeight: '500' as const,
+            fontFamily: 'Pretendard, -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, sans-serif',
+          }
+        : { fontFamily: fonts.medium }),
     },
     // [한글 주석] 예전에는 35를 박아 뒀는데 기기마다 상태바 높이가 제각각이다
     // (아이폰 다이나믹 아일랜드 59pt, 갤럭시 펀치홀 24~40dp, 플립 커버 화면은 거의 0).
@@ -185,7 +189,8 @@ function StaffApp({ userName }: { userName: string }) {
           headerTitleAlign: 'left',
           headerStyle: { backgroundColor: colors.espressoBrown },
           headerTintColor: colors.creamSand,
-          headerTitleStyle: { fontSize: 17, fontWeight: '500' },
+          // 사장님 앱 헤더와 같은 Pretendard — 안드로이드가 Noto로 갈라지지 않게
+          headerTitleStyle: { fontSize: 17, letterSpacing: -0.45, ...(Platform.OS === 'web' ? { fontWeight: '500' as const } : { fontFamily: fonts.medium }) },
           headerStatusBarHeight: Platform.OS === 'web' ? 35 : undefined,
           headerRight: logoutBtn,
           tabBarActiveTintColor: colors.pointOrange,
@@ -197,7 +202,7 @@ function StaffApp({ userName }: { userName: string }) {
             paddingTop: staffVisualPad,
             ...liquidGlassBar,
           },
-          tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
+          tabBarLabelStyle: { fontSize: 11, ...(Platform.OS === 'web' ? { fontWeight: '700' as const } : { fontFamily: fonts.bold }) },
         }}
       >
         <StaffTab.Screen
@@ -362,11 +367,12 @@ function TabsNavigator() {
           paddingTop: visualPad,
           ...liquidGlassBar,
         },
-        tabBarLabelStyle: { 
+        tabBarLabelStyle: {
           fontSize: 10.5, // [가독성 보강] 너무 뚱뚱하지 않고 콤팩트한 폰트 사이즈
-          fontWeight: '700',
           marginTop: 2,
           letterSpacing: -0.2, // 세련된 자간 튜닝
+          // 네이티브는 Pretendard 파일로 굵기 지정 — 안드로이드 Noto 볼드가 아이폰과 달라 보여서
+          ...(Platform.OS === 'web' ? { fontWeight: '700' as const } : { fontFamily: fonts.bold }),
         },
         tabBarIcon: ({ color, size }) => (
           <Ionicons name={ICONS[route.name]} size={size ?? 20} color={color} // 아이콘 비례 조절

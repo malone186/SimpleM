@@ -77,7 +77,7 @@ import SettlementSetupPanel from '../../components/settlement/SettlementSetupPan
 import { getSettlementSettings } from '../../lib/api/settlement';
 import { resolveStoreProfile, updateStoreProfile } from '../../lib/api/store';
 import { isNativePushAvailable } from '../../notifications/pushRegistration';
-import { colors, typography } from '../../theme';
+import { colors, fonts, typography } from '../../theme';
 
 // 설정 항목 한 줄 (라벨 + 우측 컨트롤)
 function Row({ label, hint, right }: { label: string; hint?: string; right: React.ReactNode }) {
@@ -315,12 +315,14 @@ export default function SettingsScreen() {
       headerTitleStyle: {
         // 네이티브 헤더 폰트 크기는 iOS에서 정수만 허용 — 소수(16.5)는 크래시
         fontSize: 17,
-        fontWeight: '500',
         letterSpacing: -0.45, // [한글 주석: 자간을 쫀쫀하게 좁혀 깔끔한 미디엄 타이포 표현]
-        fontFamily: Platform.select({
-          web: 'Pretendard, -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, sans-serif',
-          default: undefined,
-        }),
+        // 네이티브는 Pretendard 파일 직접 지정 — 안드로이드 헤더가 Noto로 갈라지지 않게 (RootNavigator erpHeader와 동일)
+        ...(Platform.OS === 'web'
+          ? {
+              fontWeight: '500' as const,
+              fontFamily: 'Pretendard, -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, sans-serif',
+            }
+          : { fontFamily: fonts.medium }),
       },
       headerLeftContainerStyle: { paddingLeft: 10 },
       headerTitleContainerStyle: { marginLeft: 4 },
