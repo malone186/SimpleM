@@ -23,6 +23,12 @@ export default function BreakevenTodayCard({ refreshToken = 0 }: { refreshToken?
     { maxAgeMs: 3 * 60_000, refreshToken },
   );
 
+  // [훅 규칙] 카운트업은 아래 조기 반환(로딩·미설정)보다 반드시 위에서 호출한다 — 데이터가
+  // 도착해 화면이 바뀌는 순간 훅 개수가 달라지면 React가 렌더 도중 예외를 던지고, 홈 전체가
+  // ErrorBoundary('화면을 여는 중 문제가 생겼어요')로 떨어진다.
+  const sold = data?.sold_cups ?? 0;
+  const soldAnim = useCountUp(sold, 800, [sold]);
+
   if (!data) return null;
 
   // 손익분기 미설정 — 목표를 만들 수 있게 설정으로 유도 (기능 유입 통로)
@@ -46,9 +52,6 @@ export default function BreakevenTodayCard({ refreshToken = 0 }: { refreshToken?
   }
 
   const goal = data.goal ?? 0;
-  const sold = data.sold_cups ?? 0;
-  // 판 잔 수가 촤르륵 차오른다 — 매출 카드 금액과 같은 카운트업 (토스식)
-  const soldAnim = useCountUp(sold, 800, [sold]);
   const pct = Math.min(100, goal > 0 ? (sold / goal) * 100 : 0);
   const remain = Math.max(0, goal - sold);
 
