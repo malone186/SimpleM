@@ -51,6 +51,8 @@ backend/secrets/
 .DS_Store
 Thumbs.db
 backend/simplem.db
+# 테스트가 만드는 임시 SQLite (pytest 실행 부산물)
+backend/.test_*.db
 sensor_pairing.json
 
 # APK 배포물은 서버 static에만 둔다 (git에 105MB 바이너리 금지)
