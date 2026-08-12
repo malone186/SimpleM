@@ -1078,8 +1078,12 @@ def weekly_payroll(store_id: str, week_start: Optional[str] = None) -> dict[str,
 
     hours_by_emp: dict[int, float] = {}
     for s in schedules:
-        st = s.actual_start_time or s.start_time
-        et = s.actual_end_time or s.end_time
+        # 출퇴근 둘 다 찍혔을 때만 실제 시각을 쓴다 — 한쪽만 찍힌 근무에 실제+계획을 섞으면
+        # 이 주간 급여만 다른 화면(월 급여·스케줄)과 시간이 어긋난다. _scheduled_hours_by_employee,
+        # _payroll_rows와 같은 규칙 (2026-08-12: 여기만 예전 규칙이 남아 있었다)
+        use_actual = bool(s.actual_start_time and s.actual_end_time)
+        st = s.actual_start_time if use_actual else s.start_time
+        et = s.actual_end_time if use_actual else s.end_time
         if not st or not et:
             continue
         delta = (et - st).total_seconds() / 3600
