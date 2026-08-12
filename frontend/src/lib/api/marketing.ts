@@ -221,3 +221,44 @@ export async function createPhotoPromoImage(
   }
   return res.json();
 }
+
+/** 홍보 누끼 보관함 항목 — 지금까지 오려낸 메뉴 사진 (미리보기는 base64 data URI) */
+export type PromoCutout = {
+  id: number;
+  label: string;
+  created_at?: string | null;
+  thumb_b64: string;
+};
+
+/** 보관함 목록 — 사진 합성을 할 때마다 오려낸 메뉴가 자동으로 쌓인다 (매장당 24장, 최신순) */
+export async function listPromoCutouts(token: string): Promise<PromoCutout[]> {
+  return apiFetch<PromoCutout[]>('/api/v1/chatbot/marketing/photo-cutouts', {
+    headers: auth(token),
+  });
+}
+
+/** 보관함 누끼로 홍보 이미지 — 촬영·업로드·누끼가 전부 생략돼 즉시 합성된다 */
+export async function createPhotoPromoImageFromCutout(
+  token: string,
+  cutoutId: number,
+  req: { doc_id?: string; style?: string; aspect_ratio?: string },
+): Promise<PromotionImage & { doc: PromotionDoc | null }> {
+  return apiFetch(`/api/v1/chatbot/marketing/photo-image-from-cutout`, {
+    method: 'POST',
+    headers: auth(token),
+    body: JSON.stringify({
+      cutout_id: cutoutId,
+      style: req.style ?? 'wood',
+      aspect_ratio: req.aspect_ratio ?? '1:1',
+      doc_id: req.doc_id ?? '',
+    }),
+  });
+}
+
+/** 보관함에서 누끼 삭제 */
+export async function deletePromoCutout(token: string, cutoutId: number): Promise<void> {
+  await apiFetch<void>(`/api/v1/chatbot/marketing/photo-cutouts/${cutoutId}`, {
+    method: 'DELETE',
+    headers: auth(token),
+  });
+}

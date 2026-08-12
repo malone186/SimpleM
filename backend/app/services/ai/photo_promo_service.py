@@ -981,8 +981,146 @@ def _finish(final, store_id: str, aspect_ratio: str, style: str, provider: str,
     return {**entry, "doc": doc}
 
 
+# ---------------------------------------------------------------------------
+# 누끼 보관함 — 오려낸 메뉴를 저장해 두고 재사용한다 (두 번째부터는 합성만 → 즉시)
+# ---------------------------------------------------------------------------
+CUTOUT_MAX_PER_STORE = 24   # 매장당 보관 상한 — 넘치면 오래된 것부터 지운다
+CUTOUT_MAX_SIDE = 1024      # 저장 해상도 — 합성 결과 화질과 DB 용량의 균형점
+CUTOUT_THUMB_SIDE = 256     # 목록 미리보기
+
+
+def _cutout_db():
+    import app.models  # noqa: F401 — 모든 모델을 Base.metadata에 등록
+    from app.core.database import SessionLocal
+    return SessionLocal()
+
+
+def _save_cutout_async(store_id: str, cut, label: str = "") -> None:
+    """합성에 쓴 누끼를 보관함에 저장 — 사장님 응답을 1ms도 늦추지 않게 백그라운드로."""
+    def _run() -> None:
+        try:
+            from app.models.ai import PromoCutout
+
+            img = cut.copy()
+            img.thumbnail((CUTOUT_MAX_SIDE, CUTOUT_MAX_SIDE))
+            buf = io.BytesIO()
+            img.save(buf, "PNG", optimize=True)
+            th = cut.copy()
+            th.thumbnail((CUTOUT_THUMB_SIDE, CUTOUT_THUMB_SIDE))
+            tbuf = io.BytesIO()
+            th.save(tbuf, "PNG", optimize=True)
+
+            db = _cutout_db()
+            try:
+                db.add(PromoCutout(store_id=store_id, label=(label or "").strip()[:80],
+                                   png=buf.getvalue(), thumb=tbuf.getvalue(),
+                                   width=img.width, height=img.height))
+                db.commit()
+                # 상한 초과분은 오래된 것부터 정리 — 보관함이 무한히 자라지 않게
+                stale = [r[0] for r in (
+                    db.query(PromoCutout.id)
+                    .filter(PromoCutout.store_id == store_id)
+                    .order_by(PromoCutout.created_at.desc(), PromoCutout.id.desc())
+                    .offset(CUTOUT_MAX_PER_STORE).all())]
+                if stale:
+                    db.query(PromoCutout).filter(PromoCutout.id.in_(stale)).delete(synchronize_session=False)
+                    db.commit()
+            finally:
+                db.close()
+        except Exception:
+            logger.debug("[사진 합성] 누끼 보관 실패(무해 — 다음 촬영 때 다시 시도)", exc_info=True)
+
+    threading.Thread(target=_run, daemon=True, name="cutout-save").start()
+
+
+def list_cutouts(store_id: str) -> list[dict[str, Any]]:
+    """보관함 목록 — 미리보기(base64)와 이름. 최신순."""
+    import base64
+    from app.models.ai import PromoCutout
+
+    db = _cutout_db()
+    try:
+        rows = (db.query(PromoCutout)
+                .filter(PromoCutout.store_id == store_id)
+                .order_by(PromoCutout.created_at.desc(), PromoCutout.id.desc())
+                .all())
+        return [{
+            "id": r.id,
+            "label": r.label,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "thumb_b64": "data:image/png;base64," + base64.b64encode(r.thumb).decode(),
+        } for r in rows]
+    finally:
+        db.close()
+
+
+def delete_cutout(store_id: str, cutout_id: int) -> None:
+    from app.models.ai import PromoCutout
+
+    db = _cutout_db()
+    try:
+        n = (db.query(PromoCutout)
+             .filter(PromoCutout.id == cutout_id, PromoCutout.store_id == store_id)
+             .delete())
+        db.commit()
+        if not n:
+            raise PhotoPromoError("보관된 메뉴 사진을 찾을 수 없습니다.")
+    finally:
+        db.close()
+
+
+def _resolve_doc(store_id: str, doc_id: str) -> Optional[dict[str, Any]]:
+    """doc_id 검증 — 홍보 문서가 맞을 때만 돌려준다 (compose_from_photo·cutout 공용)."""
+    if not doc_id:
+        return None
+    from app.services.ai import document_service
+    from app.services.ai import marketing_service as M
+
+    try:
+        doc = document_service.get_document(store_id, doc_id)
+    except document_service.DocumentError as e:
+        raise PhotoPromoError(str(e))
+    if doc["kind"] != M.DOC_KIND:
+        raise PhotoPromoError(f"문서 {doc_id}는 홍보 콘텐츠가 아닙니다")
+    return doc
+
+
+def compose_from_cutout(store_id: str, cutout_id: int, style: str = "wood",
+                        aspect_ratio: str = "1:1", doc_id: str = "") -> dict[str, Any]:
+    """보관함의 누끼로 즉시 합성 — 촬영·업로드·누끼가 전부 생략돼 1초대에 나온다.
+
+    '지난번에 찍은 그 라떼로 이번 주 홍보물'이 이 경로다. 배경·비율은 매번 새로 고른다.
+    """
+    from PIL import Image
+    from app.models.ai import PromoCutout
+    from app.services.ai import marketing_service as M
+
+    if aspect_ratio not in M._ASPECT_RATIOS:
+        aspect_ratio = "1:1"
+    if style not in BACKGROUND_STYLES:
+        style = "wood"
+    doc = _resolve_doc(store_id, doc_id)
+
+    db = _cutout_db()
+    try:
+        row = (db.query(PromoCutout)
+               .filter(PromoCutout.id == cutout_id, PromoCutout.store_id == store_id)
+               .first())
+        if row is None:
+            raise PhotoPromoError("보관된 메뉴 사진을 찾을 수 없습니다.")
+        png = row.png
+    finally:
+        db.close()
+
+    cut = Image.open(io.BytesIO(png)).convert("RGBA")
+    bg, bg_provider, surface = _background(style, aspect_ratio)
+    final = _composite(cut, bg, surface, float(BACKGROUND_STYLES[style]["gloss"]))
+    return _finish(final, store_id, aspect_ratio, style,
+                   f"photo_composite_reuse({bg_provider})", "", doc, doc_id)
+
+
 def compose_from_photo(store_id: str, photo_bytes: bytes, style: str = "wood",
-                       aspect_ratio: str = "1:1", doc_id: str = "") -> dict[str, Any]:
+                       aspect_ratio: str = "1:1", doc_id: str = "", label: str = "") -> dict[str, Any]:
     """실물 메뉴 사진 → 홍보 이미지 → 저장. 반환은 기존 이미지 엔트리와 같은 형태.
 
     경로:
@@ -993,20 +1131,12 @@ def compose_from_photo(store_id: str, photo_bytes: bytes, style: str = "wood",
 
     doc_id를 주면 그 홍보 문서의 images에 붙어 챗봇 카드·보관함에 함께 보인다.
     """
-    from app.services.ai import document_service
     from app.services.ai import marketing_service as M
 
     if aspect_ratio not in M._ASPECT_RATIOS:
         aspect_ratio = "1:1"
 
-    doc: Optional[dict[str, Any]] = None
-    if doc_id:
-        try:
-            doc = document_service.get_document(store_id, doc_id)
-        except document_service.DocumentError as e:
-            raise PhotoPromoError(str(e))
-        if doc["kind"] != M.DOC_KIND:
-            raise PhotoPromoError(f"문서 {doc_id}는 홍보 콘텐츠가 아닙니다")
+    doc = _resolve_doc(store_id, doc_id)
 
     if style not in BACKGROUND_STYLES:
         style = "wood"
@@ -1015,6 +1145,12 @@ def compose_from_photo(store_id: str, photo_bytes: bytes, style: str = "wood",
 
     w, h = M._AR_SIZES.get(aspect_ratio, (1472, 1472))
     cut, src, stats = _cutout(photo_bytes)
+
+    # 오려낼 메뉴가 뚜렷했으면 보관함에 저장 — 다음번엔 촬영·누끼 없이 즉시 합성한다.
+    # 이름은 홍보 문서의 대표 메뉴가 있으면 그걸 쓴다 (목록에서 알아보기 위한 것).
+    if stats["compositable"]:
+        auto_label = label or ((doc or {}).get("content", {}) or {}).get("focus_menu", "")
+        _save_cutout_async(store_id, cut, auto_label)
 
     if stats["compositable"] and os.getenv("PHOTO_EDIT_AI", "0") == "1":
         # 사진 편집 경로 — 원근·조명·그림자가 처음부터 하나로 맞는다. 여기서만

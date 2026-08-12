@@ -4,8 +4,8 @@ import logging
 from datetime import datetime
 
 from sqlalchemy import (
-    BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, Numeric, String, Text,
-    UniqueConstraint, func, inspect, text,
+    BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, LargeBinary, Numeric, String,
+    Text, UniqueConstraint, func, inspect, text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -831,6 +831,27 @@ class TodoItem(Base):
 # ---------------------------------------------------------------------------
 # POS 실시간 연동 — 매장별 POS 계정 연결과 동기화된 주문 대장
 # ---------------------------------------------------------------------------
+
+
+class PromoCutout(Base):
+    """홍보 누끼 보관함 — 한 번 오려낸 메뉴 사진(RGBA PNG)을 저장해 두고 재사용한다.
+
+    합성 시간의 대부분이 누끼(rembg 추론)라, 보관함에서 골라 만들면 홍보물이 즉시 나온다.
+    Cloud Run 디스크는 휘발성이라 DB(bytea)에 둔다 — 저장 전 1024px로 줄여 장당 수백 KB,
+    매장당 상한(photo_promo_service.CUTOUT_MAX_PER_STORE)으로 무한히 크지 않게 막는다.
+    """
+
+    __tablename__ = "promo_cutouts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    store_id: Mapped[str] = mapped_column(String(100), index=True)
+    # 목록에서 알아볼 이름 — 홍보 문서의 메뉴명이 있으면 그걸, 없으면 빈 값(날짜로 표시)
+    label: Mapped[str] = mapped_column(String(80), default="")
+    png: Mapped[bytes] = mapped_column(LargeBinary)    # 오려낸 메뉴 RGBA PNG (최대 1024px)
+    thumb: Mapped[bytes] = mapped_column(LargeBinary)  # 목록 미리보기 PNG (256px)
+    width: Mapped[int] = mapped_column(Integer, default=0)
+    height: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class PosConnection(Base):

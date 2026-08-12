@@ -34,9 +34,12 @@ import {
   PHOTO_BG_STYLES,
   aspectToNumber,
   createPhotoPromoImage,
+  createPhotoPromoImageFromCutout,
   createPromotionCopy,
   createPromotionImage,
+  deletePromoCutout,
   deletePromotion,
+  listPromoCutouts,
   listPromotions,
   promoFilename,
   promoImageUrl,
@@ -44,6 +47,7 @@ import {
   promotionText,
   restylePromotionImage,
   type OverlayLayout,
+  type PromoCutout,
   type PromotionChannel,
   type PromotionDoc,
   type PromotionImage,
@@ -275,6 +279,79 @@ export default function MarketingScreen() {
       // 그 사실을 알려 주지 않으면 '배경이 왜 그대로지?'로 보인다.
       if (img.note) toast('사진만 다듬었어요', img.note);
       else toast('내 사진으로 만들었어요', '실물 메뉴에 감성 배경을 입혔어요!');
+    } catch (e) {
+      toast('사진 합성 실패', describeApiFailure(e, '사진 합성').message);
+    } finally {
+      setPhase('idle');
+    }
+  };
+
+  // [보관함에서 만들기] 사진 합성을 할 때마다 오려낸 메뉴(누끼)가 서버에 자동 저장된다.
+  // 여기서 골라 만들면 촬영·업로드·누끼가 전부 생략돼 즉시(1~2초) 나온다.
+  const [cutoutOpen, setCutoutOpen] = useState(false);
+  const [cutouts, setCutouts] = useState<PromoCutout[]>([]);
+
+  const openCutoutPicker = async () => {
+    if (!token || busy) return;
+    try {
+      const rows = await listPromoCutouts(token);
+      if (!rows.length) {
+        toast('보관된 메뉴 사진이 아직 없어요', '사진으로 한 번 만들면 오려낸 메뉴가 자동으로 저장돼요.');
+        return;
+      }
+      setCutouts(rows);
+      setCutoutOpen(true);
+    } catch (e) {
+      toast('보관함을 못 열었어요', describeApiFailure(e, '메뉴 보관함').message);
+    }
+  };
+
+  const removeCutout = async (c: PromoCutout) => {
+    if (!token) return;
+    try {
+      await deletePromoCutout(token, c.id);
+      setCutouts((prev) => prev.filter((x) => x.id !== c.id));
+    } catch (e) {
+      toast('삭제 실패', describeApiFailure(e, '보관함').message);
+    }
+  };
+
+  const makeFromCutout = async (c: PromoCutout) => {
+    if (!token || busy) return;
+    setCutoutOpen(false);
+    try {
+      // makeFromPhoto와 같은 규칙 — 문구가 없으면 먼저 만들되, 실패해도 이미지는 진행
+      let doc = result;
+      if (!doc) {
+        setPhase('copy');
+        try {
+          doc = await createPromotionCopy(token, { topic, channel, tone, menu });
+          setResult(doc);
+        } catch (copyErr) {
+          toast('문구는 잠시 쉬어요', describeApiFailure(copyErr, '홍보 문구').message);
+          doc = null;
+        }
+      }
+      setPhase('image');
+      const img = await createPhotoPromoImageFromCutout(token, c.id, {
+        doc_id: doc?.id ?? '', style: photoBgStyle, aspect_ratio: CHANNEL_META[channel].aspect,
+      });
+      if (img.doc) {
+        applyDoc(img.doc, img.image_id);
+      } else {
+        applyDoc({
+          id: '',
+          kind: 'marketing_content',
+          title: '보관함 메뉴 홍보 이미지',
+          content: {
+            channel, channel_label: '', topic, tone, focus_menu: menu, store_name: '',
+            headline: '', sub_headline: '', body: '', sns_caption: '', hashtags: [],
+            short_slogan: '', image_prompt: '', posting_tip: '', images: [img],
+          },
+        } as any, img.image_id);
+      }
+      refreshHistory();
+      toast('보관함 메뉴로 만들었어요', '누끼를 건너뛰고 바로 합성해서 훨씬 빨라요!');
     } catch (e) {
       toast('사진 합성 실패', describeApiFailure(e, '사진 합성').message);
     } finally {
@@ -553,6 +630,7 @@ export default function MarketingScreen() {
             style={{ marginTop: 14 }}
           />
         ) : (
+          <>
           <PressableScale
             style={[styles.photoUploadBtn, busy && { opacity: 0.55 }]}
             onPress={makeFromPhoto}
@@ -568,6 +646,18 @@ export default function MarketingScreen() {
                   : '메뉴 사진 올리고 만들기'}
             </Text>
           </PressableScale>
+          {/* 두 번째 길 — 지난번 오려 둔 메뉴로 즉시 합성 (촬영·누끼 생략 → 1~2초) */}
+          <PressableScale
+            style={[styles.cutoutLibBtn, busy && { opacity: 0.55 }]}
+            onPress={openCutoutPicker}
+            disabled={busy}
+            to={0.97}
+          >
+            <Ionicons name="albums-outline" size={15} color={colors.espressoBrown} />
+            <Text style={styles.cutoutLibBtnText}>지난 메뉴 사진으로 바로 만들기</Text>
+            <Text style={styles.cutoutLibFast}>빠름</Text>
+          </PressableScale>
+          </>
         )}
         {busy && phase !== 'restyle' && (
           <View style={styles.progressRow}>
@@ -811,6 +901,33 @@ export default function MarketingScreen() {
       )}
 
       {/* 공유 시트 */}
+      {/* ── 누끼 보관함 — 지난번 오려 둔 메뉴 중 골라서 즉시 합성 ── */}
+      <SwipeDownModal visible={cutoutOpen} onClose={() => setCutoutOpen(false)}>
+        <Text style={styles.sheetTitle}>지난 메뉴 사진으로 만들기</Text>
+        <Text style={styles.sheetHint}>
+          사진으로 만들 때마다 오려낸 메뉴가 자동으로 저장돼요 — 고르면 촬영 없이 바로 합성됩니다.
+        </Text>
+        <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false}>
+          <View style={styles.cutoutGrid}>
+            {cutouts.map((c) => (
+              <View key={c.id} style={styles.cutoutCell}>
+                <PressableScale onPress={() => makeFromCutout(c)} to={0.95}>
+                  <View style={styles.cutoutThumbWrap}>
+                    <Image source={{ uri: c.thumb_b64 }} style={styles.cutoutThumb} resizeMode="contain" />
+                  </View>
+                  <Text style={styles.cutoutLabel} numberOfLines={1}>
+                    {c.label || (c.created_at ? c.created_at.slice(0, 10) : '메뉴')}
+                  </Text>
+                </PressableScale>
+                <PressableScale style={styles.cutoutDelBtn} onPress={() => removeCutout(c)} to={0.85}>
+                  <Ionicons name="close" size={12} color={colors.white} />
+                </PressableScale>
+              </View>
+            ))}
+          </View>
+        </ScrollView>
+      </SwipeDownModal>
+
       <SwipeDownModal visible={shareOpen} onClose={() => setShareOpen(false)}>
         <Text style={styles.sheetTitle}>어디에 올릴까요?</Text>
         <Text style={styles.sheetHint}>
@@ -986,6 +1103,29 @@ const styles = StyleSheet.create({
     backgroundColor: colors.espressoBrown, borderRadius: 12, paddingVertical: 13, marginTop: 14,
   },
   photoUploadBtnText: { color: colors.white, fontSize: 13.5, fontWeight: '800' },
+  // 보관함 버튼 — 주 버튼(촬영) 아래 보조 톤. '빠름' 배지로 왜 이 길이 있는지 말해 준다
+  cutoutLibBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: colors.coffeeCream, borderRadius: 12, paddingVertical: 12, marginTop: 8,
+  },
+  cutoutLibBtnText: { color: colors.espressoBrown, fontSize: 13, fontWeight: '800' },
+  cutoutLibFast: {
+    fontSize: 10, fontWeight: '900', color: colors.white, backgroundColor: colors.pointOrange,
+    borderRadius: 7, paddingHorizontal: 6, paddingVertical: 2, overflow: 'hidden',
+  },
+  // 보관함 그리드 — 3열 썸네일
+  cutoutGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingTop: 4 },
+  cutoutCell: { width: '30.5%' },
+  cutoutThumbWrap: {
+    aspectRatio: 1, borderRadius: 12, backgroundColor: colors.coffeeCream,
+    alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+  },
+  cutoutThumb: { width: '86%', height: '86%' },
+  cutoutLabel: { fontSize: 11, fontWeight: '700', color: colors.espressoBrown, marginTop: 5, textAlign: 'center' },
+  cutoutDelBtn: {
+    position: 'absolute', top: 4, right: 4, width: 20, height: 20, borderRadius: 10,
+    backgroundColor: 'rgba(62,47,35,0.55)', alignItems: 'center', justifyContent: 'center',
+  },
 
   progressRow: {
     flexDirection: 'row',

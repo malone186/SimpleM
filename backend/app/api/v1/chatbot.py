@@ -55,6 +55,7 @@ from app.schemas.ai import (
     OcrDocumentUpdate,
     OcrStatus,
     PayslipRequest,
+    PhotoCutoutComposeRequest,
     TodoCreate,
     TodoForwardRequest,
     TodoResponse,
@@ -1447,6 +1448,42 @@ def create_marketing_photo_image(
             aspect_ratio=aspect_ratio, doc_id=doc_id)
     except photo_promo_service.PhotoPromoError as e:
         raise HTTPException(422, str(e))
+
+
+@router.get("/marketing/photo-cutouts")
+def list_marketing_photo_cutouts(current_user: User = Depends(get_current_user)) -> list[dict]:
+    """홍보 누끼 보관함 — 지금까지 오려낸 메뉴 사진 목록 (미리보기 base64, 최신순).
+
+    사진 합성을 할 때마다 오려낸 메뉴가 자동으로 쌓인다. 여기서 골라 다시 만들면
+    촬영·업로드·누끼가 전부 생략돼 즉시 나온다.
+    """
+    return photo_promo_service.list_cutouts(current_user.email)
+
+
+@router.post("/marketing/photo-image-from-cutout")
+def create_marketing_photo_image_from_cutout(
+    body: PhotoCutoutComposeRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """보관함 누끼로 홍보 이미지 — 누끼 단계가 없어 1초대에 합성된다.
+
+    [photo-image와 같은 이유로 동기 def] 합성은 CPU 작업이라 async면 이벤트 루프가 언다.
+    """
+    try:
+        return photo_promo_service.compose_from_cutout(
+            current_user.email, body.cutout_id, style=body.style,
+            aspect_ratio=body.aspect_ratio, doc_id=body.doc_id)
+    except photo_promo_service.PhotoPromoError as e:
+        raise HTTPException(422, str(e))
+
+
+@router.delete("/marketing/photo-cutouts/{cutout_id}", status_code=204)
+def delete_marketing_photo_cutout(cutout_id: int, current_user: User = Depends(get_current_user)):
+    """보관함에서 누끼 삭제 — 잘못 나온 누끼나 안 파는 메뉴 정리용."""
+    try:
+        photo_promo_service.delete_cutout(current_user.email, cutout_id)
+    except photo_promo_service.PhotoPromoError as e:
+        raise HTTPException(404, str(e))
 
 
 @router.post("/marketing/image/overlay")

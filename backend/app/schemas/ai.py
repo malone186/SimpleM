@@ -352,6 +352,14 @@ class TodoForwardRequest(BaseModel):
     staff_id: int = Field(description="전달받을 직원 계정 id (staff_accounts.id)")
 
 
+class PhotoCutoutComposeRequest(BaseModel):
+    """보관함 누끼로 홍보 이미지 합성 — 촬영·누끼 단계를 건너뛴다."""
+    cutout_id: int = Field(description="보관된 누끼 id (promo_cutouts.id)")
+    style: str = Field(default="wood", description="배경 스타일 (wood/marble/cozy/studio/season)")
+    aspect_ratio: str = Field(default="1:1")
+    doc_id: str = Field(default="", description="붙일 홍보 문서 id (없으면 독립 이미지)")
+
+
 class PointHistoryItem(BaseModel):
     id: int
     delta: int = Field(description="적립은 양수, 사용은 음수")
