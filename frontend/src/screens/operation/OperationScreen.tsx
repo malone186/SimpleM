@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, Modal, Platform, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { dateKey, monthKey } from '../../lib/dateKey';
+import { dateKey, fromDateKey, monthKey } from '../../lib/dateKey';
 
 import { Badge, Button, Card, Divider, Screen, ScreenTitle, SectionTitle, WeekdayButtonGroup, IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
@@ -305,7 +305,7 @@ function ScheduleCalendarCard({
     (dateStr: string, empId: number) => {
       if (workKeySet.has(`${dateStr}|${empId}`)) return true;
       const DAY_CODES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-      const dObj = new Date(dateStr);
+      const dObj = fromDateKey(dateStr);
       const dayCode = DAY_CODES[dObj.getDay()];
       const emp = dbEmployees.find((e: any) => e.id === empId) as any;
       const profileWorkDays = (emp?.profile?.work_days ?? []) as string[];
@@ -453,7 +453,7 @@ function ScheduleCalendarCard({
 
   // 이 요일에 '가능'으로 등록된 직원 (직원·인건비 화면의 근무 가능 시간에서 파생)
   const availableToday = useMemo(() => {
-    const code = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date(selectedDate).getDay()];
+    const code = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][fromDateKey(selectedDate).getDay()];
     return dbEmployees.filter((e: any) => ((e.profile?.work_days ?? []) as string[]).includes(code));
   }, [dbEmployees, selectedDate]);
 
@@ -540,7 +540,7 @@ function ScheduleCalendarCard({
 
           // [한글 주석: 실제 등록된 스케줄 + 직원의 설정된 주 근무 요일(work_days)에 맞춘 달력 색상 선 그리기]
           const DAY_CODES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-          const dateObj = new Date(item.dateStr);
+          const dateObj = fromDateKey(item.dateStr);
           const currentDayCode = DAY_CODES[dateObj.getDay()];
 
           // 실제로 등록된 근무와 '가능 요일'을 구분한다 — 둘을 같은 굵기로 그리면
@@ -718,7 +718,7 @@ function ScheduleCalendarCard({
           {/* minWidth 0 + 한 줄 고정 — 안 그러면 설명이 접히면서 버튼을 밀어낸다 */}
           <View style={{ flex: 1, minWidth: 0, paddingRight: 10 }}>
             <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '800', color: colors.espressoBrown }}>
-              {Number(selectedDate.slice(5, 7))}월 {Number(selectedDate.slice(8, 10))}일 ({WEEK_LABEL[new Date(selectedDate).getDay()]})
+              {Number(selectedDate.slice(5, 7))}월 {Number(selectedDate.slice(8, 10))}일 ({WEEK_LABEL[fromDateKey(selectedDate).getDay()]})
             </Text>
             <Text numberOfLines={1} style={{ fontSize: 12.5, color: '#8C7E74', marginTop: 3 }}>
               근무 {selectedDateSchedules.length}명 · 합계 {selectedDayHours}시간

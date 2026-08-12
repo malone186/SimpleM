@@ -21,3 +21,12 @@ export function localDateKey(iso: string): string {
 export function monthKey(d: Date = new Date()): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
+
+/** YYYY-MM-DD → 기기 시간대의 그 날 자정 Date.
+ * `new Date('2026-08-12')`는 **UTC 자정**으로 읽혀(=KST 09:00) 음수 시간대에서는
+ * 하루 앞 날짜가 된다 — 요일 계산이 통째로 밀린다. 날짜 키에서 Date가 필요하면 이걸 쓰자. */
+export function fromDateKey(key: string): Date {
+  const [y, m, d] = key.split('-').map(Number);
+  if (!y || !m || !d) return new Date(key); // 형식이 다르면 원래 동작으로 둔다
+  return new Date(y, m - 1, d);
+}
