@@ -17,12 +17,15 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 export function PressableScale({
   children,
   onPress,
+  onLongPress,
   disabled,
   style,
   to = 0.95,
 }: {
   children: ReactNode;
   onPress?: (e: GestureResponderEvent) => void;
+  // 길게 눌러 컨텍스트 메뉴를 여는 iOS식 상호작용 — 눌림 스케일은 그대로 살아 있다
+  onLongPress?: (e: GestureResponderEvent) => void;
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
   to?: number;
@@ -71,6 +74,7 @@ export function PressableScale({
   return (
     <AnimatedPressable
       onPress={onPress}
+      onLongPress={onLongPress}
       onPressIn={pressIn}
       onPressOut={pressOut}
       disabled={disabled}

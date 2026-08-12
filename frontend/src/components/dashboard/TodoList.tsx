@@ -175,6 +175,10 @@ export default function TodoList({
     navigation.navigate('Marketing', { prefillMenu: name, ts: Date.now() });
   };
 
+  // [롱프레스 컨텍스트 메뉴] 행에 상시 아이콘을 두지 않는 iOS식 절제 — 길게 누르면
+  // 이 항목으로 할 수 있는 동작(보내기·수정·삭제)이 시트로 뜬다.
+  const [menuTarget, setMenuTarget] = useState<Todo | null>(null);
+
   // [알바에게 보내기] 할 일을 담당 지정 일회성 항목으로 근무 체크리스트에 넘긴다.
   // 알바 계정이 등록된 사장님에게만 보이는 기능 — 직원 계정이나 알바 없는 매장에선
   // staffList가 비어 버튼 자체가 안 나온다. 원본 할 일은 그대로 둔다(사장님이 추적할 수
@@ -563,11 +567,9 @@ export default function TodoList({
                   isPastDate={isPastDate}
                   onPressAction={onPressAction}
                   onToggleDone={onToggleDone}
-                  onDeleteTodo={onDeleteTodo}
                   disabled={disabled}
-                  startEdit={startEdit}
                   onPromoPress={openPromoPicker}
-                  onSendToStaff={staffList.length > 0 ? (t) => setSendTarget(t) : undefined}
+                  onOpenMenu={isPastDate ? undefined : setMenuTarget}
                 />
               </SlideUp>
             );
@@ -673,6 +675,55 @@ export default function TodoList({
                 ))}
               </ScrollView>
             )}
+          </SlideUp>
+        </View>
+      </Modal>
+
+      {/* ── [롱프레스 컨텍스트 메뉴] 이 항목으로 할 수 있는 동작 — iOS 컨텍스트 메뉴식 ── */}
+      <Modal
+        visible={menuTarget !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMenuTarget(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackdropPress} onPress={() => setMenuTarget(null)} />
+          <SlideUp style={styles.promoPickerCard}>
+            <Text style={styles.promoPickerTitle} numberOfLines={1}>
+              {(menuTarget?.title ?? '').replace(/^\[[^\]]{1,8}\]\s*/, '')}
+            </Text>
+            <View style={{ marginTop: 8 }}>
+              {staffList.length > 0 && !menuTarget?.done && (
+                <TouchableOpacity
+                  style={styles.menuRow}
+                  activeOpacity={0.7}
+                  onPress={() => { const t = menuTarget; setMenuTarget(null); if (t) setSendTarget(t); }}
+                >
+                  <Ionicons name="paper-plane-outline" size={16} color="#8C9BAB" />
+                  <Text style={styles.menuRowText}>알바에게 보내기</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={styles.menuRow}
+                activeOpacity={0.7}
+                onPress={() => { const t = menuTarget; setMenuTarget(null); if (t) startEdit(t); }}
+              >
+                <Ionicons name="pencil-outline" size={16} color="#A79C92" />
+                <Text style={styles.menuRowText}>수정</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.menuRow, { borderBottomWidth: 0 }]}
+                activeOpacity={0.7}
+                onPress={() => {
+                  const t = menuTarget;
+                  setMenuTarget(null);
+                  if (t) { haptics.warn(); onDeleteTodo?.(t.id); }
+                }}
+              >
+                <Ionicons name="trash-outline" size={16} color="#E07A7A" />
+                <Text style={[styles.menuRowText, { color: '#E07A7A' }]}>삭제</Text>
+              </TouchableOpacity>
+            </View>
           </SlideUp>
         </View>
       </Modal>
@@ -810,25 +861,19 @@ function TodoItem({
   isPastDate,
   onPressAction,
   onToggleDone,
-  onDeleteTodo,
   disabled,
-  startEdit,
   onPromoPress,
-  onSendToStaff,
+  onOpenMenu,
 }: {
   todo: Todo;
   isPastDate?: boolean;
   onPressAction: (todo: Todo) => void;
   onToggleDone?: (id: string) => void;
-  onDeleteTodo?: (id: string) => void;
   disabled: boolean;
-  startEdit: (todo: Todo) => void;
   onPromoPress?: () => void;
-  // 알바에게 보내기 — 사장님 계정에서만 내려온다 (없으면 버튼 자체가 안 보인다)
-  onSendToStaff?: (todo: Todo) => void;
+  // 길게 누르면 열리는 컨텍스트 메뉴 (보내기·수정·삭제) — 지난 날짜엔 안 내려온다
+  onOpenMenu?: (todo: Todo) => void;
 }) {
-  const animX = useRef(new Animated.Value(0)).current;
-  const animOpacity = useRef(new Animated.Value(1)).current;
   const checkScale = useRef(new Animated.Value(1)).current;
   const cardScale = useRef(new Animated.Value(1)).current;
   // 제목은 '무엇을 할지'만 남긴다.
@@ -883,29 +928,13 @@ function TodoItem({
     onToggleDone?.(todo.id);
   };
 
-  const handleDelete = () => {
-    haptics.warn(); // 삭제는 주의 진동 — 체크(tap)와 촉감부터 다르게
-    Animated.parallel([
-      Animated.timing(animX, {
-        toValue: -400,
-        duration: 320,
-        useNativeDriver: true,
-      }),
-      Animated.timing(animOpacity, {
-        toValue: 0,
-        duration: 280,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      onDeleteTodo?.(todo.id);
-    });
-  };
-
   return (
-    <Animated.View style={{ transform: [{ translateX: animX }, { scale: cardScale }], opacity: animOpacity }}>
+    <Animated.View style={{ transform: [{ scale: cardScale }] }}>
+      {/* 길게 누르면 컨텍스트 메뉴 (iOS식) — 행에는 내용만 남기고 동작은 숨긴다.
+          disabled를 걸면 롱프레스까지 죽으므로, 탭 이동 여부는 onPress 안에서 거른다 */}
       <PressableScale
-        disabled={disabled || !todo.actionable}
-        onPress={() => onPressAction(todo)}
+        onPress={() => { if (!disabled && todo.actionable) onPressAction(todo); }}
+        onLongPress={onOpenMenu ? () => { haptics.thud(); onOpenMenu(todo); } : undefined}
         style={[
           styles.taskCardItem,
           // 급한 항목만 왼쪽 띠를 빨갛게 — 배지 대신 색으로 알려서 글자를 늘리지 않는다
@@ -994,27 +1023,10 @@ function TodoItem({
           )}
         </View>
 
-        {/* [3. 우측 액션: 수정·삭제 — 지난 날짜(isPastDate)일 때만 숨김] */}
-        {!isPastDate && (
-          <View style={styles.actionsRight}>
-            {/* 알바에게 보내기 — 이 할 일을 담당 지정해 근무 체크리스트로 넘긴다.
-                핸들러가 있을 때만 보인다 (사장님 계정 + 등록된 알바 계정이 있을 때) */}
-            {onSendToStaff && !disabled && (
-              <PressableScale onPress={() => onSendToStaff(todo)} style={styles.iconBtn} to={0.85}>
-                <Ionicons name="paper-plane-outline" size={14} color="#8C9BAB" />
-              </PressableScale>
-            )}
-
-            {/* 수정 — 브루가 만든 항목도 고칠 수 있다. 고치는 순간 내 업무로 바뀌어 서버에 저장된다 */}
-            <PressableScale onPress={() => startEdit(todo)} style={styles.iconBtn} to={0.85}>
-              <Ionicons name="pencil-outline" size={14} color="#A79C92" />
-            </PressableScale>
-
-            {/* 삭제 */}
-            <PressableScale onPress={handleDelete} style={styles.iconBtn} to={0.85}>
-              <Ionicons name="trash-outline" size={14} color="#E07A7A" />
-            </PressableScale>
-          </View>
+        {/* 동작(보내기·수정·삭제)은 롱프레스 메뉴로 옮겼다 — 행에는 내용만 남아 깨끗하다.
+            메뉴가 있다는 표시는 우측의 아주 옅은 ⋯ 하나로만 (지난 날짜엔 메뉴가 없다) */}
+        {!isPastDate && onOpenMenu && (
+          <Ionicons name="ellipsis-horizontal" size={13} color="#D8CFC4" style={{ marginLeft: 6 }} />
         )}
       </PressableScale>
     </Animated.View>
@@ -1046,6 +1058,13 @@ const styles = StyleSheet.create({
   staffProgName: { fontSize: 11.5, fontWeight: '700', color: '#5B4333' },
   staffProgCount: { fontSize: 11.5, fontWeight: '800', color: '#8C6F56' },
   staffProgTextOn: { color: '#FFFFFF' },
+  // 롱프레스 컨텍스트 메뉴의 행 — hairline으로만 구분 (애플식)
+  menuRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 13,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#E9E2D8',
+  },
+  menuRowText: { fontSize: 14, fontWeight: '700', color: colors.espressoBrown },
   emptyStateContainer: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -1358,13 +1377,6 @@ const styles = StyleSheet.create({
   },
   promoMenuName: { flex: 1, fontSize: 13.5, fontWeight: '700', color: colors.espressoBrown },
   promoMenuPrice: { fontSize: 12, fontWeight: '600', color: colors.mochaBrown },
-  actionsRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginLeft: 4,
-  },
-
   // 발주 칩 & 완료 배지 (에스프레소 갈색 톤 통합)
   actionHint: {
     backgroundColor: 'rgba(110, 85, 68, 0.12)',
@@ -1405,8 +1417,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#2C221E',
-  },
-  iconBtn: {
-    padding: 5,   // 손가락으로 눌러도 빗나가지 않게 (아이콘은 작게, 터치 영역은 넉넉히)
   },
 });
