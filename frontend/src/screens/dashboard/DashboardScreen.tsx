@@ -10,6 +10,7 @@ import BreakevenTodayCard from '../../components/dashboard/BreakevenTodayCard';
 import CardDepositCard from '../../components/dashboard/CardDepositCard';
 import ManagementReportCard from '../../components/dashboard/ManagementReportCard';
 import SalesCard from '../../components/dashboard/SalesCard';
+import Disclosure from '../../components/ui/Disclosure';
 import TodoList, { type Todo } from '../../components/dashboard/TodoList';
 import WelcomeHeader from '../../components/dashboard/WelcomeHeader';
 import BriefingButton from '../../components/voice/BriefingButton';
@@ -980,6 +981,12 @@ export default function DashboardScreen() {
     outputRange: [1, 0.35],
     extrapolate: 'clamp',
   });
+  // 애플 대형 타이틀 축소 느낌 — 스크롤하면 헤더가 살짝 작아지며 물러난다 (패럴럭스와 합성)
+  const headerScale = scrollY.interpolate({
+    inputRange: [0, 180],
+    outputRange: [1, 0.94],
+    extrapolate: 'clamp',
+  });
 
   return (
     <View style={styles.root}>
@@ -1036,7 +1043,7 @@ export default function DashboardScreen() {
         }
       >
         <Animated.View
-          style={{ transform: [{ translateY: headerTranslate }], opacity: headerOpacity }}
+          style={{ transform: [{ translateY: headerTranslate }, { scale: headerScale }], opacity: headerOpacity }}
         >
           <WelcomeHeader
             storeName={user?.name || '포자카페'}
@@ -1089,14 +1096,18 @@ export default function DashboardScreen() {
             <BreakevenTodayCard refreshToken={runId} />
           </FadeInUp>
 
-          {/* 카드 대금 입금 예정 — 카드사마다 입금일이 달라 직접 세기 번거로운 숫자 */}
+          {/* 카드 대금 입금 예정 — 부가 정보라 기본은 접어 둔다 (탭하면 펼침, 선택은 기억) */}
           <FadeInUp delay={110}>
-            <CardDepositCard refreshToken={runId} />
+            <Disclosure id="home-deposit" title="카드 대금 입금 예정" icon="card-outline">
+              <CardDepositCard refreshToken={runId} />
+            </Disclosure>
           </FadeInUp>
 
-          {/* AI 경영 리포트 — 일간/주간/월간 탭을 누르면 홈에서 바로 보인다 */}
+          {/* AI 경영 리포트 — 역시 기본 접힘. 매출·본전·할 일만 첫 화면의 주인공으로 남긴다 */}
           <FadeInUp delay={140}>
-            <ManagementReportCard refreshToken={runId} />
+            <Disclosure id="home-report" title="AI 경영 리포트" icon="sparkles-outline">
+              <ManagementReportCard refreshToken={runId} />
+            </Disclosure>
           </FadeInUp>
         </View>
       </Animated.ScrollView>

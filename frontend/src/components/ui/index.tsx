@@ -262,7 +262,8 @@ const styles = StyleSheet.create({
   btnGhost: { backgroundColor: 'transparent' },
   btnDisabled: { opacity: 0.4 },
   btnText: { ...typography.L3 },
-  divider: { height: 1, backgroundColor: colors.mutedSand },
+  // hairline(기기 최소 두께) — 1px 실선은 애플 기준으론 두껍다. 구분은 가늘수록 고급스럽다.
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.mutedSand },
   progressTrack: { height: 7, borderRadius: 4, backgroundColor: colors.mutedSand, overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: 4 },
 });
