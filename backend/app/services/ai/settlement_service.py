@@ -443,6 +443,12 @@ def get_day(store_id: str, entry_date: str) -> dict[str, Any]:
     card_total = sum(c["amount"] for c in cards)
     fee_total = sum(c["fee"] for c in cards)
     cups = sum(c["cups"] or 0 for c in cards) + (cash_cups or 0)
+    # 객단가는 '잔 수를 아는 매출'끼리만 나눈다.
+    #
+    # 잔 수는 결제수단별 선택 입력이라 일부만 채우는 매장이 많다. 예전엔 분자에 전체
+    # 매출을 넣고 분모엔 입력된 잔 수만 넣어서, 현금 10만원(잔 수 미입력) + 카드 20만원
+    # /100잔이면 3,000원으로 나왔다 — 실제로 아는 건 카드분 2,000원뿐인데 50% 부풀린 값이다.
+    cups_amount = sum(c["amount"] for c in cards if c["cups"]) + (cash if cash_cups else 0)
     return {
         "date": entry_date,
         "cash": cash,
@@ -453,7 +459,7 @@ def get_day(store_id: str, entry_date: str) -> dict[str, Any]:
         "fee_total": fee_total,
         "net_total": cash + card_total - fee_total,
         "cups": cups or None,
-        "avg_price": round((cash + card_total) / cups) if cups else None,
+        "avg_price": round(cups_amount / cups) if cups else None,
         "has_entry": bool(rows),
     }
 
