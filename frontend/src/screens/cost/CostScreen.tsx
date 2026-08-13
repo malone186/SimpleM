@@ -533,6 +533,11 @@ export default function CostScreen() {
           const cost = m.cost_price ?? 0;
           const rate = Math.round(rateOf(m) * 10) / 10;
           const margin = m.selling_price - cost;
+          // 원가를 계산할 근거가 없는 메뉴 — 레시피가 없거나 판매가가 안 잡힌 경우.
+          // 서버는 이때 원가율 0%를 주는데, 그대로 그리면 '0% 양호'라는 초록 배지가 떠서
+          // 가장 손봐야 할 메뉴가 가장 건강해 보인다. 평균에서 빼는 처리는 이미 있었지만
+          // (위 priced 필터) 목록의 한 줄 한 줄은 그대로 0%로 나오고 있었다.
+          const unknownCost = cost <= 0 || m.selling_price <= 0;
           // 메뉴 종류에 따라 기준선이 다르다 — 디저트를 음료 기준(22%)으로 재면 전부 빨간불이 된다
           const cat = categoryOfMenu(m.name);
           const grade = gradeOf(rate, cat);
@@ -549,19 +554,36 @@ export default function CostScreen() {
                 </View>
                 {/* [한글 주석: 원가율 숫자와 주의/위험 배지가 우측 상단에 나란히 일렬 수평 정렬] */}
                 <View style={styles.rateRowRight}>
-                  <Text style={[styles.rate, { color: GRADE_COLOR[grade] }]}>{rate}%</Text>
-                  <Badge
-                    label={GRADE_LABEL[grade]}
-                    tone={grade === 'good' ? 'green' : grade === 'warn' ? 'orange' : 'danger'}
-                  />
+                  {unknownCost ? (
+                    <>
+                      <Text style={[styles.rate, { color: colors.mochaBrown }]}>—</Text>
+                      <Badge label="원가 모름" tone="neutral" />
+                    </>
+                  ) : (
+                    <>
+                      <Text style={[styles.rate, { color: GRADE_COLOR[grade] }]}>{rate}%</Text>
+                      <Badge
+                        label={GRADE_LABEL[grade]}
+                        tone={grade === 'good' ? 'green' : grade === 'warn' ? 'orange' : 'danger'}
+                      />
+                    </>
+                  )}
                 </View>
               </View>
 
-              {/* 게이지 바 */}
-              <ProgressBar
-                ratio={Math.min(rate / std.warn, 1)}
-                tone={grade === 'good' ? 'green' : grade === 'warn' ? 'mocha' : 'danger'}
-              />
+              {/* 게이지 바 — 근거가 없으면 그리지 않고 무엇을 채워야 하는지 알려준다 */}
+              {unknownCost ? (
+                <Text style={styles.catHint}>
+                  {m.selling_price <= 0
+                    ? '판매가가 없어 원가율을 낼 수 없어요. 메뉴 화면에서 판매가를 넣어 주세요.'
+                    : '레시피가 없어 원가율을 낼 수 없어요. 메뉴 화면에서 재료를 연결해 주세요.'}
+                </Text>
+              ) : (
+                <ProgressBar
+                  ratio={Math.min(rate / std.warn, 1)}
+                  tone={grade === 'good' ? 'green' : grade === 'warn' ? 'mocha' : 'danger'}
+                />
+              )}
 
               {/* [한글 주석: 주의/위험 알림 및 권장선 제안 문구를 정돈된 틴트 박스로 수납] */}
               {grade !== 'good' && (
