@@ -226,6 +226,25 @@ def _balance(db, store_id: str) -> int:
     return int(total or 0)
 
 
+def _lock_store(db, store_id: str) -> None:
+    """이 매장의 코인 거래를 트랜잭션 끝까지 한 줄로 세운다.
+
+    잔액은 원장 합계라 잠글 행이 없다. 그래서 잔액 확인과 차감 사이에 다른 요청이
+    끼어들 수 있었다 — 서로 다른 아이템 둘을 동시에 사면 양쪽 다 '잔액 충분'을 보고
+    둘 다 통과했다 (실측: 100코인으로 80+100=180어치 구매, 잔액 -80).
+    같은 아이템 중복 구매는 owned_items 유니크 제약이 막아 줬지만 이 경로는 뚫려 있었다.
+
+    Postgres 권고 잠금은 트랜잭션이 끝나면 자동으로 풀린다. SQLite(테스트)에는 없으므로
+    건너뛴다 — 거기서는 어차피 쓰기가 직렬화된다.
+    """
+    if db.bind.dialect.name != "postgresql":
+        return
+    from sqlalchemy import text as _text
+
+    db.execute(_text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+               {"k": f"coin:{store_id}"})
+
+
 def get_balance(store_id: str) -> int:
     with _session() as db:
         return _balance(db, store_id)
@@ -672,6 +691,8 @@ def buy(store_id: str, item_id: str) -> dict[str, Any]:
         raise RewardError("존재하지 않는 아이템입니다.")
 
     with _session() as db:
+        # 잔액 확인부터 차감까지를 매장 단위로 직렬화한다 (동시 구매로 잔액이 음수가 되던 자리)
+        _lock_store(db, store_id)
         already = db.query(OwnedItem).filter(
             OwnedItem.store_id == store_id, OwnedItem.item_id == item_id
         ).one_or_none()
