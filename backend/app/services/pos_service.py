@@ -30,7 +30,17 @@ from app.models.ai import PosConnection, PosSyncedOrder
 
 logger = logging.getLogger(__name__)
 
-AUTO_SYNC_INTERVAL = int(os.getenv("POS_AUTO_SYNC_INTERVAL", "300"))  # 초, 0이면 자동 폴링 끔
+# 자동 폴링 기본값은 '꺼짐'(0)이다.
+#
+# 실시간 반영은 웹훅(POST /pos/webhook/square)이 담당하고, 이 폴링은 웹훅을 못 거는
+# 매장을 위한 안전망일 뿐이다. 그런데 실제로 연결된 POS 기기가 없는 동안에도 5분마다
+# 깨어나 연결 목록을 읽고 매장별 동기화를 시도해서, Neon(싱가포르) 전송량만 계속 썼다
+# — 2026-08-13 월 전송 한도 소진의 소비처 중 하나였다.
+#
+# POS를 실제로 붙이는 매장이 생기면 그때 환경변수로 켜면 된다 (예: 1800 = 30분).
+# 끄더라도 웹훅과 수동 '지금 동기화'(POST /pos/sync-now), 스케줄러용
+# POST /pos/run-sync는 그대로 동작하므로 기능 자체가 사라지지는 않는다.
+AUTO_SYNC_INTERVAL = int(os.getenv("POS_AUTO_SYNC_INTERVAL", "0"))  # 초, 0이면 자동 폴링 끔
 _MAX_WINDOW_HOURS = 72  # 한 번에 거슬러 올라가는 최대 범위 (오래 꺼져 있던 매장 보호)
 _OVERLAP_MINUTES = 10   # last_synced_at에서 이만큼 겹쳐 조회 — 경계 주문 누락 방지 (중복은 대장이 거른다)
 
