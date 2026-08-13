@@ -431,17 +431,33 @@ export default function SettingsScreen() {
       confirmLabel: '탈퇴하기',
       destructive: true,
       onConfirm: async () => {
+        // 셀프 탈퇴 전용 경로 — 관리자용 /users/{id}는 일반 계정에선 403이라
+        // 예전엔 탈퇴가 조용히 무시된 채 로그아웃만 됐다.
+        //
+        // fetch는 403·500에도 예외를 던지지 않는다. 응답을 확인하지 않으면 삭제가
+        // 실패해도 로그아웃만 되어, 사장님은 탈퇴됐다고 믿는데 데이터는 그대로 남는다.
+        // 탈퇴는 되돌릴 수 없다고 안내하고 누른 행동이라 더더욱 그래선 안 된다.
+        if (!token) {
+          toast('탈퇴 실패', '로그인이 풀렸어요. 다시 로그인한 뒤 시도해 주세요.');
+          return;
+        }
         try {
-          // 셀프 탈퇴 전용 경로 — 관리자용 /users/{id}는 일반 계정에선 403이라
-          // 예전엔 탈퇴가 조용히 무시된 채 로그아웃만 됐다
-          if (token) {
-            await fetch(`${API_BASE_URL}/api/v1/auth/me`, {
-              method: 'DELETE',
-              headers: { Authorization: `Bearer ${token}` },
-            });
+          const res = await fetch(`${API_BASE_URL}/api/v1/auth/me`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => null);
+            toast(
+              '탈퇴하지 못했어요',
+              (typeof data?.detail === 'string' && data.detail.trim())
+                || `서버가 요청을 거절했어요 (${res.status}). 잠시 후 다시 시도해 주세요.`,
+            );
+            return;   // 로그아웃하지 않는다 — 안 지워졌는데 지워진 것처럼 보이면 안 된다
           }
         } catch {
-          /* 삭제 실패해도 로컬 로그아웃은 진행 */
+          toast('탈퇴하지 못했어요', '서버에 연결하지 못했어요. 네트워크를 확인한 뒤 다시 시도해 주세요.');
+          return;
         }
         await logout();
       },
