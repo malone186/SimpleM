@@ -246,16 +246,31 @@ export default function StaffScreen() {
   const insuranceTypes = data?.insurance_types ?? INSURANCE_TYPE_FALLBACK;
   const minWage = data?.min_wage ?? 10320;
 
+  // 지금 저장이 날아가는 중인 직원 — 목록 조회가 이들 편집칸을 덮지 않게 표시해 둔다
+  const savingIds = useRef<Set<number>>(new Set());
+  // 목록 조회 순번 — 늦게 온 옛 목록이 최신 화면을 덮지 않게
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
     if (!token) return;
+    const mySeq = ++loadSeq.current;
     try {
       const [s, w] = await Promise.all([
         listStaff(token),
         getWeeklyPayroll(token).catch(() => null),
       ]);
+      if (mySeq !== loadSeq.current) return; // 더 최근 목록 조회가 있다
       setData(s);
       setWeekly(w);
-      setDrafts(Object.fromEntries(s.staff.map((m) => [m.id, draftOf(m)])));
+      // 저장이 아직 날아가는 중인 직원의 값은 건드리지 않는다. 예전엔 목록이 오면
+      // 편집칸을 통째로 서버 값으로 갈아끼워서, 방금 고친 시급이 옛 값으로 되돌아가
+      // 그대로 남았다 (서버에는 새 값이 저장돼 있는데 화면만 옛 값).
+      setDrafts((prev) => {
+        const next: Record<number, Draft> = {};
+        s.staff.forEach((m) => {
+          next[m.id] = savingIds.current.has(m.id) && prev[m.id] ? prev[m.id] : draftOf(m);
+        });
+        return next;
+      });
       setFailed(null);
     } catch (e) {
       console.error('직원 목록 조회 실패:', e);
@@ -300,6 +315,7 @@ export default function StaffScreen() {
       // 되돌리지 않게, 마지막 요청의 응답만 화면에 반영한다.
       const seq = (saveSeq.current[emp.id] ?? 0) + 1;
       saveSeq.current[emp.id] = seq;
+      savingIds.current.add(emp.id);
       setSaving(emp.id);
       saveStaffProfile(token, emp.id, toApi(patch))
         .then((updated) => {
@@ -322,7 +338,10 @@ export default function StaffScreen() {
           load(); // 서버 값으로 되돌린다 — 화면만 바뀐 채 남지 않게
         })
         .finally(() => {
-          if (saveSeq.current[emp.id] === seq) setSaving((cur) => (cur === emp.id ? null : cur));
+          if (saveSeq.current[emp.id] === seq) {
+            savingIds.current.delete(emp.id);
+            setSaving((cur) => (cur === emp.id ? null : cur));
+          }
         });
     },
     [token, load, refreshWeekly],

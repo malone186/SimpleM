@@ -1,6 +1,6 @@
 // 상점 — 할 일을 끝내 모은 코인으로 브루를 꾸민다 (게임화 보상)
 // 상단: 브루 미리보기 + 코인 잔액 / 중단: 부위별 아이템 / 하단: 적립·사용 내역
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Easing, Modal, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
@@ -108,11 +108,17 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
   }, [isFocused]);
   const inShopList = (i: ShopItem) => itemVisible(i) && (!i.owned || justBought.includes(i.id));
 
+  // 조회 순번. 캐시로 먼저 그려 주기 때문에 목록이 뜬 순간 바로 구매·착용을 누를 수 있는데,
+  // 그때까지 날아가던 조회가 뒤늦게 도착하면 구매 이전 상태로 되돌려 놓는다
+  // (산 물건이 다시 안 산 것처럼 보이고 코인도 되살아난다). 구매·착용도 같은 순번을 올려
+  // 그보다 먼저 시작된 조회 결과는 버린다.
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
     if (!token) return;
+    const mySeq = ++loadSeq.current;
     // 앱을 새로 켠 직후에는 메모리 캐시가 비어 있다 — 디스크에 남은 지난 값으로 먼저 그린다
     const cached = await loadCache<ShopState>('shop:shop');
-    if (cached) {
+    if (cached && mySeq === loadSeq.current) {
       setShop((prev) => prev ?? cached.data);
       setLoading(false);
     }
@@ -120,6 +126,7 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
       const [s, w, p, q] = await Promise.all([
         getShop(token), getWallet(token), getProgress(token), getQuests(token),
       ]);
+      if (mySeq !== loadSeq.current) return;  // 그사이 구매·착용으로 최신 상태가 됐다
       setShop(s);
       setWallet(w);
       setProgress(p);
@@ -142,6 +149,7 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
     setClaiming(q.id);
     try {
       const next = await claimQuest(q.id, token);
+      loadSeq.current += 1;
       setQuests(next);
       const [s, w] = await Promise.all([getShop(token), getWallet(token)]);
       setShop(s);
@@ -174,6 +182,7 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
         setBusyItem(item.id);
         try {
           const next = await buyItem(item.id, token);
+          loadSeq.current += 1;   // 이보다 먼저 시작된 조회 결과는 버린다
           setShop(next);
           setJustBought((v) => (v.includes(item.id) ? v : [...v, item.id])); // 방금 산 건 착용까지 하고 갈 수 있게 남긴다
           setWallet(await getWallet(token));
@@ -191,7 +200,9 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
   const handleToggleEquip = async (item: ShopItem) => {
     setBusyItem(item.id);
     try {
-      setShop(await equipItem(item.id, !item.equipped, token));
+      const equipped = await equipItem(item.id, !item.equipped, token);
+      loadSeq.current += 1;
+      setShop(equipped);
       await refreshEquipped(); // 홈 화면 마스코트에도 즉시 반영
     } catch (e) {
       toast('변경 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
