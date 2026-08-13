@@ -478,14 +478,22 @@ export default function InventoryScreen() {
 
     setAdjustSaving(true);
     try {
-      await adjustStock(token, {
+      // 조정은 '차이(delta)'로 보내는데 화면은 '바꿀 최종 수량'을 받는다. 모달을 열어 둔
+      // 사이에 판매로 재고가 줄면 실제 결과가 적어 둔 목표와 달라진다 — 그래서 남은 양은
+      // 우리가 계산한 값이 아니라 서버가 돌려준 실제 값으로 알린다.
+      const after = await adjustStock(token, {
         ingredient_id: s.ingredient_id,
         quantity_change: delta,
         description: delta > 0 ? '직접 입고' : '직접 차감',
       });
       closeAdjust();
       loadStocks();
-      notify('반영 완료', `${s.name} ${Math.abs(delta)}${s.unit} ${delta > 0 ? '입고' : '차감'} · 남은 양 ${target}${s.unit}`);
+      const left = after?.current_quantity ?? target;
+      notify(
+        '반영 완료',
+        `${s.name} ${Math.abs(delta)}${s.unit} ${delta > 0 ? '입고' : '차감'} · 남은 양 ${roundQty(left)}${s.unit}`
+        + (Math.abs(left - target) > 0.001 ? ' (그사이 판매가 있어 목표와 다릅니다)' : ''),
+      );
     } catch (e) {
       notify('조정 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
     } finally {

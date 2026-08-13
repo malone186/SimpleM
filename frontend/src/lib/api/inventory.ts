@@ -62,11 +62,20 @@ export function updateIngredient(
 }
 
 /** 재고 수량 조정 — 입고는 양수, 차감/폐기는 음수 */
+/** 조정 뒤 서버가 가진 실제 재고 상태 — 화면이 '남은 양'을 추측하지 않게 그대로 쓴다 */
+export type StockAdjustResult = {
+  id: number;
+  ingredient_id: number;
+  current_quantity: number;
+  safety_quantity: number;
+  updated_at: string;
+};
+
 export function adjustStock(
   token: string,
   body: { ingredient_id: number; quantity_change: number; description?: string },
 ) {
-  return apiFetch('/api/v1/inventory/stocks/adjust', {
+  return apiFetch<StockAdjustResult>('/api/v1/inventory/stocks/adjust', {
     method: 'POST',
     headers: auth(token),
     body: JSON.stringify(body),
