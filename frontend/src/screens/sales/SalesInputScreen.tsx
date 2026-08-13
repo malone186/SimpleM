@@ -288,6 +288,16 @@ export default function SalesInputScreen() {
         ...(recipe.length ? { recipe } : {}),
       };
     });
+    // 판매가가 0인 채로 등록하면 원가율을 낼 수 없다 — 원가 화면에서 '원가 모름'으로만
+    // 뜨고, 매출 금액도 파일에 값이 없으면 0원으로 잡힌다. 막지는 않되(가격을 나중에
+    // 채우는 흐름이 실제로 있다) 무엇이 비었는지는 알려 준다.
+    const noPrice = payload.filter((m) => m.selling_price <= 0).map((m) => m.name);
+    if (noPrice.length) {
+      toast(
+        '판매가가 없는 메뉴가 있어요',
+        `${noPrice.slice(0, 3).join(', ')}${noPrice.length > 3 ? ` 외 ${noPrice.length - 3}개` : ''} — 그대로 등록하면 원가율이 계산되지 않아요.`,
+      );
+    }
     setRegistering(true);
     try {
       const { menus } = await registerImportMenus(token, payload);
