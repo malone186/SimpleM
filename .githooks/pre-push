@@ -1,41 +1,85 @@
 #!/bin/sh
-# [pre-push] push 전에 프론트 타입체크(tsc)와 백엔드 테스트(pytest)를 돌려
-# 깨진 코드가 main에 올라가는 것을 막는다.
-# (실제 사고 1: 삭제된 파일이 스테일 머지로 되살아나 import가 깨진 채 push돼 main 빌드가 깨짐)
-# (실제 사고 2: 타입체크만 돌던 시절, Postgres 전용 SQL 함수를 써서 테스트 7건이
-#  깨진 커밋이 그대로 push됨 — 그래서 백엔드 테스트를 여기에 함께 걸었다)
-# 무거운 검사라 매 커밋이 아니라 push 시점에만 돈다.
+# [pre-push] 이번 push에 실제로 담긴 변경만 골라 검사한다.
+#   · frontend/ 가 바뀌었으면 → 프론트 타입체크(tsc)
+#   · backend/  가 바뀌었으면 → 백엔드 테스트(pytest)
+# 둘 다 안 바뀌었으면(문서·설정만) 아무것도 돌리지 않고 통과시킨다.
+#
+# 왜 있나 (실제 사고)
+#   1) 삭제된 파일이 스테일 머지로 되살아나 import가 깨진 채 push돼 main 빌드가 반복적으로 깨짐
+#   2) 타입체크만 돌던 시절, Postgres 전용 SQL 함수를 써서 테스트 7건이 깨진 커밋이 그대로 push됨
+# main에 직접 push하는 팀이라 깨진 커밋이 올라가면 나머지 사람이 다 막힌다. CI도 같은 검사를
+# 하지만 그건 '올라간 뒤'에 알려준다 — 그래서 여기서 먼저 막는다.
+#
+# 왜 '바뀐 쪽만'인가
+#   예전엔 무엇을 고쳤든 양쪽을 다 돌려서, 프론트 한 줄 고친 push도 백엔드 테스트 797건(약 1분)을
+#   기다려야 했다. push가 잦은 날 그 시간이 그대로 쌓인다.
+#
+# 긴급 우회: git push --no-verify
 
 ROOT="$(git rev-parse --show-toplevel)"
 
-# --- 1) 프론트 타입체크 ---
-if [ -x "$ROOT/frontend/node_modules/.bin/tsc" ]; then
-  echo "▶ pre-push: 프론트 타입체크 중… (tsc --noEmit)"
-  if ! (cd "$ROOT/frontend" && node_modules/.bin/tsc --noEmit); then
-    echo ""
-    echo "✖ push 거부: 프론트 타입 에러가 있습니다. 위 오류를 고친 뒤 다시 push하세요."
-    echo "  (긴급 시 우회: git push --no-verify)"
-    exit 1
-  fi
-  echo "✓ 타입체크 통과"
-else
-  echo "⚠ pre-push: frontend에 typescript가 없어 타입체크를 건너뜁니다 (npm install 권장)."
+# --- 이번 push에 담긴 파일 목록 구하기 -------------------------------------
+# git은 pre-push 훅 stdin으로 "<local ref> <local sha> <remote ref> <remote sha>" 를 준다.
+# remote sha가 0으로만 되어 있으면 원격에 없던 새 브랜치다.
+CHANGED=""
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+  [ -z "$local_sha" ] && continue
+  case "$local_sha" in *[!0]*) ;; *) continue ;; esac   # 삭제 push는 검사할 것이 없다
+  case "$remote_sha" in
+    *[!0]*) RANGE="$remote_sha..$local_sha" ;;
+    *)      RANGE="$local_sha" ;;                       # 새 브랜치: 그 커밋들 전체
+  esac
+  FILES=$(git diff --name-only "$RANGE" 2>/dev/null) || FILES=""
+  CHANGED="$CHANGED
+$FILES"
+done
+
+# stdin을 못 읽은 경우(수동 실행 등)엔 안전하게 전부 검사한다
+if [ -z "$(printf '%s' "$CHANGED" | tr -d '[:space:]')" ]; then
+  CHANGED="frontend/ backend/"
+  echo "▶ pre-push: 변경 범위를 알 수 없어 전체를 검사합니다."
 fi
 
-# --- 2) 백엔드 테스트 ---
-# 테스트는 conftest가 로컬 SQLite로 돌려놓으므로 운영 DB를 건드리지 않는다.
-PY="$ROOT/backend/.venv/bin/python"
-if [ -x "$PY" ]; then
-  echo "▶ pre-push: 백엔드 테스트 중… (pytest -q)"
-  if ! (cd "$ROOT/backend" && "$PY" -m pytest tests/ -q); then
-    echo ""
-    echo "✖ push 거부: 백엔드 테스트가 실패했습니다. 위 출력을 확인하세요."
-    echo "  (긴급 시 우회: git push --no-verify)"
-    exit 1
+echo "$CHANGED" | grep -q '^frontend/' && WANT_FRONT=1 || WANT_FRONT=0
+echo "$CHANGED" | grep -q '^backend/'  && WANT_BACK=1  || WANT_BACK=0
+
+if [ "$WANT_FRONT" = 0 ] && [ "$WANT_BACK" = 0 ]; then
+  echo "✓ pre-push: frontend·backend 변경 없음 — 검사를 건너뜁니다."
+  exit 0
+fi
+
+# --- 1) 프론트 타입체크 -----------------------------------------------------
+if [ "$WANT_FRONT" = 1 ]; then
+  if [ -x "$ROOT/frontend/node_modules/.bin/tsc" ]; then
+    echo "▶ pre-push: 프론트 타입체크 중… (tsc --noEmit)"
+    if ! (cd "$ROOT/frontend" && node_modules/.bin/tsc --noEmit); then
+      echo ""
+      echo "✖ push 거부: 프론트 타입 에러가 있습니다. 위 오류를 고친 뒤 다시 push하세요."
+      echo "  (긴급 시 우회: git push --no-verify)"
+      exit 1
+    fi
+    echo "✓ 타입체크 통과"
+  else
+    echo "⚠ pre-push: frontend에 typescript가 없어 타입체크를 건너뜁니다 (npm install 권장)."
   fi
-  echo "✓ 백엔드 테스트 통과 — push 진행"
-else
-  echo "⚠ pre-push: backend/.venv가 없어 테스트를 건너뜁니다."
+fi
+
+# --- 2) 백엔드 테스트 -------------------------------------------------------
+# 테스트는 conftest가 로컬 SQLite로 돌려놓으므로 운영 DB를 건드리지 않는다.
+if [ "$WANT_BACK" = 1 ]; then
+  PY="$ROOT/backend/.venv/bin/python"
+  if [ -x "$PY" ]; then
+    echo "▶ pre-push: 백엔드 테스트 중… (pytest -q)"
+    if ! (cd "$ROOT/backend" && "$PY" -m pytest tests/ -q); then
+      echo ""
+      echo "✖ push 거부: 백엔드 테스트가 실패했습니다. 위 출력을 확인하세요."
+      echo "  (긴급 시 우회: git push --no-verify)"
+      exit 1
+    fi
+    echo "✓ 백엔드 테스트 통과"
+  else
+    echo "⚠ pre-push: backend/.venv가 없어 테스트를 건너뜁니다."
+  fi
 fi
 
 exit 0
