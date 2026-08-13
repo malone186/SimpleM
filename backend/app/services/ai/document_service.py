@@ -54,15 +54,59 @@ class DocumentLockedError(DocumentError):
 # 공통: 문서 저장/조회
 # ---------------------------------------------------------------------------
 
+# 같은 문서가 두 줄로 생기는 걸 막는 시간 창(초).
+#
+# 생성은 재고·판매를 다시 훑어서 1~2초씩 걸린다. 그 사이 버튼이 그대로 눌리므로
+# 사장님이 한 번 더 누르거나(반응이 없어 보여서) 네트워크 재시도가 겹치면 내용이
+# 완전히 똑같은 발주서가 나란히 쌓였다 — 어느 쪽이 진짜인지 알 수 없고, 임금명세서는
+# 삭제까지 막혀 있어 지우지도 못한다.
+#
+# 앱에서도 연타를 막지만(DocumentScreen), 챗봇·재시도 등 다른 경로로도 들어오므로
+# 마지막 방어선은 서버에 둔다. 창 안에서 제목·내용이 똑같으면 새로 만들지 않고
+# 방금 만든 문서를 그대로 돌려준다 — 호출한 쪽은 성공으로 보이고 줄만 안 늘어난다.
+# (같은 문서를 일부러 다시 만들고 싶으면 30초 뒤에 누르면 된다)
+_DUPLICATE_WINDOW_SEC = 30
+
+
+def _recent_identical(db, store_id: str, kind: str, title: str, payload: str):
+    """최근 _DUPLICATE_WINDOW_SEC 안에 저장된, 제목·본문이 완전히 같은 문서 (없으면 None)."""
+    from app.models.ai import GeneratedDocument
+
+    rows = (db.query(GeneratedDocument)
+            .filter(GeneratedDocument.store_id == store_id,
+                    GeneratedDocument.kind == kind,
+                    GeneratedDocument.title == title)
+            .order_by(GeneratedDocument.created_at.desc())
+            .limit(3).all())
+    now = datetime.now(timezone.utc)
+    for row in rows:
+        if row.created_at is None or row.content != payload:
+            continue
+        # created_at은 DB가 채운다 — SQLite는 naive UTC, Postgres는 aware로 온다
+        created = row.created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        if (now - created).total_seconds() <= _DUPLICATE_WINDOW_SEC:
+            return row
+    return None
+
+
 def _save_document(store_id: str, kind: str, title: str, content: dict[str, Any],
                    period: Optional[str] = None) -> dict[str, Any]:
     from app.models.ai import GeneratedDocument
 
+    payload = json.dumps(content, ensure_ascii=False)
     doc_id = uuid.uuid4().hex[:12]
     with _session() as db:
+        dup = _recent_identical(db, store_id, kind, title, payload)
+        if dup is not None:
+            logger.info("문서 중복 생성 방지 — %s / %s '%s' → 방금 만든 %s 재사용",
+                        store_id, kind, title, dup.id)
+            return _row_to_dict(dup)
+
         db.add(GeneratedDocument(
             id=doc_id, store_id=store_id, kind=kind, title=title,
-            period=period, content=json.dumps(content, ensure_ascii=False), status="draft",
+            period=period, content=payload, status="draft",
         ))
         db.commit()
     return {"id": doc_id, "kind": kind, "title": title, "period": period,
@@ -579,6 +623,18 @@ def add_compliance_item(store_id: str, req: ComplianceItemCreate) -> dict[str, A
 
     date.fromisoformat(req.expiry_date)  # 형식 검증 (잘못되면 ValueError)
     with _session() as db:
+        # 이름·만료일이 같으면 같은 서류다 — 등록 버튼이 두 번 눌리면 '보건증-홍길동'이
+        # 두 줄로 뜨고 알림·할 일도 두 번씩 나갔다. 이미 있으면 그걸 그대로 돌려준다.
+        dup = (db.query(ComplianceItem)
+               .filter(ComplianceItem.store_id == store_id,
+                       ComplianceItem.name == req.name,
+                       ComplianceItem.expiry_date == req.expiry_date)
+               .first())
+        if dup is not None:
+            logger.info("갱신 서류 중복 등록 방지 — %s '%s'(%s) 재사용",
+                        store_id, req.name, req.expiry_date)
+            return _compliance_to_dict(dup)
+
         row = ComplianceItem(store_id=store_id, name=req.name, expiry_date=req.expiry_date,
                              remind_before_days=req.remind_before_days, memo=req.memo)
         db.add(row)

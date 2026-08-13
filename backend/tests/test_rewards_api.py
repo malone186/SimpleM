@@ -2,7 +2,10 @@
 
 특히 '자동 도출 할 일' 경로를 본다. 재고 부족·서류 갱신·브루 추천은 todo_items에
 행이 없어 완료 API를 탈 수 없다 — 앱이 /rewards/todo-done으로 따로 알린다.
-같은 항목을 여러 번 체크해도 코인이 한 번만 쌓이는지가 핵심이다.
+핵심은 둘이다:
+  ① 같은 항목을 여러 번 체크해도 코인이 한 번만 쌓인다
+  ② key는 앱이 보내는 값이라, 근거 없는 키에는 한 푼도 주지 않는다
+     (예전엔 아무 문자열이나 새로 지어 보내면 10코인씩 무한히 쌓였다)
 """
 import pytest
 from fastapi.testclient import TestClient
@@ -11,13 +14,47 @@ import app.models  # noqa: F401 — 모든 모델을 Base.metadata에 등록
 from app.core.auth import get_current_user
 from app.main import app
 from app.models.user import User
+from app.services.ai import reward_service
 
 STORE = "reward-api@test.com"
 OTHER = "reward-api-other@test.com"
 
+# 다른 테스트의 자동 증가 id와 겹치지 않게 높은 번호를 직접 박는다
+ING = 90001          # STORE 소유 재료
+ING_OTHER = 90003    # OTHER 소유 재료 — STORE는 이 키로 받을 수 없어야 한다
+
 
 def _as(email: str):
     return lambda: User(id=1, email=email, name="테스트", hashed_password="x")
+
+
+def _seed():
+    """할 일의 '근거'가 되는 실제 행 — 재료 2개(내 것/남의 것) + 갱신 서류 1개."""
+    from app.models.ai import ComplianceItem
+    from app.models.inventory import Ingredient
+    from app.services.ai.reward_service import _session
+
+    with _session() as db:
+        for ing_id, owner in ((ING, STORE), (ING_OTHER, OTHER)):
+            if db.get(Ingredient, ing_id) is None:
+                db.add(Ingredient(id=ing_id, name=f"테스트재료{ing_id}", unit="kg",
+                                  current_price=1000, store_id=owner))
+        comp = ComplianceItem(store_id=STORE, name="보건증(테스트)", expiry_date="2026-12-31")
+        db.add(comp)
+        db.commit()
+        return comp.id
+
+
+def _cleanup(email: str):
+    from app.models.ai import ComplianceItem, PointLedger
+    from app.models.inventory import Ingredient
+    from app.services.ai.reward_service import _session
+
+    with _session() as db:
+        db.query(PointLedger).filter(PointLedger.store_id == email).delete()
+        db.query(ComplianceItem).filter(ComplianceItem.store_id == email).delete()
+        db.query(Ingredient).filter(Ingredient.store_id == email).delete()
+        db.commit()
 
 
 @pytest.fixture()
@@ -28,27 +65,19 @@ def client():
     app.dependency_overrides.clear()
 
 
-def _cleanup(email: str):
-    from app.models.ai import PointLedger
-    from app.services.ai.reward_service import _session
-
-    with _session() as db:
-        db.query(PointLedger).filter(PointLedger.store_id == email).delete()
-        db.commit()
-
-
 @pytest.fixture(autouse=True)
-def clean():
+def comp_id():
     _cleanup(STORE)
     _cleanup(OTHER)
-    yield
+    cid = _seed()
+    yield cid
     _cleanup(STORE)
     _cleanup(OTHER)
 
 
 def test_derived_todo_awards_once(client):
     """재고 발주 같은 자동 도출 항목도 코인이 쌓인다 — 단, 항목당 한 번만."""
-    body = {"key": "stock-42", "title": "에티오피아 원두 발주"}
+    body = {"key": f"stock-{ING}", "title": "에티오피아 원두 발주"}
 
     first = client.post("/api/v1/rewards/todo-done", json=body)
     assert first.status_code == 200
@@ -60,31 +89,82 @@ def test_derived_todo_awards_once(client):
     assert second.json() == {"awarded": 0, "balance": 10}
 
 
-def test_different_items_stack(client):
-    """서로 다른 항목은 각각 쌓인다 (재고·서류·브루 추천이 섞여도)."""
+def test_different_items_stack(client, comp_id):
+    """서로 다른 항목은 각각 쌓인다 (재고·서류·고정 항목이 섞여도)."""
     for key, title in [
-        ("stock-1", "우유 발주"),
-        ("comp-3", "보건증 갱신"),
-        ("insight-renewal:3:2026-08-10", "영업신고증 갱신 준비"),
+        (f"stock-{ING}", "우유 발주"),
+        (f"comp-{comp_id}", "보건증 갱신"),
         ("promo-main", "홍보할 메뉴 고르기"),
+        ("breakeven-daily", "오늘 본전 넘기기"),
     ]:
-        assert client.post("/api/v1/rewards/todo-done", json={"key": key, "title": title}).json()["awarded"] == 10
+        assert client.post("/api/v1/rewards/todo-done",
+                           json={"key": key, "title": title}).json()["awarded"] == 10
 
     assert client.get("/api/v1/rewards/wallet").json()["balance"] == 40
 
 
+def test_unknown_key_earns_nothing(client, comp_id):
+    """[회귀] 근거 없는 key는 0코인.
+
+    앱을 뜯어 key만 매번 새로 지어 보내면 항목당 10코인이 무한히 쌓였다 — ref가 key라
+    중복으로도 안 걸린다. 이제 서버가 '지금 실제로 떠 있는 할 일인지'를 확인한다.
+    """
+    bogus = [
+        "farm-1", "farm-2", "아무거나",       # 지어낸 키
+        "stock-999999",                      # 없는 재료
+        f"stock-{ING_OTHER}",                # 남의 매장 재료
+        f"comp-{comp_id + 5000}",            # 없는 갱신 서류
+        "insight-made-up:1:2026-08-13",      # 브루가 내놓지 않은 인사이트
+        "server-1",                          # 저장된 할 일 경로를 흉내낸 키
+    ]
+    for key in bogus:
+        r = client.post("/api/v1/rewards/todo-done", json={"key": key, "title": "가짜"})
+        assert r.status_code == 200
+        assert r.json() == {"awarded": 0, "balance": 0}, key
+
+    assert client.get("/api/v1/rewards/wallet").json()["balance"] == 0
+
+
+def test_insight_key_must_be_one_brew_actually_suggested(client, monkeypatch):
+    """인사이트 키는 오늘 브루가 실제로 내놓은 목록에 있어야 인정된다."""
+    from app.services.ai import ai_todo_service
+
+    real = "insight-renewal:3:2026-08-10"
+    monkeypatch.setattr(ai_todo_service, "suggest_todos",
+                        lambda store_id: {"todos": [{"id_hint": real}]})
+
+    assert client.post("/api/v1/rewards/todo-done",
+                       json={"key": real, "title": "영업신고증 갱신 준비"}).json()["awarded"] == 10
+    assert client.post("/api/v1/rewards/todo-done",
+                       json={"key": "insight-renewal:4:2026-08-10", "title": "지어낸 인사이트"}
+                       ).json()["awarded"] == 0
+    assert client.get("/api/v1/rewards/wallet").json()["balance"] == 10
+
+
+def test_daily_limit_caps_derived_awards(client, comp_id, monkeypatch):
+    """하루 상한 — 검증을 통과하는 키라도 하루에 받을 수 있는 횟수는 묶여 있다."""
+    monkeypatch.setattr(reward_service, "DERIVED_DAILY_LIMIT", 2)
+
+    assert client.post("/api/v1/rewards/todo-done",
+                       json={"key": "promo-main", "title": "홍보"}).json()["awarded"] == 10
+    assert client.post("/api/v1/rewards/todo-done",
+                       json={"key": "breakeven-daily", "title": "본전"}).json()["awarded"] == 10
+    assert client.post("/api/v1/rewards/todo-done",
+                       json={"key": f"stock-{ING}", "title": "우유 발주"}).json()["awarded"] == 0
+    assert client.get("/api/v1/rewards/wallet").json()["balance"] == 20
+
+
 def test_saved_todo_and_derived_key_do_not_collide(client):
     """저장된 할 일은 ref가 숫자 id, 자동 도출은 'k:' 접두어 — 서로를 막지 않는다."""
-    from app.services.ai import reward_service
-
-    assert reward_service.award_todo_done(STORE, 7, "직접 적은 할 일") is True
-    assert client.post("/api/v1/rewards/todo-done", json={"key": "7", "title": "우연히 같은 키"}).json()["awarded"] == 10
+    assert reward_service.award_todo_done(STORE, ING, "직접 적은 할 일") is True
+    assert client.post("/api/v1/rewards/todo-done",
+                       json={"key": f"stock-{ING}", "title": "우연히 같은 번호"}).json()["awarded"] == 10
     assert client.get("/api/v1/rewards/wallet").json()["balance"] == 20
 
 
 def test_history_labels_todo_done(client):
     """상점 하단 내역에 '할 일 완료'로 뜬다 — 제목이 그대로 남아야 무슨 일이었는지 안다."""
-    client.post("/api/v1/rewards/todo-done", json={"key": "stock-9", "title": "우유 발주"})
+    client.post("/api/v1/rewards/todo-done", json={"key": f"stock-{ING}", "title": "우유 발주"})
 
     entry = client.get("/api/v1/rewards/wallet").json()["history"][0]
     assert entry["reason_label"] == "할 일 완료"
@@ -92,12 +172,13 @@ def test_history_labels_todo_done(client):
     assert entry["delta"] == 10
 
 
-def test_long_insight_keys_stay_distinct(client):
+def test_long_keys_stay_distinct():
     """긴 인사이트 키는 ref(64자)에 안 들어간다 — 앞부분이 같아도 서로 다른 항목이어야 한다."""
     base = "insight-renewal:" + "x" * 60
-    assert client.post("/api/v1/rewards/todo-done", json={"key": base + ":2026-08-10", "title": "서류 A 갱신"}).json()["awarded"] == 10
-    assert client.post("/api/v1/rewards/todo-done", json={"key": base + ":2026-09-30", "title": "서류 B 갱신"}).json()["awarded"] == 10
-    assert client.get("/api/v1/rewards/wallet").json()["balance"] == 20
+    a = reward_service._derived_ref(base + ":2026-08-10")
+    b = reward_service._derived_ref(base + ":2026-09-30")
+    assert len(a) <= 64 and len(b) <= 64
+    assert a != b
 
 
 def test_blank_key_rejected(client):
@@ -108,10 +189,10 @@ def test_blank_key_rejected(client):
 
 def test_other_store_cannot_see_my_coins(client):
     """매장 격리 — 같은 key라도 매장이 다르면 각자 쌓인다."""
-    client.post("/api/v1/rewards/todo-done", json={"key": "stock-1", "title": "우유 발주"})
+    client.post("/api/v1/rewards/todo-done", json={"key": "promo-main", "title": "홍보"})
 
     app.dependency_overrides[get_current_user] = _as(OTHER)
-    other = client.post("/api/v1/rewards/todo-done", json={"key": "stock-1", "title": "우유 발주"})
+    other = client.post("/api/v1/rewards/todo-done", json={"key": "promo-main", "title": "홍보"})
     assert other.json() == {"awarded": 10, "balance": 10}
 
     app.dependency_overrides[get_current_user] = _as(STORE)

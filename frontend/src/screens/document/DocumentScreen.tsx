@@ -1,6 +1,6 @@
 // 서류 자동화 (ERP-12) — 백엔드 /chatbot/documents·compliance 실연동
 // 문서 초안 생성(발주서·실사표·장부·부가세·임금명세서·근로계약서) + 생성 문서 열람 + 갱신 만료 알림
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { dateKey, monthKey } from '../../lib/dateKey';
 import { ActivityIndicator, LayoutAnimation, Platform, StyleSheet, Text, TextInput, TouchableOpacity, UIManager, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -321,6 +321,10 @@ export default function DocumentScreen() {
   const [renewals, setRenewals] = useState<ComplianceItem[]>([]);
   const [openDocId, setOpenDocId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null); // 생성 중인 템플릿 id
+  // 연타 차단용 — setBusy는 다음 렌더에나 반영돼서, 빠르게 두 번 누르면 두 번째 누름이
+  // busy를 아직 null로 보고 요청을 한 번 더 보낸다(같은 문서가 두 줄로 생기던 원인).
+  // 즉시 값이 바뀌는 ref로 막는다.
+  const runningRef = useRef(false);
   const [openForm, setOpenForm] = useState<string | null>(null);
 
   // 문서 편집 상태
@@ -340,6 +344,8 @@ export default function DocumentScreen() {
   const [ctStart, setCtStart] = useState('');
   const [cpName, setCpName] = useState('');
   const [cpExpiry, setCpExpiry] = useState('');
+  const [addingRenewal, setAddingRenewal] = useState(false);
+  const addingRef = useRef(false);
 
   const reload = useCallback(() => {
     if (!token) return;
@@ -351,6 +357,8 @@ export default function DocumentScreen() {
 
   const run = async (id: string, fn: () => Promise<GeneratedDocument>) => {
     if (!token) return toast('로그인 필요', '서류 생성은 로그인 후 가능합니다.');
+    if (runningRef.current) return; // 생성 중에는 어떤 템플릿도 새로 시작하지 않는다
+    runningRef.current = true;
     setBusy(id);
     try {
       const doc = await fn();
@@ -361,6 +369,7 @@ export default function DocumentScreen() {
     } catch (e) {
       toast('생성 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
     } finally {
+      runningRef.current = false;
       setBusy(null);
     }
   };
@@ -371,6 +380,9 @@ export default function DocumentScreen() {
     if (!cpName.trim()) return toast('입력 확인', '서류 이름을 입력하세요. (예: 보건증-홍길동)');
     const expiry = normalizeDate(cpExpiry);
     if (!expiry) return toast('입력 확인', `만료일을 알아볼 수 없어요: "${cpExpiry}" — 예: 2026-12-31`);
+    if (addingRef.current) return; // 등록도 연타로 같은 서류가 두 줄 생겼다
+    addingRef.current = true;
+    setAddingRenewal(true);
     try {
       await addCompliance(token, { name: cpName.trim(), expiry_date: expiry });
       setCpName(''); setCpExpiry(''); setOpenForm(null);
@@ -378,6 +390,9 @@ export default function DocumentScreen() {
       reload();
     } catch (e) {
       toast('등록 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해 주세요.');
+    } finally {
+      addingRef.current = false;
+      setAddingRenewal(false);
     }
   };
 
@@ -494,8 +509,9 @@ export default function DocumentScreen() {
             <View style={styles.form}>
               <TextInput style={styles.input} placeholder="서류 이름 (예: 보건증-홍길동)" value={cpName} onChangeText={setCpName} />
               <TextInput style={styles.input} placeholder="만료일 (YYYY-MM-DD)" value={cpExpiry} onChangeText={setCpExpiry} />
-              <PressableScale style={styles.smallBtn} onPress={addRenewal}>
-                <Text style={styles.btnText}>등록</Text>
+              <PressableScale style={[styles.smallBtn, addingRenewal && styles.btnDisabled]}
+                disabled={addingRenewal} onPress={addRenewal}>
+                <Text style={styles.btnText}>{addingRenewal ? '등록 중…' : '등록'}</Text>
               </PressableScale>
             </View>
           </FadeInUp>
@@ -521,16 +537,16 @@ export default function DocumentScreen() {
 
       <Card>
         <TemplateRow icon="cart-outline" name="발주서" desc="부족한 재료를 자동으로 골라 수량 제안"
-          busy={busy === 'po'} onPress={() => run('po', () => createPurchaseOrder(token!))} />
+          busy={busy === 'po'} disabled={busy !== null} onPress={() => run('po', () => createPurchaseOrder(token!))} />
         <Divider />
         <TemplateRow icon="clipboard-outline" name="재고실사표" desc="장부 수량이 채워진 실사용 시트"
-          busy={busy === 'st'} onPress={() => run('st', () => createStocktakeSheet(token!))} />
+          busy={busy === 'st'} disabled={busy !== null} onPress={() => run('st', () => createStocktakeSheet(token!))} />
         <Divider />
         <TemplateRow icon="book-outline" name={`매입·매출 장부 (${now.getMonth() + 1}월)`} desc="확정 OCR 문서·판매 기록 월 집계"
-          busy={busy === 'lg'} onPress={() => run('lg', () => createMonthlyLedger(token!, now.getFullYear(), now.getMonth() + 1))} />
+          busy={busy === 'lg'} disabled={busy !== null} onPress={() => run('lg', () => createMonthlyLedger(token!, now.getFullYear(), now.getMonth() + 1))} />
         <Divider />
         <TemplateRow icon="calculator-outline" name="부가세 참고자료 (이번 분기)" desc="참고용 집계 — 최종 신고는 세무사·홈택스 확인"
-          busy={busy === 'vat'} onPress={() => { const [s, e] = quarterRange(); run('vat', () => createVatReference(token!, s, e)); }} />
+          busy={busy === 'vat'} disabled={busy !== null} onPress={() => { const [s, e] = quarterRange(); run('vat', () => createVatReference(token!, s, e)); }} />
       </Card>
 
       {/* 임금명세서 */}
@@ -550,7 +566,8 @@ export default function DocumentScreen() {
                 <TextInput style={[styles.input, { flex: 1, width: 0, flexShrink: 1 }]} placeholder="시급 (비우면 직원 정보 사용)" keyboardType="numeric" value={payWage} onChangeText={setPayWage} />
                 <TextInput style={[styles.input, { flex: 1, width: 0, flexShrink: 1 }]} placeholder="근무시간 (비우면 자동 집계)" keyboardType="numeric" value={payHours} onChangeText={setPayHours} />
               </View>
-              <PressableScale style={styles.smallBtn} onPress={() => {
+              <PressableScale style={[styles.smallBtn, busy !== null && styles.btnDisabled]}
+                disabled={busy !== null} onPress={() => {
                 if (!empName.trim()) return toast('입력 확인', '직원 이름을 입력하세요.');
                 const y = toNumber(payYear);
                 const m = toNumber(payMonth);
@@ -570,7 +587,7 @@ export default function DocumentScreen() {
                   ...(payHours.trim() ? { work_hours: toNumber(payHours) } : {}),
                 }));
               }}>
-                <Text style={styles.btnText}>초안 생성</Text>
+                <Text style={styles.btnText}>{busy === 'pay' ? '생성 중…' : '초안 생성'}</Text>
               </PressableScale>
             </View>
           </FadeInUp>
@@ -590,7 +607,8 @@ export default function DocumentScreen() {
                 <TextInput style={[styles.input, { flex: 1, width: 0, flexShrink: 1 }]} placeholder="시급 (원)" keyboardType="numeric" value={ctWage} onChangeText={setCtWage} />
                 <TextInput style={[styles.input, { flex: 1.4, width: 0, flexShrink: 1 }]} placeholder="시작일 YYYY-MM-DD" value={ctStart} onChangeText={setCtStart} />
               </View>
-              <PressableScale style={styles.smallBtn} onPress={() => {
+              <PressableScale style={[styles.smallBtn, busy !== null && styles.btnDisabled]}
+                disabled={busy !== null} onPress={() => {
                 if (!ctName.trim()) return toast('입력 확인', '직원 이름을 입력하세요.');
                 const wage = toNumber(ctWage);
                 if (!wage) return toast('입력 확인', `시급을 숫자로 입력하세요: "${ctWage}" — 예: 10500`);
@@ -598,7 +616,7 @@ export default function DocumentScreen() {
                 if (!start) return toast('입력 확인', `시작일을 알아볼 수 없어요: "${ctStart}" — 예: 2026-08-01`);
                 run('ct', () => createContract(token!, { employee_name: ctName.trim(), hourly_wage: wage, start_date: start }));
               }}>
-                <Text style={styles.btnText}>초안 생성</Text>
+                <Text style={styles.btnText}>{busy === 'ct' ? '생성 중…' : '초안 생성'}</Text>
               </PressableScale>
             </View>
           </FadeInUp>
@@ -632,7 +650,8 @@ export default function DocumentScreen() {
                   <View style={styles.docActions}>
                     {isEditing ? (
                       <>
-                        <PressableScale style={[styles.smallBtn, { flex: 1 }]} onPress={() => saveEdit(d)}>
+                        <PressableScale style={[styles.smallBtn, { flex: 1 }, savingDoc && styles.btnDisabled]}
+                          disabled={savingDoc} onPress={() => saveEdit(d)}>
                           <Text style={styles.btnText}>{savingDoc ? '저장 중…' : '저장'}</Text>
                         </PressableScale>
                         <PressableScale style={[styles.smallBtn, styles.cancelBtn, { flex: 1 }]} onPress={cancelEdit}>
@@ -684,10 +703,13 @@ export default function DocumentScreen() {
   );
 }
 
-function TemplateRow({ icon, name, desc, busy, onPress, actionLabel }: {
+// disabled: 다른 문서를 만드는 중 — 그 사이 다른 버튼이 눌리면 요청이 겹친다.
+// 누름 자체를 막고(disabled) 색도 흐리게 해서 '지금은 안 눌린다'가 보이게 한다.
+function TemplateRow({ icon, name, desc, busy, onPress, actionLabel, disabled }: {
   icon: keyof typeof Ionicons.glyphMap; name: string; desc: string;
-  busy: boolean; onPress: () => void; actionLabel?: string;
+  busy: boolean; onPress: () => void; actionLabel?: string; disabled?: boolean;
 }) {
+  const off = disabled || busy;
   return (
     <View style={styles.row}>
       <View style={styles.iconBox}>
@@ -697,7 +719,7 @@ function TemplateRow({ icon, name, desc, busy, onPress, actionLabel }: {
         <Text style={styles.name}>{name}</Text>
         <Text style={styles.desc}>{desc}</Text>
       </View>
-      <PressableScale style={styles.makeBtn} onPress={onPress}>
+      <PressableScale style={[styles.makeBtn, off && styles.btnDisabled]} disabled={off} onPress={onPress}>
         <Text style={styles.makeText}>{busy ? '생성 중…' : actionLabel ?? '초안 생성'}</Text>
       </PressableScale>
     </View>
@@ -720,6 +742,7 @@ const styles = StyleSheet.create({
   makeBtn: { backgroundColor: colors.pointOrange, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 12 },
   makeText: { ...typography.L5, color: colors.white, fontWeight: '700' },
   smallBtn: { backgroundColor: colors.pointOrange, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  btnDisabled: { opacity: 0.5 },  // 처리 중 — 눌러도 반응 없다는 걸 보이게
   btnText: { ...typography.L5, color: colors.white, fontWeight: '700' },
   form: { gap: 8, marginTop: 10 },
   formRow: { flexDirection: 'row', gap: 8, width: '100%', maxWidth: '100%' },

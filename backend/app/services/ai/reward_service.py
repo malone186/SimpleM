@@ -10,6 +10,7 @@ models/ai.py의 PointLedger 주석 참고.
 
 import hashlib
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -294,6 +295,80 @@ def award_todo_done(store_id: str, todo_id: int, title: str) -> bool:
     return award(store_id, POINTS_PER_TODO, "todo_done", str(todo_id), memo)
 
 
+# 자동 도출 할 일 중 항상 존재하는 고정 항목 (ai_todo_service의 id_hint와 같은 값)
+_FIXED_DERIVED_KEYS = {"promo-main", "breakeven-daily"}
+
+# stock-<재료id> / comp-<갱신서류id> — 실제 행이 있어야만 인정한다
+_ENTITY_KEY_RE = re.compile(r"^(stock|comp)-(\d+)$")
+
+# 하루에 자동 도출 항목으로 받을 수 있는 적립 횟수 상한.
+# 정상 사용에서는 홈 할 일이 하루 15줄을 넘지 않는다(재고 4 + 인사이트 4 + 갱신 서류 몇 개
+# + 홍보·손익분기). 아래 키 검증이 이미 '실제로 존재하는 항목'으로 범위를 묶지만,
+# 재료를 잔뜩 등록해 두고 한 번에 훑는 식의 우회를 하루 단위로 다시 한 번 막는다.
+DERIVED_DAILY_LIMIT = 40
+
+
+def _derived_key_is_real(store_id: str, key: str) -> bool:
+    """이 key가 지금 이 매장에 실제로 떠 있는 할 일인가.
+
+    key는 앱이 보내는 값이라 그대로 믿으면 안 된다 — 아무 문자열이나 계속 새로 지어
+    보내면 항목당 10코인이 무한히 쌓였다(ref가 key라 '중복'으로도 걸리지 않는다).
+    그래서 종류별로 근거를 확인한다:
+      · stock-<재료id> / comp-<서류id> — 그 매장 소유의 행이 실제로 있는지 DB 확인
+      · insight-<키>                  — 오늘 브루가 실제로 내놓은 항목 목록에 있는지
+                                        (하루 캐시라 조회 비용은 사실상 없다)
+      · promo-main / breakeven-daily  — 항상 존재하는 고정 항목
+    """
+    if key in _FIXED_DERIVED_KEYS:
+        return True
+
+    m = _ENTITY_KEY_RE.match(key)
+    if m:
+        kind, row_id = m.group(1), int(m.group(2))
+        with _session() as db:
+            if kind == "stock":
+                from app.models.inventory import Ingredient
+
+                return db.query(Ingredient.id).filter(
+                    Ingredient.id == row_id, Ingredient.store_id == store_id
+                ).first() is not None
+
+            from app.models.ai import ComplianceItem
+
+            return db.query(ComplianceItem.id).filter(
+                ComplianceItem.id == row_id, ComplianceItem.store_id == store_id
+            ).first() is not None
+
+    if key.startswith("insight-"):
+        try:
+            from app.services.ai import ai_todo_service
+
+            hints = {t.get("id_hint") for t in ai_todo_service.suggest_todos(store_id).get("todos", [])}
+        except Exception:
+            logger.exception("자동 도출 할 일 검증 실패 — 적립을 건너뛴다 (key=%s)", key[:60])
+            return False
+        return key in hints
+
+    return False
+
+
+def _derived_awarded_today(db, store_id: str) -> int:
+    """오늘(KST) 자동 도출 항목으로 적립된 횟수 — ref의 'k:' 접두어로 구분한다."""
+    from app.models.ai import PointLedger
+
+    today = datetime.now(KST).date()
+    # KST 자정 경계의 저장 편차를 흡수하려 하루 여유로 당겨오고 KST 날짜로 정확히 거른다
+    since = (datetime.combine(today, datetime.min.time(), tzinfo=KST)
+             - timedelta(days=1)).astimezone(timezone.utc).replace(tzinfo=None)
+    rows = db.query(PointLedger.created_at).filter(
+        PointLedger.store_id == store_id,
+        PointLedger.reason == "todo_done",
+        PointLedger.ref.like("k:%"),
+        PointLedger.created_at >= since,
+    ).all()
+    return sum(1 for (created,) in rows if _to_kst_date(created) == today)
+
+
 def award_derived_todo(store_id: str, key: str, title: str) -> bool:
     """자동 도출 할 일(재고 발주·서류 갱신·브루 추천) 완료 보상.
 
@@ -303,10 +378,25 @@ def award_derived_todo(store_id: str, key: str, title: str) -> bool:
 
     ref에 'k:' 접두어를 붙이는 이유: 저장된 할 일은 ref가 숫자 id라 같은 reason 안에서
     두 종류가 섞인다. 접두어가 없으면 언젠가 겹칠 수 있다.
+
+    key는 서버가 검증한다(_derived_key_is_real) — 근거 없는 키는 조용히 0코인으로
+    넘긴다. 실패로 만들지 않는 이유: 인사이트가 방금 해소돼 목록에서 빠진 뒤에 체크가
+    도착하는 정상 상황과 구분되지 않고, 오류를 돌려주면 어떤 키가 먹히는지 알려주는
+    셈이 된다. 앱에서도 코인 안내는 awarded>0일 때만 뜬다.
     """
     k = (key or "").strip()
     if not k:
         raise RewardError("할 일 식별자가 비어 있습니다.")
+
+    if not _derived_key_is_real(store_id, k):
+        logger.warning("자동 도출 할 일 적립 거부 — 근거 없는 key (%s: %s)", store_id, k[:80])
+        return False
+
+    with _session() as db:
+        if _derived_awarded_today(db, store_id) >= DERIVED_DAILY_LIMIT:
+            logger.warning("자동 도출 할 일 적립 상한 도달 — %s (하루 %d회)",
+                           store_id, DERIVED_DAILY_LIMIT)
+            return False
 
     memo = title if len(title) <= 40 else title[:39] + "…"
     return award(store_id, POINTS_PER_TODO, "todo_done", _derived_ref(k), memo)
