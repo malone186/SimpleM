@@ -92,6 +92,18 @@ function useAdminAnnouncement(notices: AdminNotice[]) {
 
 const READ_MAX_KEY = 'simplem:notice:read-max-id';
 
+// 알림함에서 지운 공지 — 기기에만 남긴다.
+//
+// 서버 삭제가 아닌 이유: 공지는 관리자가 여러 매장에 함께 보낸 발송 기록이라
+// 사장님 한 분이 지운다고 원본을 없앨 수 없다(다른 매장에서도 사라지고, 관리자 발송
+// 이력도 깨진다). 그래서 '내 알림함에서만 치운다'로 처리하고, 실수로 지웠을 때를 위해
+// 빈 알림함에서 '지운 알림 보기'로 되돌릴 수 있게 한다.
+//
+// 식별은 id가 아니라 서명(id+제목+날짜)으로 한다 — 백엔드가 재시작하면 id를 재사용해서
+// id만 저장하면 같은 번호로 온 새 공지가 읽히지도 않고 사라진다 (말풍선 dismiss와 같은 규칙).
+const HIDDEN_KEY = 'simplem:notice:hidden';
+const HIDDEN_MAX = 100;  // 무한정 쌓이지 않게 — 오래된 서명부터 버린다
+
 // 공지 → 화면 연결 규칙. 관리자 공지에는 대상 화면 정보가 없어서
 // 제목·본문의 키워드로 갈 곳을 추론한다. 위에 있는 규칙이 우선(구체적인 주제부터).
 // 매칭되는 규칙이 없으면 카드는 눌러도 이동하지 않는 일반 카드로 남는다.
@@ -123,25 +135,29 @@ function resolveNoticeRoute(notice: { title?: string; body?: string }) {
 // 열면 현재 최신 id까지 '읽음' 처리한다.
 function useNoticeInbox(refreshTrigger = 0) {
   const { token } = useAuth();
-  const [notices, setNotices] = useState<AdminNotice[]>([]);
+  const [received, setReceived] = useState<AdminNotice[]>([]);
   const [readMaxId, setReadMaxId] = useState(0);
+  const [hiddenSigs, setHiddenSigs] = useState<string[]>([]);
 
   useEffect(() => {
     AsyncStorage.getItem(READ_MAX_KEY)
       .then((v) => setReadMaxId(v ? Number(v) : 0))
       .catch(() => {});
+    AsyncStorage.getItem(HIDDEN_KEY)
+      .then((raw) => setHiddenSigs(raw ? JSON.parse(raw) : []))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
     if (!token) {
-      setNotices([]);
+      setReceived([]);
       return;
     }
     let alive = true;
     const load = async () => {
       try {
         const list = await fetchNoticeFeed(token, 0);
-        if (alive) setNotices((list || []).slice().sort((a, b) => b.id - a.id));
+        if (alive) setReceived((list || []).slice().sort((a, b) => b.id - a.id));
       } catch {
         // 서버 오프라인/미로그인 — 다음 주기에 재시도
       }
@@ -156,6 +172,14 @@ function useNoticeInbox(refreshTrigger = 0) {
     };
   }, [token, refreshTrigger]);
 
+  // 지운 공지는 알림함에서도, 헤더 말풍선에서도 빠진다 (같은 목록을 쓰므로 자동으로 따라온다)
+  const hidden = useMemo(() => new Set(hiddenSigs), [hiddenSigs]);
+  const notices = useMemo(
+    () => received.filter((n) => !hidden.has(announceSig(n))),
+    [received, hidden],
+  );
+  const hiddenCount = received.length - notices.length;
+
   const unreadCount = notices.filter((n) => n.id > readMaxId).length;
 
   // 열람 시 호출 — 현재 최신 id까지 읽음 처리 (배지 사라짐)
@@ -169,7 +193,22 @@ function useNoticeInbox(refreshTrigger = 0) {
     }
   };
 
-  return { notices, unreadCount, readMaxId, markAllRead };
+  // 화면부터 먼저 바꾸고(상태) 저장을 뒤에 한다 — 저장이 실패해도 이번 세션에선 지워진 채로 남는다
+  const persistHidden = async (next: string[]) => {
+    const capped = next.slice(-HIDDEN_MAX);
+    setHiddenSigs(capped);
+    try {
+      await AsyncStorage.setItem(HIDDEN_KEY, JSON.stringify(capped));
+    } catch {
+      // 세션 상태로 이미 숨겨졌다
+    }
+  };
+
+  const hideNotice = (n: AdminNotice) => persistHidden([...new Set([...hiddenSigs, announceSig(n)])]);
+  const hideAll = () => persistHidden([...new Set([...hiddenSigs, ...notices.map(announceSig)])]);
+  const restoreHidden = () => persistHidden([]);
+
+  return { notices, unreadCount, readMaxId, markAllRead, hiddenCount, hideNotice, hideAll, restoreHidden };
 }
 
 export default function WelcomeHeader({
@@ -204,7 +243,8 @@ export default function WelcomeHeader({
   const topInset = useTopInset();
   // 알림함 (지도 아이콘 옆 벨) — 지난 공지를 스택형으로 모아 본다.
   // 헤더 말풍선(useAdminAnnouncement)도 이 목록을 그대로 쓴다 (폴링은 여기 한 곳만).
-  const { notices, unreadCount, readMaxId, markAllRead } = useNoticeInbox(refreshTrigger);
+  const { notices, unreadCount, readMaxId, markAllRead, hiddenCount, hideNotice, hideAll, restoreHidden } =
+    useNoticeInbox(refreshTrigger);
   const { announce, dismiss } = useAdminAnnouncement(notices);
   const [inboxOpen, setInboxOpen] = useState(false);
   // 홈 브루 2단계: 처음엔 매장 상태 표정(정보) → 한 번 만지면 게임 룸에서 꾸민 모습·행동(애착).
@@ -442,6 +482,18 @@ export default function WelcomeHeader({
                   {selected ? '알림 상세' : notices.length > 0 ? `알림 ${notices.length}건` : '알림'}
                 </Text>
               </View>
+              {/* 목록에서만 — 상세를 보는 중에 '모두 지우기'가 있으면 지금 읽는 글이 무엇이 되는지 헷갈린다 */}
+              {!selected && notices.length > 0 && (
+                <TouchableOpacity
+                  onPress={hideAll}
+                  hitSlop={8}
+                  style={styles.inboxClearBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel="알림 모두 지우기"
+                >
+                  <Text style={styles.inboxClearText}>모두 지우기</Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity onPress={closeInbox} hitSlop={8}>
                 <Ionicons name="close" size={20} color={colors.mochaBrown} />
               </TouchableOpacity>
@@ -474,15 +526,46 @@ export default function WelcomeHeader({
                     <Ionicons name="chevron-forward" size={13} color={colors.white} />
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity style={styles.detailBackBtn} onPress={() => setSelectedId(null)} activeOpacity={0.85}>
-                  <Ionicons name="list-outline" size={14} color={colors.espressoBrown} />
-                  <Text style={styles.detailBackText}>알림 목록으로</Text>
-                </TouchableOpacity>
+                <View style={styles.detailFootRow}>
+                  {/* 다 읽었으면 여기서 바로 치운다 — 목록으로 돌아가 다시 찾을 필요 없게 */}
+                  <TouchableOpacity
+                    style={styles.detailDeleteBtn}
+                    activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${selected.title} 알림 지우기`}
+                    onPress={() => {
+                      hideNotice(selected);
+                      setSelectedId(null); // 지운 글의 상세에 남아 있을 이유가 없다
+                    }}
+                  >
+                    <Ionicons name="trash-outline" size={14} color="#B23B2E" />
+                    <Text style={styles.detailDeleteText}>지우기</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.detailBackBtn, { flex: 1 }]} onPress={() => setSelectedId(null)} activeOpacity={0.85}>
+                    <Ionicons name="list-outline" size={14} color={colors.espressoBrown} />
+                    <Text style={styles.detailBackText}>알림 목록으로</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             ) : notices.length === 0 ? (
               <View style={styles.inboxEmpty}>
                 <Ionicons name="mail-open-outline" size={28} color="#C7BBB0" />
-                <Text style={styles.inboxEmptyText}>받은 공지가 없어요.</Text>
+                <Text style={styles.inboxEmptyText}>
+                  {hiddenCount > 0 ? '지금 볼 알림이 없어요.' : '받은 공지가 없어요.'}
+                </Text>
+                {/* 실수로 지웠을 때의 되돌리기 — 서버에는 그대로 있으니 언제든 되살릴 수 있다 */}
+                {hiddenCount > 0 && (
+                  <TouchableOpacity
+                    style={styles.inboxRestoreBtn}
+                    onPress={restoreHidden}
+                    activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityLabel="지운 알림 다시 보기"
+                  >
+                    <Ionicons name="refresh-outline" size={13} color={colors.mochaBrown} />
+                    <Text style={styles.inboxRestoreText}>지운 알림 {hiddenCount}건 다시 보기</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             ) : (
               /* 목록 — 관리자가 보낸 공지를 최신순으로. 누르면 그 한 건의 상세로 들어간다 */
@@ -511,13 +594,28 @@ export default function WelcomeHeader({
                       </View>
                       {!!n.body && <Text style={styles.noticeCardBody} numberOfLines={2}>{n.body}</Text>}
                       <View style={styles.noticeCardFoot}>
-                        <Text style={styles.noticeCardMeta}>{n.author} · {n.date}</Text>
-                        {target && (
-                          <View style={styles.noticeCardCta}>
-                            <Text style={styles.noticeCardCtaText}>{target.label}</Text>
-                            <Ionicons name="chevron-forward" size={11} color={colors.pointOrange} />
-                          </View>
-                        )}
+                        <Text style={styles.noticeCardMeta} numberOfLines={1}>{n.author} · {n.date}</Text>
+                        <View style={styles.noticeCardFootRight}>
+                          {target && (
+                            <View style={styles.noticeCardCta}>
+                              <Text style={styles.noticeCardCtaText}>{target.label}</Text>
+                              <Ionicons name="chevron-forward" size={11} color={colors.pointOrange} />
+                            </View>
+                          )}
+                          {/* 이 알림만 지우기 — 카드를 누르면 상세로 가야 하므로 탭이 위로 새지 않게 막는다 */}
+                          <TouchableOpacity
+                            style={styles.noticeDeleteBtn}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${n.title} 알림 지우기`}
+                            onPress={(e) => {
+                              e.stopPropagation();
+                              hideNotice(n);
+                            }}
+                          >
+                            <Ionicons name="close" size={14} color="#A99C90" />
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     </TouchableOpacity>
                   );
@@ -705,9 +803,24 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(140,111,86,0.10)',
     marginLeft: -2,
   },
+  // 헤더 '모두 지우기' — 닫기(X) 왼쪽. 파괴적 동작이라 제목보다 조용한 회색으로 둔다
+  inboxClearBtn: { paddingHorizontal: 6, paddingVertical: 2, marginRight: 2 },
+  inboxClearText: { fontSize: 11.5, fontWeight: '700', color: '#9C8E82', letterSpacing: -0.2 },
   // [한글 주석: 빈 알림 안내 영역 - 패널 크기 축소에 맞춰 상하 여백을 24px로 슬림하게 맞춤]
   inboxEmpty: { alignItems: 'center', gap: 6, paddingVertical: 24 },
   inboxEmptyText: { fontSize: 12, color: '#9C8E82', fontWeight: '600' },
+  // 되돌리기 — 지운 알림이 있을 때만 빈 화면에 나타난다
+  inboxRestoreBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
+    backgroundColor: 'rgba(140,111,86,0.10)',
+  },
+  inboxRestoreText: { fontSize: 11, fontWeight: '700', color: colors.mochaBrown, letterSpacing: -0.2 },
   // 스택형 공지 카드
   noticeCard: {
     backgroundColor: colors.white,
@@ -734,6 +847,9 @@ const styles = StyleSheet.create({
     marginTop: 7,
   },
   noticeCardMeta: { flex: 1, fontSize: 10, color: '#A99C90', fontWeight: '600' },
+  noticeCardFootRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  // 카드별 지우기 — 이동 힌트 칩 옆. 눌러야 할 곳은 카드 본체라 X는 한 단계 조용하게
+  noticeDeleteBtn: { padding: 1 },
   // 이동 힌트 — "재고 ›" 형태로 어디로 가는지 미리 알려 준다
   noticeCardCta: { flexDirection: 'row', alignItems: 'center', gap: 1 },
   noticeCardCtaText: { fontSize: 10.5, fontWeight: '800', color: colors.pointOrange, letterSpacing: -0.2 },
@@ -789,6 +905,20 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(140,111,86,0.10)',
   },
   detailBackText: { fontSize: 12, fontWeight: '800', color: colors.espressoBrown, letterSpacing: -0.2 },
+  // 상세 하단 줄 — [지우기][목록으로]. 지우기는 폭을 작게 둬 실수로 눌리지 않게 한다
+  detailFootRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  detailDeleteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    marginTop: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 13,
+    backgroundColor: 'rgba(178,59,46,0.10)',
+  },
+  detailDeleteText: { fontSize: 12, fontWeight: '800', color: '#B23B2E', letterSpacing: -0.2 },
   inAppBackdrop: {
     position: 'absolute',
     top: 0,
