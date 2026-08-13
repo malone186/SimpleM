@@ -441,7 +441,14 @@ class OperationService:
         - store_id: 지정 시 해당 매장만
         - days: 지정 시 최근 N일치만 (오름차순 기준 뒤에서 N개)
         """
-        day = func.date(Sale.sold_at)
+        # sold_at은 timestamptz — 그냥 date()/extract()를 걸면 세션 기본(UTC) 기준이라
+        # 오전 00~09시(KST) 매출이 전날·전월 몫으로 잡힌다. 이 시계열이 판매 예측의
+        # 학습 데이터라 하루가 밀리면 예측이 통째로 어긋난다.
+        # 같은 파일 get_period_totals가 쓰는 방식과 맞춘다 (SQLite에는 timezone()이
+        # 없어 테스트에서는 예전 동작으로 떨어진다 — 그쪽은 tz 없는 값이라 결과가 같다).
+        _kst = (func.timezone("Asia/Seoul", Sale.sold_at)
+                if db.bind.dialect.name == "postgresql" else Sale.sold_at)
+        day = func.date(_kst)
         query = db.query(
             day.label("d"),
             func.sum(Sale.total_price).label("revenue"),
@@ -452,8 +459,8 @@ class OperationService:
         if year_month:
             year, month = map(int, year_month.split("-"))
             query = query.filter(
-                extract("year", Sale.sold_at) == year,
-                extract("month", Sale.sold_at) == month,
+                extract("year", _kst) == year,
+                extract("month", _kst) == month,
             )
         rows = query.group_by(day).order_by(day).all()
         series = [
