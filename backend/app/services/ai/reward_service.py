@@ -1101,6 +1101,10 @@ def draw_capsule(store_id: str) -> dict[str, Any]:
     from app.models.ai import OwnedItem, PointLedger
 
     with _session() as db:
+        # 구매·관리자 회수와 같은 잠금. 코인을 쓰는 경로가 하나라도 안 걸면 나머지가
+        # 무의미해진다 — 뽑기 두 번을 동시에 누르거나 뽑기+구매가 겹치면 양쪽 다
+        # '잔액 충분'을 보고 통과해 잔액이 음수가 된다.
+        _lock_store(db, store_id)
         balance = _balance(db, store_id)
         if balance < GACHA_COST:
             raise RewardError(f"코인이 {GACHA_COST - balance}개 부족해요. (뽑기 1회 {GACHA_COST}코인)")
