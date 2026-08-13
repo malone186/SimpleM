@@ -1,7 +1,7 @@
 // 브루의 카페 (게임 룸) — 홈 우상단 버튼으로 들어오는 게임 허브 화면.
 // 카페 배경 한가운데에 '내가 꾸민 브루'가 살아 움직이고, 그 아래로 레벨·주간 퀘스트가
 // 붙는다. 상점·보관함은 여기서 갈라져 들어간다 — 꾸미기 경제의 관문 역할.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, ImageBackground, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -50,13 +50,20 @@ export default function BrewRoomScreen() {
   const { roomBgId } = useEquipped();
   const ROOM_BG = getRoomBg(roomBgId);
 
+  // 조회 순번. 캐시로 먼저 그려 주기 때문에 화면이 뜬 순간 바로 '보상 수령'을 누를 수
+  // 있는데, 그때까지 날아가던 조회가 뒤늦게 도착하면 수령 이전 상태로 되돌려 놓는다
+  // (받은 퀘스트가 다시 받을 수 있는 것처럼 보이고 코인도 되돌아간다. 다시 누르면
+  // 서버가 '이미 받음'으로 거절해 실패 안내만 뜬다). 수령도 같은 순번을 올린다.
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
     if (!token) return;
+    const mySeq = ++loadSeq.current;
     // 앱을 새로 켠 직후에는 메모리 캐시가 비어 있다 — 디스크의 지난 값으로 먼저 그린다
     const cached = await loadCache<Progress>('shop:progress');
-    if (cached) setProgress((prev) => prev ?? cached.data);
+    if (cached && mySeq === loadSeq.current) setProgress((prev) => prev ?? cached.data);
     try {
       const [p, q, w] = await Promise.all([getProgress(token), getQuests(token), getWallet(token)]);
+      if (mySeq !== loadSeq.current) return;  // 그사이 수령으로 최신 상태가 됐다
       setProgress(p);
       setQuests(q);
       setCoins(w.balance);
@@ -79,6 +86,7 @@ export default function BrewRoomScreen() {
     setClaiming(q.id);
     try {
       const next = await claimQuest(q.id, token);
+      loadSeq.current += 1;   // 이보다 먼저 시작된 조회 결과는 버린다
       setQuests(next);
       if (typeof next.balance === 'number') setCoins(next.balance);
       toast('보상 수령!', `'${q.title}' 달성 — ${q.reward}코인을 받았어요 🪙`);
@@ -94,6 +102,7 @@ export default function BrewRoomScreen() {
     setClaimingDaily(true);
     try {
       const res = await claimDailyQuest(token);
+      loadSeq.current += 1;
       // 오늘의 목표만 갱신 — 주간 퀘스트는 그대로 두고 daily만 갈아끼운다
       setQuests((prev) => (prev ? { ...prev, daily: res } : prev));
       if (typeof res.balance === 'number') setCoins(res.balance);
