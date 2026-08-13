@@ -880,10 +880,14 @@ function TodoItem({
   // - "[일일업무] 머신 청소"의 앞 태그는 떼어서 아래 회색 줄로 내린다 (제목이 길어지는 주범)
   // - 구버전 서버 응답·DB에 남은 "… — 오늘 발주하세요" 형태의 대시는 잘라내 한 줄로
   const tagMatch = todo.title.match(/^\[([^\]]{1,8})\]\s*/);
-  const displayTitle = todo.title
-    .replace(/^\[[^\]]{1,8}\]\s*/, '')
-    .split(/\s+[—–-]\s+/)[0]
-    .trim();
+  const untagged = todo.title.replace(/^\[[^\]]{1,8}\]\s*/, '');
+  // 대시 뒤를 잘라내는 건 브루가 만든 항목에만 적용한다. 사장님이 직접 적은 제목에도
+  // 적용하면 "우유 - 2박스"처럼 대시를 쓴 순간 뒤쪽이 소리 없이 사라진다 —
+  // 적은 사람은 왜 사라졌는지 알 길이 없다.
+  const displayTitle = (todo.source === 'ai'
+    ? untagged.split(/\s+[—–-]\s+/)[0]
+    : untagged
+  ).trim();
   // 회색 보조줄: 서버가 준 근거(meta)가 우선, 없으면 사장님이 고른 카테고리 태그
   const metaText = todo.meta || tagMatch?.[1];
 
