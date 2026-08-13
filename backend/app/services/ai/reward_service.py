@@ -455,6 +455,10 @@ def admin_grant(store_id: str, amount: int, memo: str = "", admin_email: str = "
         note = note[:59] + "…"
 
     with _session() as db:
+        # 구매(buy)와 같은 잠금을 건다. 여기만 빠지면 회수와 구매가 동시에 일어날 때
+        # 둘 다 '잔액 충분'을 보고 통과해 잔액이 음수가 된다 — 구매 쪽에만 잠금을
+        # 걸어 둬도 상대가 안 걸면 소용이 없다.
+        _lock_store(db, sid)
         balance = _balance(db, sid)
         if delta < 0 and balance + delta < 0:
             raise RewardError(f"보유 코인({balance}개)보다 많이 회수할 수 없어요.")
