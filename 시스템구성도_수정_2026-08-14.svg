@@ -40,12 +40,12 @@
 <!-- 인증 (이중 체계) -->
 <rect x="356" y="170" width="160" height="224" rx="10" fill="#E8F6F5" stroke="#A9D8D6" stroke-width="1.4"/>
 <text x="436" y="196" font-size="12.5" font-weight="700" text-anchor="middle" fill="#1C6B68">인증 — 이중 체계</text>
-<text x="436" y="222" font-size="11" font-weight="700" text-anchor="middle" fill="#1C6B68">이메일·비밀번호</text>
-<text x="436" y="240" font-size="10.5" text-anchor="middle" fill="#6F6357">bcrypt 해싱 + 자체 JWT</text>
+<text x="436" y="222" font-size="11" font-weight="700" text-anchor="middle" fill="#1C6B68">Firebase (구글·이메일)</text>
+<text x="436" y="240" font-size="10.5" text-anchor="middle" fill="#6F6357">ID 토큰 RS256 공개키 검증</text>
 <line x1="370" y1="256" x2="502" y2="256" stroke="#A9D8D6" stroke-width="1"/>
-<text x="436" y="278" font-size="11" font-weight="700" text-anchor="middle" fill="#1C6B68">구글 소셜 로그인</text>
-<text x="436" y="296" font-size="10.5" text-anchor="middle" fill="#6F6357">Firebase ID 토큰</text>
-<text x="436" y="312" font-size="10.5" text-anchor="middle" fill="#6F6357">RS256 공개키 검증</text>
+<text x="436" y="278" font-size="11" font-weight="700" text-anchor="middle" fill="#1C6B68">자체 계정 (데모·폴백)</text>
+<text x="436" y="296" font-size="10.5" text-anchor="middle" fill="#6F6357">bcrypt 해싱 검증</text>
+<text x="436" y="312" font-size="10.5" text-anchor="middle" fill="#6F6357">자체 JWT(HS256) 발급</text>
 <line x1="370" y1="328" x2="502" y2="328" stroke="#A9D8D6" stroke-width="1"/>
 <text x="436" y="350" font-size="10.5" text-anchor="middle" fill="#1C6B68">검증은 모두 백엔드가</text>
 <text x="436" y="366" font-size="10.5" text-anchor="middle" fill="#1C6B68">직접 수행한다</text>
@@ -64,7 +64,7 @@
 <rect x="544" y="134" width="416" height="78" rx="9" fill="#EAF2FF" stroke="#B8D0F0" stroke-width="1.2"/>
 <text x="556" y="158" font-size="12.5" font-weight="700" fill="#1E4E8C">FastAPI 단일 서비스</text>
 <text x="556" y="178" font-size="11" fill="#6F6357">· asia-northeast3 · 2Gi RAM · 1 vCPU · min-instances 1</text>
-<text x="556" y="196" font-size="11" fill="#6F6357">· REST API (/api/v1) · 정적 마운트 (/console·/legal·/map)</text>
+<text x="556" y="196" font-size="11" fill="#6F6357">· REST API (/api/v1) · /console(템플릿) · /legal·/map 정적 서빙</text>
 
 <rect x="544" y="222" width="416" height="196" rx="9" fill="#EAF2FF" stroke="#B8D0F0" stroke-width="1.2"/>
 <text x="556" y="246" font-size="12.5" font-weight="700" fill="#1E4E8C">주요 서비스</text>
@@ -88,7 +88,7 @@
 <text x="556" y="582" font-size="12.5" font-weight="700" fill="#1E4E8C">GCP 공통</text>
 <text x="556" y="602" font-size="11" fill="#6F6357">· Secret Manager — fcm-sa 키 (FCM 푸시 발송용)</text>
 <text x="556" y="620" font-size="11" fill="#6F6357">· Cloud Logging — stdout 자동 수집 (GCP에 저장)</text>
-<text x="556" y="638" font-size="11" fill="#6F6357">· 정기 작업 엔드포인트 — CRON_SECRET 보호</text>
+<text x="556" y="638" font-size="11" fill="#6F6357">· 정기 작업 엔드포인트 — 크론 시크릿 2종 보호 (알림·POS)</text>
 <text x="556" y="656" font-size="11" fill="#6F6357">   (Cloud Scheduler 등 외부 크론이 호출: POS·알림)</text>
 
 <!-- 03 데이터 -->
@@ -117,8 +117,8 @@
 
 <rect x="1010" y="504" width="210" height="82" rx="9" fill="#FFEDF0" stroke="#F2BFC6" stroke-width="1.2"/>
 <text x="1022" y="528" font-size="12" font-weight="700" fill="#A62F45">⚠ 휘발성 주의</text>
-<text x="1022" y="548" font-size="10.5" fill="#6F6357">Chroma 인덱스·캐시는 새 배포에서</text>
-<text x="1022" y="564" font-size="10.5" fill="#6F6357">비워진다 — 재색인으로 복구</text>
+<text x="1022" y="548" font-size="10.5" fill="#6F6357">기본 색인은 이미지에 담겨 배포되고</text>
+<text x="1022" y="564" font-size="10.5" fill="#6F6357">증분 색인·캐시만 새 배포에서 초기화</text>
 
 <!-- 백엔드 ↔ 데이터 -->
 <line x1="974" y1="184" x2="996" y2="184" stroke="#B7A891" stroke-width="2" marker-end="url(#ah)"/>
@@ -161,6 +161,10 @@
 <rect x="1256" y="554" width="244" height="54" rx="9" fill="#FFF2E6" stroke="#F0C9A0" stroke-width="1.2"/>
 <text x="1268" y="576" font-size="12" font-weight="700" fill="#A25711">Open-Meteo</text>
 <text x="1268" y="594" font-size="10.5" fill="#6F6357">날씨 (수요 예측 입력)</text>
+
+<rect x="1256" y="614" width="244" height="54" rx="9" fill="#FFF2E6" stroke="#F0C9A0" stroke-width="1.2"/>
+<text x="1268" y="636" font-size="12" font-weight="700" fill="#A25711">AdMob SSV · SMTP · 크롤링</text>
+<text x="1268" y="654" font-size="10.5" fill="#6F6357">광고 보상 검증 · 메일 · 원두 시세 수집</text>
 
 <!-- 백엔드 → 외부 API (위로 우회) -->
 <polyline points="752,100 752,86 1378,86 1378,96" fill="none" stroke="#B7A891" stroke-width="1.8" marker-end="url(#ah)"/>

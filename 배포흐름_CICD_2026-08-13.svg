@@ -32,12 +32,12 @@
 <text x="420" y="174" font-size="11" text-anchor="middle" fill="#6F6357">바뀐 쪽만 — tsc / pytest 797</text>
 <text x="420" y="192" font-size="11" text-anchor="middle" fill="#3D6B32">실패하면 push 자체가 막힌다</text>
 <rect x="282" y="212" width="276" height="70" rx="9" fill="#F0F7EA" stroke="#C3DCB2" stroke-width="1.2"/>
-<text x="420" y="234" font-size="12.5" font-weight="700" text-anchor="middle" fill="#3D6B32">CI · CI Check (Actions)</text>
-<text x="420" y="252" font-size="11" text-anchor="middle" fill="#6F6357">충돌 마커 · tsc · jest 182 · pytest</text>
+<text x="420" y="234" font-size="12.5" font-weight="700" text-anchor="middle" fill="#3D6B32">CI 워크플로 2개 (Actions)</text>
+<text x="420" y="252" font-size="11" text-anchor="middle" fill="#6F6357">CI Check(마커·tsc) · CI(jest 182·pytest)</text>
 <text x="420" y="270" font-size="11" text-anchor="middle" fill="#A25711">빨간불만 — 배포를 막지는 못한다</text>
 <rect x="282" y="290" width="276" height="70" rx="9" fill="#F0F7EA" stroke="#C3DCB2" stroke-width="1.2"/>
 <text x="420" y="312" font-size="12.5" font-weight="700" text-anchor="middle" fill="#3D6B32">배포 잡 안의 게이트</text>
-<text x="420" y="330" font-size="11" text-anchor="middle" fill="#6F6357">compileall · tsc --noEmit</text>
+<text x="420" y="330" font-size="11" text-anchor="middle" fill="#6F6357">백엔드 compileall / 프론트 tsc --noEmit</text>
 <text x="420" y="348" font-size="11" text-anchor="middle" fill="#3D6B32">실패하면 배포가 중단된다</text>
 
 <!-- 분기 트렁크 -->
@@ -51,8 +51,8 @@
 <text x="636" y="124" font-size="13" font-weight="700" fill="#8A6A45">③-A  backend/** 변경 → 자동</text>
 <rect x="636" y="134" width="240" height="70" rx="9" fill="#EAF2FF" stroke="#B8D0F0" stroke-width="1.2"/>
 <text x="756" y="158" font-size="12.5" font-weight="700" text-anchor="middle" fill="#1E4E8C">alembic upgrade head</text>
-<text x="756" y="176" font-size="11" text-anchor="middle" fill="#6F6357">DB 마이그레이션</text>
-<text x="756" y="192" font-size="11" text-anchor="middle" fill="#6F6357">배포 직전에 돈다</text>
+<text x="756" y="176" font-size="11" text-anchor="middle" fill="#6F6357">DB 마이그레이션 · 배포 직전</text>
+<text x="756" y="192" font-size="11" text-anchor="middle" fill="#A25711">실패해도 배포는 안 막는다</text>
 <line x1="880" y1="169" x2="914" y2="169" stroke="#B7A891" stroke-width="2" marker-end="url(#ah)"/>
 <rect x="920" y="134" width="240" height="70" rx="9" fill="#EAF2FF" stroke="#B8D0F0" stroke-width="1.2"/>
 <text x="1040" y="158" font-size="12.5" font-weight="700" text-anchor="middle" fill="#1E4E8C">Cloud Run · brewnote-api</text>
@@ -128,7 +128,7 @@
 <!-- 짚어둘 점 -->
 <rect x="40" y="604" width="1420" height="102" rx="12" fill="#F6F1E6" stroke="#DCC9A6" stroke-width="1.2"/>
 <text x="58" y="628" font-size="12.5" font-weight="700" fill="#7A5E23">짚어둘 점</text>
-<text x="58" y="650" font-size="11.5" fill="#6F6357">· backend/tests/**, pytest.ini, scripts/** 만 바뀐 커밋은 배포를 건너뛴다 — 배포 전환마다 생기는 짧은 502 창에 사용자가 걸리지 않게.</text>
+<text x="58" y="650" font-size="11.5" fill="#6F6357">· backend/tests/**, pytest.ini, backend/scripts/** 만 바뀐 커밋은 배포를 건너뛴다(paths의 ! 부정 패턴) — 배포 전환 시 짧은 502 창에 사용자가 걸리지 않게.</text>
 <text x="58" y="670" font-size="11.5" fill="#6F6357">· 저장소에 cloudbuild.yaml은 없다. Cloud Build와 Artifact Registry는 gcloud run deploy --source 가 내부에서 태우는 단계다.</text>
 <text x="58" y="690" font-size="11.5" fill="#6F6357">· 두 배포 워크플로는 Actions 탭에서 수동 실행(workflow_dispatch)도 된다 — 코드 변경 없이 같은 커밋을 다시 배포할 때 쓴다.</text>
 </svg>

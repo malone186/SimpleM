@@ -19,7 +19,7 @@
 <text x="68" y="218" font-size="10.5" fill="#4A4038">실영수증 774장 라벨 정제</text>
 <text x="68" y="234" font-size="10" fill="#6F6357">(폴더 분할 464/154/156 ·</text>
 <text x="68" y="250" font-size="10" fill="#6F6357">라벨 없는 105장은 제외)</text>
-<text x="68" y="268" font-size="10.5" fill="#4A4038">손라벨 실영수증 5장 추가</text>
+<text x="68" y="268" font-size="10.5" fill="#4A4038">손라벨 실영수증 5장 (평가용)</text>
 <line x1="256" y1="208" x2="272" y2="208" stroke="#B7A891" stroke-width="2" marker-end="url(#ah)"/>
 
 <rect x="278" y="140" width="196" height="136" rx="10" fill="#F8F4EC" stroke="#E3DACB" stroke-width="1.2"/>
@@ -34,8 +34,8 @@
 
 <rect x="500" y="140" width="196" height="136" rx="10" fill="#F8F4EC" stroke="#E3DACB" stroke-width="1.2"/>
 <text x="512" y="162" font-size="10.5" font-weight="800" fill="#6B4FA3">STEP 3 · 경량 서빙</text>
-<text x="512" y="184" font-size="10.5" fill="#4A4038">llama.cpp Q8 양자화</text>
-<text x="512" y="202" font-size="10.5" fill="#4A4038">0.8B 3.8초 · 2B 4.6초/장</text>
+<text x="512" y="184" font-size="10.5" fill="#4A4038">llama.cpp 양자화 서빙</text>
+<text x="512" y="202" font-size="10.5" fill="#4A4038">0.8B Q8 3.8초 · 2B Q4 4.6초</text>
 <text x="512" y="226" font-size="10.5" fill="#4A4038">프롬프트 단일 소스 —</text>
 <text x="512" y="242" font-size="10" fill="#6F6357">학습·평가·서빙이 같은</text>
 <text x="512" y="258" font-size="10" fill="#6F6357">VLM_PROMPT를 쓴다</text>
@@ -65,7 +65,7 @@
 <text x="976" y="240" font-size="12" font-weight="700" fill="#4A4038">통째로 맞힌 영수증</text>
 <text x="1190" y="240" font-size="17" font-weight="800" fill="#1E7A33">0% → 24.6%</text>
 
-<text x="976" y="270" font-size="10.5" fill="#6F6357">2B로 키우면 F1 0.666 · 통째 정답 35.4% — 그래도 원가 장부에 넣을 수준엔 미달</text>
+<text x="976" y="270" font-size="10.5" fill="#6F6357">2B로 키우면(Q4 서빙 기준) F1 0.666 · 통째 정답 35.4% — 그래도 원가 장부에 넣을 수준엔 미달</text>
 
 <!-- ③ 3자 비교 표 -->
 <rect x="40" y="310" width="900" height="340" rx="14" fill="#FFFFFF" stroke="#E3DACB" stroke-width="1.5"/>
@@ -118,7 +118,7 @@
 <text x="815" y="588" font-size="12" text-anchor="middle" fill="#4A4038">25.7²</text>
 
 <line x1="56" y1="600" x2="924" y2="600" stroke="#E3DACB" stroke-width="1"/>
-<text x="56" y="620" font-size="10" fill="#6F6357">¹ llama.cpp Q8 서빙 실측 — 빠르지만 GPU 서버 상시 가동이 전제</text>
+<text x="56" y="620" font-size="10" fill="#6F6357">¹ llama.cpp 서빙 실측 (0.8B Q8 · 2B Q4@1024 · 세트 B 130장 기준) — GPU 서버 상시 가동이 전제</text>
 <text x="56" y="636" font-size="10" fill="#6F6357">² 운영 경로 실측 — 이미지 전처리 + API 네트워크 왕복 포함</text>
 
 <!-- ④ 테스트 과정 -->

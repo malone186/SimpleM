@@ -71,23 +71,23 @@
 <rect x="88" y="704" width="964" height="30" rx="9" fill="#F6F1E6" stroke="#DCC9A6" stroke-width="1.2"/>
 <text x="570.0" y="723.5" font-size="12" font-weight="600" text-anchor="middle" fill="#7A5E23">tool_registry.py — 모듈별 TOOLS / @tool 자동 수집 (도메인마다 import 한 줄)</text>
 <rect x="88" y="744" width="964" height="34" rx="9" fill="#FFEDF0" stroke="#F2BFC6" stroke-width="1.2"/>
-<text x="570.0" y="765.5" font-size="13" font-weight="600" text-anchor="middle" fill="#A62F45">메인 에이전트 &#x27;브루&#x27; (오케스트레이터) — 어느 전문가에게 무엇을 맡길지만 결정</text>
+<text x="570.0" y="765.5" font-size="13" font-weight="600" text-anchor="middle" fill="#A62F45">메인 에이전트 &#x27;브루&#x27; (오케스트레이터) — 전문가 16종 중 누구에게 무엇을 맡길지만 결정</text>
 <rect x="48.0" y="788" width="249.0" height="30" rx="9" fill="#FFEDF0" stroke="#F2BFC6" stroke-width="1.2"/>
-<text x="172.5" y="807.5" font-size="12" font-weight="600" text-anchor="middle" fill="#A62F45">inventory_expert</text>
+<text x="172.5" y="807.5" font-size="11" font-weight="600" text-anchor="middle" fill="#A62F45">inventory_expert · pos_expert</text>
 <rect x="313.0" y="788" width="249.0" height="30" rx="9" fill="#FFEDF0" stroke="#F2BFC6" stroke-width="1.2"/>
-<text x="437.5" y="807.5" font-size="12" font-weight="600" text-anchor="middle" fill="#A62F45">data_expert</text>
+<text x="437.5" y="807.5" font-size="11" font-weight="600" text-anchor="middle" fill="#A62F45">data_expert · membership_expert</text>
 <rect x="578.0" y="788" width="249.0" height="30" rx="9" fill="#FFEDF0" stroke="#F2BFC6" stroke-width="1.2"/>
-<text x="702.5" y="807.5" font-size="12" font-weight="600" text-anchor="middle" fill="#A62F45">document_expert</text>
+<text x="702.5" y="807.5" font-size="11" font-weight="600" text-anchor="middle" fill="#A62F45">document_expert · settlement_expert</text>
 <rect x="843.0" y="788" width="249.0" height="30" rx="9" fill="#FFEDF0" stroke="#F2BFC6" stroke-width="1.2"/>
-<text x="967.5" y="807.5" font-size="12" font-weight="600" text-anchor="middle" fill="#A62F45">ocr_expert</text>
+<text x="967.5" y="807.5" font-size="11" font-weight="600" text-anchor="middle" fill="#A62F45">ocr_expert · menu_expert</text>
 <rect x="48.0" y="824" width="249.0" height="30" rx="9" fill="#FFEDF0" stroke="#F2BFC6" stroke-width="1.2"/>
-<text x="172.5" y="843.5" font-size="12" font-weight="600" text-anchor="middle" fill="#A62F45">market_expert</text>
+<text x="172.5" y="843.5" font-size="11" font-weight="600" text-anchor="middle" fill="#A62F45">market_expert · bean_expert</text>
 <rect x="313.0" y="824" width="249.0" height="30" rx="9" fill="#FFEDF0" stroke="#F2BFC6" stroke-width="1.2"/>
-<text x="437.5" y="843.5" font-size="12" font-weight="600" text-anchor="middle" fill="#A62F45">marketing_expert</text>
+<text x="437.5" y="843.5" font-size="11" font-weight="600" text-anchor="middle" fill="#A62F45">marketing_expert · todo_expert</text>
 <rect x="578.0" y="824" width="249.0" height="30" rx="9" fill="#FFEDF0" stroke="#F2BFC6" stroke-width="1.2"/>
-<text x="702.5" y="843.5" font-size="12" font-weight="600" text-anchor="middle" fill="#A62F45">operation_expert</text>
+<text x="702.5" y="843.5" font-size="11" font-weight="600" text-anchor="middle" fill="#A62F45">operation_expert · sensor_expert</text>
 <rect x="843.0" y="824" width="249.0" height="30" rx="9" fill="#FFEDF0" stroke="#F2BFC6" stroke-width="1.2"/>
-<text x="967.5" y="843.5" font-size="12" font-weight="600" text-anchor="middle" fill="#A62F45">report_expert</text>
+<text x="967.5" y="843.5" font-size="11" font-weight="600" text-anchor="middle" fill="#A62F45">report_expert · search_expert</text>
 <rect x="40" y="888" width="1060" height="104" rx="14" fill="#FFFFFF" stroke="#E6DCCD" stroke-width="1.5"/>
 <text x="58" y="915" font-size="15" font-weight="700" fill="#8A6A45">6. 데이터 저장소</text>
 <rect x="48.0" y="928" width="249.0" height="52" rx="9" fill="#E8F6F5" stroke="#A9D8D6" stroke-width="1.2"/>
@@ -121,7 +121,7 @@
 <text x="1275.0" y="185" font-size="11" text-anchor="middle" fill="#6F6357">챗봇 두뇌 · OCR · 리포트 조언 · TTS</text>
 <rect x="1146" y="219" width="258" height="58" rx="9" fill="#F5F2EC" stroke="#D9CDBB" stroke-width="1.2"/>
 <text x="1275.0" y="241" font-size="12.5" font-weight="700" text-anchor="middle" fill="#665741">Firebase Auth</text>
-<text x="1275.0" y="258" font-size="11" text-anchor="middle" fill="#6F6357">소셜 로그인 · 토큰 서명 검증</text>
+<text x="1275.0" y="258" font-size="11" text-anchor="middle" fill="#6F6357">구글·이메일 로그인 · 토큰 서명 검증</text>
 <rect x="1146" y="292" width="258" height="58" rx="9" fill="#F5F2EC" stroke="#D9CDBB" stroke-width="1.2"/>
 <text x="1275.0" y="314" font-size="12.5" font-weight="700" text-anchor="middle" fill="#665741">FCM 푸시</text>
 <text x="1275.0" y="331" font-size="11" text-anchor="middle" fill="#6F6357">Secret Manager로 서비스 계정 주입</text>
@@ -145,7 +145,7 @@
 <text x="1275.0" y="769" font-size="11" text-anchor="middle" fill="#6F6357">주변 행사 · 상권 정보</text>
 <rect x="1146" y="803" width="258" height="58" rx="9" fill="#F5F2EC" stroke="#D9CDBB" stroke-width="1.2"/>
 <text x="1275.0" y="825" font-size="12.5" font-weight="700" text-anchor="middle" fill="#665741">Pollinations</text>
-<text x="1275.0" y="842" font-size="11" text-anchor="middle" fill="#6F6357">홍보 이미지 생성 폴백</text>
+<text x="1275.0" y="842" font-size="11" text-anchor="middle" fill="#6F6357">홍보 이미지 생성 (주 공급자)</text>
 <rect x="1146" y="876" width="258" height="58" rx="9" fill="#F5F2EC" stroke="#D9CDBB" stroke-width="1.2"/>
 <text x="1275.0" y="898" font-size="12.5" font-weight="700" text-anchor="middle" fill="#665741">LangSmith</text>
 <text x="1275.0" y="915" font-size="11" text-anchor="middle" fill="#6F6357">에이전트 실행 추적</text>
