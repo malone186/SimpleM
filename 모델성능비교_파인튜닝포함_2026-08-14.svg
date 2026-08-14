@@ -1,0 +1,168 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1520" height="850" viewBox="0 0 1520 850" font-family="Apple SD Gothic Neo, Noto Sans KR, Malgun Gothic, sans-serif">
+<defs>
+  <marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#B7A891"/></marker>
+  <marker id="ahc" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#D8C9B2"/></marker>
+</defs>
+<rect width="1520" height="850" fill="#F5F1E7"/>
+
+<text x="48" y="56" font-size="30" font-weight="800" fill="#2C2620">모델 성능 비교 — 직접 파인튜닝 → Gemini 전환</text>
+<text x="48" y="82" font-size="13" fill="#6F6357">Qwen3.5-0.8B·2B를 LoRA로 직접 파인튜닝하고, 동일 정답·동일 채점 코드로 Gemini API와 3자 비교 · 발표 초안</text>
+
+<!-- ① 파인튜닝 파이프라인 -->
+<rect x="40" y="100" width="900" height="190" rx="14" fill="#FFFFFF" stroke="#E3DACB" stroke-width="1.5"/>
+<text x="56" y="126" font-size="14" font-weight="800" fill="#2C2620">① 우리가 직접 한 것 — 파인튜닝 파이프라인</text>
+
+<rect x="56" y="140" width="196" height="136" rx="10" fill="#F8F4EC" stroke="#E3DACB" stroke-width="1.2"/>
+<text x="68" y="162" font-size="10.5" font-weight="800" fill="#6B4FA3">STEP 1 · 데이터 구축</text>
+<text x="68" y="184" font-size="10.5" fill="#4A4038">합성 영수증 660장 생성</text>
+<text x="68" y="200" font-size="10" fill="#6F6357">(레이아웃 5종 · 촬영 증강)</text>
+<text x="68" y="218" font-size="10.5" fill="#4A4038">실영수증 774장 라벨 정제</text>
+<text x="68" y="234" font-size="10" fill="#6F6357">(폴더 분할 464/154/156 ·</text>
+<text x="68" y="250" font-size="10" fill="#6F6357">라벨 없는 105장은 제외)</text>
+<text x="68" y="268" font-size="10.5" fill="#4A4038">손라벨 실영수증 5장 추가</text>
+<line x1="256" y1="208" x2="272" y2="208" stroke="#B7A891" stroke-width="2" marker-end="url(#ah)"/>
+
+<rect x="278" y="140" width="196" height="136" rx="10" fill="#F8F4EC" stroke="#E3DACB" stroke-width="1.2"/>
+<text x="290" y="162" font-size="10.5" font-weight="800" fill="#6B4FA3">STEP 2 · LoRA 학습</text>
+<text x="290" y="184" font-size="10.5" fill="#4A4038">r=16 · α=32 · dropout 0.05</text>
+<text x="290" y="202" font-size="10.5" fill="#4A4038">비전 타워 동결 (LM에만 LoRA)</text>
+<text x="290" y="220" font-size="10.5" fill="#4A4038">0.8B는 bf16 · 2B는 QLoRA(4bit)</text>
+<text x="290" y="236" font-size="10" fill="#6F6357">(2B는 bf16이 8GB VRAM 초과)</text>
+<text x="290" y="254" font-size="10.5" fill="#4A4038">RTX 5060 · 2 epochs ≈1시간</text>
+<text x="290" y="270" font-size="10.5" fill="#4A4038">0.8B 먼저 → 2B로 확장</text>
+<line x1="478" y1="208" x2="494" y2="208" stroke="#B7A891" stroke-width="2" marker-end="url(#ah)"/>
+
+<rect x="500" y="140" width="196" height="136" rx="10" fill="#F8F4EC" stroke="#E3DACB" stroke-width="1.2"/>
+<text x="512" y="162" font-size="10.5" font-weight="800" fill="#6B4FA3">STEP 3 · 경량 서빙</text>
+<text x="512" y="184" font-size="10.5" fill="#4A4038">llama.cpp Q8 양자화</text>
+<text x="512" y="202" font-size="10.5" fill="#4A4038">0.8B 3.8초 · 2B 4.6초/장</text>
+<text x="512" y="226" font-size="10.5" fill="#4A4038">프롬프트 단일 소스 —</text>
+<text x="512" y="242" font-size="10" fill="#6F6357">학습·평가·서빙이 같은</text>
+<text x="512" y="258" font-size="10" fill="#6F6357">VLM_PROMPT를 쓴다</text>
+<line x1="700" y1="208" x2="716" y2="208" stroke="#B7A891" stroke-width="2" marker-end="url(#ah)"/>
+
+<rect x="722" y="140" width="196" height="136" rx="10" fill="#F8F4EC" stroke="#E3DACB" stroke-width="1.2"/>
+<text x="734" y="162" font-size="10.5" font-weight="800" fill="#6B4FA3">STEP 4 · 평가</text>
+<text x="734" y="184" font-size="10.5" fill="#4A4038">같은 정답 · 같은 채점 코드</text>
+<text x="734" y="202" font-size="10.5" fill="#4A4038">지표 6종 · 접두어 정규화</text>
+<text x="734" y="220" font-size="10.5" fill="#4A4038">Gemini는 운영 경로 그대로</text>
+<text x="734" y="238" font-size="10" fill="#6F6357">재현 스크립트·결과 JSON</text>
+<text x="734" y="254" font-size="10" fill="#6F6357">보존 (vlm_finetune/metrics)</text>
+
+<!-- ② 파인튜닝 효과 -->
+<rect x="960" y="100" width="520" height="190" rx="14" fill="#FFFFFF" stroke="#E3DACB" stroke-width="1.5"/>
+<text x="976" y="126" font-size="14" font-weight="800" fill="#2C2620">② 파인튜닝 효과 — 학습은 확실히 먹혔다</text>
+<text x="976" y="144" font-size="10.5" fill="#6F6357">0.8B · 학습과 같은 분포의 test 130장(품목 570개) · 파인튜닝 전 → 후</text>
+
+<text x="976" y="176" font-size="12" font-weight="700" fill="#4A4038">F1-Score (품목명)</text>
+<text x="1190" y="176" font-size="17" font-weight="800" fill="#1E7A33">0.027 → 0.500</text>
+<text x="1360" y="176" font-size="11" fill="#6F6357">18배 ↑</text>
+
+<text x="976" y="208" font-size="12" font-weight="700" fill="#4A4038">CER (낮을수록 좋음)</text>
+<text x="1190" y="208" font-size="17" font-weight="800" fill="#1E7A33">0.902 → 0.307</text>
+<text x="1360" y="208" font-size="11" fill="#6F6357">1/3로 감소</text>
+
+<text x="976" y="240" font-size="12" font-weight="700" fill="#4A4038">통째로 맞힌 영수증</text>
+<text x="1190" y="240" font-size="17" font-weight="800" fill="#1E7A33">0% → 24.6%</text>
+
+<text x="976" y="270" font-size="10.5" fill="#6F6357">2B로 키우면 F1 0.666 · 통째 정답 35.4% — 그래도 원가 장부에 넣을 수준엔 미달</text>
+
+<!-- ③ 3자 비교 표 -->
+<rect x="40" y="310" width="900" height="340" rx="14" fill="#FFFFFF" stroke="#E3DACB" stroke-width="1.5"/>
+<text x="56" y="336" font-size="14" font-weight="800" fill="#2C2620">③ 3자 비교 — 학습 분포 밖 실영수증 5장 (품목 47개)</text>
+<text x="56" y="354" font-size="10.5" fill="#6F6357">중식당·배달앱·다이소류·마트·약국 — 학습 데이터에 없던 도메인 · 굵은 값이 1등</text>
+
+<rect x="56" y="366" width="250" height="30" fill="#F0EBDF"/>
+<rect x="306" y="366" width="200" height="30" fill="#6B4FA3"/>
+<rect x="506" y="366" width="200" height="30" fill="#2E6BB0"/>
+<rect x="706" y="366" width="218" height="30" fill="#1E7A33"/>
+<text x="68" y="386" font-size="12" font-weight="700" fill="#4A4038">지표</text>
+<text x="406" y="386" font-size="12" font-weight="700" text-anchor="middle" fill="#FFFFFF">Qwen3.5-0.8B</text>
+<text x="606" y="386" font-size="12" font-weight="700" text-anchor="middle" fill="#FFFFFF">Qwen3.5-2B</text>
+<text x="815" y="386" font-size="12" font-weight="700" text-anchor="middle" fill="#FFFFFF">Gemini API (운영)</text>
+
+<rect x="56" y="396" width="868" height="34" fill="#FAF7F0"/>
+<text x="68" y="418" font-size="11.5" fill="#4A4038">CER (품목명 · 낮을수록 좋음)</text>
+<text x="406" y="418" font-size="12" text-anchor="middle" fill="#4A4038">0.596</text>
+<text x="606" y="418" font-size="12" text-anchor="middle" fill="#4A4038">0.210</text>
+<text x="815" y="418" font-size="12.5" font-weight="800" text-anchor="middle" fill="#1E7A33">0.096</text>
+
+<rect x="56" y="430" width="868" height="34" fill="#FFFFFF"/>
+<text x="68" y="452" font-size="11.5" fill="#4A4038">Field Accuracy (평균)</text>
+<text x="406" y="452" font-size="12" text-anchor="middle" fill="#4A4038">0.548</text>
+<text x="606" y="452" font-size="12" text-anchor="middle" fill="#4A4038">0.734</text>
+<text x="815" y="452" font-size="12.5" font-weight="800" text-anchor="middle" fill="#1E7A33">0.851</text>
+
+<rect x="56" y="464" width="868" height="34" fill="#FAF7F0"/>
+<text x="68" y="486" font-size="11.5" fill="#4A4038">Exact Match (품목 3필드)</text>
+<text x="406" y="486" font-size="12" text-anchor="middle" fill="#4A4038">0.080</text>
+<text x="606" y="486" font-size="12" text-anchor="middle" fill="#4A4038">0.158</text>
+<text x="815" y="486" font-size="12.5" font-weight="800" text-anchor="middle" fill="#1E7A33">0.830</text>
+
+<rect x="56" y="498" width="868" height="34" fill="#FFFFFF"/>
+<text x="68" y="520" font-size="11.5" fill="#4A4038">F1-Score (품목명)</text>
+<text x="406" y="520" font-size="12" text-anchor="middle" fill="#4A4038">0.080</text>
+<text x="606" y="520" font-size="12" text-anchor="middle" fill="#4A4038">0.226</text>
+<text x="815" y="520" font-size="12.5" font-weight="800" text-anchor="middle" fill="#1E7A33">0.850</text>
+
+<rect x="56" y="532" width="868" height="34" fill="#FAF7F0"/>
+<text x="68" y="554" font-size="11.5" fill="#4A4038">Complete Receipt (통째 정답)</text>
+<text x="406" y="554" font-size="12" text-anchor="middle" fill="#4A4038">0.000</text>
+<text x="606" y="554" font-size="12" text-anchor="middle" fill="#4A4038">0.000</text>
+<text x="815" y="554" font-size="12.5" font-weight="800" text-anchor="middle" fill="#1E7A33">0.400</text>
+
+<rect x="56" y="566" width="868" height="34" fill="#FFFFFF"/>
+<text x="68" y="588" font-size="11.5" fill="#4A4038">Inference Time (s/장)</text>
+<text x="406" y="588" font-size="12.5" font-weight="800" text-anchor="middle" fill="#6B4FA3">3.80¹</text>
+<text x="606" y="588" font-size="12" text-anchor="middle" fill="#4A4038">4.62¹</text>
+<text x="815" y="588" font-size="12" text-anchor="middle" fill="#4A4038">25.7²</text>
+
+<line x1="56" y1="600" x2="924" y2="600" stroke="#E3DACB" stroke-width="1"/>
+<text x="56" y="620" font-size="10" fill="#6F6357">¹ llama.cpp Q8 서빙 실측 — 빠르지만 GPU 서버 상시 가동이 전제</text>
+<text x="56" y="636" font-size="10" fill="#6F6357">² 운영 경로 실측 — 이미지 전처리 + API 네트워크 왕복 포함</text>
+
+<!-- ④ 테스트 과정 -->
+<rect x="960" y="310" width="520" height="340" rx="14" fill="#FFFFFF" stroke="#E3DACB" stroke-width="1.5"/>
+<text x="976" y="336" font-size="14" font-weight="800" fill="#2C2620">④ 테스트 과정 — 어떻게 공정하게 쟀나</text>
+
+<text x="976" y="364" font-size="11" font-weight="700" fill="#4A4038">· 평가 세트 2개</text>
+<text x="990" y="382" font-size="10.5" fill="#6F6357">A — 신규 실영수증 5장·품목 47개 (학습 밖 도메인 · 왼쪽 표)</text>
+<text x="990" y="398" font-size="10.5" fill="#6F6357">B — 같은 분포 test 130장·품목 570개 (파인튜닝 전/후 비교)</text>
+
+<text x="976" y="424" font-size="11" font-weight="700" fill="#4A4038">· 세트 A 정답(GT)은 사람이 직접 전사</text>
+<text x="990" y="442" font-size="10.5" fill="#6F6357">품목 합 = 영수증 합계 금액인지 검산까지 마쳤다 (B는 CSV 라벨)</text>
+
+<text x="976" y="468" font-size="11" font-weight="700" fill="#4A4038">· 세 시스템을 같은 정답·같은 채점 코드로 재채점</text>
+<text x="990" y="486" font-size="10.5" fill="#6F6357">행 번호 접두어("001 ") 무시 정규화 — 한쪽에 유리하지 않게</text>
+
+<text x="976" y="512" font-size="11" font-weight="700" fill="#4A4038">· Gemini는 운영 OCR 경로 그대로 측정</text>
+<text x="990" y="530" font-size="10.5" fill="#6F6357">전처리 1600² · responseSchema 강제 · 학습과 동일 프롬프트</text>
+
+<rect x="976" y="550" width="488" height="82" rx="10" fill="#FDF0EC" stroke="#EFC7BD" stroke-width="1.2"/>
+<text x="990" y="574" font-size="11" font-weight="800" fill="#A6402F">관찰 — Gemini도 무결점은 아니다</text>
+<text x="990" y="594" font-size="10.5" fill="#6F6357">마트 영수증 15품목 중 4개 통째 누락 · 다이소 잘림 표기 오독</text>
+<text x="990" y="612" font-size="10.5" fill="#6F6357">→ "사람이 확인·승인 후 확정" UX를 유지하는 근거</text>
+
+<!-- 결론 스토리 -->
+<rect x="40" y="670" width="1440" height="140" rx="14" fill="#3A2E22"/>
+<text x="64" y="700" font-size="12.5" font-weight="800" fill="#F5E9D2">① 0.8B부터 직접 파인튜닝</text>
+<text x="64" y="722" font-size="10.5" fill="#D8C9B2">학습은 확실히 먹혔다</text>
+<text x="64" y="740" font-size="10.5" fill="#D8C9B2">F1 18배 ↑ · CER 1/3</text>
+<line x1="384" y1="738" x2="404" y2="738" stroke="#D8C9B2" stroke-width="2" marker-end="url(#ahc)"/>
+
+<text x="424" y="700" font-size="12.5" font-weight="800" fill="#F5E9D2">② 부족해서 2B로 확장</text>
+<text x="424" y="722" font-size="10.5" fill="#D8C9B2">정확도 전 지표 개선 (F1 0.666)</text>
+<text x="424" y="740" font-size="10.5" fill="#D8C9B2">그래도 장부 투입 수준엔 미달</text>
+<line x1="744" y1="738" x2="764" y2="738" stroke="#D8C9B2" stroke-width="2" marker-end="url(#ahc)"/>
+
+<text x="784" y="700" font-size="12.5" font-weight="800" fill="#F5E9D2">③ 낯선 영수증에서 한계</text>
+<text x="784" y="722" font-size="10.5" fill="#D8C9B2">자체 F1 0.08~0.23 vs Gemini 0.85</text>
+<text x="784" y="740" font-size="10.5" fill="#D8C9B2">통째 정답 0장 vs 2장</text>
+<line x1="1104" y1="738" x2="1124" y2="738" stroke="#D8C9B2" stroke-width="2" marker-end="url(#ahc)"/>
+
+<text x="1144" y="700" font-size="12.5" font-weight="800" fill="#F5E9D2">④ Gemini API로 전환</text>
+<text x="1144" y="722" font-size="10.5" fill="#D8C9B2">GPU 상시 가동 불필요 (Cloud Run)</text>
+<text x="1144" y="740" font-size="10.5" fill="#D8C9B2">사람 승인 후 확정 UX는 유지</text>
+
+<text x="64" y="786" font-size="10" fill="#A8988A">근거: OCR_정량평가지표_2026-08-12.md · backend/vlm_finetune/ (학습 스크립트·LoRA 어댑터·평가 JSON 보존)</text>
+</svg>
