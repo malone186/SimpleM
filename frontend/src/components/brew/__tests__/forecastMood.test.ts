@@ -38,7 +38,7 @@ describe('평소 대비로 판단한다', () => {
   it('기준선보다 많이 팔릴 것 같으면 폴짝 뛴다', () => {
     const r = moodFromForecast(forecast({ base_cups: 100, cups: 130 }));
     expect(r.outlook).toBe('good');
-    expect(r.mood).toBe('jump');
+    expect(r.mood).toBe('redred');
     expect(r.deltaPct).toBe(30);
   });
 
@@ -83,7 +83,7 @@ describe('내리막 매출을 잡아낸다 — baseline이 있으면 그것이 �
       forecast({ base_cups: 130, cups: 130 }, [], { days: 14, avg_cups: 100 }),
     );
     expect(r.outlook).toBe('good');
-    expect(r.mood).toBe('jump');
+    expect(r.mood).toBe('redred');
   });
 
   it('요즘 평균이 있으면 모델 기준선보다 그쪽을 쓴다', () => {

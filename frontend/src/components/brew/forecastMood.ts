@@ -19,7 +19,9 @@
 //   나쁠 때는 'upset'(장부 보며 시무룩한 브루). 처음엔 'resting'을 썼는데 그건 틀렸다 —
 //   이름만 보고 골랐고 실제 그림은 커피잔 들고 활짝 웃는 모습이라, 매출이 34% 꺾인 날에도
 //   웃고 있었다. 표정으로 상태를 말하는 기능인데 정작 표정이 반대였던 셈이다.
-//   기쁠 때는 'jump'가 플립북 애니메이션으로 재생된다.
+//   기쁠 때는 'redred'가 플립북 애니메이션으로 재생된다 (신나게 춤추는 브루).
+//   'jump'(폴짝)에서 바꿨다 — 한 바퀴가 길어(192프레임/24fps ≈ 8초) 잘 나가는 날의
+//   들뜬 느낌이 더 오래 남는다.
 import type { BrewMood } from './Brew';
 import type { SalesForecast } from '../../lib/api/forecast';
 
@@ -86,7 +88,7 @@ export function moodFromForecast(forecast: SalesForecast | null | undefined): Fo
   }
 
   if (forecastRatio >= GOOD_AT) {
-    return { mood: 'jump', outlook: 'good', deltaPct: forecastDelta, reason: goodReason(forecast, forecastDelta) };
+    return { mood: 'redred', outlook: 'good', deltaPct: forecastDelta, reason: goodReason(forecast, forecastDelta) };
   }
   if (forecastRatio <= BAD_AT) {
     return { mood: 'upset', outlook: 'bad', deltaPct: forecastDelta, reason: badReason(forecast, forecastDelta) };
