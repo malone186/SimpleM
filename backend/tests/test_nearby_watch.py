@@ -23,10 +23,16 @@ KST = timezone(timedelta(hours=9))
 STORE = "owner@test.com"
 LAT, LON = 37.5, 127.0
 
-DAY1 = date(2026, 8, 1)
-DAY2 = date(2026, 8, 2)
-DAY3 = date(2026, 8, 3)
-DAY4 = date(2026, 8, 4)
+# 날짜를 고정값으로 박아 두면 시한폭탄이 된다. pending_changes가 '실제 오늘' 기준
+# NOTIFY_WINDOW_DAYS(14일) 안의 변화만 알리기 때문에, 박아 둔 날짜가 오늘에서 14일
+# 넘게 멀어지는 순간 알림이 창 밖으로 밀려 테스트가 통째로 깨진다
+# (실제로 2026-08-18에 8/1~8/4로 박아 둔 값이 만료돼 3건이 한꺼번에 실패했다).
+# 그래서 오늘을 기준으로 상대적으로 잡는다 — 언제 돌려도 창 안이다.
+_BASE = nws._today_kst() - timedelta(days=4)
+DAY1 = _BASE
+DAY2 = _BASE + timedelta(days=1)
+DAY3 = _BASE + timedelta(days=2)
+DAY4 = _BASE + timedelta(days=3)
 
 
 def _cafe(name: str, dist: int) -> dict:
