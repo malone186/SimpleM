@@ -1963,12 +1963,14 @@ async def chat_message(
         if not result.get("ok", True):
             await asyncio.to_thread(chat_quota_service.refund, store_key, quota_day)
         return ChatResponse(response=result["text"], documents=result["documents"])
-    except Exception as e:
+    except Exception:
         # 답을 못 준 턴까지 차감하면 부당하다 — 되돌린다 (예외가 여기까지 올라온 드문 경우)
         await asyncio.to_thread(chat_quota_service.refund, store_key, quota_day)
         # [한글 주석] 장애 추적을 위해 로컬 콘솔에 상세 예외 Traceback을 기록합니다.
         logger.exception("챗봇 서비스 실행 중 장애 발생")
-        raise HTTPException(500, f"챗봇 서비스 실행 중 장애 발생: {str(e)}")
+        # DB 주소·외부 API 응답·라이브러리 내부값이 예외 문자열에 섞일 수 있으므로
+        # 상세 원인은 로그에만 남기고 클라이언트에는 고정된 안내만 보낸다.
+        raise HTTPException(500, "챗봇 서비스 실행 중 장애가 발생했습니다. 잠시 후 다시 시도해 주세요.")
 
 
 @router.get("/quota")

@@ -27,3 +27,15 @@ def apply_thinking(generation_config: dict[str, Any], model: str) -> dict[str, A
     if cfg:
         generation_config["thinkingConfig"] = cfg
     return generation_config
+
+
+def safe_error_label(error: BaseException) -> str:
+    """외부 AI 호출 오류를 비밀값 없는 운영용 라벨로 바꾼다.
+
+    httpx 예외 문자열에는 `?key=...`가 붙은 요청 URL이 포함될 수 있다. 사용자 응답,
+    폴백 결과 또는 로그에 예외 전문을 그대로 넣지 않고 오류 종류와 HTTP 상태만 남긴다.
+    """
+    response = getattr(error, "response", None)
+    status = getattr(response, "status_code", None)
+    kind = type(error).__name__
+    return f"{kind} (HTTP {status})" if status is not None else kind

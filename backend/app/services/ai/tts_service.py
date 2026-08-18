@@ -278,7 +278,8 @@ def synthesize_ex(text: str, voice_type: str = DEFAULT_VOICE_TYPE) -> tuple[byte
         except TtsError:
             raise
         except (httpx.HTTPError, KeyError, IndexError, ValueError) as e:
-            last_error = e
+            from app.services.ai.gemini_config import safe_error_label
+            last_error = TtsError(safe_error_label(e))
             if attempt == 1:
                 time.sleep(1.5)
     raise TtsError(f"음성 합성에 실패했습니다: {last_error}")

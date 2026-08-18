@@ -567,7 +567,8 @@ def _ai_comment(summary: dict[str, Any], items: list[dict[str, Any]]) -> tuple[s
         text = (resp.json()["candidates"][0]["content"]["parts"][0]["text"] or "").strip()
         return (text, "ai") if text else (fallback, "rule")
     except Exception as e:  # 총평이 없다고 점검 결과를 못 보여줄 이유는 없다
-        logger.info("메뉴 개선안 총평 생성 실패 — 규칙 문장으로 대체: %s", e)
+        from app.services.ai.gemini_config import safe_error_label
+        logger.info("메뉴 개선안 총평 생성 실패 — 규칙 문장으로 대체: %s", safe_error_label(e))
         return fallback, "rule"
 
 
@@ -851,7 +852,8 @@ def _ai_new_menus(menus: list[dict[str, Any]], month: int, count: int = 2) -> li
         resp.raise_for_status()
         raw = json.loads(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
     except Exception as e:
-        logger.info("신메뉴 아이디어 생성 실패 — 나머지 추천만 냅니다: %s", e)
+        from app.services.ai.gemini_config import safe_error_label
+        logger.info("신메뉴 아이디어 생성 실패 — 나머지 추천만 냅니다: %s", safe_error_label(e))
         return []
 
     out = []

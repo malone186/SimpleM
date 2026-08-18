@@ -666,7 +666,7 @@ def _bind_store(t, store_id: str, created_docs: list[dict[str, Any]], recorder=N
             # 않도록 문자열로 돌려준다. (각 도구의 자체 except가 1차 방어, 여기가 마지막 그물)
             logger.exception("도구 실행 실패: %s", t.name)
             _note(False)
-            return f"도구 '{t.name}' 실행 실패: {type(e).__name__}: {e}"
+            return f"도구 '{t.name}' 실행 실패: {type(e).__name__}"
         _note(True)
         return _collect(result)
 
@@ -681,7 +681,7 @@ def _bind_store(t, store_id: str, created_docs: list[dict[str, Any]], recorder=N
         except Exception as e:
             logger.exception("도구 실행 실패: %s", t.name)
             _note(False)
-            return f"도구 '{t.name}' 실행 실패: {type(e).__name__}: {e}"
+            return f"도구 '{t.name}' 실행 실패: {type(e).__name__}"
         _note(True)
         return _collect(result)
 

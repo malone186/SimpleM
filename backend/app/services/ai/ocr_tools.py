@@ -1,7 +1,7 @@
 """OCR 챗봇 도구 (백엔드 B)
 
-챗봇이 OCR 초안을 조회·수정·확정(재고 반영)·반려까지 처리한다.
-확정·반려는 사용자가 명확히 요청했을 때만 에이전트가 호출하도록 설명에 명시한다.
+챗봇은 OCR 초안을 조회·수정하거나 반려할 수 있다. 재고 입고 확정은 PRD의
+사람 승인 원칙에 따라 챗봇에 노출하지 않고, 재고 화면의 확인 API에서만 처리한다.
 """
 
 import json
@@ -69,20 +69,6 @@ def update_ocr_document(store_id: str, doc_id: str, patch_json: str) -> str:
 
 
 @tool
-def confirm_ocr_document(store_id: str, doc_id: str) -> str:
-    """OCR 초안 문서를 확정하고 품목을 내 매장 재고에 입고 반영한다.
-    사용자가 명확히 반영을 요청한 경우에만 호출할 것 — 어떤 문서인지 불명확하면
-    list_ocr_documents로 먼저 확인한다."""
-    try:
-        _, message = ocr_service.confirm_draft(doc_id, target="inventory_inbound", store_id=store_id)
-        return message
-    except ocr_service.DraftNotFoundError:
-        return f"문서 {doc_id}를 찾을 수 없습니다."
-    except ocr_service.DraftStateError as e:
-        return f"확정 불가: {e}"
-
-
-@tool
 def reject_ocr_document(store_id: str, doc_id: str) -> str:
     """OCR 초안 문서를 반려(폐기)한다. 되돌릴 수 없으므로 사용자가 명확히 요청한 경우에만 호출할 것."""
     try:
@@ -94,4 +80,4 @@ def reject_ocr_document(store_id: str, doc_id: str) -> str:
         return f"반려 불가: {e}"
 
 
-TOOLS = [confirm_ocr_document, get_ocr_document, list_ocr_documents, reject_ocr_document, update_ocr_document]
+TOOLS = [get_ocr_document, list_ocr_documents, reject_ocr_document, update_ocr_document]

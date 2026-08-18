@@ -173,7 +173,7 @@ def _gemini_call(model: str, payload: dict[str, Any], timeout: float,
                 raise MarketingError(
                     "오늘 사용할 수 있는 AI 사용량이 잠시 부족합니다. 조금 뒤에 다시 시도해 주세요.")
             if resp.status_code >= 500:
-                last_error = MarketingError(f"Gemini HTTP {resp.status_code}: {resp.text[:200]}")
+                last_error = MarketingError(f"Gemini HTTP {resp.status_code}")
                 if attempt < 3:
                     time.sleep(2 * attempt)
                 continue
@@ -181,8 +181,9 @@ def _gemini_call(model: str, payload: dict[str, Any], timeout: float,
             return resp.json()
         except MarketingError:
             raise
-        except httpx.HTTPError as e:
-            last_error = e
+        except (httpx.HTTPError, ValueError, KeyError, IndexError) as e:
+            from app.services.ai.gemini_config import safe_error_label
+            last_error = MarketingError(safe_error_label(e))
             if attempt < 3:
                 time.sleep(2 * attempt)
     raise MarketingError(f"AI 호출에 실패했습니다 ({model}): {last_error}")

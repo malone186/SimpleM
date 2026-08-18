@@ -56,6 +56,7 @@ def test_failed_tool_is_counted_but_turn_survives():
 
     out = bound.invoke({"query": "x"})
     assert "실행 실패" in out  # 예외가 아니라 문자열로 돌아온다
+    assert "외부 API 죽음" not in out  # 내부 예외 상세를 모델이 사용자에게 되말하지 않는다
 
     tool = next(t for t in runtime_stats.snapshot()["tools"] if t["name"] == "broken_tool")
     assert tool["calls"] == 1 and tool["failures"] == 1

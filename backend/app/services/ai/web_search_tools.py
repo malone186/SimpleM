@@ -102,11 +102,13 @@ def web_search(
             return "\n".join(output)
 
     except httpx.HTTPStatusError as e:
-        logger.error(f"Tavily API 상태 오류 (HTTP {e.response.status_code}): {e.response.text}")
+        # 외부 응답 본문에는 요청/계정 정보가 되비칠 수 있어 상태 코드만 기록한다.
+        logger.error("Tavily API 상태 오류 (HTTP %s)", e.response.status_code)
         return f"Tavily API 연결 중 에러가 발생했습니다. (HTTP {e.response.status_code})"
     except Exception as e:
-        logger.exception("Tavily 실시간 검색 중 시스템 예외가 감지되었습니다")
-        return f"실시간 검색 처리 중 에러가 발생했습니다: {str(e)}"
+        from app.services.ai.gemini_config import safe_error_label
+        logger.error("Tavily 실시간 검색 실패: %s", safe_error_label(e))
+        return "실시간 검색 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
 
 # 도구 자동 연동을 위해 TOOLS 리스트에 담아 레지스트리에 내보냅니다.
 TOOLS = [web_search]

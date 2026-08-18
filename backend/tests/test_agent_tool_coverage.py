@@ -67,3 +67,8 @@ def test_tool_names_are_unique_across_experts():
                     clashes.append(f"{t.name}: {seen[t.name]} / {domain['name']}")
                 seen[t.name] = domain["name"]
     assert not clashes, f"여러 전문가에 중복 편성된 도구: {clashes}"
+
+
+def test_ocr_confirmation_is_not_exposed_to_chatbot():
+    """OCR 입고 확정은 사람이 재고 화면에서만 해야 한다 (PRD AI-2/챗봇 안전장치)."""
+    assert "confirm_ocr_document" not in _registry_tool_names()

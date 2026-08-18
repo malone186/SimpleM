@@ -19,6 +19,7 @@ nearby_cafe_tools.py의 @tool로 호출한다.
       좌표 거리(haversine)로 반경을 직접 걸러 낸다.
 """
 
+import hashlib
 import json
 import logging
 import math
@@ -60,6 +61,16 @@ _FALLBACK_TTL = 5 * 60
 # 지역검색에 던질 키워드들. 한 번에 5건씩만 오므로 각도를 달리해 여러 번 던진다.
 # (카페 = 프랜차이즈까지, 커피전문점/로스터리 = 원두 경쟁, 디저트/브런치 = 체류형 경쟁)
 _CAFE_KEYWORDS = ["카페", "커피", "커피전문점", "로스터리", "디저트카페", "브런치카페"]
+
+# 네이버 지역검색은 질의당 최대 5건만 반환한다. 일반적인 "동네 + 카페" 검색만으로는
+# 리뷰가 많은 매장 5곳이 결과를 차지해 메가MGC커피·컴포즈커피 같은 가까운 체인점이
+# 빠질 수 있다. 일반 키워드 검색으로 개인 카페를 모은 뒤, 상위 결과에서 특히 자주
+# 누락되는 체인은 상호로 한 번씩 더 찾는다. 최종 반경 필터가 다른 지역 지점을 제거한다.
+_CAFE_CHAIN_KEYWORDS = [
+    "메가MGC커피", "컴포즈커피", "빽다방", "더벤티", "매머드커피",
+    "우지커피", "봉명동내커피", "텐퍼센트커피", "하삼동커피",
+    "감성커피", "더리터", "벌크커피", "커피베이",
+]
 
 # 지역검색 category가 이 중 하나라도 포함해야 카페로 인정 (같은 상호의 학원·사무실 제외)
 _CAFE_CATEGORY_HINTS = ("카페", "커피", "디저트", "베이커리", "제과", "차")
@@ -161,10 +172,24 @@ def _region_names(lat: float, lon: float) -> dict[str, str]:
     if full.startswith("위도"):  # 역지오코딩 실패 시 좌표 문자열이 돌아온다
         return {"sido": "", "sigungu": "", "dong": "", "full": ""}
     parts = full.split()
+
+    # NCP의 area2 이름 자체에 공백이 들어갈 수 있다. 예를 들어 화성시 행정구 개편 뒤
+    # "경기도 화성시 효행구 봉담읍"이 오는데, 앞에서 세 토큰만 집으면 효행구를
+    # 읍면동으로 오인해 "효행구 카페"만 검색하게 된다. area3은 항상 마지막 토큰이고
+    # 그 사이 전부가 시군구 이름이므로 양 끝을 기준으로 해석한다.
+    if len(parts) >= 3:
+        sigungu = " ".join(parts[1:-1])
+        dong = parts[-1]
+    elif len(parts) == 2:  # 세종특별자치시처럼 area2가 비어 있는 경우
+        sigungu = ""
+        dong = parts[-1]
+    else:
+        sigungu = ""
+        dong = ""
     return {
         "sido": parts[0] if len(parts) > 0 else "",
-        "sigungu": parts[1] if len(parts) > 1 else "",
-        "dong": parts[2] if len(parts) > 2 else "",
+        "sigungu": sigungu,
+        "dong": dong,
         "full": full,
     }
 
@@ -239,6 +264,9 @@ def find_nearby_cafes(lat: float, lon: float, radius_m: int = 1000, limit: int =
     for kw in _CAFE_KEYWORDS:
         queries.append((f"{area_prefix} {kw}", "comment"))  # 리뷰 많은 순 = 상권 대표 매장
         queries.append((f"{base} {kw}", "random"))          # 정확도 순 = 신상·소규모까지
+    # 일반 검색 상위 5건에 밀리는 체인점 보강. 지점 결과는 아래에서 실제 좌표 기준으로
+    # 다시 거르므로 같은 읍면동의 다른 생활권 지점이 섞여도 화면에는 나오지 않는다.
+    queries.extend((f"{base} {brand}", "random") for brand in _CAFE_CHAIN_KEYWORDS)
     # 구 단위 유명 카페도 한 번 — 동에 매물이 적은 상권 대비
     if region["sigungu"]:
         queries.append((f"{region['sigungu']} 카페", "comment"))
@@ -246,7 +274,7 @@ def find_nearby_cafes(lat: float, lon: float, radius_m: int = 1000, limit: int =
     # 검색 API 6~13회를 순차로 돌면 지도 화면이 수 초 멈춘다 → 병렬 조회.
     # 다만 동시성이 높으면 네이버가 429(초당 제한)를 뱉고 그 키워드 결과가 통째로 빈다.
     # 라이브에서 4는 429가 섞였다(실측) → 2로 낮춘다. 재시도 백오프와 합쳐 유실을 막는다.
-    # 13개 질의 ÷ 2 워커 ≈ 2초로, 체감 속도는 그대로다.
+    # 질의 수가 많아도 2 워커로 제한해 네이버 초당 요청 제한을 피한다.
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(lambda q: _search_local(q[0], display=5, sort=q[1]), queries))
 
@@ -390,11 +418,13 @@ def _gemini_json(prompt: str, schema: dict[str, Any], timeout: float = 25.0) -> 
             if attempt == 1 and e.response.status_code in (429, 500, 502, 503, 504):
                 time.sleep(2.0)
                 continue
-            logger.warning("AI 분석 실패 (수집 데이터만 반환): %s", e)
+            from app.services.ai.gemini_config import safe_error_label
+            logger.warning("AI 분석 실패 (수집 데이터만 반환): %s", safe_error_label(e))
             _gemini_state.last_error = "quota" if e.response.status_code == 429 else "error"
             return None
         except Exception as e:
-            logger.warning("AI 분석 실패 (수집 데이터만 반환): %s", e)
+            from app.services.ai.gemini_config import safe_error_label
+            logger.warning("AI 분석 실패 (수집 데이터만 반환): %s", safe_error_label(e))
             _gemini_state.last_error = "error"
             return None
     _gemini_state.last_error = "error"
@@ -563,7 +593,18 @@ def analyze_neighborhood(lat: float, lon: float, store_name: str = "내 매장",
     if not cafes:
         return {**found, "insight": None}
 
-    cache_key = f"insight|{round(lat, 4)},{round(lon, 4)}|{radius_m}|{store_name}"
+    # 같은 좌표·반경이어도 내 카페 연결/해제, 검색 결과 갱신, limit 변경으로 실제 표시
+    # 목록은 달라질 수 있다. 좌표만 키로 쓰면 화면에는 새 목록이 뜨는데 AI 요약은 최대
+    # 12시간 전 카페들을 설명하는 불일치가 생긴다. 분석 입력 자체의 짧은 지문을 키에 넣는다.
+    cafe_fingerprint = hashlib.sha256(json.dumps(
+        [(c["name"], c.get("address", ""), c["distance_m"]) for c in cafes],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")).hexdigest()[:16]
+    cache_key = (
+        f"insight|{round(lat, 4)},{round(lon, 4)}|{radius_m}|{store_name}|"
+        f"{biz_type}|{cafe_fingerprint}"
+    )
     hit = _analysis_cache.get(cache_key)
     if hit and time.time() - hit[0] < _ANALYSIS_TTL:
         return {**found, "insight": hit[1], "cached": True}

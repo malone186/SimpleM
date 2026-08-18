@@ -187,10 +187,12 @@ async def infer_mapping(grid: list[list[str]]) -> dict[str, Any]:
             data.setdefault("notes", "AI 자동 분석")
             return data
     except Exception as e:
-        logger.warning(f"[매출 임포트] LLM 매핑 실패 — 휴리스틱 폴백: {e}")
+        from app.services.ai.gemini_config import safe_error_label
+        safe_error = safe_error_label(e)
+        logger.warning("[매출 임포트] LLM 매핑 실패 — 휴리스틱 폴백: %s", safe_error)
         fallback = _heuristic_mapping(grid)
         fallback["notes"] = "AI 분석 실패 → 키워드 휴리스틱 폴백"
-        fallback["error"] = str(e)[:200]
+        fallback["error"] = safe_error
         return fallback
 
 

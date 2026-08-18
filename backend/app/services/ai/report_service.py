@@ -922,7 +922,8 @@ def _generate_ai_advice(source: str, period_type: str) -> tuple[Optional[str], l
             })
         return summary, actions
     except Exception as e:  # LLM 실패가 리포트 자체를 막으면 안 된다
-        logger.warning("AI 조언 생성 실패 (숫자 리포트만 발행): %s", e)
+        from app.services.ai.gemini_config import safe_error_label
+        logger.warning("AI 조언 생성 실패 (숫자 리포트만 발행): %s", safe_error_label(e))
         return None, []
 
 

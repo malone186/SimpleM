@@ -8,6 +8,9 @@ DB·Gemini를 타지 않도록 consume/refund와 generate_response를 가짜로 
 """
 import asyncio
 
+import pytest
+from fastapi import HTTPException
+
 from app.api.v1 import chatbot as cb
 from app.services.ai.agents import main_agent
 
@@ -49,3 +52,22 @@ def test_generate_response_ok_false_without_api_key(monkeypatch):
     monkeypatch.setattr(main_agent, "GEMINI_API_KEY", "")
     out = asyncio.run(main_agent.generate_response("안녕", "s@test.com"))
     assert out["ok"] is False
+
+
+def test_unexpected_chat_error_is_refunded_without_leaking_details(monkeypatch):
+    """예상 밖 장애도 환불하되 내부 예외 문자열은 API 응답에 노출하지 않는다."""
+    refunded = []
+    monkeypatch.setattr(cb.chat_quota_service, "consume", lambda _: {"date": "2026-08-18"})
+    monkeypatch.setattr(cb.chat_quota_service, "refund", lambda store, day=None: refunded.append((store, day)))
+
+    async def fail(**kwargs):
+        raise RuntimeError("postgresql://secret-user:secret-password@private-db/internal")
+
+    monkeypatch.setattr(cb.main_agent, "generate_response", fail)
+
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(cb.chat_message(cb.ChatRequest(message="안녕"), store_id="s@test.com"))
+
+    assert caught.value.status_code == 500
+    assert "secret" not in str(caught.value.detail)
+    assert refunded == [("s@test.com", "2026-08-18")]

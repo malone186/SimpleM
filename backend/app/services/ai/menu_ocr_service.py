@@ -175,7 +175,8 @@ async def _ask_gemini(parts: list[dict], schema: dict) -> dict[str, Any]:
             text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
             return _parse_model_json(text) or {}
         except (httpx.HTTPError, KeyError, IndexError, json.JSONDecodeError) as e:
-            last = e
+            from app.services.ai.gemini_config import safe_error_label
+            last = MenuOcrError(safe_error_label(e))
             if attempt < 3:
                 await asyncio.sleep(2 * attempt)
 

@@ -1,4 +1,7 @@
 """OCR 확정 반영(_apply_expense/_apply_sales) 단위 테스트 — sqlite 인메모리 DB 사용"""
+import asyncio
+
+import httpx
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -104,3 +107,29 @@ def test_apply_sales_no_match_rolls_back(db_session):
     assert not ok and "메뉴" in msg
     with db_session() as db:
         assert db.query(Sale).count() == 0
+
+
+def test_gemini_http_error_does_not_leak_api_key(monkeypatch):
+    """Gemini 인증 실패 URL의 쿼리 키가 OcrError/API 응답에 포함되면 안 된다."""
+    secret = "super-secret-gemini-key"
+    request = httpx.Request(
+        "POST",
+        f"https://generativelanguage.googleapis.com/v1beta/models/test:generateContent?key={secret}",
+    )
+
+    class FakeClient:
+        async def post(self, *args, **kwargs):
+            return httpx.Response(401, request=request, json={"error": "unauthorized"})
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(ocr_service, "GEMINI_API_KEY", secret)
+    monkeypatch.setattr(ocr_service, "_get_gemini_client", lambda: FakeClient())
+    monkeypatch.setattr(ocr_service.asyncio, "sleep", no_sleep)
+
+    with pytest.raises(ocr_service.OcrError) as caught:
+        asyncio.run(ocr_service._call_gemini(b"not-an-image"))
+
+    assert "HTTP 401" in str(caught.value)
+    assert secret not in str(caught.value)

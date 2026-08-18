@@ -493,8 +493,16 @@ async def _call_gemini(image_bytes: bytes, mime_type: str = "image/jpeg") -> dic
                 if data.get("items") is None:
                     data["items"] = []
             return data
+        except httpx.HTTPStatusError as e:
+            # httpx 예외 문자열에는 요청 URL이 들어가고, 이 URL은 ?key=GEMINI_API_KEY를
+            # 포함한다. 호출부가 OcrError를 API 응답으로 보여 주므로 상태 코드만 보관한다.
+            last_error = OcrError(f"Gemini HTTP {e.response.status_code}")
+            if attempt < 3:
+                await asyncio.sleep(2 * attempt)
         except (httpx.HTTPError, KeyError, IndexError, json.JSONDecodeError) as e:
-            last_error = e
+            # 연결 예외도 쿼리 문자열이 든 URL을 포함할 수 있어 구체 문자열은 로그/응답에
+            # 싣지 않는다. 오류 종류만으로 운영 원인 분류에는 충분하다.
+            last_error = OcrError(type(e).__name__)
             if attempt < 3:
                 await asyncio.sleep(2 * attempt)
     raise OcrError(f"Gemini OCR 실패 ({GEMINI_MODEL}): {last_error}")
@@ -875,9 +883,9 @@ def _apply_to_target(draft: dict[str, Any], target: RegisterTarget, store_id: Op
             return False, "확정 완료. 재고 반영은 로그인 상태에서만 가능합니다 (매장 구분 필요)."
         try:
             return _apply_inventory_inbound(draft, store_id)
-        except Exception as e:  # 반영 실패해도 확정 상태는 유지, applied=False로 표시
+        except Exception:  # 반영 실패해도 확정 상태는 유지, applied=False로 표시
             logger.exception("OCR %s 재고 반영 실패", draft["id"])
-            return False, f"확정은 되었으나 재고 반영에 실패했습니다: {e}"
+            return False, "확정은 되었으나 재고 반영에 실패했습니다. 관리자 로그를 확인해 주세요."
 
     if not store_id:
         return False, "확정 완료. 지출/판매 반영은 로그인 상태에서만 가능합니다 (매장 구분 필요)."
@@ -886,9 +894,9 @@ def _apply_to_target(draft: dict[str, Any], target: RegisterTarget, store_id: Op
             return _apply_expense(draft, store_id)
         if target == "sales":
             return _apply_sales(draft, store_id)
-    except Exception as e:  # 반영 실패해도 확정 상태는 유지, applied=False로 표시
+    except Exception:  # 반영 실패해도 확정 상태는 유지, applied=False로 표시
         logger.exception("OCR %s %s 반영 실패", draft["id"], target)
-        return False, f"확정은 되었으나 {target} 반영에 실패했습니다: {e}"
+        return False, f"확정은 되었으나 {target} 반영에 실패했습니다. 관리자 로그를 확인해 주세요."
 
     return False, f"확정 완료. 알 수 없는 대상({target})이라 확정 상태로만 보관합니다."
 
