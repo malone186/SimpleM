@@ -16,6 +16,7 @@ import {
 import { colors, spacing, typography } from '../theme';
 import { useBottomInset } from '../theme/responsive';
 import { PressableScale } from './motion';
+import { useFrameSheetStyle } from './DeviceFrame';
 
 export default function FormSheet({
   visible,
@@ -42,6 +43,7 @@ export default function FormSheet({
   const sheetMaxHeight = Math.round(windowHeight * 0.85);
   // [한글 주석] 아이폰 홈 인디케이터·갤럭시 제스처 바에 마지막 버튼이 물리지 않게 실측 여백을 더한다
   const bottomInset = useBottomInset();
+  const frameSheetStyle = useFrameSheetStyle();
 
   useEffect(() => {
     if (visible) {
@@ -62,7 +64,7 @@ export default function FormSheet({
         </Animated.View>
 
         <Animated.View style={[styles.sheetWrap, { transform: [{ translateY }] }]}>
-          <View style={[styles.sheet, { maxHeight: sheetMaxHeight, paddingBottom: 24 + bottomInset }]}>
+          <View style={[styles.sheet, { maxHeight: sheetMaxHeight, paddingBottom: 24 + bottomInset }, frameSheetStyle]}>
             <View style={styles.handle} />
             <Text style={styles.title}>{title}</Text>
             {/* 항목이 많은 폼(직원 추가)은 스크롤이 필요하다. 스크롤바까지 숨기면

@@ -1061,7 +1061,7 @@ export default function SalesCard({
       >
         <View style={styles.modalOverlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setSelectedDate(null)} />
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, frameModalStyle]}>
             {selectedDate !== null && calDayMap[selectedDate] && (() => {
               const d = calDayMap[selectedDate];
               const popular = d.top_menus.map((m) => `${m.name} (${m.qty}잔)`).join(' · ') || '판매 기록 없음';
@@ -1143,7 +1143,7 @@ export default function SalesCard({
       >
         <View style={styles.modalOverlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setSelectedFutureDate(null)} />
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, frameModalStyle]}>
             {selectedFutureDate && (
               <View style={{ gap: 16 }}>
                 {/* 헤더 */}
@@ -1290,6 +1290,7 @@ function BrewForecastOverlay({
   growth: string;
 }) {
   const anim = useRef(new Animated.Value(0)).current;
+  const frameModalStyle = useFrameModalStyle();
 
   useEffect(() => {
     if (visible) {
@@ -1318,18 +1319,19 @@ function BrewForecastOverlay({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.brewBackdrop} onPress={onClose}>
-        <Animated.View
-          style={[
-            styles.brewSheet,
-            {
-              opacity: anim,
-              transform: [
-                { translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [60, 0] }) },
-                { scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
-              ],
-            },
-          ]}
-        >
+        <View style={[styles.brewFrameSurface, frameModalStyle]}>
+          <Animated.View
+            style={[
+              styles.brewSheet,
+              {
+                opacity: anim,
+                transform: [
+                  { translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [60, 0] }) },
+                  { scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
+                ],
+              },
+            ]}
+          >
           {/* 브루 등장 */}
           <View style={styles.brewMascotWrap} pointerEvents="none">
             <Brew mood="serving" size={132} />
@@ -1355,7 +1357,8 @@ function BrewForecastOverlay({
               <Text style={styles.brewBtnText}>알겠어요</Text>
             </PressableScale>
           </View>
-        </Animated.View>
+          </Animated.View>
+        </View>
       </Pressable>
     </Modal>
   );
@@ -1384,6 +1387,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 24,
   },
+  brewFrameSurface: { width: '100%', maxWidth: 340 },
   brewSheet: { width: '100%', maxWidth: 340, alignItems: 'center' },
   brewMascotWrap: { marginBottom: -34, zIndex: 2 },
   brewBubble: {

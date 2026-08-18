@@ -22,6 +22,7 @@ import { API_BASE_URL } from '../../lib/api/client';
 import { NAVER_CLIENT_ID, NAVER_MAP_ERROR, loadNaverMaps, mapPageOrigin } from '../../lib/naverMap';
 import { colors, shadows, typography } from '../../theme';
 import { useResponsive } from '../../theme/responsive';
+import { useFrameSheetStyle } from '../DeviceFrame';
 
 type Picked = { lat: number; lon: number; address?: string };
 
@@ -40,6 +41,7 @@ export default function StoreLocationPicker({
 }) {
   // [한글 주석] 뷰포트 비례 계산 — 가로모드·작은 기기에서 지도 높이를 줄인다
   const { vh } = useResponsive();
+  const frameSheetStyle = useFrameSheetStyle();
   const [picked, setPicked] = useState<Picked | null>(initial ?? null);
   const [query, setQuery] = useState('');
   const [notice, setNotice] = useState('');
@@ -148,7 +150,7 @@ export default function StoreLocationPicker({
           안에 시트를 가둔다. 이걸 빼면 데스크톱에서 지도가 화면 폭만큼 늘어나 띠처럼 보인다. */}
       <View style={styles.root}>
         <Pressable style={styles.backdrop} onPress={onClose} />
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, frameSheetStyle]}>
           <View style={styles.header}>
             <Text style={styles.title}>매장 위치 {initial ? '변경' : '등록'}</Text>
             <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>

@@ -24,6 +24,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useFrameModalStyle } from '../../components/DeviceFrame';
 import { useNavigation } from '@react-navigation/native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -812,6 +813,7 @@ function CalendarSheet({
   onSelect: (d: string) => void;
   onClose: () => void;
 }) {
+  const frameModalStyle = useFrameModalStyle();
   const today = iso(new Date());
   const [view, setView] = useState(() => {
     const d = new Date(`${value}T00:00:00`);
@@ -847,7 +849,7 @@ function CalendarSheet({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.calBackdrop} onPress={onClose}>
-        <Pressable style={styles.calSheet} onPress={() => {}}>
+        <Pressable style={[styles.calSheet, frameModalStyle]} onPress={() => {}}>
           <View style={styles.calHead}>
             <TouchableOpacity onPress={prevMonth} style={styles.calNav}>
               <Ionicons name="chevron-back" size={18} color={colors.espressoBrown} />

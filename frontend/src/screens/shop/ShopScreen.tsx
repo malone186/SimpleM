@@ -8,6 +8,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { useAuth } from '../../auth/AuthContext';
 import Brew, { type BrewMood } from '../../components/brew/Brew';
 import { FadeInUp, PressableScale, useCountUp } from '../../components/motion';
+import { useFrameModalStyle } from '../../components/DeviceFrame';
 import ItemArt from '../../components/shop/ItemArt';
 import VaultSheet from '../../components/shop/VaultSheet';
 import { confirmDialog, toast } from '../../components/toast';
@@ -55,6 +56,7 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
   const topInset = useTopInset();
   const bottomInset = useBottomInset();
   const { gutter, isWide, contentMaxWidth } = useResponsive();
+  const frameModalStyle = useFrameModalStyle();
   // 구매·착용하면 홈 화면 마스코트도 같이 바뀌어야 한다
   const { refresh: refreshEquipped } = useEquipped();
   // 지난 방문 값으로 먼저 그린다 — 매번 풀스크린 스피너를 보이지 않게 (서버 응답이 오면 조용히 갱신)
@@ -358,7 +360,7 @@ export default function ShopScreen({ route }: { route?: { params?: { openVault?:
       {/* ── 캡슐 뽑기 결과 모달 — 결과 도착 전엔 캡슐이 흔들린다 ── */}
       <Modal visible={gachaOpen} animationType="fade" transparent onRequestClose={() => setGachaOpen(false)}>
         <View style={styles.gachaBackdrop}>
-          <View style={styles.gachaModal}>
+          <View style={[styles.gachaModal, frameModalStyle]}>
             {gachaError ? (
               <>
                 <Text style={styles.gachaEggBig}>😢</Text>

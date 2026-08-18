@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { RoasteryBean } from '../../lib/api/inventory';
 import { useTranslation } from '../../i18n/translations';
 import { colors, shadows, typography } from '../../theme';
+import { useFrameSheetStyle } from '../DeviceFrame';
 
 // ─── 원산지(나라) → 지역 특성 한 줄 설명 ────────────────────────────────
 // ─── 원산지(나라) → 지역 특성 한 줄 설명 ────────────────────────────────
@@ -134,6 +135,7 @@ interface Props {
 }
 
 export default function BeanDetailModal({ bean, visible, onClose }: Props) {
+  const frameSheetStyle = useFrameSheetStyle();
   // [한글 주석: 전역 다국어 번역 훅 연동]
   const { t, language } = useTranslation();
   if (!bean) return null;
@@ -153,7 +155,7 @@ export default function BeanDetailModal({ bean, visible, onClose }: Props) {
         </TouchableOpacity>
 
         {/* 바텀 시트 */}
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, frameSheetStyle]}>
 
           {/* 핸들 */}
           <View style={styles.handle} />

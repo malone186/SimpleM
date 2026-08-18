@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../../auth/AuthContext';
 import { PressableScale } from '../../components/motion';
+import { useFrameModalStyle } from '../../components/DeviceFrame';
 import { toast } from '../../components/toast';
 import {
   addChecklistItem, deleteChecklistItem, listChecklist, toggleChecklist, updateChecklistItem,
@@ -28,6 +29,7 @@ export default function ChecklistScreen() {
   const { token, user } = useAuth();
   const isOwner = !user?.isStaff;
   const bottomInset = useBottomInset();
+  const frameModalStyle = useFrameModalStyle();
   const [items, setItems] = useState<ChecklistItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -245,7 +247,7 @@ export default function ChecklistScreen() {
 
       <Modal visible={editOpen} transparent animationType="fade" onRequestClose={() => setEditOpen(false)}>
         <View style={styles.modalBg}>
-          <View style={styles.modalCard}>
+          <View style={[styles.modalCard, frameModalStyle]}>
             <Text style={styles.modalTitle}>{editTarget ? '항목 수정' : '체크리스트 항목 추가'}</Text>
             <TextInput
               style={styles.input}

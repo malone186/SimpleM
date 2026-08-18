@@ -52,6 +52,7 @@ import { fs, s, useBottomInset, useResponsive, useTopInset } from '../../theme/r
 import RoomBackdrop, { ROOM_TEXT_SHADOW, useSheetTop } from '../../components/brew/RoomBackdrop';
 import { getRoomTint } from '../../components/brew/roomBackgrounds';
 import { useEquipped } from '../../rewards/EquippedContext';
+import { useFrameSheetStyle } from '../../components/DeviceFrame';
 
 // [한글 주석] 상태바 여백은 useTopInset() 훅이 기기 실측값으로 계산한다 (고정값은 기기마다 어긋났다).
 
@@ -103,6 +104,7 @@ export default function ChatbotScreen() {
   const topInset = useTopInset();
   const bottomInset = useBottomInset();
   const { isCompact, isXS, isShortViewport, isWide } = useResponsive();
+  const frameSheetStyle = useFrameSheetStyle();
   const route = useRoute<RouteProp<RootTabParamList, 'Chatbot'>>();
   const [messages, setMessages] = useState<Msg[]>([GREETING]);
   const [input, setInput] = useState('');
@@ -462,7 +464,7 @@ export default function ChatbotScreen() {
         {/* FormSheet 패턴 — 웹에서도 폰 프레임(maxWidth 420) 안에 시트를 가둔다 */}
         <View style={styles.modalRoot}>
           <Pressable style={styles.modalDim} onPress={() => setHistoryOpen(false)} />
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, frameSheetStyle]}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetTitle}>{language === 'en' ? 'Chat History' : '채팅 기록'}</Text>

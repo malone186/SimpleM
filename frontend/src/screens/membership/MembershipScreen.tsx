@@ -25,6 +25,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { SvgXml } from 'react-native-svg';
 import * as Print from 'expo-print';
+import { useFrameModalStyle } from '../../components/DeviceFrame';
 
 import {
   chargeBalance,
@@ -62,6 +63,7 @@ import { colors } from '../../theme';
 const won = (n: number) => `${n.toLocaleString()}원`;
 
 export default function MembershipScreen() {
+  const frameModalStyle = useFrameModalStyle();
   const { token, user } = useAuth();
   // 직원(알바) 계정이면 재무·마케팅·상품설계는 감춘다. 계산대에서 필요한 건
   // 대기 손님 결제 / 충전 상품으로 충전 / 회원 등록뿐이다. (RootNavigator가 화면
@@ -746,7 +748,7 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
       <Modal visible={qrOpen} transparent animationType="fade"
              onRequestClose={() => setQrOpen(false)}>
         <View style={styles.backdrop}>
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, frameModalStyle]}>
             <Text style={styles.sheetTitle}>계산대 QR</Text>
             <Text style={styles.dim}>
               인쇄해서 계산대에 붙여 두세요. 손님이 폰 카메라로 찍으면
@@ -801,7 +803,7 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
       <Modal visible={planOpen} transparent animationType="fade"
              onRequestClose={() => setPlanOpen(false)}>
         <View style={styles.backdrop}>
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, frameModalStyle]}>
             <Text style={styles.sheetTitle}>충전 상품 만들기</Text>
 
             <Text style={styles.fieldLabel}>손님이 내는 금액</Text>
@@ -869,7 +871,7 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
       <Modal visible={registerOpen} transparent animationType="fade"
              onRequestClose={() => setRegisterOpen(false)}>
         <View style={styles.backdrop}>
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, frameModalStyle]}>
             <Text style={styles.sheetTitle}>회원 등록</Text>
             <TextInput
               style={styles.input}
@@ -927,7 +929,7 @@ ${r.text}` : (r.reason ?? '전송할 수 없습니다.'));
       <Modal visible={!!target} transparent animationType="fade"
              onRequestClose={() => setTarget(null)}>
         <View style={styles.backdrop}>
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, frameModalStyle]}>
             {!!target && (
               <>
                 <Text style={styles.sheetTitle}>{target.name || target.phone_masked}</Text>

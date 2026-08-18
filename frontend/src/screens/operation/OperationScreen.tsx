@@ -8,6 +8,7 @@ import { dateKey, fromDateKey, monthKey } from '../../lib/dateKey';
 import { Badge, Button, Card, Divider, Screen, ScreenTitle, SectionTitle, WeekdayButtonGroup, IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
 import { PressableScale } from '../../components/motion';
+import { useFrameModalStyle } from '../../components/DeviceFrame';
 import { supplyPriceOf, type VatMode } from '../../components/PriceInput';
 import { toast } from '../../components/toast';
 import { colors, typography } from '../../theme';
@@ -117,6 +118,7 @@ function ScheduleCalendarCard({
   employeeColorMap: Record<number, string>;
   reloadSchedules: () => Promise<void>;
 }) {
+  const frameModalStyle = useFrameModalStyle();
   const { token } = useAuth();
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -843,7 +845,7 @@ function ScheduleCalendarCard({
       <Modal visible={swapTarget !== null} transparent animationType="slide" onRequestClose={() => setSwapTarget(null)}>
         <View style={styles.modalRoot}>
           <Pressable style={styles.modalBackdrop} onPress={() => setSwapTarget(null)} />
-          <View style={styles.modalSheet}>
+          <View style={[styles.modalSheet, frameModalStyle]}>
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>근무 교대</Text>
             {swapTarget && (
@@ -893,7 +895,7 @@ function ScheduleCalendarCard({
       <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalRoot}>
           <Pressable style={styles.modalBackdrop} onPress={() => setModalVisible(false)} />
-          <View style={styles.modalSheet}>
+          <View style={[styles.modalSheet, frameModalStyle]}>
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>{selectedDate} 알바 근무 등록</Text>
 
@@ -1315,6 +1317,7 @@ const liveStyles = StyleSheet.create({
 // 챗봇 / ERP 신규: 알바생 기피/불가 시간 관리 카드 컴포넌트
 // ----------------------------------------------------
 function UnavailabilityManagementCard() {
+  const frameModalStyle = useFrameModalStyle();
   const { token } = useAuth();
   const [list, setList] = useState<EmployeeUnavailability[]>([]);
   // [한글 주석] 직원 명단을 저장하여 탭(칩) 선택 및 이름 표시를 처리하는 상태
@@ -1484,7 +1487,7 @@ function UnavailabilityManagementCard() {
       <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalRoot}>
           <Pressable style={styles.modalBackdrop} onPress={() => setModalVisible(false)} />
-          <View style={styles.modalSheet}>
+          <View style={[styles.modalSheet, frameModalStyle]}>
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>알바 기피/불가 시간 등록</Text>
             
@@ -1919,7 +1922,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     width: '90%',
     maxWidth: 370,
-    maxHeight: 630, // [한글 주석] 세로 높이를 짧고 아담하게 조율함
+    maxHeight: '88%', // 초소형·가로 화면에서도 안전 영역 밖으로 넘지 않게 뷰포트 비율 사용
     padding: 14,
     paddingBottom: 16,
   },

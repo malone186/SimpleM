@@ -20,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { fetchBeanReviews, type BeanReview, type BeanReviewSummary } from '../../lib/api/beans';
 import { colors } from '../../theme';
+import { useFrameModalStyle } from '../DeviceFrame';
 
 type Props = {
   visible: boolean;
@@ -36,6 +37,7 @@ const SENTIMENT_STYLE: Record<string, { label: string; bg: string; fg: string }>
 };
 
 export default function BeanReviewModal({ visible, beanId, beanName, onClose }: Props) {
+  const frameModalStyle = useFrameModalStyle();
   const [reviews, setReviews] = useState<BeanReview[]>([]);
   const [summary, setSummary] = useState<BeanReviewSummary | null>(null);
   const [loading, setLoading] = useState(false);
@@ -84,7 +86,7 @@ export default function BeanReviewModal({ visible, beanId, beanName, onClose }: 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, frameModalStyle]}>
           {/* 헤더 */}
           <View style={styles.header}>
             <View style={{ flex: 1, marginRight: 8 }}>

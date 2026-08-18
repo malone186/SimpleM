@@ -30,8 +30,10 @@ import {
 import { showAlert } from '../../lib/ui/alert';
 import { useAuth } from '../../auth/AuthContext';
 import { colors } from '../../theme';
+import { useFrameModalStyle } from '../../components/DeviceFrame';
 
 export default function StaffAccountScreen() {
+  const frameModalStyle = useFrameModalStyle();
   const { token } = useAuth();
   const [list, setList] = useState<StaffAccount[]>([]);
   const [loading, setLoading] = useState(true);
@@ -209,7 +211,7 @@ export default function StaffAccountScreen() {
       <Modal visible={addOpen} transparent animationType="fade"
              onRequestClose={() => setAddOpen(false)}>
         <View style={styles.backdrop}>
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, frameModalStyle]}>
             <Text style={styles.sheetTitle}>직원 계정 만들기</Text>
             <Text style={styles.fieldLabel}>이름</Text>
             <TextInput style={styles.input} placeholder="박알바"
@@ -238,7 +240,7 @@ export default function StaffAccountScreen() {
       <Modal visible={!!issued} transparent animationType="fade"
              onRequestClose={() => setIssued(null)}>
         <View style={styles.backdrop}>
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, frameModalStyle]}>
             <Text style={styles.sheetTitle}>{issued?.name}님 계정</Text>
             <View style={styles.credBox}>
               <Text style={styles.credLabel}>아이디</Text>

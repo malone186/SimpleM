@@ -5,7 +5,7 @@
 // 스크롤도 되지 않았다. 이제 창 크기에 맞춰 프레임을 줄이고, 창이 폰만큼 좁아지면
 // (모바일 브라우저·PWA) 목업을 걷어내고 화면을 꽉 채운다 — 실기기와 같은 조건으로 보이게.
 import type { ReactNode } from 'react';
-import { Platform, StyleSheet, useWindowDimensions, View, type ViewStyle } from 'react-native';
+import { Platform, StyleSheet, useWindowDimensions, View, type ViewProps, type ViewStyle } from 'react-native';
 
 import { colors } from '../theme';
 import { ViewportProvider } from '../theme/responsive';
@@ -16,6 +16,23 @@ const FRAME_HEIGHT = 850;
 const STAGE_PADDING = 24;
 const BORDER = 8; // 목업 테두리 두께 — 앱이 실제로 쓰는 폭은 FRAME_WIDTH - BORDER*2 다
 
+export function computeFrameMetrics(winW: number, winH: number) {
+  const fillsScreen = winW < FRAME_WIDTH + STAGE_PADDING * 2;
+  const scale = fillsScreen
+    ? 1
+    : Math.min(
+        1,
+        (winW - STAGE_PADDING * 2) / FRAME_WIDTH,
+        (winH - STAGE_PADDING * 2) / FRAME_HEIGHT,
+      );
+  return {
+    fillsScreen,
+    scale,
+    slotWidth: fillsScreen ? winW : FRAME_WIDTH * scale,
+    slotHeight: fillsScreen ? winH : FRAME_HEIGHT * scale,
+  };
+}
+
 // [한글 주석] 바텀시트를 목업 폰에 맞추는 훅
 // RN Modal은 웹에서 document.body로 포털되어 DeviceFrame '밖'에 그려진다. 그래서 앱 본문은
 // scale로 축소된 목업 안에 있는데 시트만 420px 원본 크기로 브라우저 한가운데·맨 바닥까지
@@ -25,13 +42,8 @@ const BORDER = 8; // 목업 테두리 두께 — 앱이 실제로 쓰는 폭은 
 export function useFrameSheetStyle(): ViewStyle | null {
   const { width: winW, height: winH } = useWindowDimensions();
   if (Platform.OS !== 'web') return null;
-  const fillsScreen = winW < FRAME_WIDTH + STAGE_PADDING * 2;
+  const { fillsScreen, scale } = computeFrameMetrics(winW, winH);
   if (fillsScreen) return null;
-  const scale = Math.min(
-    1,
-    (winW - STAGE_PADDING * 2) / FRAME_WIDTH,
-    (winH - STAGE_PADDING * 2) / FRAME_HEIGHT,
-  );
   return {
     width: FRAME_WIDTH - BORDER * 2,
     alignSelf: 'center',
@@ -50,17 +62,20 @@ export function useFrameSheetStyle(): ViewStyle | null {
 export function useFrameModalStyle(): ViewStyle | null {
   const { width: winW, height: winH } = useWindowDimensions();
   if (Platform.OS !== 'web') return null;
-  const fillsScreen = winW < FRAME_WIDTH + STAGE_PADDING * 2;
+  const { fillsScreen, scale } = computeFrameMetrics(winW, winH);
   if (fillsScreen) return null;
-  const scale = Math.min(
-    1,
-    (winW - STAGE_PADDING * 2) / FRAME_WIDTH,
-    (winH - STAGE_PADDING * 2) / FRAME_HEIGHT,
-  );
   return {
+    // 중앙형 카드가 420px 상한을 쓰더라도 프레임 안쪽(404px)의 좌우 여백을 보장한다.
+    maxWidth: FRAME_WIDTH - BORDER * 2 - 32,
     transform: [{ scale }],
     transformOrigin: 'center center',
   };
+}
+
+/** 애니메이션 컴포넌트의 transform을 덮지 않고 웹 목업 배율만 바깥에서 적용하는 표면. */
+export function FrameModalSurface({ style, ...props }: ViewProps) {
+  const frameStyle = useFrameModalStyle();
+  return <View {...props} style={[styles.frameModalSurface, style, frameStyle]} />;
 }
 
 export default function DeviceFrame({ children }: { children: ReactNode }) {
@@ -72,16 +87,7 @@ export default function DeviceFrame({ children }: { children: ReactNode }) {
   }
 
   // 브라우저 창이 폰 크기라면 목업이 오히려 방해가 된다 — 그대로 꽉 채운다
-  const fillsScreen = winW < FRAME_WIDTH + STAGE_PADDING * 2;
-
-  // 창에 들어갈 만큼만 축소 (확대는 하지 않는다 — 목업이 실물보다 커지면 감이 어긋난다)
-  const scale = fillsScreen
-    ? 1
-    : Math.min(
-        1,
-        (winW - STAGE_PADDING * 2) / FRAME_WIDTH,
-        (winH - STAGE_PADDING * 2) / FRAME_HEIGHT,
-      );
+  const { fillsScreen, scale, slotWidth, slotHeight } = computeFrameMetrics(winW, winH);
 
   // [한글 주석] 목업을 쓰든 안 쓰든 트리 구조(View > View > app-screen)는 절대 바꾸지 않는다.
   // 조건부로 구조를 갈아끼우면 React 가 children 을 통째로 리마운트해서
@@ -89,25 +95,42 @@ export default function DeviceFrame({ children }: { children: ReactNode }) {
   // 달라지는 건 스타일뿐이다.
   return (
     <View style={[styles.stage, fillsScreen && styles.stageBare]}>
+      {/* CSS transform은 보이는 크기만 줄이고 flex 레이아웃 높이(850)는 그대로 둔다.
+          축소된 자리(slot)를 먼저 중앙 정렬한 뒤, 원본 프레임을 그 안에서 좌상단 기준으로
+          줄여야 낮은 브라우저에서도 폰 상단이 화면 밖으로 밀리지 않는다. */}
       <View
         style={[
-          styles.device,
+          styles.deviceSlot,
           fillsScreen
-            ? styles.deviceBare
-            : { width: FRAME_WIDTH, height: FRAME_HEIGHT, transform: [{ scale }] },
+            ? styles.deviceSlotBare
+            : { width: slotWidth, height: slotHeight },
         ]}
       >
-        {/* 상단 노치 — 실물 크기 모드에서는 감춘다 */}
-        <View style={[styles.notch, fillsScreen && styles.hidden]} />
-        {/* nativeID → 웹 DOM id. 설정의 글자크기(zoom)·다크모드(색반전) 적용 대상 */}
-        <View nativeID="app-screen" style={styles.screen}>
-          {/* [한글 주석] 목업 안에서는 브라우저 창(1280)이 아니라 프레임 내부 크기가 앱의 뷰포트다.
-              이걸 알려 주지 않으면 반응형 판정이 '폴드 펼침'으로 새어 데모가 실기기와 달라진다. */}
-          <ViewportProvider
-            value={fillsScreen ? null : { width: FRAME_WIDTH - BORDER * 2, height: FRAME_HEIGHT - BORDER * 2 }}
-          >
-            {children}
-          </ViewportProvider>
+        <View
+          style={[
+            styles.device,
+            fillsScreen
+              ? styles.deviceBare
+              : {
+                  width: FRAME_WIDTH,
+                  height: FRAME_HEIGHT,
+                  transform: [{ scale }],
+                  transformOrigin: 'top left',
+                },
+          ]}
+        >
+          {/* 상단 노치 — 실물 크기 모드에서는 감춘다 */}
+          <View style={[styles.notch, fillsScreen && styles.hidden]} />
+          {/* nativeID → 웹 DOM id. 설정의 글자크기(zoom)·다크모드(색반전) 적용 대상 */}
+          <View nativeID="app-screen" style={styles.screen}>
+            {/* [한글 주석] 목업 안에서는 브라우저 창(1280)이 아니라 프레임 내부 크기가 앱의 뷰포트다.
+                이걸 알려 주지 않으면 반응형 판정이 '폴드 펼침'으로 새어 데모가 실기기와 달라진다. */}
+            <ViewportProvider
+              value={fillsScreen ? null : { width: FRAME_WIDTH - BORDER * 2, height: FRAME_HEIGHT - BORDER * 2 }}
+            >
+              {children}
+            </ViewportProvider>
+          </View>
         </View>
       </View>
     </View>
@@ -125,6 +148,8 @@ const styles = StyleSheet.create({
   },
   // 좁은 창(모바일 브라우저)에서는 목업 없이 실기기처럼 꽉 채운다
   stageBare: { padding: 0, backgroundColor: colors.creamSand },
+  deviceSlot: { position: 'relative', overflow: 'visible' },
+  deviceSlotBare: { width: '100%', height: '100%' },
   deviceBare: {
     width: '100%',
     height: '100%',
@@ -133,6 +158,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0,
   },
   hidden: { display: 'none' },
+  frameModalSurface: { width: '100%', alignSelf: 'center' },
   device: {
     borderRadius: 50,
     borderWidth: BORDER,

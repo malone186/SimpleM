@@ -18,6 +18,7 @@ import { toast } from '../toast';
 import * as haptics from '../../lib/haptics';
 import { glassSurface } from '../../theme/glass';
 import { type DateInfo } from './SalesCard';
+import { FrameModalSurface } from '../DeviceFrame';
 
 export type TodoCategory = 'order' | 'hygiene' | 'admin' | 'daily';
 
@@ -644,6 +645,7 @@ export default function TodoList({
       >
         <View style={styles.modalOverlay}>
           <Pressable style={styles.modalBackdropPress} onPress={() => setPromoPickerOpen(false)} />
+          <FrameModalSurface>
           <SlideUp style={styles.promoPickerCard}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
               <Ionicons name="megaphone" size={15} color="#8C6F56" />
@@ -676,6 +678,7 @@ export default function TodoList({
               </ScrollView>
             )}
           </SlideUp>
+          </FrameModalSurface>
         </View>
       </Modal>
 
@@ -688,6 +691,7 @@ export default function TodoList({
       >
         <View style={styles.modalOverlay}>
           <Pressable style={styles.modalBackdropPress} onPress={() => setMenuTarget(null)} />
+          <FrameModalSurface>
           <SlideUp style={styles.promoPickerCard}>
             <Text style={styles.promoPickerTitle} numberOfLines={1}>
               {(menuTarget?.title ?? '').replace(/^\[[^\]]{1,8}\]\s*/, '')}
@@ -725,6 +729,7 @@ export default function TodoList({
               </TouchableOpacity>
             </View>
           </SlideUp>
+          </FrameModalSurface>
         </View>
       </Modal>
 
@@ -737,6 +742,7 @@ export default function TodoList({
       >
         <View style={styles.modalOverlay}>
           <Pressable style={styles.modalBackdropPress} onPress={() => setSendTarget(null)} />
+          <FrameModalSurface>
           <SlideUp style={styles.promoPickerCard}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
               <Ionicons name="paper-plane" size={15} color="#8C6F56" />
@@ -768,6 +774,7 @@ export default function TodoList({
               ))}
             </ScrollView>
           </SlideUp>
+          </FrameModalSurface>
         </View>
       </Modal>
 
@@ -784,6 +791,7 @@ export default function TodoList({
             onPress={() => setModalVisible(false)}
           />
           
+          <FrameModalSurface>
           <SlideUp style={styles.modalContainer}>
             {/* 모달 헤더 - [한글 주석] 등록/수정 모드에 따라 타이틀('업무 등록' / '업무 수정') 자동 변경 */}
             <View style={styles.modalHeader}>
@@ -849,6 +857,7 @@ export default function TodoList({
               </PressableScale>
             </View>
           </SlideUp>
+          </FrameModalSurface>
         </View>
       </Modal>
     </View>

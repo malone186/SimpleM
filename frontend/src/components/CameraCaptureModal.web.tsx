@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { PressableScale } from './motion';
 import { colors, typography } from '../theme';
+import { useFrameModalStyle } from './DeviceFrame';
 
 export type CapturedPhoto = { uri: string; mimeType: string; fileName: string };
 
@@ -24,6 +25,7 @@ export default function CameraCaptureModal({
   onClose: () => void;
   onCapture: (photo: CapturedPhoto) => void;
 }) {
+  const frameModalStyle = useFrameModalStyle();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -107,7 +109,7 @@ export default function CameraCaptureModal({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, frameModalStyle]}>
           <View style={styles.head}>
             <Text style={styles.title}>명세서 촬영</Text>
             <PressableScale onPress={onClose} to={0.9} style={{ padding: 4 }}>

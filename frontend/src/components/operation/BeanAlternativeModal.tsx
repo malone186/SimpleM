@@ -20,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { fetchBeanAlternatives, type BeanAlternative } from '../../lib/api/beans';
 import { colors } from '../../theme';
+import { useFrameModalStyle } from '../DeviceFrame';
 
 type Props = {
   visible: boolean;
@@ -29,6 +30,7 @@ type Props = {
 };
 
 export default function BeanAlternativeModal({ visible, beanId, beanName, onClose }: Props) {
+  const frameModalStyle = useFrameModalStyle();
   const [items, setItems] = useState<BeanAlternative[]>([]);
   const [basePpg, setBasePpg] = useState<number | null>(null);
   const [baseGrams, setBaseGrams] = useState<number | null>(null);
@@ -67,7 +69,7 @@ export default function BeanAlternativeModal({ visible, beanId, beanName, onClos
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, frameModalStyle]}>
           <View style={styles.header}>
             <View style={{ flex: 1, marginRight: 8 }}>
               <Text style={styles.title}>더 저렴한 대체 원두</Text>

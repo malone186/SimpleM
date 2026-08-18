@@ -6,6 +6,7 @@ import { Animated, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View, L
 
 import { colors, spacing, typography } from '../../theme';
 import { PressableScale } from '../motion';
+import { useFrameSheetStyle } from '../DeviceFrame';
 import type { Todo } from './TodoList';
 
 // [한글 주석: "우유 재고 부족" ➔ "우유" 와 같이 순수 제품명만 잘라내어 검색어로 정제합니다]
@@ -24,6 +25,7 @@ export default function QuickOrderModal({
   onClose: () => void;
   onConfirm: (todo: Todo) => void;
 }) {
+  const frameSheetStyle = useFrameSheetStyle();
   const slide = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -57,7 +59,7 @@ export default function QuickOrderModal({
 
         {/* 스프링으로 튀어오르는 바텀시트 */}
         <Animated.View style={[styles.sheetWrap, { transform: [{ translateY }] }]}>
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, frameSheetStyle]}>
             <View style={styles.handle} />
             <Text style={styles.title}>자주 시키는 발주</Text>
             {todo && (

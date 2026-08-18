@@ -22,6 +22,7 @@ import { API_BASE_URL } from '../../lib/api/client';
 import { getGpsPosition } from '../../lib/api/forecast';
 import { NAVER_CLIENT_ID, NAVER_MAP_ERROR, loadNaverMaps, mapPageOrigin } from '../../lib/naverMap';
 import { FadeInUp, PressableScale } from '../../components/motion';
+import { useFrameModalStyle } from '../../components/DeviceFrame';
 import { IosTimePicker } from '../../components/ui';
 import { Segmented } from '../../components/ui/Segmented';
 import { colors, spacing, typography } from '../../theme';
@@ -168,6 +169,7 @@ export default function AuthScreen() {
   const topInset = useTopInset();
   const bottomInset = useBottomInset();
   const { gutter, isWide, vw, vh } = useResponsive();
+  const frameModalStyle = useFrameModalStyle();
   const {
     login, signup, loginWithGoogle,
     firebaseAuthEnabled, sendResetEmail,   // 팀원: 비밀번호 재설정 메일
@@ -1102,7 +1104,7 @@ export default function AuthScreen() {
       {/* [한글 주석] 네이버 지도 위치 선택 모달 (네이버 지도 API 뷰 전면 배치) */}
       <Modal visible={showMapModal} transparent animationType="fade">
         <View style={styles.modalBg}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, frameModalStyle]}>
             <View style={styles.modalHead}>
               <Text style={styles.modalTitle}>📍 네이버 지도 위치 설정</Text>
               <PressableScale onPress={() => setShowMapModal(false)}>
@@ -1212,7 +1214,7 @@ export default function AuthScreen() {
         onRequestClose={() => setTermsModal({ ...termsModal, visible: false })}
       >
         <View style={styles.modalBg}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, frameModalStyle]}>
             <View style={styles.modalHead}>
               <Text style={styles.modalTitle}>{termsModal.title}</Text>
               <PressableScale onPress={() => setTermsModal({ ...termsModal, visible: false })} to={0.9}>
@@ -1240,7 +1242,7 @@ export default function AuthScreen() {
       <Modal visible={staffMode} transparent animationType="fade"
              onRequestClose={() => setStaffMode(false)}>
         <View style={styles.modalBg}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, frameModalStyle]}>
             <Text style={styles.modalTitle}>직원 로그인</Text>
             <Text style={styles.staffModalDesc}>
               사장님께 받은 아이디와 비밀번호를 입력해 주세요.
@@ -1294,7 +1296,7 @@ export default function AuthScreen() {
         onRequestClose={() => setShowFindModal(false)}
       >
         <View style={styles.modalBg}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, frameModalStyle]}>
             <View style={styles.modalHead}>
               <Text style={styles.modalTitle}>계정 정보 찾기</Text>
               <PressableScale onPress={() => setShowFindModal(false)} to={0.9}>

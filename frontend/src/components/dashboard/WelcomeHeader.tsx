@@ -8,7 +8,7 @@ import { useNavigation } from '@react-navigation/native';
 import { colors, spacing, shadows } from '../../theme';
 import { liquidGlass } from '../../theme/glass';
 import { SlideUp } from '../motion';
-import { useTopInset } from '../../theme/responsive';
+import { useResponsive, useTopInset } from '../../theme/responsive';
 import { type BrewMood } from '../brew/Brew';
 import { type BrewOutlook } from '../brew/forecastMood';
 import MascotEasterEgg from './MascotEasterEgg';
@@ -17,6 +17,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { fetchNoticeFeed, type AdminNotice } from '../../lib/api/notice';
 import { useTranslation } from '../../i18n/translations';
 import { startLoop } from '../../lib/animLoop';
+import { FrameModalSurface } from '../DeviceFrame';
 
 // [시간대별 인사말] "~사장님!" 아래 줄에 현재 시각에 맞춰 자동으로 바뀌는 문구.
 // 각 구간에 여러 후보를 두고 10분 단위로 회전해 같은 시간대라도 조금씩 달라진다.
@@ -241,6 +242,8 @@ export default function WelcomeHeader({
   const greeting = useTimeGreeting();
   // [한글 주석] 상태바(노치·펀치홀·다이나믹 아일랜드) 실측 높이
   const topInset = useTopInset();
+  const { isXS, isCompact } = useResponsive();
+  const mascotSize = isXS ? 132 : isCompact ? 156 : 190;
   // 알림함 (지도 아이콘 옆 벨) — 지난 공지를 스택형으로 모아 본다.
   // 헤더 말풍선(useAdminAnnouncement)도 이 목록을 그대로 쓴다 (폴링은 여기 한 곳만).
   const { notices, unreadCount, readMaxId, markAllRead, hiddenCount, hideNotice, hideAll, restoreHidden } =
@@ -370,7 +373,7 @@ export default function WelcomeHeader({
 
       <Animated.View style={[styles.mainRow, { transform: [{ translateY }] }]}>
         {/* [한글 주석: 말풍선 카드 - 글씨가 커져도 마퀴(Marquee)가 한 줄로 예쁘게 흐르도록 maxFontSizeMultiplier=1.3 부여] */}
-        <View style={styles.bubble}>
+        <View style={[styles.bubble, isCompact && styles.bubbleCompact]}>
           {/* 1행 인사말 — 상호명이 길거나 글자 크기가 커져도 8글자까지 1줄로 단정하게 피트 */}
           <Text style={[styles.greetingLine, { marginBottom: 1 }]} maxFontSizeMultiplier={1.2}>
             {language === 'en' ? 'Hello,' : '안녕하세요,'}
@@ -450,7 +453,7 @@ export default function WelcomeHeader({
             moodOverridesPose={!roomMode && moodOverridesPose}
             // 나쁜 소식일 때만 배경 효과를 감춘다 (좋은 날의 하트·반짝이는 그대로 둔다)
             suppressAccessories={!roomMode && moodTone === 'bad'}
-            size={190}
+            size={mascotSize}
             style={styles.mascot}
             motion
             interactiveMotions={roomMode}
@@ -466,6 +469,7 @@ export default function WelcomeHeader({
       <Modal visible={inboxOpen} transparent animationType="fade" onRequestClose={selected ? () => setSelectedId(null) : closeInbox}>
         <Pressable style={styles.inboxBackdrop} onPress={closeInbox}>
           {/* 패널이 아래에서 스프링으로 솟아오른다 — 배경 페이드(Modal)와 겹쳐 부드럽게 */}
+          <FrameModalSurface>
           <SlideUp>
           <Pressable style={styles.inboxPanel} onPress={(e) => e.stopPropagation()}>
             <View style={styles.inboxHeader}>
@@ -624,6 +628,7 @@ export default function WelcomeHeader({
             )}
           </Pressable>
           </SlideUp>
+          </FrameModalSurface>
         </Pressable>
       </Modal>
 
@@ -696,6 +701,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 12,
     elevation: 3,
+  },
+  bubbleCompact: {
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginRight: 8,
   },
   // [한글 주석: 인사말 라인 - 8글자 상호명도 1줄 피트되도록 12px로 살짝 조율]
   greetingLine: {

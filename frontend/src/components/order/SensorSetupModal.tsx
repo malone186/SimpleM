@@ -16,6 +16,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useFrameSheetStyle } from '../DeviceFrame';
 import { useTranslation } from '../../i18n/translations';
 import { colors, typography } from '../../theme';
 import {
@@ -40,6 +41,7 @@ interface Props {
 export default function SensorSetupModal({
   visible, token, initialDeviceId, onClose, onPairingChanged, onDisableFeature,
 }: Props) {
+  const frameSheetStyle = useFrameSheetStyle();
   // [한글 주석: 전역 다국어 훅 연결]
   const { t, language } = useTranslation();
   const [devices, setDevices] = useState<SensorDevice[]>([]);
@@ -187,7 +189,7 @@ export default function SensorSetupModal({
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={s.root}>
         <TouchableOpacity style={s.backdrop} onPress={onClose} />
-        <View style={s.sheet}>
+        <View style={[s.sheet, frameSheetStyle]}>
           <View style={s.handle} />
 
           {/* 헤더 + 진행 게이지 */}

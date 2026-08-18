@@ -19,10 +19,12 @@ import { applyCandidate, applyPresetQuantity, buildPayload, countNeedQty, countP
 import { colors, spacing, typography } from '../../theme';
 import { Button, Card } from '../ui';
 import { PressableScale } from '../motion';
+import { useFrameSheetStyle } from '../DeviceFrame';
 
 const ACCENT = '#C07030'; // colors.pointOrange는 이름과 달리 지금 값이 거의 검정이라 강조가 안 된다
 
 export default function MenuBoardScan({ onDone }: { onDone: () => void }) {
+  const frameSheetStyle = useFrameSheetStyle();
   const { token } = useAuth();
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<MenuBoardDraft | null>(null);
@@ -173,7 +175,7 @@ export default function MenuBoardScan({ onDone }: { onDone: () => void }) {
 
       <Modal visible={!!draft} animationType="slide" transparent onRequestClose={() => setDraft(null)}>
         <View style={styles.backdrop}>
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, frameSheetStyle]}>
             <View style={styles.sheetHead}>
               <Text style={styles.sheetTitle}>이렇게 읽었어요</Text>
               <Pressable onPress={() => setDraft(null)} hitSlop={10}>

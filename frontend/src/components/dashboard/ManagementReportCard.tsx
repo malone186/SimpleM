@@ -21,6 +21,7 @@ import { parseAdviceLines, parseReportActions } from '../../lib/reportActions';
 import { colors, spacing, typography } from '../../theme';
 import { PressableScale } from '../motion';
 import { Segmented } from '../ui/Segmented';
+import { useFrameModalStyle } from '../DeviceFrame';
 
 const PERIODS: { value: ReportPeriodType; label: string }[] = [
   { value: 'daily', label: '일간' },
@@ -48,6 +49,7 @@ const formatFriendlyText = (text: string) => {
 const won = (n: number) => `${n < 0 ? '-' : ''}₩${Math.abs(n).toLocaleString('ko-KR')}`;
 
 export default function ManagementReportCard({ refreshToken = 0 }: { refreshToken?: number }) {
+  const frameModalStyle = useFrameModalStyle();
   // [한글 주석: 전역 다국어 훅 연동 — AI 경영 리포트 카드 영문/한글 텍스트 제공]
   const { t, language } = useTranslation();
   const { token } = useAuth();
@@ -270,7 +272,7 @@ export default function ManagementReportCard({ refreshToken = 0 }: { refreshToke
               onRequestClose={() => setSelectedTile(null)}
             >
               <Pressable style={styles.modalOverlay} onPress={() => setSelectedTile(null)}>
-                <Pressable style={styles.miniPopupCard} onPress={(e) => e.stopPropagation?.()}>
+                <Pressable style={[styles.miniPopupCard, frameModalStyle]} onPress={(e) => e.stopPropagation?.()}>
                   {selectedTile === 'sales' && (
                     <>
                       <View style={styles.popupHeader}>
