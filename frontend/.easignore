@@ -1,0 +1,30 @@
+# EAS Build archive exclusions. Keep this in sync with .gitignore because
+# .easignore takes precedence when present.
+.git/
+node_modules/
+.expo/
+dist/
+web-build/
+builds/
+*.aab
+*.apk
+expo-env.d.ts
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+.metro-health-check*
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+.DS_Store
+*.pem
+.env*
+!.env.example
+*.tsbuildinfo
+/ios
+/android
+coverage/
