@@ -759,7 +759,10 @@ def _pending_cafe(db, store_id: str, now: datetime) -> dict[str, Any]:
     scan_key = f"cafescan:{today}"
 
     # ① 오늘 아직 안 훑었으면 훑는다 (하루 한 번 — 네이버 검색 13회짜리 작업이다)
-    if not _already_sent(db, store_id, scan_key):
+    # 같은 날 이미 옛 위치를 훑었더라도 매장 위치가 바뀌었으면 즉시 새 기준선을 잡는다.
+    # 그렇지 않으면 cafescan 날짜 잠금 때문에 다음 날까지 예전 동네 변화가 남는다.
+    scope_moved = nearby_watch_service.watch_scope_moved(db, store_id, *point)
+    if scope_moved or not _already_sent(db, store_id, scan_key):
         try:
             result = nearby_watch_service.scan_cafe_changes(
                 db, store_id, *point,
@@ -786,7 +789,7 @@ def _pending_cafe(db, store_id: str, now: datetime) -> dict[str, Any]:
                 db.rollback()
 
     # ② 보낼 것은 대장에서 고른다 — 스캔을 누가 돌렸든(지도 화면 백그라운드 포함) 유실되지 않게
-    pending = nearby_watch_service.pending_changes(db, store_id)
+    pending = nearby_watch_service.pending_changes(db, store_id, today=now.date())
 
     keys: list[str] = []
     lines: list[str] = []

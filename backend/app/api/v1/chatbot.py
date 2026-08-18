@@ -738,11 +738,15 @@ def get_nearby_cafe_changes_api(
     if refresh and has_point:
         # 앞에서 훑는다 — 네이버 목록은 6시간 캐시라 대개 재검색 없이 대장만 다시 판정한다
         scan_failed = False
+        scan_failure_reason = ""
         try:
-            nearby_watch_service.scan_if_stale(
+            scan_result = nearby_watch_service.scan_if_stale(
                 db, current_user.email,
                 float(current_user.store_lat), float(current_user.store_lon),
                 exclude_name=current_user.store_name or "", force=True)
+            if scan_result and scan_result.get("skipped"):
+                scan_failed = True
+                scan_failure_reason = str(scan_result["skipped"])
         except Exception:
             logger.exception("주변 카페 변화 즉시 스캔 실패: %s", current_user.email)
             db.rollback()
@@ -752,6 +756,7 @@ def get_nearby_cafe_changes_api(
         result = nearby_watch_service.recent_changes(db, current_user.email, days=days)
         if scan_failed and isinstance(result, dict):
             result["scan_failed"] = True
+            result["scan_failure_reason"] = scan_failure_reason or "unexpected_error"
         return result
 
     result = nearby_watch_service.recent_changes(db, current_user.email, days=days)

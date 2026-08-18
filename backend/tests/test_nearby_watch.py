@@ -12,7 +12,7 @@ from sqlalchemy.orm import sessionmaker
 import app.core.database as core_db
 import app.models  # noqa: F401 — 모든 모델을 Base.metadata에 등록
 from app.core.database import Base
-from app.models.ai import DeviceToken, NearbyCafeWatch, NotificationSetting
+from app.models.ai import DeviceToken, NearbyCafeWatch, NotificationSetting, SentNotification
 from app.models.user import User
 from app.services.ai import nearby_cafe_service as ncs
 from app.services.ai import nearby_watch_service as nws
@@ -162,6 +162,63 @@ def test_unreliable_scan_is_skipped(db, naver):
     result = nws.scan_cafe_changes(db, STORE, LAT, LON, today=DAY2)
     assert result["skipped"] == "unreliable_scan"
     assert all((r.miss_count or 0) == 0 for r in db.query(NearbyCafeWatch).all())
+
+
+def test_store_move_rebuilds_baseline_instead_of_getting_stuck(db, naver):
+    """매장 이전은 부실 수집이 아니다 — 예전 동네를 버리고 새 동네 기준선을 잡아야 한다."""
+    naver["cafes"] = BASE
+    nws.scan_cafe_changes(db, STORE, LAT, LON, today=DAY1)
+
+    new_lat, new_lon = 37.20, 126.80
+    naver["cafes"] = [
+        {**_cafe("새동네카페A", 100), "lat": new_lat, "lon": new_lon},
+        {**_cafe("새동네카페B", 200), "lat": new_lat, "lon": new_lon},
+    ]
+    result = nws.scan_cafe_changes(db, STORE, new_lat, new_lon, today=DAY2)
+
+    assert result["skipped"] is None
+    assert result["rebased"] is True and result["baseline"] is True
+    assert result["opened"] == [] and result["closed"] == []
+    rows = db.query(NearbyCafeWatch).filter(NearbyCafeWatch.store_id == STORE).all()
+    assert {r.name for r in rows} == {"새동네카페A", "새동네카페B"}
+    assert all(r.is_baseline and r.open_notified for r in rows)
+
+
+def test_old_region_changes_are_hidden_while_rebasing(db, naver):
+    naver["cafes"] = BASE
+    nws.scan_cafe_changes(db, STORE, LAT, LON, today=DAY1)
+    user = db.query(User).filter(User.email == STORE).one()
+    user.store_lat, user.store_lon = 37.20, 126.80
+    db.commit()
+
+    changes = nws.recent_changes(db, STORE)
+
+    assert changes["rebasing"] is True
+    assert changes["tracked"] == 0 and changes["count"] == 0
+    assert changes["opened"] == [] and changes["closed"] == []
+
+
+def test_store_move_ignores_same_day_scan_lock(db, naver):
+    """오늘 옛 위치를 이미 훑었어도 이전한 매장은 새 위치 기준선을 즉시 잡는다."""
+    naver["cafes"] = BASE
+    nws.scan_cafe_changes(db, STORE, LAT, LON, today=DAY1)
+    db.add(SentNotification(
+        store_id=STORE, dedupe_key=f"cafescan:{DAY2.isoformat()}", category="nearby",
+        title="[내부] 주변 카페 스캔", body=""))
+    user = db.query(User).filter(User.email == STORE).one()
+    user.store_lat, user.store_lon = 37.20, 126.80
+    db.commit()
+
+    naver["cafes"] = [
+        {**_cafe("새동네카페A", 100), "lat": 37.20, "lon": 126.80},
+        {**_cafe("새동네카페B", 200), "lat": 37.20, "lon": 126.80},
+    ]
+    pending = ns._pending_cafe(
+        db, STORE, datetime(2026, 8, 2, 11, 0, tzinfo=KST))
+
+    assert pending == {"keys": [], "lines": [], "opened": [], "closed": []}
+    rows = db.query(NearbyCafeWatch).filter(NearbyCafeWatch.store_id == STORE).all()
+    assert {r.name for r in rows} == {"새동네카페A", "새동네카페B"}
 
 
 def test_same_day_rescan_does_not_double_count(db, naver):

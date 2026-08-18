@@ -55,6 +55,13 @@ CLOSE_CONFIRM_SCANS = 3   # 이만큼 연속 사라지면 '폐업 추정'으로 
 # 걷히면 API가 부실했던 날로 보고 비교를 통째로 건너뛴다 (miss_count도 올리지 않는다).
 HEALTHY_SCAN_RATIO = 0.6
 
+# 관측 대장은 매장 위치를 기준으로 만든다. 매장 이전 뒤에도 예전 대장을 그대로 비교하면
+# 새 동네의 카페 수가 적다는 이유로 HEALTHY_SCAN_RATIO에 영원히 걸려 갱신이 멈춘다.
+# 예전 반경(1km)과 새 반경이 확실히 겹치지 않는 거리만 이전으로 본다. GPS 보정이나
+# 같은 건물 안에서 핀을 다시 찍는 정도로는 기준선이 사라지지 않게 최소 2.5km를 둔다.
+WATCH_SCOPE_RESET_DISTANCE_M = 2500
+WATCH_SCOPE_RESET_RATIO = 0.7
+
 # 행사 알림 지평선 — 이 안에 시작하는 행사만 알린다. 2주 전에 알려 봐야 잊는다.
 EVENT_ALERT_DAYS = 7
 
@@ -87,6 +94,39 @@ def _linked_place(db, store_id: str) -> Optional[dict[str, str]]:
     except Exception:
         logger.debug("내 카페 지정 조회 실패 — 제외 없이 계속", exc_info=True)
     return None
+
+
+def _watch_scope_moved_rows(rows: list[Any], lat: float, lon: float,
+                            radius_m: int = WATCH_RADIUS_M) -> bool:
+    """기존 관측 대장의 중심이 현재 매장 위치와 확실히 달라졌는지 판정한다.
+
+    검색 당시 반경 안에 있던 open 행을 우선 사용한다. 좌표가 없는 오래된 행은 근거에서
+    제외하고, 좌표가 있는 행의 70% 이상이 새 중심에서 충분히 멀 때만 이전으로 인정한다.
+    일부 잘못된 장소 좌표나 검색 흔들림 하나로 대장을 지우지 않기 위한 보수적 기준이다.
+    """
+    active = [r for r in rows if getattr(r, "status", "open") == "open"
+              and getattr(r, "lat", None) is not None and getattr(r, "lon", None) is not None]
+    located = active or [r for r in rows
+                         if getattr(r, "lat", None) is not None and getattr(r, "lon", None) is not None]
+    if not located:
+        return False
+
+    reset_distance = max(WATCH_SCOPE_RESET_DISTANCE_M, int(radius_m * 2.5))
+    far = sum(
+        1 for row in located
+        if nearby_cafe_service._haversine_m(
+            lat, lon, float(row.lat), float(row.lon)) >= reset_distance
+    )
+    return far / len(located) >= WATCH_SCOPE_RESET_RATIO
+
+
+def watch_scope_moved(db, store_id: str, lat: float, lon: float,
+                      radius_m: int = WATCH_RADIUS_M) -> bool:
+    """알림·화면 경로가 스캔 제한보다 먼저 위치 이전을 확인할 때 쓰는 공개 판정 함수."""
+    from app.models.ai import NearbyCafeWatch
+
+    rows = db.query(NearbyCafeWatch).filter(NearbyCafeWatch.store_id == store_id).all()
+    return _watch_scope_moved_rows(rows, lat, lon, radius_m)
 
 
 # ---------------------------------------------------------------------------
@@ -122,9 +162,21 @@ def scan_cafe_changes(db, store_id: str, lat: float, lon: float,
             exclude_place=_linked_place(db, store_id))
     except nearby_cafe_service.NearbyCafeError as e:
         logger.info("주변 카페 감시 건너뜀 (%s): %s", store_id, e)
-        return {"scanned": 0, "opened": [], "closed": [], "baseline": baseline, "skipped": "collect_failed"}
+        return {"scanned": 0, "opened": [], "closed": [], "baseline": baseline,
+                "rebased": False, "skipped": "collect_failed"}
 
     cafes = found.get("cafes") or []
+    scope_moved = _watch_scope_moved_rows(rows, lat, lon, radius_m)
+
+    # 빈 검색 결과만으로는 위치 이전 기준선을 만들 수 없다. 실제 카페가 수집된 경우에만
+    # 예전 지역 대장을 지우고, 이번 결과를 '원래 있던 카페' 기준선으로 다시 시작한다.
+    if cafes and scope_moved:
+        (db.query(NearbyCafeWatch)
+         .filter(NearbyCafeWatch.store_id == store_id)
+         .delete(synchronize_session=False))
+        db.flush()
+        rows, by_key, baseline = [], {}, True
+
     open_rows = [r for r in rows if r.status == "open"]
 
     # 부실한 스캔으로 멀쩡한 가게를 폐업 처리하지 않는다 (429가 섞이면 결과가 반 토막 난다)
@@ -132,7 +184,7 @@ def scan_cafe_changes(db, store_id: str, lat: float, lon: float,
         logger.info("주변 카페 감시 결과가 부실해 비교 생략 (%s): 수집 %d건 / 관측 중 %d곳",
                     store_id, len(cafes), len(open_rows))
         return {"scanned": len(cafes), "opened": [], "closed": [], "baseline": baseline,
-                "skipped": "unreliable_scan"}
+                "rebased": False, "skipped": "unreliable_scan"}
 
     opened: list[dict[str, Any]] = []
     closed: list[dict[str, Any]] = []
@@ -191,7 +243,7 @@ def scan_cafe_changes(db, store_id: str, lat: float, lon: float,
 
     db.commit()
     return {"scanned": len(cafes), "opened": opened, "closed": closed,
-            "baseline": baseline, "skipped": None}
+            "baseline": baseline, "rebased": scope_moved, "skipped": None}
 
 
 def _as_change(row, kind: str) -> dict[str, Any]:
@@ -211,7 +263,8 @@ def _as_change(row, kind: str) -> dict[str, Any]:
     }
 
 
-def pending_changes(db, store_id: str, days: int = NOTIFY_WINDOW_DAYS) -> dict[str, Any]:
+def pending_changes(db, store_id: str, days: int = NOTIFY_WINDOW_DAYS,
+                    today: Optional[date] = None) -> dict[str, Any]:
     """확정됐지만 아직 알리지 않은 변화 (알림 규칙 8이 실제로 보낼 목록).
 
     scan_cafe_changes가 그 자리에서 돌려주는 '이번 스캔의 변화'만 보면 알림이 샌다:
@@ -223,7 +276,8 @@ def pending_changes(db, store_id: str, days: int = NOTIFY_WINDOW_DAYS) -> dict[s
     """
     from app.models.ai import NearbyCafeWatch
 
-    since = (_today_kst() - timedelta(days=max(1, days))).isoformat()
+    reference_day = today or _today_kst()
+    since = (reference_day - timedelta(days=max(1, days))).isoformat()
     rows = db.query(NearbyCafeWatch).filter(NearbyCafeWatch.store_id == store_id).all()
 
     opened = [_as_change(r, "opened") for r in rows
@@ -264,6 +318,16 @@ def recent_changes(db, store_id: str, days: int = 30) -> dict[str, Any]:
     since = (_today_kst() - timedelta(days=max(1, days))).isoformat()
     rows = db.query(NearbyCafeWatch).filter(NearbyCafeWatch.store_id == store_id).all()
 
+    point = store_point(db, store_id)
+    if point and _watch_scope_moved_rows(rows, *point):
+        # 백그라운드 재기준선 스캔이 끝나기 전 잠깐이라도 예전 동네의 개업·폐업을 현재
+        # 상권 변화처럼 보여 주지 않는다. 다음 조회에서는 새 기준선의 tracked가 채워진다.
+        return {
+            "days": days, "tracked": 0, "last_scan": "", "first_scan": "",
+            "baseline_only": False, "rebasing": True,
+            "opened": [], "closed": [], "count": 0,
+        }
+
     opened = [_as_change(r, "opened") for r in rows
               if r.status == "open" and not r.is_baseline
               and r.seen_count >= NEW_CONFIRM_SCANS
@@ -286,6 +350,7 @@ def recent_changes(db, store_id: str, days: int = 30) -> dict[str, Any]:
         # 아직 기준선만 있는 상태 — '변화 없음'이 아니라 '이제 막 보기 시작했다'는 뜻이다.
         # 화면이 이 둘을 같은 문구로 말하면, 관측 첫날 사장님은 기능이 죽은 줄 안다.
         "baseline_only": bool(rows) and all(r.is_baseline for r in rows),
+        "rebasing": False,
         "opened": opened,
         "closed": closed,
         "count": len(opened) + len(closed),
@@ -302,12 +367,13 @@ def scan_if_stale(db, store_id: str, lat: float, lon: float, exclude_name: str =
     from app.models.ai import NearbyCafeWatch
 
     now = time.time()
+    moved = watch_scope_moved(db, store_id, lat, lon)
     last_try = _last_scan_attempt.get(store_id, 0.0)
-    if not force and now - last_try < _SCAN_COOLDOWN_SEC:
+    if not force and not moved and now - last_try < _SCAN_COOLDOWN_SEC:
         return None
 
     today_iso = _today_kst().isoformat()
-    if not force:
+    if not force and not moved:
         latest = (db.query(NearbyCafeWatch.last_seen)
                   .filter(NearbyCafeWatch.store_id == store_id)
                   .order_by(NearbyCafeWatch.last_seen.desc())
@@ -316,12 +382,7 @@ def scan_if_stale(db, store_id: str, lat: float, lon: float, exclude_name: str =
             return None
 
     _last_scan_attempt[store_id] = now
-    try:
-        return scan_cafe_changes(db, store_id, lat, lon, exclude_name=exclude_name)
-    except Exception:
-        logger.exception("주변 카페 감시 스캔 실패 (%s)", store_id)
-        db.rollback()
-        return None
+    return scan_cafe_changes(db, store_id, lat, lon, exclude_name=exclude_name)
 
 
 # ---------------------------------------------------------------------------
@@ -561,7 +622,7 @@ def store_name_of(db, store_id: str) -> str:
 
 
 __all__ = [
-    "scan_cafe_changes", "scan_if_stale", "recent_changes", "mark_notified",
+    "scan_cafe_changes", "scan_if_stale", "recent_changes", "mark_notified", "watch_scope_moved",
     "pick_alert_events", "plan_event_promotion", "plan_for_store", "plan_summary_line",
     "store_point", "store_name_of",
 ]

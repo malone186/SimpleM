@@ -72,6 +72,61 @@ export type CafeAnalysisResult = {
   place_address?: string;
 };
 
+// AI가 근거를 찾지 못했을 때 같은 "정보 부족" 문구를 여러 필드와 배열에 반복해
+// 보내기도 한다. 그대로 태그로 만들면 카드가 고장 난 것처럼 보이므로, API 경계에서
+// 빈 의미의 값은 숨기고 실제 내용만 중복 없이 화면으로 넘긴다.
+const EMPTY_ANALYSIS_VALUES = new Set([
+  '',
+  '-',
+  '없음',
+  '미상',
+  '정보 없음',
+  '정보 부족',
+  '알 수 없음',
+  '확인 불가',
+]);
+
+const cleanAnalysisText = (value?: string) => (value ?? '').trim();
+
+const hasAnalysisValue = (value?: string) => {
+  const clean = cleanAnalysisText(value);
+  return !!clean && !EMPTY_ANALYSIS_VALUES.has(clean);
+};
+
+const cleanAnalysisItems = (items?: string[]) => {
+  const seen = new Set<string>();
+  return (items ?? []).reduce<string[]>((result, item) => {
+    const clean = cleanAnalysisText(item);
+    if (!hasAnalysisValue(clean) || seen.has(clean)) return result;
+    seen.add(clean);
+    result.push(clean);
+    return result;
+  }, []);
+};
+
+export const normalizeCafeAnalysisResult = (result: CafeAnalysisResult): CafeAnalysisResult => {
+  if (!result.analysis) return result;
+
+  const analysis = result.analysis;
+  return {
+    ...result,
+    analysis: {
+      ...analysis,
+      summary: cleanAnalysisText(analysis.summary),
+      strengths: cleanAnalysisItems(analysis.strengths),
+      weaknesses: cleanAnalysisItems(analysis.weaknesses),
+      signature_menus: cleanAnalysisItems(analysis.signature_menus),
+      // 이 두 필드는 화면에서 항상 라벨과 함께 렌더링되므로 빈 문자열 대신 짧은
+      // 상태값을 쓴다. 고객층·분위기는 선택 태그라 근거가 없으면 숨긴다.
+      price_level: hasAnalysisValue(analysis.price_level) ? cleanAnalysisText(analysis.price_level) : '미확인',
+      sentiment: hasAnalysisValue(analysis.sentiment) ? cleanAnalysisText(analysis.sentiment) : '미확인',
+      main_customers: hasAnalysisValue(analysis.main_customers) ? cleanAnalysisText(analysis.main_customers) : '',
+      atmosphere: hasAnalysisValue(analysis.atmosphere) ? cleanAnalysisText(analysis.atmosphere) : '',
+      counter_strategy: cleanAnalysisText(analysis.counter_strategy),
+    },
+  };
+};
+
 // '내 카페' 지정용 후보 (네이버 지역검색 결과)
 export type CafeCandidate = {
   name: string;
@@ -188,7 +243,8 @@ export const getNearbyCafeChanges = (token: string, days = 30, refresh = false) 
 
 /** 지정한 '내 카페'의 네이버 후기 + 분석. 아직 지정 안 했으면 linked=false로 온다. */
 export const getMyCafeReviews = (token: string) =>
-  apiFetch<CafeAnalysisResult>('/api/v1/chatbot/my-cafe/analysis', auth(token));
+  apiFetch<CafeAnalysisResult>('/api/v1/chatbot/my-cafe/analysis', auth(token))
+    .then(normalizeCafeAnalysisResult);
 
 /** '내 카페' 지정용 후보 목록 (상호로 네이버 지역검색). query 생략 시 등록 상호로 검색. */
 export const getMyCafeCandidates = (token: string, query = '') =>
@@ -220,5 +276,5 @@ export const getCafeAnalysis = (token: string, cafe: NearbyCafe, region = '') =>
   return apiFetch<CafeAnalysisResult>(
     `/api/v1/chatbot/nearby-cafes/analysis?${params.toString()}`,
     auth(token),
-  );
+  ).then(normalizeCafeAnalysisResult);
 };
