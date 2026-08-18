@@ -3,7 +3,7 @@
     "name": "브루노트",
     "slug": "frontend",
     "scheme": "simplem",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/mascot/brew_hero.png",
     "userInterfaceStyle": "light",
