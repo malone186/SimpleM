@@ -111,6 +111,22 @@ export default function RoomBackdrop({ roomBgId, sheetTop, fadeAt = 0.42 }: Prop
         </Defs>
         <Path d="M0 0 H2000 V2000 H0 Z" fill="url(#roomScrim)" />
       </Svg>
+      {/*
+        ScrollView 내용이 짧거나 끝까지 내려갔을 때 시트 바깥의 투명한 하단 패딩이
+        드러날 수 있다. SVG 페이드에만 의존하면 웹에서 그 자리에 배경 사진이 다시
+        비치므로, 사진이 완전히 사라지는 지점 아래는 불투명 크림색으로 고정한다.
+      */}
+      <View style={[styles.creamTail, { top: cut + 10 }]} />
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  creamTail: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: colors.creamSand,
+  },
+});

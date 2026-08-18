@@ -80,8 +80,10 @@ export default function BriefingButton() {
 const styles = StyleSheet.create({
   wrap: {
     position: 'absolute',
-    right: 16,
-    bottom: 78, // [한글 주석: 마이크 버튼(bottom: 20) 바로 위 제자리 배치]
+    // 마이크 버튼과 같은 높이의 가로 액션 묶음으로 둔다. 세로로 쌓으면
+    // 마지막 리포트 카드의 CTA를 문서 버튼이 가리는 문제가 생긴다.
+    right: 68, // 화면 우측 16 + 마이크 44 + 버튼 사이 간격 8
+    bottom: 20,
     alignItems: 'flex-end',
     gap: 10,
   },
