@@ -5,7 +5,7 @@
     "scheme": "simplem",
     "version": "1.0.1",
     "orientation": "portrait",
-    "icon": "./assets/brew_icon_cutout.png",
+    "icon": "./assets/mascot/brew_hero.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
@@ -15,7 +15,7 @@
       "package": "com.vivayouth.brewnote",
       "adaptiveIcon": {
         "backgroundColor": "#FBEFDD",
-        "foregroundImage": "./assets/brew_icon_cutout.png"
+        "foregroundImage": "./assets/mascot/brew_hero.png"
       },
       "softwareKeyboardLayoutMode": "resize",
       "predictiveBackGestureEnabled": false,
