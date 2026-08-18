@@ -22,6 +22,9 @@ node_modules/
 frontend/dist/
 frontend/web-build/
 frontend/.expo/
+frontend/builds/
+*.aab
+*.apk
 
 # 환경·보안 파일 (빌드 env는 eas.json의 env 블록이 공급)
 .env
