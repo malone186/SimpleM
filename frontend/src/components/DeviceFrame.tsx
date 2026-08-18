@@ -44,6 +44,25 @@ export function useFrameSheetStyle(): ViewStyle | null {
   };
 }
 
+// [한글 주석] 가운데 뜨는 일반 모달용 웹 목업 보정.
+// RN Web Modal은 body 포털에 렌더링되므로 DeviceFrame에 걸린 scale을 상속하지 않는다.
+// 모달 자체에 같은 배율을 적용해야 휴대폰 프레임 좌우로 튀어나오지 않는다.
+export function useFrameModalStyle(): ViewStyle | null {
+  const { width: winW, height: winH } = useWindowDimensions();
+  if (Platform.OS !== 'web') return null;
+  const fillsScreen = winW < FRAME_WIDTH + STAGE_PADDING * 2;
+  if (fillsScreen) return null;
+  const scale = Math.min(
+    1,
+    (winW - STAGE_PADDING * 2) / FRAME_WIDTH,
+    (winH - STAGE_PADDING * 2) / FRAME_HEIGHT,
+  );
+  return {
+    transform: [{ scale }],
+    transformOrigin: 'center center',
+  };
+}
+
 export default function DeviceFrame({ children }: { children: ReactNode }) {
   const { width: winW, height: winH } = useWindowDimensions();
 

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import { ActivityIndicator, Animated, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Stop, Path, Circle, Line, Text as SvgText, Rect, G } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, spacing, typography, shadows } from '../../theme';
 import { dateKey } from '../../lib/dateKey';
@@ -25,6 +26,7 @@ import { useCachedResource } from '../../lib/cache';
 import Brew from '../brew/Brew';
 import TodoList, { type Todo } from './TodoList';
 import AlertCenterCard, { type AlertItem } from './AlertCenterCard';
+import { useFrameModalStyle } from '../DeviceFrame';
 
 // (삭제함 - Web 호환성을 위해 addListener + 일반 Circle을 사용하도록 개선)
 
@@ -283,8 +285,16 @@ export default function SalesCard({
    *  투두 내부 상태까지 전부 버려져 새로고침마다 화면이 처음부터 다시 그려졌다. */
   refreshToken?: number;
 }) {
-  // [한글 주석] 뷰포트 비례 계산 — 분석 모달이 작은 화면에서 넘치지 않게
-  const { vh } = useResponsive();
+  // [한글 주석] 분석 모달은 실제 앱 뷰포트와 안전 영역 안에서만 크기를 잡는다.
+  // 웹 목업에서는 RN Modal 포털이 DeviceFrame의 scale을 상속하지 않으므로 동일 배율도 명시한다.
+  const { width, height, gutter } = useResponsive();
+  const safeArea = useSafeAreaInsets();
+  const frameModalStyle = useFrameModalStyle();
+  const analyticsModalWidth = Math.min(360, width - gutter * 2);
+  const analyticsModalMaxHeight = Math.max(
+    220,
+    height - Math.max(safeArea.top, 16) - Math.max(safeArea.bottom, 16),
+  );
   const { token } = useAuth();
   // [한글 주석: 월간 달력 넘김을 위한 선택 연도/월 상태 관리]
   const [selectedYear, setSelectedYear] = useState<number>(() => new Date().getFullYear());
@@ -700,8 +710,24 @@ export default function SalesCard({
         animationType="fade"
         onRequestClose={() => setShowAnalyticsModal(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setShowAnalyticsModal(false)}>
-          <Pressable style={styles.analyticsModalBox} onPress={(e) => e.stopPropagation()}>
+        <Pressable
+          style={[styles.modalOverlay, { paddingHorizontal: gutter, paddingVertical: 0 }]}
+          onPress={() => setShowAnalyticsModal(false)}
+        >
+          <Pressable
+            style={[
+              styles.analyticsModalBox,
+              { width: analyticsModalWidth, maxHeight: analyticsModalMaxHeight },
+              frameModalStyle,
+            ]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <ScrollView
+              style={styles.analyticsModalScroll}
+              contentContainerStyle={styles.analyticsModalContent}
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+            >
             {/* ━━━ [한글 주석: 정갈한 타이틀과 ✕ 닫기 버튼 헤더] ━━━ */}
             <View style={styles.modalHeaderRow}>
               <Text style={styles.modalTitle}>매출 분석 리포트</Text>
@@ -738,8 +764,8 @@ export default function SalesCard({
             </View>
 
             {/* 모달 본문 — 일간 차트 또는 월간 달력 */}
-            {/* [한글 주석] 고정 440 은 작은 기기에서 모달이 화면을 넘겼다 → 뷰포트 비례 + 상한 */}
-            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: Math.min(vh(56), 440) }}>
+            {/* 전체 모달을 하나의 ScrollView로 감싸 작은 화면에서도 헤더·차트·요약을 모두 볼 수 있다. */}
+            <View>
               {analyticsTab === 'month' ? (
                 <View style={styles.calendarContainer}>
                   {/* ━━━ [한글 주석: 연/월 이동 넘김 컨트롤러 UI 헤더] ━━━ */}
@@ -984,7 +1010,7 @@ export default function SalesCard({
                   </View>
                 </View>
               )}
-            </ScrollView>
+            </View>
 
             {/* ━━━ [한글 주석: 아담한 3개 모카 틴트 칩 카드 그리드] ━━━ */}
             <View style={styles.modalFootCardRow}>
@@ -1021,6 +1047,7 @@ export default function SalesCard({
                 <Ionicons name="chevron-forward" size={16} color={colors.espressoBrown} />
               </PressableScale>
             )}
+            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
@@ -2014,11 +2041,9 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   analyticsModalBox: {
-    width: '88%',
-    maxWidth: 360,
     backgroundColor: '#FAF8F5',
     borderRadius: 28,
-    padding: 20,
+    overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(140, 111, 86, 0.15)',
     shadowColor: '#4E3629',
@@ -2026,6 +2051,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 24,
     elevation: 12,
+  },
+  analyticsModalScroll: {
+    flexShrink: 1,
+  },
+  analyticsModalContent: {
+    padding: 20,
   },
   chartCanvasCard: {
     backgroundColor: 'rgba(140, 111, 86, 0.04)',
