@@ -9,7 +9,8 @@ export type DocumentKind =
   | 'vat_reference'
   | 'payslip'
   | 'employment_contract'
-  | 'management_report';
+  | 'management_report'
+  | 'marketing_content';
 
 export const KIND_LABELS: Record<DocumentKind, string> = {
   purchase_order: '발주서',
@@ -20,6 +21,7 @@ export const KIND_LABELS: Record<DocumentKind, string> = {
   payslip: '임금명세서',
   employment_contract: '근로계약서',
   management_report: 'AI 경영 리포트',
+  marketing_content: '홍보 콘텐츠',
 };
 
 export type GeneratedDocument = {
